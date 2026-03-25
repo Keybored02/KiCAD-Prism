@@ -6,13 +6,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { GitBranch, Copy, FileCode, Shield, Plus, Trash2 } from "lucide-react";
-import { User, UserRole } from "@/types/auth";
+import { AuthConfig, User, UserRole } from "@/types/auth";
 import { fetchApi, readApiError } from "@/lib/api";
 
 interface SettingsDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     user: User | null;
+    authConfig: AuthConfig;
 }
 
 type SettingsTab = "git" | "access" | "general";
@@ -23,9 +24,17 @@ interface RoleAssignment {
     source: string;
 }
 
-export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps) {
+interface LocalAccount {
+    username: string;
+    name: string;
+    role: UserRole;
+    source: string;
+}
+
+export function SettingsDialog({ open, onOpenChange, user, authConfig }: SettingsDialogProps) {
     const [activeTab, setActiveTab] = useState<SettingsTab>("git");
     const isAdmin = user?.role === "admin";
+    const accessLabel = authConfig.auth_provider === "local" ? "Local Accounts" : "Access Control";
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -55,7 +64,7 @@ export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps
                         onClick={() => setActiveTab("access")}
                     >
                         <Shield className="mr-2 h-4 w-4" />
-                        Access Control
+                        {accessLabel}
                     </Button>
 
                     <Button
@@ -70,7 +79,12 @@ export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps
 
                 <div className="flex-1 overflow-y-auto p-6">
                     {activeTab === "git" && <GitSettings user={user} />}
-                    {activeTab === "access" && <AccessControlSettings isAdmin={isAdmin} />}
+                    {activeTab === "access" &&
+                        (authConfig.auth_provider === "local" ? (
+                            <LocalAccountSettings isAdmin={isAdmin} />
+                        ) : (
+                            <AccessControlSettings isAdmin={isAdmin} />
+                        ))}
                     {activeTab === "general" && (
                         <div className="flex items-center justify-center h-full text-muted-foreground">
                             General settings coming soon.
@@ -359,6 +373,258 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
                                         disabled={isBootstrap}
                                         onClick={() => void removeRole(assignment.email)}
                                         aria-label={`Remove role assignment for ${assignment.email}`}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
+            </div>
+        </div>
+    );
+}
+
+function LocalAccountSettings({ isAdmin }: { isAdmin: boolean }) {
+    const [loading, setLoading] = useState(false);
+    const [accounts, setAccounts] = useState<LocalAccount[]>([]);
+    const [newUsername, setNewUsername] = useState("");
+    const [newName, setNewName] = useState("");
+    const [newPassword, setNewPassword] = useState("");
+    const [newRole, setNewRole] = useState<UserRole>("viewer");
+    const [draftNames, setDraftNames] = useState<Record<string, string>>({});
+    const [draftRoles, setDraftRoles] = useState<Record<string, UserRole>>({});
+
+    const loadAccounts = useCallback(async () => {
+        if (!isAdmin) {
+            setAccounts([]);
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const response = await fetchApi("/api/settings/local-accounts");
+            if (!response.ok) {
+                throw new Error(await readApiError(response, "Failed to load local accounts"));
+            }
+            const data = (await response.json()) as LocalAccount[];
+            setAccounts(data);
+            setDraftNames(
+                Object.fromEntries(data.map((account) => [account.username, account.name]))
+            );
+            setDraftRoles(
+                Object.fromEntries(data.map((account) => [account.username, account.role]))
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to load local accounts";
+            toast.error(message);
+        } finally {
+            setLoading(false);
+        }
+    }, [isAdmin]);
+
+    useEffect(() => {
+        void loadAccounts();
+    }, [loadAccounts]);
+
+    const createAccount = async () => {
+        try {
+            const response = await fetchApi("/api/settings/local-accounts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username: newUsername,
+                    name: newName,
+                    password: newPassword,
+                    role: newRole,
+                }),
+            });
+            if (!response.ok) {
+                throw new Error(await readApiError(response, "Failed to create local account"));
+            }
+            toast.success("Local account created");
+            setNewUsername("");
+            setNewName("");
+            setNewPassword("");
+            setNewRole("viewer");
+            await loadAccounts();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to create local account";
+            toast.error(message);
+        }
+    };
+
+    const updateAccount = async (username: string) => {
+        try {
+            const response = await fetchApi(`/api/settings/local-accounts/${encodeURIComponent(username)}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: draftNames[username],
+                    role: draftRoles[username],
+                }),
+            });
+            if (!response.ok) {
+                throw new Error(await readApiError(response, "Failed to update local account"));
+            }
+            toast.success("Local account updated");
+            await loadAccounts();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to update local account";
+            toast.error(message);
+        }
+    };
+
+    const resetPassword = async (username: string) => {
+        const password = window.prompt(`Enter a new password for ${username}`);
+        if (!password) {
+            return;
+        }
+
+        try {
+            const response = await fetchApi(`/api/settings/local-accounts/${encodeURIComponent(username)}/password`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password }),
+            });
+            if (!response.ok) {
+                throw new Error(await readApiError(response, "Failed to reset password"));
+            }
+            toast.success("Password updated");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to reset password";
+            toast.error(message);
+        }
+    };
+
+    const deleteAccount = async (username: string) => {
+        if (!window.confirm(`Delete local account ${username}?`)) {
+            return;
+        }
+
+        try {
+            const response = await fetchApi(`/api/settings/local-accounts/${encodeURIComponent(username)}`, {
+                method: "DELETE",
+            });
+            if (!response.ok) {
+                throw new Error(await readApiError(response, "Failed to delete local account"));
+            }
+            toast.success("Local account deleted");
+            await loadAccounts();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to delete local account";
+            toast.error(message);
+        }
+    };
+
+    if (!isAdmin) {
+        return (
+            <div className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+                Admin role is required to view and manage local accounts.
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            <div>
+                <h3 className="text-lg font-medium">Local Accounts</h3>
+                <p className="text-sm text-muted-foreground">
+                    Create workspace accounts and assign admin, designer, or viewer access.
+                </p>
+            </div>
+
+            <div className="rounded-lg border p-4 space-y-3">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-[1.2fr_1.4fr_1.2fr_1fr_auto]">
+                    <Input
+                        placeholder="username"
+                        value={newUsername}
+                        onChange={(event) => setNewUsername(event.target.value)}
+                    />
+                    <Input
+                        placeholder="Display name"
+                        value={newName}
+                        onChange={(event) => setNewName(event.target.value)}
+                    />
+                    <Input
+                        type="password"
+                        placeholder="Password"
+                        value={newPassword}
+                        onChange={(event) => setNewPassword(event.target.value)}
+                    />
+                    <select
+                        className="h-10 rounded-md border bg-background px-3 text-sm"
+                        value={newRole}
+                        onChange={(event) => setNewRole(event.target.value as UserRole)}
+                    >
+                        <option value="viewer">viewer</option>
+                        <option value="designer">designer</option>
+                        <option value="admin">admin</option>
+                    </select>
+                    <Button onClick={() => void createAccount()}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create
+                    </Button>
+                </div>
+            </div>
+
+            <div className="rounded-lg border overflow-hidden">
+                <div className="grid grid-cols-[1.1fr_1.4fr_1fr_0.8fr_auto] border-b bg-muted/30 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <div>Username</div>
+                    <div>Name</div>
+                    <div>Role</div>
+                    <div>Source</div>
+                    <div />
+                </div>
+                {loading ? (
+                    <div className="p-4 text-sm text-muted-foreground">Loading accounts...</div>
+                ) : accounts.length === 0 ? (
+                    <div className="p-4 text-sm text-muted-foreground">No local accounts found.</div>
+                ) : (
+                    accounts.map((account) => {
+                        const isBootstrap = account.source === "bootstrap";
+                        return (
+                            <div
+                                key={account.username}
+                                className="grid grid-cols-[1.1fr_1.4fr_1fr_0.8fr_auto] items-center gap-2 border-b px-4 py-2"
+                            >
+                                <div className="truncate text-sm">{account.username}</div>
+                                <Input
+                                    value={draftNames[account.username] ?? account.name}
+                                    onChange={(event) =>
+                                        setDraftNames((current) => ({ ...current, [account.username]: event.target.value }))
+                                    }
+                                    className="h-8"
+                                />
+                                <select
+                                    className="h-8 rounded-md border bg-background px-2 text-sm"
+                                    value={draftRoles[account.username] ?? account.role}
+                                    disabled={isBootstrap}
+                                    onChange={(event) =>
+                                        setDraftRoles((current) => ({
+                                            ...current,
+                                            [account.username]: event.target.value as UserRole,
+                                        }))
+                                    }
+                                >
+                                    <option value="viewer">viewer</option>
+                                    <option value="designer">designer</option>
+                                    <option value="admin">admin</option>
+                                </select>
+                                <div className="text-sm text-muted-foreground">{account.source}</div>
+                                <div className="flex justify-end gap-1">
+                                    <Button variant="outline" size="sm" onClick={() => void updateAccount(account.username)}>
+                                        Save
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={() => void resetPassword(account.username)}>
+                                        Password
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        disabled={isBootstrap}
+                                        onClick={() => void deleteAccount(account.username)}
                                     >
                                         <Trash2 className="h-4 w-4" />
                                     </Button>

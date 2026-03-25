@@ -92,10 +92,23 @@ Google login + RBAC session auth:
 
 ```env
 AUTH_ENABLED=true
+AUTH_PROVIDER=google
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 SESSION_SECRET=replace-with-a-long-random-secret
 BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
+SESSION_COOKIE_SECURE=false
+```
+
+Local username/password login + RBAC:
+
+```env
+AUTH_ENABLED=true
+AUTH_PROVIDER=local
+LOCAL_BOOTSTRAP_ADMIN_USERNAME=admin
+LOCAL_BOOTSTRAP_ADMIN_PASSWORD=change-me-now
+LOCAL_BOOTSTRAP_ADMIN_NAME=Workspace Admin
+SESSION_SECRET=replace-with-a-long-random-secret
 SESSION_COOKIE_SECURE=false
 ```
 

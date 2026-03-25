@@ -7,9 +7,10 @@ from pathlib import Path
 from pydantic import BaseModel
 import logging
 
+from app.core.config import settings
 from app.core.roles import Role, normalize_role
 from app.core.security import AuthenticatedUser, require_admin
-from app.services import access_service
+from app.services import access_service, local_account_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +40,34 @@ class RoleAssignmentResponse(BaseModel):
 
 class UpsertRoleRequest(BaseModel):
     role: str
+
+
+class LocalAccountResponse(BaseModel):
+    username: str
+    name: str
+    role: Role
+    source: str
+
+
+class CreateLocalAccountRequest(BaseModel):
+    username: str
+    name: str
+    password: str
+    role: str
+
+
+class UpdateLocalAccountRequest(BaseModel):
+    name: str | None = None
+    role: str | None = None
+
+
+class UpdateLocalAccountPasswordRequest(BaseModel):
+    password: str
+
+
+def _require_local_auth_mode() -> None:
+    if settings.AUTH_PROVIDER != "local":
+        raise HTTPException(status_code=400, detail="Local auth mode is not enabled")
 
 @router.get("/ssh-key", response_model=SSHKeyResponse)
 async def get_ssh_key():
@@ -156,3 +185,90 @@ async def delete_access_user(email: str, user: AuthenticatedUser = Depends(requi
         raise HTTPException(status_code=404, detail="User role assignment not found")
 
     return {"deleted": email.strip().lower()}
+
+
+@router.get("/local-accounts", response_model=List[LocalAccountResponse])
+async def list_local_accounts():
+    _require_local_auth_mode()
+    return [LocalAccountResponse(**item) for item in local_account_service.list_accounts()]
+
+
+@router.post("/local-accounts", response_model=LocalAccountResponse)
+async def create_local_account(
+    request: CreateLocalAccountRequest,
+    user: AuthenticatedUser = Depends(require_admin),
+):
+    _require_local_auth_mode()
+    normalized_role = normalize_role(request.role)
+    if normalized_role is None:
+        raise HTTPException(status_code=400, detail="Invalid role. Must be admin, designer, or viewer.")
+
+    try:
+        account = local_account_service.create_account(
+            username=request.username,
+            name=request.name,
+            password=request.password,
+            role=normalized_role,
+            updated_by=user.email,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+    return LocalAccountResponse(**account)
+
+
+@router.patch("/local-accounts/{username}", response_model=LocalAccountResponse)
+async def update_local_account(
+    username: str,
+    request: UpdateLocalAccountRequest,
+    user: AuthenticatedUser = Depends(require_admin),
+):
+    _require_local_auth_mode()
+    normalized_role = normalize_role(request.role) if request.role is not None else None
+    if request.role is not None and normalized_role is None:
+        raise HTTPException(status_code=400, detail="Invalid role. Must be admin, designer, or viewer.")
+
+    try:
+        account = local_account_service.update_account(
+            username=username,
+            name=request.name,
+            role=normalized_role,
+            updated_by=user.email,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+    return LocalAccountResponse(**account)
+
+
+@router.put("/local-accounts/{username}/password", response_model=LocalAccountResponse)
+async def update_local_account_password(
+    username: str,
+    request: UpdateLocalAccountPasswordRequest,
+    user: AuthenticatedUser = Depends(require_admin),
+):
+    _require_local_auth_mode()
+    try:
+        account = local_account_service.update_password(
+            username=username,
+            password=request.password,
+            updated_by=user.email,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+    return LocalAccountResponse(**account)
+
+
+@router.delete("/local-accounts/{username}")
+async def delete_local_account(username: str, user: AuthenticatedUser = Depends(require_admin)):
+    _require_local_auth_mode()
+    try:
+        deleted = local_account_service.delete_account(username=username, updated_by=user.email)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Local account not found")
+
+    return {"deleted": username.strip().lower()}

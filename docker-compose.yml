@@ -16,13 +16,20 @@ services:
       - KICAD_PROJECTS_ROOT=/app/projects
       # Friendly workspace name shown on login page
       - WORKSPACE_NAME=${WORKSPACE_NAME:-KiCAD Prism}
-      # Google OAuth Configuration (required for authentication)
+      # Authentication provider selection
+      - AUTH_PROVIDER=${AUTH_PROVIDER:-google}
+      # Google OAuth Configuration (required when AUTH_PROVIDER=google)
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # Local auth bootstrap admin (required on first run when AUTH_PROVIDER=local)
+      - LOCAL_BOOTSTRAP_ADMIN_USERNAME=${LOCAL_BOOTSTRAP_ADMIN_USERNAME:-}
+      - LOCAL_BOOTSTRAP_ADMIN_PASSWORD=${LOCAL_BOOTSTRAP_ADMIN_PASSWORD:-}
+      - LOCAL_BOOTSTRAP_ADMIN_NAME=${LOCAL_BOOTSTRAP_ADMIN_NAME:-Workspace Admin}
       - ALLOWED_USERS_STR=${ALLOWED_USERS_STR:-}
       - ALLOWED_DOMAINS_STR=${ALLOWED_DOMAINS_STR:-}
       - BOOTSTRAP_ADMIN_USERS_STR=${BOOTSTRAP_ADMIN_USERS_STR:-}
       - ROLE_STORE_PATH=${ROLE_STORE_PATH:-}
+      - LOCAL_ACCOUNT_STORE_PATH=${LOCAL_ACCOUNT_STORE_PATH:-}
       - SESSION_SECRET=${SESSION_SECRET:-}
       - SESSION_TTL_HOURS=${SESSION_TTL_HOURS:-12}
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}

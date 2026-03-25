@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.roles import Role, normalize_role, role_meets_minimum
 from app.core.session import SESSION_COOKIE_NAME, decode_session_token
-from app.services import access_service
+from app.services import access_service, local_account_service
 
 
 class AuthenticatedUser(BaseModel):
@@ -19,7 +19,10 @@ def guest_user() -> AuthenticatedUser:
 
 
 def _resolve_allowed_user_role(email: str) -> Role | None:
-    role = access_service.resolve_user_role(email)
+    if settings.AUTH_PROVIDER == "local":
+        role = local_account_service.resolve_user_role(email)
+    else:
+        role = access_service.resolve_user_role(email)
     if role is None:
         return None
     return normalize_role(role)

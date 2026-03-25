@@ -44,6 +44,12 @@ class Settings(BaseSettings):
         alias="AUTH_ENABLED",
         description="Explicitly enable/disable authentication."
     )
+
+    AUTH_PROVIDER_STR: str = Field(
+        default="google",
+        alias="AUTH_PROVIDER",
+        description="Authentication provider to use when auth is enabled: google or local",
+    )
     
     # Comma-separated list of allowed user emails
     ALLOWED_USERS_STR: str = Field(
@@ -76,6 +82,26 @@ class Settings(BaseSettings):
     ROLE_STORE_PATH: str = Field(
         default="",
         description="Path to persistent RBAC role store JSON"
+    )
+
+    LOCAL_ACCOUNT_STORE_PATH: str = Field(
+        default="",
+        description="Path to persistent local account store JSON",
+    )
+
+    LOCAL_BOOTSTRAP_ADMIN_USERNAME: str = Field(
+        default="",
+        description="Username for the bootstrap local admin account",
+    )
+
+    LOCAL_BOOTSTRAP_ADMIN_PASSWORD: str = Field(
+        default="",
+        description="Password for the bootstrap local admin account",
+    )
+
+    LOCAL_BOOTSTRAP_ADMIN_NAME: str = Field(
+        default="Workspace Admin",
+        description="Display name for the bootstrap local admin account",
     )
 
     # Session signing secret for HttpOnly cookie authentication.
@@ -158,6 +184,19 @@ class Settings(BaseSettings):
         if self.ROLE_STORE_PATH.strip():
             return os.path.abspath(os.path.expanduser(self.ROLE_STORE_PATH.strip()))
         return os.path.join(self.KICAD_PROJECTS_ROOT, ".rbac_roles.json")
+
+    @property
+    def RESOLVED_LOCAL_ACCOUNT_STORE_PATH(self) -> str:
+        if self.LOCAL_ACCOUNT_STORE_PATH.strip():
+            return os.path.abspath(os.path.expanduser(self.LOCAL_ACCOUNT_STORE_PATH.strip()))
+        return os.path.join(self.KICAD_PROJECTS_ROOT, ".local_accounts.json")
+
+    @property
+    def AUTH_PROVIDER(self) -> str:
+        provider = self.AUTH_PROVIDER_STR.strip().lower()
+        if provider not in {"google", "local"}:
+            return "google"
+        return provider
     
     @property
     def AUTH_ENABLED(self) -> bool:
@@ -170,8 +209,14 @@ class Settings(BaseSettings):
         # If explicitly disabled via env var, it's off.
         if not self.AUTH_ENABLED_OVERRIDE:
             return False
-            
-        return bool(self.GOOGLE_CLIENT_ID) and bool(self.GOOGLE_CLIENT_SECRET) and not self.DEV_MODE
+
+        if self.DEV_MODE:
+            return False
+
+        if self.AUTH_PROVIDER == "local":
+            return True
+
+        return bool(self.GOOGLE_CLIENT_ID) and bool(self.GOOGLE_CLIENT_SECRET)
     
     class Config:
         env_file = ".env"

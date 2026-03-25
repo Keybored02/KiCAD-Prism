@@ -9,6 +9,11 @@ interface LoginRequest {
   redirectUri: string;
 }
 
+interface LocalLoginRequest {
+  username: string;
+  password: string;
+}
+
 export function getGoogleAuthRedirectUri() {
   return `${window.location.origin}${AUTH_CALLBACK_PATH}`;
 }
@@ -50,6 +55,23 @@ export function exchangeGoogleAuthCode(code: string) {
 
   return fetchJson<User>(
     "/api/auth/login",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Authentication failed"
+  );
+}
+
+export function loginWithLocalCredentials(username: string, password: string) {
+  const payload: LocalLoginRequest = {
+    username,
+    password,
+  };
+
+  return fetchJson<User>(
+    "/api/auth/login/local",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

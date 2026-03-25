@@ -5,10 +5,14 @@ import prismLogoHorizontal from "@/assets/branding/kicad-prism/kicad-prism-logo-
 import prismLogoMark from "@/assets/branding/kicad-prism/kicad-prism-icon.svg";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { buildGoogleAuthUrl } from "@/lib/auth";
+import { Input } from "@/components/ui/input";
+import { buildGoogleAuthUrl, loginWithLocalCredentials } from "@/lib/auth";
+import type { AuthProvider, User } from "@/types/auth";
 
 interface LoginPageProps {
+  authProvider: AuthProvider;
   googleClientId: string;
+  onLoginSuccess: (user: User) => void;
   devMode?: boolean;
   workspaceName?: string;
   initialError?: string | null;
@@ -20,7 +24,9 @@ const RELEASE_CACHE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_GITHUB_REPO = "krishna-swaroop/KiCAD-Prism";
 
 export function LoginPage({
+  authProvider,
   googleClientId,
+  onLoginSuccess,
   devMode = false,
   workspaceName = "KiCAD Prism",
   initialError = null,
@@ -28,6 +34,8 @@ export function LoginPage({
   const [error, setError] = useState<string | null>(initialError);
   const [isLoading, setIsLoading] = useState(false);
   const [releaseTag, setReleaseTag] = useState("...");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   useEffect(() => {
     setError(initialError);
@@ -85,6 +93,19 @@ export function LoginPage({
     window.location.href = buildGoogleAuthUrl(googleClientId);
   };
 
+  const handleLocalLogin = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const user = await loginWithLocalCredentials(username, password);
+      onLoginSuccess(user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Authentication failed");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleDevBypass = () => {
     window.history.replaceState(null, "", "/");
     window.location.reload();
@@ -120,22 +141,54 @@ export function LoginPage({
             <p className="text-2xl font-semibold tracking-tight">{workspaceName}</p>
           </div>
 
-          <Card className="relative overflow-hidden border-primary/40 bg-card ring-1 ring-primary/30">
-            <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-border/80" />
-            <CardHeader className="space-y-2 pb-7">
-              <CardTitle className="text-2xl">Sign In</CardTitle>
-              <CardDescription>Sign in with your Google account.</CardDescription>
-            </CardHeader>
+            <Card className="relative overflow-hidden border-primary/40 bg-card ring-1 ring-primary/30">
+              <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-border/80" />
+              <CardHeader className="space-y-2 pb-7">
+                <CardTitle className="text-2xl">Sign In</CardTitle>
+                <CardDescription>
+                  {authProvider === "local"
+                    ? "Sign in with your workspace username and password."
+                    : "Sign in with your Google account."}
+                </CardDescription>
+              </CardHeader>
 
-            <CardContent className="space-y-5 pb-7">
-              <Button className="w-full" onClick={handleSignIn} disabled={isLoading}>
-                {isLoading ? "Redirecting to Google..." : "Continue with Google"}
-              </Button>
+              <CardContent className="space-y-5 pb-7">
+              {authProvider === "local" ? (
+                <>
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="Username"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      autoComplete="username"
+                    />
+                    <Input
+                      type="password"
+                      placeholder="Password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      autoComplete="current-password"
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          void handleLocalLogin();
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button className="w-full" onClick={() => void handleLocalLogin()} disabled={isLoading}>
+                    {isLoading ? "Signing In..." : "Sign In"}
+                  </Button>
+                </>
+              ) : (
+                <Button className="w-full" onClick={handleSignIn} disabled={isLoading}>
+                  {isLoading ? "Redirecting to Google..." : "Continue with Google"}
+                </Button>
+              )}
 
               {isLoading && (
                 <div className="flex items-center justify-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Redirecting…</span>
+                  <span>{authProvider === "local" ? "Signing in…" : "Redirecting…"}</span>
                 </div>
               )}
 

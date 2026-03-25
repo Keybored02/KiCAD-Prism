@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { toast } from "sonner";
 
-import type { User } from "@/types/auth";
+import type { AuthConfig, User } from "@/types/auth";
 import type { FolderTreeItem, Project } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceData } from "@/hooks/use-workspace-data";
@@ -43,9 +43,10 @@ const RenameFolderDialog = lazy(() =>
 interface WorkspaceProps {
   searchQuery: string;
   user: User | null;
+  authConfig: AuthConfig;
 }
 
-export function Workspace({ searchQuery, user }: WorkspaceProps) {
+export function Workspace({ searchQuery, user, authConfig }: WorkspaceProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -394,7 +395,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       )}
       {isSettingsOpen && (
         <Suspense fallback={null}>
-          <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} user={user} />
+          <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} user={user} authConfig={authConfig} />
         </Suspense>
       )}
 

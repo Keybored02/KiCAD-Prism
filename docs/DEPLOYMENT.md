@@ -43,8 +43,12 @@ Baseline authenticated configuration:
 ```env
 WORKSPACE_NAME=KiCAD Prism
 AUTH_ENABLED=true
+AUTH_PROVIDER=google
 GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-google-client-secret
+LOCAL_BOOTSTRAP_ADMIN_USERNAME=
+LOCAL_BOOTSTRAP_ADMIN_PASSWORD=
+LOCAL_BOOTSTRAP_ADMIN_NAME=Workspace Admin
 SESSION_SECRET=replace-with-a-long-random-secret
 SESSION_TTL_HOURS=12
 SESSION_COOKIE_SECURE=false
@@ -105,7 +109,6 @@ Persisted data includes:
 
 ```env
 AUTH_ENABLED=false
-GOOGLE_CLIENT_ID=
 SESSION_SECRET=
 DEV_MODE=false
 ```
@@ -119,6 +122,7 @@ Behavior:
 
 ```env
 AUTH_ENABLED=true
+AUTH_PROVIDER=google
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 SESSION_SECRET=your-random-secret
@@ -134,6 +138,25 @@ Behavior:
 - users from `DEFAULT_VIEWER_DOMAINS_STR` get implicit `viewer` access when no explicit role is stored
 - on first successful login, those implicit viewers are written into `.rbac_roles.json` so admins can promote them later
 
+### Local Username/Password + RBAC
+
+```env
+AUTH_ENABLED=true
+AUTH_PROVIDER=local
+LOCAL_BOOTSTRAP_ADMIN_USERNAME=admin
+LOCAL_BOOTSTRAP_ADMIN_PASSWORD=change-me-now
+LOCAL_BOOTSTRAP_ADMIN_NAME=Workspace Admin
+SESSION_SECRET=your-random-secret
+DEV_MODE=false
+```
+
+Behavior:
+- frontend shows a username/password login screen
+- backend authenticates against the local account store
+- backend issues the same `HttpOnly` signed session cookie
+- admin users can create, update, reset, and delete local accounts from Settings
+- roles remain `admin`, `designer`, and `viewer`
+
 ### Local Dev Bypass
 
 ```env
@@ -144,7 +167,7 @@ DEV_MODE=true
 ```
 
 Behavior:
-- auth is effectively disabled because the backend only enables auth when `AUTH_ENABLED=true`, `GOOGLE_CLIENT_ID` is set, and `DEV_MODE=false`
+- auth is effectively disabled because the backend always disables auth when `DEV_MODE=true`
 - this is convenient for local backend/frontend development
 
 ## Google OAuth Setup
