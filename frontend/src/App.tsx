@@ -72,7 +72,32 @@ function App() {
     useEffect(() => {
         const controller = new AbortController();
 
-        const initializeAuth = async () => {
+        const fetchCurrentUser = async (config: AuthConfig) => {
+            try {
+                const currentUser = await fetchJson<User>(
+                    '/api/auth/me',
+                    { signal: controller.signal },
+                    'Failed to fetch current user'
+                );
+                if (controller.signal.aborted) {
+                    return;
+                }
+                setUser(currentUser);
+                setAuthError(null);
+            } catch (err) {
+                if (controller.signal.aborted) {
+                    return;
+                }
+                if (err instanceof ApiHttpError && (err.status === 401 || err.status === 403)) {
+                    setUser(null);
+                    setAuthError(config.auth_enabled && err.status === 403 ? err.message : null);
+                    return;
+                }
+                throw err;
+            }
+        };
+
+        const fetchAuthConfig = async () => {
             try {
                 const config = await fetchAuthConfig(controller.signal);
                 if (controller.signal.aborted) {
@@ -81,7 +106,7 @@ function App() {
 
                 setAuthConfig(config);
                 setAuthError(null);
-                await loadCurrentUser(config, controller.signal);
+                await fetchCurrentUser(config);
             } catch (err) {
                 if (controller.signal.aborted) {
                     return;
@@ -143,6 +168,14 @@ function App() {
             <Suspense fallback={<RouteFallback />}>
                 <AuthCallbackPage onLoginSuccess={handleAuthCodeSuccess} />
             </Suspense>
+        );
+    }
+
+    if (!authConfig) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-background">
+                <div className="text-red-500">{authError || 'Failed to load authentication configuration.'}</div>
+            </div>
         );
     }
 
