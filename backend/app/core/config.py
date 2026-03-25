@@ -23,6 +23,11 @@ class Settings(BaseSettings):
         default="",
         description="OAuth Client ID from Google Cloud Console. Leave empty to skip authentication."
     )
+
+    GOOGLE_CLIENT_SECRET: str = Field(
+        default="",
+        description="OAuth Client Secret from Google Cloud Console. Required for auth code exchange."
+    )
     
     # ===========================================
     # Authentication & Access Control
@@ -56,6 +61,15 @@ class Settings(BaseSettings):
     BOOTSTRAP_ADMIN_USERS_STR: str = Field(
         default="",
         description="Comma-separated list of admin user emails provisioned from env"
+    )
+
+    # Comma-separated list of email domains that receive implicit viewer access.
+    DEFAULT_VIEWER_DOMAINS_STR: str = Field(
+        default="pixxel.co.in,spacepixxel.co.in",
+        description=(
+            "Comma-separated list of email domains that get viewer access when no "
+            "explicit RBAC assignment exists"
+        ),
     )
 
     # Path to persistent role assignment JSON file.
@@ -128,6 +142,11 @@ class Settings(BaseSettings):
         return [u.strip().lower() for u in self.BOOTSTRAP_ADMIN_USERS_STR.split(",") if u.strip()]
 
     @property
+    def DEFAULT_VIEWER_DOMAINS(self) -> List[str]:
+        """Parse implicit viewer domains from comma-separated string."""
+        return [d.strip().lower() for d in self.DEFAULT_VIEWER_DOMAINS_STR.split(",") if d.strip()]
+
+    @property
     def KICAD_PROJECTS_ROOT(self) -> str:
         return os.environ.get(
             "KICAD_PROJECTS_ROOT",
@@ -145,15 +164,14 @@ class Settings(BaseSettings):
         """
         Authentication is enabled only if:
         1. AUTH_ENABLED env var is True (default), AND
-        2. A valid Google Client ID is configured, AND
+        2. Valid Google OAuth client credentials are configured, AND
         3. DEV_MODE is False (unless GOOGLE_CLIENT_ID is set)
         """
         # If explicitly disabled via env var, it's off.
         if not self.AUTH_ENABLED_OVERRIDE:
             return False
             
-        # Otherwise, need a client ID and either not in dev mode OR client ID is present and we're in Docker
-        return bool(self.GOOGLE_CLIENT_ID) and not self.DEV_MODE
+        return bool(self.GOOGLE_CLIENT_ID) and bool(self.GOOGLE_CLIENT_SECRET) and not self.DEV_MODE
     
     class Config:
         env_file = ".env"

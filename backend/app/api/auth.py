@@ -1,27 +1,24 @@
 """
 Authentication API endpoints.
 
-Handles Google OAuth login and domain validation.
+Handles Google OAuth login and session management.
 """
-import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
-from google.oauth2 import id_token
-from google.auth.transport import requests
 from app.core.config import settings
 from app.core.roles import Role
 from app.core.security import AuthenticatedUser, get_current_user, guest_user
 from app.core.session import clear_session_cookie, create_session_token, set_session_cookie
-from app.services import access_service
+from app.services.google_auth_service import ResolvedSessionUser, authenticate_google_oauth_code
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 
-class TokenRequest(BaseModel):
-    """Request body for login endpoint."""
-    token: str = Field(min_length=1)
+class LoginRequest(BaseModel):
+    """Request body for Google auth code exchange."""
+    code: str = Field(min_length=1)
+    redirectUri: str = Field(min_length=1)
 
 
 class UserSession(BaseModel):
@@ -40,31 +37,17 @@ class AuthConfig(BaseModel):
     workspace_name: str
 
 
+def _build_user_session(user: ResolvedSessionUser | AuthenticatedUser) -> UserSession:
+    return UserSession(
+        email=user.email,
+        name=user.name,
+        picture=user.picture,
+        role=user.role,
+    )
+
+
 def _guest_user_session() -> UserSession:
-    guest = guest_user()
-    return UserSession(email=guest.email, name=guest.name, picture=guest.picture, role=guest.role)
-
-
-def _validate_allowed_user(email: str) -> None:
-    normalized_email = email.strip().casefold()
-    if not normalized_email:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    allowed_users = {user.strip().casefold() for user in settings.ALLOWED_USERS if user.strip()}
-    if allowed_users and normalized_email not in allowed_users:
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied. Your email is not in the allowed users list.",
-        )
-
-    allowed_domains = {domain.strip().casefold() for domain in settings.ALLOWED_DOMAINS if domain.strip()}
-    if allowed_domains:
-        domain = normalized_email.split("@")[-1]
-        if domain not in allowed_domains:
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied. Your email domain is not in the allowed domains list.",
-            )
+    return _build_user_session(guest_user())
 
 
 def _require_session_secret() -> None:
@@ -89,11 +72,11 @@ async def get_auth_config():
 
 
 @router.post("/login", response_model=UserSession)
-async def login(request: TokenRequest, response: Response):
+async def login(request: LoginRequest, response: Response):
     """
-    Authenticate user with Google OAuth token.
+    Authenticate user with Google OAuth authorization code.
     
-    Validates the token, checks domain restrictions, and returns user session data.
+    Exchanges the code with Google, checks domain restrictions, and returns user session data.
     """
     # If auth is disabled, this endpoint shouldn't normally be called,
     # but handle gracefully just in case
@@ -101,65 +84,22 @@ async def login(request: TokenRequest, response: Response):
         return _guest_user_session()
 
     _require_session_secret()
-    
-    try:
-        # Verify the token with Google
-        id_info = id_token.verify_oauth2_token(
-            request.token,
-            requests.Request(),
-            settings.GOOGLE_CLIENT_ID
-        )
+    session_user = authenticate_google_oauth_code(code=request.code, redirect_uri=request.redirectUri)
 
-        email = (id_info.get("email") or "").strip()
-        if not email:
-            raise HTTPException(status_code=401, detail="Invalid token")
+    token = create_session_token(
+        email=session_user.email,
+        name=session_user.name,
+        picture=session_user.picture,
+        role=session_user.role,
+    )
+    set_session_cookie(response, token)
 
-        _validate_allowed_user(email)
-        role = access_service.resolve_user_role(email)
-        if not role:
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied. No role assignment found for your account.",
-            )
-
-        name = id_info.get("name", email.split("@")[0])
-        picture = id_info.get("picture", "")
-
-        token = create_session_token(
-            email=email,
-            name=name,
-            picture=picture,
-            role=role,
-        )
-        set_session_cookie(response, token)
-
-        return UserSession(
-            email=email,
-            name=name,
-            picture=picture,
-            role=role,
-        )
-
-    except ValueError:
-        # Token verification failed
-        raise HTTPException(status_code=401, detail="Invalid token")
-    except HTTPException:
-        # Re-raise HTTP exceptions (like 403 for domain validation)
-        raise
-    except Exception:
-        # Catch-all for unexpected errors
-        logger.exception("Authentication error during Google OAuth login")
-        raise HTTPException(status_code=500, detail="Authentication service unavailable")
+    return _build_user_session(session_user)
 
 
 @router.get("/me", response_model=UserSession)
 async def get_current_session_user(user: AuthenticatedUser = Depends(get_current_user)):
-    return UserSession(
-        email=user.email,
-        name=user.name,
-        picture=user.picture,
-        role=user.role,
-    )
+    return _build_user_session(user)
 
 
 @router.post("/logout")

@@ -5,11 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Toaster } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Search } from 'lucide-react';
-import { ApiHttpError, fetchApi, fetchJson } from '@/lib/api';
+import { ApiHttpError, fetchApi } from '@/lib/api';
+import { fetchAuthConfig, fetchCurrentUser, isAuthCallbackPath } from '@/lib/auth';
 import prismLogoMark from './assets/branding/kicad-prism/kicad-prism-icon.svg';
 
 const LoginPage = lazy(() =>
     import('./components/login-page').then((module) => ({ default: module.LoginPage }))
+);
+const AuthCallbackPage = lazy(() =>
+    import('./components/auth-callback-page').then((module) => ({ default: module.AuthCallbackPage }))
 );
 const Workspace = lazy(() =>
     import('./components/workspace').then((module) => ({ default: module.Workspace }))
@@ -26,6 +30,14 @@ function RouteFallback() {
     );
 }
 
+function FullScreenMessage({ message, isError = false }: { message: string; isError?: boolean }) {
+    return (
+        <div className="flex items-center justify-center h-screen bg-background">
+            <div className={isError ? "text-red-500" : "text-muted-foreground"}>{message}</div>
+        </div>
+    );
+}
+
 function App() {
     const [user, setUser] = useState<User | null>(null);
     const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
@@ -33,6 +45,28 @@ function App() {
     const [authError, setAuthError] = useState<string | null>(null);
     const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState("");
     const deferredWorkspaceSearchQuery = useDeferredValue(workspaceSearchQuery);
+    const isAuthCallbackRoute = typeof window !== "undefined" && isAuthCallbackPath();
+
+    const loadCurrentUser = async (config: AuthConfig, signal?: AbortSignal) => {
+        try {
+            const currentUser = await fetchCurrentUser(signal);
+            if (signal?.aborted) {
+                return;
+            }
+            setUser(currentUser);
+            setAuthError(null);
+        } catch (err) {
+            if (signal?.aborted) {
+                return;
+            }
+            if (err instanceof ApiHttpError && (err.status === 401 || err.status === 403)) {
+                setUser(null);
+                setAuthError(config.auth_enabled && err.status === 403 ? err.message : null);
+                return;
+            }
+            throw err;
+        }
+    };
 
     // Fetch auth configuration on mount
     useEffect(() => {
@@ -65,11 +99,7 @@ function App() {
 
         const fetchAuthConfig = async () => {
             try {
-                const config = await fetchJson<AuthConfig>(
-                    '/api/auth/config',
-                    { signal: controller.signal },
-                    'Failed to fetch auth config'
-                );
+                const config = await fetchAuthConfig(controller.signal);
                 if (controller.signal.aborted) {
                     return;
                 }
@@ -91,7 +121,7 @@ function App() {
             }
         };
 
-        fetchAuthConfig();
+        initializeAuth();
         return () => controller.abort();
     }, []);
 
@@ -119,12 +149,25 @@ function App() {
         });
     };
 
+    const handleAuthCodeSuccess = (currentUser: User) => {
+        setUser(currentUser);
+        setAuthError(null);
+    };
+
     // Show loading state while fetching auth config
     if (loading) {
+        return <FullScreenMessage message="Loading..." />;
+    }
+
+    if (!authConfig) {
+        return <FullScreenMessage message={authError || 'Failed to load authentication configuration.'} isError />;
+    }
+
+    if (authConfig.auth_enabled && !user && isAuthCallbackRoute) {
         return (
-            <div className="flex items-center justify-center h-screen bg-background">
-                <div className="text-muted-foreground">Loading...</div>
-            </div>
+            <Suspense fallback={<RouteFallback />}>
+                <AuthCallbackPage onLoginSuccess={handleAuthCodeSuccess} />
+            </Suspense>
         );
     }
 
@@ -140,17 +183,12 @@ function App() {
     if (authConfig.auth_enabled && !user) {
         // Fallback for missing client ID in config
         if (!authConfig.google_client_id) {
-            return (
-                <div className="flex items-center justify-center h-screen bg-background">
-                    <div className="text-red-500">Error: Missing Google Client ID in backend configuration.</div>
-                </div>
-            );
+            return <FullScreenMessage message="Error: Missing Google Client ID in backend configuration." isError />;
         }
 
         return (
             <Suspense fallback={<RouteFallback />}>
                 <LoginPage
-                    onLoginSuccess={setUser}
                     googleClientId={authConfig.google_client_id}
                     devMode={authConfig.dev_mode}
                     workspaceName={authConfig.workspace_name}
@@ -158,6 +196,10 @@ function App() {
                 />
             </Suspense>
         );
+    }
+
+    if (!user) {
+        return <FullScreenMessage message={authError || 'Failed to resolve current user.'} isError />;
     }
 
     // User is authenticated or auth is disabled - show app
