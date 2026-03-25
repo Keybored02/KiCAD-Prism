@@ -1,27 +1,59 @@
 # Deployment Guide
 
-This document covers the current KiCAD Prism deployment model for Docker hosting and local development.
+KiCAD Prism can be deployed as a two-container Docker application with optional authentication, RBAC, persistent project storage, and a custom DNS-backed URL behind a reverse proxy.
 
-## Runtime Overview
+This guide covers:
+
+- initial server setup
+- Docker deployment
+- guest mode, Google login, and local username/password login
+- RBAC and first-admin setup
+- private repository access
+- custom URLs, DNS, and reverse proxy configuration
+- operational checks and troubleshooting
+
+## Overview
 
 KiCAD Prism runs as two services:
 
 - `backend`: FastAPI API server on port `8000`
 - `frontend`: production Vite bundle served by Nginx on port `8080`
 
-In Docker, the frontend proxies `/api/*` requests to the backend over the Compose network.
+In Docker:
 
-Default local endpoints:
+- the frontend serves the UI
+- the frontend proxies `/api/*` traffic to the backend over the Docker network
+
+Default host endpoints:
+
 - UI: [http://127.0.0.1:8080](http://127.0.0.1:8080)
 - API: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
-## Docker Hosting
+Persistent host data:
 
-### Prerequisites
+- `./data/projects`
+- `./data/ssh`
+
+Persisted application state includes:
+
+- imported repositories
+- `.project_registry.json`
+- `.rbac_roles.json`
+- `.folders.json`
+- `.local_accounts.json` when local auth is used
+- SSH keys and `known_hosts`
+
+## Prerequisites
+
+You need:
 
 - Docker Engine or Docker Desktop
 - Docker Compose support
 - enough disk space for imported repositories and generated outputs
+- optional DNS control if you want a custom hostname
+- optional reverse proxy if you want access on port `80` or `443` instead of `:8080`
+
+## Initial Setup
 
 ### 1. Clone the repository
 
@@ -38,29 +70,7 @@ Docker Compose reads the repository root `.env` automatically.
 cp .env.example .env
 ```
 
-Baseline authenticated configuration:
-
-```env
-WORKSPACE_NAME=KiCAD Prism
-AUTH_ENABLED=true
-AUTH_PROVIDER=google
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-LOCAL_BOOTSTRAP_ADMIN_USERNAME=
-LOCAL_BOOTSTRAP_ADMIN_PASSWORD=
-LOCAL_BOOTSTRAP_ADMIN_NAME=Workspace Admin
-SESSION_SECRET=replace-with-a-long-random-secret
-SESSION_TTL_HOURS=12
-SESSION_COOKIE_SECURE=false
-ALLOWED_USERS_STR=
-ALLOWED_DOMAINS_STR=
-BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
-DEFAULT_VIEWER_DOMAINS_STR=pixxel.co.in,spacepixxel.co.in
-GITHUB_TOKEN=
-DEV_MODE=false
-```
-
-Generate a session secret with:
+Generate a session secret:
 
 ```bash
 python3 - <<'PY'
@@ -69,12 +79,18 @@ print(secrets.token_urlsafe(48))
 PY
 ```
 
-Important:
-- `SESSION_SECRET` is required whenever auth is effectively enabled.
-- `SESSION_COOKIE_SECURE=true` should be used only behind HTTPS.
-- `DEV_MODE` should stay `false` in Docker hosting.
+### 3. Choose a deployment mode
 
-### 3. Start the stack
+KiCAD Prism supports three modes:
+
+1. `AUTH_ENABLED=false`
+   No login wall. Everyone gets guest access.
+2. `AUTH_ENABLED=true` and `AUTH_PROVIDER=google`
+   Google-based login with RBAC.
+3. `AUTH_ENABLED=true` and `AUTH_PROVIDER=local`
+   Local username/password login with RBAC.
+
+### 4. Start the stack
 
 ```bash
 docker compose up --build -d
@@ -82,30 +98,57 @@ docker compose up --build -d
 
 Open the UI at [http://127.0.0.1:8080](http://127.0.0.1:8080).
 
-### 4. Stop the stack
+### 5. Stop the stack
 
 ```bash
 docker compose down
 ```
 
-## Docker Volumes and Persistence
+## Core Environment Variables
 
-Current Compose mounts:
+The main deployment settings look like this:
 
-- `./data/projects` -> `/app/projects`
-- `./data/ssh` -> `/root/.ssh`
+```env
+WORKSPACE_NAME=KiCAD Prism
 
-Persisted data includes:
-- imported repositories
-- `.project_registry.json`
-- `.rbac_roles.json`
-- `.folders.json`
-- exported comments JSON inside repos when generated
-- SSH keys and `known_hosts`
+AUTH_ENABLED=true
+AUTH_PROVIDER=google
+
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+LOCAL_BOOTSTRAP_ADMIN_USERNAME=admin
+LOCAL_BOOTSTRAP_ADMIN_PASSWORD=change-me-now
+LOCAL_BOOTSTRAP_ADMIN_NAME=Workspace Admin
+
+ALLOWED_USERS_STR=
+ALLOWED_DOMAINS_STR=
+BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
+DEFAULT_VIEWER_DOMAINS_STR=example.com,engineering.example.com
+
+ROLE_STORE_PATH=
+LOCAL_ACCOUNT_STORE_PATH=
+
+SESSION_SECRET=replace-with-a-long-random-secret
+SESSION_TTL_HOURS=12
+SESSION_COOKIE_SECURE=false
+
+GITHUB_TOKEN=
+DEV_MODE=false
+```
+
+Important:
+
+- `SESSION_SECRET` is required whenever auth is enabled.
+- `DEV_MODE` should remain `false` for any normal hosted deployment.
+- `SESSION_COOKIE_SECURE=true` should only be used when Prism is served over HTTPS.
+- `AUTH_PROVIDER` matters only when `AUTH_ENABLED=true`.
 
 ## Authentication Modes
 
 ### Guest Mode
+
+Use this when you want the app open without login.
 
 ```env
 AUTH_ENABLED=false
@@ -114,11 +157,30 @@ DEV_MODE=false
 ```
 
 Behavior:
-- login wall is disabled
-- backend serves a guest admin session
-- all visitors have full admin/designer/viewer access while auth is disabled
 
-### Google Login + Session Auth
+- the login wall is disabled
+- backend serves a guest admin session
+- every visitor gets full `admin`, `designer`, and `viewer` access
+
+This mode is intentionally unsafe for public exposure. Use it only in trusted internal environments.
+
+### How to Disable Auth
+
+Set:
+
+```env
+AUTH_ENABLED=false
+```
+
+Then rebuild the stack:
+
+```bash
+docker compose up --build -d
+```
+
+### Google Login Mode
+
+Use this when users should sign in with Google accounts.
 
 ```env
 AUTH_ENABLED=true
@@ -126,19 +188,32 @@ AUTH_PROVIDER=google
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 SESSION_SECRET=your-random-secret
-DEFAULT_VIEWER_DOMAINS_STR=pixxel.co.in,spacepixxel.co.in
+BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
+DEFAULT_VIEWER_DOMAINS_STR=example.com,engineering.example.com
 DEV_MODE=false
 ```
 
 Behavior:
+
 - frontend shows the Google sign-in screen
 - backend exchanges the Google authorization code for user info
 - backend issues an `HttpOnly` signed session cookie
-- RBAC role resolution uses stored assignments plus bootstrap admins
-- users from `DEFAULT_VIEWER_DOMAINS_STR` get implicit `viewer` access when no explicit role is stored
-- on first successful login, those implicit viewers are written into `.rbac_roles.json` so admins can promote them later
+- RBAC still uses the same `admin` / `designer` / `viewer` model
+- users from `DEFAULT_VIEWER_DOMAINS_STR` get implicit `viewer` access if no explicit role is stored
+- on first successful login, those implicit viewers are written into `.rbac_roles.json` so an admin can promote them later
 
-### Local Username/Password + RBAC
+Google-only access controls:
+
+- `ALLOWED_USERS_STR`
+  Restrict login to exact email addresses
+- `ALLOWED_DOMAINS_STR`
+  Restrict login to email domains
+- `BOOTSTRAP_ADMIN_USERS_STR`
+  Grants `admin` role to listed Google accounts even without a stored RBAC entry
+
+### Local Username/Password Mode
+
+Use this when you want admin-managed local accounts instead of Google login.
 
 ```env
 AUTH_ENABLED=true
@@ -151,42 +226,146 @@ DEV_MODE=false
 ```
 
 Behavior:
+
 - frontend shows a username/password login screen
 - backend authenticates against the local account store
-- backend issues the same `HttpOnly` signed session cookie
+- backend issues the same `HttpOnly` signed session cookie used by Google mode
+- RBAC still uses the same `admin` / `designer` / `viewer` role enforcement
 - admin users can create, update, reset, and delete local accounts from Settings
-- roles remain `admin`, `designer`, and `viewer`
 
-### Local Dev Bypass
+### Local Development Bypass
 
 ```env
 AUTH_ENABLED=true
-GOOGLE_CLIENT_ID=
-SESSION_SECRET=
 DEV_MODE=true
 ```
 
 Behavior:
-- auth is effectively disabled because the backend always disables auth when `DEV_MODE=true`
-- this is convenient for local backend/frontend development
+
+- auth is effectively disabled whenever `DEV_MODE=true`
+- backend serves a guest admin session
+- this is intended for local development only
+
+## Access Control and RBAC
+
+KiCAD Prism always enforces the same three roles:
+
+- `viewer`
+- `designer`
+- `admin`
+
+Role behavior:
+
+- `viewer`
+  Read-only access
+- `designer`
+  Read access plus project and folder mutation features
+- `admin`
+  Full access including Settings and access management
+
+RBAC enforcement does not change based on login provider. Only the way the user authenticates changes.
+
+## First Admin Setup
+
+### Google Mode
+
+There are two normal ways to get the first admin:
+
+- set `BOOTSTRAP_ADMIN_USERS_STR=your-email@example.com`
+- manually write a role entry into `.rbac_roles.json`
+
+Recommended flow:
+
+1. Set your Google account in `BOOTSTRAP_ADMIN_USERS_STR`
+2. Start Prism
+3. Log in with that Google account
+4. Open `Settings`
+5. Manage the rest of the users from `Access Control`
+
+### Local Username/Password Mode
+
+The first admin comes from `.env`, not from the UI.
+
+Use:
+
+```env
+LOCAL_BOOTSTRAP_ADMIN_USERNAME=admin
+LOCAL_BOOTSTRAP_ADMIN_PASSWORD=choose-a-strong-password
+LOCAL_BOOTSTRAP_ADMIN_NAME=Workspace Admin
+```
+
+On first login:
+
+1. Start Prism in local mode
+2. Log in with `LOCAL_BOOTSTRAP_ADMIN_USERNAME`
+3. Use `LOCAL_BOOTSTRAP_ADMIN_PASSWORD`
+4. Open `Settings`
+5. Create additional local accounts in `Local Accounts`
+
+Bootstrap admin behavior:
+
+- it is created automatically if it does not already exist
+- it cannot be deleted
+- its role cannot be downgraded below `admin`
+
+## Access Control Walkthrough
+
+### In Google Mode
+
+Open:
+
+- `Settings`
+- `Access Control`
+
+An admin can:
+
+- add a user email and assign `viewer`, `designer`, or `admin`
+- update an existing user’s role
+- remove explicit role assignments
+
+If a user belongs to a domain listed in `DEFAULT_VIEWER_DOMAINS_STR`, their first successful login can auto-create a `viewer` role entry. An admin can then promote that user later.
+
+### In Local Mode
+
+Open:
+
+- `Settings`
+- `Local Accounts`
+
+An admin can:
+
+- create a new account with username, display name, password, and role
+- update a user’s display name
+- change a user’s role
+- reset a user’s password
+- delete a user
+
+There is no self-service sign-up flow. Admin creates and manages all local users.
 
 ## Google OAuth Setup
 
-Create a Google OAuth client of type "Web application" and add the frontend origins and redirect URIs you actually use.
+If you use `AUTH_PROVIDER=google`, create a Google OAuth client of type `Web application`.
 
-Typical origins:
-- local frontend dev: `http://127.0.0.1:5173`
-- local Docker frontend: `http://127.0.0.1:8080`
-- production: `https://your-domain.example`
+Add the frontend origin and callback URI that match your deployment exactly.
 
-Typical redirect URIs:
-- local frontend dev: `http://127.0.0.1:5173/auth/callback`
-- local Docker frontend: `http://127.0.0.1:8080/auth/callback`
-- production: `https://your-domain.example/auth/callback`
+Common examples:
 
-Use the client ID value in `GOOGLE_CLIENT_ID` and the client secret in `GOOGLE_CLIENT_SECRET`.
+- local Docker:
+  - origin: `http://127.0.0.1:8080`
+  - redirect URI: `http://127.0.0.1:8080/auth/callback`
+- internal hostname:
+  - origin: `http://kicad-prism.example.internal`
+  - redirect URI: `http://kicad-prism.example.internal/auth/callback`
+- HTTPS deployment:
+  - origin: `https://kicad-prism.example.com`
+  - redirect URI: `https://kicad-prism.example.com/auth/callback`
 
-If your production deployment is HTTPS, also set:
+Use:
+
+- `GOOGLE_CLIENT_ID` for the OAuth client ID
+- `GOOGLE_CLIENT_SECRET` for the OAuth client secret
+
+If you serve Prism over HTTPS, also set:
 
 ```env
 SESSION_COOKIE_SECURE=true
@@ -201,49 +380,141 @@ KiCAD Prism supports two normal approaches.
 Recommended for long-lived hosted deployments.
 
 - SSH material persists under `./data/ssh`
-- backend startup ensures `~/.ssh` exists and scans common Git hosts into `known_hosts`
+- backend startup ensures `~/.ssh` exists
 - add the generated or mounted public key to your Git host account
 
 ### GitHub Personal Access Token
 
-If you use HTTPS cloning for private GitHub repositories, set:
+If you use HTTPS cloning for private GitHub repositories:
 
 ```env
 GITHUB_TOKEN=your_token_here
 ```
 
-The backend configures Git URL rewriting at startup so GitHub HTTPS operations can use the token.
+## Custom URL and DNS
 
-## Local Development Hosting
+By default, Prism is available on:
 
-### Backend
+- `http://server-ip:8080`
 
-```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+If you want a custom URL such as:
+
+- `http://kicad-prism.example.com`
+- `https://kicad-prism.example.com`
+
+you need:
+
+1. DNS pointing the hostname to your server
+2. a reverse proxy forwarding that hostname to `127.0.0.1:8080`
+
+### DNS Setup
+
+Create an `A` record or equivalent:
+
+- `kicad-prism.example.com -> <server-ip>`
+
+For internal office or VPN-only deployments, use your internal DNS system if available.
+
+## Why a Reverse Proxy Helps
+
+Prism listens on port `8080` by default.
+
+A reverse proxy lets users access:
+
+- `http://kicad-prism.example.com`
+
+while forwarding traffic internally to:
+
+- `http://127.0.0.1:8080`
+
+Benefits:
+
+- cleaner URLs
+- optional HTTPS termination
+- easier host-based routing if you run multiple services on one server
+
+## Reverse Proxy Examples
+
+### Caddy
+
+Basic HTTP proxy:
+
+```caddyfile
+kicad-prism.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
 ```
 
-Notes:
-- backend settings also support a backend-local `.env`
-- if nothing is configured, local dev defaults generally keep auth off because `DEV_MODE=true`
+HTTPS with explicit certificate files:
 
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
+```caddyfile
+kicad-prism.example.com {
+    tls /path/to/fullchain.pem /path/to/privkey.pem
+    reverse_proxy 127.0.0.1:8080
+}
 ```
 
-Frontend dev URL:
-- [http://127.0.0.1:5173](http://127.0.0.1:5173)
+### Nginx
 
-## Operational Notes
+```nginx
+server {
+    listen 80;
+    server_name kicad-prism.example.com;
 
-### Rebuild after env or frontend changes
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+If HTTPS terminates at the reverse proxy, set:
+
+```env
+SESSION_COOKIE_SECURE=true
+```
+
+## Deployment Patterns
+
+### Direct Internal Access
+
+Users open:
+
+- `http://server-ip:8080`
+- or `http://dns-name:8080`
+
+### Reverse-Proxy Access
+
+Users open:
+
+- `http://kicad-prism.example.com`
+
+The proxy forwards to:
+
+- `http://127.0.0.1:8080`
+
+### Reverse Proxy with HTTPS
+
+Users open:
+
+- `https://kicad-prism.example.com`
+
+The proxy:
+
+- terminates TLS
+- forwards to `http://127.0.0.1:8080`
+
+Prism should use:
+
+```env
+SESSION_COOKIE_SECURE=true
+```
+
+## Operational Commands
+
+### Rebuild after config or frontend changes
 
 ```bash
 docker compose up --build -d
@@ -256,49 +527,85 @@ docker compose logs --tail=100 frontend
 docker compose logs --tail=100 backend
 ```
 
-### Session behavior
+### Check current auth config
+
+```bash
+curl http://127.0.0.1:8000/api/auth/config
+```
+
+### Check running containers
+
+```bash
+docker compose ps
+```
+
+## Session Notes
 
 - changing `SESSION_SECRET` invalidates all existing sessions
 - secure cookies require HTTPS and will not work correctly on plain HTTP if `SESSION_COOKIE_SECURE=true`
+- switching auth provider changes the login flow, but RBAC remains role-based
 
 ## Troubleshooting
 
-### Blank page with frontend bundle errors
-
-If the browser shows a blank page, open DevTools and check the first JavaScript error.
-
-A previously observed production issue came from unsafe manual chunk splitting. If a bundle regression returns, rebuild and verify that:
-- `/assets/index-*.js` loads successfully
-- `/api/auth/config` returns `200`
-- the first console error is captured before reloading again
-
-### `SESSION_SECRET is not configured`
-
-Cause:
-- auth is enabled but `SESSION_SECRET` is empty
-
-Fix:
-- set `SESSION_SECRET` in the root `.env`
-- rebuild/restart the stack
-
-### Google sign-in not appearing
+### Login screen does not match the configured auth mode
 
 Check:
-- `AUTH_ENABLED=true`
-- `GOOGLE_CLIENT_ID` is set
+
+- `AUTH_ENABLED`
+- `AUTH_PROVIDER`
 - `DEV_MODE=false`
-- browser origin is listed in the Google OAuth configuration
+- `docker compose up --build -d` was run after `.env` changes
 
-### Login works but API requests fail after deploy
+### Local login rejects credentials
 
 Check:
-- `SESSION_COOKIE_SECURE` matches your transport mode
-- HTTPS termination is configured correctly if using secure cookies
-- browser is not blocking cookies for the deployed origin
+
+- `AUTH_PROVIDER=local`
+- `LOCAL_BOOTSTRAP_ADMIN_USERNAME`
+- `LOCAL_BOOTSTRAP_ADMIN_PASSWORD`
+- `SESSION_SECRET` is set
+
+On a fresh local-mode deployment, the bootstrap admin values must be present before the backend starts.
+
+### Google login fails
+
+Check:
+
+- `AUTH_PROVIDER=google`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- the deployed origin matches the OAuth client configuration
+- the deployed callback URI matches `/auth/callback`
+
+### User can log in but sees the wrong permissions
+
+Check:
+
+- Google mode:
+  - `.rbac_roles.json`
+  - `BOOTSTRAP_ADMIN_USERS_STR`
+  - `DEFAULT_VIEWER_DOMAINS_STR`
+- Local mode:
+  - `Local Accounts` settings
+  - `.local_accounts.json`
+
+### Session problems after changing auth settings
+
+Changing any of these can affect active sessions:
+
+- `SESSION_SECRET`
+- `SESSION_COOKIE_SECURE`
+- reverse proxy transport mode
+- auth provider
+
+After changes, rebuild and sign in again.
 
 ### Imported repositories disappear after restart
 
-Check that `./data/projects` is mounted and writable on the host.
+Check:
+
+- `./data/projects` is mounted
+- the Docker host can write to that path
 
 ## Related Docs
 

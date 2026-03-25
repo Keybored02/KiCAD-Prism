@@ -147,15 +147,15 @@ npm run dev
 
 Frontend dev server runs on [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
-By default, local development usually runs without auth because `DEV_MODE=true` and no Google client ID is configured.
+By default, local development usually runs without auth because `DEV_MODE=true`.
 
 ## Authentication Model
 
-Current auth behavior is session-based:
+Current auth behavior is session-based regardless of provider:
 
 - frontend reads `/api/auth/config`
-- frontend redirects to Google OAuth and receives an auth code at `/auth/callback`
-- `/auth/callback` exchanges that auth code with `/api/auth/login`
+- when `AUTH_PROVIDER=google`, frontend redirects to Google OAuth and completes the `/auth/callback` code exchange flow
+- when `AUTH_PROVIDER=local`, frontend submits username/password to `/api/auth/login/local`
 - backend issues an `HttpOnly` signed session cookie
 - subsequent API calls resolve the current user and role from that cookie
 
@@ -166,8 +166,10 @@ RBAC roles:
 
 Auth is effectively enabled only when all of the following are true:
 - `AUTH_ENABLED=true`
-- `GOOGLE_CLIENT_ID` is set
 - `DEV_MODE=false`
+- either:
+  - `AUTH_PROVIDER=google` and both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set, or
+  - `AUTH_PROVIDER=local`
 
 ## Project Documentation
 
