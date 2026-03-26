@@ -13,6 +13,11 @@ from typing import List, Optional, Dict
 from dataclasses import dataclass
 from git import Repo, RemoteProgress
 from app.services import project_service, path_config_service
+from app.services.git_auth_service import (
+    build_git_env,
+    ensure_remote_uses_authenticated_url,
+    normalize_remote_url_for_auth,
+)
 
 
 @dataclass
@@ -37,16 +42,6 @@ class AnalysisResult:
 
 # Global job store for import operations
 jobs: Dict[str, dict] = {}
-
-
-def has_ssh_key() -> bool:
-    """Check if a default SSH key exists."""
-    ssh_dir = Path.home() / ".ssh"
-    key_types = ["id_ed25519", "id_rsa"]
-    for kt in key_types:
-        if (ssh_dir / kt).exists():
-            return True
-    return False
 
 
 class CloneProgress(RemoteProgress):
@@ -139,9 +134,7 @@ def analyze_repository(repo_url: str) -> AnalysisResult:
     Analyze a repository to determine import type and discover projects.
     Performs a shallow clone to a temporary directory.
     """
-    # Error out if HTTPS is used while SSH key is present
-    if repo_url.startswith("https://") and has_ssh_key() and not os.environ.get('GITHUB_TOKEN'):
-        raise ValueError("HTTPS URL provided. Please use the SSH URL (git@github.com:...) when an SSH key is configured.")
+    clone_url, _ = normalize_remote_url_for_auth(repo_url)
 
     repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
     
@@ -151,13 +144,9 @@ def analyze_repository(repo_url: str) -> AnalysisResult:
     
     try:
         # Shallow clone for analysis
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        # Trust On First Use (TOFU) for SSH
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+        env = build_git_env()
         repo = Repo.clone_from(
-            repo_url,
+            clone_url,
             str(clone_path),
             depth=1,
             single_branch=True,
@@ -199,27 +188,19 @@ def _run_analyze_job(job_id: str, repo_url: str):
     
     try:
         job['logs'].append(f"Analyzing {repo_url}...")
-        
-        # Error out if HTTPS is used while SSH key is present
-        if repo_url.startswith("https://") and has_ssh_key() and not os.environ.get('GITHUB_TOKEN'):
-            error_msg = "HTTPS URL provided. Please use the SSH URL (git@github.com:...) for private repositories when an SSH key is configured."
-            job['logs'].append(f"Error: {error_msg}")
-            job['status'] = 'failed'
-            job['error'] = error_msg
-            return
+
+        clone_url, normalized = normalize_remote_url_for_auth(repo_url)
+        if normalized:
+            job['logs'].append(f"Using SSH authentication for {repo_url}.")
         
         repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
         temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
         clone_path = Path(temp_dir) / repo_name
         
         job['logs'].append("Cloning repository (blobless/no-checkout)...")
-        
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+        env = build_git_env()
         repo = Repo.clone_from(
-            repo_url,
+            clone_url,
             str(clone_path),
             depth=1,
             single_branch=True,
@@ -296,13 +277,9 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
     job = jobs[job_id]
     
     try:
-        # Error out if HTTPS is used while SSH key is present
-        if repo_url.startswith("https://") and has_ssh_key() and not os.environ.get('GITHUB_TOKEN'):
-            error_msg = "HTTPS URL provided. Please use the SSH URL (git@github.com:...) for private repositories when an SSH key is configured."
-            job['logs'].append(f"Error: {error_msg}")
-            job['status'] = 'failed'
-            job['error'] = error_msg
-            return
+        clone_url, normalized = normalize_remote_url_for_auth(repo_url)
+        if normalized:
+            job['logs'].append(f"Using SSH authentication for {repo_url}.")
 
         # Extract repo name
         repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
@@ -372,13 +349,9 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
         
         # Clone repository
         job['logs'].append(f"Cloning {repo_url}...")
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        # Trust On First Use (TOFU) for SSH
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+        env = build_git_env()
         Repo.clone_from(
-            repo_url,
+            clone_url,
             str(target_path),
             progress=CloneProgress(job_id),
             env=env
@@ -571,14 +544,9 @@ def sync_project(project_id: str) -> dict:
 
     try:
         repo = Repo(sync_path)
+        origin_url, rewritten = ensure_remote_uses_authenticated_url(repo)
         origin = repo.remote('origin')
-        
-        # Fetch and pull
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        # Trust On First Use (TOFU) for SSH
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+        env = build_git_env()
         fetch_info = origin.fetch(env=env)
         origin.pull(env=env)
 
@@ -587,7 +555,11 @@ def sync_project(project_id: str) -> dict:
         
         return {
             "status": "success",
-            "message": f"Synced {len(fetch_info)} ref(s)",
+            "message": (
+                f"Synced {len(fetch_info)} ref(s) via {origin_url}"
+                if rewritten and origin_url
+                else f"Synced {len(fetch_info)} ref(s)"
+            ),
             "path": sync_path
         }
         

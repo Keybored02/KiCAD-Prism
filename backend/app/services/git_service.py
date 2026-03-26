@@ -5,6 +5,8 @@ from git.exc import BadName, GitCommandError
 from typing import Dict, Any
 import datetime
 
+from app.services.git_auth_service import build_git_env, ensure_remote_uses_authenticated_url
+
 
 def _open_repo(repo_path: str) -> Repo:
     if not os.path.exists(repo_path):
@@ -233,11 +235,8 @@ def sync_with_remote(repo_path: str) -> Dict[str, Any]:
         # Perform git pull
         origin = repo.remotes.origin
         
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        # Trust On First Use (TOFU) for SSH
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+        ensure_remote_uses_authenticated_url(repo)
+        env = build_git_env()
         pull_info = origin.pull(env=env)
         
         # Get new HEAD after sync
