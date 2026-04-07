@@ -71,33 +71,7 @@ function App() {
     // Fetch auth configuration on mount
     useEffect(() => {
         const controller = new AbortController();
-
-        const fetchCurrentUser = async (config: AuthConfig) => {
-            try {
-                const currentUser = await fetchJson<User>(
-                    '/api/auth/me',
-                    { signal: controller.signal },
-                    'Failed to fetch current user'
-                );
-                if (controller.signal.aborted) {
-                    return;
-                }
-                setUser(currentUser);
-                setAuthError(null);
-            } catch (err) {
-                if (controller.signal.aborted) {
-                    return;
-                }
-                if (err instanceof ApiHttpError && (err.status === 401 || err.status === 403)) {
-                    setUser(null);
-                    setAuthError(config.auth_enabled && err.status === 403 ? err.message : null);
-                    return;
-                }
-                throw err;
-            }
-        };
-
-        const fetchAuthConfig = async () => {
+        const loadAuthState = async () => {
             try {
                 const config = await fetchAuthConfig(controller.signal);
                 if (controller.signal.aborted) {
@@ -106,7 +80,7 @@ function App() {
 
                 setAuthConfig(config);
                 setAuthError(null);
-                await fetchCurrentUser(config);
+                await loadCurrentUser(config, controller.signal);
             } catch (err) {
                 if (controller.signal.aborted) {
                     return;
@@ -121,7 +95,7 @@ function App() {
             }
         };
 
-        initializeAuth();
+        void loadAuthState();
         return () => controller.abort();
     }, []);
 
@@ -170,15 +144,6 @@ function App() {
             </Suspense>
         );
     }
-
-    if (!authConfig) {
-        return (
-            <div className="flex items-center justify-center h-screen bg-background">
-                <div className="text-red-500">{authError || 'Failed to load authentication configuration.'}</div>
-            </div>
-        );
-    }
-
     // If auth is enabled and no user, show login page
     if (authConfig.auth_enabled && !user) {
         // Fallback for missing client ID in config
