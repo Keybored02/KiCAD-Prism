@@ -304,7 +304,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                 else:
                     job['logs'].append(f"SCH Export FAILED (Code {res.returncode})")
             else:
-                job['logs'].append(f"No .kicad_sch found for {commit}")
+                job['logs'].append(f"No root .kicad_sch resolved for {commit}")
             
             # 3. Export PCB Layers
             if pcb_file:
@@ -401,6 +401,8 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                         bom_csvs[commit] = csv_path.read_text(encoding="utf-8")
                     else:
                         job['logs'].append(f"BoM export failed for {commit}: {res.stderr}")
+                else:
+                    job['logs'].append(f"Skipping BoM export for {commit}: no root .kicad_sch resolved")
             
             if commit1 in bom_csvs and commit2 in bom_csvs:
                 old_bom = bom_diff_service.parse_bom_csv(bom_csvs[commit2])
