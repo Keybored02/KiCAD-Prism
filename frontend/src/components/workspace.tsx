@@ -8,10 +8,11 @@ import type { FolderTreeItem, Project } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceData } from "@/hooks/use-workspace-data";
 import { useWorkspaceSearch } from "@/hooks/use-workspace-search";
-import { WorkspaceAppsPlaceholder } from "./workspace/workspace-apps-placeholder";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
 import { WorkspaceListView } from "./workspace/workspace-list-view";
+import { LibraryManagerPanel } from "./workspace/library-manager-panel";
+import { WorkspaceAppsPlaceholder } from "./workspace/workspace-apps-placeholder";
 import { WorkspaceLoadingState } from "./workspace/workspace-loading-state";
 import { WorkspaceProjectPropertiesSheet } from "./workspace/workspace-project-properties-sheet";
 import { WorkspaceProjectToolbar } from "./workspace/workspace-project-toolbar";
@@ -55,6 +56,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [section, setSection] = useState<WorkspaceSection>("projects");
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [activeApp, setActiveApp] = useState<"index" | "library-manager">("index");
 
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -158,6 +160,12 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       setSelectedProjectId(null);
     }
   }, [projects, selectedProjectId]);
+
+  useEffect(() => {
+    if (section !== "apps") {
+      setActiveApp("index");
+    }
+  }, [section]);
 
   const handleCreateFolder = async (name: string) => {
     if (!canManageProjects) {
@@ -312,7 +320,11 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
             {loading ? (
               <WorkspaceLoadingState />
             ) : section === "apps" ? (
-              <WorkspaceAppsPlaceholder />
+              activeApp === "library-manager" ? (
+                <LibraryManagerPanel user={user} />
+              ) : (
+                <WorkspaceAppsPlaceholder onOpenLibraryManager={() => setActiveApp("library-manager")} />
+              )
             ) : (
               <div className="flex h-full min-h-0 flex-col p-6">
                 <WorkspaceBreadcrumbs
