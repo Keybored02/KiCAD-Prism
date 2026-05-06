@@ -30,6 +30,7 @@ class Project(BaseModel):
     parent_repo_path: Optional[str] = None  # Path to parent repo for Type-2
     folder_id: Optional[str] = None  # Optional folder assignment for workspace organization
     portfolio: Optional[Dict[str, Any]] = None  # Portfolio scene/detail metadata
+    local_path_mode: Optional[str] = None  # "reference" or "copy" for local-path imports
 
 
 class RegisteredProjectRecord(BaseModel):
@@ -45,6 +46,7 @@ class RegisteredProjectRecord(BaseModel):
     import_type: Optional[str] = None
     parent_repo_path: Optional[str] = None
     folder_id: Optional[str] = None
+    local_path_mode: Optional[str] = None  # "reference" or "copy" for local-path imports
 
 # PROJECTS_ROOT is where imported projects are stored.
 # In Docker, this should be a persistent volume mount.
@@ -262,6 +264,7 @@ def _record_to_project(record: RegisteredProjectRecord) -> Project:
         parent_repo_path=record.parent_repo_path,
         folder_id=record.folder_id,
         portfolio=portfolio,
+        local_path_mode=record.local_path_mode,
     )
 
 
@@ -300,6 +303,7 @@ def get_registered_project_records() -> List[RegisteredProjectRecord]:
                     else None
                 ),
                 folder_id=data.get("folder_id"),
+                local_path_mode=data.get("local_path_mode"),
             )
         )
 
@@ -783,18 +787,23 @@ def delete_project(project_id: str) -> bool:
     project_path = project.path
     parent_repo = project.parent_repo
     import_type = project.import_type
-    
+    local_path_mode = project.local_path_mode
+
     # Remove from registry
     del registry[project_id]
     _save_project_registry(registry)
-    
+
+    # Never delete files for reference-mode local imports
+    if local_path_mode == "reference":
+        return True
+
     if import_type == "type2_subproject" and parent_repo:
         # Check if there are any remaining subprojects for this parent repo
         remaining_subprojects = [
             p for p in registry.values()
             if p.get("parent_repo") == parent_repo and p.get("import_type") == "type2_subproject"
         ]
-        
+
         # If no remaining subprojects, delete the parent repo directory
         if not remaining_subprojects and project_path:
             parent_repo_path = project.parent_repo_path or os.path.dirname(project_path)

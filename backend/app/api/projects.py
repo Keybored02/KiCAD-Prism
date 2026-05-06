@@ -331,17 +331,18 @@ class ImportRequest(BaseModel):
     url: str
     import_type: str  # "type1" or "type2"
     selected_paths: Optional[List[str]] = None
+    local_path_mode: Optional[str] = None  # "reference" or "copy" for local imports
 
 @router.post("/analyze", dependencies=[Depends(require_designer)])
 async def analyze_repository(request: AnalyzeRequest):
     """
-    Analyze a repository to determine import type and discover KiCAD projects.
-    Returns Type-1 or Type-2 classification and project list.
+    Analyze a repository (remote URL or local path) to determine import type
+    and discover KiCAD projects.
     """
     try:
         job_id = project_import_service.start_analyze_job(request.url)
         return {"job_id": job_id, "status": "started"}
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
@@ -351,12 +352,19 @@ async def import_project(request: ImportRequest):
     Start an async project import job.
     For Type-1: imports single project at root.
     For Type-2: imports selected subprojects.
+    For local paths: local_path_mode must be "reference" or "copy".
     """
+    if project_import_service.is_local_path(request.url) and not request.local_path_mode:
+        raise HTTPException(
+            status_code=400,
+            detail="local_path_mode ('reference' or 'copy') is required for local path imports",
+        )
     try:
         job_id = project_import_service.start_import_job(
             repo_url=request.url,
             import_type=request.import_type,
-            selected_paths=request.selected_paths
+            selected_paths=request.selected_paths,
+            local_path_mode=request.local_path_mode,
         )
         return {"job_id": job_id, "status": "started"}
     except ValueError as e:

@@ -1,7 +1,8 @@
 """
 Project Import Service for KiCAD Prism
 
-Handles Type-1 (single project) and Type-2 (multiple projects) imports.
+Handles Type-1 (single project) and Type-2 (multiple projects) imports,
+both from remote Git URLs and local filesystem paths.
 """
 import os
 import shutil
@@ -11,7 +12,7 @@ import threading
 from pathlib import Path
 from typing import List, Optional, Dict
 from dataclasses import dataclass
-from git import Repo, RemoteProgress
+from git import Repo, RemoteProgress, InvalidGitRepositoryError
 from app.services import project_service, path_config_service
 from app.services.workspace_service import workspace
 
@@ -77,6 +78,211 @@ def is_excluded_directory(dir_name: str) -> bool:
         'node_modules', '.venv', 'venv', '.env'
     }
     return dir_name.lower() in excluded or dir_name.startswith('.')
+
+
+def is_local_path(url_or_path: str) -> bool:
+    """Return True if the string looks like a local filesystem path rather than a remote URL."""
+    p = url_or_path.strip()
+    if p.startswith(("https://", "http://", "git@", "ssh://", "git://")):
+        return False
+    # Windows absolute paths (C:\..., \\server\share) and POSIX absolute paths
+    if os.path.isabs(p) or p.startswith("\\\\"):
+        return True
+    # Relative paths that exist on disk
+    if os.path.exists(p):
+        return True
+    return False
+
+
+def discover_projects_from_filesystem(root: Path) -> List[DiscoveredProject]:
+    """
+    Discover KiCAD projects by walking the filesystem directly.
+    Used for local-path imports (no git ls-tree available or needed).
+    """
+    projects = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Prune excluded directories in-place so os.walk skips them
+        dirnames[:] = [d for d in dirnames if not is_excluded_directory(d)]
+
+        pro_files = [f for f in filenames if f.endswith(".kicad_pro")]
+        if not pro_files:
+            continue
+
+        rel = Path(dirpath).relative_to(root)
+        rel_str = rel.as_posix() if str(rel) != "." else "."
+        has_sch = any(f.endswith(".kicad_sch") for f in filenames)
+        has_pcb = any(f.endswith(".kicad_pcb") for f in filenames)
+
+        for pro_file in pro_files:
+            projects.append(DiscoveredProject(
+                name=Path(pro_file).stem,
+                relative_path=rel_str,
+                full_path=dirpath,
+                has_schematic=has_sch,
+                has_pcb=has_pcb,
+            ))
+
+    projects.sort(key=lambda p: (0 if p.relative_path == "." else len(p.relative_path.split("/")), p.name.lower()))
+    return projects
+
+
+def _run_analyze_local_job(job_id: str, local_path: str):
+    """Background job: analyze a local filesystem path for KiCAD projects."""
+    job = jobs[job_id]
+    try:
+        root = Path(local_path)
+        if not root.exists() or not root.is_dir():
+            job['status'] = 'failed'
+            job['error'] = f"Path does not exist or is not a directory: {local_path}"
+            return
+
+        repo_name = root.name
+        job['logs'].append(f"Scanning {local_path} for KiCAD projects...")
+
+        projects = discover_projects_from_filesystem(root)
+
+        import_type = "type2"
+        if len(projects) == 1 and projects[0].relative_path == ".":
+            import_type = "type1"
+
+        job['logs'].append(f"Found {len(projects)} project(s). Type: {import_type}")
+        job['result'] = {
+            "repo_name": repo_name,
+            "repo_url": local_path,
+            "import_type": import_type,
+            "is_local": True,
+            "projects": [
+                {
+                    "name": p.name,
+                    "relative_path": p.relative_path,
+                    "has_schematic": p.has_schematic,
+                    "has_pcb": p.has_pcb,
+                }
+                for p in projects
+            ],
+        }
+        job['status'] = 'completed'
+        job['percent'] = 100
+        job['message'] = "Analysis complete."
+    except Exception as e:
+        job['status'] = 'failed'
+        job['error'] = str(e)
+        job['logs'].append(f"Error: {str(e)}")
+
+
+def _run_import_local_job(job_id: str, local_path: str, import_type: str,
+                          selected_paths: Optional[List[str]],
+                          local_path_mode: str):
+    """
+    Background job: import a local git repo.
+    local_path_mode: "reference" — register in-place, "copy" — git clone into data/projects.
+    """
+    job = jobs[job_id]
+    target_path = None
+    try:
+        source = Path(local_path)
+        if not source.exists() or not source.is_dir():
+            job['status'] = 'failed'
+            job['error'] = f"Path does not exist: {local_path}"
+            return
+
+        repo_name = source.name
+
+        if local_path_mode == "copy":
+            # Clone the local repo into data/projects just like a remote import
+            if import_type == "type1":
+                base_path = Path(project_service.PROJECTS_ROOT) / "type1"
+            else:
+                base_path = Path(project_service.PROJECTS_ROOT) / "type2"
+
+            target_path = base_path / repo_name
+            if target_path.exists():
+                registry = project_service._load_project_registry()
+                existing = [p for p in registry.values()
+                            if p.get("parent_repo") == repo_name or
+                            project_service._normalize_path(p.get("path", "")) == str(target_path.resolve())]
+                if existing:
+                    job['status'] = 'failed'
+                    job['error'] = f"Repository '{repo_name}' already exists"
+                    return
+                shutil.rmtree(target_path)
+
+            base_path.mkdir(parents=True, exist_ok=True)
+            job['logs'].append(f"Cloning {local_path} → {target_path}...")
+            Repo.clone_from(str(source), str(target_path), progress=CloneProgress(job_id))
+            job['logs'].append("Clone complete.")
+            effective_path = target_path
+            effective_url = local_path  # keep original path as repo_url
+        else:
+            # Reference mode — use the path directly
+            effective_path = source
+            effective_url = local_path
+
+        job['logs'].append("Registering projects...")
+        registry = project_service._load_project_registry()
+        imported_ids = []
+
+        if import_type == "type1":
+            project_id = generate_project_id(repo_name, registry)
+            project_service.register_project(
+                project_id=project_id,
+                name=repo_name,
+                path=str(effective_path),
+                repo_url=effective_url,
+            )
+            registry = project_service._load_project_registry()
+            if project_id in registry:
+                registry[project_id]['import_type'] = 'type1'
+                registry[project_id]['local_path_mode'] = local_path_mode
+                project_service._save_project_registry(registry)
+            imported_ids.append(project_id)
+            job['logs'].append(f"Registered: {project_id}")
+        else:
+            if not selected_paths:
+                job['status'] = 'failed'
+                job['error'] = "No projects selected"
+                return
+            for rel_path in selected_paths:
+                safe_name = rel_path.replace('/', '-').replace(' ', '_')
+                base_id = f"{repo_name}-{safe_name}"
+                project_id = generate_project_id(base_id, registry)
+                full_project_path = effective_path / rel_path
+                pro_files = list(full_project_path.glob("*.kicad_pro"))
+                board_name = pro_files[0].stem if pro_files else os.path.basename(rel_path)
+                project_service.register_project(
+                    project_id=project_id,
+                    name=board_name,
+                    path=str(full_project_path),
+                    repo_url=effective_url,
+                    sub_path=rel_path,
+                    parent_repo=repo_name,
+                )
+                registry = project_service._load_project_registry()
+                if project_id in registry:
+                    registry[project_id]['import_type'] = 'type2_subproject'
+                    registry[project_id]['parent_repo_path'] = str(effective_path)
+                    registry[project_id]['relative_path'] = rel_path
+                    registry[project_id]['local_path_mode'] = local_path_mode
+                    project_service._save_project_registry(registry)
+                imported_ids.append(project_id)
+                job['logs'].append(f"Registered: {project_id}")
+                registry = project_service._load_project_registry()
+
+        job['project_ids'] = imported_ids
+        job['status'] = 'completed'
+        job['percent'] = 100
+        job['message'] = f"Imported {len(imported_ids)} project(s)"
+        job['logs'].append("Import completed successfully.")
+
+    except Exception as e:
+        job['status'] = 'failed'
+        job['error'] = str(e)
+        job['logs'].append(f"Error: {str(e)}")
+        if local_path_mode == "copy" and target_path and target_path.exists():
+            try:
+                shutil.rmtree(target_path)
+            except Exception:
+                pass
 
 
 def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
@@ -458,14 +664,16 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
                 pass
 
 
-def start_import_job(repo_url: str, import_type: str, 
-                     selected_paths: Optional[List[str]] = None) -> str:
+def start_import_job(repo_url: str, import_type: str,
+                     selected_paths: Optional[List[str]] = None,
+                     local_path_mode: Optional[str] = None) -> str:
     """
     Start an asynchronous import job.
+    For local paths, local_path_mode must be "reference" or "copy".
     Returns job ID for polling.
     """
     job_id = str(uuid.uuid4())
-    
+
     jobs[job_id] = {
         "job_id": job_id,
         "status": "running",
@@ -476,16 +684,23 @@ def start_import_job(repo_url: str, import_type: str,
         "logs": [f"Starting import of {repo_url}"],
         "type": "import",
         "repo_url": repo_url,
-        "import_type": import_type
+        "import_type": import_type,
     }
-    
-    thread = threading.Thread(
-        target=_run_import_job,
-        args=(job_id, repo_url, import_type, selected_paths)
-    )
+
+    if is_local_path(repo_url):
+        mode = local_path_mode or "reference"
+        thread = threading.Thread(
+            target=_run_import_local_job,
+            args=(job_id, repo_url, import_type, selected_paths, mode),
+        )
+    else:
+        thread = threading.Thread(
+            target=_run_import_job,
+            args=(job_id, repo_url, import_type, selected_paths),
+        )
+
     thread.daemon = True
     thread.start()
-    
     return job_id
 
 
@@ -495,7 +710,7 @@ def start_analyze_job(repo_url: str) -> str:
     Returns job ID.
     """
     job_id = str(uuid.uuid4())
-    
+
     jobs[job_id] = {
         "job_id": job_id,
         "status": "running",
@@ -504,16 +719,16 @@ def start_analyze_job(repo_url: str) -> str:
         "error": None,
         "logs": [f"Starting analysis of {repo_url}"],
         "type": "analyze",
-        "repo_url": repo_url
+        "repo_url": repo_url,
     }
-    
-    thread = threading.Thread(
-        target=_run_analyze_job,
-        args=(job_id, repo_url)
-    )
+
+    if is_local_path(repo_url):
+        thread = threading.Thread(target=_run_analyze_local_job, args=(job_id, repo_url))
+    else:
+        thread = threading.Thread(target=_run_analyze_job, args=(job_id, repo_url))
+
     thread.daemon = True
     thread.start()
-    
     return job_id
 
 
@@ -546,12 +761,27 @@ def sync_project(project_id: str) -> dict:
 
     try:
         repo = Repo(sync_path)
+    except InvalidGitRepositoryError:
+        return {"status": "error", "message": f"Not a git repository: {sync_path}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+    try:
+        if not repo.remotes:
+            # Local reference-mode repo with no remote — nothing to pull from
+            path_config_service.clear_config_cache()
+            return {
+                "status": "success",
+                "message": "Local repository with no remote; nothing to sync.",
+                "path": sync_path,
+            }
+
         origin = repo.remote('origin')
-        
+
         env = os.environ.copy()
         env['GIT_TERMINAL_PROMPT'] = '0'
         env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+
         fetch_info = origin.fetch(env=env)
         origin.pull(env=env)
 
@@ -564,12 +794,12 @@ def sync_project(project_id: str) -> dict:
 
         # Update repo last_synced_at
         workspace.update_repository_synced(row.get('repo_id', ''))
-        
+
         return {
             "status": "success",
             "message": f"Synced {len(fetch_info)} ref(s)",
-            "path": sync_path
+            "path": sync_path,
         }
-        
+
     except Exception as e:
         return {"status": "error", "message": str(e)}

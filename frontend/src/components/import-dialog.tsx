@@ -12,8 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Check, AlertCircle } from "lucide-react";
+import { Loader2, Check, AlertCircle, Globe, FolderOpen } from "lucide-react";
 import { isDialogSubmitShortcut } from "@/lib/dialog-shortcuts";
+
+type SourceType = "remote" | "local";
+type LocalPathMode = "reference" | "copy";
 
 interface DiscoveredProject {
   name: string;
@@ -27,6 +30,7 @@ interface AnalysisResult {
   repo_url: string;
   import_type: "type1" | "type2";
   projects: DiscoveredProject[];
+  is_local?: boolean;
 }
 
 interface JobStatus {
@@ -75,6 +79,8 @@ export function ImportDialog({
 }: ImportDialogProps) {
   const [state, setState] = useState<ImportState>({ step: "input" });
   const [url, setUrl] = useState("");
+  const [sourceType, setSourceType] = useState<SourceType>("remote");
+  const [localPathMode, setLocalPathMode] = useState<LocalPathMode>("reference");
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const pollTimeoutRef = useRef<number | null>(null);
   const pollControllerRef = useRef<AbortController | null>(null);
@@ -112,6 +118,8 @@ export function ImportDialog({
     stopPolling();
     setState({ step: "input" });
     setUrl("");
+    setSourceType("remote");
+    setLocalPathMode("reference");
     setSelectedPaths(new Set());
   };
 
@@ -230,14 +238,18 @@ export function ImportDialog({
 
     try {
       stopPolling();
+      const body: Record<string, unknown> = {
+        url,
+        import_type: analysis.import_type,
+        selected_paths: pathsToImport,
+      };
+      if (analysis.is_local) {
+        body.local_path_mode = localPathMode;
+      }
       const res = await fetch("/api/projects/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          import_type: analysis.import_type,
-          selected_paths: pathsToImport,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
@@ -410,19 +422,51 @@ export function ImportDialog({
             <DialogHeader>
               <DialogTitle>Import Project</DialogTitle>
               <DialogDescription>
-                Enter the URL of a GitHub repository containing KiCAD projects.
+                Import KiCAD projects from a remote Git repository or a local folder.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
+              {/* Source type toggle */}
+              <div className="flex rounded-md border overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => { setSourceType("remote"); setUrl(""); }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm transition-colors ${
+                    sourceType === "remote"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Globe className="h-4 w-4" />
+                  Git URL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSourceType("local"); setUrl(""); }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm transition-colors ${
+                    sourceType === "local"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  Local Path
+                </button>
+              </div>
+
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="url" className="text-right">
-                  GitHub URL
+                  {sourceType === "remote" ? "URL" : "Path"}
                 </Label>
                 <Input
                   id="url"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://github.com/username/repo"
+                  placeholder={
+                    sourceType === "remote"
+                      ? "https://github.com/username/repo or git@github.com:…"
+                      : "C:\\Projects\\my-board  or  \\\\server\\share\\repo"
+                  }
                   className="col-span-3"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && url.trim()) {
@@ -447,7 +491,7 @@ export function ImportDialog({
         {state.step === "analyzing" && (
           <>
             <DialogHeader>
-              <DialogTitle>Analyzing Repository</DialogTitle>
+              <DialogTitle>Analyzing</DialogTitle>
               <DialogDescription>
                 {state.status?.message || "Starting analysis..."}
               </DialogDescription>
@@ -496,6 +540,48 @@ export function ImportDialog({
                   : `Found ${state.analysis.projects.length} KiCAD projects in ${state.analysis.repo_name}. Select which to import.`}
               </DialogDescription>
             </DialogHeader>
+
+            {state.analysis.is_local && (
+              <div className="rounded-md border p-3 space-y-2">
+                <p className="text-sm font-medium">How should Prism handle this local repo?</p>
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="localPathMode"
+                      value="reference"
+                      checked={localPathMode === "reference"}
+                      onChange={() => setLocalPathMode("reference")}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <p className="text-sm font-medium">Reference in-place</p>
+                      <p className="text-xs text-muted-foreground">
+                        Prism points to the folder directly. No files are copied. If the path
+                        moves or goes offline, the project will be unavailable.
+                      </p>
+                    </div>
+                  </label>
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="localPathMode"
+                      value="copy"
+                      checked={localPathMode === "copy"}
+                      onChange={() => setLocalPathMode("copy")}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <p className="text-sm font-medium">Copy locally</p>
+                      <p className="text-xs text-muted-foreground">
+                        Prism clones the repo into its data folder. The copy is independent of
+                        the original until you sync.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            )}
 
             {state.analysis.import_type === "type2" && (
               <div className="flex items-center justify-between py-2">
