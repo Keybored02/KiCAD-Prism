@@ -360,61 +360,36 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
             else:
                 _log(f"No root .kicad_sch resolved for {commit}")
 
-            # 3. Export PCB Layers
+            # 3. Export PCB Layers (one call per layer — compatible with KiCad 8 and 9)
             if pcb_file:
                 pcb_out_dir = directory / "pcb"
                 pcb_out_dir.mkdir(exist_ok=True)
-                _log(f"Exporting PCB Layers for {commit} from {pcb_file}...")
-
-                # We export standard layers in one shot using --mode-multi
                 all_layers = _get_pcb_layers(pcb_file)
-                cmd = [
-                    CLI_CMD, "pcb", "export", "svg",
-                    "--mode-multi",
-                    "--layers", ",".join(all_layers),
-                    "--black-and-white",
-                    "--exclude-drawing-sheet",
-                    "--page-size-mode", "2",
-                    "--output", str(pcb_out_dir),
-                    str(pcb_file)
-                ]
-                _log(f"PCB CMD: {' '.join(cmd)}")
-                res = subprocess.run(cmd, capture_output=True, text=True)
+                _log(f"Exporting {len(all_layers)} PCB layers for {commit}...")
 
-                if res.returncode == 0:
-                    found_layers = []
-                    _log(f"PCB Export success. Dir content: {list(pcb_out_dir.glob('*.svg'))}")
+                found_layers = []
+                for layer in all_layers:
+                    safe = layer.replace(".", "_")
+                    out_svg = pcb_out_dir / f"{safe}.svg"
+                    cmd = [
+                        CLI_CMD, "pcb", "export", "svg",
+                        "--layers", layer,
+                        "--black-and-white",
+                        "--exclude-drawing-sheet",
+                        "--page-size-mode", "2",
+                        "--output", str(out_svg),
+                        str(pcb_file)
+                    ]
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    if res.returncode == 0 and out_svg.exists():
+                        _colorize_svg(out_svg, color)
+                        found_layers.append(layer)
+                    else:
+                        _log(f"Layer {layer} FAILED (code {res.returncode}): {res.stderr.strip()}")
 
-                    for svg in list(pcb_out_dir.glob("*.svg")):
-                        leaf = svg.name
-                        layer_part = leaf
-                        if leaf.startswith(pcb_file.stem + "-"):
-                            layer_part = leaf[len(pcb_file.stem)+1:]
-
-                        matched_layer = None
-                        for l in all_layers:
-                            if l.replace(".", "_") == layer_part.replace(".svg", ""):
-                                matched_layer = l
-                                break
-
-                        if matched_layer:
-                            target_svg = pcb_out_dir / (matched_layer.replace(".", "_") + ".svg")
-                            _log(f"Matched {leaf} -> {matched_layer} (Target: {target_svg.name})")
-                            if svg.resolve() != target_svg.resolve():
-                                if target_svg.exists(): target_svg.unlink()
-                                svg.rename(target_svg)
-
-                            _colorize_svg(target_svg, color)
-                            found_layers.append(matched_layer)
-                        else:
-                            _log(f"Could not match PCB SVG: {leaf}")
-
-                    if commit == commit1:
-                        manifest["layers"] = sorted(list(set(found_layers)))
-                        _log(f"Populated manifest with {len(manifest['layers'])} layers")
-                else:
-                    _log(f"PCB Export FAILED (Code {res.returncode})")
-                    _log(f"STDERR: {res.stderr}")
+                _log(f"PCB export done: {len(found_layers)}/{len(all_layers)} layers succeeded")
+                if commit == commit1:
+                    manifest["layers"] = sorted(found_layers)
             else:
                 _log(f"No .kicad_pcb found for {commit}")
 
