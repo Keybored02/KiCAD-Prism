@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar, GitCompare } from "lucide-react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar, GitCompare, ChevronDown, ChevronRight, FileText, Plus, Minus, RefreshCw, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { VisualDiffViewer } from "./visual-diff-viewer";
@@ -28,6 +28,23 @@ interface ReleasesResponse {
 
 interface CommitsResponse {
     commits: Commit[];
+}
+
+interface CommitFile {
+    path: string;
+    filename: string;
+    status: "added" | "removed" | "modified" | "renamed";
+    additions: number | null;
+    deletions: number | null;
+    schematic_diff?: {
+        added: number;
+        removed: number;
+        changed: number;
+    };
+}
+
+interface CommitSummary {
+    files: CommitFile[];
 }
 
 interface HistoryViewerProps {

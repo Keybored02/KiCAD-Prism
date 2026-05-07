@@ -44,13 +44,17 @@ interface SchDiff {
     changed: ChangedItem[];
 }
 
+interface SheetData {
+    filename: string;
+    old_content: string | null;
+    new_content: string | null;
+    diff: SchDiff;
+}
+
 interface SchematicDiffData {
     commit1: string;
     commit2: string;
-    sch_filename: string;
-    old_content: string;
-    new_content: string;
-    diff: SchDiff;
+    sheets: SheetData[];
 }
 
 interface DiffMarker {
@@ -103,12 +107,11 @@ function fieldLabel(key: string): string {
 
 interface EcadViewerHostProps {
     viewerKey: string;
-    filename: string;
-    content: string;
+    files: { filename: string; content: string }[];
     viewerRef: React.RefObject<ECadViewerElement | null>;
 }
 
-function EcadViewerHost({ viewerKey, filename, content, viewerRef }: EcadViewerHostProps) {
+function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
     const hostRef = useRef<ECadViewerElement | null>(null);
 
     const attach = useCallback((node: ECadViewerElement | null) => {
@@ -118,7 +121,7 @@ function EcadViewerHost({ viewerKey, filename, content, viewerRef }: EcadViewerH
 
     useLayoutEffect(() => {
         const viewer = hostRef.current;
-        if (!viewer || !content) return;
+        if (!viewer || files.length === 0) return;
 
         let cancelled = false;
         (async () => {
@@ -128,12 +131,14 @@ function EcadViewerHost({ viewerKey, filename, content, viewerRef }: EcadViewerH
             const el = hostRef.current;
             el.querySelectorAll("ecad-blob").forEach((b) => b.remove());
 
-            const blob = document.createElement("ecad-blob") as HTMLElement & {
-                filename?: string; content?: string;
-            };
-            blob.filename = filename;
-            blob.content = content;
-            el.appendChild(blob);
+            for (const { filename, content } of files) {
+                const blob = document.createElement("ecad-blob") as HTMLElement & {
+                    filename?: string; content?: string;
+                };
+                blob.filename = filename;
+                blob.content = content;
+                el.appendChild(blob);
+            }
 
             const withLoader = el as ECadViewerElement & { load_src?: () => Promise<void> };
             if (typeof withLoader.load_src === "function") {
@@ -142,7 +147,7 @@ function EcadViewerHost({ viewerKey, filename, content, viewerRef }: EcadViewerH
         })();
 
         return () => { cancelled = true; };
-    }, [viewerKey, filename, content]);
+    }, [viewerKey, files]);
 
     return (
         <ecad-viewer
@@ -369,6 +374,8 @@ export function SchematicDiffViewer({
         setShowing(next);
     }, [syncCamera]);
 
+    const [activeSheet, setActiveSheet] = useState<string>("");
+
     // Fetch diff data
     useEffect(() => {
         setLoading(true);
@@ -379,19 +386,25 @@ export function SchematicDiffViewer({
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 return r.json() as Promise<SchematicDiffData>;
             })
-            .then((d) => { setData(d); setLoading(false); })
+            .then((d) => {
+                setData(d);
+                if (d.sheets.length > 0) setActiveSheet(d.sheets[0].filename);
+                setLoading(false);
+            })
             .catch((e: unknown) => {
                 setError(e instanceof Error ? e.message : "Failed to load diff");
                 setLoading(false);
             });
     }, [projectId, commit1, commit2]);
 
-    // All markers regardless of filter (for the sidebar list)
+    const activeSheetData = data?.sheets.find(s => s.filename === activeSheet) ?? null;
+
+    // All markers for the active sheet (for the sidebar list)
     const allMarkers: DiffMarker[] = [];
-    if (data) {
-        for (const item of data.diff.added)   allMarkers.push({ kind: "added",   item });
-        for (const item of data.diff.removed)  allMarkers.push({ kind: "removed", item });
-        for (const { item, changes } of data.diff.changed) allMarkers.push({ kind: "changed", item, changes });
+    if (activeSheetData) {
+        for (const item of activeSheetData.diff.added)   allMarkers.push({ kind: "added",   item });
+        for (const item of activeSheetData.diff.removed)  allMarkers.push({ kind: "removed", item });
+        for (const { item, changes } of activeSheetData.diff.changed) allMarkers.push({ kind: "changed", item, changes });
     }
 
     // Filtered markers shown on the overlay
@@ -399,13 +412,20 @@ export function SchematicDiffViewer({
         if (m.kind === "added"   && !showAdded)   return false;
         if (m.kind === "removed" && !showRemoved)  return false;
         if (m.kind === "changed" && !showChanged)  return false;
-        // added items only exist in new view; removed only in old view
         if (m.kind === "added"   && showing !== "new") return false;
         if (m.kind === "removed" && showing !== "old") return false;
         return true;
     });
 
     const totalChanges = allMarkers.length;
+
+    // Total changes across ALL sheets (for sheet selector badges)
+    const sheetChangeCounts = data
+        ? Object.fromEntries(data.sheets.map(s => [
+            s.filename,
+            s.diff.added.length + s.diff.removed.length + s.diff.changed.length,
+          ]))
+        : {};
 
     // Zoom the viewer to a marker's world position
     const zoomToMarker = useCallback((marker: DiffMarker) => {
@@ -506,7 +526,11 @@ export function SchematicDiffViewer({
                                 <span className="text-[10px] font-mono">{showOverlay ? "on" : "off"}</span>
                             </button>
                             {(["added", "removed", "changed"] as const).map((kind) => {
-                                const counts = { added: data.diff.added.length, removed: data.diff.removed.length, changed: data.diff.changed.length };
+                                const counts = {
+                                    added:   activeSheetData?.diff.added.length   ?? 0,
+                                    removed: activeSheetData?.diff.removed.length ?? 0,
+                                    changed: activeSheetData?.diff.changed.length ?? 0,
+                                };
                                 const active = kind === "added" ? showAdded : kind === "removed" ? showRemoved : showChanged;
                                 const toggle = kind === "added" ? () => setShowAdded(v => !v) : kind === "removed" ? () => setShowRemoved(v => !v) : () => setShowChanged(v => !v);
                                 const Icon   = kind === "added" ? Plus : kind === "removed" ? Minus : RefreshCw;
@@ -525,6 +549,50 @@ export function SchematicDiffViewer({
                                     </button>
                                 );
                             })}
+                        </div>
+                    )}
+
+                    {/* Sheet selector */}
+                    {data && data.sheets.length > 1 && (
+                        <div className="px-3 pb-2 shrink-0">
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">Sheets</p>
+                            <div className="space-y-0.5">
+                                {data.sheets.map((sheet) => {
+                                    const count = sheetChangeCounts[sheet.filename] ?? 0;
+                                    const isActive = sheet.filename === activeSheet;
+                                    const sheetStatus = !sheet.old_content ? "added" : !sheet.new_content ? "removed" : null;
+                                    return (
+                                        <button
+                                            key={sheet.filename}
+                                            onClick={() => {
+                                                setActiveSheet(sheet.filename);
+                                                setActiveMarker(null);
+                                                newViewerRef.current?.switchPage?.(sheet.filename);
+                                                oldViewerRef.current?.switchPage?.(sheet.filename);
+                                            }}
+                                            className={`w-full text-left flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/60 text-muted-foreground"}`}
+                                        >
+                                            {sheetStatus && (
+                                                <span
+                                                    className="shrink-0 text-[9px] font-bold px-1 py-0.5 rounded leading-none"
+                                                    style={{
+                                                        backgroundColor: `${KIND_COLOR[sheetStatus]}22`,
+                                                        color: KIND_COLOR[sheetStatus],
+                                                        border: `1px solid ${KIND_COLOR[sheetStatus]}66`,
+                                                    }}
+                                                    title={sheetStatus === "added" ? "Sheet added in new version" : "Sheet removed in new version"}
+                                                >
+                                                    {sheetStatus === "added" ? "+" : "−"}
+                                                </span>
+                                            )}
+                                            <span className="truncate flex-1">{sheet.filename.replace(/\.kicad_sch$/, "")}</span>
+                                            {count > 0 && (
+                                                <span className="ml-auto shrink-0 text-[10px] font-mono font-semibold px-1 rounded bg-muted">{count}</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
 
@@ -647,8 +715,9 @@ export function SchematicDiffViewer({
                             >
                                 <EcadViewerHost
                                     viewerKey={`sch-diff-new-${data.commit1}-${data.commit2}`}
-                                    filename={data.sch_filename}
-                                    content={data.new_content}
+                                    files={data.sheets
+                                        .filter(s => s.new_content)
+                                        .map(s => ({ filename: s.filename, content: s.new_content! }))}
                                     viewerRef={newViewerRef}
                                 />
                             </div>
@@ -658,8 +727,9 @@ export function SchematicDiffViewer({
                             >
                                 <EcadViewerHost
                                     viewerKey={`sch-diff-old-${data.commit1}-${data.commit2}`}
-                                    filename={data.sch_filename}
-                                    content={data.old_content}
+                                    files={data.sheets
+                                        .filter(s => s.old_content)
+                                        .map(s => ({ filename: s.filename, content: s.old_content! }))}
                                     viewerRef={oldViewerRef}
                                 />
                             </div>
@@ -669,6 +739,29 @@ export function SchematicDiffViewer({
                                 onMarkerClick={handleMarkerClick}
                                 activeUuid={activeMarker?.item.uuid ?? null}
                             />
+                            {/* Sheet not present in the currently-showing version */}
+                            {activeSheetData && (
+                                (showing === "new" && !activeSheetData.new_content) ||
+                                (showing === "old" && !activeSheetData.old_content)
+                            ) && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-30 pointer-events-none">
+                                    <div className="flex flex-col items-center gap-2 text-center">
+                                        {showing === "new" ? (
+                                            <>
+                                                <span className="text-2xl font-bold" style={{ color: KIND_COLOR.removed }}>−</span>
+                                                <p className="text-sm font-medium">Sheet removed</p>
+                                                <p className="text-xs text-muted-foreground">This sheet does not exist in the new version</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="text-2xl font-bold" style={{ color: KIND_COLOR.added }}>+</span>
+                                                <p className="text-sm font-medium">Sheet added</p>
+                                                <p className="text-xs text-muted-foreground">This sheet does not exist in the old version</p>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                             {totalChanges === 0 && (
                                 <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/90 border rounded-full px-4 py-1.5 text-xs text-muted-foreground shadow z-30">
                                     No schematic changes detected between these commits
