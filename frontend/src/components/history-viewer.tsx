@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar } from "lucide-react";
+import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar, GitCompare } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { VisualDiffViewer } from "./visual-diff-viewer";
+import { SchematicDiffViewer } from "./schematic-diff-viewer";
 import { fetchJson } from "@/lib/api";
 
 interface Release {
@@ -141,6 +142,7 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
     const [error, setError] = useState<string | null>(null);
     const [selectedCommits, setSelectedCommits] = useState<string[]>([]);
     const [showDiff, setShowDiff] = useState(false);
+    const [showSchDiff, setShowSchDiff] = useState(false);
 
     // Filter commits to find selected ones and determining newer/older
     const diffPair = useMemo(() => {
@@ -284,9 +286,17 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                     projectId={projectId}
                     commit1={diffPair.newer.full_hash}
                     commit2={diffPair.older.full_hash}
-                    onClose={() => {
-                        setShowDiff(false);
-                    }}
+                    onClose={() => setShowDiff(false)}
+                />
+            )}
+
+            {/* Interactive Schematic Diff Viewer */}
+            {showSchDiff && diffPair && (
+                <SchematicDiffViewer
+                    projectId={projectId}
+                    commit1={diffPair.newer.full_hash}
+                    commit2={diffPair.older.full_hash}
+                    onClose={() => setShowSchDiff(false)}
                 />
             )}
 
@@ -335,11 +345,17 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                     {canCompareDiffs && selectedCommits.length === 2 && (
                         <div className="flex items-center gap-2">
                             <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowSchDiff(true)}
+                            >
+                                <GitCompare className="h-4 w-4 mr-2" />
+                                Schematic Diff
+                            </Button>
+                            <Button
                                 variant="default"
                                 size="sm"
-                                onClick={() => {
-                                    setShowDiff(true);
-                                }}
+                                onClick={() => setShowDiff(true)}
                             >
                                 <Eye className="h-4 w-4 mr-2" />
                                 Compare Selected ({selectedCommits.length})

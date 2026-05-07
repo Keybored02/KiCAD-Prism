@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(py -c \"from app.main import app\")",
+      "Bash(py -c ' *)",
+      "Bash(xargs '-I{}' sh -c 'count=$\\(grep -c \"^\\\\t\\(sheet \" \"{}\" 2>/dev/null\\); [ \"$count\" -gt 0 ] && echo \"$count sheets: {}\"')"
+    ]
+  }
+}

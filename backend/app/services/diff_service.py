@@ -34,6 +34,34 @@ diff_jobs: Dict[str, dict] = {}
 # Configuration
 MAX_JOB_AGE_SECONDS = 3600 * 24  # 24 hours
 
+DIFF_CACHE_DIR = Path("/tmp/prism_diff")
+
+_cache_loaded = False
+
+def _load_cached_jobs():
+    """Scan disk for previously completed jobs and populate diff_jobs."""
+    global _cache_loaded
+    if _cache_loaded:
+        return
+    _cache_loaded = True
+    if not DIFF_CACHE_DIR.exists():
+        return
+    for job_dir in DIFF_CACHE_DIR.iterdir():
+        if not job_dir.is_dir():
+            continue
+        job_meta = job_dir / "job.json"
+        if not job_meta.exists():
+            continue
+        try:
+            with open(job_meta, "r") as f:
+                meta = json.load(f)
+            job_id = job_dir.name
+            if job_id not in diff_jobs:
+                diff_jobs[job_id] = meta
+                print(f"[diff cache] restored job {job_id[:8]} key={meta.get('cache_key')}", flush=True)
+        except Exception as e:
+            print(f"[diff cache] failed to restore job from {job_dir}: {e}", flush=True)
+
 import platform
 
 def _get_cli_command() -> str:
@@ -461,6 +489,11 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
         _log("Diff generation complete.")
         log_path.write_text("\n".join(job['logs']), encoding="utf-8")
 
+        # Persist job metadata so it survives process restarts
+        job_meta = {k: v for k, v in job.items() if k != 'logs'}
+        with open(job_dir / "job.json", "w") as f:
+            json.dump(job_meta, f)
+
     except Exception as e:
         job['status'] = 'failed'
         job['error'] = str(e)
@@ -480,18 +513,26 @@ def start_diff_job(project_id: str, commit1: str, commit2: str) -> str:
     Start async diff job, or return an existing completed job for the same
     project + commit pair (cache hit avoids re-running kicad-cli exports).
     """
+    _load_cached_jobs()
     cache_key = _make_cache_key(project_id, commit1, commit2)
 
     # Look for a completed job whose output directory still exists on disk
+    print(f"[diff cache] lookup key={cache_key}, total_jobs={len(diff_jobs)}", flush=True)
     for existing_id, job in list(diff_jobs.items()):
+        jck = job.get("cache_key")
+        jst = job.get("status")
+        jap = job.get("abs_output_path")
+        jex = Path(jap).exists() if jap else False
+        print(f"[diff cache]   job={existing_id[:8]} key={jck} status={jst} path_exists={jex}", flush=True)
         if (
-            job.get("cache_key") == cache_key
-            and job.get("status") == "completed"
-            and job.get("abs_output_path")
-            and Path(job["abs_output_path"]).exists()
+            jck == cache_key
+            and jst == "completed"
+            and jap
+            and jex
         ):
-            print(f"[diff cache] hit for {cache_key} -> {existing_id[:8]}", flush=True)
+            print(f"[diff cache] HIT for {cache_key} -> {existing_id[:8]}", flush=True)
             return existing_id
+    print(f"[diff cache] MISS for {cache_key}", flush=True)
 
     job_id = str(uuid.uuid4())
     diff_jobs[job_id] = {

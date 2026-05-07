@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services import diff_service
+from app.services import sch_diff_service
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
@@ -61,3 +62,21 @@ async def delete_job(project_id: str, job_id: str, user: AuthenticatedUser = Dep
     get_project_for_role_or_404(project_id, user.role)
     diff_service.delete_job(job_id)
     return {"status": "deleted"}
+
+
+@router.get("/{project_id}/schematic-diff")
+async def get_schematic_diff(
+    project_id: str,
+    commit1: str,
+    commit2: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """
+    Return interactive schematic diff data between two commits.
+    Includes both file contents (for ecad-viewer) and a structured change list.
+    """
+    get_project_for_role_or_404(project_id, user.role)
+    result = sch_diff_service.get_schematic_diff(project_id, commit1, commit2)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Schematic not found for this project/commits")
+    return result
