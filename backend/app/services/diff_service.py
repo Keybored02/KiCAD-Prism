@@ -19,6 +19,14 @@ from app.services.project_service import find_schematic_file
 from app.services.workspace_service import workspace
 from app.services import bom_diff_service
 
+try:
+    import cairosvg
+    _CAIROSVG_AVAILABLE = True
+except ImportError:
+    _CAIROSVG_AVAILABLE = False
+
+SVG_TO_PNG_DPI = 150  # ~2000px wide for a typical A4 schematic
+
 # Global job store
 # Structure: { job_id: { ... } }
 diff_jobs: Dict[str, dict] = {}
@@ -226,35 +234,34 @@ def _get_pcb_layers(pcb_path: Path) -> List[str]:
     return ["F.Cu", "B.Cu", "F.Silkscreen", "B.Silkscreen", "F.Mask", "B.Mask", "Edge.Cuts"]
     
 
-def _colorize_svg(svg_path: Path, color: str):
+def _colorize_and_rasterize(svg_path: Path, color: str) -> Path:
     """
-    Replaces black lines/fills in the SVG with the specified color.
-    Assumes SVG was exported with --black-and-white.
+    Colorize an SVG (replace black with color) then convert it to a PNG.
+    Returns the PNG path. The original SVG is deleted afterwards to save space.
+    Falls back to keeping the SVG if cairosvg is unavailable.
     """
     if not svg_path.exists():
-        return
-        
+        return svg_path
+
     content = svg_path.read_text(encoding="utf-8")
-    
-    # Regex for black colors
-    # Matches: stroke="#000000", stroke="black", stroke="rgb(0,0,0)", fill="..."
-    # We want to replace the color value with our target color.
-    
-    # Pattern: (stroke|fill)="(?:\#000000|\#000|black|rgb\(0,\s*0,\s*0\))"
+
     pattern = r'(stroke|fill)="(?:\#000000|\#000|black|rgb\(0,\s*0,\s*0\))"'
-    
-    def replacer(match):
-        attr = match.group(1)
-        return f'{attr}="{color}"'
-        
-    content = re.sub(pattern, replacer, content)
-    
-    # Also handle style="..." blocks if used
-    # style="...; fill:#000000; ..."
+    content = re.sub(pattern, lambda m: f'{m.group(1)}="{color}"', content)
     style_pattern = r'(fill|stroke):(?:\#000000|\#000|black|rgb\(0,\s*0,\s*0\))'
     content = re.sub(style_pattern, f'\\1:{color}', content)
-        
-    svg_path.write_text(content, encoding="utf-8")
+
+    if _CAIROSVG_AVAILABLE:
+        png_path = svg_path.with_suffix(".png")
+        cairosvg.svg2png(
+            bytestring=content.encode("utf-8"),
+            write_to=str(png_path),
+            dpi=SVG_TO_PNG_DPI,
+        )
+        svg_path.unlink(missing_ok=True)
+        return png_path
+    else:
+        svg_path.write_text(content, encoding="utf-8")
+        return svg_path
 
 def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: str):
     """Execute diff generation in background."""
@@ -351,7 +358,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
 
                 if res.returncode == 0:
                     for svg in list(sch_out_dir.glob("*.svg")):
-                        _colorize_svg(svg, color)
+                        _colorize_and_rasterize(svg, color)
                     if commit == commit1:
                         manifest["schematic"] = True
                 else:
@@ -382,8 +389,8 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                     ]
                     res = subprocess.run(cmd, capture_output=True, text=True)
                     if res.returncode == 0 and out_svg.exists():
-                        _colorize_svg(out_svg, color)
-                        found_layers.append(layer)
+                        final = _colorize_and_rasterize(out_svg, color)
+                        found_layers.append(final.name)  # e.g. "F_Cu.png" or "F_Cu.svg"
                     else:
                         _log(f"Layer {layer} FAILED (code {res.returncode}): {res.stderr.strip()}")
 
@@ -393,11 +400,13 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
             else:
                 _log(f"No .kicad_pcb found for {commit}")
 
-        # Publish the union of emitted SVG filenames across both commits, so
-        # sheets that exist in only one commit (added/removed) still appear.
+        # Publish the union of emitted filenames across both commits so sheets
+        # added/removed in one commit still appear. Match both SVG (cairosvg
+        # unavailable fallback) and PNG (normal case).
         sheet_union: set = set()
         for d in sch_dirs.values():
-            sheet_union.update(p.name for p in d.glob("*.svg"))
+            for ext in ("*.png", "*.svg"):
+                sheet_union.update(p.name for p in d.glob(ext))
         if sheet_union:
             manifest["sheets"] = sorted(sheet_union)
 

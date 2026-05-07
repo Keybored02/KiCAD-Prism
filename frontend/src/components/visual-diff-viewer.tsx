@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { X, Loader2, AlertCircle, Eye, ZoomIn, ZoomOut, RotateCcw, CircuitBoard, Cpu, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,6 +41,51 @@ interface DiffManifest {
     } | null;
 }
 
+interface DiffCanvasProps {
+    oldImg: string;
+    newImg: string;
+    opacityRef: React.RefObject<HTMLImageElement | null>;
+}
+
+/** Memoized — only re-renders when the image URLs change, not on opacity/slider ticks. */
+const DiffCanvas = memo(function DiffCanvas({ oldImg, newImg, opacityRef }: DiffCanvasProps) {
+    return (
+        <TransformWrapper initialScale={1} minScale={0.1} maxScale={20} centerOnInit>
+            {({ zoomIn, zoomOut, resetTransform }) => (
+                <>
+                    <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2 bg-background/90 backdrop-blur border rounded-md p-1 shadow-lg">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomIn()}>
+                            <ZoomIn className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomOut()}>
+                            <ZoomOut className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => resetTransform()}>
+                            <RotateCcw className="h-4 w-4" />
+                        </Button>
+                    </div>
+                    <TransformComponent wrapperClass="!w-full !h-full" contentClass="!w-full !h-full flex items-center justify-center">
+                        <div className="relative shadow-2xl border bg-white" style={{ minWidth: "1200px", minHeight: "800px" }}>
+                            <img
+                                src={oldImg}
+                                className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                                alt="Old Version"
+                            />
+                            <img
+                                ref={opacityRef}
+                                src={newImg}
+                                className="absolute inset-0 w-full h-full object-contain bg-white pointer-events-none"
+                                style={{ opacity: 0.5 }}
+                                alt="New Version"
+                            />
+                        </div>
+                    </TransformComponent>
+                </>
+            )}
+        </TransformWrapper>
+    );
+});
+
 export function VisualDiffViewer({ projectId, commit1, commit2, onClose }: VisualDiffViewerProps) {
     const [jobId, setJobId] = useState<string | null>(null);
     const [status, setStatus] = useState<DiffJobStatus | null>(null);
@@ -51,7 +96,15 @@ export function VisualDiffViewer({ projectId, commit1, commit2, onClose }: Visua
     const [viewMode, setViewMode] = useState<"schematic" | "pcb" | "bom">("schematic");
     const [selectedSheet, setSelectedSheet] = useState<string>("");
     const [selectedLayer, setSelectedLayer] = useState<string>("");
-    const [opacity, setOpacity] = useState([50]); // 0-100, 50 = mix
+    const [opacity, setOpacity] = useState([50]); // 0-100, used only for initial render & slider value
+    const opacityImgRef = useRef<HTMLImageElement | null>(null);
+
+    const handleOpacityChange = useCallback((value: number[]) => {
+        setOpacity(value);
+        if (opacityImgRef.current) {
+            opacityImgRef.current.style.opacity = String(value[0] / 100);
+        }
+    }, []);
 
     // BoM Filtering
     const [filters, setFilters] = useState({
@@ -63,15 +116,6 @@ export function VisualDiffViewer({ projectId, commit1, commit2, onClose }: Visua
 
     // Layout
     const logsEndRef = useRef<HTMLDivElement>(null);
-
-// Cleanup on unmount
-useEffect(() => {
-return () => {
-if (jobId) {
-fetch(`/api/projects/${projectId}/diff/${jobId}`, { method: "DELETE" });
-}
-};
-}, [jobId, projectId]);
 
 // Start Job
 useEffect(() => {
@@ -149,7 +193,8 @@ if (!jobId) return "";
 // item is filename for sch, layer name for pcb
 let filename = item;
 if (type === "pcb") {
-filename = item.replace(/\./g, "_") + ".svg";
+// layer names in manifest are now "F_Cu.png" or "F_Cu.svg" depending on backend
+filename = item;
 }
 return `/api/projects/${projectId}/diff/${jobId}/assets/${commit}/${type}/${encodeURIComponent(filename)}`;
 };
@@ -272,54 +317,10 @@ const currentItem = isSch ? selectedSheet : selectedLayer;
 
 if (!currentItem) return <div className="flex items-center justify-center h-full text-muted-foreground">No assets found</div>;
 
-
 const oldImg = getAssetUrl(commit2, isSch ? "sch" : "pcb", currentItem);
 const newImg = getAssetUrl(commit1, isSch ? "sch" : "pcb", currentItem);
 
-return (
-<TransformWrapper
-initialScale={1}
-minScale={0.1}
-maxScale={20}
-centerOnInit
->
-{({ zoomIn, zoomOut, resetTransform }) => (
-<>
-{/* Floating Zoom Controls */}
-<div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2 bg-background/90 backdrop-blur border rounded-md p-1 shadow-lg">
-<Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomIn()}>
-<ZoomIn className="h-4 w-4" />
-</Button>
-<Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomOut()}>
-<ZoomOut className="h-4 w-4" />
-</Button>
-<Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => resetTransform()}>
-<RotateCcw className="h-4 w-4" />
-</Button>
-</div>
-
-<TransformComponent wrapperClass="!w-full !h-full" contentClass="!w-full !h-full flex items-center justify-center">
-<div className="relative shadow-2xl border bg-white" style={{ minWidth: "1200px", minHeight: "800px" }}>
-{/* Old Commit (Bottom) */}
-<img
-src={oldImg}
-className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-alt="Old Version"
-/>
-
-{/* New Commit (Top) - Opacity controlled */}
-<img
-src={newImg}
-className="absolute inset-0 w-full h-full object-contain bg-white transition-opacity duration-150 pointer-events-none"
-style={{ opacity: opacity[0] / 100 }}
-alt="New Version"
-/>
-</div>
-</TransformComponent>
-</>
-)}
-</TransformWrapper>
-);
+return <DiffCanvas oldImg={oldImg} newImg={newImg} opacityRef={opacityImgRef} />;
 };
 
 return (
@@ -379,7 +380,7 @@ disabled={!manifest.bom}
 <SelectValue placeholder="Select Sheet" />
 </SelectTrigger>
 <SelectContent>
-{manifest.sheets.map(s => <SelectItem key={s} value={s}>{s.replace(".svg", "")}</SelectItem>)}
+{manifest.sheets.map(s => <SelectItem key={s} value={s}>{s.replace(/\.[^.]+$/, "")}</SelectItem>)}
 </SelectContent>
 </Select>
 ) : viewMode === "pcb" ? (
@@ -388,7 +389,7 @@ disabled={!manifest.bom}
 <SelectValue placeholder="Select Layer" />
 </SelectTrigger>
 <SelectContent>
-{manifest.layers.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+{manifest.layers.map(l => <SelectItem key={l} value={l}>{l.replace(/\.[^.]+$/, "").replace(/_/g, ".")}</SelectItem>)}
 </SelectContent>
 </Select>
 ) : null}
@@ -403,7 +404,7 @@ disabled={!manifest.bom}
 <span className="text-xs font-semibold w-8 text-right text-red-600">Old</span>
 <Slider
 value={opacity}
-onValueChange={setOpacity}
+onValueChange={handleOpacityChange}
 max={100}
 step={1}
 className="flex-1"
