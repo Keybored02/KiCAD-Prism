@@ -120,6 +120,9 @@ function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
         (viewerRef as React.MutableRefObject<ECadViewerElement | null>).current = node;
     }, [viewerRef]);
 
+    // Stable key built from file names+content — only re-load when files actually change.
+    const filesKey = files.map(f => f.filename).join("|");
+
     useLayoutEffect(() => {
         const viewer = hostRef.current;
         if (!viewer || files.length === 0) return;
@@ -133,6 +136,7 @@ function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
             el.querySelectorAll("ecad-blob").forEach((b) => b.remove());
 
             for (const { filename, content } of files) {
+                if (cancelled) return;
                 const blob = document.createElement("ecad-blob") as HTMLElement & {
                     filename?: string; content?: string;
                 };
@@ -141,6 +145,7 @@ function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
                 el.appendChild(blob);
             }
 
+            if (cancelled) return;
             const withLoader = el as ECadViewerElement & { load_src?: () => Promise<void> };
             if (typeof withLoader.load_src === "function") {
                 await withLoader.load_src();
@@ -148,7 +153,8 @@ function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
         })();
 
         return () => { cancelled = true; };
-    }, [viewerKey, files]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [viewerKey, filesKey]); // filesKey is stable unless filenames change; content is fixed per commit
 
     return (
         <ecad-viewer
@@ -343,17 +349,25 @@ export function SchematicDiffViewer({
     const getSchEl = useCallback((host: ECadViewerElement): SchEl | null => {
         const cached = schElCache.current.get(host);
         if (cached?.viewer?.viewport?.camera) return cached;
-        // Walk both kc-schematic-viewer (closer to ba) and kc-schematic-app (the parent)
-        const walk = (root: ShadowRoot | Document): SchEl | null => {
-            const direct = root.querySelector("kc-schematic-viewer, kc-schematic-app") as SchEl | null;
-            if (direct?.viewer?.viewport?.camera) return direct;
-            for (const el of root.querySelectorAll("*")) {
-                const sr = (el as HTMLElement).shadowRoot;
-                if (sr) { const f = walk(sr); if (f) return f; }
+        // Depth-first walk through shadow DOMs looking for kc-schematic-app (preferred) or kc-schematic-viewer
+        const walk = (root: ShadowRoot | Element): SchEl | null => {
+            const sr = (root as HTMLElement).shadowRoot;
+            const searchRoot: ShadowRoot | Element = sr ?? root;
+            // Prefer kc-schematic-app — it has the canonical zoom_fit_item used by cross-probe
+            const app = (searchRoot as ShadowRoot).querySelector?.("kc-schematic-app") as SchEl | null;
+            if (app?.viewer?.viewport?.camera) return app;
+            const viewer = (searchRoot as ShadowRoot).querySelector?.("kc-schematic-viewer") as SchEl | null;
+            if (viewer?.viewer?.viewport?.camera) return viewer;
+            // Recurse into children's shadow roots
+            for (const el of (searchRoot as ShadowRoot).querySelectorAll?.("*") ?? []) {
+                if ((el as HTMLElement).shadowRoot) {
+                    const f = walk(el as HTMLElement);
+                    if (f) return f;
+                }
             }
-            return direct; // return the element even if not fully ready (better than null)
+            return app ?? viewer ?? null;
         };
-        const result = host.shadowRoot ? walk(host.shadowRoot) : null;
+        const result = host.shadowRoot ? walk(host) : null;
         if (result?.viewer?.viewport?.camera) schElCache.current.set(host, result);
         return result;
     }, []);
@@ -362,45 +376,62 @@ export function SchematicDiffViewer({
         return getSchEl(host)?.viewer?.viewport?.camera ?? null;
     }, [getSchEl]);
 
-    const drawViewer = useCallback((host: ECadViewerElement) => {
-        getSchEl(host)?.viewer?.draw?.();
-    }, [getSchEl]);
+    // Camera we want to impose on the active viewer after a toggle or item click.
+    // Released when the viewer fires a "panzoom" event (user panned/zoomed interactively).
+    const imposeCamRef = useRef<{ zoom: number; cx: number; cy: number } | null>(null);
 
     const handleToggle = useCallback((next: "new" | "old") => {
-        const fromRef = next === "new" ? oldViewerRef : newViewerRef;
-        const toRef   = next === "new" ? newViewerRef : oldViewerRef;
-        const srcCam = fromRef.current ? getCamera(fromRef.current) : null;
-        // Snapshot camera state from source while still visible
-        const snap = srcCam
-            ? { zoom: srcCam.zoom, cx: srcCam.center.x, cy: srcCam.center.y }
-            : null;
+        if (next === showing) return;
+        const fromRef = showing === "new" ? newViewerRef : oldViewerRef;
+        const cam = fromRef.current ? getCamera(fromRef.current) : null;
+        if (cam) {
+            imposeCamRef.current = { zoom: cam.zoom, cx: cam.center.x, cy: cam.center.y };
+        }
         setShowing(next);
-        if (!snap || !toRef.current) return;
-        const target = toRef.current;
-        // Push snapshot to target repeatedly — each push happens AFTER React swaps visibility
-        // and AFTER the target's own internal viewport_size sync from apply_to_canvas.
-        // We use multiple rAF retries because the target's draw() might overwrite zoom.
-        if (syncRafRef.current !== null) cancelAnimationFrame(syncRafRef.current);
-        let attempts = 0;
-        const push = () => {
-            syncRafRef.current = null;
-            const cam = getCamera(target);
-            if (cam) {
-                cam.zoom = snap.zoom;
-                cam.center.set(snap.cx, snap.cy);
-                drawViewer(target);
+    }, [showing, getCamera]);
+
+    const showingRef = useRef(showing);
+    useEffect(() => { showingRef.current = showing; }, [showing]);
+
+    // Ref attached to the viewer container div — used to detect user interaction for impose release.
+    const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+
+    // Continuous loop: whenever imposeCamRef is set, keep writing it to the active viewer.
+    // Released when the user interacts with the viewer area (pointerdown or wheel).
+    useEffect(() => {
+        let raf = 0;
+        const tick = () => {
+            const impose = imposeCamRef.current;
+            if (impose) {
+                const activeRef = showingRef.current === "new" ? newViewerRef : oldViewerRef;
+                const cam = activeRef.current ? getCamera(activeRef.current) : null;
+                if (cam) {
+                    cam.zoom = impose.zoom;
+                    cam.center.set(impose.cx, impose.cy);
+                }
             }
-            overlayKickRef.current?.(4);
-            if (++attempts < 8) {
-                syncRafRef.current = requestAnimationFrame(push);
-            }
+            raf = requestAnimationFrame(tick);
         };
-        syncRafRef.current = requestAnimationFrame(push);
-    }, [getCamera, drawViewer]);
+        raf = requestAnimationFrame(tick);
+
+        // pointerdown and wheel on the viewer container release the impose lock.
+        // These events compose through shadow DOM so they reach the host container.
+        const release = () => { imposeCamRef.current = null; };
+        const container = viewerContainerRef.current;
+        container?.addEventListener("pointerdown", release);
+        container?.addEventListener("wheel", release, { passive: true });
+
+        return () => {
+            if (raf) cancelAnimationFrame(raf);
+            container?.removeEventListener("pointerdown", release);
+            container?.removeEventListener("wheel", release);
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [getCamera]);
 
     const [activeSheet, setActiveSheet] = useState<string>("");
 
-    // Cancel pending sync rAF on unmount
+    // Cancel pending rAFs on unmount
     useEffect(() => () => {
         if (syncRafRef.current !== null) cancelAnimationFrame(syncRafRef.current);
     }, []);
@@ -456,19 +487,38 @@ export function SchematicDiffViewer({
           ]))
         : {};
 
-    // Navigate to a marker — use ecad-viewer's native zoom_fit_item, exactly the same
-    // code path that the cross-probe feature uses successfully.
+    // Navigate to a marker.
+    // zoom_fit_item is synchronous on the camera fields — it sets zoom+center then calls draw().
+    // If UUID not in renderer's bbox map, camera fields won't change → fall back to manual pan.
     const zoomToMarker = useCallback((marker: DiffMarker) => {
         const viewer = viewerRef.current;
         if (!viewer) return;
         try {
             const inner = getSchEl(viewer)?.viewer;
-            if (inner?.zoom_fit_item) {
-                inner.zoom_fit_item(marker.item.uuid);
-            } else {
-                // Fallback: just center on the item (same as cross-probe-disabled path)
-                viewer.zoomToLocation(marker.item.x, marker.item.y);
+            const camera = inner?.viewport?.camera;
+            if (!inner || !camera) return;
+
+            const beforeZoom = camera.zoom;
+            const beforeCx   = camera.center.x;
+            const beforeCy   = camera.center.y;
+
+            inner.zoom_fit_item?.(marker.item.uuid);
+
+            const moved = Math.abs(camera.zoom - beforeZoom) > 0.001
+                || Math.abs(camera.center.x - beforeCx) > 0.001
+                || Math.abs(camera.center.y - beforeCy) > 0.001;
+
+            const targetZoom = moved ? camera.zoom : 20;
+            const targetCx   = moved ? camera.center.x : marker.item.x;
+            const targetCy   = moved ? camera.center.y : marker.item.y;
+
+            if (!moved) {
+                camera.zoom = targetZoom;
+                camera.center.set(targetCx, targetCy);
+                inner.draw?.();
             }
+
+            imposeCamRef.current = { zoom: targetZoom, cx: targetCx, cy: targetCy };
         } catch { /* ignore */ }
         overlayKickRef.current?.(40);
     }, [viewerRef, getSchEl]);
@@ -703,7 +753,7 @@ export function SchematicDiffViewer({
                 </div>
 
                 {/* ── Viewer area ── */}
-                <div className="flex-1 relative overflow-hidden">
+                <div ref={viewerContainerRef} className="flex-1 relative overflow-hidden">
                     {loading && (
                         <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-40">
                             <div className="flex flex-col items-center gap-3">
