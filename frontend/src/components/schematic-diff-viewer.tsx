@@ -376,6 +376,13 @@ export function SchematicDiffViewer({
         return getSchEl(host)?.viewer?.viewport?.camera ?? null;
     }, [getSchEl]);
 
+    // Safe draw: only call draw() when the renderer's ctx2d is initialized.
+    // ctx2d is set in setup() — if it's missing, the canvas isn't ready and draw() would crash.
+    const safeDraw = useCallback((host: ECadViewerElement) => {
+        const inner = getSchEl(host)?.viewer as (InnerViewer & { renderer?: { ctx2d?: unknown } }) | undefined;
+        if (inner?.renderer?.ctx2d) inner.draw?.();
+    }, [getSchEl]);
+
     // Camera we want to impose on the active viewer after a toggle or item click.
     // Released when the viewer fires a "panzoom" event (user panned/zoomed interactively).
     const imposeCamRef = useRef<{ zoom: number; cx: number; cy: number } | null>(null);
@@ -383,12 +390,23 @@ export function SchematicDiffViewer({
     const handleToggle = useCallback((next: "new" | "old") => {
         if (next === showing) return;
         const fromRef = showing === "new" ? newViewerRef : oldViewerRef;
+        const toRef   = showing === "new" ? oldViewerRef : newViewerRef;
         const cam = fromRef.current ? getCamera(fromRef.current) : null;
         if (cam) {
-            imposeCamRef.current = { zoom: cam.zoom, cx: cam.center.x, cy: cam.center.y };
+            const state = { zoom: cam.zoom, cx: cam.center.x, cy: cam.center.y };
+            imposeCamRef.current = state;
+            // Pre-write camera into target viewer and queue a repaint BEFORE the visibility
+            // flip, so our rAF is ahead of the viewer's own ResizeObserver-triggered draw().
+            const toHost = toRef.current;
+            const toCam  = toHost ? getCamera(toHost) : null;
+            if (toCam && toHost) {
+                toCam.zoom = state.zoom;
+                toCam.center.set(state.cx, state.cy);
+                safeDraw(toHost);
+            }
         }
         setShowing(next);
-    }, [showing, getCamera]);
+    }, [showing, getCamera, safeDraw]);
 
     const showingRef = useRef(showing);
     useEffect(() => { showingRef.current = showing; }, [showing]);
@@ -404,10 +422,12 @@ export function SchematicDiffViewer({
             const impose = imposeCamRef.current;
             if (impose) {
                 const activeRef = showingRef.current === "new" ? newViewerRef : oldViewerRef;
-                const cam = activeRef.current ? getCamera(activeRef.current) : null;
-                if (cam) {
+                const host = activeRef.current;
+                const cam = host ? getCamera(host) : null;
+                if (cam && host) {
                     cam.zoom = impose.zoom;
                     cam.center.set(impose.cx, impose.cy);
+                    safeDraw(host);
                 }
             }
             raf = requestAnimationFrame(tick);
@@ -427,7 +447,7 @@ export function SchematicDiffViewer({
             container?.removeEventListener("wheel", release);
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [getCamera]);
+    }, [getCamera, safeDraw]);
 
     const [activeSheet, setActiveSheet] = useState<string>("");
 
@@ -515,13 +535,13 @@ export function SchematicDiffViewer({
             if (!moved) {
                 camera.zoom = targetZoom;
                 camera.center.set(targetCx, targetCy);
-                inner.draw?.();
             }
 
             imposeCamRef.current = { zoom: targetZoom, cx: targetCx, cy: targetCy };
+            safeDraw(viewer);
         } catch { /* ignore */ }
         overlayKickRef.current?.(40);
-    }, [viewerRef, getSchEl]);
+    }, [viewerRef, getSchEl, safeDraw]);
 
     const handleMarkerClick = useCallback((m: DiffMarker) => {
         setActiveMarker(prev => prev?.item.uuid === m.item.uuid ? null : m);
@@ -775,7 +795,7 @@ export function SchematicDiffViewer({
                         <>
                             <div
                                 className="absolute inset-0"
-                                style={{ visibility: showing === "new" ? "visible" : "hidden", pointerEvents: showing === "new" ? "auto" : "none" }}
+                                style={{ opacity: showing === "new" ? 1 : 0, pointerEvents: showing === "new" ? "auto" : "none" }}
                             >
                                 <EcadViewerHost
                                     viewerKey={`sch-diff-new-${data.commit1}-${data.commit2}`}
@@ -787,7 +807,7 @@ export function SchematicDiffViewer({
                             </div>
                             <div
                                 className="absolute inset-0"
-                                style={{ visibility: showing === "old" ? "visible" : "hidden", pointerEvents: showing === "old" ? "auto" : "none" }}
+                                style={{ opacity: showing === "old" ? 1 : 0, pointerEvents: showing === "old" ? "auto" : "none" }}
                             >
                                 <EcadViewerHost
                                     viewerKey={`sch-diff-old-${data.commit1}-${data.commit2}`}
