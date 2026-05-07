@@ -69,6 +69,8 @@ interface SchematicDiffViewerProps {
     commit2: string; // older
     onClose: () => void;
     embedded?: boolean;
+    onCrossProbe?: (reference: string) => void;
+    crossProbeTarget?: string; // reference to navigate to when switching from PCB
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +314,8 @@ export function SchematicDiffViewer({
     commit2,
     onClose,
     embedded = false,
+    onCrossProbe,
+    crossProbeTarget,
 }: SchematicDiffViewerProps) {
     const [data, setData] = useState<SchematicDiffData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -552,6 +556,47 @@ export function SchematicDiffViewer({
         if (m.kind === "added"   && showing !== "new") handleToggle("new");
         if (m.kind === "removed" && showing !== "old") handleToggle("old");
     }, [zoomToMarker, showing, handleToggle]);
+
+    // Fire onCrossProbe when the user selects an item.
+    // kicanvas:select bubbles+composed so it reaches the container div.
+    const onCrossProbeRef = useRef(onCrossProbe);
+    useEffect(() => { onCrossProbeRef.current = onCrossProbe; }, [onCrossProbe]);
+    useEffect(() => {
+        const container = viewerContainerRef.current;
+        if (!container) return;
+        const handler = (e: Event) => {
+            const item = (e as CustomEvent<{ item: unknown }>).detail?.item as Record<string, unknown> | null;
+            if (!item) return;
+            const ref = (item.reference ?? item.Reference ?? item.designator) as string | undefined;
+            if (ref && /^[A-Za-z]+\d+/.test(ref)) onCrossProbeRef.current?.(ref);
+        };
+        container.addEventListener("kicanvas:select", handler);
+        return () => container.removeEventListener("kicanvas:select", handler);
+    }, []);
+
+    // Navigate to a reference when cross-probed from the PCB diff viewer
+    useEffect(() => {
+        if (!crossProbeTarget) return;
+        const doProbe = () => {
+            const viewer = (showing === "new" ? newViewerRef : oldViewerRef).current;
+            if (!viewer) return false;
+            viewer.setCrossProbeEnabled?.(true);
+            const result = viewer.requestCrossProbe({
+                sourceContext: "PCB",
+                targetContext: "SCH",
+                mode: "select",
+                kind: "designator",
+                value: crossProbeTarget,
+                designator: crossProbeTarget,
+            });
+            return result?.resolved !== false || result.reason !== "target-not-available";
+        };
+        if (!doProbe()) {
+            const t = setTimeout(doProbe, 400);
+            return () => clearTimeout(t);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [crossProbeTarget]);
 
     return (
         <div className={embedded ? "h-full bg-background flex flex-col" : "fixed inset-0 z-50 bg-background flex flex-col"}>

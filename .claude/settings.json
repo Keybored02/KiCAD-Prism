@@ -27,7 +27,9 @@
       "Bash(grep -o \"draw\\(\\)[^}]\\\\{0,100\\\\}\\\\|\\\\.draw=\\\\|draw\\(\\){[^}]\\\\{0,300\\\\}\" \"c:\\\\Users\\\\Matteo\\\\Documents\\\\Personal\\\\Projects\\\\KiCAD-Prism\\\\frontend\\\\public\\\\ecad-viewer.js\")",
       "Bash(grep -o \"visibility[^;,\\)]\\\\{0,150\\\\}\" \"c:\\\\Users\\\\Matteo\\\\Documents\\\\Personal\\\\Projects\\\\KiCAD-Prism\\\\frontend\\\\public\\\\ecad-viewer.js\")",
       "Bash(grep -o \"ResizeObserver[^}]\\\\{0,400\\\\}\" \"c:\\\\Users\\\\Matteo\\\\Documents\\\\Personal\\\\Projects\\\\KiCAD-Prism\\\\frontend\\\\public\\\\ecad-viewer.js\")",
-      "Bash(grep -o \"callback[^}]\\\\{0,300\\\\}\" \"c:\\\\Users\\\\Matteo\\\\Documents\\\\Personal\\\\Projects\\\\KiCAD-Prism\\\\frontend\\\\public\\\\ecad-viewer.js\")"
+      "Bash(grep -o \"callback[^}]\\\\{0,300\\\\}\" \"c:\\\\Users\\\\Matteo\\\\Documents\\\\Personal\\\\Projects\\\\KiCAD-Prism\\\\frontend\\\\public\\\\ecad-viewer.js\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Matteo\\\\Documents\\\\Personal\\\\Projects\\\\KiCAD-Prism\\\\frontend\" -Recurse -Filter \"*.tsx\" -o File)",
+      "Bash(Select-Object -ExpandProperty FullName)"
     ]
   }
 }

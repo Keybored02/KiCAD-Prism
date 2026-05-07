@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar, GitCompare, ChevronDown, ChevronRight, FileText, Plus, Minus, RefreshCw, Loader2, X, CircuitBoard, Cpu, List } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -255,6 +255,27 @@ interface CommitDiffModalProps {
 
 function CommitDiffModal({ projectId, commit1, commit2, onClose }: CommitDiffModalProps) {
     const [tab, setTab] = useState<DiffTab>("schematic");
+    // Last reference selected in each tab — used to navigate the other tab when switching
+    const lastSelected = useRef<{ schematic?: string; pcb?: string }>({});
+    const [schCrossProbeTarget, setSchCrossProbeTarget] = useState<string | undefined>(undefined);
+    const [pcbCrossProbeTarget, setPcbCrossProbeTarget] = useState<string | undefined>(undefined);
+
+    const handleSchematicCrossProbe = useCallback((reference: string) => {
+        lastSelected.current.schematic = reference;
+    }, []);
+
+    const handlePcbCrossProbe = useCallback((reference: string) => {
+        lastSelected.current.pcb = reference;
+    }, []);
+
+    const handleTabChange = useCallback((next: DiffTab) => {
+        if (next === "pcb" && lastSelected.current.schematic) {
+            setPcbCrossProbeTarget(lastSelected.current.schematic);
+        } else if (next === "schematic" && lastSelected.current.pcb) {
+            setSchCrossProbeTarget(lastSelected.current.pcb);
+        }
+        setTab(next);
+    }, []);
 
     const tabs: { id: DiffTab; label: string; icon: React.ReactNode }[] = [
         { id: "schematic", label: "Schematic", icon: <CircuitBoard className="h-3.5 w-3.5" /> },
@@ -273,7 +294,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose }: CommitDiffMod
                     {tabs.map((t) => (
                         <button
                             key={t.id}
-                            onClick={() => setTab(t.id)}
+                            onClick={() => handleTabChange(t.id)}
                             className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                                 tab === t.id
                                     ? "border-primary text-foreground"
@@ -290,30 +311,30 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose }: CommitDiffMod
                 </p>
             </div>
 
-            {/* Tab content */}
+            {/* Tab content — always mounted to preserve viewer state across tab switches */}
             <div className="flex-1 overflow-hidden relative">
-                {tab === "schematic" && (
-                    <div className="absolute inset-0">
-                        <SchematicDiffViewer
-                            projectId={projectId}
-                            commit1={commit1}
-                            commit2={commit2}
-                            onClose={onClose}
-                            embedded
-                        />
-                    </div>
-                )}
-                {tab === "pcb" && (
-                    <div className="absolute inset-0">
-                        <PcbDiffViewer
-                            projectId={projectId}
-                            commit1={commit1}
-                            commit2={commit2}
-                            onClose={onClose}
-                            embedded
-                        />
-                    </div>
-                )}
+                <div className="absolute inset-0" style={{ display: tab === "schematic" ? undefined : "none" }}>
+                    <SchematicDiffViewer
+                        projectId={projectId}
+                        commit1={commit1}
+                        commit2={commit2}
+                        onClose={onClose}
+                        embedded
+                        onCrossProbe={handleSchematicCrossProbe}
+                        crossProbeTarget={schCrossProbeTarget}
+                    />
+                </div>
+                <div className="absolute inset-0" style={{ display: tab === "pcb" ? undefined : "none" }}>
+                    <PcbDiffViewer
+                        projectId={projectId}
+                        commit1={commit1}
+                        commit2={commit2}
+                        onClose={onClose}
+                        embedded
+                        onCrossProbe={handlePcbCrossProbe}
+                        crossProbeTarget={pcbCrossProbeTarget}
+                    />
+                </div>
                 {tab === "bom" && (
                     <div className="absolute inset-0 flex items-center justify-center">
                         <div className="flex flex-col items-center gap-3 text-center">
