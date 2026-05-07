@@ -67,16 +67,35 @@ function formatDate(isoDate: string): string {
     return date.toLocaleDateString();
 }
 
+const STATUS_COLOR: Record<string, string> = {
+    added: "text-green-500",
+    removed: "text-red-500",
+    modified: "text-amber-500",
+    renamed: "text-blue-500",
+};
+
+const STATUS_ICON: Record<string, React.ReactNode> = {
+    added:    <Plus    className="h-3 w-3" />,
+    removed:  <Minus   className="h-3 w-3" />,
+    modified: <RefreshCw className="h-3 w-3" />,
+    renamed:  <RefreshCw className="h-3 w-3" />,
+};
+
 interface CommitItemProps {
     commit: Commit;
+    projectId: string;
     onViewCommit: (hash: string) => void;
     isSelected: boolean;
     onSelect: () => void;
     selectable: boolean;
 }
 
-function CommitItem({ commit, onViewCommit, isSelected, onSelect, selectable }: CommitItemProps) {
+function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, selectable }: CommitItemProps) {
     const [copied, setCopied] = useState(false);
+    const [expanded, setExpanded] = useState(false);
+    const [summary, setSummary] = useState<CommitSummary | null>(null);
+    const [summaryLoading, setSummaryLoading] = useState(false);
+    const [summaryError, setSummaryError] = useState<string | null>(null);
 
     const handleCopy = async () => {
         try {
@@ -88,9 +107,33 @@ function CommitItem({ commit, onViewCommit, isSelected, onSelect, selectable }: 
         }
     };
 
+    const loadSummary = useCallback(async () => {
+        if (summary || summaryLoading) return;
+        setSummaryLoading(true);
+        setSummaryError(null);
+        try {
+            const data = await fetchJson<CommitSummary>(
+                `/api/projects/${projectId}/commits/${commit.full_hash}/summary`,
+                {},
+                "Failed to load commit summary"
+            );
+            setSummary(data);
+        } catch (e) {
+            setSummaryError(e instanceof Error ? e.message : "Failed to load");
+        } finally {
+            setSummaryLoading(false);
+        }
+    }, [projectId, commit.full_hash, summary, summaryLoading]);
+
+    const handleExpand = () => {
+        const next = !expanded;
+        setExpanded(next);
+        if (next) loadSummary();
+    };
+
     return (
-        <div className={`border rounded-lg p-4 transition-colors ${isSelected ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted/50'}`}>
-            <div className="flex items-start gap-3">
+        <div className={`border rounded-lg transition-colors ${isSelected ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted/50'}`}>
+            <div className="flex items-start gap-3 p-4">
                 <div className="flex-shrink-0 mt-1 flex items-center justify-center">
                     {selectable ? (
                         <input
@@ -105,33 +148,23 @@ function CommitItem({ commit, onViewCommit, isSelected, onSelect, selectable }: 
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-4 mb-2">
-                        <p className="text-sm font-medium leading-relaxed">
-                            {(commit.message || "").split('\n')[0]}
-                        </p>
+                        <button
+                            className="text-sm font-medium leading-relaxed text-left hover:underline flex items-center gap-1.5 min-w-0"
+                            onClick={handleExpand}
+                        >
+                            {expanded
+                                ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                            <span className="truncate">{(commit.message || "").split('\n')[0]}</span>
+                        </button>
                         <div className="flex items-center gap-1 flex-shrink-0">
                             <code className="text-xs bg-muted px-2 py-1 rounded">
                                 {commit.hash}
                             </code>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={handleCopy}
-                                title="Copy full hash"
-                            >
-                                {copied ? (
-                                    <Check className="h-3 w-3 text-green-500" />
-                                ) : (
-                                    <Copy className="h-3 w-3" />
-                                )}
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleCopy} title="Copy full hash">
+                                {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
                             </Button>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={() => onViewCommit(commit.full_hash)}
-                                title="View this version"
-                            >
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => onViewCommit(commit.full_hash)} title="View this version">
                                 <Eye className="h-3 w-3" />
                             </Button>
                         </div>
@@ -148,6 +181,61 @@ function CommitItem({ commit, onViewCommit, isSelected, onSelect, selectable }: 
                     </div>
                 </div>
             </div>
+
+            {/* Expandable file summary */}
+            {expanded && (
+                <div className="border-t px-4 py-3 space-y-1">
+                    {summaryLoading && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Loading changes…
+                        </div>
+                    )}
+                    {summaryError && (
+                        <p className="text-xs text-destructive py-1">{summaryError}</p>
+                    )}
+                    {summary && summary.files.length === 0 && (
+                        <p className="text-xs text-muted-foreground py-1">No tracked files changed</p>
+                    )}
+                    {summary?.files.map((file) => (
+                        <div key={file.path} className="space-y-0.5">
+                            <div className="flex items-center gap-2 text-xs">
+                                <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
+                                    {STATUS_ICON[file.status]}
+                                </span>
+                                <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                <span className="font-medium truncate" title={file.path}>{file.filename}</span>
+                                <span className="text-muted-foreground truncate hidden sm:block" title={file.path}>
+                                    {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
+                                </span>
+                                {(file.additions !== null || file.deletions !== null) && (
+                                    <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
+                                        {file.additions !== null && file.additions > 0 && (
+                                            <span className="text-green-500">+{file.additions}</span>
+                                        )}
+                                        {file.deletions !== null && file.deletions > 0 && (
+                                            <span className="text-red-500">-{file.deletions}</span>
+                                        )}
+                                    </span>
+                                )}
+                            </div>
+                            {file.schematic_diff && (
+                                <div className="ml-9 flex items-center gap-3 text-[11px] font-mono pb-0.5">
+                                    {file.schematic_diff.added > 0 && (
+                                        <span className="text-green-500">+{file.schematic_diff.added} items</span>
+                                    )}
+                                    {file.schematic_diff.removed > 0 && (
+                                        <span className="text-red-500">-{file.schematic_diff.removed} items</span>
+                                    )}
+                                    {file.schematic_diff.changed > 0 && (
+                                        <span className="text-amber-500">~{file.schematic_diff.changed} changed</span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
@@ -391,6 +479,7 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                             <CommitItem
                                 key={commit.full_hash}
                                 commit={commit}
+                                projectId={projectId}
                                 onViewCommit={onViewCommit}
                                 isSelected={selectedCommits.includes(commit.full_hash)}
                                 onSelect={() => handleSelectCommit(commit.full_hash)}

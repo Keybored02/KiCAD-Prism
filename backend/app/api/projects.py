@@ -21,6 +21,7 @@ from app.services.workspace_service import workspace
 from app.services.comments_url_service import build_comments_source_urls, resolve_comments_base_url
 from app.services.git_service import (
     get_commit_distance,
+    get_commit_file_summary,
     get_commits_list,
     get_commits_list_filtered,
     get_file_from_commit,
@@ -28,6 +29,7 @@ from app.services.git_service import (
     get_releases,
     get_releases_filtered,
 )
+from app.services import sch_diff_service
 from app.services.path_config_service import PathConfig
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
@@ -754,6 +756,73 @@ async def get_project_commits(
         commits = get_commits_list(project.path, limit)
     
     return {"commits": commits}
+
+
+@router.get("/{project_id}/commits/{commit_hash}/summary")
+async def get_commit_summary(
+    project_id: str,
+    commit_hash: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """
+    Return files changed in a commit vs its parent, with item-level counts for .kicad_sch files.
+    """
+    project = get_project_for_role_or_404(project_id, user.role)
+    repo_path, relative_path = _repo_context(project)
+
+    files = get_commit_file_summary(repo_path, commit_hash, relative_path)
+
+    # For each .kicad_sch file that was modified (not added/removed outright),
+    # run the schematic diff to get item-level counts.
+    parent_hash = None
+    try:
+        from git import Repo
+        repo = Repo(repo_path)
+        commit = repo.commit(commit_hash)
+        parent_hash = commit.parents[0].hexsha if commit.parents else None
+    except Exception:
+        pass
+
+    for f in files:
+        if not f["filename"].endswith(".kicad_sch"):
+            continue
+        if f["status"] not in ("modified", "added", "removed") or not parent_hash:
+            continue
+        try:
+            # Use sch_diff_service helpers directly — pass file contents, not project lookup
+            from pathlib import Path
+            repo_root = sch_diff_service._git_root(Path(repo_path))
+            rel = f["path"]
+            if f["status"] in ("modified",):
+                old_c = sch_diff_service._read_file_at_commit(repo_root, parent_hash, rel)
+                new_c = sch_diff_service._read_file_at_commit(repo_root, commit_hash, rel)
+            elif f["status"] == "added":
+                old_c, new_c = None, sch_diff_service._read_file_at_commit(repo_root, commit_hash, rel)
+            else:  # removed
+                old_c, new_c = sch_diff_service._read_file_at_commit(repo_root, parent_hash, rel), None
+
+            if old_c and new_c:
+                diff = sch_diff_service.diff_schematics(old_c, new_c)
+            elif new_c:
+                tree = sch_diff_service._parse_sexp(new_c)
+                items = list(sch_diff_service._extract_all(tree).values())
+                diff = {"added": items, "removed": [], "changed": []}
+            elif old_c:
+                tree = sch_diff_service._parse_sexp(old_c)
+                items = list(sch_diff_service._extract_all(tree).values())
+                diff = {"added": [], "removed": items, "changed": []}
+            else:
+                continue
+
+            f["schematic_diff"] = {
+                "added": len(diff["added"]),
+                "removed": len(diff["removed"]),
+                "changed": len(diff["changed"]),
+            }
+        except Exception:
+            pass
+
+    return {"files": files}
 
 
 @router.get("/{project_id}/schematic")

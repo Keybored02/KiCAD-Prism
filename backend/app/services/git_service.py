@@ -220,6 +220,60 @@ def file_exists_in_commit(repo_path: str, commit_hash: str, file_path: str) -> b
         return False
 
 
+def get_commit_file_summary(repo_path: str, commit_hash: str, relative_path: str = None) -> list:
+    """
+    Return the list of files changed in a commit vs its parent.
+    Each entry: { path, status, additions, deletions }
+    Optionally filtered to files under relative_path.
+    """
+    try:
+        repo = _open_repo(repo_path)
+        commit = repo.commit(commit_hash)
+        parent = commit.parents[0] if commit.parents else None
+
+        diffs = parent.diff(commit) if parent else commit.diff(None)
+
+        result = []
+        for d in diffs:
+            path = d.b_path or d.a_path
+            if relative_path and not path.startswith(relative_path):
+                continue
+            if d.change_type == "A":
+                status = "added"
+            elif d.change_type == "D":
+                status = "removed"
+            elif d.change_type == "R":
+                status = "renamed"
+            else:
+                status = "modified"
+
+            # Count added/deleted lines for text files
+            additions, deletions = None, None
+            try:
+                if not d.a_blob or not d.b_blob or not (d.a_blob.mime_type or "").startswith("text") or d.a_blob.size > 500_000:
+                    pass
+                else:
+                    old_lines = set(d.a_blob.data_stream.read().decode("utf-8", errors="replace").splitlines())
+                    new_lines = set(d.b_blob.data_stream.read().decode("utf-8", errors="replace").splitlines())
+                    additions = len(new_lines - old_lines)
+                    deletions = len(old_lines - new_lines)
+            except Exception:
+                pass
+
+            result.append({
+                "path": path,
+                "filename": path.split("/")[-1],
+                "status": status,
+                "additions": additions,
+                "deletions": deletions,
+            })
+
+        result.sort(key=lambda x: x["path"])
+        return result
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
+
+
 def sync_with_remote(repo_path: str) -> Dict[str, Any]:
     """
     Sync local repository with remote by performing a git pull.

@@ -287,8 +287,8 @@ def _read_file_at_commit(repo_root: Path, commit: str, rel_path: str) -> Optiona
     return None
 
 
-def _find_sch_path_in_tree(repo_root: Path, commit: str) -> Optional[str]:
-    """Find the repo-root-relative path to the first .kicad_sch file in a commit tree."""
+def _find_all_sch_paths(repo_root: Path, commit: str) -> list:
+    """Return all repo-root-relative .kicad_sch paths in the commit tree."""
     try:
         result = subprocess.run(
             ['git', 'ls-tree', '-r', '--name-only', commit],
@@ -296,12 +296,9 @@ def _find_sch_path_in_tree(repo_root: Path, commit: str) -> Optional[str]:
             capture_output=True,
             text=True,
         )
-        for line in result.stdout.splitlines():
-            if line.endswith('.kicad_sch'):
-                return line
+        return [l for l in result.stdout.splitlines() if l.endswith('.kicad_sch')]
     except Exception:
-        pass
-    return None
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -310,17 +307,23 @@ def _find_sch_path_in_tree(repo_root: Path, commit: str) -> Optional[str]:
 
 def get_schematic_diff(project_id: str, commit1: str, commit2: str) -> Optional[dict]:
     """
-    Return interactive diff data for the schematic between two commits.
+    Return interactive diff data for all schematic sheets between two commits.
 
     Returns:
         {
             commit1: str,
             commit2: str,
-            old_content: str,      # .kicad_sch file text at commit1
-            new_content: str,      # .kicad_sch file text at commit2
-            diff: { added, removed, changed },
+            sheets: [
+                {
+                    filename: str,          # bare filename, e.g. "top.kicad_sch"
+                    old_content: str|None,
+                    new_content: str|None,
+                    diff: { added, removed, changed },  # empty lists if one side missing
+                },
+                ...
+            ],
         }
-    or None if the project / schematic can't be found.
+    or None if the project or no schematics can be found.
     """
     projects = get_registered_projects()
     project = next((p for p in projects if p.id == project_id), None)
@@ -330,25 +333,46 @@ def get_schematic_diff(project_id: str, commit1: str, commit2: str) -> Optional[
     project_path = Path(project.path)
     repo_root = _git_root(project_path)
 
-    sch_rel = _find_sch_path_in_tree(repo_root, commit1)
-    if not sch_rel:
-        sch_rel = _find_sch_path_in_tree(repo_root, commit2)
-    if not sch_rel:
+    paths1 = set(_find_all_sch_paths(repo_root, commit1))
+    paths2 = set(_find_all_sch_paths(repo_root, commit2))
+    all_paths = paths1 | paths2
+
+    if not all_paths:
         return None
 
-    old_content = _read_file_at_commit(repo_root, commit1, sch_rel)
-    new_content = _read_file_at_commit(repo_root, commit2, sch_rel)
+    sheets = []
+    for rel_path in sorted(all_paths):
+        filename = rel_path.split('/')[-1]
+        old_content = _read_file_at_commit(repo_root, commit1, rel_path) if rel_path in paths1 else None
+        new_content = _read_file_at_commit(repo_root, commit2, rel_path) if rel_path in paths2 else None
 
-    if not old_content or not new_content:
+        if old_content and new_content:
+            diff = diff_schematics(old_content, new_content)
+        elif new_content:
+            # Sheet added — all items are "added"
+            tree = _parse_sexp(new_content)
+            items = list(_extract_all(tree).values())
+            diff = {'added': items, 'removed': [], 'changed': []}
+        elif old_content:
+            # Sheet removed — all items are "removed"
+            tree = _parse_sexp(old_content)
+            items = list(_extract_all(tree).values())
+            diff = {'added': [], 'removed': items, 'changed': []}
+        else:
+            continue
+
+        sheets.append({
+            'filename': filename,
+            'old_content': old_content,
+            'new_content': new_content,
+            'diff': diff,
+        })
+
+    if not sheets:
         return None
-
-    diff = diff_schematics(old_content, new_content)
 
     return {
         'commit1': commit1,
         'commit2': commit2,
-        'sch_filename': sch_rel.split('/')[-1],
-        'old_content': old_content,
-        'new_content': new_content,
-        'diff': diff,
+        'sheets': sheets,
     }
