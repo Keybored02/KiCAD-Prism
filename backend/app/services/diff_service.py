@@ -460,8 +460,30 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
             (job_dir / "logs.txt").write_text("\n".join(job['logs']), encoding="utf-8")
 
 
+def _make_cache_key(project_id: str, commit1: str, commit2: str) -> str:
+    """Stable cache key — commit pair is sorted so order doesn't matter."""
+    a, b = sorted([commit1, commit2])
+    return f"{project_id}:{a}:{b}"
+
+
 def start_diff_job(project_id: str, commit1: str, commit2: str) -> str:
-    """Start async diff job."""
+    """
+    Start async diff job, or return an existing completed job for the same
+    project + commit pair (cache hit avoids re-running kicad-cli exports).
+    """
+    cache_key = _make_cache_key(project_id, commit1, commit2)
+
+    # Look for a completed job whose output directory still exists on disk
+    for existing_id, job in list(diff_jobs.items()):
+        if (
+            job.get("cache_key") == cache_key
+            and job.get("status") == "completed"
+            and job.get("abs_output_path")
+            and Path(job["abs_output_path"]).exists()
+        ):
+            print(f"[diff cache] hit for {cache_key} -> {existing_id[:8]}", flush=True)
+            return existing_id
+
     job_id = str(uuid.uuid4())
     diff_jobs[job_id] = {
         "status": "running",
@@ -471,18 +493,19 @@ def start_diff_job(project_id: str, commit1: str, commit2: str) -> str:
         "project_id": project_id,
         "commit1": commit1,
         "commit2": commit2,
+        "cache_key": cache_key,
         "logs": [],
         "error": None,
-        "abs_output_path": None
+        "abs_output_path": None,
     }
-    
+
     thread = threading.Thread(
         target=_run_diff_generation,
         args=(job_id, project_id, commit1, commit2)
     )
     thread.daemon = True
     thread.start()
-    
+
     return job_id
 
 def get_job_status(job_id: str) -> Optional[dict]:
