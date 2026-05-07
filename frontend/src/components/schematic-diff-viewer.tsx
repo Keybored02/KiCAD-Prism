@@ -507,37 +507,39 @@ export function SchematicDiffViewer({
           ]))
         : {};
 
-    // Navigate to a marker.
-    // zoom_fit_item is synchronous on the camera fields — it sets zoom+center then calls draw().
-    // If UUID not in renderer's bbox map, camera fields won't change → fall back to manual pan.
+    // Navigate to a marker without triggering the viewer's selection highlight.
+    // zoom_fit_item internally calls paint_selected which draws a blue box on the entity —
+    // instead we replicate just the camera move and clear any existing selection.
     const zoomToMarker = useCallback((marker: DiffMarker) => {
         const viewer = viewerRef.current;
         if (!viewer) return;
         try {
-            const inner = getSchEl(viewer)?.viewer;
+            const schEl = getSchEl(viewer);
+            const inner = schEl?.viewer as (InnerViewer & {
+                schematic_renderer?: { get_item_bbox?: (uuid: string) => unknown };
+                paint_selected?: (bbox?: unknown) => void;
+            }) | undefined;
             const camera = inner?.viewport?.camera;
             if (!inner || !camera) return;
 
-            const beforeZoom = camera.zoom;
-            const beforeCx   = camera.center.x;
-            const beforeCy   = camera.center.y;
+            // Try to get the item's bbox from the renderer map
+            const bbox = inner.schematic_renderer?.get_item_bbox?.(marker.item.uuid) as
+                ({ grow?: (n: number) => unknown } | undefined);
 
-            inner.zoom_fit_item?.(marker.item.uuid);
-
-            const moved = Math.abs(camera.zoom - beforeZoom) > 0.001
-                || Math.abs(camera.center.x - beforeCx) > 0.001
-                || Math.abs(camera.center.y - beforeCy) > 0.001;
-
-            const targetZoom = moved ? camera.zoom : 20;
-            const targetCx   = moved ? camera.center.x : marker.item.x;
-            const targetCy   = moved ? camera.center.y : marker.item.y;
-
-            if (!moved) {
-                camera.zoom = targetZoom;
-                camera.center.set(targetCx, targetCy);
+            if (bbox) {
+                // Replicate zoom_fit_item but skip paint_selected
+                const grown = bbox.grow?.(20) ?? bbox;
+                camera.bbox = grown as never;
+            } else {
+                // UUID not indexed — manually center on item position
+                camera.zoom = 20;
+                camera.center.set(marker.item.x, marker.item.y);
             }
 
-            imposeCamRef.current = { zoom: targetZoom, cx: targetCx, cy: targetCy };
+            // Clear any existing selection highlight
+            inner.paint_selected?.();
+
+            imposeCamRef.current = { zoom: camera.zoom, cx: camera.center.x, cy: camera.center.y };
             safeDraw(viewer);
         } catch { /* ignore */ }
         overlayKickRef.current?.(40);
