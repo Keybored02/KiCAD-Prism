@@ -8,7 +8,16 @@
       "Bash(python -c \"from app.api.diff import router; print\\('OK'\\)\")",
       "Bash(git -C . log --oneline -3)",
       "Bash(python -c ' *)",
-      "Bash(python -c \"from app.services.pcb_diff_service import get_pcb_diff; from app.api.diff import router; print\\('OK'\\)\")"
+      "Bash(python -c \"from app.services.pcb_diff_service import get_pcb_diff; from app.api.diff import router; print\\('OK'\\)\")",
+      "Bash(powershell -Command \"Get-Item 'c:\\\\Users\\\\Matteo\\\\Documents\\\\Personal\\\\Projects\\\\KiCAD-Prism\\\\frontend\\\\public\\\\ecad-viewer.js' | Select-Object -ExpandProperty Length\")",
+      "Bash(cat \"c:\\\\Users\\\\Matteo\\\\.claude\\\\projects\\\\c--Users-Matteo-Documents-Personal-Projects-KiCAD-Prism\\\\88b34892-d7a7-4387-9b47-d9321701c7f0\\\\tool-results\\\\bngaik61x.txt\" | grep -E \"^\\\\d+:\" | head -50)",
+      "Read(//c/Users/Matteo/.claude/projects/c--Users-Matteo-Documents-Personal-Projects-KiCAD-Prism/88b34892-d7a7-4387-9b47-d9321701c7f0/tool-results/**)",
+      "PowerShell($content = Get-Content \"c:\\\\Users\\\\Matteo\\\\Documents\\\\Personal\\\\Projects\\\\KiCAD-Prism\\\\frontend\\\\public\\\\ecad-viewer.js\" -Raw; $idx = $content.IndexOf\\('zoom_fit_item'\\); if \\($idx -ge 0\\) { Write-Output \"Found at position $idx\"; Write-Output $content.Substring\\($idx, [Math]::Min\\(500, $content.Length - $idx\\)\\) } else { Write-Output \"Not found\" })",
+      "Bash(Get-Content \"c:\\\\Users\\\\Matteo\\\\Documents\\\\Personal\\\\Projects\\\\KiCAD-Prism\\\\frontend\\\\public\\\\ecad-viewer.js\")",
+      "Bash(Select-String 'customElements\\\\.define\\\\\\(\"kc-schematic-viewer' -Context 2,50)",
+      "Bash(Select-Object -First 100)",
+      "Bash(python3)",
+      "Bash(node -e ' *)"
     ]
   }
 }

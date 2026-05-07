@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar, GitCompare, ChevronDown, ChevronRight, FileText, Plus, Minus, RefreshCw, Loader2 } from "lucide-react";
+import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar, GitCompare, ChevronDown, ChevronRight, FileText, Plus, Minus, RefreshCw, Loader2, X, CircuitBoard, Cpu, List } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { VisualDiffViewer } from "./visual-diff-viewer";
 import { SchematicDiffViewer } from "./schematic-diff-viewer";
+import { PcbDiffViewer } from "./pcb-diff-viewer";
 import { fetchJson } from "@/lib/api";
 
 interface Release {
@@ -240,6 +240,94 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
     );
 }
 
+// ---------------------------------------------------------------------------
+// Tabbed diff modal
+// ---------------------------------------------------------------------------
+
+type DiffTab = "schematic" | "pcb" | "bom";
+
+interface CommitDiffModalProps {
+    projectId: string;
+    commit1: string;
+    commit2: string;
+    onClose: () => void;
+}
+
+function CommitDiffModal({ projectId, commit1, commit2, onClose }: CommitDiffModalProps) {
+    const [tab, setTab] = useState<DiffTab>("schematic");
+
+    const tabs: { id: DiffTab; label: string; icon: React.ReactNode }[] = [
+        { id: "schematic", label: "Schematic", icon: <CircuitBoard className="h-3.5 w-3.5" /> },
+        { id: "pcb",       label: "PCB",       icon: <Cpu          className="h-3.5 w-3.5" /> },
+        { id: "bom",       label: "BOM",       icon: <List         className="h-3.5 w-3.5" /> },
+    ];
+
+    return (
+        <div className="fixed inset-0 z-50 bg-background flex flex-col">
+            {/* Tab bar header */}
+            <div className="flex items-center gap-0 border-b bg-background/95 backdrop-blur shrink-0 px-2">
+                <Button variant="ghost" size="icon" className="h-8 w-8 mr-2 shrink-0" onClick={onClose}>
+                    <X className="h-4 w-4" />
+                </Button>
+                <div className="flex-1 flex items-center">
+                    {tabs.map((t) => (
+                        <button
+                            key={t.id}
+                            onClick={() => setTab(t.id)}
+                            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                                tab === t.id
+                                    ? "border-primary text-foreground"
+                                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/40"
+                            }`}
+                        >
+                            {t.icon}
+                            {t.label}
+                        </button>
+                    ))}
+                </div>
+                <p className="text-xs text-muted-foreground font-mono pr-3 shrink-0">
+                    {commit2.slice(0, 7)} → {commit1.slice(0, 7)}
+                </p>
+            </div>
+
+            {/* Tab content */}
+            <div className="flex-1 overflow-hidden relative">
+                {tab === "schematic" && (
+                    <div className="absolute inset-0">
+                        <SchematicDiffViewer
+                            projectId={projectId}
+                            commit1={commit1}
+                            commit2={commit2}
+                            onClose={onClose}
+                            embedded
+                        />
+                    </div>
+                )}
+                {tab === "pcb" && (
+                    <div className="absolute inset-0">
+                        <PcbDiffViewer
+                            projectId={projectId}
+                            commit1={commit1}
+                            commit2={commit2}
+                            onClose={onClose}
+                            embedded
+                        />
+                    </div>
+                )}
+                {tab === "bom" && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="flex flex-col items-center gap-3 text-center">
+                            <List className="h-10 w-10 text-muted-foreground/40" />
+                            <p className="text-sm font-medium text-muted-foreground">BOM diff coming soon</p>
+                            <p className="text-xs text-muted-foreground/60">Bill of materials comparison will appear here</p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: HistoryViewerProps) {
     const [releases, setReleases] = useState<Release[]>([]);
     const [commits, setCommits] = useState<Commit[]>([]);
@@ -247,7 +335,6 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
     const [error, setError] = useState<string | null>(null);
     const [selectedCommits, setSelectedCommits] = useState<string[]>([]);
     const [showDiff, setShowDiff] = useState(false);
-    const [showSchDiff, setShowSchDiff] = useState(false);
 
     // Filter commits to find selected ones and determining newer/older
     const diffPair = useMemo(() => {
@@ -385,23 +472,13 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                 </div>
             )}
 
-            {/* Visual Diff Viewer */}
+            {/* Tabbed diff modal */}
             {showDiff && diffPair && (
-                <VisualDiffViewer
+                <CommitDiffModal
                     projectId={projectId}
                     commit1={diffPair.newer.full_hash}
                     commit2={diffPair.older.full_hash}
                     onClose={() => setShowDiff(false)}
-                />
-            )}
-
-            {/* Interactive Schematic Diff Viewer */}
-            {showSchDiff && diffPair && (
-                <SchematicDiffViewer
-                    projectId={projectId}
-                    commit1={diffPair.newer.full_hash}
-                    commit2={diffPair.older.full_hash}
-                    onClose={() => setShowSchDiff(false)}
                 />
             )}
 
@@ -448,24 +525,14 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                         Commits
                     </h3>
                     {canCompareDiffs && selectedCommits.length === 2 && (
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setShowSchDiff(true)}
-                            >
-                                <GitCompare className="h-4 w-4 mr-2" />
-                                Schematic Diff
-                            </Button>
-                            <Button
-                                variant="default"
-                                size="sm"
-                                onClick={() => setShowDiff(true)}
-                            >
-                                <Eye className="h-4 w-4 mr-2" />
-                                Compare Selected ({selectedCommits.length})
-                            </Button>
-                        </div>
+                        <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => setShowDiff(true)}
+                        >
+                            <GitCompare className="h-4 w-4 mr-2" />
+                            Compare Changes
+                        </Button>
                     )}
                 </div>
 
