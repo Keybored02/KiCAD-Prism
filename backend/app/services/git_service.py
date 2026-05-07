@@ -108,20 +108,21 @@ def get_file_from_commit_with_prefix(repo_path: str, commit_hash: str, file_path
     try:
         repo = Repo(repo_path)
         commit = repo.commit(commit_hash)
-        
-        # Prepend relative_prefix for Type-2 projects
-        full_path = file_path
-        if relative_prefix:
-            full_path = os.path.join(relative_prefix, file_path)
-        
-        try:
-            blob = commit.tree / full_path
-            content = blob.data_stream.read()
-            return content.decode('utf-8')
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"File {file_path} not found in commit")
-        except UnicodeDecodeError:
-            raise HTTPException(status_code=400, detail="Binary file cannot be decoded")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
+
+    full_path = file_path
+    if relative_prefix:
+        full_path = os.path.join(relative_prefix, file_path)
+
+    try:
+        blob = commit.tree / full_path
+        content = blob.data_stream.read()
+        return content.decode('utf-8')
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"File {file_path} not found in commit")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Binary file cannot be decoded")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
 
@@ -192,15 +193,17 @@ def get_file_from_commit(repo_path: str, commit_hash: str, file_path: str) -> st
     try:
         repo = Repo(repo_path)
         commit = repo.commit(commit_hash)
-        
-        try:
-            blob = commit.tree / file_path
-            content = blob.data_stream.read()
-            return content.decode('utf-8')
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"File {file_path} not found in commit")
-        except UnicodeDecodeError:
-            raise HTTPException(status_code=400, detail="Binary file cannot be decoded")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
+
+    try:
+        blob = commit.tree / file_path
+        content = blob.data_stream.read()
+        return content.decode('utf-8')
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"File {file_path} not found in commit")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Binary file cannot be decoded")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
 

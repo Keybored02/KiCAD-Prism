@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
-import { Cpu, Box, FileText, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check } from "lucide-react";
+import { Cpu, Box, FileText, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, Plus, Minus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -22,6 +22,121 @@ const Model3DViewer = lazy(() =>
 interface VisualizerProps {
     projectId: string;
     user: User | null;
+    commit?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Diff overlay types (mirrors schematic-diff-viewer, kept local to avoid coupling)
+// ---------------------------------------------------------------------------
+
+interface SchDiffItem {
+    type: string;
+    uuid: string;
+    x: number;
+    y: number;
+    reference?: string;
+    value?: string;
+    text?: string;
+    sheet_name?: string;
+}
+interface SchDiffChangedItem { item: SchDiffItem; changes: Record<string, { old: unknown; new: unknown }>; }
+interface SchDiff { added: SchDiffItem[]; removed: SchDiffItem[]; changed: SchDiffChangedItem[]; }
+interface SchDiffSheet { filename: string; new_content: string | null; old_content: string | null; diff: SchDiff; }
+interface SchDiffData { commit1: string; commit2: string; sheets: SchDiffSheet[]; }
+interface DiffMarker { kind: "added" | "removed" | "changed"; item: SchDiffItem; }
+
+const DIFF_KIND_COLOR: Record<DiffMarker["kind"], string> = {
+    added: "#22c55e",
+    removed: "#ef4444",
+    changed: "#f59e0b",
+};
+
+function _diffBoxHalfExtent(type: string): { hw: number; hh: number } {
+    switch (type) {
+        case "symbol": return { hw: 5, hh: 4 };
+        case "sheet":  return { hw: 6, hh: 5 };
+        default:       return { hw: 3, hh: 1.5 };
+    }
+}
+
+// Reusable diff overlay — identical logic to schematic-diff-viewer's DiffOverlay
+function CommitDiffOverlay({ markers, viewerRef }: {
+    markers: DiffMarker[];
+    viewerRef: React.RefObject<ECadViewerElement | null>;
+}) {
+    const boxRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const loopRef = useRef<number | null>(null);
+    const draggingRef = useRef(false);
+
+    const updatePositions = useCallback(() => {
+        const viewer = viewerRef.current;
+        if (!viewer?.getScreenLocation) return;
+        try {
+            const rect = viewer.getBoundingClientRect();
+            for (const m of markers) {
+                const el = boxRefs.current.get(m.item.uuid);
+                if (!el) continue;
+                const { hw, hh } = _diffBoxHalfExtent(m.item.type);
+                const tl = viewer.getScreenLocation(m.item.x - hw, m.item.y - hh);
+                const br = viewer.getScreenLocation(m.item.x + hw, m.item.y + hh);
+                if (!tl || !br) { el.style.display = "none"; continue; }
+                const left = Math.min(tl.x, br.x);
+                const top  = Math.min(tl.y, br.y);
+                const w    = Math.abs(br.x - tl.x);
+                const h    = Math.abs(br.y - tl.y);
+                const vis  = left + w > 0 && left < rect.width && top + h > 0 && top < rect.height;
+                el.style.display = vis ? "" : "none";
+                if (vis) { el.style.left = `${left}px`; el.style.top = `${top}px`; el.style.width = `${w}px`; el.style.height = `${h}px`; }
+            }
+        } catch { /* viewer transiently unavailable */ }
+    }, [viewerRef, markers]);
+
+    const runLoop = useCallback(() => {
+        updatePositions();
+        if (draggingRef.current) loopRef.current = requestAnimationFrame(runLoop);
+        else loopRef.current = null;
+    }, [updatePositions]);
+
+    const startLoop = useCallback(() => {
+        if (loopRef.current === null) loopRef.current = requestAnimationFrame(runLoop);
+    }, [runLoop]);
+
+    useEffect(() => {
+        const onDown = () => { draggingRef.current = true; startLoop(); };
+        const onUp   = () => { draggingRef.current = false; startLoop(); };
+        window.addEventListener("mousedown", onDown);
+        window.addEventListener("mouseup",   onUp);
+        window.addEventListener("wheel", startLoop, { passive: true });
+        window.addEventListener("resize", onUp);
+        startLoop();
+        return () => {
+            window.removeEventListener("mousedown", onDown);
+            window.removeEventListener("mouseup",   onUp);
+            window.removeEventListener("wheel", startLoop);
+            window.removeEventListener("resize", onUp);
+            if (loopRef.current !== null) cancelAnimationFrame(loopRef.current);
+        };
+    }, [startLoop]);
+
+    useEffect(() => { startLoop(); }, [markers, startLoop]);
+
+    return (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 15 }}>
+            {markers.map((m) => (
+                <div
+                    key={m.item.uuid}
+                    ref={(node) => { if (node) boxRefs.current.set(m.item.uuid, node); else boxRefs.current.delete(m.item.uuid); }}
+                    className="absolute"
+                    style={{
+                        display: "none",
+                        border: `2px solid ${DIFF_KIND_COLOR[m.kind]}`,
+                        borderRadius: 3,
+                        backgroundColor: `${DIFF_KIND_COLOR[m.kind]}22`,
+                    }}
+                />
+            ))}
+        </div>
+    );
 }
 
 type VisualizerTab = "sch" | "pcb" | "3d" | "ibom";
@@ -121,7 +236,7 @@ function EcadViewerHost({ viewerKey, sources, setViewerRef }: EcadViewerHostProp
     );
 }
 
-export function Visualizer({ projectId, user }: VisualizerProps) {
+export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [schematicViewerElement, setSchematicViewerElement] = useState<ECadViewerElement | null>(null);
     const [pcbViewerElement, setPcbViewerElement] = useState<ECadViewerElement | null>(null);
     const schematicViewerRef = useRef<ECadViewerElement | null>(null);
@@ -163,6 +278,10 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
     const [isUrlsPopoverOpen, setIsUrlsPopoverOpen] = useState(false);
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const canModifyComments = user?.role === "admin" || user?.role === "designer";
+
+    // Diff overlay state — populated when viewing a historical commit
+    const [diffData, setDiffData] = useState<SchDiffData | null>(null);
+    const [showDiffOverlay, setShowDiffOverlay] = useState(true);
     const lastCrossProbeRef = useRef<Record<CrossProbeContext, string | null>>({
         SCH: null,
         PCB: null,
@@ -430,9 +549,25 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
         return () => controller.abort();
     }, [projectId]);
 
+    // When diff data arrives (commit view), populate schematic content from it directly
+    useEffect(() => {
+        if (!diffData) return;
+        const mainSheet = diffData.sheets.find(s => s.new_content);
+        if (!mainSheet?.new_content) return;
+        setSchematicContent(mainSheet.new_content);
+        const rest = diffData.sheets
+            .filter(s => s.filename !== mainSheet.filename && s.new_content)
+            .map(s => ({ filename: s.filename, content: s.new_content! }));
+        setSubsheets(rest);
+        setSchematicContentLoaded(true);
+    }, [diffData]);
+
     // Lazy load schematic content when schematic tab is first accessed
     useEffect(() => {
         if (activeTab === "sch" && !schematicContentLoaded) {
+            // If we're in commit-view mode, diff effect handles content loading
+            if (commit) return;
+
             const controller = new AbortController();
             const signal = controller.signal;
 
@@ -537,6 +672,32 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
             return () => controller.abort();
         }
     }, [activeTab, pcbContentLoaded, projectId]);
+
+    // Fetch schematic diff when viewing a specific commit; also resets schematic state
+    useEffect(() => {
+        // Always reset schematic state when commit changes
+        setSchematicContentLoaded(false);
+        setSchematicContent(null);
+        setSubsheets([]);
+        setDiffData(null);
+
+        if (!commit) return;
+
+        const controller = new AbortController();
+        fetch(`/api/projects/${projectId}/schematic-diff?commit1=${encodeURIComponent(commit)}`, {
+            signal: controller.signal,
+        })
+            .then(r => r.ok ? r.json() as Promise<SchDiffData> : Promise.reject())
+            .then(d => {
+                setDiffData(d);
+                setShowDiffOverlay(true);
+            })
+            .catch(e => {
+                if (e instanceof DOMException && e.name === "AbortError") return;
+                setDiffData(null);
+            });
+        return () => controller.abort();
+    }, [projectId, commit]);
 
     // Reset lazy loading flags when project changes
     useEffect(() => {
@@ -869,8 +1030,25 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
             : []),
         [pcbContent],
     );
-    const schematicViewerKey = buildViewerKey("schematic", projectId, schematicSources);
+    // When viewing a commit, use a stable key so the viewer doesn't remount when diff content arrives
+    const schematicViewerKey = commit
+        ? `schematic:${projectId}:commit:${commit}`
+        : buildViewerKey("schematic", projectId, schematicSources);
     const pcbViewerKey = buildViewerKey("pcb", projectId, pcbSources);
+
+    // Build diff markers for the active schematic page
+    const diffMarkers = useMemo<DiffMarker[]>(() => {
+        if (!diffData || !showDiffOverlay) return [];
+        // Find the sheet matching the current active page
+        const sheet = diffData.sheets.find(s => s.filename === activePage || s.filename.endsWith("/" + activePage))
+            ?? diffData.sheets[0];
+        if (!sheet) return [];
+        const markers: DiffMarker[] = [];
+        for (const item of sheet.diff.added)   markers.push({ kind: "added",   item });
+        for (const item of sheet.diff.removed)  markers.push({ kind: "removed", item });
+        for (const { item } of sheet.diff.changed) markers.push({ kind: "changed", item });
+        return markers;
+    }, [diffData, showDiffOverlay, activePage]);
 
     // Tab Config
     const tabs: { id: VisualizerTab; label: string; icon: any }[] = [
@@ -902,6 +1080,27 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
                     );
                 })}
                 <div className="flex-1" />
+
+                {/* Diff overlay controls — only when viewing a specific commit */}
+                {commit && diffData && activeTab === "sch" && (
+                    <div className="flex items-center gap-1 border-r pr-2 mr-1">
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                            {diffMarkers.filter(m => m.kind === "added").length > 0 && <span className="text-green-500 mr-1">+{diffMarkers.filter(m => m.kind === "added").length}</span>}
+                            {diffMarkers.filter(m => m.kind === "removed").length > 0 && <span className="text-red-500 mr-1">-{diffMarkers.filter(m => m.kind === "removed").length}</span>}
+                            {diffMarkers.filter(m => m.kind === "changed").length > 0 && <span className="text-amber-500">~{diffMarkers.filter(m => m.kind === "changed").length}</span>}
+                        </span>
+                        <Button
+                            variant={showDiffOverlay ? "secondary" : "ghost"}
+                            size="sm"
+                            onClick={() => setShowDiffOverlay(v => !v)}
+                            className="text-xs h-8"
+                            title="Toggle diff highlights"
+                        >
+                            <RefreshCw className="w-3 h-3 mr-2" />
+                            Highlights
+                        </Button>
+                    </div>
+                )}
 
                 {/* Comment Controls */}
                 {(activeTab === "sch" || activeTab === "pcb") && (
@@ -1095,6 +1294,11 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
                         }}
                     />
                 ) : null}
+
+                {/* Diff highlights overlay — shown when viewing a historical commit on the sch tab */}
+                {activeTab === "sch" && diffMarkers.length > 0 && (
+                    <CommitDiffOverlay markers={diffMarkers} viewerRef={schematicViewerRef} />
+                )}
 
                 {/* 3D View */}
                 {activeTab === "3d" && (

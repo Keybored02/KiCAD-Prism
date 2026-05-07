@@ -68,14 +68,37 @@ async def delete_job(project_id: str, job_id: str, user: AuthenticatedUser = Dep
 async def get_schematic_diff(
     project_id: str,
     commit1: str,
-    commit2: str,
+    commit2: str = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
     Return interactive schematic diff data between two commits.
+    If commit2 is omitted, diffs commit1 against its parent.
     Includes both file contents (for ecad-viewer) and a structured change list.
     """
     get_project_for_role_or_404(project_id, user.role)
+
+    # Resolve parent commit when commit2 is not provided
+    if commit2 is None:
+        from pathlib import Path
+        from app.services.project_service import get_registered_projects
+        projects = get_registered_projects()
+        project = next((p for p in projects if p.id == project_id), None)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        try:
+            from git import Repo
+            repo_root = sch_diff_service._git_root(Path(project.path))
+            repo = Repo(str(repo_root))
+            commit_obj = repo.commit(commit1)
+            if not commit_obj.parents:
+                raise HTTPException(status_code=400, detail="Commit has no parent to diff against")
+            commit2 = commit_obj.parents[0].hexsha
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
+
     result = sch_diff_service.get_schematic_diff(project_id, commit1, commit2)
     if result is None:
         raise HTTPException(status_code=404, detail="Schematic not found for this project/commits")

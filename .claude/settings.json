@@ -4,7 +4,8 @@
       "Bash(py -c \"from app.main import app\")",
       "Bash(py -c ' *)",
       "Bash(xargs '-I{}' sh -c 'count=$\\(grep -c \"^\\\\t\\(sheet \" \"{}\" 2>/dev/null\\); [ \"$count\" -gt 0 ] && echo \"$count sheets: {}\"')",
-      "Bash(python -c \"from app.api.projects import router; from app.services.git_service import get_commit_file_summary; print\\('OK'\\)\")"
+      "Bash(python -c \"from app.api.projects import router; from app.services.git_service import get_commit_file_summary; print\\('OK'\\)\")",
+      "Bash(python -c \"from app.api.diff import router; print\\('OK'\\)\")"
     ]
   }
 }
