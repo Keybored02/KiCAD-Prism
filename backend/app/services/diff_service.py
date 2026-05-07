@@ -174,34 +174,56 @@ def _snapshot_commit(project_path: Path, commit: str, destination: Path):
 def _get_pcb_layers(pcb_path: Path) -> List[str]:
     """
     Extract active layer names from the .kicad_pcb file.
+
+    KiCad 8 renamed several layers (e.g. F.SilkS -> F.Silkscreen). Older PCB
+    files may list both the old and new canonical names in their layers table.
+    Passing duplicates to kicad-cli causes it to exit with code 1 and no
+    stderr, so we deduplicate by always preferring the canonical (new) name.
     """
+    # Map of legacy alias -> canonical KiCad 8 name
+    _ALIASES: Dict[str, str] = {
+        "F.SilkS":   "F.Silkscreen",
+        "B.SilkS":   "B.Silkscreen",
+        "F.Adhes":   "F.Adhesive",
+        "B.Adhes":   "B.Adhesive",
+        "F.CrtYd":   "F.Courtyard",
+        "B.CrtYd":   "B.Courtyard",
+        "Dwgs.User": "User.Drawings",
+        "Cmts.User": "User.Comments",
+        "Eco1.User": "User.Eco1",
+        "Eco2.User": "User.Eco2",
+    }
+
     if not pcb_path.exists():
         return []
-        
+
     try:
-        # Read the beginning of the file to find the layers block
-        # PCB files can be large, but the layers block is usually within the first 10k bytes
         with open(pcb_path, 'r', encoding='utf-8', errors='ignore') as f:
             head = f.read(20000)
-            
-        # Find the layers section: (layers ... (count "name" type ...) ...)
+
         layers_match = re.search(r'\(layers\s+(.*?)\s+\(setup', head, re.DOTALL)
         if not layers_match:
-            # Fallback to a broader search if setup block isn't immediately after
             layers_match = re.search(r'\(layers\s+(.*?)\n\s+\)', head, re.DOTALL)
-            
+
         if layers_match:
             block = layers_match.group(1)
-            # Find all strings in quotes: e.g. (0 "F.Cu" signal)
-            layer_names = re.findall(r'"([^"]+)"', block)
-            if layer_names:
-                return layer_names
-                
+            raw = re.findall(r'"([^"]+)"', block)
+            if raw:
+                # Normalise: replace any legacy alias with its canonical name,
+                # then deduplicate while preserving order.
+                seen: set = set()
+                result: List[str] = []
+                for name in raw:
+                    canonical = _ALIASES.get(name, name)
+                    if canonical not in seen:
+                        seen.add(canonical)
+                        result.append(canonical)
+                return result
+
     except Exception as e:
         print(f"Error parsing PCB layers: {e}")
-        
-    # Fallback to standard layers if parsing fails
-    return ["F.Cu", "B.Cu", "F.SilkS", "B.SilkS", "F.Mask", "B.Mask", "Edge.Cuts"]
+
+    return ["F.Cu", "B.Cu", "F.Silkscreen", "B.Silkscreen", "F.Mask", "B.Mask", "Edge.Cuts"]
     
 
 def _colorize_svg(svg_path: Path, color: str):
@@ -237,20 +259,24 @@ def _colorize_svg(svg_path: Path, color: str):
 def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: str):
     """Execute diff generation in background."""
     job = diff_jobs[job_id]
-    
+
+    def _log(msg: str):
+        print(f"[diff:{job_id[:8]}] {msg}", flush=True)
+        job['logs'].append(msg)
+
     try:
         # 1. Setup paths
         row = workspace.get_project_by_id(project_id)
         if not row:
             raise ValueError(f"Project '{project_id}' not found")
-            
+
         project_path = Path(row['path'])
         job_dir = (Path("/tmp/prism_diff") / job_id).resolve()
         job_dir.mkdir(parents=True, exist_ok=True)
         job['abs_output_path'] = str(job_dir)
-        
-        job['logs'].append(f"Started diff job for {project_id}")
-        job['logs'].append(f"Output directory: {job_dir}")
+
+        _log(f"Started diff job for {project_id}")
+        _log(f"Output directory: {job_dir}")
         
         manifest = {
             "job_id": job_id,
@@ -268,17 +294,17 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                 try:
                     return json.loads(config_path.read_text(encoding="utf-8"))
                 except Exception as e:
-                    job['logs'].append(f"Warning: Failed to parse .prism.json: {e}")
+                    _log(f"Warning: Failed to parse .prism.json: {e}")
             return {}
 
         # 1. Snapshot commits
         c1_dir = job_dir / commit1
         c2_dir = job_dir / commit2
-        
-        job['logs'].append(f"Snapshotting commit {commit1}...")
+
+        _log(f"Snapshotting commit {commit1}...")
         _snapshot_commit(project_path, commit1, c1_dir)
-        
-        job['logs'].append(f"Snapshotting commit {commit2}...")
+
+        _log(f"Snapshotting commit {commit2}...")
         _snapshot_commit(project_path, commit2, c2_dir)
 
 
@@ -312,7 +338,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                 sch_out_dir = directory / "sch"
                 sch_out_dir.mkdir(exist_ok=True)
                 sch_dirs[commit] = sch_out_dir
-                job['logs'].append(f"Exporting Schematics for {commit}...")
+                _log(f"Exporting Schematics for {commit}...")
 
                 cmd = [
                     CLI_CMD, "sch", "export", "svg",
@@ -320,7 +346,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                     "--output", str(sch_out_dir),
                     str(sch_file)
                 ]
-                job['logs'].append(f"SCH CMD: {' '.join(cmd)}")
+                _log(f"SCH CMD: {' '.join(cmd)}")
                 res = subprocess.run(cmd, capture_output=True, text=True)
 
                 if res.returncode == 0:
@@ -329,16 +355,17 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                     if commit == commit1:
                         manifest["schematic"] = True
                 else:
-                    job['logs'].append(f"SCH Export FAILED (Code {res.returncode})")
+                    _log(f"SCH Export FAILED (Code {res.returncode})")
+                    _log(f"STDERR: {res.stderr}")
             else:
-                job['logs'].append(f"No root .kicad_sch resolved for {commit}")
-            
+                _log(f"No root .kicad_sch resolved for {commit}")
+
             # 3. Export PCB Layers
             if pcb_file:
                 pcb_out_dir = directory / "pcb"
                 pcb_out_dir.mkdir(exist_ok=True)
-                job['logs'].append(f"Exporting PCB Layers for {commit} from {pcb_file}...")
-                
+                _log(f"Exporting PCB Layers for {commit} from {pcb_file}...")
+
                 # We export standard layers in one shot using --mode-multi
                 all_layers = _get_pcb_layers(pcb_file)
                 cmd = [
@@ -351,48 +378,45 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                     "--output", str(pcb_out_dir),
                     str(pcb_file)
                 ]
-                job['logs'].append(f"PCB CMD: {' '.join(cmd)}")
+                _log(f"PCB CMD: {' '.join(cmd)}")
                 res = subprocess.run(cmd, capture_output=True, text=True)
-                
+
                 if res.returncode == 0:
-                    # KiCad names these {project}-{layer}.svg or just {layer}.svg
-                    # We normalize them to {layer_name}.svg for the frontend
                     found_layers = []
-                    job['logs'].append(f"PCB Export success. Dir content: {list(pcb_out_dir.glob('*.svg'))}")
-                    
+                    _log(f"PCB Export success. Dir content: {list(pcb_out_dir.glob('*.svg'))}")
+
                     for svg in list(pcb_out_dir.glob("*.svg")):
                         leaf = svg.name
                         layer_part = leaf
                         if leaf.startswith(pcb_file.stem + "-"):
                             layer_part = leaf[len(pcb_file.stem)+1:]
-                        
-                        # Match back to the original layer name to ensure F.Cu vs F_Cu consistency
+
                         matched_layer = None
                         for l in all_layers:
                             if l.replace(".", "_") == layer_part.replace(".svg", ""):
                                 matched_layer = l
                                 break
-                        
+
                         if matched_layer:
                             target_svg = pcb_out_dir / (matched_layer.replace(".", "_") + ".svg")
-                            job['logs'].append(f"Matched {leaf} -> {matched_layer} (Target: {target_svg.name})")
+                            _log(f"Matched {leaf} -> {matched_layer} (Target: {target_svg.name})")
                             if svg.resolve() != target_svg.resolve():
                                 if target_svg.exists(): target_svg.unlink()
                                 svg.rename(target_svg)
-                            
+
                             _colorize_svg(target_svg, color)
                             found_layers.append(matched_layer)
                         else:
-                            job['logs'].append(f"Could not match PCB SVG: {leaf}")
-                    
+                            _log(f"Could not match PCB SVG: {leaf}")
+
                     if commit == commit1:
                         manifest["layers"] = sorted(list(set(found_layers)))
-                        job['logs'].append(f"Populated manifest with {len(manifest['layers'])} layers")
+                        _log(f"Populated manifest with {len(manifest['layers'])} layers")
                 else:
-                    job['logs'].append(f"PCB Export FAILED (Code {res.returncode})")
-                    job['logs'].append(f"STDERR: {res.stderr}")
+                    _log(f"PCB Export FAILED (Code {res.returncode})")
+                    _log(f"STDERR: {res.stderr}")
             else:
-                job['logs'].append(f"No .kicad_pcb found for {commit}")
+                _log(f"No .kicad_pcb found for {commit}")
 
         # Publish the union of emitted SVG filenames across both commits, so
         # sheets that exist in only one commit (added/removed) still appear.
@@ -403,16 +427,13 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
             manifest["sheets"] = sorted(sheet_union)
 
         # 4. BoM Diff
-        job['logs'].append("Generating BoM Diff...")
+        _log("Generating BoM Diff...")
         try:
             config = get_config(c1_dir)
             bom_fields = config.get("bom", {}).get("fields", ["Reference", "Value", "Footprint", "Datasheet"])
-            
+
             bom_csvs = {}
             for commit, directory in [(commit1, c1_dir), (commit2, c2_dir)]:
-                # Use the path-config-resolved root schematic so kicad-cli can
-                # walk the full hierarchy. Picking an arbitrary subsheet here
-                # would silently produce a partial BoM.
                 main_sch_str = find_schematic_file(str(directory))
                 sch_file = Path(main_sch_str) if main_sch_str else None
                 if sch_file and sch_file.exists():
@@ -427,24 +448,23 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                     if res.returncode == 0 and csv_path.exists():
                         bom_csvs[commit] = csv_path.read_text(encoding="utf-8")
                     else:
-                        job['logs'].append(f"BoM export failed for {commit}: {res.stderr}")
+                        _log(f"BoM export failed for {commit}: {res.stderr}")
                 else:
-                    job['logs'].append(f"Skipping BoM export for {commit}: no root .kicad_sch resolved")
-            
+                    _log(f"Skipping BoM export for {commit}: no root .kicad_sch resolved")
+
             if commit1 in bom_csvs and commit2 in bom_csvs:
                 old_bom = bom_diff_service.parse_bom_csv(bom_csvs[commit2])
                 new_bom = bom_diff_service.parse_bom_csv(bom_csvs[commit1])
                 diff_results = bom_diff_service.diff_boms(old_bom, new_bom, bom_fields)
                 manifest["bom"] = diff_results
-                job['logs'].append("BoM Diff generated successfully.")
+                _log("BoM Diff generated successfully.")
             else:
-                job['logs'].append("Skipping BoM Diff: Could not generate CSVs for both commits.")
-                
-        except Exception as e:
-            job['logs'].append(f"Error generating BoM diff: {e}")
+                _log("Skipping BoM Diff: Could not generate CSVs for both commits.")
 
-        # Write manifest
-        # Write logs and manifest
+        except Exception as e:
+            _log(f"Error generating BoM diff: {e}")
+
+        # Write manifest and logs
         log_path = job_dir / "logs.txt"
         log_path.write_text("\n".join(job['logs']), encoding="utf-8")
 
@@ -454,13 +474,13 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
         job['status'] = 'completed'
         job['message'] = 'Ready'
         job['percent'] = 100
-        job['logs'].append("Diff generation complete.")
+        _log("Diff generation complete.")
         log_path.write_text("\n".join(job['logs']), encoding="utf-8")
 
     except Exception as e:
         job['status'] = 'failed'
         job['error'] = str(e)
-        job['logs'].append(f"Critical Error: {str(e)}")
+        _log(f"Critical Error: {str(e)}")
         if 'job_dir' in locals() and job_dir.exists():
             (job_dir / "logs.txt").write_text("\n".join(job['logs']), encoding="utf-8")
 
