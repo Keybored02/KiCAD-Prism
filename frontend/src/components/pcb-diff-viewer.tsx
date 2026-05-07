@@ -3,7 +3,7 @@ import {
 } from "react";
 import {
     X, Loader2, AlertCircle, ChevronLeft, ChevronRight,
-    Plus, Minus, RefreshCw, MapPin, Cpu,
+    Plus, Minus, RefreshCw, MapPin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
@@ -17,26 +17,22 @@ interface PcbItem {
     uuid: string;
     x: number;
     y: number;
-    // footprint fields
     reference?: string;
     value?: string;
     lib_id?: string;
     layer?: string;
-    // zone fields
     net_name?: string;
     name?: string;
     net?: string;
-    // gr_text
     text?: string;
-    // segment
     start_x?: number;
     start_y?: number;
     end_x?: number;
     end_y?: number;
     width?: number;
-    // via
     size?: number;
     drill?: number;
+    polygon_points?: [number, number][];
 }
 
 interface FieldChange {
@@ -74,10 +70,27 @@ interface DiffMarker {
     changes?: Record<string, FieldChange>;
 }
 
+type GroupCategory = "components" | "nets" | "zones" | "graphics";
+
+interface GroupedMarker {
+    id: string;
+    category: GroupCategory;
+    kind: "added" | "removed" | "changed";
+    label: string;
+    members: DiffMarker[];
+    // merged world-space bbox for overlay
+    bboxMinX: number;
+    bboxMinY: number;
+    bboxMaxX: number;
+    bboxMaxY: number;
+    // zone polygon in world coords (only set for zone groups)
+    polygonPoints?: [number, number][];
+}
+
 interface PcbDiffViewerProps {
     projectId: string;
-    commit1: string; // newer
-    commit2: string; // older
+    commit1: string;
+    commit2: string;
     onClose: () => void;
     embedded?: boolean;
 }
@@ -103,10 +116,12 @@ const KIND_LABEL: Record<DiffMarker["kind"], string> = {
 // ---------------------------------------------------------------------------
 
 function itemLabel(item: PcbItem): string {
-    if (item.reference) return item.reference;
+    if (item.reference) return `${item.reference}${item.value ? ` (${item.value})` : ""}`;
     if (item.text) return item.text.slice(0, 24) + (item.text.length > 24 ? "…" : "");
     if (item.net_name) return item.net_name;
     if (item.name) return item.name;
+    if (item.type === "segment") return `Wire${item.layer ? ` ${item.layer}` : ""}`;
+    if (item.type === "via") return `Via${item.net ? ` ${item.net}` : ""}`;
     return item.type;
 }
 
@@ -114,7 +129,6 @@ function fieldLabel(key: string): string {
     return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// World-space half-extents (mm) per PCB item type
 function _boxHalfExtent(type: string): { hw: number; hh: number } {
     switch (type) {
         case "footprint": return { hw: 3,   hh: 3   };
@@ -127,7 +141,129 @@ function _boxHalfExtent(type: string): { hw: number; hh: number } {
 }
 
 // ---------------------------------------------------------------------------
-// EcadViewerHost (local copy, PCB-specific viewerKey prefix)
+// Marker grouping
+// ---------------------------------------------------------------------------
+
+function _mergedKind(members: DiffMarker[]): "added" | "removed" | "changed" {
+    const kinds = new Set(members.map(m => m.kind));
+    if (kinds.size > 1) return "changed"; // mixed → rerouted/modified
+    return members[0].kind;
+}
+
+function _bboxFromMembers(members: DiffMarker[]): { minX: number; minY: number; maxX: number; maxY: number } {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const m of members) {
+        const item = m.item;
+        if (item.type === "segment" && item.start_x != null) {
+            const pad = (item.width ?? 0.2) / 2;
+            minX = Math.min(minX, item.start_x - pad, item.end_x! - pad);
+            minY = Math.min(minY, item.start_y! - pad, item.end_y! - pad);
+            maxX = Math.max(maxX, item.start_x + pad, item.end_x! + pad);
+            maxY = Math.max(maxY, item.start_y! + pad, item.end_y! + pad);
+        } else {
+            const hw = item.type === "footprint" ? 3 : item.type === "zone" ? 5 : item.type === "via" ? 0.5 : 2;
+            const hh = item.type === "gr_text" ? 1.5 : hw;
+            minX = Math.min(minX, item.x - hw); minY = Math.min(minY, item.y - hh);
+            maxX = Math.max(maxX, item.x + hw); maxY = Math.max(maxY, item.y + hh);
+        }
+    }
+    return { minX, minY, maxX, maxY };
+}
+
+const GRAPHIC_TYPES = new Set(["gr_text", "gr_line", "gr_circle", "gr_rect", "gr_arc"]);
+
+function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
+    const result: GroupedMarker[] = [];
+    let gid = 0;
+    const nextId = () => `g${gid++}`;
+
+    // ── Components (footprints) — one group per UUID, keep kind as-is ──
+    for (const m of raw) {
+        if (m.item.type !== "footprint") continue;
+        const { minX, minY, maxX, maxY } = _bboxFromMembers([m]);
+        const ref = m.item.reference || m.item.lib_id || "?";
+        const val = m.item.value ? ` (${m.item.value})` : "";
+        result.push({
+            id: nextId(), category: "components", kind: m.kind,
+            label: `${ref}${val}`,
+            members: [m], bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
+        });
+    }
+
+    // ── Nets (segments + vias) — group by net name across all kinds ──
+    const netMap = new Map<string, DiffMarker[]>();
+    for (const m of raw) {
+        if (m.item.type !== "segment" && m.item.type !== "via") continue;
+        const key = m.item.net ?? "(no net)";
+        const arr = netMap.get(key) ?? [];
+        arr.push(m);
+        netMap.set(key, arr);
+    }
+    for (const [net, members] of netMap) {
+        const { minX, minY, maxX, maxY } = _bboxFromMembers(members);
+        const kind = _mergedKind(members);
+        const segCount  = members.filter(m => m.item.type === "segment").length;
+        const viaCount  = members.filter(m => m.item.type === "via").length;
+        const parts = [];
+        if (segCount)  parts.push(`${segCount} wire${segCount > 1 ? "s" : ""}`);
+        if (viaCount)  parts.push(`${viaCount} via${viaCount > 1 ? "s" : ""}`);
+        const netLabel = net === "(no net)" ? "No net" : net;
+        result.push({
+            id: nextId(), category: "nets", kind,
+            label: `${netLabel} — ${parts.join(", ")}`,
+            members, bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
+        });
+    }
+
+    // ── Zones — one group per UUID ──
+    for (const m of raw) {
+        if (m.item.type !== "zone") continue;
+        const pts = m.item.polygon_points;
+        let minX: number, minY: number, maxX: number, maxY: number;
+        if (pts && pts.length > 0) {
+            minX = Math.min(...pts.map(p => p[0]));
+            minY = Math.min(...pts.map(p => p[1]));
+            maxX = Math.max(...pts.map(p => p[0]));
+            maxY = Math.max(...pts.map(p => p[1]));
+        } else {
+            ({ minX, minY, maxX, maxY } = _bboxFromMembers([m]));
+        }
+        const label = m.item.net_name
+            ? `${m.item.net_name} pour`
+            : m.item.name || "Zone";
+        result.push({
+            id: nextId(), category: "zones", kind: m.kind,
+            label, members: [m],
+            bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
+            polygonPoints: pts && pts.length > 0 ? pts : undefined,
+        });
+    }
+
+    // ── Graphics — group by layer ──
+    const gfxMap = new Map<string, DiffMarker[]>();
+    for (const m of raw) {
+        if (!GRAPHIC_TYPES.has(m.item.type)) continue;
+        const key = m.item.layer ?? "(no layer)";
+        const arr = gfxMap.get(key) ?? [];
+        arr.push(m);
+        gfxMap.set(key, arr);
+    }
+    for (const [layer, members] of gfxMap) {
+        const { minX, minY, maxX, maxY } = _bboxFromMembers(members);
+        const kind = _mergedKind(members);
+        const n = members.length;
+        result.push({
+            id: nextId(), category: "graphics", kind,
+            label: `${layer} — ${n} item${n > 1 ? "s" : ""}`,
+            members, bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
+        });
+    }
+
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// EcadViewerHost
 // ---------------------------------------------------------------------------
 
 interface EcadViewerHostProps {
@@ -144,6 +280,8 @@ function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
         (viewerRef as React.MutableRefObject<ECadViewerElement | null>).current = node;
     }, [viewerRef]);
 
+    const filesKey = files.map(f => f.filename).join("|");
+
     useLayoutEffect(() => {
         const viewer = hostRef.current;
         if (!viewer || files.length === 0) return;
@@ -157,6 +295,7 @@ function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
             el.querySelectorAll("ecad-blob").forEach((b) => b.remove());
 
             for (const { filename, content } of files) {
+                if (cancelled) return;
                 const blob = document.createElement("ecad-blob") as HTMLElement & {
                     filename?: string; content?: string;
                 };
@@ -165,6 +304,7 @@ function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
                 el.appendChild(blob);
             }
 
+            if (cancelled) return;
             const withLoader = el as ECadViewerElement & { load_src?: () => Promise<void> };
             if (typeof withLoader.load_src === "function") {
                 await withLoader.load_src();
@@ -172,7 +312,8 @@ function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
         })();
 
         return () => { cancelled = true; };
-    }, [viewerKey, files]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [viewerKey, filesKey]);
 
     return (
         <ecad-viewer
@@ -189,106 +330,185 @@ function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
 // ---------------------------------------------------------------------------
 
 interface OverlayProps {
-    markers: DiffMarker[];
+    groups: GroupedMarker[];
     viewerRef: React.RefObject<ECadViewerElement | null>;
-    onMarkerClick: (marker: DiffMarker) => void;
-    activeUuid: string | null;
+    onGroupClick: (group: GroupedMarker) => void;
+    activeId: string | null;
+    kickRef?: React.MutableRefObject<((frames?: number) => void) | null>;
 }
 
-function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid }: OverlayProps) {
-    const boxRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-    const rafRef  = useRef<number | null>(null);
-    const draggingRef = useRef(false);
+function DiffOverlay({ groups, viewerRef, onGroupClick, activeId, kickRef }: OverlayProps) {
+    const boxRefs  = useRef<Map<string, HTMLDivElement>>(new Map());
+    const polyRefs = useRef<Map<string, SVGPolygonElement>>(new Map());
+    const rafRef   = useRef<number | null>(null);
+    const framesLeftRef = useRef(0);
 
-    const updatePositions = useCallback(() => {
+    const updatePositions = useCallback((): boolean => {
         const viewer = viewerRef.current;
-        if (!viewer?.getScreenLocation) return;
+        if (!viewer?.getScreenLocation) return false;
         try {
             const rect = viewer.getBoundingClientRect();
-            for (const m of markers) {
-                const el = boxRefs.current.get(m.item.uuid);
-                if (!el) continue;
-                const { hw, hh } = _boxHalfExtent(m.item.type);
-                const tl = viewer.getScreenLocation(m.item.x - hw, m.item.y - hh);
-                const br = viewer.getScreenLocation(m.item.x + hw, m.item.y + hh);
-                if (!tl || !br) { el.style.display = "none"; continue; }
-                const left = Math.min(tl.x, br.x);
-                const top  = Math.min(tl.y, br.y);
-                const w    = Math.abs(br.x - tl.x);
-                const h    = Math.abs(br.y - tl.y);
-                const vis  = left + w > 0 && left < rect.width && top + h > 0 && top < rect.height;
-                if (vis) {
-                    el.style.display = "";
-                    el.style.left   = `${left}px`;
-                    el.style.top    = `${top}px`;
-                    el.style.width  = `${w}px`;
-                    el.style.height = `${h}px`;
+            if (!rect.width) return false;
+            let anyVisible = false;
+            const SCREEN_PAD = 4;
+            for (const g of groups) {
+                if (g.polygonPoints) {
+                    // Zone: update SVG polygon points
+                    const poly = polyRefs.current.get(g.id);
+                    if (!poly) continue;
+                    const screenPts = g.polygonPoints.map(([wx, wy]) => {
+                        const s = viewer.getScreenLocation(wx, wy);
+                        return s ? `${s.x},${s.y}` : null;
+                    });
+                    if (screenPts.some(p => p === null)) { poly.style.display = "none"; continue; }
+                    poly.setAttribute("points", screenPts.join(" "));
+                    poly.style.display = "";
+                    anyVisible = true;
                 } else {
-                    el.style.display = "none";
+                    // Non-zone: update div box
+                    const el = boxRefs.current.get(g.id);
+                    if (!el) continue;
+                    const tl = viewer.getScreenLocation(g.bboxMinX, g.bboxMinY);
+                    const br = viewer.getScreenLocation(g.bboxMaxX, g.bboxMaxY);
+                    if (!tl || !br) { el.style.display = "none"; continue; }
+                    const left = Math.min(tl.x, br.x) - SCREEN_PAD;
+                    const top  = Math.min(tl.y, br.y) - SCREEN_PAD;
+                    const w    = Math.abs(br.x - tl.x) + SCREEN_PAD * 2;
+                    const h    = Math.abs(br.y - tl.y) + SCREEN_PAD * 2;
+                    const vis  = left + w > 0 && left < rect.width && top + h > 0 && top < rect.height;
+                    if (vis) {
+                        el.style.display = "";
+                        el.style.left   = `${left}px`;
+                        el.style.top    = `${top}px`;
+                        el.style.width  = `${w}px`;
+                        el.style.height = `${h}px`;
+                        anyVisible = true;
+                    } else {
+                        el.style.display = "none";
+                    }
                 }
             }
-        } catch { /* viewer transiently unavailable */ }
-    }, [viewerRef, markers]);
+            return anyVisible || groups.length === 0;
+        } catch { return false; }
+    }, [viewerRef, groups]);
 
-    const loopRef = useRef<number | null>(null);
-    const runLoop = useCallback(() => {
-        updatePositions();
-        if (draggingRef.current) {
-            loopRef.current = requestAnimationFrame(runLoop);
+    const tick = useCallback(() => {
+        const done = updatePositions();
+        if (framesLeftRef.current > 0 || !done) {
+            if (framesLeftRef.current > 0) framesLeftRef.current--;
+            rafRef.current = requestAnimationFrame(tick);
         } else {
-            loopRef.current = null;
+            rafRef.current = null;
         }
     }, [updatePositions]);
 
-    const startLoop = useCallback(() => {
-        if (loopRef.current === null) {
-            loopRef.current = requestAnimationFrame(runLoop);
+    const kick = useCallback((frames = 30) => {
+        framesLeftRef.current = Math.max(framesLeftRef.current, frames);
+        if (rafRef.current === null) {
+            rafRef.current = requestAnimationFrame(tick);
         }
-    }, [runLoop]);
+    }, [tick]);
 
     useEffect(() => {
-        const onDown  = () => { draggingRef.current = true;  startLoop(); };
-        const onUp    = () => { draggingRef.current = false; startLoop(); };
-        const onWheel = () => startLoop();
+        if (kickRef) kickRef.current = kick;
+        return () => { if (kickRef) kickRef.current = null; };
+    }, [kick, kickRef]);
+
+    useEffect(() => {
+        const onDown  = () => kick(180);
+        const onUp    = () => kick(20);
+        const onWheel = () => kick(20);
         window.addEventListener("mousedown", onDown);
         window.addEventListener("mouseup",   onUp);
         window.addEventListener("wheel",     onWheel, { passive: true });
         window.addEventListener("resize",    onUp);
-        startLoop();
         return () => {
             window.removeEventListener("mousedown", onDown);
             window.removeEventListener("mouseup",   onUp);
             window.removeEventListener("wheel",     onWheel);
             window.removeEventListener("resize",    onUp);
-            if (loopRef.current !== null) { cancelAnimationFrame(loopRef.current); loopRef.current = null; }
-            if (rafRef.current  !== null) { cancelAnimationFrame(rafRef.current);  rafRef.current  = null; }
+            if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
         };
-    }, [startLoop]);
+    }, [kick]);
 
-    useEffect(() => { startLoop(); }, [markers, startLoop]);
+    useEffect(() => { kick(30); }, [groups, kick]);
+
+    // Build a unique stripe pattern id per (kind, activeId) combination so
+    // active zones get a denser/brighter stripe than inactive ones.
+    const stripeIds = {
+        added:   "diff-stripe-added",
+        removed: "diff-stripe-removed",
+        changed: "diff-stripe-changed",
+    };
 
     return (
         <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
-            {markers.map((m) => {
-                const color = KIND_COLOR[m.kind];
-                const isActive = m.item.uuid === activeUuid;
+            {/* SVG layer for zone polygons */}
+            <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none">
+                <defs>
+                    {(["added", "removed", "changed"] as const).map((kind) => {
+                        const color = KIND_COLOR[kind];
+                        return (
+                            <pattern
+                                key={kind}
+                                id={stripeIds[kind]}
+                                patternUnits="userSpaceOnUse"
+                                width="8" height="8"
+                                patternTransform="rotate(45)"
+                            >
+                                <rect width="8" height="8" fill={`${color}22`} />
+                                <line x1="0" y1="0" x2="0" y2="8"
+                                    stroke={color} strokeWidth="3" strokeOpacity="0.6" />
+                            </pattern>
+                        );
+                    })}
+                </defs>
+                {groups.filter(g => g.polygonPoints).map((g) => {
+                    const color = KIND_COLOR[g.kind];
+                    const isActive = g.id === activeId;
+                    return (
+                        <polygon
+                            key={g.id}
+                            ref={(node) => {
+                                if (node) polyRefs.current.set(g.id, node as SVGPolygonElement);
+                                else polyRefs.current.delete(g.id);
+                            }}
+                            style={{ display: "none", cursor: "pointer", pointerEvents: "all" }}
+                            fill={`url(#${stripeIds[g.kind]})`}
+                            stroke={color}
+                            strokeWidth={isActive ? 2.5 : 1.5}
+                            strokeOpacity={isActive ? 1 : 0.7}
+                            filter={isActive ? `drop-shadow(0 0 4px ${color})` : undefined}
+                            onClick={() => onGroupClick(g)}
+                        />
+                    );
+                })}
+            </svg>
+
+            {/* Div boxes for everything else */}
+            {groups.filter(g => !g.polygonPoints).map((g) => {
+                const color = KIND_COLOR[g.kind];
+                const isActive = g.id === activeId;
                 return (
                     <div
-                        key={m.item.uuid}
+                        key={g.id}
                         ref={(node) => {
-                            if (node) boxRefs.current.set(m.item.uuid, node);
-                            else boxRefs.current.delete(m.item.uuid);
+                            if (node) boxRefs.current.set(g.id, node);
+                            else boxRefs.current.delete(g.id);
                         }}
                         className="absolute pointer-events-auto cursor-pointer"
                         style={{
                             display: "none",
                             border: `2px solid ${color}`,
                             borderRadius: 3,
-                            backgroundColor: `${color}22`,
-                            boxShadow: isActive ? `0 0 0 2px ${color}66, inset 0 0 0 1px ${color}44` : undefined,
-                            transition: "box-shadow 0.15s",
+                            backgroundColor: `${color}33`,
+                            outline: "1.5px solid rgba(0,0,0,0.7)",
+                            outlineOffset: "1px",
+                            boxShadow: isActive
+                                ? `0 0 0 3px ${color}99, 0 0 8px 2px ${color}66`
+                                : `0 0 0 1.5px rgba(0,0,0,0.5)`,
                         }}
-                        onClick={() => onMarkerClick(m)}
+                        onClick={() => onGroupClick(g)}
                     />
                 );
             })}
@@ -297,57 +517,17 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid }: OverlayP
 }
 
 // ---------------------------------------------------------------------------
-// PCB camera sync (uses kc-board-viewer instead of kc-schematic-viewer)
-// ---------------------------------------------------------------------------
-
-function syncPcbCamera(from: ECadViewerElement, to: ECadViewerElement) {
-    try {
-        const rect = from.getBoundingClientRect();
-        if (!rect.width || !rect.height) return;
-
-        const s0 = from.getScreenLocation(0, 0);
-        const s1 = from.getScreenLocation(10, 0);
-        if (!s0 || !s1) return;
-        const pxPerMm = Math.abs(s1.x - s0.x) / 10;
-        if (pxPerMm === 0) return;
-
-        const worldCx = (rect.width  / 2 - s0.x) / pxPerMm;
-        const worldCy = (rect.height / 2 - s0.y) / pxPerMm;
-        const halfW   = (rect.width  / 2) / pxPerMm;
-        const halfH   = (rect.height / 2) / pxPerMm;
-
-        type BoardViewer = HTMLElement & {
-            viewer?: { viewport?: { camera?: { bbox: unknown }; }; draw?: () => void; };
-        };
-        const findBoardViewer = (root: ShadowRoot | Document): BoardViewer | null => {
-            const direct = root.querySelector("kc-board-viewer") as BoardViewer | null;
-            if (direct) return direct;
-            for (const el of root.querySelectorAll("*")) {
-                if ((el as HTMLElement).shadowRoot) {
-                    const found = findBoardViewer((el as HTMLElement).shadowRoot!);
-                    if (found) return found;
-                }
-            }
-            return null;
-        };
-
-        const boardEl = to.shadowRoot ? findBoardViewer(to.shadowRoot) : null;
-        const camera = boardEl?.viewer?.viewport?.camera;
-        if (camera) {
-            camera.bbox = {
-                x: worldCx - halfW, y: worldCy - halfH,
-                w: halfW * 2,       h: halfH * 2,
-            };
-            boardEl!.viewer!.draw?.();
-        } else {
-            to.zoomToLocation(worldCx, worldCy);
-        }
-    } catch { /* ignore */ }
-}
-
-// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
+
+type Vec2   = { x: number; y: number; set: (x: number, y: number) => void };
+type Camera = { center: Vec2; zoom: number; bbox: unknown };
+type InnerViewer = {
+    viewport?: { camera?: Camera };
+    draw?: () => void;
+    renderer?: { ctx2d?: unknown; gl?: unknown };
+};
+type BoardEl = HTMLElement & { viewer?: InnerViewer };
 
 export function PcbDiffViewer({
     projectId,
@@ -361,7 +541,7 @@ export function PcbDiffViewer({
     const [error, setError] = useState<string | null>(null);
 
     const [showing, setShowing] = useState<"new" | "old">("new");
-    const [activeMarker, setActiveMarker] = useState<DiffMarker | null>(null);
+    const [activeGroup, setActiveGroup] = useState<GroupedMarker | null>(null);
 
     const [showOverlay, setShowOverlay] = useState(true);
     const [showAdded, setShowAdded] = useState(true);
@@ -371,15 +551,96 @@ export function PcbDiffViewer({
     const newViewerRef = useRef<ECadViewerElement | null>(null);
     const oldViewerRef = useRef<ECadViewerElement | null>(null);
     const viewerRef = showing === "new" ? newViewerRef : oldViewerRef;
+    const overlayKickRef = useRef<((frames?: number) => void) | null>(null);
+    const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+
+    const boardElCache = useRef<WeakMap<ECadViewerElement, BoardEl>>(new WeakMap());
+
+    const getBoardEl = useCallback((host: ECadViewerElement): BoardEl | null => {
+        const cached = boardElCache.current.get(host);
+        if (cached?.viewer?.viewport?.camera) return cached;
+        const walk = (root: ShadowRoot | Element): BoardEl | null => {
+            const sr = (root as HTMLElement).shadowRoot;
+            const searchRoot = sr ?? root;
+            const el = (searchRoot as ShadowRoot).querySelector?.("kc-board-viewer") as BoardEl | null;
+            if (el?.viewer?.viewport?.camera) return el;
+            for (const child of (searchRoot as ShadowRoot).querySelectorAll?.("*") ?? []) {
+                if ((child as HTMLElement).shadowRoot) {
+                    const f = walk(child as HTMLElement);
+                    if (f) return f;
+                }
+            }
+            return el ?? null;
+        };
+        const result = host.shadowRoot ? walk(host) : null;
+        if (result?.viewer?.viewport?.camera) boardElCache.current.set(host, result);
+        return result;
+    }, []);
+
+    const getCamera = useCallback((host: ECadViewerElement): Camera | null => {
+        return getBoardEl(host)?.viewer?.viewport?.camera ?? null;
+    }, [getBoardEl]);
+
+    const safeDraw = useCallback((host: ECadViewerElement) => {
+        const inner = getBoardEl(host)?.viewer;
+        if (inner?.renderer?.gl) inner.draw?.();
+    }, [getBoardEl]);
+
+    // Impose a camera position on the active viewer until user interacts.
+    const imposeCamRef = useRef<{ zoom: number; cx: number; cy: number } | null>(null);
+
+    const showingRef = useRef(showing);
+    useEffect(() => { showingRef.current = showing; }, [showing]);
+
+    useEffect(() => {
+        let raf = 0;
+        const tick = () => {
+            const impose = imposeCamRef.current;
+            if (impose) {
+                const activeRef = showingRef.current === "new" ? newViewerRef : oldViewerRef;
+                const host = activeRef.current;
+                const cam = host ? getCamera(host) : null;
+                if (cam && host) {
+                    cam.zoom = impose.zoom;
+                    cam.center.set(impose.cx, impose.cy);
+                    safeDraw(host);
+                }
+            }
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+
+        const release = () => { imposeCamRef.current = null; };
+        const container = viewerContainerRef.current;
+        container?.addEventListener("pointerdown", release);
+        container?.addEventListener("wheel", release, { passive: true });
+
+        return () => {
+            if (raf) cancelAnimationFrame(raf);
+            container?.removeEventListener("pointerdown", release);
+            container?.removeEventListener("wheel", release);
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [getCamera, safeDraw]);
 
     const handleToggle = useCallback((next: "new" | "old") => {
-        const fromRef = next === "new" ? oldViewerRef : newViewerRef;
-        const toRef   = next === "new" ? newViewerRef : oldViewerRef;
-        if (fromRef.current && toRef.current) {
-            syncPcbCamera(fromRef.current, toRef.current);
+        if (next === showing) return;
+        const fromRef = showing === "new" ? newViewerRef : oldViewerRef;
+        const toRef   = showing === "new" ? oldViewerRef : newViewerRef;
+        const cam = fromRef.current ? getCamera(fromRef.current) : null;
+        if (cam) {
+            const state = { zoom: cam.zoom, cx: cam.center.x, cy: cam.center.y };
+            imposeCamRef.current = state;
+            const toHost = toRef.current;
+            const toCam  = toHost ? getCamera(toHost) : null;
+            if (toCam && toHost) {
+                toCam.zoom = state.zoom;
+                toCam.center.set(state.cx, state.cy);
+                safeDraw(toHost);
+            }
         }
         setShowing(next);
-    }, []);
+    }, [showing, getCamera, safeDraw]);
 
     const [activeBoard, setActiveBoard] = useState<string>("");
 
@@ -405,29 +666,27 @@ export function PcbDiffViewer({
 
     const activeBoardData = data?.boards.find(b => b.filename === activeBoard) ?? null;
 
-    // Build markers — skip segments and vias (too numerous to overlay usefully)
-    const OVERLAY_TYPES = new Set(["footprint", "zone", "gr_text", "gr_circle", "gr_rect", "gr_arc", "gr_line"]);
-
-    const allMarkers: DiffMarker[] = [];
+    const rawMarkers: DiffMarker[] = [];
     if (activeBoardData) {
         for (const item of activeBoardData.diff.added)
-            if (OVERLAY_TYPES.has(item.type)) allMarkers.push({ kind: "added", item });
+            rawMarkers.push({ kind: "added", item });
         for (const item of activeBoardData.diff.removed)
-            if (OVERLAY_TYPES.has(item.type)) allMarkers.push({ kind: "removed", item });
+            rawMarkers.push({ kind: "removed", item });
         for (const { item, changes } of activeBoardData.diff.changed)
-            if (OVERLAY_TYPES.has(item.type)) allMarkers.push({ kind: "changed", item, changes });
+            rawMarkers.push({ kind: "changed", item, changes });
     }
+    const allGroups = groupMarkers(rawMarkers);
 
-    const visibleMarkers = !showOverlay ? [] : allMarkers.filter((m) => {
-        if (m.kind === "added"   && !showAdded)   return false;
-        if (m.kind === "removed" && !showRemoved)  return false;
-        if (m.kind === "changed" && !showChanged)  return false;
-        if (m.kind === "added"   && showing !== "new") return false;
-        if (m.kind === "removed" && showing !== "old") return false;
+    const visibleGroups = !showOverlay ? [] : allGroups.filter((g) => {
+        if (g.kind === "added"   && !showAdded)   return false;
+        if (g.kind === "removed" && !showRemoved)  return false;
+        if (g.kind === "changed" && !showChanged)  return false;
+        if (g.kind === "added"   && showing !== "new") return false;
+        if (g.kind === "removed" && showing !== "old") return false;
         return true;
     });
 
-    const totalChanges = allMarkers.length;
+    const totalChanges = allGroups.length;
 
     const boardChangeCounts = data
         ? Object.fromEntries(data.boards.map(b => [
@@ -436,49 +695,34 @@ export function PcbDiffViewer({
           ]))
         : {};
 
-    const zoomToMarker = useCallback((marker: DiffMarker) => {
+    const zoomToGroup = useCallback((g: GroupedMarker) => {
         const viewer = viewerRef.current;
         if (!viewer) return;
         try {
-            type BoardViewer = HTMLElement & {
-                viewer?: { viewport?: { camera?: { bbox: unknown }; }; draw?: () => void; };
+            const boardEl = getBoardEl(viewer);
+            const camera  = boardEl?.viewer?.viewport?.camera;
+            if (!camera) return;
+            const pad = 10;
+            camera.bbox = {
+                x: g.bboxMinX - pad, y: g.bboxMinY - pad,
+                w: (g.bboxMaxX - g.bboxMinX) + pad * 2,
+                h: (g.bboxMaxY - g.bboxMinY) + pad * 2,
             };
-            const findBoardViewer = (root: ShadowRoot | Document): BoardViewer | null => {
-                const d = root.querySelector("kc-board-viewer") as BoardViewer | null;
-                if (d) return d;
-                for (const el of root.querySelectorAll("*")) {
-                    if ((el as HTMLElement).shadowRoot) {
-                        const f = findBoardViewer((el as HTMLElement).shadowRoot!);
-                        if (f) return f;
-                    }
-                }
-                return null;
-            };
-            const { hw, hh } = _boxHalfExtent(marker.item.type);
-            const pad = 15;
-            const boardEl = viewer.shadowRoot ? findBoardViewer(viewer.shadowRoot) : null;
-            if (boardEl?.viewer?.viewport?.camera) {
-                boardEl.viewer.viewport.camera.bbox = {
-                    x: marker.item.x - hw - pad, y: marker.item.y - hh - pad,
-                    w: (hw + pad) * 2,            h: (hh + pad) * 2,
-                };
-                boardEl.viewer.draw?.();
-            } else {
-                viewer.zoomToLocation(marker.item.x, marker.item.y);
-            }
+            imposeCamRef.current = { zoom: camera.zoom, cx: camera.center.x, cy: camera.center.y };
+            safeDraw(viewer);
         } catch { /* ignore */ }
-    }, [viewerRef]);
+        overlayKickRef.current?.(40);
+    }, [viewerRef, getBoardEl, safeDraw]);
 
-    const handleMarkerClick = useCallback((m: DiffMarker) => {
-        setActiveMarker(prev => prev?.item.uuid === m.item.uuid ? null : m);
-        zoomToMarker(m);
-        if (m.kind === "added"   && showing !== "new") handleToggle("new");
-        if (m.kind === "removed" && showing !== "old") handleToggle("old");
-    }, [zoomToMarker, showing, handleToggle]);
+    const handleGroupClick = useCallback((g: GroupedMarker) => {
+        setActiveGroup(prev => prev?.id === g.id ? null : g);
+        zoomToGroup(g);
+        if (g.kind === "added"   && showing !== "new") handleToggle("new");
+        if (g.kind === "removed" && showing !== "old") handleToggle("old");
+    }, [zoomToGroup, showing, handleToggle]);
 
     return (
         <div className={embedded ? "h-full bg-background flex flex-col" : "fixed inset-0 z-50 bg-background flex flex-col"}>
-            {/* Header — hidden when embedded (modal owns the chrome) */}
             {!embedded && (
                 <div className="flex items-center gap-3 px-4 py-3 border-b bg-background/95 backdrop-blur shrink-0">
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
@@ -493,13 +737,11 @@ export function PcbDiffViewer({
                 </div>
             )}
 
-            {/* Body: sidebar + viewer */}
             <div className="flex flex-1 overflow-hidden">
 
                 {/* ── Left sidebar ── */}
                 <div className="w-56 shrink-0 border-r flex flex-col bg-background overflow-hidden">
 
-                    {/* OLD / NEW toggle */}
                     {data && (
                         <div className="px-3 pt-3 pb-2 shrink-0">
                             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">Version</p>
@@ -520,7 +762,6 @@ export function PcbDiffViewer({
                         </div>
                     )}
 
-                    {/* Filter toggles */}
                     {data && (
                         <div className="px-3 pb-2 shrink-0 space-y-1">
                             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">Show</p>
@@ -536,9 +777,9 @@ export function PcbDiffViewer({
                             </button>
                             {(["added", "removed", "changed"] as const).map((kind) => {
                                 const counts = {
-                                    added:   activeBoardData?.diff.added.filter(i => OVERLAY_TYPES.has(i.type)).length   ?? 0,
-                                    removed: activeBoardData?.diff.removed.filter(i => OVERLAY_TYPES.has(i.type)).length ?? 0,
-                                    changed: activeBoardData?.diff.changed.filter(({ item }) => OVERLAY_TYPES.has(item.type)).length ?? 0,
+                                    added:   activeBoardData?.diff.added.length   ?? 0,
+                                    removed: activeBoardData?.diff.removed.length ?? 0,
+                                    changed: activeBoardData?.diff.changed.length ?? 0,
                                 };
                                 const active = kind === "added" ? showAdded : kind === "removed" ? showRemoved : showChanged;
                                 const toggle = kind === "added" ? () => setShowAdded(v => !v) : kind === "removed" ? () => setShowRemoved(v => !v) : () => setShowChanged(v => !v);
@@ -561,7 +802,6 @@ export function PcbDiffViewer({
                         </div>
                     )}
 
-                    {/* Board selector (multi-board projects) */}
                     {data && data.boards.length > 1 && (
                         <div className="px-3 pb-2 shrink-0">
                             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">Boards</p>
@@ -573,7 +813,7 @@ export function PcbDiffViewer({
                                     return (
                                         <button
                                             key={board.filename}
-                                            onClick={() => { setActiveBoard(board.filename); setActiveMarker(null); }}
+                                            onClick={() => { setActiveBoard(board.filename); setActiveGroup(null); }}
                                             className={`w-full text-left flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${isActive ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/60 text-muted-foreground"}`}
                                         >
                                             {boardStatus && (
@@ -601,7 +841,6 @@ export function PcbDiffViewer({
 
                     <div className="border-t mx-3 shrink-0" />
 
-                    {/* Navigable item list */}
                     <div className="flex-1 overflow-y-auto py-2">
                         {!data && !loading && (
                             <p className="text-xs text-muted-foreground px-4 py-2">No data</p>
@@ -609,87 +848,80 @@ export function PcbDiffViewer({
                         {data && totalChanges === 0 && (
                             <p className="text-xs text-muted-foreground px-4 py-4 text-center">No PCB changes detected</p>
                         )}
-                        {data && (["added", "removed", "changed"] as const).map((kind) => {
-                            const items = allMarkers.filter(m => m.kind === kind);
-                            if (items.length === 0) return null;
-                            return (
-                                <div key={kind} className="mb-1">
-                                    <p
-                                        className="text-[10px] uppercase tracking-wider px-3 py-1 sticky top-0 bg-background font-medium"
-                                        style={{ color: KIND_COLOR[kind] }}
-                                    >
-                                        {KIND_LABEL[kind]} ({items.length})
-                                    </p>
-                                    {items.map((m) => {
-                                        const isActive = activeMarker?.item.uuid === m.item.uuid;
-                                        return (
-                                            <button
-                                                key={m.item.uuid}
-                                                onClick={() => handleMarkerClick(m)}
-                                                className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted/60 ${isActive ? "bg-muted" : ""}`}
-                                            >
-                                                <span
-                                                    className="w-2 h-2 rounded-full shrink-0"
-                                                    style={{ backgroundColor: KIND_COLOR[m.kind] }}
-                                                />
-                                                <span className="truncate font-medium">{itemLabel(m.item)}</span>
-                                                <MapPin className="h-2.5 w-2.5 shrink-0 text-muted-foreground ml-auto opacity-0 group-hover:opacity-100" />
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            );
-                        })}
+                        {data && (
+                            [
+                                { cat: "components" as GroupCategory, label: "Components" },
+                                { cat: "nets"       as GroupCategory, label: "Nets"       },
+                                { cat: "zones"      as GroupCategory, label: "Zones"      },
+                                { cat: "graphics"   as GroupCategory, label: "Graphics"   },
+                            ].map(({ cat, label }) => {
+                                const groups = allGroups.filter(g => g.category === cat);
+                                if (groups.length === 0) return null;
+                                return (
+                                    <div key={cat} className="mb-2">
+                                        <p className="text-[10px] uppercase tracking-wider px-3 py-1 sticky top-0 bg-background font-medium text-muted-foreground">
+                                            {label}
+                                        </p>
+                                        {groups.map((g) => {
+                                            const isActive = activeGroup?.id === g.id;
+                                            const color = KIND_COLOR[g.kind];
+                                            return (
+                                                <button
+                                                    key={g.id}
+                                                    onClick={() => handleGroupClick(g)}
+                                                    className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted/60 ${isActive ? "bg-muted" : ""}`}
+                                                >
+                                                    <span
+                                                        className="w-2 h-2 rounded-sm shrink-0 border"
+                                                        style={{ backgroundColor: `${color}55`, borderColor: color }}
+                                                    />
+                                                    <span className="truncate font-medium">{g.label}</span>
+                                                    <span
+                                                        className="ml-auto shrink-0 text-[9px] font-bold px-1 py-0.5 rounded leading-none"
+                                                        style={{ backgroundColor: `${color}22`, color, border: `1px solid ${color}66` }}
+                                                    >
+                                                        {KIND_LABEL[g.kind]}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })
+                        )}
                     </div>
 
-                    {/* Active item detail */}
-                    {activeMarker && (
+                    {activeGroup && (
                         <div className="border-t shrink-0 max-h-64 overflow-y-auto">
                             <div className="flex items-center justify-between px-3 py-2 bg-muted/30">
-                                <span className="text-xs font-semibold" style={{ color: KIND_COLOR[activeMarker.kind] }}>
-                                    {KIND_LABEL[activeMarker.kind]}
+                                <span className="text-xs font-semibold" style={{ color: KIND_COLOR[activeGroup.kind] }}>
+                                    {activeGroup.label}
                                 </span>
-                                <button onClick={() => setActiveMarker(null)} className="text-muted-foreground hover:text-foreground">
+                                <button onClick={() => setActiveGroup(null)} className="text-muted-foreground hover:text-foreground">
                                     <X className="h-3 w-3" />
                                 </button>
                             </div>
-                            <div className="px-3 py-2 space-y-2 text-xs">
-                                <div>
-                                    <p className="font-semibold">{itemLabel(activeMarker.item)}</p>
-                                    <p className="text-muted-foreground">{activeMarker.item.type}</p>
-                                </div>
-                                {activeMarker.item.value && (
-                                    <div className="flex justify-between">
-                                        <span className="text-muted-foreground">Value</span>
-                                        <span className="font-mono">{activeMarker.item.value}</span>
-                                    </div>
-                                )}
-                                {activeMarker.item.layer && (
-                                    <div className="flex justify-between">
-                                        <span className="text-muted-foreground">Layer</span>
-                                        <span className="font-mono">{activeMarker.item.layer}</span>
-                                    </div>
-                                )}
-                                {activeMarker.item.net_name && (
-                                    <div className="flex justify-between">
-                                        <span className="text-muted-foreground">Net</span>
-                                        <span className="font-mono">{activeMarker.item.net_name}</span>
-                                    </div>
-                                )}
-                                {activeMarker.item.text && (
-                                    <div className="flex justify-between">
-                                        <span className="text-muted-foreground">Text</span>
-                                        <span className="font-mono">{activeMarker.item.text}</span>
-                                    </div>
-                                )}
-                                {activeMarker.changes && Object.entries(activeMarker.changes).map(([field, { old: ov, new: nv }]) => (
-                                    <div key={field} className="rounded border bg-muted/30 p-1.5 space-y-1">
-                                        <p className="font-medium text-muted-foreground">{fieldLabel(field)}</p>
-                                        <div className="flex items-center gap-1 font-mono text-[11px]">
-                                            <span className="text-red-500 line-through truncate max-w-[80px]">{String(ov ?? "–")}</span>
-                                            <ChevronRight className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-                                            <span className="text-green-500 truncate max-w-[80px]">{String(nv ?? "–")}</span>
+                            <div className="px-3 py-2 space-y-1 text-xs">
+                                {activeGroup.members.map((m, i) => (
+                                    <div key={i} className="space-y-1">
+                                        <div className="flex items-center gap-1.5">
+                                            <span
+                                                className="w-1.5 h-1.5 rounded-full shrink-0"
+                                                style={{ backgroundColor: KIND_COLOR[m.kind] }}
+                                            />
+                                            <span className="font-medium">{itemLabel(m.item)}</span>
+                                            <span className="ml-auto text-muted-foreground">{KIND_LABEL[m.kind]}</span>
                                         </div>
+                                        {m.changes && Object.entries(m.changes).map(([field, { old: ov, new: nv }]) => (
+                                            <div key={field} className="ml-3 rounded border bg-muted/30 p-1.5 space-y-1">
+                                                <p className="font-medium text-muted-foreground">{fieldLabel(field)}</p>
+                                                <div className="flex items-center gap-1 font-mono text-[11px]">
+                                                    <span className="text-red-500 line-through truncate max-w-[80px]">{String(ov ?? "–")}</span>
+                                                    <ChevronRight className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+                                                    <span className="text-green-500 truncate max-w-[80px]">{String(nv ?? "–")}</span>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 ))}
                             </div>
@@ -698,7 +930,7 @@ export function PcbDiffViewer({
                 </div>
 
                 {/* ── Viewer area ── */}
-                <div className="flex-1 relative overflow-hidden">
+                <div ref={viewerContainerRef} className="flex-1 relative overflow-hidden">
                     {loading && (
                         <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-40">
                             <div className="flex flex-col items-center gap-3">
@@ -720,7 +952,7 @@ export function PcbDiffViewer({
                         <>
                             <div
                                 className="absolute inset-0"
-                                style={{ visibility: showing === "new" ? "visible" : "hidden", pointerEvents: showing === "new" ? "auto" : "none" }}
+                                style={{ opacity: showing === "new" ? 1 : 0, pointerEvents: showing === "new" ? "auto" : "none" }}
                             >
                                 <EcadViewerHost
                                     viewerKey={`pcb-diff-new-${data.commit1}-${data.commit2}`}
@@ -732,7 +964,7 @@ export function PcbDiffViewer({
                             </div>
                             <div
                                 className="absolute inset-0"
-                                style={{ visibility: showing === "old" ? "visible" : "hidden", pointerEvents: showing === "old" ? "auto" : "none" }}
+                                style={{ opacity: showing === "old" ? 1 : 0, pointerEvents: showing === "old" ? "auto" : "none" }}
                             >
                                 <EcadViewerHost
                                     viewerKey={`pcb-diff-old-${data.commit1}-${data.commit2}`}
@@ -743,12 +975,12 @@ export function PcbDiffViewer({
                                 />
                             </div>
                             <DiffOverlay
-                                markers={visibleMarkers}
+                                groups={visibleGroups}
                                 viewerRef={viewerRef}
-                                onMarkerClick={handleMarkerClick}
-                                activeUuid={activeMarker?.item.uuid ?? null}
+                                onGroupClick={handleGroupClick}
+                                activeId={activeGroup?.id ?? null}
+                                kickRef={overlayKickRef}
                             />
-                            {/* Board not present overlay */}
                             {activeBoardData && (
                                 (showing === "new" && !activeBoardData.new_content) ||
                                 (showing === "old" && !activeBoardData.old_content)

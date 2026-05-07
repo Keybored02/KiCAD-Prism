@@ -74,8 +74,11 @@ def _get_all(lst: list, key: str) -> list:
 
 
 def _uuid(lst: list) -> Optional[str]:
-    u = _get(lst, 'uuid')
-    return u[1] if u and len(u) > 1 else None
+    for key in ('uuid', 'tstamp'):
+        u = _get(lst, key)
+        if u and len(u) > 1:
+            return u[1]
+    return None
 
 
 def _at(lst: list) -> tuple:

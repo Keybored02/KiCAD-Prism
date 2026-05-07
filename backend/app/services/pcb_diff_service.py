@@ -53,31 +53,32 @@ def _extract_footprints(tree: list) -> dict:
 def _extract_segments(tree: list) -> dict:
     result = {}
     for item in _get_all(tree, 'segment'):
-        uid = _uuid(item)
-        if not uid:
-            continue
-        # Midpoint of the segment as representative position
         start = _get(item, 'start')
         end = _get(item, 'end')
         sx = float(start[1]) if start and len(start) > 1 else 0.0
         sy = float(start[2]) if start and len(start) > 2 else 0.0
         ex = float(end[1]) if end and len(end) > 1 else 0.0
         ey = float(end[2]) if end and len(end) > 2 else 0.0
+        # Normalise direction so (A→B) and (B→A) hash the same
+        if (sx, sy) > (ex, ey):
+            sx, sy, ex, ey = ex, ey, sx, sy
         layer_node = _get(item, 'layer')
         layer = layer_node[1] if layer_node and len(layer_node) > 1 else ''
         net_node = _get(item, 'net')
-        net = net_node[1] if net_node and len(net_node) > 1 else ''
+        net = str(net_node[1]) if net_node and len(net_node) > 1 else ''
         width_node = _get(item, 'width')
         width = float(width_node[1]) if width_node and len(width_node) > 1 else 0.0
-        result[uid] = {
+        # Key by geometry — KiCAD regenerates UUIDs on every save so they are not stable
+        geo_key = f"seg:{sx:.4f},{sy:.4f}-{ex:.4f},{ey:.4f}:{layer}:{net}:{width:.4f}"
+        result[geo_key] = {
             'type': 'segment',
-            'uuid': uid,
+            'uuid': geo_key,
             'x': (sx + ex) / 2,
             'y': (sy + ey) / 2,
             'start_x': sx, 'start_y': sy,
             'end_x': ex, 'end_y': ey,
             'layer': layer,
-            'net': str(net),
+            'net': net,
             'width': width,
         }
     return result
@@ -86,24 +87,23 @@ def _extract_segments(tree: list) -> dict:
 def _extract_vias(tree: list) -> dict:
     result = {}
     for item in _get_all(tree, 'via'):
-        uid = _uuid(item)
-        if not uid:
-            continue
         x, y = _at(item)
         size_node = _get(item, 'size')
         size = float(size_node[1]) if size_node and len(size_node) > 1 else 0.0
         drill_node = _get(item, 'drill')
         drill = float(drill_node[1]) if drill_node and len(drill_node) > 1 else 0.0
         net_node = _get(item, 'net')
-        net = net_node[1] if net_node and len(net_node) > 1 else ''
-        result[uid] = {
+        net = str(net_node[1]) if net_node and len(net_node) > 1 else ''
+        # Key by geometry for same reason as segments
+        geo_key = f"via:{x:.4f},{y:.4f}:{size:.4f}:{drill:.4f}:{net}"
+        result[geo_key] = {
             'type': 'via',
-            'uuid': uid,
+            'uuid': geo_key,
             'x': x,
             'y': y,
             'size': size,
             'drill': drill,
-            'net': str(net),
+            'net': net,
         }
     return result
 
@@ -129,6 +129,13 @@ def _extract_zones(tree: list) -> dict:
         net_node = _get(item, 'net')
         net_name_node = _get(item, 'net_name')
         name_node = _get(item, 'name')
+        # Collect outline polygon points for frontend rendering
+        polygon_points = []
+        if polygon:
+            pts = _get(polygon, 'pts')
+            if pts:
+                xys = _get_all(pts, 'xy')
+                polygon_points = [[float(p[1]), float(p[2])] for p in xys if len(p) > 2]
         result[uid] = {
             'type': 'zone',
             'uuid': uid,
@@ -137,6 +144,7 @@ def _extract_zones(tree: list) -> dict:
             'net': str(net_node[1]) if net_node and len(net_node) > 1 else '',
             'net_name': net_name_node[1] if net_name_node and len(net_name_node) > 1 else '',
             'name': name_node[1] if name_node and len(name_node) > 1 else '',
+            'polygon_points': polygon_points,
         }
     return result
 
@@ -203,6 +211,64 @@ def _item_changes(old: dict, new: dict) -> dict:
     return changes
 
 
+_SNAP = 0.001  # mm tolerance for shared-endpoint matching
+
+
+def _seg_endpoints(item: dict):
+    return (
+        (item['start_x'], item['start_y']),
+        (item['end_x'],   item['end_y']),
+    )
+
+
+def _pts_close(a, b) -> bool:
+    return abs(a[0] - b[0]) < _SNAP and abs(a[1] - b[1]) < _SNAP
+
+
+def _segments_share_endpoint(old: dict, new: dict) -> bool:
+    """True when the two segments share at least one endpoint (within tolerance)."""
+    for op in _seg_endpoints(old):
+        for np in _seg_endpoints(new):
+            if _pts_close(op, np):
+                return True
+    return False
+
+
+def _match_segments(removed_segs: list, added_segs: list) -> tuple:
+    """
+    Greedily pair removed↔added segments that share an endpoint and have the
+    same layer/net/width.  Returns (changed_pairs, still_removed, still_added).
+    """
+    changed = []
+    used_removed = set()
+    used_added   = set()
+
+    # Index added segments by (layer, net, width) for fast lookup
+    from collections import defaultdict
+    added_by_key = defaultdict(list)
+    for i, seg in enumerate(added_segs):
+        k = (seg['layer'], seg['net'], seg['width'])
+        added_by_key[k].append(i)
+
+    for ri, old_seg in enumerate(removed_segs):
+        k = (old_seg['layer'], old_seg['net'], old_seg['width'])
+        for ai in added_by_key.get(k, []):
+            if ai in used_added:
+                continue
+            new_seg = added_segs[ai]
+            if _segments_share_endpoint(old_seg, new_seg):
+                chg = _item_changes(old_seg, new_seg)
+                if chg:
+                    changed.append({'item': new_seg, 'changes': chg})
+                used_removed.add(ri)
+                used_added.add(ai)
+                break  # each removed seg matches at most one added seg
+
+    still_removed = [s for i, s in enumerate(removed_segs) if i not in used_removed]
+    still_added   = [s for i, s in enumerate(added_segs)   if i not in used_added]
+    return changed, still_removed, still_added
+
+
 def diff_pcb(old_content: str, new_content: str) -> dict:
     old_tree = _parse_sexp(old_content)
     new_tree = _parse_sexp(new_content)
@@ -212,15 +278,28 @@ def diff_pcb(old_content: str, new_content: str) -> dict:
     old_uuids = set(old_items)
     new_uuids = set(new_items)
 
-    added   = [new_items[u] for u in (new_uuids - old_uuids)]
-    removed = [old_items[u] for u in (old_uuids - new_uuids)]
+    added_all   = [new_items[u] for u in (new_uuids - old_uuids)]
+    removed_all = [old_items[u] for u in (old_uuids - new_uuids)]
     changed = []
     for u in old_uuids & new_uuids:
         chg = _item_changes(old_items[u], new_items[u])
         if chg:
             changed.append({'item': new_items[u], 'changes': chg})
 
-    return {'added': added, 'removed': removed, 'changed': changed}
+    # Reclassify added/removed segment pairs that share an endpoint as "changed"
+    added_segs   = [i for i in added_all   if i['type'] == 'segment']
+    removed_segs = [i for i in removed_all if i['type'] == 'segment']
+    added_other   = [i for i in added_all   if i['type'] != 'segment']
+    removed_other = [i for i in removed_all if i['type'] != 'segment']
+
+    seg_changed, still_removed, still_added = _match_segments(removed_segs, added_segs)
+    changed.extend(seg_changed)
+
+    return {
+        'added':   added_other   + still_added,
+        'removed': removed_other + still_removed,
+        'changed': changed,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -282,8 +361,9 @@ def get_pcb_diff(project_id: str, commit1: str, commit2: str) -> Optional[dict]:
     boards = []
     for rel_path in sorted(all_paths):
         filename = rel_path.split('/')[-1]
-        old_content = _read_file_at_commit(repo_root, commit1, rel_path) if rel_path in paths1 else None
-        new_content = _read_file_at_commit(repo_root, commit2, rel_path) if rel_path in paths2 else None
+        # commit1 = newer, commit2 = older (parent)
+        new_content = _read_file_at_commit(repo_root, commit1, rel_path) if rel_path in paths1 else None
+        old_content = _read_file_at_commit(repo_root, commit2, rel_path) if rel_path in paths2 else None
 
         if old_content and new_content:
             diff = diff_pcb(old_content, new_content)
