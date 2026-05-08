@@ -327,16 +327,45 @@ interface ItemDiffListProps {
     onOpenItemDiff?: (tab: DiffTab, itemId?: string) => void;
 }
 
+// Types where added + removed on the same file most likely represent a net
+// change (re-routed traces, moved components) rather than truly distinct
+// additions and deletions. Mirrors the diff-viewer's _mergedKind() logic.
+const MERGE_AS_CHANGED_TYPES = new Set(["segment", "zone", "via", "gr_line", "gr_arc", "gr_circle", "gr_rect"]);
+
+function _shouldMergeIntoBuckets(diff: FileDiffPayload): boolean {
+    if (diff.added <= 0 || diff.removed <= 0) return false;
+    // If the item lists are available, only merge if ALL added/removed items
+    // are of a mergeable type. If lists aren't available, fall back to merging
+    // when the diff has both additions and deletions (conservative guess).
+    const addedItems  = diff.added_items  ?? [];
+    const removedItems = diff.removed_items ?? [];
+    if (addedItems.length === 0 && removedItems.length === 0) return true; // no detail — merge conservatively
+    const allMergeable = [...addedItems, ...removedItems].every(it => MERGE_AS_CHANGED_TYPES.has(it.type));
+    return allMergeable;
+}
+
 function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
     const [expanded, setExpanded] = useState(false);
     const [showAllPerBucket, setShowAllPerBucket] = useState(false);
     const VISIBLE_PER_BUCKET = 5;
 
-    const buckets: { kind: "added" | "removed" | "changed"; total: number; items: ChangedDiffItem[] }[] = [
-        { kind: "added",   total: diff.added,   items: (diff.added_items   ?? []) as ChangedDiffItem[] },
-        { kind: "removed", total: diff.removed, items: (diff.removed_items ?? []) as ChangedDiffItem[] },
-        { kind: "changed", total: diff.changed, items: (diff.changed_items ?? []) },
-    ].filter(b => b.total > 0);
+    // When both added and removed items are of mergeable types, collapse them
+    // into a single "changed" bucket (amber) — same logic as the diff viewer.
+    const mergeAddedRemoved = _shouldMergeIntoBuckets(diff);
+    const rawBuckets: { kind: "added" | "removed" | "changed"; total: number; items: ChangedDiffItem[] }[] = mergeAddedRemoved
+        ? [
+            { kind: "changed", total: diff.added + diff.removed + diff.changed, items: [
+                ...(diff.added_items   ?? []) as ChangedDiffItem[],
+                ...(diff.removed_items ?? []) as ChangedDiffItem[],
+                ...(diff.changed_items ?? []),
+            ]},
+          ]
+        : [
+            { kind: "added",   total: diff.added,   items: (diff.added_items   ?? []) as ChangedDiffItem[] },
+            { kind: "removed", total: diff.removed, items: (diff.removed_items ?? []) as ChangedDiffItem[] },
+            { kind: "changed", total: diff.changed, items: (diff.changed_items ?? []) },
+          ];
+    const buckets = rawBuckets.filter(b => b.total > 0);
 
     if (buckets.length === 0) return null;
 

@@ -229,6 +229,7 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
             {markers.map((m) => {
                 const color = KIND_COLOR[m.kind];
                 const isActive = m.item.uuid === activeUuid;
+                const HIT = 6; // px — edge strip thickness, interior click-through
                 return (
                     <div
                         key={m.item.uuid}
@@ -236,16 +237,25 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
                             if (node) boxRefs.current.set(m.item.uuid, node);
                             else boxRefs.current.delete(m.item.uuid);
                         }}
-                        className="absolute pointer-events-auto cursor-pointer"
+                        className="absolute"
                         style={{
                             display: "none",
                             border: `2px solid ${color}`,
                             borderRadius: 3,
-                            backgroundColor: `${color}22`,
+                            backgroundColor: `${color}1A`,
                             boxShadow: isActive ? `0 0 0 2px ${color}66, inset 0 0 0 1px ${color}44` : undefined,
+                            pointerEvents: "none",
                         }}
-                        onClick={() => onMarkerClick(m)}
-                    />
+                    >
+                        {/* top strip */}
+                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
+                        {/* bottom strip */}
+                        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
+                        {/* left strip */}
+                        <div style={{ position: "absolute", top: HIT, bottom: HIT, left: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
+                        {/* right strip */}
+                        <div style={{ position: "absolute", top: HIT, bottom: HIT, right: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
+                    </div>
                 );
             })}
         </div>
