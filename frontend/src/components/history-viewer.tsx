@@ -322,9 +322,7 @@ function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
         return categorise(input);
     }, [diff]);
 
-    if (groups.length === 0 && diff.added + diff.removed + diff.changed === 0) return null;
-
-    const totalItems = diff.added + diff.removed + diff.changed;
+    if (groups.length === 0) return null;
 
     return (
         <div className="ml-9 flex flex-col text-[11px] pb-1">
@@ -339,7 +337,7 @@ function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
                 {expanded
                     ? <ChevronDown  className="h-3 w-3" />
                     : <ChevronRight className="h-3 w-3" />}
-                <span>{totalItems} change{totalItems !== 1 ? "s" : ""}</span>
+                <span>{groups.length} change{groups.length !== 1 ? "s" : ""}</span>
             </button>
 
             {expanded && <div className="flex flex-col gap-0.5">

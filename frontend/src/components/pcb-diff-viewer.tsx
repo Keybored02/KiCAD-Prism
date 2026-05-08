@@ -168,20 +168,53 @@ function _mergedKind(members: DiffMarker[]): "added" | "removed" | "changed" {
 function _bboxFromMembers(members: DiffMarker[]): { minX: number; minY: number; maxX: number; maxY: number } {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const m of members) {
-        const item = m.item;
-        if (item.type === "segment" && item.start_x != null) {
-            const pad = (item.width ?? 0.2) / 2;
-            minX = Math.min(minX, item.start_x - pad, item.end_x! - pad);
-            minY = Math.min(minY, item.start_y! - pad, item.end_y! - pad);
-            maxX = Math.max(maxX, item.start_x + pad, item.end_x! + pad);
-            maxY = Math.max(maxY, item.start_y! + pad, item.end_y! + pad);
-        } else {
-            const hw = item.type === "footprint" ? 3 : item.type === "zone" ? 5 : item.type === "via" ? 0.5 : 2;
-            const hh = item.type === "gr_text" ? 1.5 : hw;
-            minX = Math.min(minX, item.x - hw); minY = Math.min(minY, item.y - hh);
-            maxX = Math.max(maxX, item.x + hw); maxY = Math.max(maxY, item.y + hh);
+        const item = m.item as any;
+
+        // If the item explicitly carries polygon points, include them.
+        if (Array.isArray(item.polygon_points) && item.polygon_points.length > 0) {
+            for (const [px, py] of item.polygon_points) {
+                if (Number.isFinite(px) && Number.isFinite(py)) {
+                    minX = Math.min(minX, px);
+                    minY = Math.min(minY, py);
+                    maxX = Math.max(maxX, px);
+                    maxY = Math.max(maxY, py);
+                }
+            }
+            continue;
         }
+
+        // Treat any item with start/end coordinates as a segment/line
+        const hasStartEnd = Number.isFinite(item.start_x) && Number.isFinite(item.start_y) && Number.isFinite(item.end_x) && Number.isFinite(item.end_y);
+        if (hasStartEnd) {
+            const pad = Number(item.width ?? 0.2) / 2;
+            minX = Math.min(minX, item.start_x - pad, item.end_x - pad);
+            minY = Math.min(minY, item.start_y - pad, item.end_y - pad);
+            maxX = Math.max(maxX, item.start_x + pad, item.end_x + pad);
+            maxY = Math.max(maxY, item.start_y + pad, item.end_y + pad);
+            continue;
+        }
+
+        // Fallback to point-like items using x/y
+        const x = Number(item.x);
+        const y = Number(item.y);
+        const hw = item.type === "footprint" ? 3 : item.type === "zone" ? 5 : item.type === "via" ? 0.5 : 2;
+        const hh = item.type === "gr_text" ? 1.5 : hw;
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+            minX = Math.min(minX, x - hw);
+            minY = Math.min(minY, y - hh);
+            maxX = Math.max(maxX, x + hw);
+            maxY = Math.max(maxY, y + hh);
+            continue;
+        }
+
+        // As a last resort, ignore this member (prevents NaN/Infinity from leaking).
     }
+
+    // Ensure we return finite numbers so downstream layout doesn't produce NaN.
+    if (!Number.isFinite(minX)) minX = 0;
+    if (!Number.isFinite(minY)) minY = 0;
+    if (!Number.isFinite(maxX)) maxX = minX + 1;
+    if (!Number.isFinite(maxY)) maxY = minY + 1;
     return { minX, minY, maxX, maxY };
 }
 
@@ -314,16 +347,11 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
             const boardEl = getBoardEl(viewer) as (HTMLElement & { viewer?: InternalViewer }) | null;
             const worldToScreen = boardEl?.viewer?.worldToScreen?.bind(boardEl.viewer);
 
-            // If worldToScreen is available use it (viewport-absolute) minus container offset.
-            // Otherwise fall back to getScreenLocation (canvas-relative) minus the canvas offset
-            // relative to the container.
+            // Prefer the host element's `getScreenLocation` (canvas-relative) which is
+            // the same approach used by the schematic overlay. If unavailable, fall
+            // back to the inner viewer's `worldToScreen` method.
             let toContainerPt: (wx: number, wy: number) => { x: number; y: number };
-            if (worldToScreen) {
-                toContainerPt = (wx, wy) => {
-                    const s = worldToScreen(wx, wy);
-                    return { x: s.x - containerRect.left, y: s.y - containerRect.top };
-                };
-            } else if (viewer.getScreenLocation) {
+            if (viewer.getScreenLocation) {
                 // getScreenLocation is canvas-relative. Find canvas offset by checking the
                 // ecad-viewer element's own bounding rect vs the container rect.
                 const viewerRect = viewer.getBoundingClientRect();
@@ -333,6 +361,11 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                     const s = viewer.getScreenLocation(wx, wy);
                     if (!s) return { x: -9999, y: -9999 };
                     return { x: s.x + dx, y: s.y + dy };
+                };
+            } else if (worldToScreen) {
+                toContainerPt = (wx, wy) => {
+                    const s = worldToScreen(wx, wy);
+                    return { x: s.x - containerRect.left, y: s.y - containerRect.top };
                 };
             } else {
                 return false;
@@ -795,17 +828,24 @@ export function PcbDiffViewer({
     // Focus a specific item on first data load (or whenever focusItemId changes).
     // We match the requested id against any member's uuid in any group, then
     // run the same flow as a manual click on that group.
+    const allGroupsRef = useRef(allGroups);
+    allGroupsRef.current = allGroups;
+    const handleGroupClickRef = useRef(handleGroupClick);
+    handleGroupClickRef.current = handleGroupClick;
     const focusedIdRef = useRef<string | undefined>(undefined);
     useEffect(() => {
         if (!data || !focusItemId) return;
         if (focusedIdRef.current === focusItemId) return;
-        const target = allGroups.find(g => g.members.some(m => m.item.uuid === focusItemId));
-        if (!target) return;
         focusedIdRef.current = focusItemId;
-        // Defer a tick so the viewer has time to mount/load.
-        const t = window.setTimeout(() => handleGroupClick(target), 250);
+        // Defer so the viewer has time to mount/load; use refs so we always
+        // read the latest allGroups and handleGroupClick when the timer fires.
+        const t = window.setTimeout(() => {
+            const target = allGroupsRef.current.find(
+                g => g.members.some(m => m.item.uuid === focusItemId)
+            );
+            if (target) handleGroupClickRef.current(target);
+        }, 500);
         return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data, focusItemId]);
 
     // Fire onCrossProbe when the user selects an item.
