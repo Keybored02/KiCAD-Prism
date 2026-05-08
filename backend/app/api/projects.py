@@ -826,11 +826,47 @@ async def get_commit_summary(
     return {"files": files}
 
 
+# Cap per-bucket items so the summary response stays small even for huge PCB diffs.
+_MAX_ITEMS_PER_BUCKET = 200
+
+
+def _summarise_item(item: dict) -> dict:
+    """
+    Normalise a diff item (sch or pcb) into a small payload the frontend can
+    use to render one clickable row and to navigate the diff viewer to it.
+    """
+    out = {
+        "id": item.get("uuid", ""),
+        "type": item.get("type", ""),
+    }
+    # Identity / human label
+    for k in ("reference", "value", "footprint", "text", "name", "net_name", "net",
+              "sheet_file", "sheet_name", "lib_id", "layer"):
+        v = item.get(k)
+        if v not in (None, ""):
+            out[k] = v
+    # Position helps the frontend zoom; omit when zero/missing
+    if item.get("x") or item.get("y"):
+        out["x"] = item.get("x")
+        out["y"] = item.get("y")
+    return out
+
+
+def _summarise_changed(changed_entry: dict) -> dict:
+    """A 'changed' entry has shape {item: {...}, changes: {field: {old,new}}}."""
+    item = changed_entry.get("item", {})
+    return {
+        **_summarise_item(item),
+        "changes": changed_entry.get("changes", {}),
+    }
+
+
 def _enrich_with_diff(file_entry: dict, repo_root, parent_hash: str, commit_hash: str,
                       *, diff_fn, extract_fn, out_key: str) -> None:
     """
-    Add a diff-counts dict (added/removed/changed) to file_entry under out_key,
-    using the given diff/extract helpers. No-op on any failure.
+    Add a diff dict (added/removed/changed counts + per-item lists) to
+    file_entry under out_key, using the given diff/extract helpers.
+    No-op on any failure.
     """
     if file_entry["status"] not in ("modified", "added", "removed"):
         return
@@ -853,10 +889,24 @@ def _enrich_with_diff(file_entry: dict, repo_root, parent_hash: str, commit_hash
         else:
             return
 
+        added_full = diff.get("added", [])
+        removed_full = diff.get("removed", [])
+        changed_full = diff.get("changed", [])
+
         file_entry[out_key] = {
-            "added": len(diff["added"]),
-            "removed": len(diff["removed"]),
-            "changed": len(diff["changed"]),
+            "added": len(added_full),
+            "removed": len(removed_full),
+            "changed": len(changed_full),
+            # Per-item lists, capped. The frontend uses these to render one
+            # clickable row per change. `truncated` flags when we hit the cap.
+            "added_items":   [_summarise_item(i)    for i in added_full[:_MAX_ITEMS_PER_BUCKET]],
+            "removed_items": [_summarise_item(i)    for i in removed_full[:_MAX_ITEMS_PER_BUCKET]],
+            "changed_items": [_summarise_changed(c) for c in changed_full[:_MAX_ITEMS_PER_BUCKET]],
+            "truncated": (
+                len(added_full) > _MAX_ITEMS_PER_BUCKET or
+                len(removed_full) > _MAX_ITEMS_PER_BUCKET or
+                len(changed_full) > _MAX_ITEMS_PER_BUCKET
+            ),
         }
     except Exception:
         pass
