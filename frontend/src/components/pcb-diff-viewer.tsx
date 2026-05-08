@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
+import { EcadInfoPanel, useEcadInfoPanel } from "@/components/ecad-info-panel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -508,10 +509,12 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                                 if (node) polyRefs.current.set(g.id, node as SVGPolygonElement);
                                 else polyRefs.current.delete(g.id);
                             }}
-                            style={{ display: "none", cursor: "pointer", pointerEvents: "all" }}
+                            // pointer-events: stroke → only the outline catches clicks,
+                            // so pads/traces inside the zone remain clickable.
+                            style={{ display: "none", cursor: "pointer", pointerEvents: "stroke" }}
                             fill={`url(#${stripeIds[g.kind]})`}
                             stroke={color}
-                            strokeWidth={isActive ? 2.5 : 1.5}
+                            strokeWidth={isActive ? 4 : 3}
                             strokeOpacity={isActive ? 1 : 0.7}
                             filter={isActive ? `drop-shadow(0 0 4px ${color})` : undefined}
                             onClick={() => onGroupClick(g)}
@@ -520,10 +523,14 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                 })}
             </svg>
 
-            {/* Div boxes for everything else */}
+            {/* Div boxes for everything else.
+                The visual box is pointer-events:none so clicks pass through to
+                the canvas below (lets the user click pads/traces inside the box).
+                A thin "frame" overlay catches clicks only on the border. */}
             {groups.filter(g => !g.polygonPoints).map((g) => {
                 const color = KIND_COLOR[g.kind];
                 const isActive = g.id === activeId;
+                const HIT = 6; // px — clickable frame thickness
                 return (
                     <div
                         key={g.id}
@@ -531,20 +538,36 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                             if (node) boxRefs.current.set(g.id, node);
                             else boxRefs.current.delete(g.id);
                         }}
-                        className="absolute pointer-events-auto cursor-pointer"
+                        className="absolute pointer-events-none"
                         style={{
                             display: "none",
                             border: `2px solid ${color}`,
                             borderRadius: 3,
-                            backgroundColor: `${color}33`,
+                            backgroundColor: `${color}1A`,
                             outline: "1.5px solid rgba(0,0,0,0.7)",
                             outlineOffset: "1px",
                             boxShadow: isActive
                                 ? `0 0 0 3px ${color}99, 0 0 8px 2px ${color}66`
                                 : `0 0 0 1.5px rgba(0,0,0,0.5)`,
                         }}
-                        onClick={() => onGroupClick(g)}
-                    />
+                    >
+                        {/* clickable border-only frame */}
+                        {(["top", "right", "bottom", "left"] as const).map((side) => (
+                            <div
+                                key={side}
+                                onClick={(e) => { e.stopPropagation(); onGroupClick(g); }}
+                                className="absolute pointer-events-auto cursor-pointer"
+                                style={{
+                                    top:    side === "bottom" ? "auto" : -HIT / 2,
+                                    bottom: side === "top"    ? "auto" : -HIT / 2,
+                                    left:   side === "right"  ? "auto" : -HIT / 2,
+                                    right:  side === "left"   ? "auto" : -HIT / 2,
+                                    height: side === "top" || side === "bottom" ? HIT : "auto",
+                                    width:  side === "left" || side === "right" ? HIT : "auto",
+                                }}
+                            />
+                        ))}
+                    </div>
                 );
             })}
         </div>
@@ -557,10 +580,21 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
 
 type Vec2   = { x: number; y: number; set: (x: number, y: number) => void };
 type Camera = { center: Vec2; zoom: number; bbox: unknown };
+type LayerLike = { name: string; visible: boolean };
+type LayerSet  = { in_ui_order?: () => Iterable<LayerLike> };
+type InteractiveItem = {
+    bbox?: unknown;
+    line?: unknown;
+    item?: unknown;
+};
 type InnerViewer = {
     viewport?: { camera?: Camera };
     draw?: () => void;
     renderer?: { ctx2d?: unknown; gl?: unknown };
+    layers?: LayerSet;
+    layer_visibility_ctrl?: { visibilities?: Map<string, boolean> } | null;
+    find_items_under_pos?: (p: { x: number; y: number }) => InteractiveItem[];
+    __padPriorityPatched?: boolean;
 };
 type BoardEl = HTMLElement & { viewer?: InnerViewer };
 
@@ -623,6 +657,79 @@ export function PcbDiffViewer({
         if (inner?.renderer?.gl) inner.draw?.();
     }, [getBoardEl]);
 
+    // Ensure the BoardViewer has a populated layer-visibility map so pad
+    // hit-testing works. The built-in source for `layer_visibility` is the
+    // Layers panel widget, which may not have rendered yet when our diff view
+    // mounts — leaving the map empty and causing every pad to fail the
+    // visibility check inside `find_items_under_pos`.
+    useEffect(() => {
+        if (!data) return;
+        let stopped = false;
+
+        const ensureFor = (host: ECadViewerElement | null) => {
+            if (!host) return false;
+            const inner = getBoardEl(host)?.viewer;
+            if (!inner) return false;
+            const existing = inner.layer_visibility_ctrl;
+            const map = existing?.visibilities;
+            const layers = inner.layers?.in_ui_order ? Array.from(inner.layers.in_ui_order()) : [];
+            if (layers.length === 0) return false;
+            if (!map || map.size === 0) {
+                const fresh = new Map<string, boolean>();
+                for (const l of layers) fresh.set(l.name, l.visible !== false);
+                inner.layer_visibility_ctrl = {
+                    ...(existing ?? {}),
+                    visibilities: fresh,
+                } as { visibilities: Map<string, boolean> };
+            }
+
+            // Re-rank picking results so pads beat wires / lines when both
+            // sit under the click. Original order: tracks/vias/pads mixed by
+            // creation order, with pads frequently after the wire that ends
+            // on them — so the wire wins the click. We bubble pads to the
+            // front (and lines to the back) to make pad selection reliable.
+            if (!inner.__padPriorityPatched && typeof inner.find_items_under_pos === "function") {
+                const orig = inner.find_items_under_pos.bind(inner);
+                inner.find_items_under_pos = (p) => {
+                    const out = orig(p) as InteractiveItem[];
+                    if (!out || out.length < 2) return out;
+                    return [...out].sort((a, b) => priority(a) - priority(b));
+                };
+                inner.__padPriorityPatched = true;
+            }
+            return true;
+        };
+
+        // Lower priority value = picked sooner. Pads first, then anything that's
+        // not a wire, then wires last.
+        const priority = (it: InteractiveItem): number => {
+            // PadInteractiveItem extends BoxInteractiveItem (has bbox) and is
+            // NOT a footprint (footprints also have bbox). The reliable
+            // discriminator: lines have `.line`, pads have `.bbox` + their
+            // `is_on_layer` only matches Cu. We can't read is_on_layer easily,
+            // but pads have a `.bbox` whose underlying item is a Pad (small).
+            // Simpler: anything with a `.line` getter is a wire — push it last.
+            if ((it as { line?: unknown }).line !== undefined) return 2;
+            // Pads: have a `.bbox` and the underlying `.item` is small. But
+            // footprints also have `.bbox`. We rank pads above footprints by
+            // checking the underlying item type via duck-typing — pads have
+            // a `number` field, footprints don't.
+            const inner = (it as { item?: { number?: unknown; reference?: unknown } }).item;
+            if (inner && (inner.number != null) && inner.reference == null) return 0;
+            return 1;
+        };
+
+        const tick = () => {
+            if (stopped) return;
+            const a = ensureFor(newViewerRef.current);
+            const b = ensureFor(oldViewerRef.current);
+            if (!a || !b) window.setTimeout(tick, 250);
+        };
+        tick();
+
+        return () => { stopped = true; };
+    }, [data, getBoardEl]);
+
     // Impose a camera position on the active viewer until user interacts.
     const imposeCamRef = useRef<{ zoom: number; cx: number; cy: number } | null>(null);
 
@@ -680,6 +787,12 @@ export function PcbDiffViewer({
     }, [showing, getCamera, safeDraw]);
 
     const [activeBoard, setActiveBoard] = useState<string>("");
+
+    const viewerRefsArr = useRef([newViewerRef, oldViewerRef]).current;
+    const { detail: selectedDetail, clear: clearSelectedDetail } = useEcadInfoPanel({
+        containerRef: viewerContainerRef,
+        viewerRefs: viewerRefsArr,
+    });
 
     useEffect(() => {
         setLoading(true);
@@ -1088,6 +1201,7 @@ export function PcbDiffViewer({
                                     No PCB changes detected between these commits
                                 </div>
                             )}
+                            <EcadInfoPanel detail={selectedDetail} onClose={clearSelectedDetail} />
                         </>
                     )}
                 </div>

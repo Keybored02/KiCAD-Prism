@@ -1,0 +1,496 @@
+import { useEffect, useRef, useState } from "react";
+import { X, Check, X as XIcon, ChevronRight } from "lucide-react";
+import type { ECadViewerElement } from "@/types/ecad-viewer";
+
+// ---------------------------------------------------------------------------
+// Hide built-in info panels
+// ---------------------------------------------------------------------------
+//
+// ecad-viewer renders <kc-board-properties-panel> / <kc-schematic-properties-panel>
+// as absolutely-positioned children inside its shadow DOM. We hide them via
+// CSS injected into every shadow root we can reach so our React panel takes over.
+
+const HIDE_CSS = `
+    kc-board-properties-panel,
+    kc-schematic-properties-panel {
+        display: none !important;
+    }
+`;
+
+function injectHideStyles(host: HTMLElement) {
+    const seen = new WeakSet<ShadowRoot>();
+    const walk = (root: HTMLElement) => {
+        const sr = root.shadowRoot;
+        if (sr && !seen.has(sr)) {
+            seen.add(sr);
+            const sheet = new CSSStyleSheet();
+            sheet.replaceSync(HIDE_CSS);
+            try {
+                sr.adoptedStyleSheets = [...sr.adoptedStyleSheets, sheet];
+            } catch {
+                const style = document.createElement("style");
+                style.textContent = HIDE_CSS;
+                sr.appendChild(style);
+            }
+            for (const el of sr.querySelectorAll("*")) {
+                if ((el as HTMLElement).shadowRoot) walk(el as HTMLElement);
+            }
+        }
+    };
+    walk(host);
+}
+
+// ---------------------------------------------------------------------------
+// Extract user-friendly properties from a selected item
+// ---------------------------------------------------------------------------
+
+export interface ItemDetail {
+    title: string;
+    subtitle?: string;
+    fields: { label: string; value: string }[];
+    /** Nested key/value groups rendered as collapsible dropdowns. */
+    groups?: { label: string; entries: { label: string; value: string }[] }[];
+}
+
+type Anyish = Record<string, unknown> & {
+    typeId?: string;
+    constructor?: { name?: string };
+};
+
+function fmt(n: unknown, digits = 3): string {
+    if (typeof n !== "number" || !isFinite(n)) return String(n ?? "–");
+    return n.toFixed(digits).replace(/\.?0+$/, "");
+}
+
+function getAt(item: Anyish): { x?: number; y?: number; rot?: number } {
+    const at = item.at as Anyish | undefined;
+    if (!at) return {};
+    const pos = at.position as Anyish | undefined;
+    return {
+        x: typeof at.x === "number" ? (at.x as number) : pos ? (pos.x as number) : undefined,
+        y: typeof at.y === "number" ? (at.y as number) : pos ? (pos.y as number) : undefined,
+        rot: typeof at.rotation === "number" ? (at.rotation as number) : undefined,
+    };
+}
+
+export function extractItemDetail(rawItem: unknown): ItemDetail | null {
+    if (!rawItem || typeof rawItem !== "object") return null;
+    const item = rawItem as Anyish;
+    const typeId = item.typeId || item.constructor?.name || "";
+
+    if (typeof window !== "undefined") {
+        // Dev aid — inspect this in DevTools to see what's actually on the item.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).__lastEcadSelection = item;
+        console.debug("[ecad-info-panel] selection", typeId, item);
+    }
+
+    const at = getAt(item);
+    const posStr =
+        at.x !== undefined && at.y !== undefined
+            ? `${fmt(at.x)}, ${fmt(at.y)}${at.rot ? ` @ ${fmt(at.rot, 1)}°` : ""}`
+            : undefined;
+
+    // Always walk every readable field. We curate which ones to surface (and in what
+    // order) below; nothing is hard-coded by typeId.
+    const all = collectAllFields(item);
+    if (posStr && !all.has("at") && !all.has("position")) all.set("position", posStr);
+
+    // Extract dict-like sub-objects as collapsible groups.
+    const groups = collectGroups(item);
+
+    // Pick a title/subtitle from whatever the item exposes (captured before we
+    // move standard props into the dropdown).
+    const refRaw = all.get("reference");
+    const numRaw = all.get("number");
+    const textRaw = all.get("text");
+    const nameRaw = all.get("name");
+    const netNameRaw = all.get("net_name");
+    const valRaw = all.get("value");
+
+    let title = refRaw ?? numRaw ?? textRaw ?? nameRaw ?? netNameRaw ?? typeId ?? "Item";
+    if (numRaw && !refRaw) title = `Pad ${numRaw}`;
+    const subtitle = refRaw ? valRaw : (netNameRaw && nameRaw ? netNameRaw : undefined);
+
+    // Footprint: only show a fixed set of fields at top level; everything else
+    // (including KiCad-8 standard props) is rolled into a single "Properties" dropdown.
+    const isFootprint = item.pads != null || item.library_link != null
+        || typeId === "Footprint" || typeId === "KCFootprint";
+
+    // Line/trace: has start+end. Show everything but hide the raw endpoint coords —
+    // they're noisy and the diff overlay already conveys position visually.
+    const isLine = item.start != null && item.end != null;
+
+    // Pad: has a `number` field and a parent footprint reference.
+    const isPad = item.number != null && (item.shape != null || item.pintype != null || typeId === "Pad");
+
+    let fields: ItemDetail["fields"];
+    if (isFootprint) {
+        fields = pickFields(all, FOOTPRINT_TOP_FIELDS);
+        rollIntoProperties(groups, remainingEntries(all, FOOTPRINT_TOP_FIELDS));
+    } else if (isPad) {
+        // Pad layer often lives on the parent footprint, not the pad itself.
+        if (!all.has("layer")) {
+            const parent = item.parent as Anyish | undefined;
+            const parentLayer = parent?.layer;
+            const flat = flattenValue(parentLayer);
+            if (flat) all.set("layer", flat);
+        }
+        fields = pickFields(all, PAD_TOP_FIELDS);
+        rollIntoProperties(groups, remainingEntries(all, PAD_TOP_FIELDS));
+    } else {
+        if (isLine) {
+            all.delete("start");
+            all.delete("end");
+        }
+        fields = curateFields(all);
+    }
+
+    return {
+        title: String(title),
+        subtitle: subtitle ? String(subtitle) : undefined,
+        fields,
+        groups: groups.length > 0 ? groups : undefined,
+    };
+}
+
+// Footprint top-level fields, in display order.
+// [item-key, displayLabel]
+const FOOTPRINT_TOP_FIELDS: [string, string][] = [
+    ["reference", "Reference"],
+    ["value",     "Value"],
+    ["layer",     "Layer"],
+    ["footprint", "Footprint"],
+    ["locked",    "Locked"],
+];
+
+const PAD_TOP_FIELDS: [string, string][] = [
+    ["number", "Number"],
+    ["layer",  "Layer"],
+    ["net",    "Net"],
+    ["size",   "Size"],
+    ["drill",  "Drill"],
+];
+
+function rollIntoProperties(
+    groups: NonNullable<ItemDetail["groups"]>,
+    remaining: { label: string; value: string }[],
+) {
+    if (remaining.length === 0) return;
+    const existing = groups.find(g => g.label === "Properties");
+    if (existing) existing.entries.push(...remaining);
+    else groups.push({ label: "Properties", entries: remaining });
+}
+
+function pickFields(all: Map<string, string>, spec: [string, string][]): ItemDetail["fields"] {
+    const out: ItemDetail["fields"] = [];
+    for (const [key, label] of spec) {
+        const v = all.get(key);
+        if (v) {
+            out.push({ label, value: v });
+            all.delete(key);
+        }
+    }
+    return out;
+}
+
+function remainingEntries(all: Map<string, string>, used: [string, string][]): { label: string; value: string }[] {
+    const usedKeys = new Set(used.map(([k]) => k));
+    const out: { label: string; value: string }[] = [];
+    const keys = [...all.keys()]
+        .filter(k => !usedKeys.has(k) && !HIDDEN_KEYS.has(k))
+        .sort();
+    for (const k of keys) {
+        out.push({ label: prettyLabel(k), value: all.get(k)! });
+    }
+    return out;
+}
+
+// Pull dict-like objects (e.g. `properties`) off the item as collapsible groups.
+const GROUP_KEYS = ["properties"];
+
+function collectGroups(item: Anyish): NonNullable<ItemDetail["groups"]> {
+    const groups: NonNullable<ItemDetail["groups"]> = [];
+    for (const key of GROUP_KEYS) {
+        const raw = item[key];
+        if (!raw || typeof raw !== "object") continue;
+        const entries: { label: string; value: string }[] = [];
+
+        // Handle Map<string, {name, value}> shape (KiCanvas often exposes properties this way).
+        if (raw instanceof Map) {
+            for (const [, v] of raw as Map<unknown, unknown>) {
+                const label = (v as Anyish)?.name as string | undefined;
+                const value = (v as Anyish)?.value;
+                const flat = flattenValue(value);
+                if (label && flat) entries.push({ label, value: flat });
+            }
+        } else if (Array.isArray(raw)) {
+            for (const v of raw) {
+                const label = (v as Anyish)?.name as string | undefined;
+                const value = (v as Anyish)?.value;
+                const flat = flattenValue(value);
+                if (label && flat) entries.push({ label, value: flat });
+            }
+        } else {
+            for (const k of Object.keys(raw as object)) {
+                const v = (raw as Record<string, unknown>)[k];
+                const flat = flattenValue(v);
+                if (flat) entries.push({ label: k, value: flat });
+            }
+        }
+
+        if (entries.length > 0) groups.push({ label: prettyLabel(key), entries });
+    }
+    return groups;
+}
+
+// ---------------------------------------------------------------------------
+// Field curation
+// ---------------------------------------------------------------------------
+//
+// PRIORITY_KEYS lists keys we consider "important" — they're shown first,
+// in this order. Anything else readable is shown after, alphabetised. Edit
+// this list to tune what surfaces at the top.
+
+const PRIORITY_KEYS: string[] = [
+    // identity
+    "reference", "value", "number", "text", "name", "net_name",
+    "lib_id", "library_link", "footprint",
+    // location
+    "layer", "layers", "position", "rotation",
+    // electrical
+    "net", "pintype", "pinfunction", "type", "shape",
+    // geometry
+    "start", "end", "width", "size", "drill", "routed_length",
+    "min_thickness", "priority", "fill",
+    // descriptive
+    "descr", "tags",
+];
+
+const HIDDEN_KEYS = new Set([
+    "typeId", "parent", "children", "items", "tokens", "nodes",
+    "uuid", "tstamp", "constructor", "shadowRoot",
+    "renderer", "viewer", "viewport", "bbox", "attr", "properties",
+    "clearance", "solder_paste_margin", "solder_paste_ratio", "zone_connect",
+]);
+
+function curateFields(all: Map<string, string>): ItemDetail["fields"] {
+    const out: ItemDetail["fields"] = [];
+    const consumed = new Set<string>();
+    for (const k of PRIORITY_KEYS) {
+        if (all.has(k) && !consumed.has(k)) {
+            out.push({ label: prettyLabel(k), value: all.get(k)! });
+            consumed.add(k);
+        }
+    }
+    const rest = [...all.keys()]
+        .filter(k => !consumed.has(k) && !HIDDEN_KEYS.has(k))
+        .sort();
+    for (const k of rest) {
+        out.push({ label: prettyLabel(k), value: all.get(k)! });
+    }
+    return out;
+}
+
+function prettyLabel(k: string): string {
+    return k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function collectAllFields(item: Anyish): Map<string, string> {
+    const seen = new Map<string, string>();
+    const visit = (obj: unknown) => {
+        if (!obj || typeof obj !== "object") return;
+        for (const k of Object.keys(obj as object)) {
+            if (HIDDEN_KEYS.has(k) || k.startsWith("#") || k.startsWith("_")) continue;
+            if (seen.has(k)) continue;
+            const v = (obj as Record<string, unknown>)[k];
+            if (typeof v === "function") continue;
+            const flat = flattenValue(v);
+            if (flat) seen.set(k, flat);
+        }
+    };
+    visit(item);
+    let proto: object | null = Object.getPrototypeOf(item);
+    let hops = 0;
+    while (proto && hops < 4 && proto !== Object.prototype) {
+        for (const k of Object.getOwnPropertyNames(proto)) {
+            if (k === "constructor" || HIDDEN_KEYS.has(k) || k.startsWith("#") || k.startsWith("_")) continue;
+            if (seen.has(k)) continue;
+            const desc = Object.getOwnPropertyDescriptor(proto, k);
+            if (!desc?.get) continue;
+            try {
+                const v = (item as Record<string, unknown>)[k];
+                if (typeof v === "function") continue;
+                const flat = flattenValue(v);
+                if (flat) seen.set(k, flat);
+            } catch { /* getter threw, ignore */ }
+        }
+        proto = Object.getPrototypeOf(proto);
+        hops++;
+    }
+    return seen;
+}
+
+export const BOOL_TRUE = "bool:true";
+export const BOOL_FALSE = "bool:false";
+
+function flattenValue(v: unknown, depth = 0): string | null {
+    if (v == null) return null;
+    if (typeof v === "boolean") return v ? BOOL_TRUE : BOOL_FALSE;
+    if (typeof v === "string") {
+        const trimmed = v.trim();
+        if (trimmed === "") return null;
+        const s = trimmed.toLowerCase();
+        if (s === "true" || s === "yes")  return BOOL_TRUE;
+        if (s === "false" || s === "no") return BOOL_FALSE;
+        return trimmed.length > 80 ? trimmed.slice(0, 77) + "…" : trimmed;
+    }
+    if (typeof v === "number") return fmt(v);
+    if (Array.isArray(v)) {
+        if (v.length === 0) return null;
+        if (depth > 0) return `[${v.length}]`;
+        const parts = v.map(x => flattenValue(x, depth + 1)).filter(Boolean);
+        if (parts.length === 0) return `[${v.length}]`;
+        return parts.slice(0, 4).join(", ") + (parts.length > 4 ? " …" : "");
+    }
+    if (typeof v === "object") {
+        if (depth > 1) return null;
+        const o = v as Record<string, unknown>;
+        // Common shapes: {x,y}, {position:{x,y}}, {name}, {diameter}
+        if ("name" in o && typeof o.name === "string") return o.name;
+        if ("x" in o && "y" in o) return `${fmt(o.x as number)}, ${fmt(o.y as number)}`;
+        if ("position" in o) return flattenValue(o.position, depth + 1);
+        if ("diameter" in o) return `${fmt(o.diameter as number)} mm`;
+        return null;
+    }
+    return null;
+}
+
+// ---------------------------------------------------------------------------
+// React panel + select-listening hook
+// ---------------------------------------------------------------------------
+
+interface UseEcadInfoPanelOpts {
+    /** The container that wraps the ecad-viewer; events bubble through it. */
+    containerRef: React.RefObject<HTMLElement | null>;
+    /** Refs to viewer hosts whose shadow DOM should have the built-in panel hidden. */
+    viewerRefs: React.RefObject<ECadViewerElement | null>[];
+}
+
+export function useEcadInfoPanel({ containerRef, viewerRefs }: UseEcadInfoPanelOpts) {
+    const [detail, setDetail] = useState<ItemDetail | null>(null);
+
+    // Inject hide-css repeatedly (shadow DOM may not exist yet on mount).
+    useEffect(() => {
+        let cancelled = false;
+        const tryInject = () => {
+            for (const r of viewerRefs) {
+                if (r.current) injectHideStyles(r.current as unknown as HTMLElement);
+            }
+        };
+        tryInject();
+        const id = window.setInterval(() => {
+            if (cancelled) return;
+            tryInject();
+        }, 500);
+        const stop = window.setTimeout(() => {
+            window.clearInterval(id);
+        }, 8000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(id);
+            window.clearTimeout(stop);
+        };
+    }, [viewerRefs]);
+
+    // Listen for selection events on the host container.
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+        const handler = (e: Event) => {
+            const item = (e as CustomEvent<{ item: unknown }>).detail?.item;
+            if (!item) {
+                setDetail(null);
+                return;
+            }
+            setDetail(extractItemDetail(item));
+        };
+        container.addEventListener("kicanvas:select", handler);
+        return () => container.removeEventListener("kicanvas:select", handler);
+    }, [containerRef]);
+
+    return { detail, clear: () => setDetail(null) };
+}
+
+function renderFieldValue(value: string) {
+    if (value === BOOL_TRUE)  return <Check className="inline h-3 w-3 text-green-500" />;
+    if (value === BOOL_FALSE) return <XIcon className="inline h-3 w-3 text-red-500" />;
+    return value;
+}
+
+interface EcadInfoPanelProps {
+    detail: ItemDetail | null;
+    onClose: () => void;
+}
+
+function FieldRow({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="py-1 border-b border-border/40 last:border-b-0">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80 leading-tight">
+                {label}
+            </div>
+            <div className="font-mono text-[11px] break-all leading-snug">
+                {renderFieldValue(value)}
+            </div>
+        </div>
+    );
+}
+
+export function EcadInfoPanel({ detail, onClose }: EcadInfoPanelProps) {
+    const wasOpen = useRef(false);
+    useEffect(() => { wasOpen.current = !!detail; }, [detail]);
+    if (!detail) return null;
+    return (
+        <div className="absolute top-3 right-3 z-30 w-80 max-w-[calc(100%-1.5rem)] max-h-[70%] flex flex-col rounded-xl border bg-background/90 shadow-xl backdrop-blur-md overflow-hidden">
+            <div className="flex items-center gap-2 px-3 py-2.5 border-b bg-muted/30 shrink-0">
+                <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate leading-tight">{detail.title}</p>
+                    {detail.subtitle && (
+                        <p className="text-xs text-muted-foreground truncate">{detail.subtitle}</p>
+                    )}
+                </div>
+                <button
+                    onClick={onClose}
+                    className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                >
+                    <X className="h-3.5 w-3.5" />
+                </button>
+            </div>
+            <div className="overflow-y-auto px-3 py-1.5 text-xs">
+                {detail.fields.length === 0 && !detail.groups?.length ? (
+                    <p className="text-muted-foreground italic py-1">No additional properties</p>
+                ) : (
+                    <>
+                        {detail.fields.map((f, i) => (
+                            <FieldRow key={i} label={f.label} value={f.value} />
+                        ))}
+                        {detail.groups?.map((g, gi) => (
+                            <details key={`g${gi}`} className="group rounded border bg-muted/20 mt-2 overflow-hidden">
+                                <summary className="flex items-center gap-1 px-2 py-1.5 cursor-pointer select-none text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground">
+                                    <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
+                                    <span>{g.label}</span>
+                                    <span className="ml-auto font-mono">{g.entries.length}</span>
+                                </summary>
+                                <div className="px-2 pb-1.5">
+                                    {g.entries.map((e, ei) => (
+                                        <FieldRow key={ei} label={e.label} value={e.value} />
+                                    ))}
+                                </div>
+                            </details>
+                        ))}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}

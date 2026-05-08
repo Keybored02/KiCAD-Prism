@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
+import { EcadInfoPanel, useEcadInfoPanel } from "@/components/ecad-info-panel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -417,6 +418,12 @@ export function SchematicDiffViewer({
 
     // Ref attached to the viewer container div — used to detect user interaction for impose release.
     const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+
+    const viewerRefsArr = useRef([newViewerRef, oldViewerRef]).current;
+    const { detail: selectedDetail, clear: clearSelectedDetail } = useEcadInfoPanel({
+        containerRef: viewerContainerRef,
+        viewerRefs: viewerRefsArr,
+    });
 
     // Continuous loop: whenever imposeCamRef is set, keep writing it to the active viewer.
     // Released when the user interacts with the viewer area (pointerdown or wheel).
@@ -899,6 +906,7 @@ export function SchematicDiffViewer({
                                     No schematic changes detected between these commits
                                 </div>
                             )}
+                            <EcadInfoPanel detail={selectedDetail} onClose={clearSelectedDetail} />
                         </>
                     )}
                 </div>
