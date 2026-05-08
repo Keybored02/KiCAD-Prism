@@ -31,7 +31,7 @@ from app.services.git_service import (
     get_releases_filtered,
     list_branches,
 )
-from app.services import sch_diff_service
+from app.services import pcb_diff_service, sch_diff_service
 from app.services.path_config_service import PathConfig
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
@@ -791,8 +791,8 @@ async def get_commit_summary(
 
     files = get_commit_file_summary(repo_path, commit_hash, relative_path)
 
-    # For each .kicad_sch file that was modified (not added/removed outright),
-    # run the schematic diff to get item-level counts.
+    # For each .kicad_sch / .kicad_pcb file that changed, run the appropriate
+    # diff service to get item-level added/removed/changed counts.
     parent_hash = None
     try:
         from git import Repo
@@ -802,46 +802,64 @@ async def get_commit_summary(
     except Exception:
         pass
 
-    for f in files:
-        if not f["filename"].endswith(".kicad_sch"):
-            continue
-        if f["status"] not in ("modified", "added", "removed") or not parent_hash:
-            continue
-        try:
-            # Use sch_diff_service helpers directly — pass file contents, not project lookup
-            from pathlib import Path
-            repo_root = sch_diff_service._git_root(Path(repo_path))
-            rel = f["path"]
-            if f["status"] in ("modified",):
-                old_c = sch_diff_service._read_file_at_commit(repo_root, parent_hash, rel)
-                new_c = sch_diff_service._read_file_at_commit(repo_root, commit_hash, rel)
-            elif f["status"] == "added":
-                old_c, new_c = None, sch_diff_service._read_file_at_commit(repo_root, commit_hash, rel)
-            else:  # removed
-                old_c, new_c = sch_diff_service._read_file_at_commit(repo_root, parent_hash, rel), None
+    if parent_hash:
+        from pathlib import Path
+        repo_root = sch_diff_service._git_root(Path(repo_path))
 
-            if old_c and new_c:
-                diff = sch_diff_service.diff_schematics(old_c, new_c)
-            elif new_c:
-                tree = sch_diff_service._parse_sexp(new_c)
-                items = list(sch_diff_service._extract_all(tree).values())
-                diff = {"added": items, "removed": [], "changed": []}
-            elif old_c:
-                tree = sch_diff_service._parse_sexp(old_c)
-                items = list(sch_diff_service._extract_all(tree).values())
-                diff = {"added": [], "removed": items, "changed": []}
-            else:
-                continue
-
-            f["schematic_diff"] = {
-                "added": len(diff["added"]),
-                "removed": len(diff["removed"]),
-                "changed": len(diff["changed"]),
-            }
-        except Exception:
-            pass
+        for f in files:
+            name = f["filename"]
+            if name.endswith(".kicad_sch"):
+                _enrich_with_diff(
+                    f, repo_root, parent_hash, commit_hash,
+                    diff_fn=sch_diff_service.diff_schematics,
+                    extract_fn=lambda c: list(sch_diff_service._extract_all(sch_diff_service._parse_sexp(c)).values()),
+                    out_key="schematic_diff",
+                )
+            elif name.endswith(".kicad_pcb"):
+                _enrich_with_diff(
+                    f, repo_root, parent_hash, commit_hash,
+                    diff_fn=pcb_diff_service.diff_pcb,
+                    extract_fn=lambda c: list(pcb_diff_service._extract_all_pcb(sch_diff_service._parse_sexp(c)).values()),
+                    out_key="pcb_diff",
+                )
 
     return {"files": files}
+
+
+def _enrich_with_diff(file_entry: dict, repo_root, parent_hash: str, commit_hash: str,
+                      *, diff_fn, extract_fn, out_key: str) -> None:
+    """
+    Add a diff-counts dict (added/removed/changed) to file_entry under out_key,
+    using the given diff/extract helpers. No-op on any failure.
+    """
+    if file_entry["status"] not in ("modified", "added", "removed"):
+        return
+    try:
+        rel = file_entry["path"]
+        if file_entry["status"] == "modified":
+            old_c = sch_diff_service._read_file_at_commit(repo_root, parent_hash, rel)
+            new_c = sch_diff_service._read_file_at_commit(repo_root, commit_hash, rel)
+        elif file_entry["status"] == "added":
+            old_c, new_c = None, sch_diff_service._read_file_at_commit(repo_root, commit_hash, rel)
+        else:  # removed
+            old_c, new_c = sch_diff_service._read_file_at_commit(repo_root, parent_hash, rel), None
+
+        if old_c and new_c:
+            diff = diff_fn(old_c, new_c)
+        elif new_c:
+            diff = {"added": extract_fn(new_c), "removed": [], "changed": []}
+        elif old_c:
+            diff = {"added": [], "removed": extract_fn(old_c), "changed": []}
+        else:
+            return
+
+        file_entry[out_key] = {
+            "added": len(diff["added"]),
+            "removed": len(diff["removed"]),
+            "changed": len(diff["changed"]),
+        }
+    except Exception:
+        pass
 
 
 @router.get("/{project_id}/schematic")
