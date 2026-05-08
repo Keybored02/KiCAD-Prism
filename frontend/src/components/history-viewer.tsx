@@ -9,6 +9,7 @@ import {
 import { SchematicDiffViewer } from "./schematic-diff-viewer";
 import { PcbDiffViewer } from "./pcb-diff-viewer";
 import { fetchJson } from "@/lib/api";
+import { categorise, CATEGORY_META, type KindedItem } from "@/lib/diff-grouping";
 
 interface Release {
     tag: string;
@@ -132,26 +133,6 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
     modified: <RefreshCw className="h-3 w-3" />,
     renamed:  <RefreshCw className="h-3 w-3" />,
 };
-
-// Pluralise a base noun for a count.
-function plural(n: number, singular: string, pluralForm?: string): string {
-    return `${n} ${n === 1 ? singular : (pluralForm ?? singular + "s")}`;
-}
-
-// Group a list of diff items by type and return a compact human label.
-// Examples: "2 footprints, 1 zone", "3 symbols, 1 label".
-function summariseItemTypes(items: { type: string }[] | undefined): string {
-    if (!items || items.length === 0) return "";
-    const counts = new Map<string, number>();
-    for (const it of items) {
-        const key = LABEL_BY_TYPE[it.type] ?? it.type;
-        counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    const parts = [...counts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([k, v]) => plural(v, k));
-    return parts.join(", ");
-}
 
 const LABEL_BY_TYPE: Record<string, string> = {
     // Schematic
@@ -327,54 +308,28 @@ interface ItemDiffListProps {
     onOpenItemDiff?: (tab: DiffTab, itemId?: string) => void;
 }
 
-// Types where added + removed on the same file most likely represent a net
-// change (re-routed traces, moved components) rather than truly distinct
-// additions and deletions. Mirrors the diff-viewer's _mergedKind() logic.
-const MERGE_AS_CHANGED_TYPES = new Set(["segment", "zone", "via", "gr_line", "gr_arc", "gr_circle", "gr_rect"]);
-
-function _shouldMergeIntoBuckets(diff: FileDiffPayload): boolean {
-    if (diff.added <= 0 || diff.removed <= 0) return false;
-    // If the item lists are available, only merge if ALL added/removed items
-    // are of a mergeable type. If lists aren't available, fall back to merging
-    // when the diff has both additions and deletions (conservative guess).
-    const addedItems  = diff.added_items  ?? [];
-    const removedItems = diff.removed_items ?? [];
-    if (addedItems.length === 0 && removedItems.length === 0) return true; // no detail — merge conservatively
-    const allMergeable = [...addedItems, ...removedItems].every(it => MERGE_AS_CHANGED_TYPES.has(it.type));
-    return allMergeable;
-}
-
 function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
     const [expanded, setExpanded] = useState(false);
-    const [showAllPerBucket, setShowAllPerBucket] = useState(false);
-    const VISIBLE_PER_BUCKET = 5;
 
-    // When both added and removed items are of mergeable types, collapse them
-    // into a single "changed" bucket (amber) — same logic as the diff viewer.
-    const mergeAddedRemoved = _shouldMergeIntoBuckets(diff);
-    const rawBuckets: { kind: "added" | "removed" | "changed"; total: number; items: ChangedDiffItem[] }[] = mergeAddedRemoved
-        ? [
-            { kind: "changed", total: diff.added + diff.removed + diff.changed, items: [
-                ...(diff.added_items   ?? []) as ChangedDiffItem[],
-                ...(diff.removed_items ?? []) as ChangedDiffItem[],
-                ...(diff.changed_items ?? []),
-            ]},
-          ]
-        : [
-            { kind: "added",   total: diff.added,   items: (diff.added_items   ?? []) as ChangedDiffItem[] },
-            { kind: "removed", total: diff.removed, items: (diff.removed_items ?? []) as ChangedDiffItem[] },
-            { kind: "changed", total: diff.changed, items: (diff.changed_items ?? []) },
-          ];
-    const buckets = rawBuckets.filter(b => b.total > 0);
+    // Build the unified category groups using the same logic as the diff
+    // sidebars. We feed every item through with its original kind; categorise()
+    // reconciles mixed kinds (e.g. added+removed on same net → "changed").
+    const groups = useMemo(() => {
+        const input: KindedItem<ChangedDiffItem>[] = [];
+        for (const it of (diff.added_items ?? []))   input.push({ kind: "added",   item: it as ChangedDiffItem });
+        for (const it of (diff.removed_items ?? [])) input.push({ kind: "removed", item: it as ChangedDiffItem });
+        for (const it of (diff.changed_items ?? [])) input.push({ kind: "changed", item: it });
+        return categorise(input);
+    }, [diff]);
 
-    if (buckets.length === 0) return null;
+    if (groups.length === 0 && diff.added + diff.removed + diff.changed === 0) return null;
 
     const totalItems = diff.added + diff.removed + diff.changed;
 
     return (
         <div className="ml-9 flex flex-col text-[11px] pb-1">
-            {/* Master toggle: collapsed shows just bucket summary lines; expanded
-                reveals per-item clickable rows. */}
+            {/* Master toggle: collapsed shows just per-category summaries;
+                expanded reveals per-item clickable rows under each. */}
             <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
@@ -387,52 +342,30 @@ function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
                 <span>{totalItems} change{totalItems !== 1 ? "s" : ""}</span>
             </button>
 
-            <div className="flex flex-col gap-1">
-                {buckets.map(bucket => {
-                    const visibleCount = showAllPerBucket
-                        ? bucket.items.length
-                        : Math.min(bucket.items.length, VISIBLE_PER_BUCKET);
-                    const visibleItems = bucket.items.slice(0, visibleCount);
-                    const hiddenCount = bucket.total - visibleItems.length;
-                    const summary = summariseItemTypes(bucket.items) || `${bucket.total} item${bucket.total > 1 ? "s" : ""}`;
-                    return (
-                        <div key={bucket.kind} className="space-y-0.5">
-                            <div className={`${KIND_TINT[bucket.kind]} font-medium`}>
-                                {KIND_PREFIX[bucket.kind]} {summary}
-                            </div>
-                            {expanded && visibleItems.length > 0 && (
-                                <div className="ml-3 flex flex-col gap-0.5">
-                                    {visibleItems.map((it) => (
-                                        <button
-                                            key={`${bucket.kind}-${it.id}`}
-                                            type="button"
-                                            onClick={(e) => { e.stopPropagation(); onOpenItemDiff?.(tab, it.id); }}
-                                            className="text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors text-muted-foreground hover:text-foreground"
-                                            title="Open diff viewer at this change"
-                                        >
-                                            <span className={KIND_TINT[bucket.kind]}>{KIND_PREFIX[bucket.kind]}</span>{" "}
-                                            <span className="font-mono">{diffItemLabel(it)}</span>
-                                            {bucket.kind === "changed" && <ChangedFieldsLine changes={it.changes} />}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                            {expanded && hiddenCount > 0 && !showAllPerBucket && (
-                                <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setShowAllPerBucket(true); }}
-                                    className="ml-3 text-muted-foreground hover:text-foreground italic"
-                                >
-                                    … and {hiddenCount} more
-                                </button>
-                            )}
-                        </div>
-                    );
-                })}
-                {expanded && diff.truncated && (
+            {expanded && <div className="flex flex-col gap-0.5">
+                {groups.map(group => (
+                    <button
+                        key={group.id}
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onOpenItemDiff?.(tab, group.members[0]?.item.id); }}
+                        className="flex items-baseline gap-2 text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors"
+                        title="Open diff viewer at this change"
+                    >
+                        <span className={`${KIND_TINT[group.kind]} font-medium shrink-0`}>
+                            {KIND_PREFIX[group.kind]}
+                        </span>
+                        <span className="text-foreground/90 font-medium truncate">
+                            {group.label}
+                        </span>
+                        <span className="text-muted-foreground/70 text-[10px] uppercase tracking-wider shrink-0">
+                            {CATEGORY_META[group.category].label}
+                        </span>
+                    </button>
+                ))}
+                {diff.truncated && (
                     <span className="text-muted-foreground italic">(list truncated by server)</span>
                 )}
-            </div>
+            </div>}
         </div>
     );
 }
@@ -666,9 +599,11 @@ interface CommitDiffModalProps {
     initialTab?: DiffTab;
     /** Optional: item id to focus inside that tab's diff viewer. */
     focusItemId?: string;
+    /** When true, hide the OLD/NEW toggle — opened from a single commit row. */
+    singleCommit?: boolean;
 }
 
-function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, focusItemId }: CommitDiffModalProps) {
+function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, focusItemId, singleCommit }: CommitDiffModalProps) {
     const [tab, setTab] = useState<DiffTab>(initialTab ?? "schematic");
     // Last reference selected in each tab — used to navigate the other tab when switching
     const lastSelected = useRef<{ schematic?: string; pcb?: string }>({});
@@ -722,7 +657,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
                     ))}
                 </div>
                 <p className="text-xs text-muted-foreground font-mono pr-3 shrink-0">
-                    {commit2.slice(0, 7)} → {commit1.slice(0, 7)}
+                    {singleCommit ? commit1.slice(0, 7) : `${commit2.slice(0, 7)} → ${commit1.slice(0, 7)}`}
                 </p>
             </div>
 
@@ -750,6 +685,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
                         onCrossProbe={handlePcbCrossProbe}
                         crossProbeTarget={pcbCrossProbeTarget}
                         focusItemId={initialTab === "pcb" ? focusItemId : undefined}
+                        singleCommit={singleCommit}
                     />
                 </div>
                 {tab === "bom" && (
@@ -970,6 +906,7 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                     onClose={() => setItemDiff(null)}
                     initialTab={itemDiff.tab}
                     focusItemId={itemDiff.focusItemId}
+                    singleCommit
                 />
             )}
 

@@ -12,6 +12,7 @@ import {
     EcadViewerHost,
     useEcadInfoPanel,
 } from "@/components/ecad-viewer-shared";
+import { categorise, CATEGORY_META } from "@/lib/diff-grouping";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -223,6 +224,46 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
 
     // On mount / markers change: run enough frames to catch async ecad-viewer load
     useEffect(() => { kick(30); }, [markers, kick]);
+
+    // Hook into the underlying viewer's on_viewport_change so the overlay
+    // refreshes whenever the camera moves — including the post-load auto-fit,
+    // which doesn't emit a DOM panzoom event and would otherwise leave boxes
+    // stranded at stale coordinates until the user interacts.
+    useEffect(() => {
+        let stopped = false;
+        const findInner = (host: HTMLElement): (Record<string, unknown> & { on_viewport_change?: () => void; __overlayKickHooked?: boolean }) | null => {
+            const sr = host.shadowRoot;
+            const root: ShadowRoot | HTMLElement = sr ?? host;
+            const candidate = (root as ShadowRoot).querySelector?.("kc-schematic-app, kc-schematic-viewer") as (HTMLElement & { viewer?: Record<string, unknown> }) | null;
+            const inner = candidate?.viewer;
+            if (inner && typeof inner.on_viewport_change === "function") return inner as Record<string, unknown> & { on_viewport_change: () => void };
+            for (const child of (root as ShadowRoot).querySelectorAll?.("*") ?? []) {
+                if ((child as HTMLElement).shadowRoot) {
+                    const f = findInner(child as HTMLElement);
+                    if (f) return f;
+                }
+            }
+            return null;
+        };
+        const tryHook = () => {
+            if (stopped) return;
+            const host = viewerRef.current;
+            const inner = host ? findInner(host as unknown as HTMLElement) : null;
+            if (!inner) {
+                window.setTimeout(tryHook, 200);
+                return;
+            }
+            if (inner.__overlayKickHooked) return;
+            const orig = (inner.on_viewport_change as () => void).bind(inner);
+            inner.on_viewport_change = function () {
+                orig();
+                kick(2);
+            };
+            inner.__overlayKickHooked = true;
+        };
+        tryHook();
+        return () => { stopped = true; };
+    }, [viewerRef, kick]);
 
     return (
         <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
@@ -731,7 +772,7 @@ export function SchematicDiffViewer({
 
                     <div className="border-t mx-3 shrink-0" />
 
-                    {/* Navigable item list */}
+                    {/* Navigable item list — grouped by unified category. */}
                     <div className="flex-1 overflow-y-auto py-2">
                         {!data && !loading && (
                             <p className="text-xs text-muted-foreground px-4 py-2">No data</p>
@@ -739,37 +780,47 @@ export function SchematicDiffViewer({
                         {data && totalChanges === 0 && (
                             <p className="text-xs text-muted-foreground px-4 py-4 text-center">No changes detected</p>
                         )}
-                        {data && (["added", "removed", "changed"] as const).map((kind) => {
-                            const items = allMarkers.filter(m => m.kind === kind);
-                            if (items.length === 0) return null;
-                            return (
-                                <div key={kind} className="mb-1">
-                                    <p
-                                        className="text-[10px] uppercase tracking-wider px-3 py-1 sticky top-0 bg-background font-medium"
-                                        style={{ color: KIND_COLOR[kind] }}
-                                    >
-                                        {KIND_LABEL[kind]} ({items.length})
-                                    </p>
-                                    {items.map((m) => {
-                                        const isActive = activeMarker?.item.uuid === m.item.uuid;
-                                        return (
-                                            <button
-                                                key={m.item.uuid}
-                                                onClick={() => handleMarkerClick(m)}
-                                                className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted/60 ${isActive ? "bg-muted" : ""}`}
-                                            >
-                                                <span
-                                                    className="w-2 h-2 rounded-full shrink-0"
-                                                    style={{ backgroundColor: KIND_COLOR[m.kind] }}
-                                                />
-                                                <span className="truncate font-medium">{itemLabel(m.item)}</span>
-                                                <MapPin className="h-2.5 w-2.5 shrink-0 text-muted-foreground ml-auto opacity-0 group-hover:opacity-100" />
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            );
-                        })}
+                        {data && (() => {
+                            // Build categorised groups from the visible markers list.
+                            // SchItem matches the GroupableItem shape (type + identity fields) so we pass through directly.
+                            const groups = categorise(visibleMarkers.map(m => ({ kind: m.kind, item: m.item })));
+                            // Reverse-lookup so a clicked sub-row routes back to its DiffMarker.
+                            const markerByUuid = new Map(allMarkers.map(m => [m.item.uuid, m] as const));
+                            return groups.map(group => {
+                                const cat = CATEGORY_META[group.category].label;
+                                return (
+                                    <div key={group.id} className="mb-1">
+                                        <p
+                                            className="text-[10px] uppercase tracking-wider px-3 py-1 sticky top-0 bg-background font-medium flex items-center gap-2"
+                                            style={{ color: KIND_COLOR[group.kind] }}
+                                        >
+                                            <span>{cat}</span>
+                                            <span className="ml-auto font-mono text-[10px] opacity-70">{group.members.length}</span>
+                                        </p>
+                                        {group.members.map((member) => {
+                                            const it = member.item;
+                                            const m = markerByUuid.get(it.uuid);
+                                            if (!m) return null;
+                                            const isActive = activeMarker?.item.uuid === it.uuid;
+                                            return (
+                                                <button
+                                                    key={it.uuid}
+                                                    onClick={() => handleMarkerClick(m)}
+                                                    className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted/60 ${isActive ? "bg-muted" : ""}`}
+                                                >
+                                                    <span
+                                                        className="w-2 h-2 rounded-full shrink-0"
+                                                        style={{ backgroundColor: KIND_COLOR[member.kind] }}
+                                                    />
+                                                    <span className="truncate font-medium">{itemLabel(it)}</span>
+                                                    <MapPin className="h-2.5 w-2.5 shrink-0 text-muted-foreground ml-auto opacity-0 group-hover:opacity-100" />
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            });
+                        })()}
                     </div>
 
                     {/* Active item detail — inline at bottom of sidebar */}

@@ -624,9 +624,17 @@ type InteractiveItem = {
 type InnerBoardViewer = {
     viewport?: unknown;
     layers?: LayerSet;
-    layer_visibility_ctrl?: { visibilities?: Map<string, boolean> } | null;
+    /**
+     * NOTE: kicanvas exposes this as a SETTER ONLY (no public getter). Reading
+     * it always returns undefined; the underlying `#r` field is private. Use
+     * `layer_visibility` (getter, returns the Map or null) to detect whether
+     * a real ctrl has been installed by the Layers panel.
+     */
+    layer_visibility_ctrl?: { visibilities?: Map<string, boolean>; clear_highlight?: () => void } | null;
+    layer_visibility?: Map<string, boolean> | null;
     find_items_under_pos?: (p: { x: number; y: number }) => InteractiveItem[];
     __padPriorityPatched?: boolean;
+    __stubCtrlInstalled?: boolean;
 };
 type BoardEl = HTMLElement & { viewer?: InnerBoardViewer };
 
@@ -667,16 +675,27 @@ export function useBoardClickFix({ viewerRefs, rebindKey }: UseBoardClickFixOpts
             const layers = inner.layers?.in_ui_order ? Array.from(inner.layers.in_ui_order()) : [];
             if (layers.length === 0) return false;
 
-            // (1) Populate visibility map if empty.
-            const existing = inner.layer_visibility_ctrl;
-            const map = existing?.visibilities;
-            if (!map || map.size === 0) {
+            // (1) Ensure the layer_visibility map exists.
+            //
+            // The ctrl is private (`#r`, setter only). We can't read it directly,
+            // but we CAN read its visibilities map via the public getter
+            // `inner.layer_visibility`. If that returns a non-empty Map, the
+            // real Layers panel ctrl is installed — leave it alone.
+            //
+            // If it's null/empty, we install a stub. The stub MUST include a
+            // no-op `clear_highlight` because kicanvas's `highlight_net()` calls
+            // `this.#r.clear_highlight()` before painting (double-click net
+            // highlight would otherwise throw and silently fail).
+            const visMap = inner.layer_visibility;
+            const ctrlMissing = !visMap || visMap.size === 0;
+            if (ctrlMissing && !inner.__stubCtrlInstalled) {
                 const fresh = new Map<string, boolean>();
                 for (const l of layers) fresh.set(l.name, l.visible !== false);
                 inner.layer_visibility_ctrl = {
-                    ...(existing ?? {}),
                     visibilities: fresh,
-                } as { visibilities: Map<string, boolean> };
+                    clear_highlight: () => { /* no-op — real Layers panel handles this when present */ },
+                };
+                inner.__stubCtrlInstalled = true;
             }
 
             // (2) Bubble pads to the front of pick results.

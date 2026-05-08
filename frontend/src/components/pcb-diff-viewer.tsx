@@ -13,6 +13,7 @@ import {
     useBoardClickFix,
     useEcadInfoPanel,
 } from "@/components/ecad-viewer-shared";
+import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,7 +77,8 @@ interface DiffMarker {
     changes?: Record<string, FieldChange>;
 }
 
-type GroupCategory = "components" | "nets" | "zones" | "graphics";
+// Use the shared Category union — PCB only ever produces these four.
+type GroupCategory = Extract<Category, "components" | "nets" | "zones" | "graphics">;
 
 interface GroupedMarker {
     id: string;
@@ -103,6 +105,9 @@ interface PcbDiffViewerProps {
     crossProbeTarget?: string; // reference to navigate to when switching from schematic
     /** Item id (uuid or geometric key) to focus on when the diff loads. */
     focusItemId?: string;
+    /** When true, hide the OLD/NEW toggle and always show the new board.
+     *  Used when opening a single commit's changes (vs. a manual two-commit compare). */
+    singleCommit?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +418,32 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
 
     useEffect(() => { kick(30); }, [groups, kick]);
 
+    // Hook into kicanvas's on_viewport_change so the overlay refreshes whenever
+    // the camera moves — including the post-load auto-fit, which doesn't emit
+    // a DOM panzoom event and would otherwise leave boxes stranded at stale
+    // coordinates until the user interacts.
+    useEffect(() => {
+        let stopped = false;
+        const tryHook = () => {
+            if (stopped) return;
+            const host = viewerRef.current;
+            const inner = host ? (getBoardEl(host) as (BoardEl & { viewer?: { on_viewport_change?: () => void; __overlayKickHooked?: boolean } }) | null)?.viewer : null;
+            if (!inner || typeof inner.on_viewport_change !== "function") {
+                window.setTimeout(tryHook, 200);
+                return;
+            }
+            if (inner.__overlayKickHooked) return;
+            const orig = inner.on_viewport_change.bind(inner);
+            inner.on_viewport_change = function () {
+                orig();
+                kick(2);
+            };
+            inner.__overlayKickHooked = true;
+        };
+        tryHook();
+        return () => { stopped = true; };
+    }, [viewerRef, getBoardEl, kick]);
+
     // Build a unique stripe pattern id per (kind, activeId) combination so
     // active zones get a denser/brighter stripe than inactive ones.
     const stripeIds = {
@@ -540,6 +571,7 @@ export function PcbDiffViewer({
     onCrossProbe,
     crossProbeTarget,
     focusItemId,
+    singleCommit = false,
 }: PcbDiffViewerProps) {
     const [data, setData] = useState<PcbDiffData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -696,8 +728,13 @@ export function PcbDiffViewer({
         if (g.kind === "added"   && !showAdded)   return false;
         if (g.kind === "removed" && !showRemoved)  return false;
         if (g.kind === "changed" && !showChanged)  return false;
-        if (g.kind === "added"   && showing !== "new") return false;
-        if (g.kind === "removed" && showing !== "old") return false;
+        // In single-commit mode the old board is not shown, so show all
+        // change kinds against the new board (removed items existed before,
+        // added items exist now, changed items exist in both).
+        if (!singleCommit) {
+            if (g.kind === "added"   && showing !== "new") return false;
+            if (g.kind === "removed" && showing !== "old") return false;
+        }
         return true;
     });
 
@@ -710,14 +747,18 @@ export function PcbDiffViewer({
           ]))
         : {};
 
-    const zoomToGroupOn = useCallback((g: GroupedMarker, target: "new" | "old") => {
+    const zoomToGroupOn = useCallback((g: GroupedMarker, target: "new" | "old", attempt = 0) => {
         const ref = target === "new" ? newViewerRef : oldViewerRef;
         const viewer = ref.current;
         if (!viewer) return;
         try {
             const boardEl = getBoardEl(viewer);
             const camera  = boardEl?.viewer?.viewport?.camera;
-            if (!camera) return;
+            if (!camera) {
+                // Camera not ready yet — retry up to ~3s
+                if (attempt < 24) window.setTimeout(() => zoomToGroupOn(g, target, attempt + 1), 125);
+                return;
+            }
             const pad = 10;
             camera.bbox = {
                 x: g.bboxMinX - pad, y: g.bboxMinY - pad,
@@ -725,8 +766,6 @@ export function PcbDiffViewer({
                 h: (g.bboxMaxY - g.bboxMinY) + pad * 2,
             };
             // Clear any prior impose so the bbox fit is allowed to settle.
-            // The impose loop only exists for "preserve camera across view
-            // toggles"; for an explicit zoom we want the kicanvas fit to win.
             imposeCamRef.current = null;
             safeDraw(viewer);
         } catch { /* ignore */ }
@@ -735,13 +774,13 @@ export function PcbDiffViewer({
 
     const handleGroupClick = useCallback((g: GroupedMarker) => {
         setActiveGroup(prev => prev?.id === g.id ? null : g);
-        // Determine which side this group lives on. "added" only exists in the
-        // new view; "removed" only in the old view; "changed" works on either,
-        // so keep whatever side the user is currently looking at.
-        const targetSide: "new" | "old" =
-            g.kind === "added"   ? "new" :
-            g.kind === "removed" ? "old" :
-            showing;
+        // In single-commit mode always stay on "new" — the old board isn't
+        // shown so there's nowhere to toggle to.
+        const targetSide: "new" | "old" = singleCommit
+            ? "new"
+            : g.kind === "added"   ? "new"
+            : g.kind === "removed" ? "old"
+            : showing;
         if (targetSide !== showing) {
             handleToggle(targetSide);
             // Defer the camera write until after React flushes the showing
@@ -751,7 +790,7 @@ export function PcbDiffViewer({
         } else {
             zoomToGroupOn(g, targetSide);
         }
-    }, [zoomToGroupOn, showing, handleToggle]);
+    }, [zoomToGroupOn, showing, handleToggle, singleCommit]);
 
     // Focus a specific item on first data load (or whenever focusItemId changes).
     // We match the requested id against any member's uuid in any group, then
@@ -831,7 +870,7 @@ export function PcbDiffViewer({
                 {/* ── Left sidebar ── */}
                 <div className="w-56 shrink-0 border-r flex flex-col bg-background overflow-hidden">
 
-                    {data && (
+                    {data && !singleCommit && (
                         <div className="px-3 pt-3 pb-2 shrink-0">
                             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">Version</p>
                             <div className="flex rounded-md border overflow-hidden text-xs font-medium w-full">
@@ -938,18 +977,13 @@ export function PcbDiffViewer({
                             <p className="text-xs text-muted-foreground px-4 py-4 text-center">No PCB changes detected</p>
                         )}
                         {data && (
-                            [
-                                { cat: "components" as GroupCategory, label: "Components" },
-                                { cat: "nets"       as GroupCategory, label: "Nets"       },
-                                { cat: "zones"      as GroupCategory, label: "Zones"      },
-                                { cat: "graphics"   as GroupCategory, label: "Graphics"   },
-                            ].map(({ cat, label }) => {
+                            (["components", "nets", "zones", "graphics"] as GroupCategory[]).map((cat) => {
                                 const groups = allGroups.filter(g => g.category === cat);
                                 if (groups.length === 0) return null;
                                 return (
                                     <div key={cat} className="mb-2">
                                         <p className="text-[10px] uppercase tracking-wider px-3 py-1 sticky top-0 bg-background font-medium text-muted-foreground">
-                                            {label}
+                                            {CATEGORY_META[cat].label}
                                         </p>
                                         {groups.map((g) => {
                                             const isActive = activeGroup?.id === g.id;
