@@ -334,12 +334,14 @@ function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
 interface OverlayProps {
     groups: GroupedMarker[];
     viewerRef: React.RefObject<ECadViewerElement | null>;
+    containerRef: React.RefObject<HTMLDivElement | null>;
+    getBoardEl: (host: ECadViewerElement) => BoardEl | null;
     onGroupClick: (group: GroupedMarker) => void;
     activeId: string | null;
     kickRef?: React.MutableRefObject<((frames?: number) => void) | null>;
 }
 
-function DiffOverlay({ groups, viewerRef, onGroupClick, activeId, kickRef }: OverlayProps) {
+function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick, activeId, kickRef }: OverlayProps) {
     const boxRefs  = useRef<Map<string, HTMLDivElement>>(new Map());
     const polyRefs = useRef<Map<string, SVGPolygonElement>>(new Map());
     const rafRef   = useRef<number | null>(null);
@@ -347,37 +349,68 @@ function DiffOverlay({ groups, viewerRef, onGroupClick, activeId, kickRef }: Ove
 
     const updatePositions = useCallback((): boolean => {
         const viewer = viewerRef.current;
-        if (!viewer?.getScreenLocation) return false;
+        const container = containerRef.current;
+        if (!viewer || !container) return false;
         try {
-            const rect = viewer.getBoundingClientRect();
-            if (!rect.width) return false;
+            const containerRect = container.getBoundingClientRect();
+            if (!containerRect.width) return false;
+
+            // getScreenLocation returns canvas-relative coords (world_to_screen without adding
+            // the canvas bounding rect offset). To convert to container-relative coords we need
+            // to add the canvas offset relative to our container.
+            // We derive that offset by calling getScreenLocation for a known world point and
+            // comparing to worldToScreen on the internal viewer.
+            type InternalViewer = { worldToScreen?: (x: number, y: number) => { x: number; y: number } };
+            const boardEl = getBoardEl(viewer) as (HTMLElement & { viewer?: InternalViewer }) | null;
+            const worldToScreen = boardEl?.viewer?.worldToScreen?.bind(boardEl.viewer);
+
+            // If worldToScreen is available use it (viewport-absolute) minus container offset.
+            // Otherwise fall back to getScreenLocation (canvas-relative) minus the canvas offset
+            // relative to the container.
+            let toContainerPt: (wx: number, wy: number) => { x: number; y: number };
+            if (worldToScreen) {
+                toContainerPt = (wx, wy) => {
+                    const s = worldToScreen(wx, wy);
+                    return { x: s.x - containerRect.left, y: s.y - containerRect.top };
+                };
+            } else if (viewer.getScreenLocation) {
+                // getScreenLocation is canvas-relative. Find canvas offset by checking the
+                // ecad-viewer element's own bounding rect vs the container rect.
+                const viewerRect = viewer.getBoundingClientRect();
+                const dx = viewerRect.left - containerRect.left;
+                const dy = viewerRect.top  - containerRect.top;
+                toContainerPt = (wx, wy) => {
+                    const s = viewer.getScreenLocation(wx, wy);
+                    if (!s) return { x: -9999, y: -9999 };
+                    return { x: s.x + dx, y: s.y + dy };
+                };
+            } else {
+                return false;
+            }
+
             let anyVisible = false;
             const SCREEN_PAD = 4;
             for (const g of groups) {
                 if (g.polygonPoints) {
-                    // Zone: update SVG polygon points
                     const poly = polyRefs.current.get(g.id);
                     if (!poly) continue;
-                    const screenPts = g.polygonPoints.map(([wx, wy]) => {
-                        const s = viewer.getScreenLocation(wx, wy);
-                        return s ? `${s.x},${s.y}` : null;
+                    const pts = g.polygonPoints.map(([wx, wy]) => {
+                        const s = toContainerPt(wx, wy);
+                        return `${s.x},${s.y}`;
                     });
-                    if (screenPts.some(p => p === null)) { poly.style.display = "none"; continue; }
-                    poly.setAttribute("points", screenPts.join(" "));
+                    poly.setAttribute("points", pts.join(" "));
                     poly.style.display = "";
                     anyVisible = true;
                 } else {
-                    // Non-zone: update div box
                     const el = boxRefs.current.get(g.id);
                     if (!el) continue;
-                    const tl = viewer.getScreenLocation(g.bboxMinX, g.bboxMinY);
-                    const br = viewer.getScreenLocation(g.bboxMaxX, g.bboxMaxY);
-                    if (!tl || !br) { el.style.display = "none"; continue; }
+                    const tl = toContainerPt(g.bboxMinX, g.bboxMinY);
+                    const br = toContainerPt(g.bboxMaxX, g.bboxMaxY);
                     const left = Math.min(tl.x, br.x) - SCREEN_PAD;
                     const top  = Math.min(tl.y, br.y) - SCREEN_PAD;
                     const w    = Math.abs(br.x - tl.x) + SCREEN_PAD * 2;
                     const h    = Math.abs(br.y - tl.y) + SCREEN_PAD * 2;
-                    const vis  = left + w > 0 && left < rect.width && top + h > 0 && top < rect.height;
+                    const vis  = left + w > 0 && left < containerRect.width && top + h > 0 && top < containerRect.height;
                     if (vis) {
                         el.style.display = "";
                         el.style.left   = `${left}px`;
@@ -392,7 +425,7 @@ function DiffOverlay({ groups, viewerRef, onGroupClick, activeId, kickRef }: Ove
             }
             return anyVisible || groups.length === 0;
         } catch { return false; }
-    }, [viewerRef, groups]);
+    }, [viewerRef, containerRef, getBoardEl, groups]);
 
     const tick = useCallback(() => {
         const done = updatePositions();
@@ -975,7 +1008,7 @@ export function PcbDiffViewer({
                 </div>
 
                 {/* ── Viewer area ── */}
-                <div ref={viewerContainerRef} className="flex-1 relative overflow-hidden">
+                <div ref={viewerContainerRef} className="flex-1 relative overflow-hidden" style={{ isolation: "isolate" }}>
                     {loading && (
                         <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-40">
                             <div className="flex flex-col items-center gap-3">
@@ -1022,6 +1055,8 @@ export function PcbDiffViewer({
                             <DiffOverlay
                                 groups={visibleGroups}
                                 viewerRef={viewerRef}
+                                containerRef={viewerContainerRef}
+                                getBoardEl={getBoardEl}
                                 onGroupClick={handleGroupClick}
                                 activeId={activeGroup?.id ?? null}
                                 kickRef={overlayKickRef}
