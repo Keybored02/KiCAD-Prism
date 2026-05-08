@@ -174,6 +174,17 @@ const LABEL_BY_TYPE: Record<string, string> = {
     gr_arc: "graphic arc",
 };
 
+// Sort rank for the file list inside an expanded commit. Lower rank = shown
+// first. Schematic and PCB files lead, followed by project, libraries, then
+// everything else. Within a rank, original order is preserved (stable sort).
+function fileSortRank(filename: string): number {
+    if (filename.endsWith(".kicad_sch")) return 0;
+    if (filename.endsWith(".kicad_pcb")) return 1;
+    if (filename.endsWith(".kicad_pro")) return 2;
+    if (filename.endsWith(".kicad_sym") || filename.endsWith(".kicad_mod")) return 3;
+    return 4;
+}
+
 // File-type icon picker. Returns the icon + a colour class so KiCad files
 // stand out from generic ones in the file list.
 function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string; label: string } {
@@ -318,6 +329,7 @@ interface ItemDiffListProps {
 
 function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
     const [expanded, setExpanded] = useState(false);
+    const [showAllPerBucket, setShowAllPerBucket] = useState(false);
     const VISIBLE_PER_BUCKET = 5;
 
     const buckets: { kind: "added" | "removed" | "changed"; total: number; items: ChangedDiffItem[] }[] = [
@@ -328,50 +340,70 @@ function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
 
     if (buckets.length === 0) return null;
 
+    const totalItems = diff.added + diff.removed + diff.changed;
+
     return (
-        <div className="ml-9 flex flex-col gap-1 text-[11px] pb-1">
-            {buckets.map(bucket => {
-                const visibleCount = expanded ? bucket.items.length : Math.min(bucket.items.length, VISIBLE_PER_BUCKET);
-                const visibleItems = bucket.items.slice(0, visibleCount);
-                const hiddenCount = bucket.total - visibleItems.length;
-                const summary = summariseItemTypes(bucket.items) || `${bucket.total} item${bucket.total > 1 ? "s" : ""}`;
-                return (
-                    <div key={bucket.kind} className="space-y-0.5">
-                        <div className={`${KIND_TINT[bucket.kind]} font-medium`}>
-                            {KIND_PREFIX[bucket.kind]} {summary}
-                        </div>
-                        {visibleItems.length > 0 && (
-                            <div className="ml-3 flex flex-col gap-0.5">
-                                {visibleItems.map((it) => (
-                                    <button
-                                        key={`${bucket.kind}-${it.id}`}
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); onOpenItemDiff?.(tab, it.id); }}
-                                        className="text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors text-muted-foreground hover:text-foreground"
-                                        title="Open diff viewer at this change"
-                                    >
-                                        <span className={KIND_TINT[bucket.kind]}>{KIND_PREFIX[bucket.kind]}</span>{" "}
-                                        <span className="font-mono">{diffItemLabel(it)}</span>
-                                        {bucket.kind === "changed" && <ChangedFieldsLine changes={it.changes} />}
-                                    </button>
-                                ))}
+        <div className="ml-9 flex flex-col text-[11px] pb-1">
+            {/* Master toggle: collapsed shows just bucket summary lines; expanded
+                reveals per-item clickable rows. */}
+            <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
+                className="flex items-center gap-1 text-muted-foreground hover:text-foreground py-0.5 -ml-3.5 self-start"
+                title={expanded ? "Hide details" : "Show details"}
+            >
+                {expanded
+                    ? <ChevronDown  className="h-3 w-3" />
+                    : <ChevronRight className="h-3 w-3" />}
+                <span>{totalItems} change{totalItems !== 1 ? "s" : ""}</span>
+            </button>
+
+            <div className="flex flex-col gap-1">
+                {buckets.map(bucket => {
+                    const visibleCount = showAllPerBucket
+                        ? bucket.items.length
+                        : Math.min(bucket.items.length, VISIBLE_PER_BUCKET);
+                    const visibleItems = bucket.items.slice(0, visibleCount);
+                    const hiddenCount = bucket.total - visibleItems.length;
+                    const summary = summariseItemTypes(bucket.items) || `${bucket.total} item${bucket.total > 1 ? "s" : ""}`;
+                    return (
+                        <div key={bucket.kind} className="space-y-0.5">
+                            <div className={`${KIND_TINT[bucket.kind]} font-medium`}>
+                                {KIND_PREFIX[bucket.kind]} {summary}
                             </div>
-                        )}
-                        {hiddenCount > 0 && !expanded && (
-                            <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
-                                className="ml-3 text-muted-foreground hover:text-foreground italic"
-                            >
-                                … and {hiddenCount} more
-                            </button>
-                        )}
-                    </div>
-                );
-            })}
-            {diff.truncated && (
-                <span className="text-muted-foreground italic">(list truncated by server)</span>
-            )}
+                            {expanded && visibleItems.length > 0 && (
+                                <div className="ml-3 flex flex-col gap-0.5">
+                                    {visibleItems.map((it) => (
+                                        <button
+                                            key={`${bucket.kind}-${it.id}`}
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); onOpenItemDiff?.(tab, it.id); }}
+                                            className="text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors text-muted-foreground hover:text-foreground"
+                                            title="Open diff viewer at this change"
+                                        >
+                                            <span className={KIND_TINT[bucket.kind]}>{KIND_PREFIX[bucket.kind]}</span>{" "}
+                                            <span className="font-mono">{diffItemLabel(it)}</span>
+                                            {bucket.kind === "changed" && <ChangedFieldsLine changes={it.changes} />}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            {expanded && hiddenCount > 0 && !showAllPerBucket && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setShowAllPerBucket(true); }}
+                                    className="ml-3 text-muted-foreground hover:text-foreground italic"
+                                >
+                                    … and {hiddenCount} more
+                                </button>
+                            )}
+                        </div>
+                    );
+                })}
+                {expanded && diff.truncated && (
+                    <span className="text-muted-foreground italic">(list truncated by server)</span>
+                )}
+            </div>
         </div>
     );
 }
@@ -385,9 +417,15 @@ interface CommitItemProps {
     selectable: boolean;
     /** Open the diff modal for this commit (vs its parent), focused on `itemId` in `tab`. */
     onOpenItemDiff?: (tab: DiffTab, itemId?: string) => void;
+    /** Position in the commit list — used to draw the timeline. */
+    isFirst?: boolean;
+    isLast?: boolean;
 }
 
-function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, selectable, onOpenItemDiff }: CommitItemProps) {
+function CommitItem({
+    commit, projectId, onViewCommit, isSelected, onSelect, selectable, onOpenItemDiff,
+    isFirst, isLast,
+}: CommitItemProps) {
     const [copied, setCopied] = useState(false);
     const [expanded, setExpanded] = useState(false);
     const [summary, setSummary] = useState<CommitSummary | null>(null);
@@ -429,7 +467,31 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
     };
 
     return (
-        <div className={`border rounded-lg transition-colors ${isSelected ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted/50'}`}>
+        <div className="flex items-stretch gap-3 pb-1.5 last:pb-0">
+            {/* Timeline column: vertical line + dot, one row tall */}
+            <div className="relative w-4 shrink-0 flex justify-center">
+                {/* upper line segment — hidden on the very first commit */}
+                <div
+                    aria-hidden
+                    className={`absolute left-1/2 -translate-x-1/2 top-0 h-[26px] w-px ${isFirst ? "" : "bg-border"}`}
+                />
+                {/* dot at the same y as the commit icon/checkbox */}
+                <div
+                    aria-hidden
+                    className={`absolute left-1/2 -translate-x-1/2 top-[22px] h-2.5 w-2.5 rounded-full border-2 ${
+                        isSelected
+                            ? "bg-primary border-primary"
+                            : "bg-background border-muted-foreground/60"
+                    }`}
+                />
+                {/* lower line segment — hidden on the last commit; spans the rest */}
+                <div
+                    aria-hidden
+                    className={`absolute left-1/2 -translate-x-1/2 top-[32px] bottom-0 w-px ${isLast ? "" : "bg-border"}`}
+                />
+            </div>
+
+            <div className={`flex-1 border rounded-lg transition-colors ${isSelected ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted/50'}`}>
             <div className="flex items-start gap-3 p-4">
                 <div className="flex-shrink-0 mt-1 flex items-center justify-center">
                     {selectable ? (
@@ -455,13 +517,6 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
                             <span className="truncate">{(commit.message || "").split('\n')[0]}</span>
                         </button>
                         <div className="flex items-center gap-1 flex-shrink-0">
-                            {commit.kicad_changes && (
-                                <div className="flex items-center gap-1 mr-1">
-                                    <KicadChip icon={CircuitBoard} label="Schematic" count={commit.kicad_changes.sch} color="text-blue-500" />
-                                    <KicadChip icon={Cpu}          label="PCB"        count={commit.kicad_changes.pcb} color="text-emerald-500" />
-                                    <KicadChip icon={Settings}     label="Project"    count={commit.kicad_changes.pro} color="text-violet-500" />
-                                </div>
-                            )}
                             <code className="text-xs bg-muted px-2 py-1 rounded">
                                 {commit.hash}
                             </code>
@@ -478,6 +533,13 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
                             <User className="h-3 w-3" />
                             {commit.author || "Unknown"}
                         </div>
+                        {commit.kicad_changes && (
+                            <div className="flex items-center gap-1">
+                                <KicadChip icon={CircuitBoard} label="Schematic" count={commit.kicad_changes.sch} color="text-blue-500" />
+                                <KicadChip icon={Cpu}          label="PCB"        count={commit.kicad_changes.pcb} color="text-emerald-500" />
+                                <KicadChip icon={Settings}     label="Project"    count={commit.kicad_changes.pro} color="text-violet-500" />
+                            </div>
+                        )}
                         <div className="flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             {formatDate(commit.date)}
@@ -501,7 +563,10 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
                     {summary && summary.files.length === 0 && (
                         <p className="text-xs text-muted-foreground py-1">No tracked files changed</p>
                     )}
-                    {summary?.files.map((file) => {
+                    {summary?.files
+                        .slice()
+                        .sort((a, b) => fileSortRank(a.filename) - fileSortRank(b.filename))
+                        .map((file) => {
                         const { Icon: TypeIcon, color: typeColor } = fileTypeIcon(file.filename);
                         const itemDiff = file.schematic_diff ?? file.pcb_diff;
                         const fileTab: DiffTab | null =
@@ -554,6 +619,7 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
                     })}
                 </div>
             )}
+            </div>
         </div>
     );
 }
@@ -947,8 +1013,8 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                         No commits found
                     </p>
                 ) : (
-                    <div className="space-y-3">
-                        {commits.map((commit) => (
+                    <div>
+                        {commits.map((commit, idx) => (
                             <CommitItem
                                 key={commit.full_hash}
                                 commit={commit}
@@ -957,6 +1023,8 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                                 isSelected={selectedCommits.includes(commit.full_hash)}
                                 onSelect={() => handleSelectCommit(commit.full_hash)}
                                 selectable={canCompareDiffs}
+                                isFirst={idx === 0}
+                                isLast={idx === commits.length - 1}
                                 onOpenItemDiff={(tab, itemId) => {
                                     const parent = commit.parents?.[0];
                                     if (!parent) return; // root commit — nothing to diff against

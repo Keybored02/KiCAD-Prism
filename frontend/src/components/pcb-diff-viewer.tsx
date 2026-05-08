@@ -710,8 +710,9 @@ export function PcbDiffViewer({
           ]))
         : {};
 
-    const zoomToGroup = useCallback((g: GroupedMarker) => {
-        const viewer = viewerRef.current;
+    const zoomToGroupOn = useCallback((g: GroupedMarker, target: "new" | "old") => {
+        const ref = target === "new" ? newViewerRef : oldViewerRef;
+        const viewer = ref.current;
         if (!viewer) return;
         try {
             const boardEl = getBoardEl(viewer);
@@ -723,18 +724,34 @@ export function PcbDiffViewer({
                 w: (g.bboxMaxX - g.bboxMinX) + pad * 2,
                 h: (g.bboxMaxY - g.bboxMinY) + pad * 2,
             };
-            imposeCamRef.current = { zoom: camera.zoom, cx: camera.center.x, cy: camera.center.y };
+            // Clear any prior impose so the bbox fit is allowed to settle.
+            // The impose loop only exists for "preserve camera across view
+            // toggles"; for an explicit zoom we want the kicanvas fit to win.
+            imposeCamRef.current = null;
             safeDraw(viewer);
         } catch { /* ignore */ }
         overlayKickRef.current?.(40);
-    }, [viewerRef, getBoardEl, safeDraw]);
+    }, [getBoardEl, safeDraw]);
 
     const handleGroupClick = useCallback((g: GroupedMarker) => {
         setActiveGroup(prev => prev?.id === g.id ? null : g);
-        zoomToGroup(g);
-        if (g.kind === "added"   && showing !== "new") handleToggle("new");
-        if (g.kind === "removed" && showing !== "old") handleToggle("old");
-    }, [zoomToGroup, showing, handleToggle]);
+        // Determine which side this group lives on. "added" only exists in the
+        // new view; "removed" only in the old view; "changed" works on either,
+        // so keep whatever side the user is currently looking at.
+        const targetSide: "new" | "old" =
+            g.kind === "added"   ? "new" :
+            g.kind === "removed" ? "old" :
+            showing;
+        if (targetSide !== showing) {
+            handleToggle(targetSide);
+            // Defer the camera write until after React flushes the showing
+            // change, so the overlay (which keys off the active viewer) starts
+            // tracking the right side from frame zero.
+            requestAnimationFrame(() => zoomToGroupOn(g, targetSide));
+        } else {
+            zoomToGroupOn(g, targetSide);
+        }
+    }, [zoomToGroupOn, showing, handleToggle]);
 
     // Focus a specific item on first data load (or whenever focusItemId changes).
     // We match the requested id against any member's uuid in any group, then

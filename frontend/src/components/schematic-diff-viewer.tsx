@@ -469,8 +469,9 @@ export function SchematicDiffViewer({
     // Navigate to a marker without triggering the viewer's selection highlight.
     // zoom_fit_item internally calls paint_selected which draws a blue box on the entity —
     // instead we replicate just the camera move and clear any existing selection.
-    const zoomToMarker = useCallback((marker: DiffMarker) => {
-        const viewer = viewerRef.current;
+    const zoomToMarkerOn = useCallback((marker: DiffMarker, target: "new" | "old") => {
+        const ref = target === "new" ? newViewerRef : oldViewerRef;
+        const viewer = ref.current;
         if (!viewer) return;
         try {
             const schEl = getSchEl(viewer);
@@ -498,19 +499,27 @@ export function SchematicDiffViewer({
             // Clear any existing selection highlight
             inner.paint_selected?.();
 
-            imposeCamRef.current = { zoom: camera.zoom, cx: camera.center.x, cy: camera.center.y };
+            // Clear any prior impose so the bbox fit is allowed to settle.
+            imposeCamRef.current = null;
             safeDraw(viewer);
         } catch { /* ignore */ }
         overlayKickRef.current?.(40);
-    }, [viewerRef, getSchEl, safeDraw]);
+    }, [getSchEl, safeDraw]);
 
     const handleMarkerClick = useCallback((m: DiffMarker) => {
         setActiveMarker(prev => prev?.item.uuid === m.item.uuid ? null : m);
-        zoomToMarker(m);
-        // Switch to the right view if needed
-        if (m.kind === "added"   && showing !== "new") handleToggle("new");
-        if (m.kind === "removed" && showing !== "old") handleToggle("old");
-    }, [zoomToMarker, showing, handleToggle]);
+        const targetSide: "new" | "old" =
+            m.kind === "added"   ? "new" :
+            m.kind === "removed" ? "old" :
+            showing;
+        if (targetSide !== showing) {
+            handleToggle(targetSide);
+            // Defer until after React flushes the showing change.
+            requestAnimationFrame(() => zoomToMarkerOn(m, targetSide));
+        } else {
+            zoomToMarkerOn(m, targetSide);
+        }
+    }, [zoomToMarkerOn, showing, handleToggle]);
 
     // Focus a specific item on first data load (or when focusItemId changes).
     // Walks all sheets to find the matching uuid; switches sheet first, then
