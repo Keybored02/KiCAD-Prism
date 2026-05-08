@@ -101,6 +101,8 @@ interface PcbDiffViewerProps {
     embedded?: boolean;
     onCrossProbe?: (reference: string) => void;
     crossProbeTarget?: string; // reference to navigate to when switching from schematic
+    /** Item id (uuid or geometric key) to focus on when the diff loads. */
+    focusItemId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -537,6 +539,7 @@ export function PcbDiffViewer({
     embedded = false,
     onCrossProbe,
     crossProbeTarget,
+    focusItemId,
 }: PcbDiffViewerProps) {
     const [data, setData] = useState<PcbDiffData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -732,6 +735,22 @@ export function PcbDiffViewer({
         if (g.kind === "added"   && showing !== "new") handleToggle("new");
         if (g.kind === "removed" && showing !== "old") handleToggle("old");
     }, [zoomToGroup, showing, handleToggle]);
+
+    // Focus a specific item on first data load (or whenever focusItemId changes).
+    // We match the requested id against any member's uuid in any group, then
+    // run the same flow as a manual click on that group.
+    const focusedIdRef = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        if (!data || !focusItemId) return;
+        if (focusedIdRef.current === focusItemId) return;
+        const target = allGroups.find(g => g.members.some(m => m.item.uuid === focusItemId));
+        if (!target) return;
+        focusedIdRef.current = focusItemId;
+        // Defer a tick so the viewer has time to mount/load.
+        const t = window.setTimeout(() => handleGroupClick(target), 250);
+        return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data, focusItemId]);
 
     // Fire onCrossProbe when the user selects an item.
     // kicanvas:select bubbles+composed so it reaches the container div.

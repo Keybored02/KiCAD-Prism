@@ -76,6 +76,8 @@ interface SchematicDiffViewerProps {
     embedded?: boolean;
     onCrossProbe?: (reference: string) => void;
     crossProbeTarget?: string; // reference to navigate to when switching from PCB
+    /** Item id (uuid) to focus on when the diff loads. */
+    focusItemId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +264,7 @@ export function SchematicDiffViewer({
     embedded = false,
     onCrossProbe,
     crossProbeTarget,
+    focusItemId,
 }: SchematicDiffViewerProps) {
     const [data, setData] = useState<SchematicDiffData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -508,6 +511,34 @@ export function SchematicDiffViewer({
         if (m.kind === "added"   && showing !== "new") handleToggle("new");
         if (m.kind === "removed" && showing !== "old") handleToggle("old");
     }, [zoomToMarker, showing, handleToggle]);
+
+    // Focus a specific item on first data load (or when focusItemId changes).
+    // Walks all sheets to find the matching uuid; switches sheet first, then
+    // runs the standard click flow once the marker is in scope.
+    const focusedIdRef = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        if (!data || !focusItemId) return;
+        if (focusedIdRef.current === focusItemId) return;
+
+        // Find which sheet contains the requested uuid.
+        let foundSheet: string | null = null;
+        let foundMarker: DiffMarker | null = null;
+        for (const s of data.sheets) {
+            const inAdded   = s.diff.added.find(i => i.uuid === focusItemId);
+            const inRemoved = s.diff.removed.find(i => i.uuid === focusItemId);
+            const inChanged = s.diff.changed.find(c => c.item.uuid === focusItemId);
+            if (inAdded)   { foundSheet = s.filename; foundMarker = { kind: "added",   item: inAdded };   break; }
+            if (inRemoved) { foundSheet = s.filename; foundMarker = { kind: "removed", item: inRemoved }; break; }
+            if (inChanged) { foundSheet = s.filename; foundMarker = { kind: "changed", item: inChanged.item, changes: inChanged.changes }; break; }
+        }
+        if (!foundSheet || !foundMarker) return;
+        focusedIdRef.current = focusItemId;
+        if (foundSheet !== activeSheet) setActiveSheet(foundSheet);
+        const marker = foundMarker;
+        const t = window.setTimeout(() => handleMarkerClick(marker), 250);
+        return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data, focusItemId]);
 
     // Fire onCrossProbe when the user selects an item.
     // kicanvas:select bubbles+composed so it reaches the container div.

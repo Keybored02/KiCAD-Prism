@@ -74,6 +74,8 @@ interface CommitFile {
     pcb_diff?: FileDiffPayload;
 }
 
+type DiffTab = "schematic" | "pcb" | "bom";
+
 interface CommitSummary {
     files: CommitFile[];
 }
@@ -112,6 +114,47 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
     renamed:  <RefreshCw className="h-3 w-3" />,
 };
 
+// Pluralise a base noun for a count.
+function plural(n: number, singular: string, pluralForm?: string): string {
+    return `${n} ${n === 1 ? singular : (pluralForm ?? singular + "s")}`;
+}
+
+// Group a list of diff items by type and return a compact human label.
+// Examples: "2 footprints, 1 zone", "3 symbols, 1 label".
+function summariseItemTypes(items: { type: string }[] | undefined): string {
+    if (!items || items.length === 0) return "";
+    const counts = new Map<string, number>();
+    for (const it of items) {
+        const key = LABEL_BY_TYPE[it.type] ?? it.type;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const parts = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => plural(v, k));
+    return parts.join(", ");
+}
+
+const LABEL_BY_TYPE: Record<string, string> = {
+    // Schematic
+    symbol: "symbol",
+    label: "label",
+    global_label: "global label",
+    hierarchical_label: "hier label",
+    net_label: "net label",
+    text: "text",
+    sheet: "sheet",
+    // PCB
+    footprint: "footprint",
+    segment: "trace",
+    via: "via",
+    zone: "zone",
+    gr_text: "graphic text",
+    gr_line: "graphic line",
+    gr_circle: "graphic circle",
+    gr_rect: "graphic rect",
+    gr_arc: "graphic arc",
+};
+
 // File-type icon picker. Returns the icon + a colour class so KiCad files
 // stand out from generic ones in the file list.
 function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string; label: string } {
@@ -140,6 +183,107 @@ function KicadChip({ icon: Icon, label, count, color }: {
     );
 }
 
+// Human label for one diff item — used as the visible row text.
+function diffItemLabel(item: DiffItem): string {
+    if (item.reference) {
+        return item.value ? `${item.reference} (${item.value})` : item.reference;
+    }
+    if (item.text)        return item.text.length > 40 ? item.text.slice(0, 37) + "…" : item.text;
+    if (item.net_name)    return item.net_name;
+    if (item.name)        return item.name;
+    if (item.sheet_name)  return `Sheet: ${item.sheet_name}`;
+    if (item.lib_id)      return item.lib_id;
+    if (item.layer)       return `${LABEL_BY_TYPE[item.type] ?? item.type} on ${item.layer}`;
+    if (item.net != null) return `${LABEL_BY_TYPE[item.type] ?? item.type} (net ${item.net})`;
+    return LABEL_BY_TYPE[item.type] ?? item.type;
+}
+
+const KIND_TINT: Record<"added" | "removed" | "changed", string> = {
+    added:   "text-green-500",
+    removed: "text-red-500",
+    changed: "text-amber-500",
+};
+const KIND_PREFIX: Record<"added" | "removed" | "changed", string> = {
+    added: "+", removed: "−", changed: "~",
+};
+
+function ChangedFieldsLine({ changes }: { changes?: ChangedDiffItem["changes"] }) {
+    if (!changes) return null;
+    const entries = Object.entries(changes);
+    if (entries.length === 0) return null;
+    return (
+        <span className="text-muted-foreground/80 italic">
+            {" "}— {entries.map(([k]) => k).join(", ")}
+        </span>
+    );
+}
+
+interface ItemDiffListProps {
+    diff: FileDiffPayload;
+    tab: DiffTab;
+    onOpenItemDiff?: (tab: DiffTab, itemId?: string) => void;
+}
+
+function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
+    const [expanded, setExpanded] = useState(false);
+    const VISIBLE_PER_BUCKET = 5;
+
+    const buckets: { kind: "added" | "removed" | "changed"; total: number; items: ChangedDiffItem[] }[] = [
+        { kind: "added",   total: diff.added,   items: (diff.added_items   ?? []) as ChangedDiffItem[] },
+        { kind: "removed", total: diff.removed, items: (diff.removed_items ?? []) as ChangedDiffItem[] },
+        { kind: "changed", total: diff.changed, items: (diff.changed_items ?? []) },
+    ].filter(b => b.total > 0);
+
+    if (buckets.length === 0) return null;
+
+    return (
+        <div className="ml-9 flex flex-col gap-1 text-[11px] pb-1">
+            {buckets.map(bucket => {
+                const visibleCount = expanded ? bucket.items.length : Math.min(bucket.items.length, VISIBLE_PER_BUCKET);
+                const visibleItems = bucket.items.slice(0, visibleCount);
+                const hiddenCount = bucket.total - visibleItems.length;
+                const summary = summariseItemTypes(bucket.items) || `${bucket.total} item${bucket.total > 1 ? "s" : ""}`;
+                return (
+                    <div key={bucket.kind} className="space-y-0.5">
+                        <div className={`${KIND_TINT[bucket.kind]} font-medium`}>
+                            {KIND_PREFIX[bucket.kind]} {summary}
+                        </div>
+                        {visibleItems.length > 0 && (
+                            <div className="ml-3 flex flex-col gap-0.5">
+                                {visibleItems.map((it) => (
+                                    <button
+                                        key={`${bucket.kind}-${it.id}`}
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); onOpenItemDiff?.(tab, it.id); }}
+                                        className="text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors text-muted-foreground hover:text-foreground"
+                                        title="Open diff viewer at this change"
+                                    >
+                                        <span className={KIND_TINT[bucket.kind]}>{KIND_PREFIX[bucket.kind]}</span>{" "}
+                                        <span className="font-mono">{diffItemLabel(it)}</span>
+                                        {bucket.kind === "changed" && <ChangedFieldsLine changes={it.changes} />}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        {hiddenCount > 0 && !expanded && (
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
+                                className="ml-3 text-muted-foreground hover:text-foreground italic"
+                            >
+                                … and {hiddenCount} more
+                            </button>
+                        )}
+                    </div>
+                );
+            })}
+            {diff.truncated && (
+                <span className="text-muted-foreground italic">(list truncated by server)</span>
+            )}
+        </div>
+    );
+}
+
 interface CommitItemProps {
     commit: Commit;
     projectId: string;
@@ -147,9 +291,11 @@ interface CommitItemProps {
     isSelected: boolean;
     onSelect: () => void;
     selectable: boolean;
+    /** Open the diff modal for this commit (vs its parent), focused on `itemId` in `tab`. */
+    onOpenItemDiff?: (tab: DiffTab, itemId?: string) => void;
 }
 
-function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, selectable }: CommitItemProps) {
+function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, selectable, onOpenItemDiff }: CommitItemProps) {
     const [copied, setCopied] = useState(false);
     const [expanded, setExpanded] = useState(false);
     const [summary, setSummary] = useState<CommitSummary | null>(null);
@@ -266,44 +412,50 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
                     {summary?.files.map((file) => {
                         const { Icon: TypeIcon, color: typeColor } = fileTypeIcon(file.filename);
                         const itemDiff = file.schematic_diff ?? file.pcb_diff;
-                        const itemDiffLabel = file.schematic_diff ? "items" : "items";
+                        const fileTab: DiffTab | null =
+                            file.filename.endsWith(".kicad_sch") ? "schematic" :
+                            file.filename.endsWith(".kicad_pcb") ? "pcb" : null;
+                        const fileClickable = !!fileTab && !!onOpenItemDiff;
+                        const headerNode = (
+                            <div className="flex items-center gap-2 text-xs">
+                                <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
+                                    {STATUS_ICON[file.status]}
+                                </span>
+                                <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
+                                <span className="font-medium truncate" title={file.path}>{file.filename}</span>
+                                <span className="text-muted-foreground truncate hidden sm:block" title={file.path}>
+                                    {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
+                                </span>
+                                {(file.additions !== null || file.deletions !== null) && (
+                                    <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
+                                        {file.additions !== null && file.additions > 0 && (
+                                            <span className="text-green-500">+{file.additions}</span>
+                                        )}
+                                        {file.deletions !== null && file.deletions > 0 && (
+                                            <span className="text-red-500">-{file.deletions}</span>
+                                        )}
+                                    </span>
+                                )}
+                            </div>
+                        );
                         return (
                             <div key={file.path} className="space-y-0.5">
-                                <div className="flex items-center gap-2 text-xs">
-                                    <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
-                                        {STATUS_ICON[file.status]}
-                                    </span>
-                                    <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
-                                    <span className="font-medium truncate" title={file.path}>{file.filename}</span>
-                                    <span className="text-muted-foreground truncate hidden sm:block" title={file.path}>
-                                        {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
-                                    </span>
-                                    {(file.additions !== null || file.deletions !== null) && (
-                                        <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
-                                            {file.additions !== null && file.additions > 0 && (
-                                                <span className="text-green-500">+{file.additions}</span>
-                                            )}
-                                            {file.deletions !== null && file.deletions > 0 && (
-                                                <span className="text-red-500">-{file.deletions}</span>
-                                            )}
-                                        </span>
-                                    )}
-                                </div>
-                                {itemDiff && (
-                                    <div className="ml-9 flex items-center gap-3 text-[11px] font-mono pb-0.5">
-                                        {itemDiff.added > 0 && (
-                                            <span className="text-green-500">+{itemDiff.added} {itemDiffLabel}</span>
-                                        )}
-                                        {itemDiff.removed > 0 && (
-                                            <span className="text-red-500">-{itemDiff.removed} {itemDiffLabel}</span>
-                                        )}
-                                        {itemDiff.changed > 0 && (
-                                            <span className="text-amber-500">~{itemDiff.changed} changed</span>
-                                        )}
-                                        {itemDiff.truncated && (
-                                            <span className="text-muted-foreground">(truncated)</span>
-                                        )}
-                                    </div>
+                                {fileClickable ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => onOpenItemDiff!(fileTab!)}
+                                        className="w-full text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors"
+                                        title="Open diff viewer for this file"
+                                    >
+                                        {headerNode}
+                                    </button>
+                                ) : headerNode}
+                                {itemDiff && fileTab && (
+                                    <ItemDiffList
+                                        diff={itemDiff}
+                                        tab={fileTab}
+                                        onOpenItemDiff={onOpenItemDiff}
+                                    />
                                 )}
                             </div>
                         );
@@ -318,17 +470,19 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
 // Tabbed diff modal
 // ---------------------------------------------------------------------------
 
-type DiffTab = "schematic" | "pcb" | "bom";
-
 interface CommitDiffModalProps {
     projectId: string;
     commit1: string;
     commit2: string;
     onClose: () => void;
+    /** Optional: which tab to open on. Defaults to schematic. */
+    initialTab?: DiffTab;
+    /** Optional: item id to focus inside that tab's diff viewer. */
+    focusItemId?: string;
 }
 
-function CommitDiffModal({ projectId, commit1, commit2, onClose }: CommitDiffModalProps) {
-    const [tab, setTab] = useState<DiffTab>("schematic");
+function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, focusItemId }: CommitDiffModalProps) {
+    const [tab, setTab] = useState<DiffTab>(initialTab ?? "schematic");
     // Last reference selected in each tab — used to navigate the other tab when switching
     const lastSelected = useRef<{ schematic?: string; pcb?: string }>({});
     const [schCrossProbeTarget, setSchCrossProbeTarget] = useState<string | undefined>(undefined);
@@ -396,6 +550,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose }: CommitDiffMod
                         embedded
                         onCrossProbe={handleSchematicCrossProbe}
                         crossProbeTarget={schCrossProbeTarget}
+                        focusItemId={initialTab === "schematic" ? focusItemId : undefined}
                     />
                 </div>
                 <div className="absolute inset-0" style={{ display: tab === "pcb" ? undefined : "none" }}>
@@ -407,6 +562,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose }: CommitDiffMod
                         embedded
                         onCrossProbe={handlePcbCrossProbe}
                         crossProbeTarget={pcbCrossProbeTarget}
+                        focusItemId={initialTab === "pcb" ? focusItemId : undefined}
                     />
                 </div>
                 {tab === "bom" && (
@@ -430,6 +586,14 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
     const [error, setError] = useState<string | null>(null);
     const [selectedCommits, setSelectedCommits] = useState<string[]>([]);
     const [showDiff, setShowDiff] = useState(false);
+    // Single-commit diff: opens the modal against the commit's parent and
+    // optionally pre-selects an item / tab.
+    const [itemDiff, setItemDiff] = useState<{
+        commit1: string;
+        commit2: string;
+        tab: DiffTab;
+        focusItemId?: string;
+    } | null>(null);
 
     // Filter commits to find selected ones and determining newer/older
     const diffPair = useMemo(() => {
@@ -567,13 +731,26 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                 </div>
             )}
 
-            {/* Tabbed diff modal */}
+            {/* Tabbed diff modal — two-commit comparison */}
             {showDiff && diffPair && (
                 <CommitDiffModal
                     projectId={projectId}
                     commit1={diffPair.newer.full_hash}
                     commit2={diffPair.older.full_hash}
                     onClose={() => setShowDiff(false)}
+                />
+            )}
+
+            {/* Tabbed diff modal — single commit vs its parent, optionally
+                focused on a specific changed item. */}
+            {itemDiff && (
+                <CommitDiffModal
+                    projectId={projectId}
+                    commit1={itemDiff.commit1}
+                    commit2={itemDiff.commit2}
+                    onClose={() => setItemDiff(null)}
+                    initialTab={itemDiff.tab}
+                    focusItemId={itemDiff.focusItemId}
                 />
             )}
 
@@ -646,6 +823,16 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                                 isSelected={selectedCommits.includes(commit.full_hash)}
                                 onSelect={() => handleSelectCommit(commit.full_hash)}
                                 selectable={canCompareDiffs}
+                                onOpenItemDiff={(tab, itemId) => {
+                                    const parent = commit.parents?.[0];
+                                    if (!parent) return; // root commit — nothing to diff against
+                                    setItemDiff({
+                                        commit1: commit.full_hash,
+                                        commit2: parent,
+                                        tab,
+                                        focusItemId: itemId,
+                                    });
+                                }}
                             />
                         ))}
                     </div>
