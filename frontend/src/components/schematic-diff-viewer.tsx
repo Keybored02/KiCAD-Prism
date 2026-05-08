@@ -786,37 +786,47 @@ export function SchematicDiffViewer({
                             const groups = categorise(visibleMarkers.map(m => ({ kind: m.kind, item: m.item })));
                             // Reverse-lookup so a clicked sub-row routes back to its DiffMarker.
                             const markerByUuid = new Map(allMarkers.map(m => [m.item.uuid, m] as const));
-                            return groups.map(group => {
-                                const cat = CATEGORY_META[group.category].label;
+                            // Group the buckets by category so we render a single
+                            // category header (e.g. "Nets") and list all sub-groups
+                            // beneath it, instead of repeating the header per net.
+                            const categories = Array.from(new Set(groups.map(g => g.category)))
+                                .sort((a, b) => CATEGORY_META[a].order - CATEGORY_META[b].order as number);
+                            return categories.map((catKey) => {
+                                const catGroups = groups.filter(g => g.category === catKey);
+                                const catLabel = CATEGORY_META[catKey].label;
+                                const total = catGroups.reduce((s, g) => s + g.members.length, 0);
                                 return (
-                                    <div key={group.id} className="mb-1">
+                                    <div key={catKey} className="mb-1">
                                         <p
                                             className="text-[10px] uppercase tracking-wider px-3 py-1 sticky top-0 bg-background font-medium flex items-center gap-2"
-                                            style={{ color: KIND_COLOR[group.kind] }}
                                         >
-                                            <span>{cat}</span>
-                                            <span className="ml-auto font-mono text-[10px] opacity-70">{group.members.length}</span>
+                                            <span>{catLabel}</span>
+                                            <span className="ml-auto font-mono text-[10px] opacity-70">{total}</span>
                                         </p>
-                                        {group.members.map((member) => {
-                                            const it = member.item;
-                                            const m = markerByUuid.get(it.uuid);
-                                            if (!m) return null;
-                                            const isActive = activeMarker?.item.uuid === it.uuid;
-                                            return (
-                                                <button
-                                                    key={it.uuid}
-                                                    onClick={() => handleMarkerClick(m)}
-                                                    className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted/60 ${isActive ? "bg-muted" : ""}`}
-                                                >
-                                                    <span
-                                                        className="w-2 h-2 rounded-full shrink-0"
-                                                        style={{ backgroundColor: KIND_COLOR[member.kind] }}
-                                                    />
-                                                    <span className="truncate font-medium">{itemLabel(it)}</span>
-                                                    <MapPin className="h-2.5 w-2.5 shrink-0 text-muted-foreground ml-auto opacity-0 group-hover:opacity-100" />
-                                                </button>
-                                            );
-                                        })}
+                                        {catGroups.map((group) => (
+                                            <div key={group.id}>
+                                                {group.members.map((member) => {
+                                                    const it = member.item;
+                                                    const m = markerByUuid.get(it.uuid);
+                                                    if (!m) return null;
+                                                    const isActive = activeMarker?.item.uuid === it.uuid;
+                                                    return (
+                                                        <button
+                                                            key={it.uuid}
+                                                            onClick={() => handleMarkerClick(m)}
+                                                            className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted/60 ${isActive ? "bg-muted" : ""}`}
+                                                        >
+                                                            <span
+                                                                className="w-2 h-2 rounded-full shrink-0"
+                                                                style={{ backgroundColor: KIND_COLOR[member.kind] }}
+                                                            />
+                                                            <span className="truncate font-medium">{itemLabel(it)}</span>
+                                                            <MapPin className="h-2.5 w-2.5 shrink-0 text-muted-foreground ml-auto opacity-0 group-hover:opacity-100" />
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        ))}
                                     </div>
                                 );
                             });

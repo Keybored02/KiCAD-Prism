@@ -815,13 +815,25 @@ export function PcbDiffViewer({
             : g.kind === "removed" ? "old"
             : showing;
         if (targetSide !== showing) {
+            // Temporarily hide the overlay so boxes from the previous viewer
+            // don't flash in the wrong place while we toggle and fit the camera.
+            setShowOverlay(false);
             handleToggle(targetSide);
-            // Defer the camera write until after React flushes the showing
-            // change, so the overlay (which keys off the active viewer) starts
-            // tracking the right side from frame zero.
-            requestAnimationFrame(() => zoomToGroupOn(g, targetSide));
+            // After the render, apply the bbox to the newly shown viewer and
+            // then re-enable the overlay once the camera has had a moment to
+            // settle. This avoids a brief visible mismatch.
+            requestAnimationFrame(() => {
+                zoomToGroupOn(g, targetSide);
+                // Small delay to let the camera fit take effect before showing
+                // overlay. 50-120ms works well across typical machines.
+                setTimeout(() => {
+                    setShowOverlay(true);
+                    overlayKickRef.current?.(40);
+                }, 80);
+            });
         } else {
             zoomToGroupOn(g, targetSide);
+            overlayKickRef.current?.(40);
         }
     }, [zoomToGroupOn, showing, handleToggle, singleCommit]);
 
