@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
-import { Cpu, Box, FileText, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, Plus, Minus, RefreshCw } from "lucide-react";
+import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { Cpu, Box, FileText, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -14,6 +14,12 @@ import type {
     ECadViewerElement,
     KiCanvasSelectDetail,
 } from "@/types/ecad-viewer";
+import {
+    EcadInfoPanel,
+    EcadViewerHost,
+    useBoardClickFix,
+    useEcadInfoPanel,
+} from "./ecad-viewer-shared";
 
 const Model3DViewer = lazy(() =>
     import("./model-3d-viewer").then((module) => ({ default: module.Model3DViewer }))
@@ -183,68 +189,6 @@ const buildViewerKey = (
     return `${kind}:${projectId}:${signature}`;
 };
 
-type EcadViewerHostProps = {
-    viewerKey: string;
-    sources: ViewerBlobSource[];
-    setViewerRef: (node: ECadViewerElement | null) => void;
-};
-
-function EcadViewerHost({ viewerKey, sources, setViewerRef }: EcadViewerHostProps) {
-    const hostRef = useRef<ECadViewerElement | null>(null);
-
-    const attachViewerRef = useCallback((node: ECadViewerElement | null) => {
-        hostRef.current = node;
-        setViewerRef(node);
-    }, [setViewerRef]);
-
-    useLayoutEffect(() => {
-        const viewer = hostRef.current;
-        if (!viewer || sources.length === 0) return;
-
-        let cancelled = false;
-
-        const hydrateViewer = async () => {
-            await customElements.whenDefined("ecad-blob");
-            if (cancelled || !hostRef.current) return;
-
-            const activeViewer = hostRef.current;
-            activeViewer.querySelectorAll("ecad-blob").forEach((blob) => blob.remove());
-
-            for (const source of sources) {
-                const blob = document.createElement("ecad-blob") as HTMLElement & {
-                    filename?: string;
-                    content?: string;
-                };
-                blob.filename = source.filename;
-                blob.content = source.content;
-                activeViewer.appendChild(blob);
-            }
-
-            const viewerWithLoader = activeViewer as ECadViewerElement & {
-                load_src?: () => Promise<void> | void;
-            };
-            if (typeof viewerWithLoader.load_src === "function") {
-                await viewerWithLoader.load_src();
-            }
-        };
-
-        void hydrateViewer();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [sources, viewerKey]);
-
-    return (
-        <ecad-viewer
-            ref={attachViewerRef}
-            style={{ width: "100%", height: "100%" }}
-            show-header="true"
-            header-sections="beginning,end"
-            key={viewerKey}
-        />
-    );
-}
 
 export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [schematicViewerElement, setSchematicViewerElement] = useState<ECadViewerElement | null>(null);
@@ -262,6 +206,23 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         pcbViewerRef.current = node;
         setPcbViewerElement(node);
     }, []);
+
+    // Refs to the wrapper divs that contain each ecad-viewer — needed by the
+    // shared info-panel hook so it can listen for kicanvas:select events.
+    const schematicWrapperRef = useRef<HTMLDivElement | null>(null);
+    const pcbWrapperRef = useRef<HTMLDivElement | null>(null);
+
+    const { detail: schSelectedDetail, clear: clearSchSelectedDetail } = useEcadInfoPanel({
+        containerRef: schematicWrapperRef,
+        viewerRefs: useRef([schematicViewerRef]).current,
+    });
+    const { detail: pcbSelectedDetail, clear: clearPcbSelectedDetail } = useEcadInfoPanel({
+        containerRef: pcbWrapperRef,
+        viewerRefs: useRef([pcbViewerRef]).current,
+    });
+
+    // PCB-only: layer-visibility map fix + pad-priority click reordering.
+    useBoardClickFix({ viewerRefs: useRef([pcbViewerRef]).current, rebindKey: pcbViewerElement });
 
     const [activeTab, setActiveTab] = useState<VisualizerTab>("sch");
     const [schematicContent, setSchematicContent] = useState<string | null>(null);
@@ -1284,13 +1245,18 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             {/* Content Area */}
             <div className="flex-1 relative overflow-hidden">
                 {/* Schematic View - always mounted but conditionally visible */}
-                <div className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "sch" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
+                <div
+                    ref={schematicWrapperRef}
+                    className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "sch" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
+                >
                     {schematicContentLoaded ? (
                         schematicSources.length > 0 ? (
                             <EcadViewerHost
                                 viewerKey={schematicViewerKey}
-                                sources={schematicSources}
-                                setViewerRef={setSchematicViewerRef}
+                                files={schematicSources}
+                                onViewer={setSchematicViewerRef}
+                                showHeader
+                                headerSections="beginning,end"
                             />
                         ) : (
                             <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -1302,16 +1268,28 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                             <p>Loading schematic...</p>
                         </div>
                     )}
+                    {activeTab === "sch" && (
+                        <EcadInfoPanel
+                            detail={schSelectedDetail}
+                            onClose={clearSchSelectedDetail}
+                            position="bottom-right"
+                        />
+                    )}
                 </div>
 
                 {/* PCB View - always mounted but conditionally visible */}
-                <div className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "pcb" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
+                <div
+                    ref={pcbWrapperRef}
+                    className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "pcb" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
+                >
                     {pcbContentLoaded ? (
                         pcbSources.length > 0 ? (
                             <EcadViewerHost
                                 viewerKey={pcbViewerKey}
-                                sources={pcbSources}
-                                setViewerRef={setPcbViewerRef}
+                                files={pcbSources}
+                                onViewer={setPcbViewerRef}
+                                showHeader
+                                headerSections="beginning,end"
                             />
                         ) : (
                             <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -1322,6 +1300,13 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                         <div className="flex items-center justify-center h-full text-muted-foreground">
                             <p>Loading PCB...</p>
                         </div>
+                    )}
+                    {activeTab === "pcb" && (
+                        <EcadInfoPanel
+                            detail={pcbSelectedDetail}
+                            onClose={clearPcbSelectedDetail}
+                            position="bottom-right"
+                        />
                     )}
                 </div>
 

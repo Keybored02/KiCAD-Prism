@@ -1,13 +1,18 @@
 import {
-    useState, useEffect, useRef, useCallback, useLayoutEffect,
+    useState, useEffect, useRef, useCallback,
 } from "react";
 import {
     X, Loader2, AlertCircle, ChevronLeft, ChevronRight,
-    Plus, Minus, RefreshCw, MapPin,
+    Plus, Minus, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
-import { EcadInfoPanel, useEcadInfoPanel } from "@/components/ecad-info-panel";
+import {
+    EcadInfoPanel,
+    EcadViewerHost,
+    useBoardClickFix,
+    useEcadInfoPanel,
+} from "@/components/ecad-viewer-shared";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -266,69 +271,6 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
 }
 
 // ---------------------------------------------------------------------------
-// EcadViewerHost
-// ---------------------------------------------------------------------------
-
-interface EcadViewerHostProps {
-    viewerKey: string;
-    files: { filename: string; content: string }[];
-    viewerRef: React.RefObject<ECadViewerElement | null>;
-}
-
-function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
-    const hostRef = useRef<ECadViewerElement | null>(null);
-
-    const attach = useCallback((node: ECadViewerElement | null) => {
-        hostRef.current = node;
-        (viewerRef as React.MutableRefObject<ECadViewerElement | null>).current = node;
-    }, [viewerRef]);
-
-    const filesKey = files.map(f => f.filename).join("|");
-
-    useLayoutEffect(() => {
-        const viewer = hostRef.current;
-        if (!viewer || files.length === 0) return;
-
-        let cancelled = false;
-        (async () => {
-            await customElements.whenDefined("ecad-blob");
-            if (cancelled || !hostRef.current) return;
-
-            const el = hostRef.current;
-            el.querySelectorAll("ecad-blob").forEach((b) => b.remove());
-
-            for (const { filename, content } of files) {
-                if (cancelled) return;
-                const blob = document.createElement("ecad-blob") as HTMLElement & {
-                    filename?: string; content?: string;
-                };
-                blob.filename = filename;
-                blob.content = content;
-                el.appendChild(blob);
-            }
-
-            if (cancelled) return;
-            const withLoader = el as ECadViewerElement & { load_src?: () => Promise<void> };
-            if (typeof withLoader.load_src === "function") {
-                await withLoader.load_src();
-            }
-        })();
-
-        return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [viewerKey, filesKey]);
-
-    return (
-        <ecad-viewer
-            ref={attach}
-            style={{ width: "100%", height: "100%" }}
-            show-header="false"
-            key={viewerKey}
-        />
-    );
-}
-
-// ---------------------------------------------------------------------------
 // Overlay
 // ---------------------------------------------------------------------------
 
@@ -580,21 +522,10 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
 
 type Vec2   = { x: number; y: number; set: (x: number, y: number) => void };
 type Camera = { center: Vec2; zoom: number; bbox: unknown };
-type LayerLike = { name: string; visible: boolean };
-type LayerSet  = { in_ui_order?: () => Iterable<LayerLike> };
-type InteractiveItem = {
-    bbox?: unknown;
-    line?: unknown;
-    item?: unknown;
-};
 type InnerViewer = {
     viewport?: { camera?: Camera };
     draw?: () => void;
     renderer?: { ctx2d?: unknown; gl?: unknown };
-    layers?: LayerSet;
-    layer_visibility_ctrl?: { visibilities?: Map<string, boolean> } | null;
-    find_items_under_pos?: (p: { x: number; y: number }) => InteractiveItem[];
-    __padPriorityPatched?: boolean;
 };
 type BoardEl = HTMLElement & { viewer?: InnerViewer };
 
@@ -657,78 +588,9 @@ export function PcbDiffViewer({
         if (inner?.renderer?.gl) inner.draw?.();
     }, [getBoardEl]);
 
-    // Ensure the BoardViewer has a populated layer-visibility map so pad
-    // hit-testing works. The built-in source for `layer_visibility` is the
-    // Layers panel widget, which may not have rendered yet when our diff view
-    // mounts — leaving the map empty and causing every pad to fail the
-    // visibility check inside `find_items_under_pos`.
-    useEffect(() => {
-        if (!data) return;
-        let stopped = false;
-
-        const ensureFor = (host: ECadViewerElement | null) => {
-            if (!host) return false;
-            const inner = getBoardEl(host)?.viewer;
-            if (!inner) return false;
-            const existing = inner.layer_visibility_ctrl;
-            const map = existing?.visibilities;
-            const layers = inner.layers?.in_ui_order ? Array.from(inner.layers.in_ui_order()) : [];
-            if (layers.length === 0) return false;
-            if (!map || map.size === 0) {
-                const fresh = new Map<string, boolean>();
-                for (const l of layers) fresh.set(l.name, l.visible !== false);
-                inner.layer_visibility_ctrl = {
-                    ...(existing ?? {}),
-                    visibilities: fresh,
-                } as { visibilities: Map<string, boolean> };
-            }
-
-            // Re-rank picking results so pads beat wires / lines when both
-            // sit under the click. Original order: tracks/vias/pads mixed by
-            // creation order, with pads frequently after the wire that ends
-            // on them — so the wire wins the click. We bubble pads to the
-            // front (and lines to the back) to make pad selection reliable.
-            if (!inner.__padPriorityPatched && typeof inner.find_items_under_pos === "function") {
-                const orig = inner.find_items_under_pos.bind(inner);
-                inner.find_items_under_pos = (p) => {
-                    const out = orig(p) as InteractiveItem[];
-                    if (!out || out.length < 2) return out;
-                    return [...out].sort((a, b) => priority(a) - priority(b));
-                };
-                inner.__padPriorityPatched = true;
-            }
-            return true;
-        };
-
-        // Lower priority value = picked sooner. Pads first, then anything that's
-        // not a wire, then wires last.
-        const priority = (it: InteractiveItem): number => {
-            // PadInteractiveItem extends BoxInteractiveItem (has bbox) and is
-            // NOT a footprint (footprints also have bbox). The reliable
-            // discriminator: lines have `.line`, pads have `.bbox` + their
-            // `is_on_layer` only matches Cu. We can't read is_on_layer easily,
-            // but pads have a `.bbox` whose underlying item is a Pad (small).
-            // Simpler: anything with a `.line` getter is a wire — push it last.
-            if ((it as { line?: unknown }).line !== undefined) return 2;
-            // Pads: have a `.bbox` and the underlying `.item` is small. But
-            // footprints also have `.bbox`. We rank pads above footprints by
-            // checking the underlying item type via duck-typing — pads have
-            // a `number` field, footprints don't.
-            const inner = (it as { item?: { number?: unknown; reference?: unknown } }).item;
-            if (inner && (inner.number != null) && inner.reference == null) return 0;
-            return 1;
-        };
-
-        const tick = () => {
-            if (stopped) return;
-            const a = ensureFor(newViewerRef.current);
-            const b = ensureFor(oldViewerRef.current);
-            if (!a || !b) window.setTimeout(tick, 250);
-        };
-        tick();
-
-        return () => { stopped = true; };
-    }, [data, getBoardEl]);
+    // PCB-only click hit-testing fixes (layer-visibility map + pad-priority).
+    // Re-applies whenever the diff payload changes (new viewer instances).
+    useBoardClickFix({ viewerRefs: [newViewerRef, oldViewerRef], rebindKey: data });
 
     // Impose a camera position on the active viewer until user interacts.
     const imposeCamRef = useRef<{ zoom: number; cx: number; cy: number } | null>(null);

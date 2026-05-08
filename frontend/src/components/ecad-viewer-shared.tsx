@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { X, Check, X as XIcon, ChevronRight } from "lucide-react";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 
@@ -431,7 +431,16 @@ function renderFieldValue(value: string) {
 interface EcadInfoPanelProps {
     detail: ItemDetail | null;
     onClose: () => void;
+    /** Where to anchor the panel inside the viewer container. Default: top-right. */
+    position?: "top-right" | "top-left" | "bottom-right" | "bottom-left";
 }
+
+const POSITION_CLASSES: Record<NonNullable<EcadInfoPanelProps["position"]>, string> = {
+    "top-right":    "top-3 right-3",
+    "top-left":     "top-3 left-3",
+    "bottom-right": "bottom-3 right-3",
+    "bottom-left":  "bottom-3 left-3",
+};
 
 function FieldRow({ label, value }: { label: string; value: string }) {
     return (
@@ -446,12 +455,12 @@ function FieldRow({ label, value }: { label: string; value: string }) {
     );
 }
 
-export function EcadInfoPanel({ detail, onClose }: EcadInfoPanelProps) {
+export function EcadInfoPanel({ detail, onClose, position = "top-right" }: EcadInfoPanelProps) {
     const wasOpen = useRef(false);
     useEffect(() => { wasOpen.current = !!detail; }, [detail]);
     if (!detail) return null;
     return (
-        <div className="absolute top-3 right-3 z-30 w-80 max-w-[calc(100%-1.5rem)] max-h-[70%] flex flex-col rounded-xl border bg-background/90 shadow-xl backdrop-blur-md overflow-hidden">
+        <div className={`absolute ${POSITION_CLASSES[position]} z-30 w-80 max-w-[calc(100%-1.5rem)] max-h-[70%] flex flex-col rounded-xl border bg-background/90 shadow-xl backdrop-blur-md overflow-hidden`}>
             <div className="flex items-center gap-2 px-3 py-2.5 border-b bg-muted/30 shrink-0">
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate leading-tight">{detail.title}</p>
@@ -493,4 +502,211 @@ export function EcadInfoPanel({ detail, onClose }: EcadInfoPanelProps) {
             </div>
         </div>
     );
+}
+
+// ---------------------------------------------------------------------------
+// EcadViewerHost — unified ecad-viewer mounter
+// ---------------------------------------------------------------------------
+//
+// Single source of truth for embedding <ecad-viewer> with a list of files.
+// Used by the diff viewers (sch + pcb) and the standard project visualizer.
+// Supports both ref-object and callback styles for capturing the viewer node.
+
+export interface EcadViewerFile {
+    filename: string;
+    content: string;
+}
+
+export interface EcadViewerHostProps {
+    /** Re-creates the underlying <ecad-viewer> element when this changes. */
+    viewerKey: string;
+    files: EcadViewerFile[];
+    /** Ref-object form. Either this OR onViewer (or both) may be provided. */
+    viewerRef?: React.RefObject<ECadViewerElement | null>;
+    /** Callback form. Fires with the live node and with null on detach. */
+    onViewer?: (node: ECadViewerElement | null) => void;
+    showHeader?: boolean;
+    headerSections?: string;
+}
+
+export function EcadViewerHost({
+    viewerKey,
+    files,
+    viewerRef,
+    onViewer,
+    showHeader = false,
+    headerSections,
+}: EcadViewerHostProps) {
+    const hostRef = useRef<ECadViewerElement | null>(null);
+
+    const attach = useCallback((node: ECadViewerElement | null) => {
+        hostRef.current = node;
+        if (viewerRef) {
+            (viewerRef as React.MutableRefObject<ECadViewerElement | null>).current = node;
+        }
+        onViewer?.(node);
+    }, [viewerRef, onViewer]);
+
+    // Stable signature so we only re-load when files actually change.
+    const filesKey = files.map(f => f.filename).join("|");
+
+    useLayoutEffect(() => {
+        const viewer = hostRef.current;
+        if (!viewer || files.length === 0) return;
+
+        let cancelled = false;
+        (async () => {
+            await customElements.whenDefined("ecad-blob");
+            if (cancelled || !hostRef.current) return;
+
+            const el = hostRef.current;
+            el.querySelectorAll("ecad-blob").forEach((b) => b.remove());
+
+            for (const { filename, content } of files) {
+                if (cancelled) return;
+                const blob = document.createElement("ecad-blob") as HTMLElement & {
+                    filename?: string; content?: string;
+                };
+                blob.filename = filename;
+                blob.content = content;
+                el.appendChild(blob);
+            }
+
+            if (cancelled) return;
+            const withLoader = el as ECadViewerElement & { load_src?: () => Promise<void> | void };
+            if (typeof withLoader.load_src === "function") {
+                await withLoader.load_src();
+            }
+        })();
+
+        return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [viewerKey, filesKey]);
+
+    const props: Record<string, string> = { "show-header": showHeader ? "true" : "false" };
+    if (headerSections) props["header-sections"] = headerSections;
+
+    return (
+        <ecad-viewer
+            ref={attach}
+            style={{ width: "100%", height: "100%" }}
+            key={viewerKey}
+            {...props}
+        />
+    );
+}
+
+// ---------------------------------------------------------------------------
+// useBoardClickFix — PCB-only patches for reliable selection
+// ---------------------------------------------------------------------------
+//
+// Two issues with kicanvas/ecad-viewer's BoardViewer hit-testing:
+//   1. `find_items_under_pos` early-returns nothing when its layer-visibility
+//      map is empty. The map is sourced from a Layers panel widget that may
+//      not be rendered to the DOM yet when our viewer mounts — so all pads
+//      fail the visibility check and the click falls through to the footprint.
+//   2. When a wire ends on a pad, the wire's hit comes before the pad's in
+//      the result list, so `r[0]` selects the wire instead of the pad.
+//
+// This hook polls the viewer until it's ready, populates a fallback
+// visibility map, and monkey-patches `find_items_under_pos` to bubble pads
+// to the front (and lines to the back).
+//
+// Schematic viewers do not need this; only call from PCB sites.
+
+type LayerLike = { name: string; visible: boolean };
+type LayerSet  = { in_ui_order?: () => Iterable<LayerLike> };
+type InteractiveItem = {
+    bbox?: unknown;
+    line?: unknown;
+    item?: unknown;
+};
+type InnerBoardViewer = {
+    viewport?: unknown;
+    layers?: LayerSet;
+    layer_visibility_ctrl?: { visibilities?: Map<string, boolean> } | null;
+    find_items_under_pos?: (p: { x: number; y: number }) => InteractiveItem[];
+    __padPriorityPatched?: boolean;
+};
+type BoardEl = HTMLElement & { viewer?: InnerBoardViewer };
+
+/** Walk the shadow DOM to find the live BoardViewer element. */
+export function findBoardEl(host: ECadViewerElement | null): BoardEl | null {
+    if (!host?.shadowRoot) return null;
+    const walk = (root: ShadowRoot | Element): BoardEl | null => {
+        const sr = (root as HTMLElement).shadowRoot;
+        const searchRoot = sr ?? root;
+        const el = (searchRoot as ShadowRoot).querySelector?.("kc-board-viewer") as BoardEl | null;
+        if (el?.viewer) return el;
+        for (const child of (searchRoot as ShadowRoot).querySelectorAll?.("*") ?? []) {
+            if ((child as HTMLElement).shadowRoot) {
+                const f = walk(child as HTMLElement);
+                if (f) return f;
+            }
+        }
+        return el ?? null;
+    };
+    return walk(host);
+}
+
+interface UseBoardClickFixOpts {
+    /** Refs to the PCB viewer hosts that should be patched. */
+    viewerRefs: React.RefObject<ECadViewerElement | null>[];
+    /** Set this to a value that changes when the viewer reloads (e.g. data). */
+    rebindKey?: unknown;
+}
+
+export function useBoardClickFix({ viewerRefs, rebindKey }: UseBoardClickFixOpts) {
+    useEffect(() => {
+        let stopped = false;
+
+        const ensureFor = (host: ECadViewerElement | null): boolean => {
+            if (!host) return false;
+            const inner = findBoardEl(host)?.viewer;
+            if (!inner) return false;
+            const layers = inner.layers?.in_ui_order ? Array.from(inner.layers.in_ui_order()) : [];
+            if (layers.length === 0) return false;
+
+            // (1) Populate visibility map if empty.
+            const existing = inner.layer_visibility_ctrl;
+            const map = existing?.visibilities;
+            if (!map || map.size === 0) {
+                const fresh = new Map<string, boolean>();
+                for (const l of layers) fresh.set(l.name, l.visible !== false);
+                inner.layer_visibility_ctrl = {
+                    ...(existing ?? {}),
+                    visibilities: fresh,
+                } as { visibilities: Map<string, boolean> };
+            }
+
+            // (2) Bubble pads to the front of pick results.
+            if (!inner.__padPriorityPatched && typeof inner.find_items_under_pos === "function") {
+                const orig = inner.find_items_under_pos.bind(inner);
+                inner.find_items_under_pos = (p) => {
+                    const out = orig(p) as InteractiveItem[];
+                    if (!out || out.length < 2) return out;
+                    return [...out].sort((a, b) => priority(a) - priority(b));
+                };
+                inner.__padPriorityPatched = true;
+            }
+            return true;
+        };
+
+        const priority = (it: InteractiveItem): number => {
+            if ((it as { line?: unknown }).line !== undefined) return 2;
+            const inner = (it as { item?: { number?: unknown; reference?: unknown } }).item;
+            if (inner && inner.number != null && inner.reference == null) return 0;
+            return 1;
+        };
+
+        const tick = () => {
+            if (stopped) return;
+            const allOk = viewerRefs.every(r => ensureFor(r.current));
+            if (!allOk) window.setTimeout(tick, 250);
+        };
+        tick();
+
+        return () => { stopped = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rebindKey]);
 }

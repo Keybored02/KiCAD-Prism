@@ -1,5 +1,5 @@
 import {
-    useState, useEffect, useRef, useCallback, useLayoutEffect,
+    useState, useEffect, useRef, useCallback,
 } from "react";
 import {
     X, Loader2, AlertCircle, ChevronLeft, ChevronRight,
@@ -7,7 +7,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
-import { EcadInfoPanel, useEcadInfoPanel } from "@/components/ecad-info-panel";
+import {
+    EcadInfoPanel,
+    EcadViewerHost,
+    useEcadInfoPanel,
+} from "@/components/ecad-viewer-shared";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -109,65 +113,6 @@ function fieldLabel(key: string): string {
 // EcadViewerHost (inline version so we don't import visualizer internals)
 // ---------------------------------------------------------------------------
 
-interface EcadViewerHostProps {
-    viewerKey: string;
-    files: { filename: string; content: string }[];
-    viewerRef: React.RefObject<ECadViewerElement | null>;
-}
-
-function EcadViewerHost({ viewerKey, files, viewerRef }: EcadViewerHostProps) {
-    const hostRef = useRef<ECadViewerElement | null>(null);
-
-    const attach = useCallback((node: ECadViewerElement | null) => {
-        hostRef.current = node;
-        (viewerRef as React.MutableRefObject<ECadViewerElement | null>).current = node;
-    }, [viewerRef]);
-
-    // Stable key built from file names+content — only re-load when files actually change.
-    const filesKey = files.map(f => f.filename).join("|");
-
-    useLayoutEffect(() => {
-        const viewer = hostRef.current;
-        if (!viewer || files.length === 0) return;
-
-        let cancelled = false;
-        (async () => {
-            await customElements.whenDefined("ecad-blob");
-            if (cancelled || !hostRef.current) return;
-
-            const el = hostRef.current;
-            el.querySelectorAll("ecad-blob").forEach((b) => b.remove());
-
-            for (const { filename, content } of files) {
-                if (cancelled) return;
-                const blob = document.createElement("ecad-blob") as HTMLElement & {
-                    filename?: string; content?: string;
-                };
-                blob.filename = filename;
-                blob.content = content;
-                el.appendChild(blob);
-            }
-
-            if (cancelled) return;
-            const withLoader = el as ECadViewerElement & { load_src?: () => Promise<void> };
-            if (typeof withLoader.load_src === "function") {
-                await withLoader.load_src();
-            }
-        })();
-
-        return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [viewerKey, filesKey]); // filesKey is stable unless filenames change; content is fixed per commit
-
-    return (
-        <ecad-viewer
-            ref={attach}
-            style={{ width: "100%", height: "100%" }}
-            show-header="false"
-            key={viewerKey}
-        />
-    );
-}
 
 // ---------------------------------------------------------------------------
 // Overlay: colour-coded pins using getScreenLocation
