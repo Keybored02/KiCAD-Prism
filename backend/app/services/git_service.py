@@ -36,9 +36,65 @@ def _get_commits(repo_path: str, limit: int, relative_path: str = None, branch: 
 
     rev = branch if branch else "HEAD"
     try:
-        return [_serialize_commit(commit) for commit in repo.iter_commits(rev, **iter_kwargs)]
+        commits = [_serialize_commit(commit) for commit in repo.iter_commits(rev, **iter_kwargs)]
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
+
+    # Cheap enrichment: per-commit flags signalling which kinds of KiCad files
+    # were touched (without running a full diff). One `git log` call covers all.
+    try:
+        flags_by_hash = _kicad_change_flags(repo, [c["full_hash"] for c in commits], relative_path)
+        for c in commits:
+            c["kicad_changes"] = flags_by_hash.get(c["full_hash"], {
+                "sch": 0, "pcb": 0, "pro": 0, "other": 0,
+            })
+    except Exception:
+        # Best-effort — never block the commits list on this enrichment.
+        for c in commits:
+            c.setdefault("kicad_changes", {"sch": 0, "pcb": 0, "pro": 0, "other": 0})
+
+    return commits
+
+
+def _kicad_change_flags(repo, full_hashes: List[str], relative_path: Optional[str]) -> Dict[str, Dict[str, int]]:
+    """
+    Return {full_hash: {sch, pcb, pro, other}} where each value is the count of
+    files of that kind changed in the commit (vs its first parent).
+
+    Uses a single `git log --name-only` call that walks the requested commits.
+    """
+    if not full_hashes:
+        return {}
+
+    args = [
+        "log",
+        "--no-renames",
+        "--name-only",
+        "--format=PRISMHASH:%H",
+        "--no-walk",
+    ] + full_hashes
+    if relative_path:
+        args.extend(["--", relative_path])
+
+    raw = repo.git.execute(["git", *args])
+    out: Dict[str, Dict[str, int]] = {}
+    current = None
+    for line in raw.splitlines():
+        if line.startswith("PRISMHASH:"):
+            current = line[len("PRISMHASH:"):]
+            out[current] = {"sch": 0, "pcb": 0, "pro": 0, "other": 0}
+            continue
+        if not current or not line.strip():
+            continue
+        if line.endswith(".kicad_sch"):
+            out[current]["sch"] += 1
+        elif line.endswith(".kicad_pcb"):
+            out[current]["pcb"] += 1
+        elif line.endswith(".kicad_pro"):
+            out[current]["pro"] += 1
+        else:
+            out[current]["other"] += 1
+    return out
 
 
 def get_commits_list_filtered(repo_path: str, relative_path: str = None, limit: int = 50, branch: str = None):

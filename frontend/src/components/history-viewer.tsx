@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar, GitCompare, ChevronDown, ChevronRight, FileText, Plus, Minus, RefreshCw, Loader2, X, CircuitBoard, Cpu, List } from "lucide-react";
+import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar, GitCompare, ChevronDown, ChevronRight, FileText, Plus, Minus, RefreshCw, Loader2, X, CircuitBoard, Cpu, List, Settings, FileCode } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { SchematicDiffViewer } from "./schematic-diff-viewer";
@@ -20,6 +20,8 @@ interface Commit {
     email: string;
     date: string;
     message: string;
+    parents?: string[];
+    kicad_changes?: { sch: number; pcb: number; pro: number; other: number };
 }
 
 interface ReleasesResponse {
@@ -30,17 +32,46 @@ interface CommitsResponse {
     commits: Commit[];
 }
 
+interface DiffItem {
+    id: string;
+    type: string;
+    reference?: string;
+    value?: string;
+    footprint?: string;
+    text?: string;
+    name?: string;
+    net?: string;
+    net_name?: string;
+    layer?: string;
+    sheet_file?: string;
+    sheet_name?: string;
+    lib_id?: string;
+    x?: number;
+    y?: number;
+}
+
+interface ChangedDiffItem extends DiffItem {
+    changes?: Record<string, { old: string | number | null; new: string | number | null }>;
+}
+
+interface FileDiffPayload {
+    added: number;
+    removed: number;
+    changed: number;
+    added_items?: DiffItem[];
+    removed_items?: DiffItem[];
+    changed_items?: ChangedDiffItem[];
+    truncated?: boolean;
+}
+
 interface CommitFile {
     path: string;
     filename: string;
     status: "added" | "removed" | "modified" | "renamed";
     additions: number | null;
     deletions: number | null;
-    schematic_diff?: {
-        added: number;
-        removed: number;
-        changed: number;
-    };
+    schematic_diff?: FileDiffPayload;
+    pcb_diff?: FileDiffPayload;
 }
 
 interface CommitSummary {
@@ -80,6 +111,34 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
     modified: <RefreshCw className="h-3 w-3" />,
     renamed:  <RefreshCw className="h-3 w-3" />,
 };
+
+// File-type icon picker. Returns the icon + a colour class so KiCad files
+// stand out from generic ones in the file list.
+function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string; label: string } {
+    if (filename.endsWith(".kicad_sch")) return { Icon: CircuitBoard, color: "text-blue-500",   label: "Schematic" };
+    if (filename.endsWith(".kicad_pcb")) return { Icon: Cpu,          color: "text-emerald-500", label: "PCB" };
+    if (filename.endsWith(".kicad_pro")) return { Icon: Settings,     color: "text-violet-500",  label: "Project" };
+    if (filename.endsWith(".kicad_sym") || filename.endsWith(".kicad_mod")) {
+        return { Icon: FileCode, color: "text-cyan-500", label: "Library" };
+    }
+    return { Icon: FileText, color: "text-muted-foreground", label: "" };
+}
+
+// Small chip indicating that a commit touched N KiCad files of a given kind.
+function KicadChip({ icon: Icon, label, count, color }: {
+    icon: typeof FileText; label: string; count: number; color: string;
+}) {
+    if (count <= 0) return null;
+    return (
+        <span
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-[10px] font-medium leading-none ${color}`}
+            title={`${count} ${label.toLowerCase()} file${count > 1 ? "s" : ""} changed`}
+        >
+            <Icon className="h-3 w-3" />
+            {count > 1 ? <span className="font-mono">{count}</span> : null}
+        </span>
+    );
+}
 
 interface CommitItemProps {
     commit: Commit;
@@ -158,6 +217,13 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
                             <span className="truncate">{(commit.message || "").split('\n')[0]}</span>
                         </button>
                         <div className="flex items-center gap-1 flex-shrink-0">
+                            {commit.kicad_changes && (
+                                <div className="flex items-center gap-1 mr-1">
+                                    <KicadChip icon={CircuitBoard} label="Schematic" count={commit.kicad_changes.sch} color="text-blue-500" />
+                                    <KicadChip icon={Cpu}          label="PCB"        count={commit.kicad_changes.pcb} color="text-emerald-500" />
+                                    <KicadChip icon={Settings}     label="Project"    count={commit.kicad_changes.pro} color="text-violet-500" />
+                                </div>
+                            )}
                             <code className="text-xs bg-muted px-2 py-1 rounded">
                                 {commit.hash}
                             </code>
@@ -197,43 +263,51 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
                     {summary && summary.files.length === 0 && (
                         <p className="text-xs text-muted-foreground py-1">No tracked files changed</p>
                     )}
-                    {summary?.files.map((file) => (
-                        <div key={file.path} className="space-y-0.5">
-                            <div className="flex items-center gap-2 text-xs">
-                                <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
-                                    {STATUS_ICON[file.status]}
-                                </span>
-                                <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                <span className="font-medium truncate" title={file.path}>{file.filename}</span>
-                                <span className="text-muted-foreground truncate hidden sm:block" title={file.path}>
-                                    {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
-                                </span>
-                                {(file.additions !== null || file.deletions !== null) && (
-                                    <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
-                                        {file.additions !== null && file.additions > 0 && (
-                                            <span className="text-green-500">+{file.additions}</span>
-                                        )}
-                                        {file.deletions !== null && file.deletions > 0 && (
-                                            <span className="text-red-500">-{file.deletions}</span>
-                                        )}
+                    {summary?.files.map((file) => {
+                        const { Icon: TypeIcon, color: typeColor } = fileTypeIcon(file.filename);
+                        const itemDiff = file.schematic_diff ?? file.pcb_diff;
+                        const itemDiffLabel = file.schematic_diff ? "items" : "items";
+                        return (
+                            <div key={file.path} className="space-y-0.5">
+                                <div className="flex items-center gap-2 text-xs">
+                                    <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
+                                        {STATUS_ICON[file.status]}
                                     </span>
-                                )}
-                            </div>
-                            {file.schematic_diff && (
-                                <div className="ml-9 flex items-center gap-3 text-[11px] font-mono pb-0.5">
-                                    {file.schematic_diff.added > 0 && (
-                                        <span className="text-green-500">+{file.schematic_diff.added} items</span>
-                                    )}
-                                    {file.schematic_diff.removed > 0 && (
-                                        <span className="text-red-500">-{file.schematic_diff.removed} items</span>
-                                    )}
-                                    {file.schematic_diff.changed > 0 && (
-                                        <span className="text-amber-500">~{file.schematic_diff.changed} changed</span>
+                                    <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
+                                    <span className="font-medium truncate" title={file.path}>{file.filename}</span>
+                                    <span className="text-muted-foreground truncate hidden sm:block" title={file.path}>
+                                        {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
+                                    </span>
+                                    {(file.additions !== null || file.deletions !== null) && (
+                                        <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
+                                            {file.additions !== null && file.additions > 0 && (
+                                                <span className="text-green-500">+{file.additions}</span>
+                                            )}
+                                            {file.deletions !== null && file.deletions > 0 && (
+                                                <span className="text-red-500">-{file.deletions}</span>
+                                            )}
+                                        </span>
                                     )}
                                 </div>
-                            )}
-                        </div>
-                    ))}
+                                {itemDiff && (
+                                    <div className="ml-9 flex items-center gap-3 text-[11px] font-mono pb-0.5">
+                                        {itemDiff.added > 0 && (
+                                            <span className="text-green-500">+{itemDiff.added} {itemDiffLabel}</span>
+                                        )}
+                                        {itemDiff.removed > 0 && (
+                                            <span className="text-red-500">-{itemDiff.removed} {itemDiffLabel}</span>
+                                        )}
+                                        {itemDiff.changed > 0 && (
+                                            <span className="text-amber-500">~{itemDiff.changed} changed</span>
+                                        )}
+                                        {itemDiff.truncated && (
+                                            <span className="text-muted-foreground">(truncated)</span>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>
