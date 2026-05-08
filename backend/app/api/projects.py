@@ -24,10 +24,12 @@ from app.services.git_service import (
     get_commit_file_summary,
     get_commits_list,
     get_commits_list_filtered,
+    get_current_branch,
     get_file_from_commit,
     get_file_from_commit_with_prefix,
     get_releases,
     get_releases_filtered,
+    list_branches,
 )
 from app.services import sch_diff_service
 from app.services.path_config_service import PathConfig
@@ -741,21 +743,38 @@ async def get_project_commit_distance(
 async def get_project_commits(
     project_id: str,
     limit: int = Query(default=50, ge=1, le=500),
+    branch: Optional[str] = Query(default=None),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
     Get list of commits for a project.
     For Type-2 projects, shows only commits affecting the subproject.
+    Optional `branch` filters history to a specific branch (or any rev).
     """
     project = get_project_for_role_or_404(project_id, user.role)
-    
+
     repo_path, relative_path = _repo_context(project)
     if relative_path:
-        commits = get_commits_list_filtered(repo_path, relative_path, limit)
+        commits = get_commits_list_filtered(repo_path, relative_path, limit, branch=branch)
     else:
-        commits = get_commits_list(project.path, limit)
-    
+        commits = get_commits_list(project.path, limit, branch=branch)
+
     return {"commits": commits}
+
+
+@router.get("/{project_id}/branches")
+async def get_project_branches(
+    project_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """
+    List all branches (local + remote-tracking) and the current branch name.
+    """
+    project = get_project_for_role_or_404(project_id, user.role)
+    repo_path, _ = _repo_context(project)
+    branches = list_branches(repo_path)
+    current = get_current_branch(repo_path)
+    return {"branches": branches, "current": current}
 
 
 @router.get("/{project_id}/commits/{commit_hash}/summary")

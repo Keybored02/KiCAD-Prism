@@ -2,7 +2,7 @@ import os
 from fastapi import HTTPException
 from git import Repo
 from git.exc import BadName, GitCommandError
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import datetime
 
 
@@ -16,7 +16,7 @@ def _open_repo(repo_path: str) -> Repo:
         raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
 
 
-def _serialize_commit(commit) -> Dict[str, str]:
+def _serialize_commit(commit) -> Dict[str, Any]:
     return {
         "hash": commit.hexsha[:7],
         "full_hash": commit.hexsha,
@@ -24,27 +24,29 @@ def _serialize_commit(commit) -> Dict[str, str]:
         "email": commit.author.email,
         "date": datetime.datetime.fromtimestamp(commit.committed_date).isoformat(),
         "message": commit.message.strip(),
+        "parents": [p.hexsha for p in commit.parents],
     }
 
 
-def _get_commits(repo_path: str, limit: int, relative_path: str = None):
+def _get_commits(repo_path: str, limit: int, relative_path: str = None, branch: str = None):
     repo = _open_repo(repo_path)
     iter_kwargs = {"max_count": limit}
     if relative_path:
         iter_kwargs["paths"] = relative_path
 
+    rev = branch if branch else "HEAD"
     try:
-        return [_serialize_commit(commit) for commit in repo.iter_commits(**iter_kwargs)]
+        return [_serialize_commit(commit) for commit in repo.iter_commits(rev, **iter_kwargs)]
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
 
 
-def get_commits_list_filtered(repo_path: str, relative_path: str = None, limit: int = 50):
+def get_commits_list_filtered(repo_path: str, relative_path: str = None, limit: int = 50, branch: str = None):
     """
-    Get list of commits from repository, optionally filtered to a subdirectory.
-    For Type-2 projects, relative_path scopes commits to the subproject.
+    Get list of commits from repository, optionally filtered to a subdirectory
+    and/or to a specific branch (or any other rev). Defaults to HEAD.
     """
-    return _get_commits(repo_path, limit, relative_path)
+    return _get_commits(repo_path, limit, relative_path, branch)
 
 
 def _count_tree_entries(commit, relative_path: str) -> int | None:
@@ -154,11 +156,99 @@ def get_releases(repo_path: str):
     """
     return _get_releases(repo_path)
 
-def get_commits_list(repo_path: str, limit: int = 50):
+def get_commits_list(repo_path: str, limit: int = 50, branch: str = None):
     """
-    Get list of commits from repository.
+    Get list of commits from repository, optionally for a specific branch.
     """
-    return _get_commits(repo_path, limit)
+    return _get_commits(repo_path, limit, branch=branch)
+
+
+def list_branches(repo_path: str) -> List[Dict[str, Any]]:
+    """
+    Return all branches (local and remote-tracking) in display-friendly form.
+
+    Each entry:
+        {
+            name: "main",
+            full_name: "refs/heads/main",
+            type: "local" | "remote",
+            current: bool,
+            head_hash: "<short>",
+            full_head_hash: "<full>",
+            upstream: "origin/main" | None,
+        }
+    """
+    repo = _open_repo(repo_path)
+    out: List[Dict[str, Any]] = []
+
+    try:
+        active = repo.active_branch.name if not repo.head.is_detached else None
+    except Exception:
+        active = None
+
+    seen_names = set()
+    try:
+        for h in repo.heads:
+            commit = h.commit
+            upstream = None
+            try:
+                tracking = h.tracking_branch()
+                if tracking:
+                    upstream = tracking.name
+            except Exception:
+                upstream = None
+            out.append({
+                "name": h.name,
+                "full_name": h.path,
+                "type": "local",
+                "current": h.name == active,
+                "head_hash": commit.hexsha[:7],
+                "full_head_hash": commit.hexsha,
+                "upstream": upstream,
+            })
+            seen_names.add(h.name)
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Git error listing branches: {error}") from error
+
+    # Remote-tracking branches that don't have a local equivalent.
+    try:
+        for remote in repo.remotes:
+            for r in remote.refs:
+                # r.name is "origin/main"; r.remote_head is "main"
+                short = r.remote_head if hasattr(r, "remote_head") else r.name.split("/", 1)[-1]
+                if short in seen_names or short == "HEAD":
+                    continue
+                commit = r.commit
+                out.append({
+                    "name": r.name,                # "origin/main"
+                    "full_name": r.path,
+                    "type": "remote",
+                    "current": False,
+                    "head_hash": commit.hexsha[:7],
+                    "full_head_hash": commit.hexsha,
+                    "upstream": None,
+                })
+    except Exception:
+        # Remote enumeration is best-effort — never block the response.
+        pass
+
+    # Stable order: current first, then locals, then remotes, alphabetised within group.
+    out.sort(key=lambda b: (
+        0 if b["current"] else (1 if b["type"] == "local" else 2),
+        b["name"].lower(),
+    ))
+    return out
+
+
+def get_current_branch(repo_path: str) -> Optional[str]:
+    """Return the current branch name, or None if HEAD is detached."""
+    repo = _open_repo(repo_path)
+    try:
+        if repo.head.is_detached:
+            return None
+        return repo.active_branch.name
+    except Exception:
+        return None
 
 
 def get_commit_distance(repo_path: str, commit_hash: str, relative_path: str = None) -> int:
