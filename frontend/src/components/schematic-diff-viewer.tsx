@@ -79,6 +79,8 @@ interface SchematicDiffViewerProps {
     crossProbeTarget?: string; // reference to navigate to when switching from PCB
     /** Item id (uuid) to focus on when the diff loads. */
     focusItemId?: string;
+    /** When true, hide the OLD/NEW toggle for single-commit history views. */
+    singleCommit?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +318,7 @@ export function SchematicDiffViewer({
     onCrossProbe,
     crossProbeTarget,
     focusItemId,
+    singleCommit = false,
 }: SchematicDiffViewerProps) {
     const [data, setData] = useState<SchematicDiffData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -665,7 +668,7 @@ export function SchematicDiffViewer({
                 <div className="w-56 shrink-0 border-r flex flex-col bg-background overflow-hidden">
 
                     {/* OLD / NEW toggle */}
-                    {data && (
+                    {data && !singleCommit && (
                         <div className="px-3 pt-3 pb-2 shrink-0">
                             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">Version</p>
                             <div className="flex rounded-md border overflow-hidden text-xs font-medium w-full">
@@ -687,7 +690,7 @@ export function SchematicDiffViewer({
 
                     {/* Filter toggles */}
                     {data && (
-                        <div className="px-3 pb-2 shrink-0 space-y-1">
+                        <div className="px-3 pt-2 pb-2 shrink-0 space-y-1">
                             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">Show</p>
                             <button
                                 onClick={() => setShowOverlay(v => !v)}

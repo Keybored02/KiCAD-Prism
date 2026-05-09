@@ -965,7 +965,7 @@ export function PcbDiffViewer({
                     )}
 
                     {data && (
-                        <div className="px-3 pb-2 shrink-0 space-y-1">
+                        <div className="px-3 pt-2 pb-2 shrink-0 space-y-1">
                             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">Show</p>
                             <button
                                 onClick={() => setShowOverlay(v => !v)}
