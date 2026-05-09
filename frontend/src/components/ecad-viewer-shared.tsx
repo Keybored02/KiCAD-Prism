@@ -62,328 +62,286 @@ function fmt(n: unknown, digits = 3): string {
     return n.toFixed(digits).replace(/\.?0+$/, "");
 }
 
-function getAt(item: Anyish): { x?: number; y?: number; rot?: number } {
-    const at = item.at as Anyish | undefined;
-    if (!at) return {};
-    const pos = at.position as Anyish | undefined;
-    return {
-        x: typeof at.x === "number" ? (at.x as number) : pos ? (pos.x as number) : undefined,
-        y: typeof at.y === "number" ? (at.y as number) : pos ? (pos.y as number) : undefined,
-        rot: typeof at.rotation === "number" ? (at.rotation as number) : undefined,
-    };
-}
 
 export function extractItemDetail(rawItem: unknown): ItemDetail | null {
     if (!rawItem || typeof rawItem !== "object") return null;
     const item = rawItem as Anyish;
-    const typeId = item.typeId || item.constructor?.name || "";
+    const typeId = (item.typeId ?? item.constructor?.name ?? "") as string;
 
-    if (typeof window !== "undefined") {
-        // Dev aid — inspect this in DevTools to see what's actually on the item.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).__lastEcadSelection = item;
-        console.debug("[ecad-info-panel] selection", typeId, item);
+
+    // Mirror what kicanvas's kc-board-properties-panel does per typeId.
+    // Field names and paths are taken directly from the kicanvas bundle source.
+    switch (typeId) {
+        case "Footprint": return extractFootprint(item);
+        case "Pad":       return extractPad(item);
+        case "LineSegment": return extractLine(item);
+        case "Via":       return extractVia(item);
+        case "Zone":      return extractZone(item);
+        default:          return extractGeneric(item, typeId);
     }
+}
 
-    const at = getAt(item);
-    const posStr =
-        at.x !== undefined && at.y !== undefined
-            ? `${fmt(at.x)}, ${fmt(at.y)}${at.rot ? ` @ ${fmt(at.rot, 1)}°` : ""}`
-            : undefined;
+type Field = { label: string; value: string };
+type Group = { label: string; entries: Field[] };
 
-    // Always walk every readable field. We curate which ones to surface (and in what
-    // order) below; nothing is hard-coded by typeId.
-    const all = collectAllFields(item);
-    if (posStr && !all.has("at") && !all.has("position")) all.set("position", posStr);
+function s(v: unknown): string {
+    if (v == null) return "";
+    if (typeof v === "boolean") return v ? BOOL_TRUE : BOOL_FALSE;
+    if (typeof v === "number") return fmt(v);
+    return String(v).trim();
+}
 
-    // Extract dict-like sub-objects as collapsible groups.
-    const groups = collectGroups(item);
+function field(label: string, v: unknown): Field | null {
+    const str = s(v);
+    if (str === "") return null;
+    return { label, value: str };
+}
 
-    // Pick a title/subtitle from whatever the item exposes (captured before we
-    // move standard props into the dropdown).
-    const refRaw = all.get("reference");
-    const numRaw = all.get("number");
-    const textRaw = all.get("text");
-    const nameRaw = all.get("name");
-    const netNameRaw = all.get("net_name");
-    const valRaw = all.get("value");
+function fields(...pairs: (Field | null)[]): Field[] {
+    return pairs.filter(Boolean) as Field[];
+}
 
-    let title = refRaw ?? numRaw ?? textRaw ?? nameRaw ?? netNameRaw ?? typeId ?? "Item";
-    if (numRaw && !refRaw) title = `Pad ${numRaw}`;
-    const subtitle = refRaw ? valRaw : (netNameRaw && nameRaw ? netNameRaw : undefined);
+function extractFootprint(t: Anyish): ItemDetail {
+    const pos  = (t.at as Anyish)?.position as Anyish | undefined;
+    const bbox = t.bbox as Anyish | undefined;
+    const attr = t.attr as Anyish | undefined;
 
-    // Footprint: only show a fixed set of fields at top level; everything else
-    // (including KiCad-8 standard props) is rolled into a single "Properties" dropdown.
-    const isFootprint = item.pads != null || item.library_link != null
-        || typeId === "Footprint" || typeId === "KCFootprint";
+    const geometryGroup: Group = {
+        label: "Geometry",
+        entries: fields(
+            field("X",           pos?.x != null ? `${fmt(pos.x as number, 4)} mm` : null),
+            field("Y",           pos?.y != null ? `${fmt(pos.y as number, 4)} mm` : null),
+            field("Height",      bbox?.h != null ? `${fmt(bbox.h as number, 4)} mm` : null),
+            field("Width",       bbox?.w != null ? `${fmt(bbox.w as number, 4)} mm` : null),
+            field("Orientation", (t.at as Anyish)?.rotation != null ? `${fmt((t.at as Anyish).rotation as number, 1)}°` : null),
+        ),
+    };
 
-    // Line/trace: has start+end. Show everything but hide the raw endpoint coords —
-    // they're noisy and the diff overlay already conveys position visually.
-    const isLine = item.start != null && item.end != null;
+    const fpFields = fields(
+        field("Reference",   t.reference),
+        field("Value",       t.value),
+        field("Type",        attr?.through_hole ? "through hole" : attr?.smd ? "smd" : "unspecified"),
+        field("Pads",        Array.isArray(t.pads) ? String((t.pads as unknown[]).length) : null),
+        field("Library link",t.library_link),
+        field("Description", t.descr),
+        field("Keywords",    t.tags),
+    );
 
-    // Pad: has a `number` field and a parent footprint reference.
-    const isPad = item.number != null && (item.shape != null || item.pintype != null || typeId === "Pad");
+    // Custom properties — read from t.properties (plain object) and merge with
+    // t.properties_kicad_8 (array of {name,value} objects). The KiCad 8 array
+    // takes precedence for non-empty values so Datasheet etc. are not lost.
+    const customProps = readProperties(t.properties, t.properties_kicad_8);
 
-    // KiCad properties (Reference, Value, Footprint, Datasheet, …) from
-    // `properties` / `properties_kicad_8` — merged and deduped by label.
-    const propsGroup = groups.find(g => g.label === "Properties");
-    if (propsGroup) groups.splice(groups.indexOf(propsGroup), 1);
-    const propsEntries = propsGroup?.entries ?? [];
+    const fabFields = fields(
+        field("Not in schematic",             boolField(attr?.board_only)),
+        field("Exclude from position files",  boolField(attr?.exclude_from_pos_files)),
+        field("Exclude from BOM",             boolField(attr?.exclude_from_bom)),
+    );
 
-    let rawFields: { label: string; value: string }[];
-    if (isFootprint) {
-        rawFields = [
-            ...pickFields(all, FOOTPRINT_TOP_FIELDS),
-            ...curateFields(all),
-            ...propsEntries,
-        ];
-    } else if (isPad) {
-        if (!all.has("layer")) {
-            const parent = item.parent as Anyish | undefined;
-            const flat = flattenValue(parent?.layer);
-            if (flat) all.set("layer", flat);
-        }
-        rawFields = [...pickFields(all, PAD_TOP_FIELDS), ...curateFields(all), ...propsEntries];
-    } else {
-        if (isLine) { all.delete("start"); all.delete("end"); }
-        rawFields = [...curateFields(all), ...propsEntries];
-    }
+    const overrideFields = fields(
+        field("Exempt from courtyard", boolField(attr?.allow_missing_courtyard)),
+        field("Clearance",             t.clearance != null ? `${t.clearance} mm` : null),
+        field("Solderpaste margin",    t.solder_paste_margin != null ? `${t.solder_paste_margin} mm` : null),
+        field("Solderpaste ratio",     t.solder_paste_ratio),
+        field("Zone connection",       t.zone_connect ?? "inherited"),
+    );
 
-    // Deduplicate: keep first occurrence of each label (case-insensitive).
-    // Also skip rows whose label+value exactly matches a prior row.
-    const seenLabel = new Set<string>();
-    const fields = rawFields.filter(f => {
-        const key = f.label.toLowerCase();
-        if (seenLabel.has(key)) return false;
-        seenLabel.add(key);
-        return true;
-    });
+    const groups: Group[] = [];
+    if (geometryGroup.entries.length) groups.push(geometryGroup);
+    if (customProps.length)    groups.push({ label: "Properties",             entries: customProps });
+    if (fabFields.length)      groups.push({ label: "Fabrication attributes", entries: fabFields });
+    if (overrideFields.length) groups.push({ label: "Overrides",              entries: overrideFields });
 
     return {
-        title: String(title),
-        subtitle: subtitle ? String(subtitle) : undefined,
-        fields,
-        groups: groups.length > 0 ? groups : undefined,
+        title:    String(t.reference ?? "Footprint"),
+        subtitle: String(t.value ?? ""),
+        fields:   [...fpFields],
+        groups:   groups.length > 0 ? groups : undefined,
     };
 }
 
-// Footprint top-level fields, in display order.
-// [item-key, displayLabel]
-const FOOTPRINT_TOP_FIELDS: [string, string][] = [
-    ["reference", "Reference"],
-    ["value",     "Value"],
-    ["layer",     "Layer"],
-    ["footprint", "Footprint"],
-    ["locked",    "Locked"],
-];
+function extractPad(t: Anyish): ItemDetail {
+    const bbox = t.bbox as Anyish | undefined;
+    const net  = t.net as Anyish | undefined;
+    const drill= t.drill as Anyish | undefined;
 
-const PAD_TOP_FIELDS: [string, string][] = [
-    ["number", "Number"],
-    ["layer",  "Layer"],
-    ["net",    "Net"],
-    ["size",   "Size"],
-    ["drill",  "Drill"],
-];
+    return {
+        title:  `Pad ${t.number ?? ""}`,
+        subtitle: net?.name ? String(net.name) : undefined,
+        fields: fields(
+            field("X",           bbox?.x != null ? `${fmt(bbox.x as number, 4)} mm` : null),
+            field("Y",           bbox?.y != null ? `${fmt(bbox.y as number, 4)} mm` : null),
+            field("Height",      bbox?.h != null ? `${fmt(bbox.h as number, 4)} mm` : null),
+            field("Width",       bbox?.w != null ? `${fmt(bbox.w as number, 4)} mm` : null),
+            field("Orientation", (t.at as Anyish)?.rotation != null ? `${fmt((t.at as Anyish).rotation as number, 1)}°` : null),
+            field("Layer",       (t.parent as Anyish)?.layer),
+            field("Type",        t.type),
+            field("Shape",       t.shape),
+            field("Drill",       drill?.diameter != null ? `${fmt(drill.diameter as number, 4)} mm` : null),
+            field("Net",         net?.name),
+            field("PinNum",      t.number),
+            field("PinType",     t.pintype),
+            field("PinFunction", t.pinfunction),
+        ),
+    };
+}
 
+function extractLine(t: Anyish): ItemDetail {
+    const start = t.start as Anyish | undefined;
+    const end   = t.end as Anyish | undefined;
+    return {
+        title: "Track",
+        fields: fields(
+            field("X",      start?.x != null ? `${fmt(start.x as number, 4)} mm` : null),
+            field("Y",      start?.y != null ? `${fmt(start.y as number, 4)} mm` : null),
+            field("Width",  t.width != null ? `${fmt(t.width as number, 4)} mm` : null),
+            field("Length", t.routed_length != null ? `${fmt(t.routed_length as number, 4)} mm` : null),
+            field("Layer",  t.layer),
+            field("Net",    t.net_name ?? t.net),
+            field("End X",  end?.x != null ? `${fmt(end.x as number, 4)} mm` : null),
+            field("End Y",  end?.y != null ? `${fmt(end.y as number, 4)} mm` : null),
+        ),
+    };
+}
 
-function pickFields(all: Map<string, string>, spec: [string, string][]): ItemDetail["fields"] {
-    const out: ItemDetail["fields"] = [];
-    for (const [key, label] of spec) {
-        const v = all.get(key);
-        if (v) {
-            out.push({ label, value: v });
-            all.delete(key);
-        }
+function extractVia(t: Anyish): ItemDetail {
+    const pos = (t.at as Anyish)?.position as Anyish | undefined;
+    const layers = t.layers as string[] | undefined;
+    return {
+        title: "Via",
+        fields: fields(
+            field("X",            pos?.x != null ? `${fmt(pos.x as number, 4)} mm` : null),
+            field("Y",            pos?.y != null ? `${fmt(pos.y as number, 4)} mm` : null),
+            field("Net",          t.net_name ?? t.net),
+            field("Diameter",     t.size != null ? `${fmt(t.size as number, 4)} mm` : null),
+            field("Hole",         t.drill != null ? `${fmt(t.drill as number, 4)} mm` : null),
+            field("Layer Top",    layers?.[0]),
+            field("Layer Bottom", layers?.[layers.length - 1]),
+            field("Via Type",     t.type),
+        ),
+    };
+}
+
+function extractZone(t: Anyish): ItemDetail {
+    const fill = t.fill as Anyish | undefined;
+    const cp   = t.connect_pads as Anyish | undefined;
+    return {
+        title: String(t.name ?? t.net_name ?? "Zone"),
+        fields: fields(
+            field("Name",                    t.name),
+            field("Priority",                t.priority),
+            field("Net",                     t.net_name),
+            field("Fill mode",               fill?.mode),
+            field("Clearance override",      cp?.clearance),
+            field("Minimum width",           t.min_thickness != null ? `${fmt(t.min_thickness as number, 4)} mm` : null),
+            field("Pad connections",         cp?.type ?? "Thermal reliefs"),
+            field("Thermal relief gap",      fill?.thermal_gap != null ? `${fmt(fill.thermal_gap as number, 4)} mm` : null),
+            field("Thermal relief spoke width", fill?.thermal_bridge_width != null ? `${fmt(fill.thermal_bridge_width as number, 4)} mm` : null),
+        ),
+    };
+}
+
+function extractGeneric(item: Anyish, typeId: string): ItemDetail {
+    // Net info or unknown item — show whatever we can read.
+    const allFields: Field[] = [];
+    const seen = new Set<string>();
+    const skip = new Set(["typeId", "constructor", "shadowRoot", "renderer", "viewer", "viewport", "bbox", "properties", "properties_kicad_8"]);
+    for (const k of Object.keys(item)) {
+        if (skip.has(k) || k.startsWith("#") || k.startsWith("_")) continue;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const v = s(item[k]);
+        if (v) allFields.push({ label: prettyLabel(k), value: v });
     }
-    return out;
+    const title = String(item.reference ?? item.name ?? item.text ?? item.net_name ?? typeId ?? "Item");
+    return { title, fields: allFields };
 }
 
+// Read kicanvas's t.properties — a plain {key: string} object (KiCad 7)
+// or an array/Map of {name, value} objects (KiCad 8).
+// Optionally merges a second source (properties_kicad_8) — non-empty values
+// from the second source override empty placeholders from the first.
+function readProperties(raw: unknown, raw2?: unknown): Field[] {
+    const out: Field[] = [];
+    const seen = new Map<string, number>(); // label.toLowerCase() -> index in out
 
-// Flatten a KiCad property entry {name, value, shown_text?, text?} to a display string.
-// Tries .value first; if empty falls back to .shown_text / .text getters (KiCad 8 Qn objects).
-function flattenPropValue(v: Anyish): string | null {
-    // Try .value first (most common path).
-    const fromValue = flattenValue(v?.value);
-    if (fromValue) return fromValue;
-    // KiCad 8 Qn: shown_text is a getter that calls fr(this.value, this.parent)
-    // and may return a non-empty string even when .value itself is "".
-    try {
-        const shown = (v as Record<string, unknown>)?.shown_text;
-        if (typeof shown === "string" && shown.trim()) return shown.trim().slice(0, 80);
-    } catch { /* getter may throw */ }
-    try {
-        const text = (v as Record<string, unknown>)?.text;
-        if (typeof text === "string" && text.trim()) return text.trim().slice(0, 80);
-    } catch { /* getter may throw */ }
-    return null;
-}
-
-// Pull dict-like objects off the item. Both KiCad 7 (`properties` dict/Map)
-// and KiCad 8 (`properties_kicad_8` array of {name,value}) are collected and
-// merged into a single "Properties" group, then promoted inline into fields.
-const GROUP_KEYS = ["properties", "properties_kicad_8"];
-
-function collectGroups(item: Anyish): NonNullable<ItemDetail["groups"]> {
-    // Merge all GROUP_KEYS into one "Properties" group so KiCad 7 and KiCad 8
-    // sources appear as a single flat list.
-    const merged: { label: string; value: string }[] = [];
-
-    for (const key of GROUP_KEYS) {
-        const raw = item[key];
-        if (!raw || typeof raw !== "object") continue;
-
-        if (raw instanceof Map) {
-            for (const [, v] of raw as Map<unknown, unknown>) {
-                const label = (v as Anyish)?.name as string | undefined;
-                const flat = flattenPropValue(v as Anyish);
-                if (label && flat) merged.push({ label, value: flat });
+    const push = (label: string, value: string) => {
+        if (!label) return;
+        const key = label.toLowerCase();
+        const trimmed = value.trim();
+        if (seen.has(key)) {
+            // Override with a non-empty value if the existing entry is a placeholder.
+            if (trimmed && out[seen.get(key)!].value === "—") {
+                out[seen.get(key)!].value = trimmed;
             }
-        } else if (Array.isArray(raw)) {
-            for (const v of raw) {
-                const label = (v as Anyish)?.name as string | undefined;
-                const flat = flattenPropValue(v as Anyish);
-                if (label && flat) merged.push({ label, value: flat });
+            return;
+        }
+        seen.set(key, out.length);
+        out.push({ label, value: trimmed || "—" });
+    };
+
+    const ingest = (source: unknown) => {
+        if (!source || typeof source !== "object") return;
+        if (source instanceof Map) {
+            for (const [k, v] of source as Map<unknown, unknown>) {
+                push(String(k), propVal(v));
+            }
+        } else if (Array.isArray(source)) {
+            for (const v of source) {
+                push(String((v as Anyish)?.name ?? ""), propVal(v));
             }
         } else {
-            for (const k of Object.keys(raw as object)) {
-                const entry = (raw as Record<string, unknown>)[k];
-                // If the entry is an object with a .value field (e.g. Qn in properties map),
-                // read its value; otherwise flatten directly.
-                const rawVal = entry && typeof entry === "object" && "value" in (entry as object)
-                    ? (entry as Anyish).value
-                    : entry;
-                const flat = flattenPropValue({ value: rawVal } as Anyish) ?? flattenValue(rawVal);
-                if (flat) merged.push({ label: k, value: flat });
+            for (const [k, v] of Object.entries(source as Record<string, unknown>)) {
+                push(k, propVal(v));
             }
         }
-    }
+    };
 
-    return merged.length > 0 ? [{ label: "Properties", entries: merged }] : [];
+    ingest(raw);
+    ingest(raw2);
+    return out;
 }
 
-// ---------------------------------------------------------------------------
-// Field curation
-// ---------------------------------------------------------------------------
-//
-// PRIORITY_KEYS lists keys we consider "important" — they're shown first,
-// in this order. Anything else readable is shown after, alphabetised. Edit
-// this list to tune what surfaces at the top.
-
-const PRIORITY_KEYS: string[] = [
-    // identity
-    "reference", "value", "number", "text", "name", "net_name",
-    "lib_id", "library_link", "footprint",
-    // location
-    "layer", "layers", "position", "rotation",
-    // electrical
-    "net", "pintype", "pinfunction", "type", "shape",
-    // geometry
-    "start", "end", "width", "size", "drill", "routed_length",
-    "min_thickness", "priority", "fill",
-    // descriptive
-    "descr", "tags",
-];
-
-const HIDDEN_KEYS = new Set([
-    "typeId", "parent", "children", "items", "tokens", "nodes",
-    "uuid", "tstamp", "constructor", "shadowRoot",
-    "renderer", "viewer", "viewport", "bbox", "attr", "properties",
-    "properties_kicad_8",
-    "clearance", "solder_paste_margin", "solder_paste_ratio", "zone_connect",
-    // footprint internals — too noisy for the panel
-]);
-
-function curateFields(all: Map<string, string>): ItemDetail["fields"] {
-    const out: ItemDetail["fields"] = [];
-    const consumed = new Set<string>();
-    for (const k of PRIORITY_KEYS) {
-        if (all.has(k) && !consumed.has(k)) {
-            out.push({ label: prettyLabel(k), value: all.get(k)! });
-            consumed.add(k);
+// Extract string value from a property entry (plain string or {name,value} object).
+function propVal(v: unknown): string {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    if (typeof v !== "object") return String(v);
+    const o = v as Record<string, unknown>;
+    for (const k of ["value", "shown_text", "text"]) {
+        if (typeof o[k] === "string") return o[k] as string;
+    }
+    // Walk prototype getters for KiCad 8 Qn objects with private #fields.
+    let proto = Object.getPrototypeOf(o);
+    let hops = 0;
+    while (proto && hops < 4 && proto !== Object.prototype) {
+        for (const k of ["value", "shown_text", "text"]) {
+            const desc = Object.getOwnPropertyDescriptor(proto, k);
+            if (desc?.get) {
+                try {
+                    const r = desc.get.call(o);
+                    if (typeof r === "string") return r;
+                } catch { /* ignore */ }
+            }
         }
+        proto = Object.getPrototypeOf(proto);
+        hops++;
     }
-    const rest = [...all.keys()]
-        .filter(k => !consumed.has(k) && !HIDDEN_KEYS.has(k))
-        .sort();
-    for (const k of rest) {
-        out.push({ label: prettyLabel(k), value: all.get(k)! });
-    }
-    return out;
+    return "";
+}
+
+function boolField(v: unknown): string | null {
+    if (v == null) return null;
+    return v ? BOOL_TRUE : BOOL_FALSE;
 }
 
 function prettyLabel(k: string): string {
     return k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function collectAllFields(item: Anyish): Map<string, string> {
-    const seen = new Map<string, string>();
-    const visit = (obj: unknown) => {
-        if (!obj || typeof obj !== "object") return;
-        for (const k of Object.keys(obj as object)) {
-            if (HIDDEN_KEYS.has(k) || k.startsWith("#") || k.startsWith("_")) continue;
-            if (seen.has(k)) continue;
-            const v = (obj as Record<string, unknown>)[k];
-            if (typeof v === "function") continue;
-            const flat = flattenValue(v);
-            if (flat) seen.set(k, flat);
-        }
-    };
-    visit(item);
-    let proto: object | null = Object.getPrototypeOf(item);
-    let hops = 0;
-    while (proto && hops < 4 && proto !== Object.prototype) {
-        for (const k of Object.getOwnPropertyNames(proto)) {
-            if (k === "constructor" || HIDDEN_KEYS.has(k) || k.startsWith("#") || k.startsWith("_")) continue;
-            if (seen.has(k)) continue;
-            const desc = Object.getOwnPropertyDescriptor(proto, k);
-            if (!desc?.get) continue;
-            try {
-                const v = (item as Record<string, unknown>)[k];
-                if (typeof v === "function") continue;
-                const flat = flattenValue(v);
-                if (flat) seen.set(k, flat);
-            } catch { /* getter threw, ignore */ }
-        }
-        proto = Object.getPrototypeOf(proto);
-        hops++;
-    }
-    return seen;
-}
-
 export const BOOL_TRUE = "bool:true";
 export const BOOL_FALSE = "bool:false";
 
-function flattenValue(v: unknown, depth = 0): string | null {
-    if (v == null) return null;
-    if (typeof v === "boolean") return v ? BOOL_TRUE : BOOL_FALSE;
-    if (typeof v === "string") {
-        const trimmed = v.trim();
-        if (trimmed === "") return null;
-        const s = trimmed.toLowerCase();
-        if (s === "true" || s === "yes")  return BOOL_TRUE;
-        if (s === "false" || s === "no") return BOOL_FALSE;
-        return trimmed.length > 80 ? trimmed.slice(0, 77) + "…" : trimmed;
-    }
-    if (typeof v === "number") return fmt(v);
-    if (Array.isArray(v)) {
-        if (v.length === 0) return null;
-        if (depth > 0) return `[${v.length}]`;
-        const parts = v.map(x => flattenValue(x, depth + 1)).filter(Boolean);
-        if (parts.length === 0) return `[${v.length}]`;
-        return parts.slice(0, 4).join(", ") + (parts.length > 4 ? " …" : "");
-    }
-    if (typeof v === "object") {
-        if (depth > 1) return null;
-        const o = v as Record<string, unknown>;
-        // Common shapes: {x,y}, {position:{x,y}}, {name}, {diameter}
-        if ("name" in o && typeof o.name === "string") return o.name;
-        if ("x" in o && "y" in o) return `${fmt(o.x as number)}, ${fmt(o.y as number)}`;
-        if ("position" in o) return flattenValue(o.position, depth + 1);
-        if ("diameter" in o) return `${fmt(o.diameter as number)} mm`;
-        return null;
-    }
-    return null;
-}
 
 // ---------------------------------------------------------------------------
 // React panel + select-listening hook
