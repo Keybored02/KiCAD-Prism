@@ -331,9 +331,9 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
         } else {
             ({ minX, minY, maxX, maxY } = _bboxFromMembers([m]));
         }
-        const label = m.item.net_name
-            ? `${m.item.net_name} pour`
-            : m.item.name || "Zone";
+        const label = m.item.net_name && m.item.layer
+            ? `${m.item.net_name} (${m.item.layer})`
+            : m.item.net_name || m.item.name || "Zone";
         result.push({
             id: nextId(), category: "zones", kind: m.kind,
             label, members: [m],

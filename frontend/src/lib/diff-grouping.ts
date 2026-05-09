@@ -265,7 +265,9 @@ function labelForGroup(g: DiffGroup): string {
         }
         case "zones": {
             const it = m[0].item;
-            return it.net_name ? `${it.net_name} pour` : (it.name || "Zone");
+            return it.net_name && it.layer
+                ? `${it.net_name} (${it.layer})`
+                : it.net_name || it.name || "Zone";
         }
         case "sheets": {
             const it = m[0].item;
