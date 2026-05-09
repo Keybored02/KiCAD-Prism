@@ -1059,23 +1059,27 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     return (
         <div className="flex flex-col h-full bg-background relative selection-none">
             {/* Toolbar */}
-            <div className="flex items-center gap-1 border-b px-2 py-1 bg-muted/20">
-                {tabs.map(tab => {
-                    const Icon = tab.icon;
-                    return (
-                        <Button
-                            key={tab.id}
-                            variant={activeTab === tab.id ? "secondary" : "ghost"}
-                            size="sm"
-                            onClick={() => setActiveTab(tab.id)}
-                            className="text-xs h-8"
-                        >
-                            <Icon className="w-3 h-3 mr-2" />
-                            {tab.label}
-                        </Button>
-                    );
-                })}
-                <div className="flex-1" />
+            <div className="flex items-center gap-0 border-b bg-background/95 backdrop-blur shrink-0 px-0.5">
+                <div className="flex-1 flex items-center">
+                    {tabs.map(tab => {
+                        const Icon = tab.icon;
+                        const active = activeTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                                    active
+                                        ? "border-primary text-foreground"
+                                        : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/40"
+                                }`}
+                            >
+                                <Icon className="h-3.5 w-3.5" />
+                                {tab.label}
+                            </button>
+                        );
+                    })}
+                </div>
 
                 {/* Diff overlay controls — only when viewing a specific commit */}
                 {commit && (diffData || pcbDiffData) && (activeTab === "sch" || activeTab === "pcb") && (() => {
@@ -1084,7 +1088,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     const removed = markers.filter(m => m.kind === "removed").length;
                     const changed = markers.filter(m => m.kind === "changed").length;
                     return (
-                        <div className="flex items-center gap-1 border-r pr-2 mr-1">
+                        <div className="flex items-center gap-1.5 border-r pr-2 mr-1 shrink-0">
                             <span className="text-[10px] text-muted-foreground font-mono">
                                 {added   > 0 && <span className="text-green-500 mr-1">+{added}</span>}
                                 {removed > 0 && <span className="text-red-500 mr-1">-{removed}</span>}
@@ -1094,15 +1098,21 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                                 variant={showDiffOverlay ? "secondary" : "ghost"}
                                 size="sm"
                                 onClick={() => setShowDiffOverlay(v => !v)}
-                                className="text-xs h-8"
+                                className="h-8 px-3 text-xs font-medium rounded-md border border-border/60 bg-background/60 shadow-sm hover:bg-muted"
                                 title="Toggle diff highlights"
                             >
-                                <RefreshCw className="w-3 h-3 mr-2" />
+                                <RefreshCw className="w-3.5 h-3.5 mr-2" />
                                 Highlights
                             </Button>
                         </div>
                     );
                 })()}
+
+                {commit && (
+                    <p className="text-xs text-muted-foreground font-mono pr-3 shrink-0">
+                        {commit.slice(0, 7)}
+                    </p>
+                )}
 
                 {/* Comment Controls */}
                 {(activeTab === "sch" || activeTab === "pcb") && (
@@ -1110,12 +1120,12 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                         <Popover open={isUrlsPopoverOpen} onOpenChange={setIsUrlsPopoverOpen}>
                             <PopoverTrigger asChild>
                                 <Button
-                                    variant="ghost"
+                                    variant="outline"
                                     size="sm"
-                                    className="text-xs h-8"
+                                    className="h-8 px-3 text-xs font-medium rounded-md border-border/60 bg-background/60 shadow-sm hover:bg-muted"
                                     aria-label="Show KiCad comments REST URLs"
                                 >
-                                    <Link2 className="w-3 h-3 mr-2" />
+                                    <Link2 className="w-3.5 h-3.5 mr-2" />
                                     REST URLs
                                 </Button>
                             </PopoverTrigger>
@@ -1169,36 +1179,36 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                             </PopoverContent>
                         </Popover>
                         <Button
-                            variant={commentMode ? "default" : "ghost"}
+                            variant={commentMode ? "default" : "outline"}
                             size="sm"
                             onClick={toggleCommentMode}
                             disabled={!canModifyComments}
-                            className={`text-xs h-8 ${commentMode ? "bg-amber-600 text-white hover:bg-amber-700" : ""}`}
+                            className={`h-8 px-3 text-xs font-medium rounded-md border-border/60 shadow-sm ml-1.5 ${commentMode ? "bg-amber-600 text-white hover:bg-amber-700 border-amber-600" : "bg-background/60 hover:bg-muted"}`}
                         >
-                            <MessageSquarePlus className="w-3 h-3 mr-2" />
+                            <MessageSquarePlus className="w-3.5 h-3.5 mr-2" />
                             {commentMode ? "Commenting Mode" : "Add Comment"}
                         </Button>
                         <Button
-                            variant={showCommentPanel ? "secondary" : "ghost"}
+                            variant={showCommentPanel ? "secondary" : "outline"}
                             size="sm"
                             onClick={() => setShowCommentPanel(!showCommentPanel)}
-                            className="text-xs h-8 ml-1"
+                            className="h-8 px-3 text-xs font-medium rounded-md border-border/60 bg-background/60 shadow-sm hover:bg-muted ml-1.5"
                         >
-                            <MessageSquare className="w-3 h-3 mr-2" />
+                            <MessageSquare className="w-3.5 h-3.5 mr-2" />
                             Comments
-                            <span className="ml-1 bg-muted-foreground/20 px-1 rounded-full text-[10px]">
+                            <span className="ml-1 bg-muted-foreground/20 px-1.5 py-0.5 rounded-full text-[10px] leading-none">
                                 {comments.length}
                             </span>
                         </Button>
                         {canModifyComments && (
                             <Button
-                                variant="ghost"
+                                variant="outline"
                                 size="sm"
                                 onClick={() => setShowPushDialog(true)}
-                                className="text-xs h-8 ml-1"
+                                className="h-8 px-3 text-xs font-medium rounded-md border-border/60 bg-background/60 shadow-sm hover:bg-muted ml-1.5"
                                 title="Generate comments.json artifact from DB"
                             >
-                                <GitBranch className="w-3 h-3 mr-2" />
+                                <GitBranch className="w-3.5 h-3.5 mr-2" />
                                 Generate JSON
                             </Button>
                         )}

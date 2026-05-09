@@ -439,7 +439,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
                     {activeSection === "assets" && (
                         <div>
-                            <h2 className="text-2xl font-bold mb-6">Assets Portal</h2>
                             {projectId && (
                                 <Suspense fallback={<div className="text-sm text-muted-foreground">Loading assets...</div>}>
                                     <AssetsPortal projectId={projectId} />
@@ -450,7 +449,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
                     {activeSection === "documentation" && (
                         <div>
-                            <h2 className="text-2xl font-bold mb-6">Documentation</h2>
                             {projectId && (
                                 <Suspense fallback={<div className="text-sm text-muted-foreground">Loading documentation...</div>}>
                                     <DocumentationBrowser projectId={projectId} commit={currentCommit} key={activeSection} />
@@ -461,7 +459,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
                     {activeSection === "history" && (
                         <div>
-                            <h2 className="text-2xl font-bold mb-6">History</h2>
                             {projectId && (
                                 <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
                                     <HistoryViewer
@@ -478,11 +475,10 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     {visualizerLoaded && ( // Render only if visualizer has been loaded at least once
                         <div
                             className={cn(
-                                "h-full flex flex-col",
+                                "h-full flex flex-col -mt-6",
                                 activeSection !== "visualizers" && "hidden" // Hide if not active
                             )}
                         >
-                            <h2 className="text-2xl font-bold mb-6">Visualizers</h2>
                             <div className="flex-1 min-h-0">
                                 {projectId && (
                                     <Suspense fallback={<div className="text-sm text-muted-foreground">Loading visualizers...</div>}>
@@ -579,7 +575,6 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
 
     return (
         <div className="max-w-5xl">
-            <h2 className="text-2xl font-bold mb-6">Workflows</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <WorkflowCard
                     title="Design Outputs"
