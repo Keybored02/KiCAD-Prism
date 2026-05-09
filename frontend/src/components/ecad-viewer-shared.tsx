@@ -69,16 +69,29 @@ export function extractItemDetail(rawItem: unknown): ItemDetail | null {
     const typeId = (item.typeId ?? item.constructor?.name ?? "") as string;
 
 
-    // Mirror what kicanvas's kc-board-properties-panel does per typeId.
-    // Field names and paths are taken directly from the kicanvas bundle source.
+    // PCB items — matched by typeId (set explicitly by kicanvas board parser).
     switch (typeId) {
-        case "Footprint": return extractFootprint(item);
-        case "Pad":       return extractPad(item);
+        case "Footprint":   return extractFootprint(item);
+        case "Pad":         return extractPad(item);
         case "LineSegment": return extractLine(item);
-        case "Via":       return extractVia(item);
-        case "Zone":      return extractZone(item);
-        default:          return extractGeneric(item, typeId);
+        case "Via":         return extractVia(item);
+        case "Zone":        return extractZone(item);
     }
+
+    // Schematic items — kicanvas uses constructor.name (minified class names vary,
+    // so we duck-type on the fields that each item type uniquely has).
+    if (item.lib_symbol != null || item.lib_id != null || item.in_bom != null)
+        return extractSchSymbol(item);
+    if (item.sheet_name != null || (item.properties != null && item.pins != null && item.at != null && item.lib_symbol == null))
+        return extractSchSheet(item);
+    if (item.stroke != null && item.pts != null)
+        return extractSchWireOrBus(item, typeId);
+    if (item.number != null && item.definition != null)
+        return extractSchPin(item);
+    if (item.text != null && item.effects != null)
+        return extractSchText(item, typeId);
+
+    return extractGeneric(item, typeId);
 }
 
 type Field = { label: string; value: string };
@@ -237,6 +250,184 @@ function extractZone(t: Anyish): ItemDetail {
             field("Pad connections",         cp?.type ?? "Thermal reliefs"),
             field("Thermal relief gap",      fill?.thermal_gap != null ? `${fmt(fill.thermal_gap as number, 4)} mm` : null),
             field("Thermal relief spoke width", fill?.thermal_bridge_width != null ? `${fmt(fill.thermal_bridge_width as number, 4)} mm` : null),
+        ),
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Schematic item extractors
+// Field paths taken directly from kc-schematic-properties-panel in ecad-viewer.js
+// ---------------------------------------------------------------------------
+
+function extractSchSymbol(t: Anyish): ItemDetail {
+    const pos     = (t.at as Anyish)?.position as Anyish | undefined;
+    const libSym  = t.lib_symbol as Anyish | undefined;
+
+    // Properties: Map of {name, text} entries (kicanvas reads .values())
+    const propsEntries: Field[] = [];
+    const propsMap = t.properties;
+    if (propsMap instanceof Map) {
+        for (const v of (propsMap as Map<unknown, Anyish>).values()) {
+            const f = field(String(v?.name ?? ""), v?.text);
+            if (f) propsEntries.push(f);
+        }
+    } else if (Array.isArray(propsMap)) {
+        for (const v of propsMap as Anyish[]) {
+            const f = field(String(v?.name ?? ""), v?.text);
+            if (f) propsEntries.push(f);
+        }
+    }
+
+    // Pins from unit_pins
+    const pinEntries: Field[] = [];
+    const unitPins = t.unit_pins as Anyish[] | undefined;
+    if (Array.isArray(unitPins)) {
+        for (const pin of unitPins) {
+            const num  = String((pin as Anyish)?.number ?? "");
+            const defName = ((pin as Anyish)?.definition as Anyish)?.name as Anyish | undefined;
+            const name = String(defName?.text ?? "");
+            if (num) pinEntries.push({ label: num, value: name || "—" });
+        }
+    }
+
+    const geometryGroup: Group = {
+        label: "Geometry",
+        entries: fields(
+            field("X",           pos?.x != null ? `${fmt(pos.x as number, 4)} mm` : null),
+            field("Y",           pos?.y != null ? `${fmt(pos.y as number, 4)} mm` : null),
+            field("Orientation", (t.at as Anyish)?.rotation != null ? `${fmt((t.at as Anyish).rotation as number, 1)}°` : null),
+            field("Mirror",      t.mirror === "x" ? "Around X axis" : t.mirror === "y" ? "Around Y axis" : t.mirror ? String(t.mirror) : null),
+        ),
+    };
+
+    const instanceGroup: Group = {
+        label: "Instance properties",
+        entries: fields(
+            field("Library link", t.lib_name ?? t.lib_id),
+            field("Unit",         t.unit != null ? String.fromCharCode(65 + (t.unit as number) - 1) : null),
+            field("In BOM",       boolField(t.in_bom)),
+            field("On board",     boolField(t.on_board)),
+            field("Populate",     boolField(t.dnp != null ? !t.dnp : null)),
+        ),
+    };
+
+    const symPropsGroup: Group = {
+        label: "Symbol properties",
+        entries: fields(
+            field("Name",                    libSym?.name),
+            field("Description",             libSym?.description),
+            field("Keywords",                libSym?.keywords),
+            field("Power",                   boolField(libSym?.power)),
+            field("Units",                   libSym?.unit_count),
+            field("Units interchangeable",   boolField(libSym?.units_interchangable)),
+        ),
+    };
+
+    const groups: Group[] = [];
+    if (geometryGroup.entries.length)  groups.push(geometryGroup);
+    if (instanceGroup.entries.length)  groups.push(instanceGroup);
+    if (propsEntries.length)           groups.push({ label: "Fields",           entries: propsEntries });
+    if (symPropsGroup.entries.length)  groups.push(symPropsGroup);
+    if (pinEntries.length)             groups.push({ label: "Pins",             entries: pinEntries });
+
+    // Hoist Reference, Value, Footprint to top-level fields (shown above dropdowns).
+    const TOP_PROPS = ["Reference", "Value", "Footprint"];
+    const topFields = TOP_PROPS.map(k => propsEntries.find(e => e.label === k)).filter(Boolean) as Field[];
+    const refEntry  = topFields.find(e => e.label === "Reference");
+    const valEntry  = topFields.find(e => e.label === "Value");
+
+    return {
+        title:    refEntry?.value ?? String(t.lib_id ?? t.lib_name ?? "Symbol"),
+        subtitle: valEntry?.value,
+        fields:   topFields,
+        groups:   groups.length > 0 ? groups : undefined,
+    };
+}
+
+function extractSchSheet(t: Anyish): ItemDetail {
+    const pos = (t.at as Anyish)?.position as Anyish | undefined;
+
+    const propsEntries: Field[] = [];
+    const propsMap = t.properties;
+    if (propsMap instanceof Map) {
+        for (const v of (propsMap as Map<unknown, Anyish>).values()) {
+            const f = field(String(v?.name ?? ""), v?.text);
+            if (f) propsEntries.push(f);
+        }
+    } else if (Array.isArray(propsMap)) {
+        for (const v of propsMap as Anyish[]) {
+            const f = field(String(v?.name ?? ""), v?.text);
+            if (f) propsEntries.push(f);
+        }
+    }
+
+    const pinEntries: Field[] = [];
+    const pins = t.pins as Anyish[] | undefined;
+    if (Array.isArray(pins)) {
+        for (const pin of pins) {
+            const nm = String((pin as Anyish)?.name ?? "");
+            const shape = String((pin as Anyish)?.shape ?? "");
+            if (nm) pinEntries.push({ label: nm, value: shape || "—" });
+        }
+    }
+
+    const geometryGroup: Group = {
+        label: "Geometry",
+        entries: fields(
+            field("X", pos?.x != null ? `${fmt(pos.x as number, 4)} mm` : null),
+            field("Y", pos?.y != null ? `${fmt(pos.y as number, 4)} mm` : null),
+        ),
+    };
+
+    const groups: Group[] = [];
+    if (geometryGroup.entries.length) groups.push(geometryGroup);
+    if (propsEntries.length)          groups.push({ label: "Fields", entries: propsEntries });
+    if (pinEntries.length)            groups.push({ label: "Pins",   entries: pinEntries });
+
+    return {
+        title:  String(t.sheet_name ?? "Sheet"),
+        fields: [],
+        groups: groups.length > 0 ? groups : undefined,
+    };
+}
+
+function extractSchWireOrBus(t: Anyish, typeId: string): ItemDetail {
+    const stroke = t.stroke as Anyish | undefined;
+    const color  = (stroke?.color as Anyish | undefined);
+    return {
+        title: typeId.includes("Bus") ? "Bus" : "Wire",
+        fields: fields(
+            field("Line Style", stroke?.type),
+            field("Line Width", stroke?.width != null ? `${stroke.width} mils` : null),
+            field("Color",      color?.to_css ? String((color.to_css as () => string)()) : null),
+        ),
+    };
+}
+
+function extractSchPin(t: Anyish): ItemDetail {
+    return {
+        title: `Pin ${t.number ?? ""}`,
+        fields: fields(
+            field("Number",    t.number),
+            field("Alternate", t.alternate),
+            field("Unit",      t.unit),
+        ),
+    };
+}
+
+function extractSchText(t: Anyish, typeId: string): ItemDetail {
+    const stroke = t.stroke as Anyish | undefined;
+    const effects = t.effects as Anyish | undefined;
+    const font   = (effects?.font as Anyish | undefined);
+    return {
+        title: String(t.text ?? typeId ?? "Text"),
+        fields: fields(
+            field("Text",       t.text),
+            field("Bold",       boolField(font?.bold)),
+            field("Italic",     boolField(font?.italic)),
+            field("Shape",      t.shape),
+            field("Line Style", stroke?.type),
+            field("Line Width", stroke?.width != null ? `${stroke.width} mils` : null),
         ),
     };
 }
