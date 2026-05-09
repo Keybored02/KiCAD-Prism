@@ -18,7 +18,6 @@ import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
 interface PcbItem {
     type: string;
     uuid: string;
@@ -126,6 +125,12 @@ const KIND_LABEL: Record<DiffMarker["kind"], string> = {
     changed: "Changed",
 };
 
+const KIND_PREFIX: Record<DiffMarker["kind"], string> = {
+    added: "+",
+    removed: "−",
+    changed: "~",
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -142,17 +147,6 @@ function itemLabel(item: PcbItem): string {
 
 function fieldLabel(key: string): string {
     return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function _boxHalfExtent(type: string): { hw: number; hh: number } {
-    switch (type) {
-        case "footprint": return { hw: 3,   hh: 3   };
-        case "zone":      return { hw: 5,   hh: 5   };
-        case "via":       return { hw: 0.5, hh: 0.5 };
-        case "gr_text":   return { hw: 3,   hh: 1.5 };
-        case "segment":   return { hw: 1,   hh: 1   };
-        default:          return { hw: 2,   hh: 2   };
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +246,7 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
         const kind = _mergedKind(members);
         const segCount  = members.filter(m => m.item.type === "segment").length;
         const viaCount  = members.filter(m => m.item.type === "via").length;
-        const parts = [];
+        const parts: string[] = [];
         if (segCount)  parts.push(`${segCount} wire${segCount > 1 ? "s" : ""}`);
         if (viaCount)  parts.push(`${viaCount} via${viaCount > 1 ? "s" : ""}`);
         const netLabel = net === "(no net)" ? "No net" : net;
@@ -310,8 +304,6 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
     return result;
 }
 
-// ---------------------------------------------------------------------------
-// Overlay
 // ---------------------------------------------------------------------------
 
 interface OverlayProps {
@@ -979,9 +971,9 @@ export function PcbDiffViewer({
                             </button>
                             {(["added", "removed", "changed"] as const).map((kind) => {
                                 const counts = {
-                                    added:   activeBoardData?.diff.added.length   ?? 0,
-                                    removed: activeBoardData?.diff.removed.length ?? 0,
-                                    changed: activeBoardData?.diff.changed.length ?? 0,
+                                    added:   allGroups.filter((group) => group.kind === "added").length,
+                                    removed: allGroups.filter((group) => group.kind === "removed").length,
+                                    changed: allGroups.filter((group) => group.kind === "changed").length,
                                 };
                                 const active = kind === "added" ? showAdded : kind === "removed" ? showRemoved : showChanged;
                                 const toggle = kind === "added" ? () => setShowAdded(v => !v) : kind === "removed" ? () => setShowRemoved(v => !v) : () => setShowChanged(v => !v);
@@ -1054,14 +1046,15 @@ export function PcbDiffViewer({
                             (["components", "nets", "zones", "graphics"] as GroupCategory[]).map((cat) => {
                                 const groups = allGroups.filter(g => g.category === cat);
                                 if (groups.length === 0) return null;
+                                const total = groups.reduce((sum, group) => sum + group.members.length, 0);
                                 return (
                                     <div key={cat} className="mb-2">
-                                        <p className="text-[10px] uppercase tracking-wider px-3 py-1 sticky top-0 bg-background font-medium text-muted-foreground">
-                                            {CATEGORY_META[cat].label}
+                                        <p className="text-[10px] uppercase tracking-wider px-3 py-1 sticky top-0 bg-background font-medium flex items-center gap-2 text-white">
+                                            <span>{CATEGORY_META[cat].label}</span>
+                                            <span className="ml-auto font-mono text-[10px] opacity-70">{total}</span>
                                         </p>
                                         {groups.map((g) => {
                                             const isActive = activeGroup?.id === g.id;
-                                            const color = KIND_COLOR[g.kind];
                                             return (
                                                 <button
                                                     key={g.id}
@@ -1069,15 +1062,11 @@ export function PcbDiffViewer({
                                                     className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted/60 ${isActive ? "bg-muted" : ""}`}
                                                 >
                                                     <span
-                                                        className="w-2 h-2 rounded-sm shrink-0 border"
-                                                        style={{ backgroundColor: `${color}55`, borderColor: color }}
+                                                        className="w-2 h-2 rounded-full shrink-0"
+                                                        style={{ backgroundColor: KIND_COLOR[g.kind] }}
                                                     />
-                                                    <span className="truncate font-medium">{g.label}</span>
-                                                    <span
-                                                        className="ml-auto shrink-0 text-[9px] font-bold px-1 py-0.5 rounded leading-none"
-                                                        style={{ backgroundColor: `${color}22`, color, border: `1px solid ${color}66` }}
-                                                    >
-                                                        {KIND_LABEL[g.kind]}
+                                                    <span className="text-white font-medium truncate">
+                                                        {g.label}
                                                     </span>
                                                 </button>
                                             );
@@ -1092,7 +1081,7 @@ export function PcbDiffViewer({
                         <div className="border-t shrink-0 max-h-64 overflow-y-auto">
                             <div className="flex items-center justify-between px-3 py-2 bg-muted/30">
                                 <span className="text-xs font-semibold" style={{ color: KIND_COLOR[activeGroup.kind] }}>
-                                    {activeGroup.label}
+                                    {KIND_LABEL[activeGroup.kind]}
                                 </span>
                                 <button onClick={() => setActiveGroup(null)} className="text-muted-foreground hover:text-foreground">
                                     <X className="h-3 w-3" />
@@ -1102,12 +1091,11 @@ export function PcbDiffViewer({
                                 {activeGroup.members.map((m, i) => (
                                     <div key={i} className="space-y-1">
                                         <div className="flex items-center gap-1.5">
-                                            <span
-                                                className="w-1.5 h-1.5 rounded-full shrink-0"
-                                                style={{ backgroundColor: KIND_COLOR[m.kind] }}
-                                            />
+                                            <span className="font-medium shrink-0" style={{ color: KIND_COLOR[m.kind] }}>
+                                                {KIND_PREFIX[m.kind]}
+                                            </span>
                                             <span className="font-medium">{itemLabel(m.item)}</span>
-                                            <span className="ml-auto text-muted-foreground">{KIND_LABEL[m.kind]}</span>
+                                            <span className="ml-auto text-muted-foreground uppercase tracking-wider text-[10px]">{KIND_LABEL[m.kind]}</span>
                                         </div>
                                         {m.changes && Object.entries(m.changes).map(([field, { old: ov, new: nv }]) => (
                                             <div key={field} className="ml-3 rounded border bg-muted/30 p-1.5 space-y-1">
