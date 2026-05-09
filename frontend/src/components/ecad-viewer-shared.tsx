@@ -218,7 +218,10 @@ const STYLED_ROOTS = new WeakSet<ShadowRoot>();
 function injectViewerStyles(host: HTMLElement) {
     const walk = (root: HTMLElement) => {
         const sr = root.shadowRoot;
-        if (sr && !STYLED_ROOTS.has(sr)) {
+        if (!sr) return;
+        // Always walk children to catch shadow roots that mounted after the last pass.
+        // Only inject the stylesheet once per root (tracked by STYLED_ROOTS).
+        if (!STYLED_ROOTS.has(sr)) {
             STYLED_ROOTS.add(sr);
             const rootTag = (sr.host as Element)?.tagName?.toLowerCase?.() ?? "";
             const sheet = new CSSStyleSheet();
@@ -230,9 +233,11 @@ function injectViewerStyles(host: HTMLElement) {
                 style.textContent = `${VIEWER_BASE_CSS}\n${viewerThemeCssForRoot(rootTag)}`;
                 sr.appendChild(style);
             }
-            for (const el of sr.querySelectorAll("*")) {
-                if ((el as HTMLElement).shadowRoot) walk(el as HTMLElement);
-            }
+        }
+        // Always recurse so late-mounting children (e.g. kc-board-properties-panel
+        // which mounts after the viewer loads) are caught on subsequent poll passes.
+        for (const el of sr.querySelectorAll("*")) {
+            if ((el as HTMLElement).shadowRoot) walk(el as HTMLElement);
         }
     };
     walk(host);
