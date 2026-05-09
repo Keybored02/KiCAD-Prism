@@ -124,27 +124,40 @@ export function extractItemDetail(rawItem: unknown): ItemDetail | null {
     // Pad: has a `number` field and a parent footprint reference.
     const isPad = item.number != null && (item.shape != null || item.pintype != null || typeId === "Pad");
 
-    let fields: ItemDetail["fields"];
+    // KiCad properties (Reference, Value, Footprint, Datasheet, …) from
+    // `properties` / `properties_kicad_8` — merged and deduped by label.
+    const propsGroup = groups.find(g => g.label === "Properties");
+    if (propsGroup) groups.splice(groups.indexOf(propsGroup), 1);
+    const propsEntries = propsGroup?.entries ?? [];
+
+    let rawFields: { label: string; value: string }[];
     if (isFootprint) {
-        fields = pickFields(all, FOOTPRINT_TOP_FIELDS);
-        rollIntoProperties(groups, remainingEntries(all, FOOTPRINT_TOP_FIELDS));
+        rawFields = [
+            ...pickFields(all, FOOTPRINT_TOP_FIELDS),
+            ...curateFields(all),
+            ...propsEntries,
+        ];
     } else if (isPad) {
-        // Pad layer often lives on the parent footprint, not the pad itself.
         if (!all.has("layer")) {
             const parent = item.parent as Anyish | undefined;
-            const parentLayer = parent?.layer;
-            const flat = flattenValue(parentLayer);
+            const flat = flattenValue(parent?.layer);
             if (flat) all.set("layer", flat);
         }
-        fields = pickFields(all, PAD_TOP_FIELDS);
-        rollIntoProperties(groups, remainingEntries(all, PAD_TOP_FIELDS));
+        rawFields = [...pickFields(all, PAD_TOP_FIELDS), ...curateFields(all), ...propsEntries];
     } else {
-        if (isLine) {
-            all.delete("start");
-            all.delete("end");
-        }
-        fields = curateFields(all);
+        if (isLine) { all.delete("start"); all.delete("end"); }
+        rawFields = [...curateFields(all), ...propsEntries];
     }
+
+    // Deduplicate: keep first occurrence of each label (case-insensitive).
+    // Also skip rows whose label+value exactly matches a prior row.
+    const seenLabel = new Set<string>();
+    const fields = rawFields.filter(f => {
+        const key = f.label.toLowerCase();
+        if (seenLabel.has(key)) return false;
+        seenLabel.add(key);
+        return true;
+    });
 
     return {
         title: String(title),
@@ -172,15 +185,6 @@ const PAD_TOP_FIELDS: [string, string][] = [
     ["drill",  "Drill"],
 ];
 
-function rollIntoProperties(
-    groups: NonNullable<ItemDetail["groups"]>,
-    remaining: { label: string; value: string }[],
-) {
-    if (remaining.length === 0) return;
-    const existing = groups.find(g => g.label === "Properties");
-    if (existing) existing.entries.push(...remaining);
-    else groups.push({ label: "Properties", entries: remaining });
-}
 
 function pickFields(all: Map<string, string>, spec: [string, string][]): ItemDetail["fields"] {
     const out: ItemDetail["fields"] = [];
@@ -194,54 +198,67 @@ function pickFields(all: Map<string, string>, spec: [string, string][]): ItemDet
     return out;
 }
 
-function remainingEntries(all: Map<string, string>, used: [string, string][]): { label: string; value: string }[] {
-    const usedKeys = new Set(used.map(([k]) => k));
-    const out: { label: string; value: string }[] = [];
-    const keys = [...all.keys()]
-        .filter(k => !usedKeys.has(k) && !HIDDEN_KEYS.has(k))
-        .sort();
-    for (const k of keys) {
-        out.push({ label: prettyLabel(k), value: all.get(k)! });
-    }
-    return out;
+
+// Flatten a KiCad property entry {name, value, shown_text?, text?} to a display string.
+// Tries .value first; if empty falls back to .shown_text / .text getters (KiCad 8 Qn objects).
+function flattenPropValue(v: Anyish): string | null {
+    // Try .value first (most common path).
+    const fromValue = flattenValue(v?.value);
+    if (fromValue) return fromValue;
+    // KiCad 8 Qn: shown_text is a getter that calls fr(this.value, this.parent)
+    // and may return a non-empty string even when .value itself is "".
+    try {
+        const shown = (v as Record<string, unknown>)?.shown_text;
+        if (typeof shown === "string" && shown.trim()) return shown.trim().slice(0, 80);
+    } catch { /* getter may throw */ }
+    try {
+        const text = (v as Record<string, unknown>)?.text;
+        if (typeof text === "string" && text.trim()) return text.trim().slice(0, 80);
+    } catch { /* getter may throw */ }
+    return null;
 }
 
-// Pull dict-like objects (e.g. `properties`) off the item as collapsible groups.
-const GROUP_KEYS = ["properties"];
+// Pull dict-like objects off the item. Both KiCad 7 (`properties` dict/Map)
+// and KiCad 8 (`properties_kicad_8` array of {name,value}) are collected and
+// merged into a single "Properties" group, then promoted inline into fields.
+const GROUP_KEYS = ["properties", "properties_kicad_8"];
 
 function collectGroups(item: Anyish): NonNullable<ItemDetail["groups"]> {
-    const groups: NonNullable<ItemDetail["groups"]> = [];
+    // Merge all GROUP_KEYS into one "Properties" group so KiCad 7 and KiCad 8
+    // sources appear as a single flat list.
+    const merged: { label: string; value: string }[] = [];
+
     for (const key of GROUP_KEYS) {
         const raw = item[key];
         if (!raw || typeof raw !== "object") continue;
-        const entries: { label: string; value: string }[] = [];
 
-        // Handle Map<string, {name, value}> shape (KiCanvas often exposes properties this way).
         if (raw instanceof Map) {
             for (const [, v] of raw as Map<unknown, unknown>) {
                 const label = (v as Anyish)?.name as string | undefined;
-                const value = (v as Anyish)?.value;
-                const flat = flattenValue(value);
-                if (label && flat) entries.push({ label, value: flat });
+                const flat = flattenPropValue(v as Anyish);
+                if (label && flat) merged.push({ label, value: flat });
             }
         } else if (Array.isArray(raw)) {
             for (const v of raw) {
                 const label = (v as Anyish)?.name as string | undefined;
-                const value = (v as Anyish)?.value;
-                const flat = flattenValue(value);
-                if (label && flat) entries.push({ label, value: flat });
+                const flat = flattenPropValue(v as Anyish);
+                if (label && flat) merged.push({ label, value: flat });
             }
         } else {
             for (const k of Object.keys(raw as object)) {
-                const v = (raw as Record<string, unknown>)[k];
-                const flat = flattenValue(v);
-                if (flat) entries.push({ label: k, value: flat });
+                const entry = (raw as Record<string, unknown>)[k];
+                // If the entry is an object with a .value field (e.g. Qn in properties map),
+                // read its value; otherwise flatten directly.
+                const rawVal = entry && typeof entry === "object" && "value" in (entry as object)
+                    ? (entry as Anyish).value
+                    : entry;
+                const flat = flattenPropValue({ value: rawVal } as Anyish) ?? flattenValue(rawVal);
+                if (flat) merged.push({ label: k, value: flat });
             }
         }
-
-        if (entries.length > 0) groups.push({ label: prettyLabel(key), entries });
     }
-    return groups;
+
+    return merged.length > 0 ? [{ label: "Properties", entries: merged }] : [];
 }
 
 // ---------------------------------------------------------------------------
@@ -271,7 +288,9 @@ const HIDDEN_KEYS = new Set([
     "typeId", "parent", "children", "items", "tokens", "nodes",
     "uuid", "tstamp", "constructor", "shadowRoot",
     "renderer", "viewer", "viewport", "bbox", "attr", "properties",
+    "properties_kicad_8",
     "clearance", "solder_paste_margin", "solder_paste_ratio", "zone_connect",
+    // footprint internals — too noisy for the panel
 ]);
 
 function curateFields(all: Map<string, string>): ItemDetail["fields"] {
@@ -403,21 +422,23 @@ export function useEcadInfoPanel({ containerRef, viewerRefs }: UseEcadInfoPanelO
         };
     }, [viewerRefs]);
 
-    // Listen for selection events on the host container.
+    // Listen for selection events. Attach to both the container and each viewer
+    // element directly so it works even when containerRef.current is null on
+    // first mount (e.g. the visualizer's lazy-loaded tab).
     useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
         const handler = (e: Event) => {
             const item = (e as CustomEvent<{ item: unknown }>).detail?.item;
-            if (!item) {
-                setDetail(null);
-                return;
-            }
+            if (!item) { setDetail(null); return; }
             setDetail(extractItemDetail(item));
         };
-        container.addEventListener("kicanvas:select", handler);
-        return () => container.removeEventListener("kicanvas:select", handler);
-    }, [containerRef]);
+        const targets = [
+            containerRef.current,
+            ...viewerRefs.map(r => r.current as HTMLElement | null),
+        ].filter(Boolean) as HTMLElement[];
+        for (const t of targets) t.addEventListener("kicanvas:select", handler);
+        return () => { for (const t of targets) t.removeEventListener("kicanvas:select", handler); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [containerRef, ...viewerRefs.map(r => r.current)]);
 
     return { detail, clear: () => setDetail(null) };
 }
@@ -425,6 +446,17 @@ export function useEcadInfoPanel({ containerRef, viewerRefs }: UseEcadInfoPanelO
 function renderFieldValue(value: string) {
     if (value === BOOL_TRUE)  return <Check className="inline h-3 w-3 text-green-500" />;
     if (value === BOOL_FALSE) return <XIcon className="inline h-3 w-3 text-red-500" />;
+    if (/^https?:\/\/\S+/.test(value) || /^www\.\S+\.\S+/.test(value)) {
+        const href = value.startsWith("http") ? value : `https://${value}`;
+        return (
+            <a href={href} target="_blank" rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2 hover:opacity-80 break-all"
+                onClick={e => e.stopPropagation()}
+            >
+                {value}
+            </a>
+        );
+    }
     return value;
 }
 
@@ -555,6 +587,11 @@ export function EcadViewerHost({
         if (!viewer || files.length === 0) return;
 
         let cancelled = false;
+        // Passthrough state that we need available to the outer cleanup.
+        let passthroughAttached = false;
+        let passthroughHandler: EventListener | null = null;
+        let passthroughPollId: number | undefined;
+
         (async () => {
             await customElements.whenDefined("ecad-blob");
             if (cancelled || !hostRef.current) return;
@@ -577,9 +614,54 @@ export function EcadViewerHost({
             if (typeof withLoader.load_src === "function") {
                 await withLoader.load_src();
             }
+
+            // Some selection events are generated inside the viewer's shadow DOM
+            // and may not cross the shadow boundary. Add a best-effort
+            // passthrough that listens inside the shadow root and re-dispatches
+            // the event on the host element with `composed: true` so outer
+            // listeners (like useEcadInfoPanel) reliably receive it.
+            const tryAttachPassthrough = (): boolean => {
+                const sr = (el as HTMLElement).shadowRoot as ShadowRoot | null;
+                if (!sr) return false;
+                passthroughHandler = (e: Event) => {
+                    try {
+                        const detail = (e as CustomEvent)?.detail;
+                        const rebroadcast = new CustomEvent("kicanvas:select", { detail, bubbles: true, composed: true });
+                        el.dispatchEvent(rebroadcast);
+                    } catch {
+                        // best-effort; ignore
+                    }
+                };
+                sr.addEventListener("kicanvas:select", passthroughHandler as EventListener);
+                passthroughAttached = true;
+                return true;
+            };
+
+            // Try immediately, then poll briefly in case viewer internals attach later.
+            if (!tryAttachPassthrough()) {
+                passthroughPollId = window.setInterval(() => {
+                    if (passthroughAttached) return;
+                    tryAttachPassthrough();
+                }, 250);
+                // Stop polling after a short timeout.
+                window.setTimeout(() => { if (passthroughPollId) { window.clearInterval(passthroughPollId); passthroughPollId = undefined; } }, 5000);
+            }
         })();
 
-        return () => { cancelled = true; };
+        return () => {
+            cancelled = true;
+            try {
+                if (passthroughPollId) {
+                    window.clearInterval(passthroughPollId);
+                    passthroughPollId = undefined;
+                }
+                const el = hostRef.current;
+                if (el && passthroughAttached && passthroughHandler) {
+                    const sr = (el as HTMLElement).shadowRoot as ShadowRoot | null;
+                    if (sr) sr.removeEventListener("kicanvas:select", passthroughHandler as EventListener);
+                }
+            } catch { /* swallow cleanup errors */ }
+        };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [viewerKey, filesKey]);
 
