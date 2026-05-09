@@ -3,33 +3,231 @@ import { X, Check, X as XIcon, ChevronRight } from "lucide-react";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 
 // ---------------------------------------------------------------------------
-// Hide built-in info panels
+// Theme kicanvas viewer chrome
 // ---------------------------------------------------------------------------
 //
 // ecad-viewer renders <kc-board-properties-panel> / <kc-schematic-properties-panel>
 // as absolutely-positioned children inside its shadow DOM. We hide them via
-// CSS injected into every shadow root we can reach so our React panel takes over.
+// CSS injected into every shadow root we can reach so our React panel takes over
+// and the built-in layer/object menus pick up the project theme.
 
-const HIDE_CSS = `
+const VIEWER_BASE_CSS = `
     kc-board-properties-panel,
     kc-schematic-properties-panel {
         display: none !important;
     }
+
+    kc-ui-toggle-menu {
+        --button-menu-bg: hsl(var(--background));
+        --button-menu-fg: hsl(var(--foreground));
+        --button-menu-hover-bg: hsl(var(--accent));
+        --button-menu-hover-fg: hsl(var(--accent-foreground));
+        --button-menu-disabled-bg: hsl(var(--muted));
+        --button-menu-disabled-fg: hsl(var(--muted-foreground));
+    }
+
+    kc-ui-dropdown {
+        --dropdown-bg: hsl(var(--popover));
+        --dropdown-fg: hsl(var(--popover-foreground));
+        --dropdown-hover-bg: hsl(var(--accent));
+        --dropdown-hover-fg: hsl(var(--accent-foreground));
+        --dropdown-active-bg: hsl(var(--accent));
+        --dropdown-active-fg: hsl(var(--accent-foreground));
+    }
+
+    kc-ui-menu.dropdown {
+        --list-item-bg: hsl(var(--popover));
+        --list-item-fg: hsl(var(--popover-foreground));
+        --list-item-hover-bg: hsl(var(--accent));
+        --list-item-hover-fg: hsl(var(--accent-foreground));
+        --list-item-active-bg: hsl(var(--accent));
+        --list-item-active-fg: hsl(var(--accent-foreground));
+        --list-item-disabled-bg: hsl(var(--muted));
+        --list-item-disabled-fg: hsl(var(--muted-foreground));
+    }
 `;
 
-function injectHideStyles(host: HTMLElement) {
-    const seen = new WeakSet<ShadowRoot>();
+function viewerThemeCssForRoot(rootTag: string): string {
+    switch (rootTag) {
+        case "ecad-viewer":
+            return `
+                :host {
+                    --panel-bg: hsl(var(--card));
+                    --panel-fg: hsl(var(--card-foreground));
+                    --panel-title-bg: hsl(var(--background));
+                    --panel-title-fg: hsl(var(--foreground));
+                    --panel-line: hsl(var(--border));
+                    --grid-outline: hsl(var(--border));
+                    --list-item-bg: hsl(var(--card));
+                    --list-item-fg: hsl(var(--card-foreground));
+                    --list-item-hover-bg: hsl(var(--accent));
+                    --list-item-hover-fg: hsl(var(--accent-foreground));
+                    --list-item-active-bg: hsl(var(--accent));
+                    --list-item-active-fg: hsl(var(--accent-foreground));
+                    --list-item-disabled-bg: hsl(var(--muted));
+                    --list-item-disabled-fg: hsl(var(--muted-foreground));
+                    --dropdown-bg: hsl(var(--popover));
+                    --dropdown-fg: hsl(var(--popover-foreground));
+                    --tab-button-bg: transparent;
+                    --tab-button-hover-bg: hsl(var(--muted));
+                    --tab-button-selected-bg: hsl(var(--accent));
+                    --tab-button-ck-bg: hsl(var(--accent));
+                    --tab-button-color: hsl(var(--foreground));
+                    --button-menu-bg: hsl(var(--background));
+                    --button-menu-fg: hsl(var(--foreground));
+                    --button-menu-hover-bg: hsl(var(--accent));
+                    --button-menu-hover-fg: hsl(var(--accent-foreground));
+                    --button-menu-disabled-bg: hsl(var(--muted));
+                    --button-menu-disabled-fg: hsl(var(--muted-foreground));
+                }
+
+                tab-header {
+                    display: block;
+                }
+
+                tab-header .horizontal-bar {
+                    display: flex;
+                    align-items: flex-end;
+                    gap: 0.15rem;
+                    padding: 0 0.5rem;
+                    border-bottom: 1px solid hsl(var(--border));
+                    background: color-mix(in oklab, hsl(var(--background)) 88%, transparent);
+                    backdrop-filter: blur(8px);
+                }
+
+                tab-header .bar-section {
+                    display: flex;
+                    align-items: flex-end;
+                    gap: 0.15rem;
+                }
+
+                tab-button {
+                    margin-bottom: -1px;
+                }
+
+                tab-button.beginning,
+                tab-button.tab {
+                    border-top-left-radius: 0.7rem;
+                    border-top-right-radius: 0.7rem;
+                }
+
+                tab-button.end {
+                    margin-left: auto;
+                    border-top-left-radius: 0.7rem;
+                    border-top-right-radius: 0.7rem;
+                }
+
+                tab-button[selected],
+                tab-button.active,
+                tab-button.checked {
+                    --tab-button-selected-bg: hsl(var(--accent));
+                }
+            `;
+        case "kc-ui-toggle-menu":
+            return `
+                button {
+                    border: 1px solid hsl(var(--border));
+                    border-radius: 9999px;
+                    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+                    padding: 0.4em 0.8em;
+                    gap: 0.35em;
+                    letter-spacing: 0.01em;
+                }
+
+                button:hover {
+                    border-color: hsl(var(--ring));
+                    transform: translateY(-1px);
+                }
+
+                button span {
+                    display: inline;
+                    font-size: 0.9em;
+                    font-weight: 600;
+                }
+
+                button kc-ui-icon {
+                    font-size: 0.95em;
+                    margin-top: 0;
+                    margin-bottom: 0;
+                }
+            `;
+        case "kc-ui-dropdown":
+            return `
+                :host {
+                    border: 1px solid hsl(var(--border));
+                    border-radius: 0.9rem;
+                    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+                    backdrop-filter: blur(12px);
+                    overflow: hidden;
+                }
+            `;
+        case "kc-ui-menu":
+            return `
+                :host(.dropdown) {
+                    --list-item-padding: 0.42em 0.72em;
+                    max-height: 50vh;
+                    overflow-y: auto;
+                    border-radius: 0.8rem;
+                }
+
+                :host(.outline) ::slotted(kc-ui-menu-item) {
+                    border-bottom: 1px solid hsl(var(--border));
+                }
+
+                :host(.dropdown) ::slotted(kc-ui-menu-item) {
+                    margin: 0.08rem 0.16rem;
+                    border-radius: 0.55rem;
+                }
+
+                :host(.dropdown) ::slotted(kc-ui-menu-label) {
+                    font-size: 0.68rem;
+                    font-weight: 700;
+                    letter-spacing: 0.14em;
+                    text-transform: uppercase;
+                }
+            `;
+        case "kc-ui-menu-item":
+            return `
+                :host {
+                    border-radius: 0.55rem;
+                }
+
+                kc-ui-icon {
+                    margin-right: 0.5em;
+                    margin-left: -0.1em;
+                }
+            `;
+        case "kc-ui-menu-label":
+            return `
+                :host {
+                    width: 100%;
+                    display: flex;
+                    flex-wrap: nowrap;
+                    padding: 0.2em 0.3em;
+                    background: hsl(var(--muted));
+                    color: hsl(var(--muted-foreground));
+                }
+            `;
+        default:
+            return "";
+    }
+}
+
+const STYLED_ROOTS = new WeakSet<ShadowRoot>();
+
+function injectViewerStyles(host: HTMLElement) {
     const walk = (root: HTMLElement) => {
         const sr = root.shadowRoot;
-        if (sr && !seen.has(sr)) {
-            seen.add(sr);
+        if (sr && !STYLED_ROOTS.has(sr)) {
+            STYLED_ROOTS.add(sr);
+            const rootTag = (sr.host as Element)?.tagName?.toLowerCase?.() ?? "";
             const sheet = new CSSStyleSheet();
-            sheet.replaceSync(HIDE_CSS);
+            sheet.replaceSync(`${VIEWER_BASE_CSS}\n${viewerThemeCssForRoot(rootTag)}`);
             try {
                 sr.adoptedStyleSheets = [...sr.adoptedStyleSheets, sheet];
             } catch {
                 const style = document.createElement("style");
-                style.textContent = HIDE_CSS;
+                style.textContent = `${VIEWER_BASE_CSS}\n${viewerThemeCssForRoot(rootTag)}`;
                 sr.appendChild(style);
             }
             for (const el of sr.querySelectorAll("*")) {
@@ -553,7 +751,7 @@ export function useEcadInfoPanel({ containerRef, viewerRefs }: UseEcadInfoPanelO
         let cancelled = false;
         const tryInject = () => {
             for (const r of viewerRefs) {
-                if (r.current) injectHideStyles(r.current as unknown as HTMLElement);
+                if (r.current) injectViewerStyles(r.current as unknown as HTMLElement);
             }
         };
         tryInject();
@@ -746,6 +944,7 @@ export function EcadViewerHost({
             if (cancelled || !hostRef.current) return;
 
             const el = hostRef.current;
+            injectViewerStyles(el as unknown as HTMLElement);
             el.querySelectorAll("ecad-blob").forEach((b) => b.remove());
 
             for (const { filename, content } of files) {
@@ -797,9 +996,16 @@ export function EcadViewerHost({
             }
         })();
 
+        const stylePollId = window.setInterval(() => {
+            if (cancelled) return;
+            const el = hostRef.current;
+            if (el) injectViewerStyles(el as unknown as HTMLElement);
+        }, 750);
+
         return () => {
             cancelled = true;
             try {
+                window.clearInterval(stylePollId);
                 if (passthroughPollId) {
                     window.clearInterval(passthroughPollId);
                     passthroughPollId = undefined;
