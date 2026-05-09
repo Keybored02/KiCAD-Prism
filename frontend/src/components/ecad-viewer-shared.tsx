@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { X, Check, X as XIcon, ChevronRight, Layers } from "lucide-react";
+import { X, Check, X as XIcon, ChevronRight, Layers, FileText } from "lucide-react";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 
 // ---------------------------------------------------------------------------
@@ -14,6 +14,7 @@ import type { ECadViewerElement } from "@/types/ecad-viewer";
 const VIEWER_BASE_CSS = `
     kc-board-properties-panel,
     kc-schematic-properties-panel,
+    tab-view,
     .bottom-left-badge {
         display: none !important;
     }
@@ -36,81 +37,6 @@ const VIEWER_BASE_CSS = `
         --list-item-active-fg: hsl(var(--accent-foreground));
         --list-item-disabled-bg: hsl(var(--muted));
         --list-item-disabled-fg: hsl(var(--muted-foreground));
-    }
-
-    tab-view {
-        position: absolute;
-        inset: 4rem auto auto 0.75rem;
-        width: min(20rem, calc(100vw - 1.5rem));
-        max-width: calc(100vw - 1.5rem);
-        max-height: calc(100vh - 1.5rem);
-        font-family: inherit;
-        font-size: 0.75rem;
-        color: hsl(var(--foreground));
-        display: flex;
-        flex-direction: column;
-        border: 1px solid hsl(var(--border));
-        border-radius: 0.9rem;
-        background: hsl(var(--background) / 0.9);
-        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
-        backdrop-filter: blur(12px);
-        overflow: hidden;
-        z-index: 40;
-    }
-
-    tab-view .horizontal {
-        align-items: center;
-        gap: 0.25rem;
-        padding: 0.6rem 0.6rem 0.45rem;
-        border-bottom: 1px solid hsl(var(--border));
-        background: hsl(var(--background) / 0.65);
-    }
-
-    tab-view .tab-container {
-        display: flex;
-        align-items: center;
-        gap: 0.25rem;
-        width: 100%;
-        margin-bottom: 0;
-        border-bottom: 0;
-        background: transparent;
-        overflow-x: auto;
-        overflow-y: hidden;
-        scrollbar-gutter: stable;
-    }
-
-    tab-view .tab {
-        border-radius: 9999px;
-        padding: 0.36rem 0.65rem;
-        margin-right: 0;
-        font-weight: 600;
-        letter-spacing: 0.01em;
-        color: hsl(var(--muted-foreground));
-        background: transparent;
-        transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
-    }
-
-    tab-view .tab.active {
-        color: hsl(var(--foreground));
-        background: hsl(var(--muted));
-        box-shadow: inset 0 0 0 1px hsl(var(--border));
-        border-bottom: 0;
-    }
-
-    tab-view .tab-content {
-        display: none;
-        padding: 0.65rem;
-        overflow: auto;
-        flex: 1 1 auto;
-    }
-
-    tab-view .tab-content.active {
-        display: block;
-    }
-
-    tab-view kc-ui-button {
-        flex: 0 0 auto;
-        align-self: flex-start;
     }
 `;
 
@@ -985,6 +911,276 @@ export interface EcadViewerHostProps {
     onViewer?: (node: ECadViewerElement | null) => void;
 }
 
+// ---------------------------------------------------------------------------
+// LayersPanel — React-rendered replacement for kicanvas's tab-view
+// ---------------------------------------------------------------------------
+//
+// The built-in tab-view lives inside the kicanvas shadow DOM and can't have
+// a higher z-index than React-tree siblings (e.g. the diff outline overlay
+// at z-20). We render our own panel in the React tree at z-50 so it cleanly
+// stacks above everything.
+//
+// For now this is layers-only: name + color swatch + visibility toggle.
+// We poll for the viewer's layer set, and on toggle flip `layer.visible`
+// then call `viewer.draw()` to repaint.
+
+interface LayerInfo {
+    name: string;
+    color: string;
+    visible: boolean;
+}
+
+interface PageInfo {
+    filename: string;
+    label: string;
+    active: boolean;
+}
+
+type LayerWithDraw = {
+    name: string;
+    color?: { to_css?: () => string };
+    visible: boolean;
+};
+
+type DrawableViewer = {
+    layers?: { in_ui_order?: () => Iterable<LayerWithDraw> };
+    draw?: () => void;
+    layer_visibility_ctrl?: { visibilities?: Map<string, boolean> } | null;
+};
+
+type SchFile = {
+    filename: string;
+    sheet_path?: string;
+};
+
+type SchProject = {
+    sch_in_order?: () => Iterable<SchFile>;
+};
+
+type SchAppViewer = {
+    sch_name?: string;
+    load?: (file: SchFile) => void | Promise<void>;
+};
+
+type SchAppLike = HTMLElement & {
+    project?: SchProject;
+    viewer?: SchAppViewer;
+};
+
+function findSchAppEl(host: ECadViewerElement | null): SchAppLike | null {
+    if (!host?.shadowRoot) return null;
+    const walk = (root: ShadowRoot | Element): SchAppLike | null => {
+        const sr = (root as HTMLElement).shadowRoot;
+        const searchRoot = (sr ?? root) as ShadowRoot | Element;
+        const direct = (searchRoot as ShadowRoot).querySelector?.("kc-schematic-app") as SchAppLike | null;
+        if (direct) return direct;
+        for (const child of (searchRoot as ShadowRoot).querySelectorAll?.("*") ?? []) {
+            if ((child as HTMLElement).shadowRoot) {
+                const found = walk(child as HTMLElement);
+                if (found) return found;
+            }
+        }
+        return null;
+    };
+    return walk(host);
+}
+
+function LayersPanel({
+    open,
+    onClose,
+    hostRef,
+}: {
+    open: boolean;
+    onClose: () => void;
+    hostRef: React.RefObject<ECadViewerElement | null>;
+}) {
+    const [layers, setLayers] = useState<LayerInfo[]>([]);
+    const [pages, setPages] = useState<PageInfo[]>([]);
+
+    // Poll for content — layers (PCB) or pages (schematic) appear once loaded.
+    useEffect(() => {
+        if (!open) return;
+        let stopped = false;
+        const refresh = () => {
+            if (stopped) return;
+            const host = hostRef.current;
+            if (!host) return;
+
+            // PCB: layers
+            const board = findBoardEl(host);
+            const inner = board?.viewer as DrawableViewer | undefined;
+            if (inner?.layers?.in_ui_order) {
+                const list: LayerInfo[] = [];
+                for (const l of inner.layers.in_ui_order()) {
+                    list.push({
+                        name: l.name,
+                        color: l.color?.to_css?.() ?? "#888",
+                        visible: !!l.visible,
+                    });
+                }
+                setLayers(list);
+            }
+
+            // Schematic: pages
+            const schApp = findSchAppEl(host);
+            if (schApp?.project?.sch_in_order) {
+                const activeName = schApp.viewer?.sch_name;
+                const list: PageInfo[] = [];
+                for (const f of schApp.project.sch_in_order()) {
+                    if (!f) continue;
+                    const filename = f.filename;
+                    const label = filename.replace(/\.kicad_sch$/i, "");
+                    list.push({
+                        filename,
+                        label,
+                        active: activeName === filename,
+                    });
+                }
+                setPages(list);
+            }
+        };
+        refresh();
+        const id = window.setInterval(refresh, 500);
+        return () => { stopped = true; window.clearInterval(id); };
+    }, [open, hostRef]);
+
+    const switchPage = useCallback((filename: string) => {
+        const host = hostRef.current;
+        if (!host) return;
+        const schApp = findSchAppEl(host);
+        if (!schApp?.project?.sch_in_order || !schApp.viewer?.load) return;
+        for (const f of schApp.project.sch_in_order()) {
+            if (f && f.filename === filename) {
+                schApp.viewer.load(f);
+                break;
+            }
+        }
+    }, [hostRef]);
+
+    const toggle = useCallback((name: string) => {
+        const host = hostRef.current;
+        if (!host) return;
+        const board = findBoardEl(host);
+        const inner = board?.viewer as DrawableViewer | undefined;
+        if (!inner?.layers?.in_ui_order) return;
+        let changed = false;
+        for (const l of inner.layers.in_ui_order()) {
+            if (l.name === name) {
+                l.visible = !l.visible;
+                changed = true;
+                // Keep the layer-visibility ctrl in sync so hit-testing reflects the
+                // new state (see useBoardClickFix).
+                const ctrl = inner.layer_visibility_ctrl;
+                if (ctrl?.visibilities) ctrl.visibilities.set(l.name, l.visible);
+                break;
+            }
+        }
+        if (changed) {
+            inner.draw?.();
+            setLayers(prev => prev.map(l => l.name === name ? { ...l, visible: !l.visible } : l));
+        }
+    }, [hostRef]);
+
+    if (!open) return null;
+
+    const isSchematic = pages.length > 0 && layers.length === 0;
+    const HeaderIcon = isSchematic ? FileText : Layers;
+    const headerLabel = isSchematic ? "Pages" : "Layers";
+
+    return (
+        <div
+            className="absolute top-3 left-3 z-50 flex flex-col rounded-xl border bg-background/95 shadow-xl backdrop-blur-md overflow-hidden"
+            style={{
+                width: "min(18rem, calc(100% - 1.5rem))",
+                maxHeight: "calc(100% - 1.5rem)",
+                transformOrigin: "top left",
+                animation: "prism-layers-panel-expand 220ms cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+        >
+            <div className="flex items-center gap-2 px-3 py-2 border-b bg-muted/30 shrink-0">
+                <HeaderIcon className="h-4 w-4 text-muted-foreground" />
+                <p className="text-xs font-semibold uppercase tracking-wider flex-1">{headerLabel}</p>
+                <button
+                    onClick={onClose}
+                    className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    type="button"
+                    aria-label="Close panel"
+                >
+                    <X className="h-3.5 w-3.5" />
+                </button>
+            </div>
+            <div className="overflow-y-auto px-1.5 py-1.5">
+                {isSchematic ? (
+                    <ul className="space-y-0.5">
+                        {pages.map((p) => (
+                            <li key={p.filename}>
+                                <button
+                                    onClick={() => switchPage(p.filename)}
+                                    className={`flex items-center gap-2 w-full px-2 py-1 rounded text-left text-xs transition-colors ${p.active ? "bg-accent text-accent-foreground" : "hover:bg-muted/60"}`}
+                                    type="button"
+                                >
+                                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span className="flex-1 truncate font-mono">{p.label}</span>
+                                    {p.active && <Check className="h-3.5 w-3.5 shrink-0" />}
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                ) : layers.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic px-2 py-2">Loading…</p>
+                ) : (
+                    <ul className="space-y-0.5">
+                        {layers.map((l) => (
+                            <li key={l.name}>
+                                <button
+                                    onClick={() => toggle(l.name)}
+                                    className={`flex items-center gap-2 w-full px-2 py-1 rounded text-left text-xs hover:bg-muted/60 transition-colors ${l.visible ? "" : "opacity-40"}`}
+                                    type="button"
+                                >
+                                    <span
+                                        className="inline-block h-3 w-3 rounded-sm shrink-0 border border-border"
+                                        style={{ background: l.color }}
+                                    />
+                                    <span className="flex-1 truncate font-mono">{l.name}</span>
+                                    {l.visible
+                                        ? <Check className="h-3.5 w-3.5 text-foreground shrink-0" />
+                                        : <XIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+        </div>
+    );
+}
+
+const LAYERS_PANEL_KEYFRAMES = `
+    @keyframes prism-layers-panel-expand {
+        from {
+            transform: scale(0.18);
+            opacity: 0;
+            border-radius: 9999px;
+        }
+        60% {
+            opacity: 1;
+        }
+        to {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+`;
+
+function ensureLayersPanelKeyframes() {
+    if (typeof document === "undefined") return;
+    if (document.getElementById("prism-layers-panel-keyframes")) return;
+    const style = document.createElement("style");
+    style.id = "prism-layers-panel-keyframes";
+    style.textContent = LAYERS_PANEL_KEYFRAMES;
+    document.head.appendChild(style);
+}
+
 export function EcadViewerHost({
     viewerKey,
     files,
@@ -992,6 +1188,9 @@ export function EcadViewerHost({
     onViewer,
 }: EcadViewerHostProps) {
     const hostRef = useRef<ECadViewerElement | null>(null);
+    const [isPanelOpen, setIsPanelOpen] = useState(false);
+
+    useEffect(() => { ensureLayersPanelKeyframes(); }, []);
 
     const attach = useCallback((node: ECadViewerElement | null) => {
         hostRef.current = node;
@@ -1097,20 +1296,6 @@ export function EcadViewerHost({
 
     const props: Record<string, string> = { "show-header": "false" };
 
-    // Helper to open the viewer's built-in layers/objects panel without
-    // relying on the header button. We drive the app state directly so the
-    // shared launcher works even when the header is hidden.
-    const openViewerMenu = useCallback(() => {
-        const el = hostRef.current;
-        if (!el) return;
-        const sr = (el as HTMLElement).shadowRoot;
-        if (!sr) return;
-        const app = sr.querySelector("kc-board-app, kc-schematic-app") as HTMLElement | null;
-        if (!app) return;
-        const anyApp = app as { tabMenuHidden?: boolean };
-        anyApp.tabMenuHidden = !anyApp.tabMenuHidden;
-    }, []);
-
     return (
         <div style={{ width: "100%", height: "100%", position: "relative" }}>
             <ecad-viewer
@@ -1120,14 +1305,19 @@ export function EcadViewerHost({
                 {...props}
             />
             <button
-                aria-label="Open viewer menu"
-                title="Open viewer menu"
-                onClick={openViewerMenu}
-                className="absolute top-3 left-3 z-50 bg-background/90 border border-border rounded-full p-2 shadow hover:shadow-md"
+                aria-label="Open layers panel"
+                title="Layers"
+                onClick={() => setIsPanelOpen(true)}
+                className={`absolute top-3 left-3 z-50 bg-background/90 border border-border rounded-full p-2 shadow hover:shadow-md transition-all duration-200 ease-out ${isPanelOpen ? "opacity-0 pointer-events-none scale-90" : "opacity-100"}`}
                 type="button"
             >
                 <Layers className="h-4 w-4 text-foreground" />
             </button>
+            <LayersPanel
+                open={isPanelOpen}
+                onClose={() => setIsPanelOpen(false)}
+                hostRef={hostRef}
+            />
         </div>
     );
 }

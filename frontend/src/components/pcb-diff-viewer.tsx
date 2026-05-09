@@ -38,6 +38,7 @@ interface PcbItem {
     width?: number;
     size?: number;
     drill?: number;
+    rotation?: number;
     polygon_points?: [number, number][];
 }
 
@@ -146,7 +147,18 @@ function itemLabel(item: PcbItem): string {
 }
 
 function fieldLabel(key: string): string {
+    if (key === "outline_sig") return "Outline";
+    if (key === "net_name") return "Net";
     return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatFieldValue(field: string, value: unknown): string {
+    if (value == null || value === "") return "–";
+    if (field === "outline_sig") {
+        const pts = String(value).split(";").filter(Boolean).length;
+        return `${pts} point${pts === 1 ? "" : "s"}`;
+    }
+    return String(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -492,7 +504,7 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                                 width="8" height="8"
                                 patternTransform="rotate(45)"
                             >
-                                <rect width="8" height="8" fill={`${color}22`} />
+                                <rect width="8" height="8" fill="transparent" />
                                 <line x1="0" y1="0" x2="0" y2="8"
                                     stroke={color} strokeWidth="3" strokeOpacity="0.6" />
                             </pattern>
@@ -1101,9 +1113,9 @@ export function PcbDiffViewer({
                                             <div key={field} className="ml-3 rounded border bg-muted/30 p-1.5 space-y-1">
                                                 <p className="font-medium text-muted-foreground">{fieldLabel(field)}</p>
                                                 <div className="flex items-center gap-1 font-mono text-[11px]">
-                                                    <span className="text-red-500 line-through truncate max-w-[80px]">{String(ov ?? "–")}</span>
+                                                    <span className="text-red-500 line-through truncate max-w-[80px]">{formatFieldValue(field, ov)}</span>
                                                     <ChevronRight className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-                                                    <span className="text-green-500 truncate max-w-[80px]">{String(nv ?? "–")}</span>
+                                                    <span className="text-green-500 truncate max-w-[80px]">{formatFieldValue(field, nv)}</span>
                                                 </div>
                                             </div>
                                         ))}

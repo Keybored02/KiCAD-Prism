@@ -28,13 +28,27 @@ def _property(lst: list, name: str) -> Optional[str]:
     return None
 
 
+def _at_with_rot(lst: list) -> tuple:
+    """Return (x, y, rotation_deg) from an (at x y [rot]) node."""
+    a = _get(lst, 'at')
+    if a and len(a) >= 3:
+        try:
+            x = float(a[1])
+            y = float(a[2])
+            rot = float(a[3]) if len(a) >= 4 else 0.0
+            return x, y, rot
+        except (ValueError, TypeError):
+            pass
+    return 0.0, 0.0, 0.0
+
+
 def _extract_footprints(tree: list) -> dict:
     result = {}
     for item in _get_all(tree, 'footprint'):
         uid = _uuid(item)
         if not uid:
             continue
-        x, y = _at(item)
+        x, y, rot = _at_with_rot(item)
         layer_node = _get(item, 'layer')
         layer = layer_node[1] if layer_node and len(layer_node) > 1 else ''
         result[uid] = {
@@ -42,6 +56,7 @@ def _extract_footprints(tree: list) -> dict:
             'uuid': uid,
             'x': x,
             'y': y,
+            'rotation': rot,
             'reference': _property(item, 'Reference') or '',
             'value': _property(item, 'Value') or '',
             'lib_id': item[1] if len(item) > 1 and isinstance(item[1], str) else '',
@@ -129,13 +144,17 @@ def _extract_zones(tree: list) -> dict:
         net_node = _get(item, 'net')
         net_name_node = _get(item, 'net_name')
         name_node = _get(item, 'name')
-        # Collect outline polygon points for frontend rendering
+        layer_node = _get(item, 'layer')
+        layer = layer_node[1] if layer_node and len(layer_node) > 1 else ''
+        # Collect outline polygon points for frontend rendering + comparison
         polygon_points = []
         if polygon:
             pts = _get(polygon, 'pts')
             if pts:
                 xys = _get_all(pts, 'xy')
                 polygon_points = [[float(p[1]), float(p[2])] for p in xys if len(p) > 2]
+        # Stable signature for the zone outline so polygon edits register as changes.
+        outline_sig = ';'.join(f'{px:.4f},{py:.4f}' for px, py in polygon_points)
         result[uid] = {
             'type': 'zone',
             'uuid': uid,
@@ -144,7 +163,9 @@ def _extract_zones(tree: list) -> dict:
             'net': str(net_node[1]) if net_node and len(net_node) > 1 else '',
             'net_name': net_name_node[1] if net_name_node and len(net_name_node) > 1 else '',
             'name': name_node[1] if name_node and len(name_node) > 1 else '',
+            'layer': layer,
             'polygon_points': polygon_points,
+            'outline_sig': outline_sig,
         }
     return result
 
@@ -189,10 +210,10 @@ def _extract_all_pcb(tree: list) -> dict:
 # ---------------------------------------------------------------------------
 
 _PCB_COMPARABLE_KEYS = {
-    'footprint': ['reference', 'value', 'lib_id', 'layer', 'x', 'y'],
+    'footprint': ['reference', 'value', 'lib_id', 'layer', 'x', 'y', 'rotation'],
     'segment':   ['start_x', 'start_y', 'end_x', 'end_y', 'layer', 'net', 'width'],
     'via':       ['x', 'y', 'size', 'drill', 'net'],
-    'zone':      ['net_name', 'name', 'x', 'y'],
+    'zone':      ['net', 'net_name', 'name', 'layer', 'x', 'y', 'outline_sig'],
     'gr_text':   ['text', 'layer', 'x', 'y'],
     'gr_line':   ['layer', 'x', 'y'],
     'gr_circle': ['layer', 'x', 'y'],
