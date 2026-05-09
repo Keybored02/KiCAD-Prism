@@ -99,6 +99,30 @@ def _property(lst: list, name: str) -> Optional[str]:
     return None
 
 
+def _at_with_rot(lst: list) -> tuple:
+    """Return (x, y, rotation_deg) from an (at x y [rot]) node."""
+    a = _get(lst, 'at')
+    if a and len(a) >= 3:
+        try:
+            x = float(a[1])
+            y = float(a[2])
+            rot = float(a[3]) if len(a) >= 4 else 0.0
+            return x, y, rot
+        except (ValueError, TypeError):
+            pass
+    return 0.0, 0.0, 0.0
+
+
+def _flag(lst: list, key: str) -> bool:
+    """Return True if a bare atom or sub-list with key is present."""
+    for item in lst:
+        if item == key:
+            return True
+        if isinstance(item, list) and item and item[0] == key:
+            return True
+    return False
+
+
 def _extract_symbols(tree: list) -> dict:
     """Return {uuid: item_dict} for all symbol instances."""
     result = {}
@@ -106,12 +130,28 @@ def _extract_symbols(tree: list) -> dict:
         uid = _uuid(item)
         if not uid:
             continue
-        x, y = _at(item)
+        x, y, rot = _at_with_rot(item)
+        mirror_node = _get(item, 'mirror')
+        mirror = mirror_node[1] if mirror_node and len(mirror_node) > 1 else ''
+        unit_node = _get(item, 'unit')
+        unit = int(unit_node[1]) if unit_node and len(unit_node) > 1 else 1
+        in_bom_node = _get(item, 'in_bom')
+        in_bom = (in_bom_node[1] if in_bom_node and len(in_bom_node) > 1 else 'yes') == 'yes'
+        on_board_node = _get(item, 'on_board')
+        on_board = (on_board_node[1] if on_board_node and len(on_board_node) > 1 else 'yes') == 'yes'
+        dnp_node = _get(item, 'dnp')
+        dnp = (dnp_node[1] if dnp_node and len(dnp_node) > 1 else 'no') == 'yes'
         result[uid] = {
             'type': 'symbol',
             'uuid': uid,
             'x': x,
             'y': y,
+            'rotation': rot,
+            'mirror': mirror,
+            'unit': unit,
+            'in_bom': in_bom,
+            'on_board': on_board,
+            'dnp': dnp,
             'reference': _property(item, 'Reference') or '',
             'value': _property(item, 'Value') or '',
             'footprint': _property(item, 'Footprint') or '',
@@ -181,12 +221,62 @@ def _extract_sheets(tree: list) -> dict:
     return result
 
 
+def _extract_wires(tree: list) -> dict:
+    """Extract wires, buses, bus_entries, junctions, no_connects by geometry hash."""
+    result = {}
+    # Two-point elements: wire, bus, bus_entry
+    for kind in ('wire', 'bus', 'bus_entry'):
+        for item in _get_all(tree, kind):
+            pts = _get(item, 'pts')
+            if not pts:
+                continue
+            xys = _get_all(pts, 'xy')
+            coords = []
+            for xy in xys:
+                if len(xy) >= 3:
+                    try:
+                        coords.append((float(xy[1]), float(xy[2])))
+                    except (ValueError, TypeError):
+                        pass
+            if len(coords) < 2:
+                continue
+            # Normalise direction
+            if coords[0] > coords[1]:
+                coords[0], coords[1] = coords[1], coords[0]
+            sx, sy = coords[0]
+            ex, ey = coords[1]
+            geo_key = f"{kind}:{sx:.4f},{sy:.4f}-{ex:.4f},{ey:.4f}"
+            result[geo_key] = {
+                'type': kind,
+                'uuid': geo_key,
+                'x': (sx + ex) / 2,
+                'y': (sy + ey) / 2,
+                'start_x': sx, 'start_y': sy,
+                'end_x': ex, 'end_y': ey,
+                'net': '',
+            }
+    # Point elements: junction, no_connect
+    for kind in ('junction', 'no_connect'):
+        for item in _get_all(tree, kind):
+            x, y = _at(item)
+            geo_key = f"{kind}:{x:.4f},{y:.4f}"
+            result[geo_key] = {
+                'type': kind,
+                'uuid': geo_key,
+                'x': x,
+                'y': y,
+                'net': '',
+            }
+    return result
+
+
 def _extract_all(tree: list) -> dict:
     items = {}
     items.update(_extract_symbols(tree))
     items.update(_extract_labels(tree))
     items.update(_extract_texts(tree))
     items.update(_extract_sheets(tree))
+    items.update(_extract_wires(tree))
     return items
 
 
@@ -195,13 +285,18 @@ def _extract_all(tree: list) -> dict:
 # ---------------------------------------------------------------------------
 
 _COMPARABLE_KEYS = {
-    'symbol': ['reference', 'value', 'footprint', 'lib_id', 'x', 'y'],
+    'symbol': ['reference', 'value', 'footprint', 'lib_id', 'x', 'y', 'rotation', 'mirror', 'unit', 'in_bom', 'on_board', 'dnp'],
     'label': ['text', 'x', 'y'],
     'global_label': ['text', 'x', 'y'],
     'hierarchical_label': ['text', 'x', 'y'],
     'net_label': ['text', 'x', 'y'],
     'text': ['text', 'x', 'y'],
     'sheet': ['sheet_file', 'sheet_name', 'x', 'y'],
+    'wire': ['start_x', 'start_y', 'end_x', 'end_y'],
+    'bus': ['start_x', 'start_y', 'end_x', 'end_y'],
+    'bus_entry': ['start_x', 'start_y', 'end_x', 'end_y'],
+    'junction': ['x', 'y'],
+    'no_connect': ['x', 'y'],
 }
 
 

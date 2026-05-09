@@ -33,13 +33,28 @@ interface PcbItem {
     text?: string;
     start_x?: number;
     start_y?: number;
+    mid_x?: number;
+    mid_y?: number;
     end_x?: number;
     end_y?: number;
     width?: number;
     size?: number;
     drill?: number;
     rotation?: number;
+    pad_sig?: string;
+    geo_sig?: string;
     polygon_points?: [number, number][];
+    // via extras
+    start_layer?: string;
+    end_layer?: string;
+    via_type?: string;
+    // zone extras
+    priority?: number;
+    fill_mode?: string;
+    min_thickness?: number;
+    connect_pads_mode?: string;
+    connect_pads_clearance?: number;
+    keepout_sig?: string;
 }
 
 interface FieldChange {
@@ -142,14 +157,37 @@ function itemLabel(item: PcbItem): string {
     if (item.net_name) return item.net_name;
     if (item.name) return item.name;
     if (item.type === "segment") return `Wire${item.layer ? ` ${item.layer}` : ""}`;
-    if (item.type === "via") return `Via${item.net ? ` ${item.net}` : ""}`;
+    if (item.type === "arc")     return `Arc${item.layer ? ` ${item.layer}` : ""}`;
+    if (item.type === "via")     return `Via${item.net_name ? ` ${item.net_name}` : item.net ? ` Net ${item.net}` : ""}`;
+    if (item.type === "gr_line")   return `Line${item.layer ? ` (${item.layer})` : ""}`;
+    if (item.type === "gr_circle") return `Circle${item.layer ? ` (${item.layer})` : ""}`;
+    if (item.type === "gr_rect")   return `Rect${item.layer ? ` (${item.layer})` : ""}`;
+    if (item.type === "gr_arc")    return `Arc${item.layer ? ` (${item.layer})` : ""}`;
+    if (item.type === "gr_poly")   return `Polygon${item.layer ? ` (${item.layer})` : ""}`;
     return item.type;
 }
 
 function fieldLabel(key: string): string {
-    if (key === "outline_sig") return "Outline";
-    if (key === "net_name") return "Net";
-    return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const LABELS: Record<string, string> = {
+        outline_sig: "Outline",
+        net_name: "Net",
+        pad_sig: "Pads",
+        geo_sig: "Geometry",
+        keepout_sig: "Keepout",
+        start_layer: "From Layer",
+        end_layer: "To Layer",
+        via_type: "Via Type",
+        fill_mode: "Fill Mode",
+        fill_thermal_gap: "Thermal Gap",
+        fill_thermal_bridge: "Thermal Bridge",
+        min_thickness: "Min Thickness",
+        connect_pads_mode: "Connect Pads",
+        connect_pads_clearance: "Pad Clearance",
+        in_bom: "In BOM",
+        on_board: "On Board",
+        dnp: "DNP",
+    };
+    return LABELS[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function formatFieldValue(field: string, value: unknown): string {
@@ -158,6 +196,15 @@ function formatFieldValue(field: string, value: unknown): string {
         const pts = String(value).split(";").filter(Boolean).length;
         return `${pts} point${pts === 1 ? "" : "s"}`;
     }
+    if (field === "pad_sig") {
+        const pads = String(value).split(";").filter(Boolean).length;
+        return `${pads} pad${pads === 1 ? "" : "s"}`;
+    }
+    if (field === "keepout_sig") {
+        return String(value).split(";").filter(Boolean).join(", ") || "–";
+    }
+    if (field === "geo_sig") return "changed";
+    if (typeof value === "boolean") return value ? "yes" : "no";
     return String(value);
 }
 
@@ -224,7 +271,8 @@ function _bboxFromMembers(members: DiffMarker[]): { minX: number; minY: number; 
     return { minX, minY, maxX, maxY };
 }
 
-const GRAPHIC_TYPES = new Set(["gr_text", "gr_line", "gr_circle", "gr_rect", "gr_arc"]);
+const GRAPHIC_TYPES = new Set(["gr_text", "gr_line", "gr_circle", "gr_rect", "gr_arc", "gr_poly"]);
+const TRACK_TYPES   = new Set(["segment", "arc"]);
 
 function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
     const result: GroupedMarker[] = [];
@@ -244,27 +292,28 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
         });
     }
 
-    // ── Nets (segments + vias) — group by net name across all kinds ──
+    // ── Nets (segments + arcs + vias) — group by net name ──
     const netMap = new Map<string, DiffMarker[]>();
     for (const m of raw) {
-        if (m.item.type !== "segment" && m.item.type !== "via") continue;
-        const key = m.item.net ?? "(no net)";
+        if (!TRACK_TYPES.has(m.item.type) && m.item.type !== "via") continue;
+        // Prefer net_name (human-readable) as the group key; fall back to net number string
+        const key = m.item.net_name || (m.item.net != null && m.item.net !== "" ? `Net ${m.item.net}` : "(no net)");
         const arr = netMap.get(key) ?? [];
         arr.push(m);
         netMap.set(key, arr);
     }
-    for (const [net, members] of netMap) {
+    for (const [netLabel, members] of netMap) {
         const { minX, minY, maxX, maxY } = _bboxFromMembers(members);
         const kind = _mergedKind(members);
-        const segCount  = members.filter(m => m.item.type === "segment").length;
-        const viaCount  = members.filter(m => m.item.type === "via").length;
+        const trackCount = members.filter(m => TRACK_TYPES.has(m.item.type)).length;
+        const viaCount   = members.filter(m => m.item.type === "via").length;
         const parts: string[] = [];
-        if (segCount)  parts.push(`${segCount} wire${segCount > 1 ? "s" : ""}`);
-        if (viaCount)  parts.push(`${viaCount} via${viaCount > 1 ? "s" : ""}`);
-        const netLabel = net === "(no net)" ? "No net" : net;
+        if (trackCount) parts.push(`${trackCount} wire${trackCount > 1 ? "s" : ""}`);
+        if (viaCount)   parts.push(`${viaCount} via${viaCount > 1 ? "s" : ""}`);
+        const label = parts.length > 0 ? `${netLabel} — ${parts.join(", ")}` : netLabel;
         result.push({
             id: nextId(), category: "nets", kind,
-            label: `${netLabel} — ${parts.join(", ")}`,
+            label,
             members, bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
         });
     }

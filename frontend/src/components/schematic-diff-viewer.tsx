@@ -28,10 +28,22 @@ interface SchItem {
     value?: string;
     footprint?: string;
     lib_id?: string;
+    rotation?: number;
+    mirror?: string;
+    unit?: number;
+    in_bom?: boolean;
+    on_board?: boolean;
+    dnp?: boolean;
     // label/text/sheet fields
     text?: string;
     sheet_file?: string;
     sheet_name?: string;
+    // wire/bus/junction geometry
+    start_x?: number;
+    start_y?: number;
+    end_x?: number;
+    end_y?: number;
+    net?: string;
 }
 
 interface FieldChange {
@@ -111,7 +123,19 @@ function itemLabel(item: SchItem): string {
 }
 
 function fieldLabel(key: string): string {
-    return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const LABELS: Record<string, string> = {
+        lib_id: "Library ID",
+        in_bom: "In BOM",
+        on_board: "On Board",
+        dnp: "DNP",
+    };
+    return LABELS[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatFieldValue(field: string, value: unknown): string {
+    if (value == null || value === "") return "–";
+    if (typeof value === "boolean") return value ? "yes" : "no";
+    return String(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -874,9 +898,9 @@ export function SchematicDiffViewer({
                                     <div key={field} className="rounded border bg-muted/30 p-1.5 space-y-1">
                                         <p className="font-medium text-muted-foreground">{fieldLabel(field)}</p>
                                         <div className="flex items-center gap-1 font-mono text-[11px]">
-                                            <span className="text-red-500 line-through truncate max-w-[80px]">{String(ov ?? "–")}</span>
+                                            <span className="text-red-500 line-through truncate max-w-[80px]">{formatFieldValue(field, ov)}</span>
                                             <ChevronRight className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-                                            <span className="text-green-500 truncate max-w-[80px]">{String(nv ?? "–")}</span>
+                                            <span className="text-green-500 truncate max-w-[80px]">{formatFieldValue(field, nv)}</span>
                                         </div>
                                     </div>
                                 ))}

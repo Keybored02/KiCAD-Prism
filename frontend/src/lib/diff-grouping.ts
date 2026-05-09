@@ -52,20 +52,26 @@ export function categoryFor(type: string | undefined): Category {
         // PCB
         case "footprint": return "components";
         case "segment":
+        case "arc":
         case "via":       return "nets";
         case "zone":      return "zones";
         case "gr_text":
         case "gr_line":
         case "gr_circle":
         case "gr_rect":
-        case "gr_arc":    return "graphics";
+        case "gr_arc":
+        case "gr_poly":   return "graphics";
         // Schematic
         case "symbol":              return "symbols";
         case "label":
         case "global_label":
         case "hierarchical_label":
         case "net_label":
-        case "wire":                return "nets";
+        case "wire":
+        case "bus":
+        case "bus_entry":
+        case "junction":
+        case "no_connect":          return "nets";
         case "sheet":               return "sheets";
         case "text":                return "text";
         default:                    return "other";
@@ -231,12 +237,16 @@ function labelForGroup(g: DiffGroup): string {
                         ? String(item.text)
                         : "No net";
             const parts: string[] = [];
-            const segCount  = m.filter(x => x.item.type === "segment" || x.item.type === "wire").length;
+            const segCount  = m.filter(x => x.item.type === "segment" || x.item.type === "wire" || x.item.type === "arc").length;
             const viaCount  = m.filter(x => x.item.type === "via").length;
             const lblCount  = m.filter(x => x.item.type === "label" || x.item.type === "global_label" || x.item.type === "hierarchical_label" || x.item.type === "net_label").length;
+            const busCount  = m.filter(x => x.item.type === "bus" || x.item.type === "bus_entry").length;
+            const jncCount  = m.filter(x => x.item.type === "junction" || x.item.type === "no_connect").length;
             if (segCount) parts.push(`${segCount} ${segCount === 1 ? "wire" : "wires"}`);
             if (viaCount) parts.push(`${viaCount} ${viaCount === 1 ? "via" : "vias"}`);
             if (lblCount) parts.push(`${lblCount} ${lblCount === 1 ? "label" : "labels"}`);
+            if (busCount) parts.push(`${busCount} ${busCount === 1 ? "bus" : "buses"}`);
+            if (jncCount) parts.push(`${jncCount} ${jncCount === 1 ? "junction" : "junctions"}`);
             return parts.length > 0 ? `${netLabel} — ${parts.join(", ")}` : netLabel;
         }
         case "graphics": {
