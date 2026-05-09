@@ -441,8 +441,9 @@ def get_schematic_diff(project_id: str, commit1: str, commit2: str) -> Optional[
     sheets = []
     for rel_path in sorted(all_paths):
         filename = rel_path.split('/')[-1]
-        old_content = _read_file_at_commit(repo_root, commit1, rel_path) if rel_path in paths1 else None
-        new_content = _read_file_at_commit(repo_root, commit2, rel_path) if rel_path in paths2 else None
+        # commit1 = newer, commit2 = older (parent)
+        new_content = _read_file_at_commit(repo_root, commit1, rel_path) if rel_path in paths1 else None
+        old_content = _read_file_at_commit(repo_root, commit2, rel_path) if rel_path in paths2 else None
 
         if old_content and new_content:
             diff = diff_schematics(old_content, new_content)
