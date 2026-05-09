@@ -783,7 +783,10 @@ export function PcbDiffViewer({
     const zoomToGroupOn = useCallback((g: GroupedMarker, target: "new" | "old", attempt = 0) => {
         const ref = target === "new" ? newViewerRef : oldViewerRef;
         const viewer = ref.current;
-        if (!viewer) return;
+        if (!viewer) {
+            if (attempt < 24) window.setTimeout(() => zoomToGroupOn(g, target, attempt + 1), 125);
+            return;
+        }
         try {
             const boardEl = getBoardEl(viewer);
             const camera  = boardEl?.viewer?.viewport?.camera;
@@ -848,6 +851,25 @@ export function PcbDiffViewer({
     useEffect(() => {
         if (!data || !focusItemId) return;
         if (focusedIdRef.current === focusItemId) return;
+
+        let foundBoard: string | null = null;
+        for (const board of data.boards) {
+            const hasItem =
+                board.diff.added.some(i => i.uuid === focusItemId) ||
+                board.diff.removed.some(i => i.uuid === focusItemId) ||
+                board.diff.changed.some(c => c.item.uuid === focusItemId);
+            if (hasItem) {
+                foundBoard = board.filename;
+                break;
+            }
+        }
+
+        if (!foundBoard) return;
+        if (foundBoard !== activeBoard) {
+            setActiveBoard(foundBoard);
+            return;
+        }
+
         focusedIdRef.current = focusItemId;
         // Defer so the viewer has time to mount/load; use refs so we always
         // read the latest allGroups and handleGroupClick when the timer fires.
@@ -858,7 +880,7 @@ export function PcbDiffViewer({
             if (target) handleGroupClickRef.current(target);
         }, 500);
         return () => window.clearTimeout(t);
-    }, [data, focusItemId]);
+    }, [data, focusItemId, activeBoard]);
 
     // Fire onCrossProbe when the user selects an item.
     // kicanvas:select bubbles+composed so it reaches the container div.

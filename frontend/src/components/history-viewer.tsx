@@ -368,6 +368,12 @@ function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
     );
 }
 
+function firstDiffItemId(diff: FileDiffPayload): string | undefined {
+    return diff.changed_items?.[0]?.id
+        ?? diff.added_items?.[0]?.id
+        ?? diff.removed_items?.[0]?.id;
+}
+
 interface CommitItemProps {
     commit: Commit;
     projectId: string;
@@ -560,7 +566,7 @@ function CommitItem({
                                 {fileClickable ? (
                                     <button
                                         type="button"
-                                        onClick={() => onOpenItemDiff!(fileTab!)}
+                                        onClick={() => onOpenItemDiff!(fileTab!, firstDiffItemId(itemDiff))}
                                         className="w-full text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors"
                                         title="Open diff viewer for this file"
                                     >
