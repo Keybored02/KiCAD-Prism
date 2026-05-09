@@ -13,7 +13,8 @@ import type { ECadViewerElement } from "@/types/ecad-viewer";
 
 const VIEWER_BASE_CSS = `
     kc-board-properties-panel,
-    kc-schematic-properties-panel {
+    kc-schematic-properties-panel,
+    .bottom-left-badge {
         display: none !important;
     }
 
