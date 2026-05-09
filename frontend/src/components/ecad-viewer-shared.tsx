@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { X, Check, X as XIcon, ChevronRight } from "lucide-react";
+import { X, Check, X as XIcon, ChevronRight, Layers } from "lucide-react";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 
 // ---------------------------------------------------------------------------
@@ -15,15 +15,6 @@ const VIEWER_BASE_CSS = `
     kc-board-properties-panel,
     kc-schematic-properties-panel {
         display: none !important;
-    }
-
-    kc-ui-toggle-menu {
-        --button-menu-bg: hsl(var(--background));
-        --button-menu-fg: hsl(var(--foreground));
-        --button-menu-hover-bg: hsl(var(--accent));
-        --button-menu-hover-fg: hsl(var(--accent-foreground));
-        --button-menu-disabled-bg: hsl(var(--muted));
-        --button-menu-disabled-fg: hsl(var(--muted-foreground));
     }
 
     kc-ui-dropdown {
@@ -44,6 +35,81 @@ const VIEWER_BASE_CSS = `
         --list-item-active-fg: hsl(var(--accent-foreground));
         --list-item-disabled-bg: hsl(var(--muted));
         --list-item-disabled-fg: hsl(var(--muted-foreground));
+    }
+
+    tab-view {
+        position: absolute;
+        inset: 4rem auto auto 0.75rem;
+        width: min(20rem, calc(100vw - 1.5rem));
+        max-width: calc(100vw - 1.5rem);
+        max-height: calc(100vh - 1.5rem);
+        font-family: inherit;
+        font-size: 0.75rem;
+        color: hsl(var(--foreground));
+        display: flex;
+        flex-direction: column;
+        border: 1px solid hsl(var(--border));
+        border-radius: 0.9rem;
+        background: hsl(var(--background) / 0.9);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+        backdrop-filter: blur(12px);
+        overflow: hidden;
+        z-index: 40;
+    }
+
+    tab-view .horizontal {
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.6rem 0.6rem 0.45rem;
+        border-bottom: 1px solid hsl(var(--border));
+        background: hsl(var(--background) / 0.65);
+    }
+
+    tab-view .tab-container {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        width: 100%;
+        margin-bottom: 0;
+        border-bottom: 0;
+        background: transparent;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-gutter: stable;
+    }
+
+    tab-view .tab {
+        border-radius: 9999px;
+        padding: 0.36rem 0.65rem;
+        margin-right: 0;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: hsl(var(--muted-foreground));
+        background: transparent;
+        transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+    }
+
+    tab-view .tab.active {
+        color: hsl(var(--foreground));
+        background: hsl(var(--muted));
+        box-shadow: inset 0 0 0 1px hsl(var(--border));
+        border-bottom: 0;
+    }
+
+    tab-view .tab-content {
+        display: none;
+        padding: 0.65rem;
+        overflow: auto;
+        flex: 1 1 auto;
+    }
+
+    tab-view .tab-content.active {
+        display: block;
+    }
+
+    tab-view kc-ui-button {
+        flex: 0 0 auto;
+        align-self: flex-start;
     }
 `;
 
@@ -164,6 +230,9 @@ function viewerThemeCssForRoot(rootTag: string): string {
         case "kc-ui-menu":
             return `
                 :host(.dropdown) {
+                    font-family: inherit;
+                    font-size: 0.75rem;
+                    color: hsl(var(--foreground));
                     --list-item-padding: 0.42em 0.72em;
                     max-height: 50vh;
                     overflow-y: auto;
@@ -189,6 +258,10 @@ function viewerThemeCssForRoot(rootTag: string): string {
         case "kc-ui-menu-item":
             return `
                 :host {
+                    font-family: inherit;
+                    font-size: 0.75rem;
+                    line-height: 1.35;
+                    color: hsl(var(--foreground));
                     border-radius: 0.55rem;
                 }
 
@@ -909,8 +982,6 @@ export interface EcadViewerHostProps {
     viewerRef?: React.RefObject<ECadViewerElement | null>;
     /** Callback form. Fires with the live node and with null on detach. */
     onViewer?: (node: ECadViewerElement | null) => void;
-    showHeader?: boolean;
-    headerSections?: string;
 }
 
 export function EcadViewerHost({
@@ -918,8 +989,6 @@ export function EcadViewerHost({
     files,
     viewerRef,
     onViewer,
-    showHeader = false,
-    headerSections,
 }: EcadViewerHostProps) {
     const hostRef = useRef<ECadViewerElement | null>(null);
 
@@ -1025,16 +1094,40 @@ export function EcadViewerHost({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [viewerKey, filesKey]);
 
-    const props: Record<string, string> = { "show-header": showHeader ? "true" : "false" };
-    if (headerSections) props["header-sections"] = headerSections;
+    const props: Record<string, string> = { "show-header": "false" };
+
+    // Helper to open the viewer's built-in layers/objects panel without
+    // relying on the header button. We drive the app state directly so the
+    // shared launcher works even when the header is hidden.
+    const openViewerMenu = useCallback(() => {
+        const el = hostRef.current;
+        if (!el) return;
+        const sr = (el as HTMLElement).shadowRoot;
+        if (!sr) return;
+        const app = sr.querySelector("kc-board-app, kc-schematic-app") as HTMLElement | null;
+        if (!app) return;
+        const anyApp = app as { tabMenuHidden?: boolean };
+        anyApp.tabMenuHidden = !anyApp.tabMenuHidden;
+    }, []);
 
     return (
-        <ecad-viewer
-            ref={attach}
-            style={{ width: "100%", height: "100%" }}
-            key={viewerKey}
-            {...props}
-        />
+        <div style={{ width: "100%", height: "100%", position: "relative" }}>
+            <ecad-viewer
+                ref={attach}
+                style={{ width: "100%", height: "100%" }}
+                key={viewerKey}
+                {...props}
+            />
+            <button
+                aria-label="Open viewer menu"
+                title="Open viewer menu"
+                onClick={openViewerMenu}
+                className="absolute top-3 left-3 z-50 bg-background/90 border border-border rounded-full p-2 shadow hover:shadow-md"
+                type="button"
+            >
+                <Layers className="h-4 w-4 text-foreground" />
+            </button>
+        </div>
     );
 }
 

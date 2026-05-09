@@ -1145,8 +1145,6 @@ export function PcbDiffViewer({
                                         .filter(b => b.new_content)
                                         .map(b => ({ filename: b.filename, content: b.new_content! }))}
                                     viewerRef={newViewerRef}
-                                    showHeader
-                                    headerSections="beginning,end"
                                 />
                             </div>
                             <div
@@ -1159,8 +1157,6 @@ export function PcbDiffViewer({
                                         .filter(b => b.old_content)
                                         .map(b => ({ filename: b.filename, content: b.old_content! }))}
                                     viewerRef={oldViewerRef}
-                                    showHeader
-                                    headerSections="beginning,end"
                                 />
                             </div>
                             <DiffOverlay

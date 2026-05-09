@@ -1265,8 +1265,6 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                                 viewerKey={schematicViewerKey}
                                 files={schematicSources}
                                 onViewer={setSchematicViewerRef}
-                                showHeader
-                                headerSections="beginning,end"
                             />
                         ) : (
                             <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -1298,8 +1296,6 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                                 viewerKey={pcbViewerKey}
                                 files={pcbSources}
                                 onViewer={setPcbViewerRef}
-                                showHeader
-                                headerSections="beginning,end"
                             />
                         ) : (
                             <div className="flex items-center justify-center h-full text-muted-foreground">
