@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { X, Check, X as XIcon, ChevronRight, Layers, FileText } from "lucide-react";
+import { X, Check, X as XIcon, ChevronRight, Layers, FileText, Boxes, Network, Cpu, Eye, EyeOff, Search } from "lucide-react";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 
 // ---------------------------------------------------------------------------
@@ -909,6 +909,9 @@ export interface EcadViewerHostProps {
     viewerRef?: React.RefObject<ECadViewerElement | null>;
     /** Callback form. Fires with the live node and with null on detach. */
     onViewer?: (node: ECadViewerElement | null) => void;
+    /** Show the floating layers/pages button. Default true. Pass false for
+     *  schematic viewers that already have a sheet sidebar. */
+    showLayersButton?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -924,6 +927,10 @@ export interface EcadViewerHostProps {
 // We poll for the viewer's layer set, and on toggle flip `layer.visible`
 // then call `viewer.draw()` to repaint.
 
+// ---------------------------------------------------------------------------
+// LayersPanel types
+// ---------------------------------------------------------------------------
+
 interface LayerInfo {
     name: string;
     color: string;
@@ -936,6 +943,25 @@ interface PageInfo {
     active: boolean;
 }
 
+interface NetInfo {
+    number: number;
+    name: string;
+}
+
+interface FootprintInfo {
+    uuid: string;
+    reference: string;
+    value: string;
+    layer: string;
+}
+
+interface ObjectOpacities {
+    tracks: number;
+    vias: number;
+    pads: number;
+    zones: number;
+}
+
 type LayerWithDraw = {
     name: string;
     color?: { to_css?: () => string };
@@ -946,6 +972,17 @@ type DrawableViewer = {
     layers?: { in_ui_order?: () => Iterable<LayerWithDraw> };
     draw?: () => void;
     layer_visibility_ctrl?: { visibilities?: Map<string, boolean> } | null;
+    board?: {
+        nets?: NetInfo[];
+        footprints?: FootprintInfo[];
+        find_footprint?: (uuid: string) => FootprintInfo | null;
+    };
+    track_opacity?: number;
+    via_opacity?: number;
+    pad_opacity?: number;
+    zone_opacity?: number;
+    focus_net?: (n: number) => void;
+    focus_footprint?: (fp: FootprintInfo) => void;
 };
 
 type SchFile = {
@@ -966,6 +1003,22 @@ type SchAppLike = HTMLElement & {
     project?: SchProject;
     viewer?: SchAppViewer;
 };
+
+type PcbTab = "layers" | "objects" | "nets" | "components";
+
+const PCB_TABS: { id: PcbTab; icon: React.ElementType; label: string }[] = [
+    { id: "layers",     icon: Layers,   label: "Layers"     },
+    { id: "objects",    icon: Boxes,    label: "Objects"    },
+    { id: "nets",       icon: Network,  label: "Nets"       },
+    { id: "components", icon: Cpu,      label: "Components" },
+];
+
+const OBJECT_LABELS: { key: keyof ObjectOpacities; label: string; icon: React.ElementType }[] = [
+    { key: "tracks", label: "Tracks",  icon: Network },
+    { key: "vias",   label: "Vias",    icon: Boxes   },
+    { key: "pads",   label: "Pads",    icon: Cpu     },
+    { key: "zones",  label: "Zones",   icon: Layers  },
+];
 
 function findSchAppEl(host: ECadViewerElement | null): SchAppLike | null {
     if (!host?.shadowRoot) return null;
@@ -994,10 +1047,16 @@ function LayersPanel({
     onClose: () => void;
     hostRef: React.RefObject<ECadViewerElement | null>;
 }) {
+    const [tab, setTab] = useState<PcbTab>("layers");
     const [layers, setLayers] = useState<LayerInfo[]>([]);
     const [pages, setPages] = useState<PageInfo[]>([]);
+    const [nets, setNets] = useState<NetInfo[]>([]);
+    const [footprints, setFootprints] = useState<FootprintInfo[]>([]);
+    const [opacities, setOpacities] = useState<ObjectOpacities>({ tracks: 1, vias: 1, pads: 1, zones: 1 });
+    const [netFilter, setNetFilter] = useState("");
+    const [fpFilter, setFpFilter] = useState("");
 
-    // Poll for content — layers (PCB) or pages (schematic) appear once loaded.
+    // Poll for content once the panel opens.
     useEffect(() => {
         if (!open) return;
         let stopped = false;
@@ -1006,42 +1065,88 @@ function LayersPanel({
             const host = hostRef.current;
             if (!host) return;
 
-            // PCB: layers
             const board = findBoardEl(host);
             const inner = board?.viewer as DrawableViewer | undefined;
+
+            // Layers
             if (inner?.layers?.in_ui_order) {
                 const list: LayerInfo[] = [];
                 for (const l of inner.layers.in_ui_order()) {
-                    list.push({
-                        name: l.name,
-                        color: l.color?.to_css?.() ?? "#888",
-                        visible: !!l.visible,
-                    });
+                    list.push({ name: l.name, color: l.color?.to_css?.() ?? "#888", visible: !!l.visible });
                 }
                 setLayers(list);
             }
 
-            // Schematic: pages
+            // Opacities (read current values from viewer)
+            if (inner) {
+                setOpacities({
+                    tracks: inner.track_opacity ?? 1,
+                    vias:   inner.via_opacity   ?? 1,
+                    pads:   inner.pad_opacity   ?? 1,
+                    zones:  inner.zone_opacity  ?? 1,
+                });
+            }
+
+            // Nets
+            const boardNets = inner?.board?.nets;
+            if (boardNets && nets.length === 0) {
+                setNets([...boardNets].filter(n => n.name).sort((a, b) => a.name.localeCompare(b.name)));
+            }
+
+            // Footprints
+            const boardFps = inner?.board?.footprints;
+            if (boardFps && footprints.length === 0) {
+                setFootprints([...boardFps].filter(f => f.reference).sort((a, b) => a.reference.localeCompare(b.reference)));
+            }
+
+            // Schematic pages
             const schApp = findSchAppEl(host);
             if (schApp?.project?.sch_in_order) {
                 const activeName = schApp.viewer?.sch_name;
                 const list: PageInfo[] = [];
                 for (const f of schApp.project.sch_in_order()) {
                     if (!f) continue;
-                    const filename = f.filename;
-                    const label = filename.replace(/\.kicad_sch$/i, "");
-                    list.push({
-                        filename,
-                        label,
-                        active: activeName === filename,
-                    });
+                    list.push({ filename: f.filename, label: f.filename.replace(/\.kicad_sch$/i, ""), active: activeName === f.filename });
                 }
                 setPages(list);
             }
         };
+
         refresh();
         const id = window.setInterval(refresh, 500);
         return () => { stopped = true; window.clearInterval(id); };
+    // nets.length / footprints.length intentionally excluded — we only fetch once
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, hostRef]);
+
+    // Reset transient filter + one-shot lists when panel reopens
+    useEffect(() => {
+        if (!open) { setNets([]); setFootprints([]); setNetFilter(""); setFpFilter(""); }
+    }, [open]);
+
+    // Instantly reflect canvas-driven page navigation (e.g. clicking a sheet link)
+    // by listening for the "kicanvas:sheet:loaded" event the viewer fires on load.
+    useEffect(() => {
+        if (!open) return;
+        const host = hostRef.current;
+        if (!host) return;
+
+        const onSheetLoaded = (e: Event) => {
+            const filename = (e as CustomEvent<string>).detail;
+            if (!filename) return;
+            setPages(prev => prev.map(p => ({ ...p, active: p.filename === filename })));
+        };
+
+        // The event may fire on the shadow root or on the host element itself.
+        // Listen on both with `composed:true` catching bubbled events.
+        host.addEventListener("kicanvas:sheet:loaded", onSheetLoaded);
+        const sr = (host as HTMLElement).shadowRoot;
+        sr?.addEventListener("kicanvas:sheet:loaded", onSheetLoaded);
+
+        return () => {
+            host.removeEventListener("kicanvas:sheet:loaded", onSheetLoaded);
+            sr?.removeEventListener("kicanvas:sheet:loaded", onSheetLoaded);
+        };
     }, [open, hostRef]);
 
     const switchPage = useCallback((filename: string) => {
@@ -1050,43 +1155,395 @@ function LayersPanel({
         const schApp = findSchAppEl(host);
         if (!schApp?.project?.sch_in_order || !schApp.viewer?.load) return;
         for (const f of schApp.project.sch_in_order()) {
-            if (f && f.filename === filename) {
-                schApp.viewer.load(f);
+            if (f?.filename === filename) { schApp.viewer.load(f); break; }
+        }
+    }, [hostRef]);
+
+    const toggleLayer = useCallback((name: string) => {
+        const host = hostRef.current;
+        if (!host) return;
+        const inner = (findBoardEl(host)?.viewer) as DrawableViewer | undefined;
+        if (!inner?.layers?.in_ui_order) return;
+        for (const l of inner.layers.in_ui_order()) {
+            if (l.name === name) {
+                l.visible = !l.visible;
+                const ctrl = inner.layer_visibility_ctrl;
+                if (ctrl?.visibilities) ctrl.visibilities.set(l.name, l.visible);
+                inner.draw?.();
+                setLayers(prev => prev.map(l => l.name === name ? { ...l, visible: !l.visible } : l));
                 break;
             }
         }
     }, [hostRef]);
 
-    const toggle = useCallback((name: string) => {
+    const setOpacity = useCallback((key: keyof ObjectOpacities, value: number) => {
         const host = hostRef.current;
         if (!host) return;
-        const board = findBoardEl(host);
-        const inner = board?.viewer as DrawableViewer | undefined;
-        if (!inner?.layers?.in_ui_order) return;
-        let changed = false;
-        for (const l of inner.layers.in_ui_order()) {
-            if (l.name === name) {
-                l.visible = !l.visible;
-                changed = true;
-                // Keep the layer-visibility ctrl in sync so hit-testing reflects the
-                // new state (see useBoardClickFix).
-                const ctrl = inner.layer_visibility_ctrl;
-                if (ctrl?.visibilities) ctrl.visibilities.set(l.name, l.visible);
-                break;
-            }
-        }
-        if (changed) {
-            inner.draw?.();
-            setLayers(prev => prev.map(l => l.name === name ? { ...l, visible: !l.visible } : l));
-        }
+        const inner = (findBoardEl(host)?.viewer) as DrawableViewer | undefined;
+        if (!inner) return;
+        const propMap: Record<keyof ObjectOpacities, keyof DrawableViewer> = {
+            tracks: "track_opacity", vias: "via_opacity", pads: "pad_opacity", zones: "zone_opacity",
+        };
+        (inner as Record<string, unknown>)[propMap[key]] = value;
+        inner.draw?.();
+        setOpacities(prev => ({ ...prev, [key]: value }));
+    }, [hostRef]);
+
+    const focusNet = useCallback((n: NetInfo) => {
+        const inner = (findBoardEl(hostRef.current)?.viewer) as DrawableViewer | undefined;
+        inner?.focus_net?.(n.number);
+    }, [hostRef]);
+
+    const focusFootprint = useCallback((fp: FootprintInfo) => {
+        const inner = (findBoardEl(hostRef.current)?.viewer) as DrawableViewer | undefined;
+        if (!inner) return;
+        const found = inner.board?.find_footprint?.(fp.uuid) ?? fp;
+        inner.focus_footprint?.(found as FootprintInfo);
     }, [hostRef]);
 
     if (!open) return null;
 
     const isSchematic = pages.length > 0 && layers.length === 0;
-    const HeaderIcon = isSchematic ? FileText : Layers;
-    const headerLabel = isSchematic ? "Pages" : "Layers";
 
+    // ── Schematic: simple pages list ──────────────────────────────────────────
+    if (isSchematic) {
+        return (
+            <PanelShell>
+                <PanelHeader icon={FileText} label="Pages" onClose={onClose} />
+                <div className="overflow-y-auto px-1.5 py-1.5">
+                    <ul className="space-y-0.5">
+                        {pages.map((p) => (
+                            <li key={p.filename}>
+                                <button
+                                    onClick={() => switchPage(p.filename)}
+                                    className={`flex items-center gap-2 w-full px-2 py-1.5 rounded text-left text-xs transition-colors ${p.active ? "bg-accent text-accent-foreground" : "hover:bg-muted/60"}`}
+                                    type="button"
+                                >
+                                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span className="flex-1 truncate">{p.label}</span>
+                                    {p.active && <Check className="h-3 w-3 shrink-0" />}
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            </PanelShell>
+        );
+    }
+
+    // ── PCB: tabbed panel ─────────────────────────────────────────────────────
+    const filteredNets = netFilter
+        ? nets.filter(n => n.name.toLowerCase().includes(netFilter.toLowerCase()))
+        : nets;
+    const filteredFps = fpFilter
+        ? footprints.filter(f =>
+            f.reference.toLowerCase().includes(fpFilter.toLowerCase()) ||
+            f.value.toLowerCase().includes(fpFilter.toLowerCase()))
+        : footprints;
+
+    return (
+        <PanelShell onClose={onClose}>
+            {/* Tab bar */}
+            <div className="flex border-b shrink-0 bg-muted/20">
+                {PCB_TABS.map(({ id, icon: Icon, label }) => (
+                    <button
+                        key={id}
+                        onClick={() => setTab(id)}
+                        title={label}
+                        type="button"
+                        className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors border-b-2 ${
+                            tab === id
+                                ? "border-primary text-foreground"
+                                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                        }`}
+                    >
+                        <Icon className="h-3.5 w-3.5" />
+                        <span>{label}</span>
+                    </button>
+                ))}
+            </div>
+
+            {/* Tab bodies */}
+            <div className="flex-1 min-h-0 flex flex-col">
+
+                {/* ── Layers ── */}
+                {tab === "layers" && (
+                    layers.length === 0
+                        ? <p className="text-xs text-muted-foreground italic px-3 py-3">Loading…</p>
+                        : <div className="flex flex-col flex-1 min-h-0">
+                            <ul className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-0.5">
+                                {layers.map((l) => (
+                                    <li key={l.name}>
+                                        <button
+                                            onClick={() => toggleLayer(l.name)}
+                                            type="button"
+                                            className={`flex items-center gap-2 w-full px-2 py-1.5 rounded text-left text-xs transition-colors hover:bg-muted/60 ${l.visible ? "" : "opacity-40"}`}
+                                        >
+                                            <span className="inline-block h-3 w-3 rounded-sm shrink-0 border border-border/60" style={{ background: l.color }} />
+                                            <span className="flex-1 truncate font-mono text-[11px]">{l.name}</span>
+                                            {l.visible
+                                                ? <Eye className="h-3 w-3 text-muted-foreground shrink-0" />
+                                                : <EyeOff className="h-3 w-3 text-muted-foreground shrink-0" />}
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                            <LayerPresetBar layers={layers} setLayers={setLayers} hostRef={hostRef} />
+                        </div>
+                )}
+
+                {/* ── Objects ── */}
+                {tab === "objects" && (
+                    <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+                        {OBJECT_LABELS.map(({ key, label, icon: Icon }) => (
+                            <div key={key}>
+                                <div className="flex items-center gap-2 mb-1.5">
+                                    <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                    <span className="text-xs font-medium flex-1">{label}</span>
+                                    <span className="text-[11px] font-mono text-muted-foreground w-8 text-right">
+                                        {Math.round(opacities[key] * 100)}%
+                                    </span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min={0} max={1} step={0.01}
+                                    value={opacities[key]}
+                                    onChange={e => setOpacity(key, parseFloat(e.target.value))}
+                                    className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-primary bg-muted"
+                                />
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* ── Nets ── */}
+                {tab === "nets" && (
+                    <div className="flex flex-col flex-1 min-h-0">
+                        <div className="px-2 py-2 border-b shrink-0">
+                            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted/50 border border-border/40">
+                                <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+                                <input
+                                    type="text"
+                                    placeholder="Filter nets…"
+                                    value={netFilter}
+                                    onChange={e => setNetFilter(e.target.value)}
+                                    className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+                                />
+                            </div>
+                        </div>
+                        {filteredNets.length === 0
+                            ? <p className="text-xs text-muted-foreground italic px-3 py-3">{nets.length === 0 ? "Loading…" : "No matches"}</p>
+                            : <ul className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-0.5">
+                                {filteredNets.map((n) => (
+                                    <li key={n.number}>
+                                        <button
+                                            onClick={() => focusNet(n)}
+                                            type="button"
+                                            className="flex items-center gap-2 w-full px-2 py-1.5 rounded text-left text-xs hover:bg-muted/60 transition-colors"
+                                        >
+                                            <Network className="h-3 w-3 text-muted-foreground shrink-0" />
+                                            <span className="flex-1 truncate font-mono text-[11px]">{n.name}</span>
+                                            <span className="text-[10px] text-muted-foreground font-mono shrink-0">{n.number}</span>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        }
+                    </div>
+                )}
+
+                {/* ── Components ── */}
+                {tab === "components" && (
+                    <div className="flex flex-col flex-1 min-h-0">
+                        <div className="px-2 py-2 border-b shrink-0">
+                            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted/50 border border-border/40">
+                                <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+                                <input
+                                    type="text"
+                                    placeholder="Filter components…"
+                                    value={fpFilter}
+                                    onChange={e => setFpFilter(e.target.value)}
+                                    className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+                                />
+                            </div>
+                        </div>
+                        {filteredFps.length === 0
+                            ? <p className="text-xs text-muted-foreground italic px-3 py-3">{footprints.length === 0 ? "Loading…" : "No matches"}</p>
+                            : <ul className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-0.5">
+                                {filteredFps.map((fp) => (
+                                    <li key={fp.uuid}>
+                                        <button
+                                            onClick={() => focusFootprint(fp)}
+                                            type="button"
+                                            className="flex items-center gap-2 w-full px-2 py-1.5 rounded text-left text-xs hover:bg-muted/60 transition-colors"
+                                        >
+                                            <Cpu className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                            <span className="font-medium shrink-0">{fp.reference}</span>
+                                            <span className="flex-1 truncate text-muted-foreground text-[11px]">{fp.value}</span>
+                                            <span className={`text-[9px] font-mono px-1 rounded shrink-0 ${fp.layer === "F.Cu" ? "bg-blue-500/20 text-blue-400" : "bg-orange-500/20 text-orange-400"}`}>
+                                                {fp.layer === "F.Cu" ? "F" : "B"}
+                                            </span>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        }
+                    </div>
+                )}
+
+            </div>
+        </PanelShell>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Layer preset bar
+// ---------------------------------------------------------------------------
+
+type LayerPreset = {
+    id: string;
+    label: string;
+    /** Returns true if the layer should be visible for this preset. */
+    test: (name: string) => boolean;
+};
+
+const LAYER_PRESETS: LayerPreset[] = [
+    {
+        id: "all",
+        label: "All",
+        test: () => true,
+    },
+    {
+        id: "front",
+        label: "Front",
+        test: (n) => n.startsWith("F.") || n === "Edge.Cuts",
+    },
+    {
+        id: "back",
+        label: "Back",
+        test: (n) => n.startsWith("B.") || n === "Edge.Cuts",
+    },
+    {
+        id: "copper",
+        label: "Copper",
+        test: (n) => n.includes(".Cu") || n === "Edge.Cuts",
+    },
+    {
+        id: "outer-copper",
+        label: "Outer Cu",
+        test: (n) => n === "F.Cu" || n === "B.Cu" || n === "Edge.Cuts",
+    },
+    {
+        id: "inner-copper",
+        label: "Inner Cu",
+        test: (n) => (n.includes(".Cu") && n !== "F.Cu" && n !== "B.Cu") || n === "Edge.Cuts",
+    },
+    {
+        id: "drawings",
+        label: "Drawings",
+        test: (n) => !n.includes(".Cu") && !n.includes(".Mask") && !n.includes(".Paste") && !n.includes(".Adhes"),
+    },
+];
+
+function setAllLayerVisibility(
+    visible: boolean,
+    hostRef: React.RefObject<ECadViewerElement | null>,
+    setLayers: React.Dispatch<React.SetStateAction<LayerInfo[]>>,
+) {
+    const inner = (findBoardEl(hostRef.current)?.viewer) as DrawableViewer | undefined;
+    if (!inner?.layers?.in_ui_order) return;
+    for (const l of inner.layers.in_ui_order()) {
+        l.visible = visible;
+        inner.layer_visibility_ctrl?.visibilities?.set(l.name, visible);
+    }
+    inner.draw?.();
+    setLayers(prev => prev.map(l => ({ ...l, visible })));
+}
+
+function applyPreset(
+    preset: LayerPreset,
+    hostRef: React.RefObject<ECadViewerElement | null>,
+    setLayers: React.Dispatch<React.SetStateAction<LayerInfo[]>>,
+) {
+    const inner = (findBoardEl(hostRef.current)?.viewer) as DrawableViewer | undefined;
+    if (!inner?.layers?.in_ui_order) return;
+    for (const l of inner.layers.in_ui_order()) {
+        l.visible = preset.test(l.name);
+        inner.layer_visibility_ctrl?.visibilities?.set(l.name, l.visible);
+    }
+    inner.draw?.();
+    setLayers(prev => prev.map(l => ({ ...l, visible: preset.test(l.name) })));
+}
+
+function LayerPresetBar({
+    layers,
+    setLayers,
+    hostRef,
+}: {
+    layers: LayerInfo[];
+    setLayers: React.Dispatch<React.SetStateAction<LayerInfo[]>>;
+    hostRef: React.RefObject<ECadViewerElement | null>;
+}) {
+    const [activeId, setActiveId] = useState<string | null>(null);
+
+    const handlePreset = (preset: LayerPreset) => {
+        if (activeId === preset.id) {
+            // Re-click: reset to show all
+            setAllLayerVisibility(true, hostRef, setLayers);
+            setActiveId(null);
+        } else {
+            applyPreset(preset, hostRef, setLayers);
+            setActiveId(preset.id);
+        }
+    };
+
+    // If the user manually toggles individual layers, deactivate the preset chip
+    // so it doesn't show a stale active state.
+    const visibilitySig = layers.map(l => l.visible ? "1" : "0").join("");
+    const prevSigRef = useRef(visibilitySig);
+    useEffect(() => {
+        if (prevSigRef.current !== visibilitySig) {
+            prevSigRef.current = visibilitySig;
+            // Don't clear if we just applied a preset (the sig will differ from "all visible").
+            // Only clear when a manual toggle makes the state inconsistent with the active preset.
+            if (activeId) {
+                const preset = LAYER_PRESETS.find(p => p.id === activeId);
+                if (preset) {
+                    const stillMatches = layers.every(l => l.visible === preset.test(l.name));
+                    if (!stillMatches) setActiveId(null);
+                }
+            }
+        }
+    }, [visibilitySig, activeId, layers]);
+
+    return (
+        <div className="shrink-0 border-t bg-muted/20 px-2 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">Presets</p>
+            <div className="flex flex-wrap gap-1">
+                {LAYER_PRESETS.map((preset) => {
+                    const isActive = activeId === preset.id;
+                    return (
+                        <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => handlePreset(preset)}
+                            title={isActive ? `Reset (show all)` : preset.label}
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${
+                                isActive
+                                    ? "bg-primary text-primary-foreground border-primary"
+                                    : "border-border/60 bg-background/60 hover:bg-accent hover:text-accent-foreground hover:border-accent"
+                            }`}
+                        >
+                            {preset.label}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+function PanelShell({ children }: { children: React.ReactNode }) {
     return (
         <div
             className="absolute top-3 left-3 z-50 flex flex-col rounded-xl border bg-background/95 shadow-xl backdrop-blur-md overflow-hidden"
@@ -1097,60 +1554,19 @@ function LayersPanel({
                 animation: "prism-layers-panel-expand 220ms cubic-bezier(0.22, 1, 0.36, 1)",
             }}
         >
-            <div className="flex items-center gap-2 px-3 py-2 border-b bg-muted/30 shrink-0">
-                <HeaderIcon className="h-4 w-4 text-muted-foreground" />
-                <p className="text-xs font-semibold uppercase tracking-wider flex-1">{headerLabel}</p>
-                <button
-                    onClick={onClose}
-                    className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                    type="button"
-                    aria-label="Close panel"
-                >
-                    <X className="h-3.5 w-3.5" />
-                </button>
-            </div>
-            <div className="overflow-y-auto px-1.5 py-1.5">
-                {isSchematic ? (
-                    <ul className="space-y-0.5">
-                        {pages.map((p) => (
-                            <li key={p.filename}>
-                                <button
-                                    onClick={() => switchPage(p.filename)}
-                                    className={`flex items-center gap-2 w-full px-2 py-1 rounded text-left text-xs transition-colors ${p.active ? "bg-accent text-accent-foreground" : "hover:bg-muted/60"}`}
-                                    type="button"
-                                >
-                                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                    <span className="flex-1 truncate font-mono">{p.label}</span>
-                                    {p.active && <Check className="h-3.5 w-3.5 shrink-0" />}
-                                </button>
-                            </li>
-                        ))}
-                    </ul>
-                ) : layers.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic px-2 py-2">Loading…</p>
-                ) : (
-                    <ul className="space-y-0.5">
-                        {layers.map((l) => (
-                            <li key={l.name}>
-                                <button
-                                    onClick={() => toggle(l.name)}
-                                    className={`flex items-center gap-2 w-full px-2 py-1 rounded text-left text-xs hover:bg-muted/60 transition-colors ${l.visible ? "" : "opacity-40"}`}
-                                    type="button"
-                                >
-                                    <span
-                                        className="inline-block h-3 w-3 rounded-sm shrink-0 border border-border"
-                                        style={{ background: l.color }}
-                                    />
-                                    <span className="flex-1 truncate font-mono">{l.name}</span>
-                                    {l.visible
-                                        ? <Check className="h-3.5 w-3.5 text-foreground shrink-0" />
-                                        : <XIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
-                                </button>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </div>
+            {children}
+        </div>
+    );
+}
+
+function PanelHeader({ icon: Icon, label, onClose }: { icon: React.ElementType; label: string; onClose: () => void }) {
+    return (
+        <div className="flex items-center gap-2 px-3 py-2 border-b bg-muted/30 shrink-0">
+            <Icon className="h-4 w-4 text-muted-foreground" />
+            <p className="text-xs font-semibold uppercase tracking-wider flex-1">{label}</p>
+            <button onClick={onClose} className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted/60" type="button" aria-label="Close panel">
+                <X className="h-3.5 w-3.5" />
+            </button>
         </div>
     );
 }
@@ -1186,6 +1602,7 @@ export function EcadViewerHost({
     files,
     viewerRef,
     onViewer,
+    showLayersButton = true,
 }: EcadViewerHostProps) {
     const hostRef = useRef<ECadViewerElement | null>(null);
     const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -1304,20 +1721,24 @@ export function EcadViewerHost({
                 key={viewerKey}
                 {...props}
             />
-            <button
-                aria-label="Open layers panel"
-                title="Layers"
-                onClick={() => setIsPanelOpen(true)}
-                className={`absolute top-3 left-3 z-50 bg-background/90 border border-border rounded-full p-2 shadow hover:shadow-md transition-all duration-200 ease-out ${isPanelOpen ? "opacity-0 pointer-events-none scale-90" : "opacity-100"}`}
-                type="button"
-            >
-                <Layers className="h-4 w-4 text-foreground" />
-            </button>
-            <LayersPanel
-                open={isPanelOpen}
-                onClose={() => setIsPanelOpen(false)}
-                hostRef={hostRef}
-            />
+            {showLayersButton && (
+                <button
+                    aria-label="Open layers panel"
+                    title="Layers"
+                    onClick={() => setIsPanelOpen(true)}
+                    className={`absolute top-3 left-3 z-50 bg-background/90 border border-border rounded-full p-2 shadow hover:shadow-md transition-all duration-200 ease-out ${isPanelOpen ? "opacity-0 pointer-events-none scale-90" : "opacity-100"}`}
+                    type="button"
+                >
+                    <Layers className="h-4 w-4 text-foreground" />
+                </button>
+            )}
+            {showLayersButton && (
+                <LayersPanel
+                    open={isPanelOpen}
+                    onClose={() => setIsPanelOpen(false)}
+                    hostRef={hostRef}
+                />
+            )}
         </div>
     );
 }

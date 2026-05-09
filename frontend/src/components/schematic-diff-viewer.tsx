@@ -940,6 +940,7 @@ export function SchematicDiffViewer({
                                         .filter(s => s.new_content)
                                         .map(s => ({ filename: s.filename, content: s.new_content! }))}
                                     viewerRef={newViewerRef}
+                                    showLayersButton={false}
                                 />
                             </div>
                             <div
@@ -952,6 +953,7 @@ export function SchematicDiffViewer({
                                         .filter(s => s.old_content)
                                         .map(s => ({ filename: s.filename, content: s.old_content! }))}
                                     viewerRef={oldViewerRef}
+                                    showLayersButton={false}
                                 />
                             </div>
                             <DiffOverlay
