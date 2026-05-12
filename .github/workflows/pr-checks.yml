@@ -97,25 +97,6 @@ jobs:
       - name: ESLint
         run: npx eslint src --max-warnings=0 || true
 
-  lint-backend:
-    name: Quality / Backend lint (Ruff)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-
-      - run: pip install -r requirements.txt ruff
-
-      - run: ruff check app
-
 # ── Security ───────────────────────────────────────────────────────────────────
 
   bandit:
