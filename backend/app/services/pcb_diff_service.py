@@ -6,23 +6,27 @@ a structured change set suitable for the interactive PCB diff viewer.
 
 """
 
+import subprocess
 from pathlib import Path
-from typing import Optional
+
 from app.services.project_service import get_registered_projects
+
 # Reuse the s-expression parser and git helpers from sch_diff_service
 from app.services.sch_diff_service import (
+    _at,
+    _get,
+    _get_all,
+    _git_root,
     _parse_sexp,
-    _get, _get_all, _uuid, _at,
-    _git_root, _read_file_at_commit, _find_all_sch_paths,
+    _read_file_at_commit,
+    _uuid,
 )
-import subprocess
-
 
 # ---------------------------------------------------------------------------
 # PCB element extraction
 # ---------------------------------------------------------------------------
 
-def _property(lst: list, name: str) -> Optional[str]:
+def _property(lst: list, name: str) -> str | None:
     for item in _get_all(lst, 'property'):
         if len(item) >= 3 and item[1] == name:
             return item[2]
@@ -510,7 +514,7 @@ def _find_all_pcb_paths(repo_root: Path, commit: str) -> list:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def get_pcb_diff(project_id: str, commit1: str, commit2: str) -> Optional[dict]:
+def get_pcb_diff(project_id: str, commit1: str, commit2: str) -> dict | None:
     """
     Return interactive diff data for all PCB files between two commits.
 

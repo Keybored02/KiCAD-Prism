@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.config import settings
@@ -10,7 +10,7 @@ ROLE_STORE_VERSION = "1"
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _normalize_email(email: str) -> str:
@@ -62,7 +62,7 @@ def _load_role_store() -> dict[str, Any]:
         return _role_cache
 
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             payload = json.load(handle)
         if not isinstance(payload, dict):
             payload = _default_store()

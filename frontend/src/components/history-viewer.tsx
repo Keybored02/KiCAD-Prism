@@ -269,21 +269,6 @@ function BranchSelector({
     );
 }
 
-// Human label for one diff item — used as the visible row text.
-function diffItemLabel(item: DiffItem): string {
-    if (item.reference) {
-        return item.value ? `${item.reference} (${item.value})` : item.reference;
-    }
-    if (item.text)        return item.text.length > 40 ? item.text.slice(0, 37) + "…" : item.text;
-    if (item.net_name)    return item.net_name;
-    if (item.name)        return item.name;
-    if (item.sheet_name)  return `Sheet: ${item.sheet_name}`;
-    if (item.lib_id)      return item.lib_id;
-    if (item.layer)       return `${LABEL_BY_TYPE[item.type] ?? item.type} on ${item.layer}`;
-    if (item.net != null) return `${LABEL_BY_TYPE[item.type] ?? item.type} (net ${item.net})`;
-    return LABEL_BY_TYPE[item.type] ?? item.type;
-}
-
 const KIND_TINT: Record<"added" | "removed" | "changed", string> = {
     added:   "text-green-500",
     removed: "text-red-500",
@@ -292,17 +277,6 @@ const KIND_TINT: Record<"added" | "removed" | "changed", string> = {
 const KIND_PREFIX: Record<"added" | "removed" | "changed", string> = {
     added: "+", removed: "−", changed: "~",
 };
-
-function ChangedFieldsLine({ changes }: { changes?: ChangedDiffItem["changes"] }) {
-    if (!changes) return null;
-    const entries = Object.entries(changes);
-    if (entries.length === 0) return null;
-    return (
-        <span className="text-muted-foreground/80 italic">
-            {" "}— {entries.map(([k]) => k).join(", ")}
-        </span>
-    );
-}
 
 interface ItemDiffListProps {
     diff: FileDiffPayload;

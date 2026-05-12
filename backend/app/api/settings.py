@@ -1,11 +1,10 @@
-from typing import List
-
-from fastapi import APIRouter, Depends, HTTPException
+import logging
 import os
 import subprocess
 from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-import logging
 
 from app.core.roles import Role, normalize_role
 from app.core.security import AuthenticatedUser, require_admin
@@ -47,9 +46,9 @@ async def get_ssh_key():
     if not PUBLIC_KEY.exists():
         logger.info("SSH public key not found.")
         return {"exists": False, "public_key": None}
-    
+
     try:
-        with open(PUBLIC_KEY, "r") as f:
+        with open(PUBLIC_KEY) as f:
             key_content = f.read().strip()
             logger.info("SSH public key found and read successfully.")
             return {"exists": True, "public_key": key_content}
@@ -75,31 +74,31 @@ async def generate_ssh_key(request: GenerateSSHKeyRequest):
         except OSError as e:
              logger.error(f"Failed to remove existing key: {e}")
              raise HTTPException(status_code=500, detail=f"Failed to remove existing key: {e}")
-    
+
     # Ensure .ssh directory exists and has correct permissions
     try:
         if not SSH_DIR.exists():
             logger.info(f"Creating SSH directory: {SSH_DIR}")
             SSH_DIR.mkdir(parents=True, exist_ok=True)
-        
+
         logger.info(f"Setting permissions 0o700 on {SSH_DIR}")
         os.chmod(SSH_DIR, 0o700)
     except Exception as e:
         logger.error(f"Failed to create/chmod SSH directory: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to setup SSH directory: {str(e)}")
-    
+
     try:
         # Generate key without passphrase (-N "")
         command = ["ssh-keygen", "-t", "ed25519", "-C", request.email, "-N", "", "-f", str(PRIVATE_KEY)]
         logger.info(f"Running command: {' '.join(command)}")
-        
+
         subprocess.run(
             command,
             check=True,
             capture_output=True
         )
         logger.info("ssh-keygen command completed successfully.")
-        
+
         # Ensure private key has correct permissions
         if PRIVATE_KEY.exists():
             logger.info(f"Setting permissions 0o600 on {PRIVATE_KEY}")
@@ -107,8 +106,8 @@ async def generate_ssh_key(request: GenerateSSHKeyRequest):
         else:
             logger.error("Private key file not found after generation!")
             raise HTTPException(status_code=500, detail="Key generation appeared to succeed but file is missing.")
-        
-        with open(PUBLIC_KEY, "r") as f:
+
+        with open(PUBLIC_KEY) as f:
             content = f.read().strip()
             logger.info("Public key read successfully returning result.")
             return {"success": True, "public_key": content}
@@ -122,7 +121,7 @@ async def generate_ssh_key(request: GenerateSSHKeyRequest):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 
-@router.get("/access/users", response_model=List[RoleAssignmentResponse])
+@router.get("/access/users", response_model=list[RoleAssignmentResponse])
 async def list_access_users():
     return [RoleAssignmentResponse(**item) for item in access_service.list_role_assignments()]
 

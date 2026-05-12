@@ -1,9 +1,8 @@
-from copy import deepcopy
 import math
 import re
+from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
-from typing import Callable, Optional
-
 
 _STRING_PATTERN = r'"((?:[^"\\]|\\.)*)"'
 _FILE_METADATA_CACHE_MAX_ENTRIES = 128
@@ -14,7 +13,7 @@ def _unescape_kicad_string(value: str) -> str:
     return value.replace(r"\\", "\\").replace(r"\"", '"')
 
 
-def _extract_sexpr_block(text: str, token: str) -> Optional[str]:
+def _extract_sexpr_block(text: str, token: str) -> str | None:
     start = text.find(f"({token}")
     if start == -1:
         return None
@@ -66,14 +65,14 @@ def _extract_sexpr_blocks(text: str, token: str) -> list[str]:
     return blocks
 
 
-def _extract_string_value(block: str, key: str) -> Optional[str]:
+def _extract_string_value(block: str, key: str) -> str | None:
     match = re.search(rf"\({re.escape(key)}\s+{_STRING_PATTERN}\)", block)
     if not match:
         return None
     return _unescape_kicad_string(match.group(1))
 
 
-def _extract_number_value(block: str, key: str) -> Optional[float]:
+def _extract_number_value(block: str, key: str) -> float | None:
     match = re.search(rf"\({re.escape(key)}\s+([-+]?\d+(?:\.\d+)?)\)", block)
     if not match:
         return None
@@ -83,14 +82,14 @@ def _extract_number_value(block: str, key: str) -> Optional[float]:
         return None
 
 
-def _extract_int_value(block: str, key: str) -> Optional[int]:
+def _extract_int_value(block: str, key: str) -> int | None:
     value = _extract_number_value(block, key)
     if value is None:
         return None
     return int(value)
 
 
-def _extract_point(block: str, key: str) -> Optional[tuple[float, float]]:
+def _extract_point(block: str, key: str) -> tuple[float, float] | None:
     match = re.search(rf"\({re.escape(key)}\s+([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)\)", block)
     if not match:
         return None
@@ -115,7 +114,7 @@ def _round_dimension(value: float) -> float:
     return round(value, 2)
 
 
-def _extract_pcb_dimensions(text: str) -> Optional[dict]:
+def _extract_pcb_dimensions(text: str) -> dict | None:
     points: list[tuple[float, float]] = []
 
     for token in ("gr_line", "gr_rect", "gr_arc", "gr_curve", "gr_poly", "gr_circle"):
@@ -172,7 +171,7 @@ def _relative_to_project(project_path: str, file_path: str) -> str:
     return Path(file_path).resolve().relative_to(Path(project_path).resolve()).as_posix()
 
 
-def _parse_title_block(text: str) -> Optional[dict]:
+def _parse_title_block(text: str) -> dict | None:
     block = _extract_sexpr_block(text, "title_block")
     if not block:
         return None
@@ -191,7 +190,7 @@ def _parse_title_block(text: str) -> Optional[dict]:
     }
 
 
-def invalidate_project_properties_cache(project_path: Optional[str] = None) -> None:
+def invalidate_project_properties_cache(project_path: str | None = None) -> None:
     global _file_metadata_cache
 
     if project_path is None:
@@ -214,9 +213,9 @@ def _trim_file_metadata_cache() -> None:
 
 def _load_cached_file_metadata(
     project_path: str,
-    file_path: Optional[str],
+    file_path: str | None,
     parser: Callable[[str, str, str], dict],
-) -> Optional[dict]:
+) -> dict | None:
     if not file_path:
         return None
 
@@ -259,7 +258,7 @@ def _load_cached_file_metadata(
     return metadata
 
 
-def extract_schematic_metadata(project_path: str, file_path: Optional[str]) -> Optional[dict]:
+def extract_schematic_metadata(project_path: str, file_path: str | None) -> dict | None:
     return _load_cached_file_metadata(
         project_path,
         file_path,
@@ -276,7 +275,7 @@ def extract_schematic_metadata(project_path: str, file_path: Optional[str]) -> O
     )
 
 
-def extract_pcb_metadata(project_path: str, file_path: Optional[str]) -> Optional[dict]:
+def extract_pcb_metadata(project_path: str, file_path: str | None) -> dict | None:
     return _load_cached_file_metadata(
         project_path,
         file_path,

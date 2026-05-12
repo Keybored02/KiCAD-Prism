@@ -6,7 +6,6 @@ comments.json is generated from DB only during push/export workflows.
 """
 
 import os
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -33,16 +32,16 @@ class CreateCommentRequest(BaseModel):
     context: str  # "PCB" or "SCH"
     location: CommentLocation
     content: str
-    author: Optional[str] = "anonymous"
+    author: str | None = "anonymous"
 
 
 class CreateReplyRequest(BaseModel):
     content: str
-    author: Optional[str] = "anonymous"
+    author: str | None = "anonymous"
 
 
 class UpdateCommentRequest(BaseModel):
-    status: Optional[str] = None  # "OPEN" or "RESOLVED"
+    status: str | None = None  # "OPEN" or "RESOLVED"
 
 
 class CommentReply(BaseModel):
@@ -59,7 +58,7 @@ class Comment(BaseModel):
     context: str
     location: CommentLocation
     content: str
-    replies: List[CommentReply] = Field(default_factory=list)
+    replies: list[CommentReply] = Field(default_factory=list)
 
 
 class CommentsMeta(BaseModel):
@@ -69,10 +68,10 @@ class CommentsMeta(BaseModel):
 
 class CommentsFile(BaseModel):
     meta: CommentsMeta = Field(default_factory=CommentsMeta)
-    comments: List[Comment] = Field(default_factory=list)
+    comments: list[Comment] = Field(default_factory=list)
 
 
-def _normalize_author(author: Optional[str]) -> str:
+def _normalize_author(author: str | None) -> str:
     return (author or "anonymous").strip() or "anonymous"
 
 

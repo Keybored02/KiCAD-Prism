@@ -6,7 +6,6 @@ from app.core.roles import Role
 from app.services.workspace_service import workspace
 from app.services import project_service
 
-
 VALID_OUTPUT_TYPES = {"design", "manufacturing"}
 
 

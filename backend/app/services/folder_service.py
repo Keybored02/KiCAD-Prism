@@ -13,7 +13,6 @@ import os
 import shutil
 import time
 import uuid
-from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -24,35 +23,35 @@ from app.services import project_service
 class Folder(BaseModel):
     id: str
     name: str
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
     created_at: str
     updated_at: str
-    visibility_mode: Optional[str] = None
-    allowed_roles: List[str] = Field(default_factory=list)
+    visibility_mode: str | None = None
+    allowed_roles: list[str] = Field(default_factory=list)
 
 
 class FolderTreeItem(BaseModel):
     id: str
     name: str
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
     depth: int = 0
     has_children: bool = False
     direct_project_count: int = 0
     total_project_count: int = 0
-    visibility_mode: Optional[str] = None
-    allowed_roles: List[str] = Field(default_factory=list)
+    visibility_mode: str | None = None
+    allowed_roles: list[str] = Field(default_factory=list)
 
 
 FOLDERS_FILE = os.path.join(project_service.PROJECTS_ROOT, ".folders.json")
 os.makedirs(os.path.dirname(FOLDERS_FILE), exist_ok=True)
 
 FOLDERS_CACHE_TTL = 5.0
-_folders_cache: Dict[str, Folder] = {}
+_folders_cache: dict[str, Folder] = {}
 _folders_cache_time: float = 0
-_folders_cache_mtime: Optional[float] = None
+_folders_cache_mtime: float | None = None
 
 
-def _legacy_folders_files() -> List[str]:
+def _legacy_folders_files() -> list[str]:
     """Known legacy locations used by older backend builds."""
     return [
         # Historical relative path used by folder_service (can resolve to /data/projects in Docker).
@@ -64,14 +63,14 @@ def _legacy_folders_files() -> List[str]:
     ]
 
 
-def _existing_folders_file_candidates() -> List[str]:
+def _existing_folders_file_candidates() -> list[str]:
     """
     Return existing folder metadata files ordered by preference.
 
     Canonical location is always first. Legacy locations are used only as fallback.
     """
     candidates = [FOLDERS_FILE, *_legacy_folders_files()]
-    existing: List[str] = []
+    existing: list[str] = []
     seen = set()
     for candidate in candidates:
         if candidate in seen:
@@ -117,10 +116,10 @@ def _normalize_name(name: str) -> str:
     return normalized
 
 
-def _normalize_allowed_roles(roles: List[str] | None) -> List[str]:
+def _normalize_allowed_roles(roles: list[str] | None) -> list[str]:
     if not roles:
         return []
-    normalized: List[str] = []
+    normalized: list[str] = []
     for value in roles:
         role = normalize_role(value)
         if role and role not in normalized:
@@ -128,7 +127,7 @@ def _normalize_allowed_roles(roles: List[str] | None) -> List[str]:
     return normalized
 
 
-def _is_folder_visible_to_role(folder: Folder, user_role: Optional[Role]) -> bool:
+def _is_folder_visible_to_role(folder: Folder, user_role: Role | None) -> bool:
     if user_role is None:
         return True
     if folder.visibility_mode != "roles":
@@ -138,7 +137,7 @@ def _is_folder_visible_to_role(folder: Folder, user_role: Optional[Role]) -> boo
     return user_role in folder.allowed_roles
 
 
-def _load_folders() -> Dict[str, Folder]:
+def _load_folders() -> dict[str, Folder]:
     global _folders_cache, _folders_cache_time, _folders_cache_mtime
     _ensure_canonical_folders_file()
 
@@ -157,9 +156,9 @@ def _load_folders() -> Dict[str, Folder]:
 
     for path in _existing_folders_file_candidates():
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 raw = json.load(f)
-            folders: Dict[str, Folder] = {}
+            folders: dict[str, Folder] = {}
             for folder_id, payload in raw.items():
                 folder = Folder(**payload)
                 folder.allowed_roles = _normalize_allowed_roles(folder.allowed_roles)
@@ -178,7 +177,7 @@ def _load_folders() -> Dict[str, Folder]:
             except OSError:
                 _folders_cache_mtime = current_mtime
             return folders
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             continue
 
     _folders_cache = {}
@@ -194,14 +193,14 @@ def invalidate_folder_cache() -> None:
     _folders_cache_mtime = None
 
 
-def _save_folders(folders: Dict[str, Folder]) -> None:
+def _save_folders(folders: dict[str, Folder]) -> None:
     with open(FOLDERS_FILE, "w", encoding="utf-8") as f:
         json.dump({k: v.dict() for k, v in folders.items()}, f, indent=2)
     invalidate_folder_cache()
 
 
-def _children_map(folders: Dict[str, Folder]) -> Dict[Optional[str], List[str]]:
-    children: Dict[Optional[str], List[str]] = {}
+def _children_map(folders: dict[str, Folder]) -> dict[str | None, list[str]]:
+    children: dict[str | None, list[str]] = {}
     for folder in folders.values():
         children.setdefault(folder.parent_id, []).append(folder.id)
     for folder_ids in children.values():
@@ -209,10 +208,10 @@ def _children_map(folders: Dict[str, Folder]) -> Dict[Optional[str], List[str]]:
     return children
 
 
-def _descendant_ids(root_folder_id: str, children: Dict[Optional[str], List[str]]) -> List[str]:
+def _descendant_ids(root_folder_id: str, children: dict[str | None, list[str]]) -> list[str]:
     stack = [root_folder_id]
     visited = set()
-    descendants: List[str] = []
+    descendants: list[str] = []
     while stack:
         current = stack.pop()
         if current in visited:
@@ -223,15 +222,15 @@ def _descendant_ids(root_folder_id: str, children: Dict[Optional[str], List[str]
     return descendants
 
 
-def _project_ids_by_folder(folders: Dict[str, Folder]) -> Dict[str, List[str]]:
-    by_folder: Dict[str, List[str]] = {folder_id: [] for folder_id in folders.keys()}
+def _project_ids_by_folder(folders: dict[str, Folder]) -> dict[str, list[str]]:
+    by_folder: dict[str, list[str]] = {folder_id: [] for folder_id in folders.keys()}
     for project in project_service.get_registered_project_records():
         if project.folder_id and project.folder_id in by_folder:
             by_folder[project.folder_id].append(project.id)
     return by_folder
 
 
-def is_folder_visible_to_role(folder_id: Optional[str], user_role: Optional[Role]) -> bool:
+def is_folder_visible_to_role(folder_id: str | None, user_role: Role | None) -> bool:
     if folder_id is None:
         return True
     folders = _load_folders()
@@ -242,9 +241,9 @@ def is_folder_visible_to_role(folder_id: Optional[str], user_role: Optional[Role
 
 
 def filter_projects_for_role(
-    projects: List[project_service.Project],
-    user_role: Optional[Role],
-) -> List[project_service.Project]:
+    projects: list[project_service.Project],
+    user_role: Role | None,
+) -> list[project_service.Project]:
     if user_role is None:
         return projects
 
@@ -261,16 +260,16 @@ def filter_projects_for_role(
     return [project for project in projects if project_visible(project)]
 
 
-def get_folder_tree(user_role: Optional[Role] = None) -> List[FolderTreeItem]:
+def get_folder_tree(user_role: Role | None = None) -> list[FolderTreeItem]:
     folders = _load_folders()
     if not folders:
         return []
 
     children = _children_map(folders)
     direct_project_ids = _project_ids_by_folder(folders)
-    total_cache: Dict[str, int] = {}
+    total_cache: dict[str, int] = {}
 
-    def total_count(folder_id: str, visiting: Optional[set] = None) -> int:
+    def total_count(folder_id: str, visiting: set | None = None) -> int:
         active_stack = visiting or set()
         if folder_id in active_stack:
             # Malformed data guard: break recursion on cycles.
@@ -288,9 +287,9 @@ def get_folder_tree(user_role: Optional[Role] = None) -> List[FolderTreeItem]:
         total_cache[folder_id] = count
         return count
 
-    tree_items: List[FolderTreeItem] = []
+    tree_items: list[FolderTreeItem] = []
 
-    def walk(parent_id: Optional[str], depth: int, visiting: Optional[set] = None) -> None:
+    def walk(parent_id: str | None, depth: int, visiting: set | None = None) -> None:
         active_stack = visiting or set()
         for folder_id in children.get(parent_id, []):
             if folder_id in active_stack:
@@ -323,11 +322,11 @@ def get_folder_tree(user_role: Optional[Role] = None) -> List[FolderTreeItem]:
     return tree_items
 
 
-def get_folder(folder_id: str) -> Optional[Folder]:
+def get_folder(folder_id: str) -> Folder | None:
     return _load_folders().get(folder_id)
 
 
-def create_folder(name: str, parent_id: Optional[str] = None) -> Folder:
+def create_folder(name: str, parent_id: str | None = None) -> Folder:
     folders = _load_folders()
     normalized_name = _normalize_name(name)
 
@@ -357,7 +356,7 @@ def create_folder(name: str, parent_id: Optional[str] = None) -> Folder:
     return folder
 
 
-def update_folder(folder_id: str, name: Optional[str] = None, parent_id=UNSET) -> Folder:
+def update_folder(folder_id: str, name: str | None = None, parent_id=UNSET) -> Folder:
     folders = _load_folders()
     folder = folders.get(folder_id)
     if not folder:
@@ -412,14 +411,14 @@ def delete_folder(folder_id: str, cascade: bool = True) -> bool:
     return True
 
 
-def move_project_to_folder(project_id: str, folder_id: Optional[str]) -> None:
+def move_project_to_folder(project_id: str, folder_id: str | None) -> None:
     if folder_id is not None and folder_id not in _load_folders():
         raise ValueError("Folder not found")
     if not project_service.update_project_folder_id(project_id, folder_id):
         raise ValueError("Project not found")
 
 
-def get_folder_contents(folder_id: Optional[str], user_role: Optional[Role] = None) -> dict:
+def get_folder_contents(folder_id: str | None, user_role: Role | None = None) -> dict:
     folders = _load_folders()
     if folder_id is not None:
         folder = folders.get(folder_id)

@@ -1,9 +1,10 @@
+import datetime
 import os
+from typing import Any
+
 from fastapi import HTTPException
 from git import Repo
 from git.exc import BadName, GitCommandError
-from typing import Dict, Any, List, Optional
-import datetime
 
 
 def _open_repo(repo_path: str) -> Repo:
@@ -16,7 +17,7 @@ def _open_repo(repo_path: str) -> Repo:
         raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
 
 
-def _serialize_commit(commit) -> Dict[str, Any]:
+def _serialize_commit(commit) -> dict[str, Any]:
     return {
         "hash": commit.hexsha[:7],
         "full_hash": commit.hexsha,
@@ -56,7 +57,7 @@ def _get_commits(repo_path: str, limit: int, relative_path: str = None, branch: 
     return commits
 
 
-def _kicad_change_flags(repo, full_hashes: List[str], relative_path: Optional[str]) -> Dict[str, Dict[str, int]]:
+def _kicad_change_flags(repo, full_hashes: list[str], relative_path: str | None) -> dict[str, dict[str, int]]:
     """
     Return {full_hash: {sch, pcb, pro, other}} where each value is the count of
     files of that kind changed in the commit (vs its first parent).
@@ -77,7 +78,7 @@ def _kicad_change_flags(repo, full_hashes: List[str], relative_path: Optional[st
         args.extend(["--", relative_path])
 
     raw = repo.git.execute(["git", *args])
-    out: Dict[str, Dict[str, int]] = {}
+    out: dict[str, dict[str, int]] = {}
     current = None
     for line in raw.splitlines():
         if line.startswith("PRISMHASH:"):
@@ -193,11 +194,11 @@ def file_exists_in_commit_with_prefix(repo_path: str, commit_hash: str, file_pat
     try:
         repo = Repo(repo_path)
         commit = repo.commit(commit_hash)
-        
+
         full_path = file_path
         if relative_prefix:
             full_path = os.path.join(relative_prefix, file_path)
-        
+
         try:
             _ = commit.tree / full_path
             return True
@@ -219,7 +220,7 @@ def get_commits_list(repo_path: str, limit: int = 50, branch: str = None):
     return _get_commits(repo_path, limit, branch=branch)
 
 
-def list_branches(repo_path: str) -> List[Dict[str, Any]]:
+def list_branches(repo_path: str) -> list[dict[str, Any]]:
     """
     Return all branches (local and remote-tracking) in display-friendly form.
 
@@ -235,7 +236,7 @@ def list_branches(repo_path: str) -> List[Dict[str, Any]]:
         }
     """
     repo = _open_repo(repo_path)
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
 
     try:
         active = repo.active_branch.name if not repo.head.is_detached else None
@@ -296,7 +297,7 @@ def list_branches(repo_path: str) -> List[Dict[str, Any]]:
     return out
 
 
-def get_current_branch(repo_path: str) -> Optional[str]:
+def get_current_branch(repo_path: str) -> str | None:
     """Return the current branch name, or None if HEAD is detached."""
     repo = _open_repo(repo_path)
     try:
@@ -423,7 +424,7 @@ def get_commit_file_summary(repo_path: str, commit_hash: str, relative_path: str
         raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
 
 
-def sync_with_remote(repo_path: str) -> Dict[str, Any]:
+def sync_with_remote(repo_path: str) -> dict[str, Any]:
     """
     Sync local repository with remote by performing a git pull.
     
@@ -439,26 +440,26 @@ def sync_with_remote(repo_path: str) -> Dict[str, Any]:
     """
     if not os.path.exists(repo_path):
         raise HTTPException(status_code=404, detail=f"Repository not found at {repo_path}")
-    
+
     try:
         repo = Repo(repo_path)
-        
+
         # Get current HEAD before sync
         previous_commit = repo.head.commit.hexsha
-        
+
         # Perform git pull
         origin = repo.remotes.origin
-        
+
         env = os.environ.copy()
         env['GIT_TERMINAL_PROMPT'] = '0'
         # Trust On First Use (TOFU) for SSH
         env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+
         pull_info = origin.pull(env=env)
-        
+
         # Get new HEAD after sync
         current_commit = repo.head.commit.hexsha
-        
+
         # Count how many commits were pulled
         commits_pulled = 0
         if previous_commit != current_commit:
@@ -466,7 +467,7 @@ def sync_with_remote(repo_path: str) -> Dict[str, Any]:
                 commits_pulled = len(list(repo.iter_commits(f'{previous_commit}..{current_commit}')))
             except Exception:
                 commits_pulled = 1  # At least one if heads differ
-        
+
         return {
             "success": True,
             "previous_commit": previous_commit[:7],
@@ -474,6 +475,6 @@ def sync_with_remote(repo_path: str) -> Dict[str, Any]:
             "commits_pulled": commits_pulled,
             "message": f"Successfully pulled {commits_pulled} commit(s) from remote."
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")

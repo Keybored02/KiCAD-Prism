@@ -3,10 +3,10 @@ Diff API Routes
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_viewer
-from app.services import sch_diff_service
-from app.services import pcb_diff_service
+from app.services import pcb_diff_service, sch_diff_service
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
@@ -28,6 +28,7 @@ async def get_schematic_diff(
     # Resolve parent commit when commit2 is not provided
     if commit2 is None:
         from pathlib import Path
+
         from app.services.project_service import get_registered_projects
         projects = get_registered_projects()
         project = next((p for p in projects if p.id == project_id), None)
@@ -55,6 +56,7 @@ async def get_schematic_diff(
 def _resolve_parent_commit(project_id: str, commit1: str) -> str:
     """Resolve the parent commit hash, raising HTTPException on failure."""
     from pathlib import Path
+
     from app.services.project_service import get_registered_projects
     projects = get_registered_projects()
     project = next((p for p in projects if p.id == project_id), None)
