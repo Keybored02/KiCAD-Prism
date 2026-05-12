@@ -11,6 +11,8 @@ import { PcbDiffViewer } from "./pcb-diff-viewer";
 import { fetchJson } from "@/lib/api";
 import { categorise, CATEGORY_META, type KindedItem } from "@/lib/diff-grouping";
 
+const COMMIT_AUTHOR_DISPLAY_NAME = "John Doe";
+
 interface Release {
     tag: string;
     commit_hash: string;
@@ -497,7 +499,7 @@ function CommitItem({
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
                         <div className="flex items-center gap-1">
                             <User className="h-3 w-3" />
-                            {commit.author || "Unknown"}
+                            {commit.author ? COMMIT_AUTHOR_DISPLAY_NAME : "Unknown"}
                         </div>
                         {commit.kicad_changes && (
                             <div className="flex items-center gap-1">

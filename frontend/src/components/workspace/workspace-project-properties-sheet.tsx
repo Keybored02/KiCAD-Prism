@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const COMMIT_AUTHOR_DISPLAY_NAME = "John Doe";
+
 interface WorkspaceProjectPropertiesSheetProps {
   open: boolean;
   project: Project | null;
@@ -345,7 +347,7 @@ export function WorkspaceProjectPropertiesSheet({
                   label="Latest Commit"
                   value={
                     data?.repository.latest_commit
-                      ? `${data.repository.latest_commit.hash} by ${data.repository.latest_commit.author}`
+                      ? `${data.repository.latest_commit.hash} by ${COMMIT_AUTHOR_DISPLAY_NAME}`
                       : "No commits found"
                   }
                 />
@@ -376,7 +378,7 @@ export function WorkspaceProjectPropertiesSheet({
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">
                       {data?.repository.latest_commit
-                        ? `${data.repository.latest_commit.author} • ${formatDateTime(data.repository.latest_commit.date)}`
+                        ? `${COMMIT_AUTHOR_DISPLAY_NAME} • ${formatDateTime(data.repository.latest_commit.date)}`
                         : "No repository activity available"}
                     </p>
                   </div>
