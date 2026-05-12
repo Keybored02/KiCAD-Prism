@@ -132,7 +132,6 @@ function fieldLabel(key: string): string {
     return LABELS[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatFieldValue(field: string, value: unknown): string {
 function formatFieldValue(_field: string, value: unknown): string {
     if (value == null || value === "") return "–";
     if (typeof value === "boolean") return value ? "yes" : "no";
