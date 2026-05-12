@@ -388,6 +388,7 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
         Repo.clone_from(
             repo_url,
             str(target_path),
+            filter='blob:none',
             progress=CloneProgress(job_id),
             env=env
         )
