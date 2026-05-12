@@ -3,6 +3,7 @@ PCB Diff Service
 
 Parses .kicad_pcb files from two commits, diffs them by UUID, and returns
 a structured change set suitable for the interactive PCB diff viewer.
+
 """
 
 from pathlib import Path
