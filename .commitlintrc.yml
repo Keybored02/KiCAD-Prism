@@ -1,0 +1,50 @@
+extends:
+  - "@commitlint/config-conventional"
+
+rules:
+  # Types allowed in commit messages
+  type-enum:
+    - 2
+    - always
+    - - feat       # new feature
+      - fix        # bug fix
+      - chore      # maintenance, deps, tooling
+      - docs       # documentation only
+      - refactor   # code restructuring without behaviour change
+      - perf       # performance improvement
+      - test       # adding or fixing tests
+      - ci         # CI/CD changes
+      - style      # formatting, whitespace (no logic change)
+      - revert     # reverting a previous commit
+
+  # Scope is optional but must be lowercase if present
+  scope-case:
+    - 2
+    - always
+    - lower-case
+
+  # Subject line rules
+  subject-case:
+    - 2
+    - always
+    - - sentence-case
+      - lower-case
+  subject-empty:
+    - 2
+    - never
+  subject-full-stop:
+    - 2
+    - never
+    - "."
+
+  # Header length — generous limit given KiCad context
+  header-max-length:
+    - 2
+    - always
+    - 100
+
+  # Body/footer are unrestricted
+  body-max-line-length:
+    - 0
+  footer-max-line-length:
+    - 0

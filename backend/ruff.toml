@@ -1,0 +1,29 @@
+# Ruff configuration for KiCAD Prism backend
+target-version = "py311"
+
+[lint]
+# Start with a focused set — expand as the codebase is cleaned up.
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes (unused imports, undefined names)
+    "W",    # pycodestyle warnings
+    "B",    # flake8-bugbear (likely bugs and design issues)
+    "UP",   # pyupgrade (modernise Python syntax)
+    "S",    # flake8-bandit security rules (subset)
+    "I",    # isort
+]
+ignore = [
+    "E501",   # line too long — handled by formatter, not linter
+    "S101",   # assert statements (fine in tests)
+    "S603",   # subprocess without shell=True (we use shell=False intentionally)
+    "S607",   # partial executable path in subprocess (git is on PATH)
+    "B008",   # do not perform function calls in default arguments (FastAPI Depends pattern)
+    "UP007",  # use X | Y for union types (keep compat with older type checkers)
+]
+
+[lint.per-file-ignores]
+"app/tests/**" = ["S", "B"]  # relax security + bugbear rules in tests
+
+[format]
+quote-style = "double"
+indent-style = "space"
