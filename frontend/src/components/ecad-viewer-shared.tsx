@@ -1242,7 +1242,7 @@ function LayersPanel({
         : footprints;
 
     return (
-        <PanelShell onClose={onClose}>
+        <PanelShell>
             {/* Tab bar */}
             <div className="flex border-b shrink-0 bg-muted/20">
                 {PCB_TABS.map(({ id, icon: Icon, label }) => (

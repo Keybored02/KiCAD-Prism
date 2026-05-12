@@ -133,6 +133,7 @@ function fieldLabel(key: string): string {
 }
 
 function formatFieldValue(field: string, value: unknown): string {
+function formatFieldValue(_field: string, value: unknown): string {
     if (value == null || value === "") return "–";
     if (typeof value === "boolean") return value ? "yes" : "no";
     return String(value);
@@ -567,7 +568,8 @@ export function SchematicDiffViewer({
             if (bbox) {
                 // Replicate zoom_fit_item but skip paint_selected
                 const grown = bbox.grow?.(20) ?? bbox;
-                camera.bbox = grown as never;
+                const cameraWithBBox = camera as typeof camera & { bbox?: unknown };
+                cameraWithBBox.bbox = grown;
             } else {
                 // UUID not indexed — manually center on item position
                 camera.zoom = 20;
