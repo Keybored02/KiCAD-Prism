@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 SUBPROCESS_TIMEOUT_SECONDS = 8
 KNOWN_GIT_HOSTS = ("github.com", "gitlab.com")
 
+
 def configure_git():
     """Configure Git with GITHUB_TOKEN if available."""
     if settings.GITHUB_TOKEN:
@@ -37,13 +38,20 @@ def configure_git():
             # git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
             token_url = f"https://{settings.GITHUB_TOKEN}@github.com/"
             subprocess.run(
-                ["git", "config", "--global", f"url.{token_url}.insteadOf", "https://github.com/"],
+                [
+                    "git",
+                    "config",
+                    "--global",
+                    f"url.{token_url}.insteadOf",
+                    "https://github.com/",
+                ],
                 check=True,
                 timeout=SUBPROCESS_TIMEOUT_SECONDS,
             )
             logger.info("Git successfully configured with token injection.")
         except (subprocess.SubprocessError, OSError) as error:
             logger.error("Failed to configure Git with token: %s", error)
+
 
 def scan_known_hosts():
     """Scan and add GitHub/GitLab to known_hosts if missing."""
@@ -89,6 +97,7 @@ def scan_known_hosts():
         except (subprocess.SubprocessError, OSError) as error:
             logger.error("Error checking/scanning host %s: %s", host, error)
 
+
 def ensure_ssh_dir():
     """Ensure ~/.ssh exists and has correct permissions."""
     ssh_dir = Path.home() / ".ssh"
@@ -102,6 +111,7 @@ def ensure_ssh_dir():
     except OSError as error:
         logger.error("Failed to configure SSH directory: %s", error)
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -114,6 +124,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         catalog_service.close()
+
 
 app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
 

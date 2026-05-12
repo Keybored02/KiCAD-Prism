@@ -48,11 +48,15 @@ def _row_to_project(row: dict) -> project_service.Project:
 def require_output_type(value: str) -> str:
     normalized = value.strip().lower()
     if normalized not in VALID_OUTPUT_TYPES:
-        raise HTTPException(status_code=400, detail="Type must be 'design' or 'manufacturing'")
+        raise HTTPException(
+            status_code=400, detail="Type must be 'design' or 'manufacturing'"
+        )
     return normalized
 
 
-def resolve_path_within_root(root: str, relative_path: str, *, invalid_detail: str) -> Path:
+def resolve_path_within_root(
+    root: str, relative_path: str, *, invalid_detail: str
+) -> Path:
     root_path = Path(root).resolve()
     target_path = (root_path / relative_path).resolve()
 

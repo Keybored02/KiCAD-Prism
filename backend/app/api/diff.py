@@ -30,26 +30,32 @@ async def get_schematic_diff(
         from pathlib import Path
 
         from app.services.project_service import get_registered_projects
+
         projects = get_registered_projects()
         project = next((p for p in projects if p.id == project_id), None)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         try:
             from git import Repo
+
             repo_root = sch_diff_service._git_root(Path(project.path))
             repo = Repo(str(repo_root))
             commit_obj = repo.commit(commit1)
             if not commit_obj.parents:
-                raise HTTPException(status_code=400, detail="Commit has no parent to diff against")
+                raise HTTPException(
+                    status_code=400, detail="Commit has no parent to diff against"
+                )
             commit2 = commit_obj.parents[0].hexsha
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Git error: {str(e)}") from e
 
     result = sch_diff_service.get_schematic_diff(project_id, commit1, commit2)
     if result is None:
-        raise HTTPException(status_code=404, detail="Schematic not found for this project/commits")
+        raise HTTPException(
+            status_code=404, detail="Schematic not found for this project/commits"
+        )
     return result
 
 
@@ -58,22 +64,26 @@ def _resolve_parent_commit(project_id: str, commit1: str) -> str:
     from pathlib import Path
 
     from app.services.project_service import get_registered_projects
+
     projects = get_registered_projects()
     project = next((p for p in projects if p.id == project_id), None)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     try:
         from git import Repo
+
         repo_root = sch_diff_service._git_root(Path(project.path))
         repo = Repo(str(repo_root))
         commit_obj = repo.commit(commit1)
         if not commit_obj.parents:
-            raise HTTPException(status_code=400, detail="Commit has no parent to diff against")
+            raise HTTPException(
+                status_code=400, detail="Commit has no parent to diff against"
+            )
         return commit_obj.parents[0].hexsha
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}") from e
 
 
 @router.get("/{project_id}/pcb-diff")
@@ -92,5 +102,7 @@ async def get_pcb_diff(
         commit2 = _resolve_parent_commit(project_id, commit1)
     result = pcb_diff_service.get_pcb_diff(project_id, commit1, commit2)
     if result is None:
-        raise HTTPException(status_code=404, detail="PCB not found for this project/commits")
+        raise HTTPException(
+            status_code=404, detail="PCB not found for this project/commits"
+        )
     return result

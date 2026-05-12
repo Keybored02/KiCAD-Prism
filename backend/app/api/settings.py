@@ -22,9 +22,11 @@ SSH_DIR = (Path.home() / ".ssh").resolve()
 PRIVATE_KEY = SSH_DIR / "id_ed25519"
 PUBLIC_KEY = SSH_DIR / "id_ed25519.pub"
 
+
 class SSHKeyResponse(BaseModel):
     exists: bool
     public_key: str | None = None
+
 
 class GenerateSSHKeyRequest(BaseModel):
     email: str = "kicad-prism@example.com"
@@ -38,6 +40,7 @@ class RoleAssignmentResponse(BaseModel):
 
 class UpsertRoleRequest(BaseModel):
     role: str
+
 
 @router.get("/ssh-key", response_model=SSHKeyResponse)
 async def get_ssh_key():
@@ -54,7 +57,10 @@ async def get_ssh_key():
             return {"exists": True, "public_key": key_content}
     except Exception as e:
         logger.error(f"Error reading public key: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error reading public key: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error reading public key: {str(e)}"
+        ) from e
+
 
 @router.post("/ssh-key/generate")
 async def generate_ssh_key(request: GenerateSSHKeyRequest):
@@ -67,13 +73,15 @@ async def generate_ssh_key(request: GenerateSSHKeyRequest):
     if PRIVATE_KEY.exists():
         logger.info("Existing private key found. Removing it.")
         try:
-             os.remove(PRIVATE_KEY)
-             if PUBLIC_KEY.exists():
-                 os.remove(PUBLIC_KEY)
-                 logger.info("Existing public key removed.")
+            os.remove(PRIVATE_KEY)
+            if PUBLIC_KEY.exists():
+                os.remove(PUBLIC_KEY)
+                logger.info("Existing public key removed.")
         except OSError as e:
-             logger.error(f"Failed to remove existing key: {e}")
-             raise HTTPException(status_code=500, detail=f"Failed to remove existing key: {e}")
+            logger.error(f"Failed to remove existing key: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to remove existing key: {e}"
+            ) from e
 
     # Ensure .ssh directory exists and has correct permissions
     try:
@@ -85,18 +93,26 @@ async def generate_ssh_key(request: GenerateSSHKeyRequest):
         os.chmod(SSH_DIR, 0o700)
     except Exception as e:
         logger.error(f"Failed to create/chmod SSH directory: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to setup SSH directory: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to setup SSH directory: {str(e)}"
+        ) from e
 
     try:
         # Generate key without passphrase (-N "")
-        command = ["ssh-keygen", "-t", "ed25519", "-C", request.email, "-N", "", "-f", str(PRIVATE_KEY)]
+        command = [
+            "ssh-keygen",
+            "-t",
+            "ed25519",
+            "-C",
+            request.email,
+            "-N",
+            "",
+            "-f",
+            str(PRIVATE_KEY),
+        ]
         logger.info(f"Running command: {' '.join(command)}")
 
-        subprocess.run(
-            command,
-            check=True,
-            capture_output=True
-        )
+        subprocess.run(command, check=True, capture_output=True)
         logger.info("ssh-keygen command completed successfully.")
 
         # Ensure private key has correct permissions
@@ -105,7 +121,10 @@ async def generate_ssh_key(request: GenerateSSHKeyRequest):
             os.chmod(PRIVATE_KEY, 0o600)
         else:
             logger.error("Private key file not found after generation!")
-            raise HTTPException(status_code=500, detail="Key generation appeared to succeed but file is missing.")
+            raise HTTPException(
+                status_code=500,
+                detail="Key generation appeared to succeed but file is missing.",
+            )
 
         with open(PUBLIC_KEY) as f:
             content = f.read().strip()
@@ -115,15 +134,22 @@ async def generate_ssh_key(request: GenerateSSHKeyRequest):
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.decode() if e.stderr else "Unknown error"
         logger.error(f"ssh-keygen failed: {error_msg}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate SSH key: {error_msg}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate SSH key: {error_msg}"
+        ) from e
     except Exception as e:
         logger.error(f"An unexpected error occurred during key generation: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"An unexpected error occurred: {str(e)}"
+        ) from e
 
 
 @router.get("/access/users", response_model=list[RoleAssignmentResponse])
 async def list_access_users():
-    return [RoleAssignmentResponse(**item) for item in access_service.list_role_assignments()]
+    return [
+        RoleAssignmentResponse(**item)
+        for item in access_service.list_role_assignments()
+    ]
 
 
 @router.put("/access/users/{email}", response_model=RoleAssignmentResponse)
@@ -134,22 +160,28 @@ async def upsert_access_user(
 ):
     normalized_role = normalize_role(request.role)
     if normalized_role is None:
-        raise HTTPException(status_code=400, detail="Invalid role. Must be admin, designer, or viewer.")
+        raise HTTPException(
+            status_code=400, detail="Invalid role. Must be admin, designer, or viewer."
+        )
 
     try:
-        assignment = access_service.upsert_user_role(email=email, role=normalized_role, updated_by=user.email)
+        assignment = access_service.upsert_user_role(
+            email=email, role=normalized_role, updated_by=user.email
+        )
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
     return RoleAssignmentResponse(**assignment)
 
 
 @router.delete("/access/users/{email}")
-async def delete_access_user(email: str, user: AuthenticatedUser = Depends(require_admin)):
+async def delete_access_user(
+    email: str, user: AuthenticatedUser = Depends(require_admin)
+):
     try:
         deleted = access_service.delete_user_role(email=email, updated_by=user.email)
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
     if not deleted:
         raise HTTPException(status_code=404, detail="User role assignment not found")

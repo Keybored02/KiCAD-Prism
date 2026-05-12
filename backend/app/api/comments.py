@@ -21,6 +21,7 @@ router = APIRouter(dependencies=[Depends(require_viewer)])
 # PYDANTIC MODELS
 # ============================================================
 
+
 class CommentLocation(BaseModel):
     x: float
     y: float
@@ -85,7 +86,9 @@ def _normalize_context(context: str) -> str:
 def _normalize_content(content: str, *, field: str = "content") -> str:
     normalized = content.strip()
     if not normalized:
-        raise HTTPException(status_code=400, detail=f"{field.capitalize()} cannot be empty")
+        raise HTTPException(
+            status_code=400, detail=f"{field.capitalize()} cannot be empty"
+        )
     return normalized
 
 
@@ -93,8 +96,11 @@ def _normalize_content(content: str, *, field: str = "content") -> str:
 # API ENDPOINTS
 # ============================================================
 
+
 @router.get("/{project_id}/comments")
-async def get_comments(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
+async def get_comments(
+    project_id: str, user: AuthenticatedUser = Depends(require_viewer)
+):
     """
     Get all comments for a project from DB snapshot.
     """
@@ -126,7 +132,9 @@ async def create_comment(
     )
 
 
-@router.patch("/{project_id}/comments/{comment_id}", dependencies=[Depends(require_designer)])
+@router.patch(
+    "/{project_id}/comments/{comment_id}", dependencies=[Depends(require_designer)]
+)
 async def update_comment(
     project_id: str,
     comment_id: str,
@@ -143,7 +151,9 @@ async def update_comment(
 
     status = request.status.upper()
     if status not in {"OPEN", "RESOLVED"}:
-        raise HTTPException(status_code=400, detail="Status must be 'OPEN' or 'RESOLVED'")
+        raise HTTPException(
+            status_code=400, detail="Status must be 'OPEN' or 'RESOLVED'"
+        )
 
     updated_comment = comments_store.update_comment_status(
         project_id=project.id,
@@ -158,7 +168,10 @@ async def update_comment(
     return updated_comment
 
 
-@router.post("/{project_id}/comments/{comment_id}/replies", dependencies=[Depends(require_designer)])
+@router.post(
+    "/{project_id}/comments/{comment_id}/replies",
+    dependencies=[Depends(require_designer)],
+)
 async def add_reply(
     project_id: str,
     comment_id: str,
@@ -185,7 +198,9 @@ async def add_reply(
     return {"comment": comment, "reply": reply}
 
 
-@router.delete("/{project_id}/comments/{comment_id}", dependencies=[Depends(require_designer)])
+@router.delete(
+    "/{project_id}/comments/{comment_id}", dependencies=[Depends(require_designer)]
+)
 async def delete_comment(
     project_id: str,
     comment_id: str,
@@ -212,8 +227,11 @@ async def delete_comment(
 # EXPORT ENDPOINT
 # ============================================================
 
+
 @router.post("/{project_id}/comments/push", dependencies=[Depends(require_designer)])
-async def push_comments(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
+async def push_comments(
+    project_id: str, user: AuthenticatedUser = Depends(require_viewer)
+):
     """
     Export DB snapshot to comments.json artifact only.
     Git commit/push is intentionally left to the user workflow.
@@ -232,4 +250,6 @@ async def push_comments(project_id: str, user: AuthenticatedUser = Depends(requi
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Unexpected error: {str(e)}"
+        ) from e

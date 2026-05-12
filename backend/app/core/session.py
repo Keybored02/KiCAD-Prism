@@ -39,7 +39,9 @@ def _sign(message: str) -> str:
 
 
 def _serialize_payload(payload: SessionPayload) -> str:
-    return _b64_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    return _b64_encode(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
 
 
 def _deserialize_payload(encoded_payload: str) -> SessionPayload:

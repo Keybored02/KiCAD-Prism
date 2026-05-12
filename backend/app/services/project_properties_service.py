@@ -90,7 +90,9 @@ def _extract_int_value(block: str, key: str) -> int | None:
 
 
 def _extract_point(block: str, key: str) -> tuple[float, float] | None:
-    match = re.search(rf"\({re.escape(key)}\s+([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)\)", block)
+    match = re.search(
+        rf"\({re.escape(key)}\s+([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)\)", block
+    )
     if not match:
         return None
 
@@ -102,7 +104,9 @@ def _extract_point(block: str, key: str) -> tuple[float, float] | None:
 
 def _extract_xy_points(block: str) -> list[tuple[float, float]]:
     points: list[tuple[float, float]] = []
-    for left, right in re.findall(r"\(xy\s+([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)\)", block):
+    for left, right in re.findall(
+        r"\(xy\s+([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)\)", block
+    ):
         try:
             points.append((float(left), float(right)))
         except ValueError:
@@ -117,8 +121,15 @@ def _round_dimension(value: float) -> float:
 def _extract_pcb_dimensions(text: str) -> dict | None:
     points: list[tuple[float, float]] = []
 
-    for token in ("gr_line", "gr_rect", "gr_arc", "gr_curve", "gr_poly", "gr_circle"):
-        for block in _extract_sexpr_blocks(text, token):
+    for shape_type in (
+        "gr_line",
+        "gr_rect",
+        "gr_arc",
+        "gr_curve",
+        "gr_poly",
+        "gr_circle",
+    ):
+        for block in _extract_sexpr_blocks(text, shape_type):
             if '(layer "Edge.Cuts")' not in block:
                 continue
 
@@ -134,7 +145,7 @@ def _extract_pcb_dimensions(text: str) -> dict | None:
             ]
             token_points.extend(_extract_xy_points(block))
 
-            if token == "gr_circle":
+            if shape_type == "gr_circle":
                 center = _extract_point(block, "center")
                 edge = _extract_point(block, "end")
                 if center and edge:
@@ -168,7 +179,9 @@ def _extract_pcb_dimensions(text: str) -> dict | None:
 
 
 def _relative_to_project(project_path: str, file_path: str) -> str:
-    return Path(file_path).resolve().relative_to(Path(project_path).resolve()).as_posix()
+    return (
+        Path(file_path).resolve().relative_to(Path(project_path).resolve()).as_posix()
+    )
 
 
 def _parse_title_block(text: str) -> dict | None:
@@ -178,7 +191,9 @@ def _parse_title_block(text: str) -> dict | None:
 
     comments = {
         index: _unescape_kicad_string(value)
-        for index, value in re.findall(rf"\(comment\s+(\d+)\s+{_STRING_PATTERN}\)", block)
+        for index, value in re.findall(
+            rf"\(comment\s+(\d+)\s+{_STRING_PATTERN}\)", block
+        )
     }
 
     return {
@@ -287,7 +302,9 @@ def extract_pcb_metadata(project_path: str, file_path: str | None) -> dict | Non
             "generator_version": _extract_string_value(text, "generator_version"),
             "paper": _extract_string_value(text, "paper"),
             "dimensions_mm": _extract_pcb_dimensions(text),
-            "thickness_mm": _extract_number_value(_extract_sexpr_block(text, "general") or "", "thickness"),
+            "thickness_mm": _extract_number_value(
+                _extract_sexpr_block(text, "general") or "", "thickness"
+            ),
             "title_block": _parse_title_block(text),
         },
     )

@@ -55,7 +55,11 @@ def _legacy_folders_files() -> list[str]:
     """Known legacy locations used by older backend builds."""
     return [
         # Historical relative path used by folder_service (can resolve to /data/projects in Docker).
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects/.folders.json")),
+        os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__), "../../../data/projects/.folders.json"
+            )
+        ),
         # Early Docker mapping workaround path.
         "/app/data/projects/.folders.json",
         # Legacy absolute path in some container layouts.
@@ -101,6 +105,7 @@ def _ensure_canonical_folders_file() -> None:
         except OSError:
             # If migration fails, load path fallbacks still cover runtime behavior.
             return
+
 
 UNSET = object()
 
@@ -208,7 +213,9 @@ def _children_map(folders: dict[str, Folder]) -> dict[str | None, list[str]]:
     return children
 
 
-def _descendant_ids(root_folder_id: str, children: dict[str | None, list[str]]) -> list[str]:
+def _descendant_ids(
+    root_folder_id: str, children: dict[str | None, list[str]]
+) -> list[str]:
     stack = [root_folder_id]
     visited = set()
     descendants: list[str] = []
@@ -334,7 +341,10 @@ def create_folder(name: str, parent_id: str | None = None) -> Folder:
         raise ValueError("Parent folder not found")
 
     for folder in folders.values():
-        if folder.parent_id == parent_id and folder.name.lower() == normalized_name.lower():
+        if (
+            folder.parent_id == parent_id
+            and folder.name.lower() == normalized_name.lower()
+        ):
             raise ValueError("A folder with this name already exists in this location")
 
     now = _now_iso()
@@ -371,13 +381,18 @@ def update_folder(folder_id: str, name: str | None = None, parent_id=UNSET) -> F
         raise ValueError("Folder cannot be its own parent")
 
     children = _children_map(folders)
-    if target_parent_id is not None and target_parent_id in _descendant_ids(folder_id, children):
+    if target_parent_id is not None and target_parent_id in _descendant_ids(
+        folder_id, children
+    ):
         raise ValueError("Cannot move a folder into itself or its descendants")
 
     for other in folders.values():
         if other.id == folder_id:
             continue
-        if other.parent_id == target_parent_id and other.name.lower() == target_name.lower():
+        if (
+            other.parent_id == target_parent_id
+            and other.name.lower() == target_name.lower()
+        ):
             raise ValueError("A folder with this name already exists in this location")
 
     folder.name = target_name
@@ -397,7 +412,9 @@ def delete_folder(folder_id: str, cascade: bool = True) -> bool:
     delete_ids = _descendant_ids(folder_id, children) if cascade else [folder_id]
 
     if not cascade and folder_id in children:
-        raise ValueError("Folder has subfolders. Use cascade delete or move subfolders first.")
+        raise ValueError(
+            "Folder has subfolders. Use cascade delete or move subfolders first."
+        )
 
     # Move all projects under deleted folders back to root.
     for project in project_service.get_registered_project_records():
@@ -429,7 +446,8 @@ def get_folder_contents(folder_id: str | None, user_role: Role | None = None) ->
         [
             folder
             for folder in folders.values()
-            if folder.parent_id == folder_id and _is_folder_visible_to_role(folder, user_role)
+            if folder.parent_id == folder_id
+            and _is_folder_visible_to_role(folder, user_role)
         ],
         key=lambda folder: folder.name.lower(),
     )
