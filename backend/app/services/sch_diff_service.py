@@ -5,11 +5,14 @@ Parses .kicad_sch files from two commits, diffs them by UUID, and returns
 a structured change set suitable for the interactive schematic diff viewer.
 """
 
+import logging
 import re
 import subprocess
 from pathlib import Path
-from typing import Optional
-from app.services.project_service import get_registered_projects, find_schematic_file
+
+from app.services.project_service import get_registered_projects
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +76,7 @@ def _get_all(lst: list, key: str) -> list:
     return [item for item in lst if isinstance(item, list) and item and item[0] == key]
 
 
-def _uuid(lst: list) -> Optional[str]:
+def _uuid(lst: list) -> str | None:
     for key in ('uuid', 'tstamp'):
         u = _get(lst, key)
         if u and len(u) > 1:
@@ -92,7 +95,7 @@ def _at(lst: list) -> tuple:
     return 0.0, 0.0
 
 
-def _property(lst: list, name: str) -> Optional[str]:
+def _property(lst: list, name: str) -> str | None:
     for item in _get_all(lst, 'property'):
         if len(item) >= 3 and item[1] == name:
             return item[2]
@@ -362,12 +365,12 @@ def _git_root(project_path: Path) -> Path:
         )
         if result.returncode == 0:
             return Path(result.stdout.strip())
-    except Exception:
-        pass
+    except Exception as err:
+        logger.debug("Falling back to project path for git root %s: %s", project_path, err)
     return project_path
 
 
-def _read_file_at_commit(repo_root: Path, commit: str, rel_path: str) -> Optional[str]:
+def _read_file_at_commit(repo_root: Path, commit: str, rel_path: str) -> str | None:
     """Return file content at a given commit using a path relative to the repo root."""
     try:
         result = subprocess.run(
@@ -380,8 +383,8 @@ def _read_file_at_commit(repo_root: Path, commit: str, rel_path: str) -> Optiona
         )
         if result.returncode == 0:
             return result.stdout
-    except Exception:
-        pass
+    except Exception as err:
+        logger.debug("Could not read %s at %s: %s", rel_path, commit, err)
     return None
 
 
@@ -394,8 +397,9 @@ def _find_all_sch_paths(repo_root: Path, commit: str) -> list:
             capture_output=True,
             text=True,
         )
-        return [l for l in result.stdout.splitlines() if l.endswith('.kicad_sch')]
-    except Exception:
+        return [path for path in result.stdout.splitlines() if path.endswith('.kicad_sch')]
+    except Exception as err:
+        logger.debug("Could not enumerate schematic paths at %s: %s", commit, err)
         return []
 
 
@@ -403,7 +407,7 @@ def _find_all_sch_paths(repo_root: Path, commit: str) -> list:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def get_schematic_diff(project_id: str, commit1: str, commit2: str) -> Optional[dict]:
+def get_schematic_diff(project_id: str, commit1: str, commit2: str) -> dict | None:
     """
     Return interactive diff data for all schematic sheets between two commits.
 
