@@ -136,27 +136,6 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
     renamed:  <RefreshCw className="h-3 w-3" />,
 };
 
-const LABEL_BY_TYPE: Record<string, string> = {
-    // Schematic
-    symbol: "symbol",
-    label: "label",
-    global_label: "global label",
-    hierarchical_label: "hier label",
-    net_label: "net label",
-    text: "text",
-    sheet: "sheet",
-    // PCB
-    footprint: "footprint",
-    segment: "trace",
-    via: "via",
-    zone: "zone",
-    gr_text: "graphic text",
-    gr_line: "graphic line",
-    gr_circle: "graphic circle",
-    gr_rect: "graphic rect",
-    gr_arc: "graphic arc",
-};
-
 // Sort rank for the file list inside an expanded commit. Lower rank = shown
 // first. Schematic and PCB files lead, followed by project, libraries, then
 // everything else. Within a rank, original order is preserved (stable sort).
