@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -68,16 +67,33 @@ async def generate_ssh_key(request: GenerateSSHKeyRequest):
     """Generate a new Ed25519 SSH key."""
     logger.info(f"Starting SSH key generation for email: {request.email}")
     safe_email = request.email.strip()
+    if not safe_email or len(safe_email) > 254:
+        raise HTTPException(status_code=400, detail="Invalid email format.")
+
+    if any(char in safe_email for char in ("\n", "\r", " ", "\t")):
+        raise HTTPException(status_code=400, detail="Invalid email format.")
+
+    if safe_email.count("@") != 1:
+        raise HTTPException(status_code=400, detail="Invalid email format.")
+
+    local_part, domain_part = safe_email.split("@", 1)
+    if not local_part or not domain_part:
+        raise HTTPException(status_code=400, detail="Invalid email format.")
+
     if (
-        not safe_email
-        or len(safe_email) > 254
-        or "\n" in safe_email
-        or "\r" in safe_email
-        or not re.fullmatch(
-            r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-            safe_email,
-        )
+        "." not in domain_part
+        or domain_part.startswith(".")
+        or domain_part.endswith(".")
     ):
+        raise HTTPException(status_code=400, detail="Invalid email format.")
+
+    if any(
+        not label or label.startswith("-") or label.endswith("-")
+        for label in domain_part.split(".")
+    ):
+        raise HTTPException(status_code=400, detail="Invalid email format.")
+
+    if not all(char.isalnum() or char in ".!#$%&'*+/=?^_`{|}~-" for char in local_part):
         raise HTTPException(status_code=400, detail="Invalid email format.")
     logger.info(f"SSH Directory: {SSH_DIR}")
     logger.info(f"Private Key Path: {PRIVATE_KEY}")
