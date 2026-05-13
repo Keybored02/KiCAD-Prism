@@ -58,22 +58,6 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
-# ── Code quality ───────────────────────────────────────────────────────────────
-
-  commit-lint:
-    name: Quality / Commit messages
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Check conventional commits
-        uses: commitlint/github-action@v6
-        with:
-          configFile: .commitlintrc.yml
-          firstParent: true
-
   lint-frontend:
     name: Quality / Frontend lint & types
     runs-on: ubuntu-latest

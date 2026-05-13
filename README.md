@@ -145,6 +145,20 @@ Frontend dev server runs on [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
 By default, local development usually runs without auth because `DEV_MODE=true` and no OIDC client is configured.
 
+### Commit Message Checks
+
+Commit message linting is enforced locally through `pre-commit` instead of the PR workflow.
+
+Install the hooks once in your working copy:
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit install --hook-type commit-msg
+```
+
+After that, conventional commit validation runs when you commit from the IDE or command line.
+
 ## Authentication Model
 
 Current auth behavior is session-based:

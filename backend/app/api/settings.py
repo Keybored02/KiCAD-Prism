@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -66,6 +67,18 @@ async def get_ssh_key():
 async def generate_ssh_key(request: GenerateSSHKeyRequest):
     """Generate a new Ed25519 SSH key."""
     logger.info(f"Starting SSH key generation for email: {request.email}")
+    safe_email = request.email.strip()
+    if (
+        not safe_email
+        or len(safe_email) > 254
+        or "\n" in safe_email
+        or "\r" in safe_email
+        or not re.fullmatch(
+            r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+            safe_email,
+        )
+    ):
+        raise HTTPException(status_code=400, detail="Invalid email format.")
     logger.info(f"SSH Directory: {SSH_DIR}")
     logger.info(f"Private Key Path: {PRIVATE_KEY}")
     logger.info(f"Public Key Path: {PUBLIC_KEY}")
