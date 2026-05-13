@@ -104,7 +104,7 @@ async def generate_ssh_key(request: GenerateSSHKeyRequest):
             "-t",
             "ed25519",
             "-C",
-            request.email,
+            safe_email,
             "-N",
             "",
             "-f",
