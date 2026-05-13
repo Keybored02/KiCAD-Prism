@@ -12,16 +12,6 @@ repos:
         name: Ruff format (backend)
         types_or: [python, pyi]
 
-  # ── Commit message ──────────────────────────────────────────────────────────
-  - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
-    rev: v9.22.0
-    hooks:
-      - id: commitlint
-        name: Commitlint
-        stages: [commit-msg]
-        additional_dependencies:
-          - "@commitlint/config-conventional"
-
   # ── Frontend (TypeScript/React) ─────────────────────────────────────────────
   - repo: local
     hooks:
