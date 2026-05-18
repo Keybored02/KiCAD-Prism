@@ -1,5 +1,5 @@
 import {
-    useState, useEffect, useRef, useCallback,
+    useState, useEffect, useRef, useCallback, useMemo,
 } from "react";
 import {
     X, Loader2, AlertCircle, ChevronLeft, ChevronRight,
@@ -12,6 +12,7 @@ import {
     EcadViewerHost,
     useBoardClickFix,
     useEcadInfoPanel,
+    useViewerReadiness,
 } from "@/components/ecad-viewer-shared";
 import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
 
@@ -833,33 +834,72 @@ export function PcbDiffViewer({
           ]))
         : {};
 
-    const zoomToGroupOn = useCallback((g: GroupedMarker, target: "new" | "old", attempt = 0) => {
+    // Readiness signals — both hosts must reach a mounted+loaded state before
+    // we can drive their cameras. Keyed on commit pair so a new diff re-arms.
+    // Probe: inner kc-board-viewer reachable with a live camera == ready.
+    const newViewerKey = data ? `pcb-diff-new-${data.commit1}-${data.commit2}` : "pcb-diff-new-pending";
+    const oldViewerKey = data ? `pcb-diff-old-${data.commit1}-${data.commit2}` : "pcb-diff-old-pending";
+    const boardReadyProbe = useCallback(
+        (host: ECadViewerElement) => !!getBoardEl(host)?.viewer?.viewport?.camera,
+        [getBoardEl],
+    );
+    const { ready: newReady } = useViewerReadiness({ host: newViewerRef, viewerKey: newViewerKey, probe: boardReadyProbe });
+    const { ready: oldReady } = useViewerReadiness({ host: oldViewerRef, viewerKey: oldViewerKey, probe: boardReadyProbe });
+
+    // Resolve the focus item synchronously from data. Returns null until data
+    // is available or the uuid can't be found on any board. Memoized so the
+    // focus effect's deps don't churn every render.
+    const focusTarget = useMemo<{ board: string; uuid: string; side: "new" | "old" } | null>(() => {
+        if (!data || !focusItemId) return null;
+        for (const board of data.boards) {
+            const inAdded   = board.diff.added.some(i => i.uuid === focusItemId);
+            const inRemoved = board.diff.removed.some(i => i.uuid === focusItemId);
+            const inChanged = board.diff.changed.some(c => c.item.uuid === focusItemId);
+            if (!inAdded && !inRemoved && !inChanged) continue;
+            const side: "new" | "old" = singleCommit
+                ? "new"
+                : inRemoved && !inAdded && !inChanged ? "old"
+                : "new";
+            return { board: board.filename, uuid: focusItemId, side };
+        }
+        return null;
+    }, [data, focusItemId, singleCommit]);
+
+    // Zoom the named side's viewer to the group's bbox and lock the camera
+    // there. Caller MUST guarantee the viewer is ready (camera mounted, host
+    // load event fired) — see useViewerReadiness. If you're tempted to add a
+    // retry here, fix the caller's readiness contract instead.
+    const zoomToGroupOn = useCallback((g: GroupedMarker, target: "new" | "old") => {
         const ref = target === "new" ? newViewerRef : oldViewerRef;
         const viewer = ref.current;
-        if (!viewer) {
-            if (attempt < 24) window.setTimeout(() => zoomToGroupOn(g, target, attempt + 1), 125);
-            return;
-        }
-        try {
-            const boardEl = getBoardEl(viewer);
-            const camera  = boardEl?.viewer?.viewport?.camera;
-            if (!camera) {
-                // Camera not ready yet — retry up to ~3s
-                if (attempt < 24) window.setTimeout(() => zoomToGroupOn(g, target, attempt + 1), 125);
-                return;
-            }
-            const pad = 10;
-            camera.bbox = {
-                x: g.bboxMinX - pad, y: g.bboxMinY - pad,
-                w: (g.bboxMaxX - g.bboxMinX) + pad * 2,
-                h: (g.bboxMaxY - g.bboxMinY) + pad * 2,
+        if (!viewer) return;
+        const camera = getCamera(viewer);
+        if (!camera) return;
+        const pad = 10;
+        // Drop any existing impose so the bbox math runs against the camera's
+        // own settle. Re-engage after the viewer has recomputed zoom/center.
+        imposeCamRef.current = null;
+        camera.bbox = {
+            x: g.bboxMinX - pad, y: g.bboxMinY - pad,
+            w: (g.bboxMaxX - g.bboxMinX) + pad * 2,
+            h: (g.bboxMaxY - g.bboxMinY) + pad * 2,
+        };
+        safeDraw(viewer);
+        // The bbox setter schedules the zoom/center resolution for the next
+        // paint — reading camera.zoom/center *now* gives stale values (often
+        // zoom=1, which is what made the toggle look "miniscule"). Wait one
+        // rAF, then sample the resolved camera and lock it.
+        requestAnimationFrame(() => {
+            const cam = getCamera(viewer);
+            if (!cam) return;
+            imposeCamRef.current = {
+                zoom: cam.zoom,
+                cx: cam.center.x,
+                cy: cam.center.y,
             };
-            // Clear any prior impose so the bbox fit is allowed to settle.
-            imposeCamRef.current = null;
-            safeDraw(viewer);
-        } catch { /* ignore */ }
+        });
         overlayKickRef.current?.(40);
-    }, [getBoardEl, safeDraw]);
+    }, [getCamera, safeDraw]);
 
     const handleGroupClick = useCallback((g: GroupedMarker) => {
         setActiveGroup(prev => prev?.id === g.id ? null : g);
@@ -871,69 +911,56 @@ export function PcbDiffViewer({
             : g.kind === "removed" ? "old"
             : showing;
         if (targetSide !== showing) {
-            // Temporarily hide the overlay so boxes from the previous viewer
-            // don't flash in the wrong place while we toggle and fit the camera.
-            setShowOverlay(false);
+            // handleToggle pre-writes the from-viewer's camera into the target
+            // viewer and sets impose, so the swap is seamless. After the React
+            // render flips visibility, run the zoom on the (now-active) viewer.
             handleToggle(targetSide);
-            // After the render, apply the bbox to the newly shown viewer and
-            // then re-enable the overlay once the camera has had a moment to
-            // settle. This avoids a brief visible mismatch.
-            requestAnimationFrame(() => {
-                zoomToGroupOn(g, targetSide);
-                // Small delay to let the camera fit take effect before showing
-                // overlay. 50-120ms works well across typical machines.
-                setTimeout(() => {
-                    setShowOverlay(true);
-                    overlayKickRef.current?.(40);
-                }, 80);
-            });
+            requestAnimationFrame(() => zoomToGroupOn(g, targetSide));
         } else {
             zoomToGroupOn(g, targetSide);
-            overlayKickRef.current?.(40);
         }
     }, [zoomToGroupOn, showing, handleToggle, singleCommit]);
 
-    // Focus a specific item on first data load (or whenever focusItemId changes).
-    // We match the requested id against any member's uuid in any group, then
-    // run the same flow as a manual click on that group.
-    const allGroupsRef = useRef(allGroups);
-    allGroupsRef.current = allGroups;
-    const handleGroupClickRef = useRef(handleGroupClick);
-    handleGroupClickRef.current = handleGroupClick;
-    const focusedIdRef = useRef<string | undefined>(undefined);
+    // Focus flow — strictly event-driven, no timers. Fires exactly once per
+    // focusItemId when all prerequisites converge:
+    //   1. focusTarget is resolved (data is fetched and the uuid is found).
+    //   2. activeBoard matches the target board (we drive setActiveBoard if not).
+    //   3. The target side's viewer host has finished loading (readiness ready).
+    //   4. The group is present in allGroups for the current render.
+    // Any state change above re-evaluates the gate; the gate flips true exactly
+    // once and we fire. No polling.
+    const focusFiredRef = useRef<string | null>(null);
     useEffect(() => {
-        if (!data || !focusItemId) return;
-        if (focusedIdRef.current === focusItemId) return;
-
-        let foundBoard: string | null = null;
-        for (const board of data.boards) {
-            const hasItem =
-                board.diff.added.some(i => i.uuid === focusItemId) ||
-                board.diff.removed.some(i => i.uuid === focusItemId) ||
-                board.diff.changed.some(c => c.item.uuid === focusItemId);
-            if (hasItem) {
-                foundBoard = board.filename;
-                break;
-            }
-        }
-
-        if (!foundBoard) return;
-        if (foundBoard !== activeBoard) {
-            setActiveBoard(foundBoard);
+        if (!focusTarget) return;
+        if (focusFiredRef.current === focusTarget.uuid) return;
+        if (focusTarget.board !== activeBoard) {
+            setActiveBoard(focusTarget.board);
             return;
         }
+        const sideReady = focusTarget.side === "new" ? newReady : oldReady;
+        if (!sideReady) return;
+        const group = allGroups.find(g => g.members.some(m => m.item.uuid === focusTarget.uuid));
+        if (!group) return;
+        focusFiredRef.current = focusTarget.uuid;
+        handleGroupClick(group);
+    }, [focusTarget, activeBoard, newReady, oldReady, allGroups, handleGroupClick]);
 
-        focusedIdRef.current = focusItemId;
-        // Defer so the viewer has time to mount/load; use refs so we always
-        // read the latest allGroups and handleGroupClick when the timer fires.
+    // Diagnostic safety net (option C): if everything except readiness is in
+    // place after 8s of waiting, log which signal is missing. No best-effort
+    // click — we don't want to fire against a viewer that genuinely isn't ready.
+    useEffect(() => {
+        if (!focusTarget) return;
+        if (focusFiredRef.current === focusTarget.uuid) return;
         const t = window.setTimeout(() => {
-            const target = allGroupsRef.current.find(
-                g => g.members.some(m => m.item.uuid === focusItemId)
-            );
-            if (target) handleGroupClickRef.current(target);
-        }, 500);
+            if (focusFiredRef.current === focusTarget.uuid) return;
+            // eslint-disable-next-line no-console
+            console.warn("[pcb-diff] focus stalled — target:", focusTarget,
+                "activeBoard:", activeBoard,
+                "newReady:", newReady, "oldReady:", oldReady,
+                "groupFound:", allGroups.some(g => g.members.some(m => m.item.uuid === focusTarget.uuid)));
+        }, 8000);
         return () => window.clearTimeout(t);
-    }, [data, focusItemId, activeBoard]);
+    }, [focusTarget, activeBoard, newReady, oldReady, allGroups]);
 
     // Fire onCrossProbe when the user selects an item.
     // kicanvas:select bubbles+composed so it reaches the container div.

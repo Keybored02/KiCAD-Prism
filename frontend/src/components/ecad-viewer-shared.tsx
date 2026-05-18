@@ -1597,6 +1597,60 @@ function ensureLayersPanelKeyframes() {
     document.head.appendChild(style);
 }
 
+// ---------------------------------------------------------------------------
+// useViewerReadiness — true once the underlying ecad-viewer is safe to drive
+// (camera mounted, document loaded). The caller supplies a `probe` predicate
+// that returns true when the inner element is ready — schematics check
+// `kc-schematic-app` + viewer.document, PCB check `kc-board-viewer` + viewer.viewport.camera.
+//
+// Why not events-only: kicanvas reliably dispatches kicanvas:sheet:loaded for
+// schematics but the corresponding signal for PCB is not exposed at the host
+// level in this build. A single rAF-driven probe (no setTimeout chains) is the
+// only universally-available "is this thing ready yet" check. It self-stops
+// the moment probe returns true.
+//
+// Resets on viewerKey change so consumers re-await when the host is rebuilt.
+// ---------------------------------------------------------------------------
+
+export interface UseViewerReadinessOpts {
+    host: React.RefObject<ECadViewerElement | null>;
+    /** Same viewerKey passed to EcadViewerHost. Resetting it (e.g. on commit
+     *  change) re-arms the readiness signal. */
+    viewerKey: string;
+    /** Returns true when the host's inner viewer is mounted and loaded. */
+    probe: (host: ECadViewerElement) => boolean;
+}
+
+export function useViewerReadiness({ host, viewerKey, probe }: UseViewerReadinessOpts): { ready: boolean } {
+    const [ready, setReady] = useState(false);
+    const probeRef = useRef(probe);
+    probeRef.current = probe;
+
+    useEffect(() => {
+        setReady(false);
+        let cancelled = false;
+        let raf = 0;
+
+        const tick = () => {
+            if (cancelled) return;
+            const el = host.current;
+            if (el && probeRef.current(el)) {
+                setReady(true);
+                return; // Self-terminating — no infinite poll.
+            }
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+
+        return () => {
+            cancelled = true;
+            if (raf) cancelAnimationFrame(raf);
+        };
+    }, [host, viewerKey]);
+
+    return { ready };
+}
+
 export function EcadViewerHost({
     viewerKey,
     files,
