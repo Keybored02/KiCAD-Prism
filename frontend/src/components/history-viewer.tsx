@@ -260,10 +260,13 @@ const KIND_PREFIX: Record<"added" | "removed" | "changed", string> = {
 interface ItemDiffListProps {
     diff: FileDiffPayload;
     tab: DiffTab;
-    onOpenItemDiff?: (tab: DiffTab, itemId?: string) => void;
+    /** The source file this diff belongs to — passed through so the viewer
+        can pin to the exact sheet/board instead of guessing from the uuid. */
+    filename: string;
+    onOpenItemDiff?: (tab: DiffTab, itemId?: string, filename?: string) => void;
 }
 
-function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
+function ItemDiffList({ diff, tab, filename, onOpenItemDiff }: ItemDiffListProps) {
     const [expanded, setExpanded] = useState(false);
 
     // Build the unified category groups using the same logic as the diff
@@ -300,7 +303,7 @@ function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
                     <button
                         key={group.id}
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); onOpenItemDiff?.(tab, group.members[0]?.item.id); }}
+                        onClick={(e) => { e.stopPropagation(); onOpenItemDiff?.(tab, group.members[0]?.item.id, filename); }}
                         className="flex items-baseline gap-2 text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors"
                         title="Open diff viewer at this change"
                     >
@@ -336,8 +339,10 @@ interface CommitItemProps {
     isSelected: boolean;
     onSelect: () => void;
     selectable: boolean;
-    /** Open the diff modal for this commit (vs its parent), focused on `itemId` in `tab`. */
-    onOpenItemDiff?: (tab: DiffTab, itemId?: string) => void;
+    /** Open the diff modal for this commit (vs its parent), focused on `itemId`
+        in `tab`. `filename` pins the viewer to the exact .kicad_sch/.kicad_pcb
+        the change came from so it doesn't have to guess from the uuid. */
+    onOpenItemDiff?: (tab: DiffTab, itemId?: string, filename?: string) => void;
     /** Position in the commit list — used to draw the timeline. */
     isFirst?: boolean;
     isLast?: boolean;
@@ -521,7 +526,7 @@ function CommitItem({
                                 {fileClickable ? (
                                     <button
                                         type="button"
-                                        onClick={() => onOpenItemDiff!(fileTab!, itemDiff ? firstDiffItemId(itemDiff) : undefined)}
+                                        onClick={() => onOpenItemDiff!(fileTab!, itemDiff ? firstDiffItemId(itemDiff) : undefined, file.filename)}
                                         className="w-full text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors"
                                         title="Open diff viewer for this file"
                                     >
@@ -532,6 +537,7 @@ function CommitItem({
                                     <ItemDiffList
                                         diff={itemDiff}
                                         tab={fileTab}
+                                        filename={file.filename}
                                         onOpenItemDiff={onOpenItemDiff}
                                     />
                                 )}
@@ -558,11 +564,14 @@ interface CommitDiffModalProps {
     initialTab?: DiffTab;
     /** Optional: item id to focus inside that tab's diff viewer. */
     focusItemId?: string;
+    /** Optional: the source filename (e.g. "power.kicad_sch") the focus item
+        came from. Lets the viewer pin to the exact sheet instead of guessing. */
+    focusFilename?: string;
     /** When true, hide the OLD/NEW toggle — opened from a single commit row. */
     singleCommit?: boolean;
 }
 
-function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, focusItemId, singleCommit }: CommitDiffModalProps) {
+function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, focusItemId, focusFilename, singleCommit }: CommitDiffModalProps) {
     const [tab, setTab] = useState<DiffTab>(initialTab ?? "schematic");
     // Last reference selected in each tab — used to navigate the other tab when switching
     const lastSelected = useRef<{ schematic?: string; pcb?: string }>({});
@@ -632,6 +641,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
                         onCrossProbe={handleSchematicCrossProbe}
                         crossProbeTarget={schCrossProbeTarget}
                         focusItemId={initialTab === "schematic" ? focusItemId : undefined}
+                        focusFilename={initialTab === "schematic" ? focusFilename : undefined}
                         singleCommit={singleCommit}
                     />
                 </div>
@@ -680,6 +690,7 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
         commit2: string;
         tab: DiffTab;
         focusItemId?: string;
+        focusFilename?: string;
     } | null>(null);
 
     // Filter commits to find selected ones and determining newer/older
@@ -866,6 +877,7 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                     onClose={() => setItemDiff(null)}
                     initialTab={itemDiff.tab}
                     focusItemId={itemDiff.focusItemId}
+                    focusFilename={itemDiff.focusFilename}
                     singleCommit
                 />
             )}
@@ -951,7 +963,7 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                                 selectable={canCompareDiffs}
                                 isFirst={idx === 0}
                                 isLast={idx === commits.length - 1}
-                                onOpenItemDiff={(tab, itemId) => {
+                                onOpenItemDiff={(tab, itemId, filename) => {
                                     const parent = commit.parents?.[0];
                                     if (!parent) return; // root commit — nothing to diff against
                                     setItemDiff({
@@ -959,6 +971,7 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                                         commit2: parent,
                                         tab,
                                         focusItemId: itemId,
+                                        focusFilename: filename,
                                     });
                                 }}
                             />

@@ -91,6 +91,10 @@ interface SchematicDiffViewerProps {
     crossProbeTarget?: string; // reference to navigate to when switching from PCB
     /** Item id (uuid) to focus on when the diff loads. */
     focusItemId?: string;
+    /** Filename (e.g. "power.kicad_sch") the focus item came from. When set,
+        we pin to this sheet directly instead of guessing by uuid match — uuids
+        can collide across sheets and the first match would otherwise win. */
+    focusFilename?: string;
     /** When true, hide the OLD/NEW toggle for single-commit history views. */
     singleCommit?: boolean;
 }
@@ -342,6 +346,7 @@ export function SchematicDiffViewer({
     onCrossProbe,
     crossProbeTarget,
     focusItemId,
+    focusFilename,
     singleCommit = false,
 }: SchematicDiffViewerProps) {
     const [data, setData] = useState<SchematicDiffData | null>(null);
@@ -488,6 +493,62 @@ export function SchematicDiffViewer({
 
     const [activeSheet, setActiveSheet] = useState<string>("");
 
+    // Pin both viewer hosts to whatever sheet React thinks is active. Naively
+    // this would be a one-shot switchPage call when activeSheet changes, but
+    // the underlying ecad-viewer fights us:
+    //   - EcadViewerHost's mount (whenDefined → append blobs → load_src) is
+    //     async; switchPage calls before load_src completes are dropped, and
+    //     load_src itself always loads files[0] (the root) by default.
+    //   - The viewer's project fires a "change" event after init that triggers
+    //     another auto-load of get_first_page — a second hijack that arrives
+    //     AFTER any one-shot switchPage has already returned.
+    // So we run a rAF watcher that reads each host's current document filename
+    // and re-pushes switchPage whenever it drifts from desiredSheetRef. The
+    // PUSH_COOLDOWN_MS throttle prevents hammering a load that's still in
+    // flight (sch_name doesn't update until it resolves).
+    const desiredSheetRef = useRef<string>("");
+
+    useEffect(() => {
+        desiredSheetRef.current = activeSheet;
+        if (!activeSheet) return;
+        newViewerRef.current?.switchPage?.(activeSheet);
+        oldViewerRef.current?.switchPage?.(activeSheet);
+    }, [activeSheet]);
+
+    useEffect(() => {
+        let raf = 0;
+        const PUSH_COOLDOWN_MS = 200;
+        const lastPushAt = new Map<ECadViewerElement, number>();
+
+        const reconcileHost = (host: ECadViewerElement | null) => {
+            if (!host) return;
+            const want = desiredSheetRef.current;
+            if (!want) return;
+            const schEl = getSchEl(host) as (SchEl & { viewer?: { document?: { filename?: string } } }) | null;
+            // viewer.document.filename is the live current page on kc-schematic-app
+            // (the sch_name getter is undefined in this build).
+            const current = schEl?.viewer?.document?.filename ?? "";
+            if (current === want) {
+                if (lastPushAt.has(host)) lastPushAt.delete(host);
+                return;
+            }
+            const now = performance.now();
+            const last = lastPushAt.get(host) ?? 0;
+            if (now - last < PUSH_COOLDOWN_MS) return;
+            lastPushAt.set(host, now);
+            host.switchPage?.(want);
+        };
+
+        const tick = () => {
+            reconcileHost(newViewerRef.current);
+            reconcileHost(oldViewerRef.current);
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => { if (raf) cancelAnimationFrame(raf); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // Cancel pending rAFs on unmount
     useEffect(() => () => {
         if (syncRafRef.current !== null) cancelAnimationFrame(syncRafRef.current);
@@ -505,13 +566,24 @@ export function SchematicDiffViewer({
             })
             .then((d) => {
                 setData(d);
-                if (d.sheets.length > 0) setActiveSheet(d.sheets[0].filename);
+                if (d.sheets.length > 0) {
+                    // Prefer focusFilename when it points at a real sheet, so
+                    // a re-firing fetch (StrictMode, parent re-render) doesn't
+                    // clobber the focus path's sheet choice with the root sheet.
+                    const preferred = focusFilename && d.sheets.some(s => s.filename === focusFilename)
+                        ? focusFilename
+                        : d.sheets[0].filename;
+                    setActiveSheet(preferred);
+                }
                 setLoading(false);
             })
             .catch((e: unknown) => {
                 setError(e instanceof Error ? e.message : "Failed to load diff");
                 setLoading(false);
             });
+    // focusFilename intentionally read at effect-creation time only — we don't
+    // want fetch to re-fire when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId, commit1, commit2]);
 
     const activeSheetData = data?.sheets.find(s => s.filename === activeSheet) ?? null;
@@ -600,33 +672,48 @@ export function SchematicDiffViewer({
         }
     }, [zoomToMarkerOn, showing, handleToggle]);
 
-    // Focus a specific item on first data load (or when focusItemId changes).
-    // Walks all sheets to find the matching uuid; switches sheet first, then
-    // runs the standard click flow once the marker is in scope.
-    const focusedIdRef = useRef<string | undefined>(undefined);
+    // Focus a specific item on first data load (or when focusItemId / focusFilename changes).
+    // When focusFilename is provided we restrict the uuid search to that sheet — uuids
+    // can repeat across sheets (hierarchical instances), and the previous "first match
+    // wins" walk could land on the wrong page and bounce the user back to root.
+    // focusFilename alone (no uuid) just switches to that sheet.
+    const focusedKeyRef = useRef<string | undefined>(undefined);
     useEffect(() => {
-        if (!data || !focusItemId) return;
-        if (focusedIdRef.current === focusItemId) return;
+        if (!data) return;
+        if (!focusItemId && !focusFilename) return;
+        const focusKey = `${focusFilename ?? ""}::${focusItemId ?? ""}`;
+        if (focusedKeyRef.current === focusKey) return;
 
-        // Find which sheet contains the requested uuid.
+        // Candidate sheets: the named one if given, else all sheets.
+        const candidateSheets = focusFilename
+            ? data.sheets.filter(s => s.filename === focusFilename)
+            : data.sheets;
+
         let foundSheet: string | null = null;
         let foundMarker: DiffMarker | null = null;
-        for (const s of data.sheets) {
-            const inAdded   = s.diff.added.find(i => i.uuid === focusItemId);
-            const inRemoved = s.diff.removed.find(i => i.uuid === focusItemId);
-            const inChanged = s.diff.changed.find(c => c.item.uuid === focusItemId);
-            if (inAdded)   { foundSheet = s.filename; foundMarker = { kind: "added",   item: inAdded };   break; }
-            if (inRemoved) { foundSheet = s.filename; foundMarker = { kind: "removed", item: inRemoved }; break; }
-            if (inChanged) { foundSheet = s.filename; foundMarker = { kind: "changed", item: inChanged.item, changes: inChanged.changes }; break; }
+        if (focusItemId) {
+            for (const s of candidateSheets) {
+                const inAdded   = s.diff.added.find(i => i.uuid === focusItemId);
+                const inRemoved = s.diff.removed.find(i => i.uuid === focusItemId);
+                const inChanged = s.diff.changed.find(c => c.item.uuid === focusItemId);
+                if (inAdded)   { foundSheet = s.filename; foundMarker = { kind: "added",   item: inAdded };   break; }
+                if (inRemoved) { foundSheet = s.filename; foundMarker = { kind: "removed", item: inRemoved }; break; }
+                if (inChanged) { foundSheet = s.filename; foundMarker = { kind: "changed", item: inChanged.item, changes: inChanged.changes }; break; }
+            }
         }
-        if (!foundSheet || !foundMarker) return;
-        focusedIdRef.current = focusItemId;
+        // No uuid match but we know the filename — at least pin the sheet.
+        if (!foundSheet && focusFilename && data.sheets.some(s => s.filename === focusFilename)) {
+            foundSheet = focusFilename;
+        }
+        if (!foundSheet) return;
+        focusedKeyRef.current = focusKey;
         if (foundSheet !== activeSheet) setActiveSheet(foundSheet);
+        if (!foundMarker) return;
         const marker = foundMarker;
         const t = window.setTimeout(() => handleMarkerClick(marker), 250);
         return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data, focusItemId]);
+    }, [data, focusItemId, focusFilename]);
 
     // Fire onCrossProbe when the user selects an item.
     // kicanvas:select bubbles+composed so it reaches the container div.
