@@ -4,22 +4,25 @@ Project Import Service for KiCAD Prism
 Handles Type-1 (single project) and Type-2 (multiple projects) imports,
 both from remote Git URLs and local filesystem paths.
 """
+
 import os
 import shutil
 import tempfile
-import uuid
 import threading
-from pathlib import Path
-from typing import List, Optional, Dict
+import uuid
 from dataclasses import dataclass
-from git import Repo, RemoteProgress, InvalidGitRepositoryError
-from app.services import project_service, path_config_service
+from pathlib import Path
+
+from git import InvalidGitRepositoryError, RemoteProgress, Repo
+
+from app.services import path_config_service, project_service
 from app.services.workspace_service import workspace
 
 
 @dataclass
 class DiscoveredProject:
     """A KiCAD project discovered within a repository."""
+
     name: str
     relative_path: str
     full_path: str
@@ -30,15 +33,16 @@ class DiscoveredProject:
 @dataclass
 class AnalysisResult:
     """Result of analyzing a repository for import."""
+
     repo_name: str
     repo_url: str
     import_type: str  # "type1" or "type2"
-    projects: List[DiscoveredProject]
-    temp_path: Optional[str] = None  # For cleanup after analysis
+    projects: list[DiscoveredProject]
+    temp_path: str | None = None  # For cleanup after analysis
 
 
 # Global job store for import operations
-jobs: Dict[str, dict] = {}
+jobs: dict[str, dict] = {}
 
 
 def has_ssh_key() -> bool:
@@ -53,31 +57,42 @@ def has_ssh_key() -> bool:
 
 class CloneProgress(RemoteProgress):
     """Git progress callback for clone operations."""
-    
+
     def __init__(self, job_id: str):
         super().__init__()
         self.job_id = job_id
-    
-    def update(self, op_code, cur_count, max_count=None, message=''):
+
+    def update(self, op_code, cur_count, max_count=None, message=""):
         if self.job_id in jobs:
             job = jobs[self.job_id]
             percent = 0
             if max_count and max_count > 0:
                 percent = min((cur_count / max_count) * 100, 99)
-            job['percent'] = int(percent)
-            job['message'] = message or f"Cloning... {int(percent)}%"
+            job["percent"] = int(percent)
+            job["message"] = message or f"Cloning... {int(percent)}%"
             if message:
-                job['logs'].append(f"[GIT] {message}")
+                job["logs"].append(f"[GIT] {message}")
 
 
 def is_excluded_directory(dir_name: str) -> bool:
     """Check if directory should be excluded from project discovery."""
     excluded = {
-        'archive', 'archived', 'old', 'backup', 'backups',
-        'obsolete', 'deprecated', 'trash', '.git', '__pycache__',
-        'node_modules', '.venv', 'venv', '.env'
+        "archive",
+        "archived",
+        "old",
+        "backup",
+        "backups",
+        "obsolete",
+        "deprecated",
+        "trash",
+        ".git",
+        "__pycache__",
+        "node_modules",
+        ".venv",
+        "venv",
+        ".env",
     }
-    return dir_name.lower() in excluded or dir_name.startswith('.')
+    return dir_name.lower() in excluded or dir_name.startswith(".")
 
 
 def is_local_path(url_or_path: str) -> bool:
@@ -94,7 +109,7 @@ def is_local_path(url_or_path: str) -> bool:
     return False
 
 
-def discover_projects_from_filesystem(root: Path) -> List[DiscoveredProject]:
+def discover_projects_from_filesystem(root: Path) -> list[DiscoveredProject]:
     """
     Discover KiCAD projects by walking the filesystem directly.
     Used for local-path imports (no git ls-tree available or needed).
@@ -114,15 +129,22 @@ def discover_projects_from_filesystem(root: Path) -> List[DiscoveredProject]:
         has_pcb = any(f.endswith(".kicad_pcb") for f in filenames)
 
         for pro_file in pro_files:
-            projects.append(DiscoveredProject(
-                name=Path(pro_file).stem,
-                relative_path=rel_str,
-                full_path=dirpath,
-                has_schematic=has_sch,
-                has_pcb=has_pcb,
-            ))
+            projects.append(
+                DiscoveredProject(
+                    name=Path(pro_file).stem,
+                    relative_path=rel_str,
+                    full_path=dirpath,
+                    has_schematic=has_sch,
+                    has_pcb=has_pcb,
+                )
+            )
 
-    projects.sort(key=lambda p: (0 if p.relative_path == "." else len(p.relative_path.split("/")), p.name.lower()))
+    projects.sort(
+        key=lambda p: (
+            0 if p.relative_path == "." else len(p.relative_path.split("/")),
+            p.name.lower(),
+        )
+    )
     return projects
 
 
@@ -132,12 +154,12 @@ def _run_analyze_local_job(job_id: str, local_path: str):
     try:
         root = Path(local_path)
         if not root.exists() or not root.is_dir():
-            job['status'] = 'failed'
-            job['error'] = f"Path does not exist or is not a directory: {local_path}"
+            job["status"] = "failed"
+            job["error"] = f"Path does not exist or is not a directory: {local_path}"
             return
 
         repo_name = root.name
-        job['logs'].append(f"Scanning {local_path} for KiCAD projects...")
+        job["logs"].append(f"Scanning {local_path} for KiCAD projects...")
 
         projects = discover_projects_from_filesystem(root)
 
@@ -145,8 +167,8 @@ def _run_analyze_local_job(job_id: str, local_path: str):
         if len(projects) == 1 and projects[0].relative_path == ".":
             import_type = "type1"
 
-        job['logs'].append(f"Found {len(projects)} project(s). Type: {import_type}")
-        job['result'] = {
+        job["logs"].append(f"Found {len(projects)} project(s). Type: {import_type}")
+        job["result"] = {
             "repo_name": repo_name,
             "repo_url": local_path,
             "import_type": import_type,
@@ -161,18 +183,22 @@ def _run_analyze_local_job(job_id: str, local_path: str):
                 for p in projects
             ],
         }
-        job['status'] = 'completed'
-        job['percent'] = 100
-        job['message'] = "Analysis complete."
+        job["status"] = "completed"
+        job["percent"] = 100
+        job["message"] = "Analysis complete."
     except Exception as e:
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        job['logs'].append(f"Error: {str(e)}")
+        job["status"] = "failed"
+        job["error"] = str(e)
+        job["logs"].append(f"Error: {str(e)}")
 
 
-def _run_import_local_job(job_id: str, local_path: str, import_type: str,
-                          selected_paths: Optional[List[str]],
-                          local_path_mode: str):
+def _run_import_local_job(
+    job_id: str,
+    local_path: str,
+    import_type: str,
+    selected_paths: list[str] | None,
+    local_path_mode: str,
+):
     """
     Background job: import a local git repo.
     local_path_mode: "reference" — register in-place, "copy" — git clone into data/projects.
@@ -182,8 +208,8 @@ def _run_import_local_job(job_id: str, local_path: str, import_type: str,
     try:
         source = Path(local_path)
         if not source.exists() or not source.is_dir():
-            job['status'] = 'failed'
-            job['error'] = f"Path does not exist: {local_path}"
+            job["status"] = "failed"
+            job["error"] = f"Path does not exist: {local_path}"
             return
 
         repo_name = source.name
@@ -198,19 +224,25 @@ def _run_import_local_job(job_id: str, local_path: str, import_type: str,
             target_path = base_path / repo_name
             if target_path.exists():
                 registry = project_service._load_project_registry()
-                existing = [p for p in registry.values()
-                            if p.get("parent_repo") == repo_name or
-                            project_service._normalize_path(p.get("path", "")) == str(target_path.resolve())]
+                existing = [
+                    p
+                    for p in registry.values()
+                    if p.get("parent_repo") == repo_name
+                    or project_service._normalize_path(p.get("path", ""))
+                    == str(target_path.resolve())
+                ]
                 if existing:
-                    job['status'] = 'failed'
-                    job['error'] = f"Repository '{repo_name}' already exists"
+                    job["status"] = "failed"
+                    job["error"] = f"Repository '{repo_name}' already exists"
                     return
                 shutil.rmtree(target_path)
 
             base_path.mkdir(parents=True, exist_ok=True)
-            job['logs'].append(f"Cloning {local_path} → {target_path}...")
-            Repo.clone_from(str(source), str(target_path), progress=CloneProgress(job_id))
-            job['logs'].append("Clone complete.")
+            job["logs"].append(f"Cloning {local_path} → {target_path}...")
+            Repo.clone_from(
+                str(source), str(target_path), progress=CloneProgress(job_id)
+            )
+            job["logs"].append("Clone complete.")
             effective_path = target_path
             effective_url = local_path  # keep original path as repo_url
         else:
@@ -218,102 +250,95 @@ def _run_import_local_job(job_id: str, local_path: str, import_type: str,
             effective_path = source
             effective_url = local_path
 
-        job['logs'].append("Registering projects...")
-        registry = project_service._load_project_registry()
+        job["logs"].append("Registering projects...")
+        ws_import_type = "single" if import_type == "type1" else "multi"
+        repo_id = workspace.register_repository(
+            name=repo_name,
+            url=effective_url,
+            clone_path_abs=str(effective_path),
+            import_type=ws_import_type,
+        )
         imported_ids = []
 
         if import_type == "type1":
-            project_id = generate_project_id(repo_name, registry)
-            project_service.register_project(
-                project_id=project_id,
+            cached = _resolve_cached_paths(str(effective_path))
+            project_id = workspace.register_project(
+                repo_id=repo_id,
                 name=repo_name,
-                path=str(effective_path),
-                repo_url=effective_url,
+                relative_path=".",
+                description=f"Project {repo_name}",
+                **cached,
             )
-            registry = project_service._load_project_registry()
-            if project_id in registry:
-                registry[project_id]['import_type'] = 'type1'
-                registry[project_id]['local_path_mode'] = local_path_mode
-                project_service._save_project_registry(registry)
             imported_ids.append(project_id)
-            job['logs'].append(f"Registered: {project_id}")
+            job["logs"].append(f"Registered: {project_id}")
         else:
             if not selected_paths:
-                job['status'] = 'failed'
-                job['error'] = "No projects selected"
+                job["status"] = "failed"
+                job["error"] = "No projects selected"
                 return
             for rel_path in selected_paths:
-                safe_name = rel_path.replace('/', '-').replace(' ', '_')
-                base_id = f"{repo_name}-{safe_name}"
-                project_id = generate_project_id(base_id, registry)
                 full_project_path = effective_path / rel_path
                 pro_files = list(full_project_path.glob("*.kicad_pro"))
-                board_name = pro_files[0].stem if pro_files else os.path.basename(rel_path)
-                project_service.register_project(
-                    project_id=project_id,
-                    name=board_name,
-                    path=str(full_project_path),
-                    repo_url=effective_url,
-                    sub_path=rel_path,
-                    parent_repo=repo_name,
+                board_name = (
+                    pro_files[0].stem if pro_files else os.path.basename(rel_path)
                 )
-                registry = project_service._load_project_registry()
-                if project_id in registry:
-                    registry[project_id]['import_type'] = 'type2_subproject'
-                    registry[project_id]['parent_repo_path'] = str(effective_path)
-                    registry[project_id]['relative_path'] = rel_path
-                    registry[project_id]['local_path_mode'] = local_path_mode
-                    project_service._save_project_registry(registry)
+                cached = _resolve_cached_paths(str(full_project_path))
+                project_id = workspace.register_project(
+                    repo_id=repo_id,
+                    name=board_name,
+                    relative_path=rel_path,
+                    description=f"{repo_name} / {board_name}",
+                    **cached,
+                )
                 imported_ids.append(project_id)
-                job['logs'].append(f"Registered: {project_id}")
-                registry = project_service._load_project_registry()
+                job["logs"].append(f"Registered: {project_id}")
 
-        job['project_ids'] = imported_ids
-        job['status'] = 'completed'
-        job['percent'] = 100
-        job['message'] = f"Imported {len(imported_ids)} project(s)"
-        job['logs'].append("Import completed successfully.")
+        job["project_ids"] = imported_ids
+        job["status"] = "completed"
+        job["percent"] = 100
+        job["message"] = f"Imported {len(imported_ids)} project(s)"
+        job["logs"].append("Import completed successfully.")
 
     except Exception as e:
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        job['logs'].append(f"Error: {str(e)}")
+        job["status"] = "failed"
+        job["error"] = str(e)
+        job["logs"].append(f"Error: {str(e)}")
         if local_path_mode == "copy" and target_path and target_path.exists():
             try:
                 shutil.rmtree(target_path)
-            except Exception:
-                pass
+            except Exception as cleanup_err:
+                print(f"[import] Failed to clean up {target_path}: {cleanup_err}")
 
 
-def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
+def discover_projects_from_repo(repo: Repo) -> list[DiscoveredProject]:
     """
     Discover KiCAD projects by inspecting the Git tree directly (no-checkout).
     Returns list of DiscoveredProject.
     """
     # Get all files in the repo recursively
     try:
-        all_files = repo.git.ls_tree('-r', 'HEAD', '--name-only').splitlines()
+        all_files = repo.git.ls_tree("-r", "HEAD", "--name-only").splitlines()
     except Exception:
         # Fallback for empty repos or other issues
         return []
-    
+
     # Map directory -> list of filenames
     dir_map = {}
     for fpath in all_files:
         p = Path(fpath)
         # Handle relative path correctly (relative to repo root)
-        dir_path = p.parent.as_posix() # Use as_posix for consistency
+        dir_path = p.parent.as_posix()  # Use as_posix for consistency
         filename = p.name
-        
+
         if dir_path not in dir_map:
             dir_map[dir_path] = []
         dir_map[dir_path].append(filename)
-        
+
     projects = []
     for dir_path, filenames in dir_map.items():
         # Skip if any part of the path is excluded
         should_exclude = False
-        parts = dir_path.split('/')
+        parts = dir_path.split("/")
         if dir_path != ".":
             for part in parts:
                 if is_excluded_directory(part):
@@ -321,23 +346,30 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
                     break
         if should_exclude:
             continue
-            
+
         pro_files = [f for f in filenames if f.endswith(".kicad_pro")]
         for pro_file in pro_files:
             has_sch = any(f.endswith(".kicad_sch") for f in filenames)
             has_pcb = any(f.endswith(".kicad_pcb") for f in filenames)
-            
-            projects.append(DiscoveredProject(
-                name=Path(pro_file).stem,
-                relative_path=dir_path if dir_path != "." else ".",
-                full_path="", # No checkout path
-                has_schematic=has_sch,
-                has_pcb=has_pcb
-            ))
-            
+
+            projects.append(
+                DiscoveredProject(
+                    name=Path(pro_file).stem,
+                    relative_path=dir_path if dir_path != "." else ".",
+                    full_path="",  # No checkout path
+                    has_schematic=has_sch,
+                    has_pcb=has_pcb,
+                )
+            )
+
     # Sort by path depth (shallow first) then by name
-    projects.sort(key=lambda p: (0 if p.relative_path == "." else len(p.relative_path.split('/')), p.name.lower()))
-    
+    projects.sort(
+        key=lambda p: (
+            0 if p.relative_path == "." else len(p.relative_path.split("/")),
+            p.name.lower(),
+        )
+    )
+
     return projects
 
 
@@ -347,50 +379,56 @@ def analyze_repository(repo_url: str) -> AnalysisResult:
     Performs a shallow clone to a temporary directory.
     """
     # Error out if HTTPS is used while SSH key is present
-    if repo_url.startswith("https://") and has_ssh_key() and not os.environ.get('GITHUB_TOKEN'):
-        raise ValueError("HTTPS URL provided. Please use the SSH URL (git@github.com:...) when an SSH key is configured.")
+    if (
+        repo_url.startswith("https://")
+        and has_ssh_key()
+        and not os.environ.get("GITHUB_TOKEN")
+    ):
+        raise ValueError(
+            "HTTPS URL provided. Please use the SSH URL (git@github.com:...) when an SSH key is configured."
+        )
 
-    repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
-    
+    repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
+
     # Create temp directory for analysis
     temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
     clone_path = Path(temp_dir) / repo_name
-    
+
     try:
         # Shallow clone for analysis
         env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
+        env["GIT_TERMINAL_PROMPT"] = "0"
         # Trust On First Use (TOFU) for SSH
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+        env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
+
         repo = Repo.clone_from(
             repo_url,
             str(clone_path),
             depth=1,
             single_branch=True,
             no_checkout=True,
-            filter='blob:none',
-            env=env
+            filter="blob:none",
+            env=env,
         )
-        
+
         # Discover projects from tree
         projects = discover_projects_from_repo(repo)
-        
+
         # Determine import type
         # Type-1: Single .kicad_pro at root (relative_path == ".")
         # Type-2: Multiple projects or project not at root
         import_type = "type2"
         if len(projects) == 1 and projects[0].relative_path == ".":
             import_type = "type1"
-        
+
         return AnalysisResult(
             repo_name=repo_name,
             repo_url=repo_url,
             import_type=import_type,
             projects=projects,
-            temp_path=temp_dir
+            temp_path=temp_dir,
         )
-        
+
     except Exception:
         # Cleanup on error
         if os.path.exists(temp_dir):
@@ -403,50 +441,54 @@ def _run_analyze_job(job_id: str, repo_url: str):
     Background job: Analyze repository.
     """
     job = jobs[job_id]
-    
+
     try:
-        job['logs'].append(f"Analyzing {repo_url}...")
-        
+        job["logs"].append(f"Analyzing {repo_url}...")
+
         # Error out if HTTPS is used while SSH key is present
-        if repo_url.startswith("https://") and has_ssh_key() and not os.environ.get('GITHUB_TOKEN'):
+        if (
+            repo_url.startswith("https://")
+            and has_ssh_key()
+            and not os.environ.get("GITHUB_TOKEN")
+        ):
             error_msg = "HTTPS URL provided. Please use the SSH URL (git@github.com:...) for private repositories when an SSH key is configured."
-            job['logs'].append(f"Error: {error_msg}")
-            job['status'] = 'failed'
-            job['error'] = error_msg
+            job["logs"].append(f"Error: {error_msg}")
+            job["status"] = "failed"
+            job["error"] = error_msg
             return
-        
-        repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
+
+        repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
         temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
         clone_path = Path(temp_dir) / repo_name
-        
-        job['logs'].append("Cloning repository (blobless/no-checkout)...")
-        
+
+        job["logs"].append("Cloning repository (blobless/no-checkout)...")
+
         env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
+
         repo = Repo.clone_from(
             repo_url,
             str(clone_path),
             depth=1,
             single_branch=True,
             no_checkout=True,
-            filter='blob:none',
+            filter="blob:none",
             progress=CloneProgress(job_id),
-            env=env
+            env=env,
         )
-        
-        job['logs'].append("Discovering KiCAD projects from tree...")
+
+        job["logs"].append("Discovering KiCAD projects from tree...")
         projects = discover_projects_from_repo(repo)
-        
+
         import_type = "type2"
         if len(projects) == 1 and projects[0].relative_path == ".":
             import_type = "type1"
-            
-        job['logs'].append(f"Found {len(projects)} project(s). Type: {import_type}")
-        
+
+        job["logs"].append(f"Found {len(projects)} project(s). Type: {import_type}")
+
         # Store result in job
-        job['result'] = {
+        job["result"] = {
             "repo_name": repo_name,
             "repo_url": repo_url,
             "import_type": import_type,
@@ -455,31 +497,41 @@ def _run_analyze_job(job_id: str, repo_url: str):
                     "name": p.name,
                     "relative_path": p.relative_path,
                     "has_schematic": p.has_schematic,
-                    "has_pcb": p.has_pcb
+                    "has_pcb": p.has_pcb,
                 }
                 for p in projects
             ],
             # We don't pass temp_path here as we'll cleanup immediately or handled differently
         }
-        
+
         # Cleanup temp dir immediately since we have the metadata
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
-            
-        job['status'] = 'completed'
-        job['percent'] = 100
-        job['message'] = "Analysis complete."
-        
+
+        job["status"] = "completed"
+        job["percent"] = 100
+        job["message"] = "Analysis complete."
+
     except Exception as e:
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        job['logs'].append(f"Error: {str(e)}")
+        job["status"] = "failed"
+        job["error"] = str(e)
+        job["logs"].append(f"Error: {str(e)}")
 
 
 def cleanup_analysis_temp(analysis: AnalysisResult):
     """Clean up temporary directory used for analysis."""
     if analysis.temp_path and os.path.exists(analysis.temp_path):
         shutil.rmtree(analysis.temp_path, ignore_errors=True)
+
+
+def generate_project_id(base_id: str, registry: dict) -> str:
+    """Generate unique project ID, handling collisions with a numeric suffix."""
+    if base_id not in registry:
+        return base_id
+    suffix = 1
+    while f"{base_id}-{suffix}" in registry:
+        suffix += 1
+    return f"{base_id}-{suffix}"
 
 
 def _resolve_cached_paths(project_path: str) -> dict:
@@ -490,6 +542,7 @@ def _resolve_cached_paths(project_path: str) -> dict:
         pcb = resolved.pcb
         thumb = resolved.thumbnail_dir
         jobset = resolved.jobset_path
+
         # Make paths relative to project_path
         def _rel(abs_path):
             if not abs_path:
@@ -498,6 +551,7 @@ def _resolve_cached_paths(project_path: str) -> dict:
                 return os.path.relpath(abs_path, project_path)
             except ValueError:
                 return None
+
         # Thumbnail: resolve to first image if directory
         thumb_rel = None
         if thumb:
@@ -505,7 +559,7 @@ def _resolve_cached_paths(project_path: str) -> dict:
                 thumb_rel = _rel(thumb)
             elif os.path.isdir(thumb):
                 for f in sorted(os.listdir(thumb)):
-                    if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                    if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
                         thumb_rel = _rel(os.path.join(thumb, f))
                         break
         design_dir = resolved.design_outputs_dir
@@ -514,126 +568,135 @@ def _resolve_cached_paths(project_path: str) -> dict:
         if design_dir and os.path.isdir(design_dir):
             for f in os.listdir(design_dir):
                 fl = f.lower()
-                if fl.endswith(('.glb', '.step', '.stp')):
+                if fl.endswith((".glb", ".step", ".stp")):
                     has_3d = True
-                if 'ibom' in fl and fl.endswith('.html'):
+                if "ibom" in fl and fl.endswith(".html"):
                     has_ibom = True
-            model_dir = os.path.join(design_dir, '3DModel')
+            model_dir = os.path.join(design_dir, "3DModel")
             if os.path.isdir(model_dir):
                 for f in os.listdir(model_dir):
-                    if f.lower().endswith(('.glb', '.step', '.stp')):
+                    if f.lower().endswith((".glb", ".step", ".stp")):
                         has_3d = True
         return {
-            'schematic_rel': _rel(sch),
-            'pcb_rel': _rel(pcb),
-            'thumbnail_rel': thumb_rel,
-            'jobset_rel': _rel(jobset),
-            'has_3d_model': has_3d,
-            'has_ibom': has_ibom,
+            "schematic_rel": _rel(sch),
+            "pcb_rel": _rel(pcb),
+            "thumbnail_rel": thumb_rel,
+            "jobset_rel": _rel(jobset),
+            "has_3d_model": has_3d,
+            "has_ibom": has_ibom,
         }
     except Exception:
         return {}
 
 
-def _run_import_job(job_id: str, repo_url: str, import_type: str, 
-                    selected_paths: Optional[List[str]] = None):
+def _run_import_job(
+    job_id: str,
+    repo_url: str,
+    import_type: str,
+    selected_paths: list[str] | None = None,
+):
     """
     Background job: Clone repository and register projects.
     """
     job = jobs[job_id]
-    
+
     try:
         # Error out if HTTPS is used while SSH key is present
-        if repo_url.startswith("https://") and has_ssh_key() and not os.environ.get('GITHUB_TOKEN'):
+        if (
+            repo_url.startswith("https://")
+            and has_ssh_key()
+            and not os.environ.get("GITHUB_TOKEN")
+        ):
             error_msg = "HTTPS URL provided. Please use the SSH URL (git@github.com:...) for private repositories when an SSH key is configured."
-            job['logs'].append(f"Error: {error_msg}")
-            job['status'] = 'failed'
-            job['error'] = error_msg
+            job["logs"].append(f"Error: {error_msg}")
+            job["status"] = "failed"
+            job["error"] = error_msg
             return
 
         # Extract repo name
-        repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
-        
+        repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
+
         # Determine target directory based on type
         if import_type == "type1":
             base_path = Path(project_service.PROJECTS_ROOT) / "type1"
         else:
             base_path = Path(project_service.PROJECTS_ROOT) / "type2"
-        
+
         target_path = base_path / repo_name
-        target_path_abs = str(target_path.resolve())
-        
+
         # Check if already exists via workspace DB
         existing_repo = workspace.get_repository_by_url(repo_url)
         if existing_repo:
-            job['status'] = 'failed'
-            job['error'] = f"Repository '{repo_name}' is already imported"
-            job['logs'].append(f"Error: Repository with URL {repo_url} already exists")
+            job["status"] = "failed"
+            job["error"] = f"Repository '{repo_name}' is already imported"
+            job["logs"].append(f"Error: Repository with URL {repo_url} already exists")
             return
 
         if target_path.exists():
             # Stranded directory with no DB entry — remove and re-clone
-            job['logs'].append(f"Removing stranded directory: {target_path}")
+            job["logs"].append(f"Removing stranded directory: {target_path}")
             try:
                 shutil.rmtree(target_path)
             except Exception as e:
-                job['status'] = 'failed'
-                job['error'] = f"Failed to remove stranded directory: {e}"
+                job["status"] = "failed"
+                job["error"] = f"Failed to remove stranded directory: {e}"
                 return
-        
+
         # Ensure base directory exists
         base_path.mkdir(parents=True, exist_ok=True)
-        
+
         # Clone repository
-        job['logs'].append(f"Cloning {repo_url}...")
+        job["logs"].append(f"Cloning {repo_url}...")
         env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
+        env["GIT_TERMINAL_PROMPT"] = "0"
         # Trust On First Use (TOFU) for SSH
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+        env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
+
         Repo.clone_from(
             repo_url,
             str(target_path),
-            filter='blob:none',
+            filter="blob:none",
             progress=CloneProgress(job_id),
-            env=env
+            env=env,
         )
-        
-        job['logs'].append("Clone complete. Registering projects...")
-        
+
+        job["logs"].append("Clone complete. Registering projects...")
+
         # Register repository in workspace DB
         repo_id = workspace.register_repository(
             name=repo_name,
             url=repo_url,
             clone_path_abs=str(target_path),
-            import_type='single' if import_type == 'type1' else 'multi',
+            import_type="single" if import_type == "type1" else "multi",
         )
-        
+
         imported_ids = []
-        
+
         if import_type == "type1":
             cached = _resolve_cached_paths(str(target_path))
             project_id = workspace.register_project(
                 repo_id=repo_id,
                 name=repo_name,
-                relative_path='.',
+                relative_path=".",
                 description=f"Project {repo_name}",
                 **cached,
             )
             imported_ids.append(project_id)
-            job['logs'].append(f"Registered Type-1 project: {project_id}")
-            
+            job["logs"].append(f"Registered Type-1 project: {project_id}")
+
         else:
             # Type-2: Register selected subprojects
             if not selected_paths:
-                job['status'] = 'failed'
-                job['error'] = "No projects selected for Type-2 import"
+                job["status"] = "failed"
+                job["error"] = "No projects selected for Type-2 import"
                 return
-            
+
             for rel_path in selected_paths:
                 full_project_path = target_path / rel_path
                 pro_files = list(full_project_path.glob("*.kicad_pro"))
-                board_name = pro_files[0].stem if pro_files else os.path.basename(rel_path)
+                board_name = (
+                    pro_files[0].stem if pro_files else os.path.basename(rel_path)
+                )
                 cached = _resolve_cached_paths(str(full_project_path))
                 project_id = workspace.register_project(
                     repo_id=repo_id,
@@ -643,30 +706,33 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
                     **cached,
                 )
                 imported_ids.append(project_id)
-                job['logs'].append(f"Registered Type-2 subproject: {project_id}")
-        
-        job['project_ids'] = imported_ids
-        job['status'] = 'completed'
-        job['percent'] = 100
-        job['message'] = f"Imported {len(imported_ids)} project(s)"
-        job['logs'].append("Import completed successfully.")
-        
+                job["logs"].append(f"Registered Type-2 subproject: {project_id}")
+
+        job["project_ids"] = imported_ids
+        job["status"] = "completed"
+        job["percent"] = 100
+        job["message"] = f"Imported {len(imported_ids)} project(s)"
+        job["logs"].append("Import completed successfully.")
+
     except Exception as e:
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        job['logs'].append(f"Error: {str(e)}")
-        
+        job["status"] = "failed"
+        job["error"] = str(e)
+        job["logs"].append(f"Error: {str(e)}")
+
         # Cleanup on failure
         if target_path.exists():
             try:
                 shutil.rmtree(target_path)
-            except:
-                pass
+            except Exception as cleanup_err:
+                print(f"[import] Failed to clean up {target_path}: {cleanup_err}")
 
 
-def start_import_job(repo_url: str, import_type: str,
-                     selected_paths: Optional[List[str]] = None,
-                     local_path_mode: Optional[str] = None) -> str:
+def start_import_job(
+    repo_url: str,
+    import_type: str,
+    selected_paths: list[str] | None = None,
+    local_path_mode: str | None = None,
+) -> str:
     """
     Start an asynchronous import job.
     For local paths, local_path_mode must be "reference" or "copy".
@@ -723,7 +789,9 @@ def start_analyze_job(repo_url: str) -> str:
     }
 
     if is_local_path(repo_url):
-        thread = threading.Thread(target=_run_analyze_local_job, args=(job_id, repo_url))
+        thread = threading.Thread(
+            target=_run_analyze_local_job, args=(job_id, repo_url)
+        )
     else:
         thread = threading.Thread(target=_run_analyze_job, args=(job_id, repo_url))
 
@@ -732,13 +800,13 @@ def start_analyze_job(repo_url: str) -> str:
     return job_id
 
 
-def get_job_status(job_id: str) -> Optional[dict]:
+def get_job_status(job_id: str) -> dict | None:
     """Get the current status of an import or workflow job."""
     # Check import jobs first
     job = jobs.get(job_id)
     if job:
         return job
-    
+
     # Then check workflow jobs from project_service
     return project_service.jobs.get(job_id)
 
@@ -753,8 +821,10 @@ def sync_project(project_id: str) -> dict:
     if not row:
         return {"status": "error", "message": "Project not found"}
 
-    import_type = row.get('import_type') or 'single'
-    sync_path = row.get('parent_repo_path') if import_type == 'multi' else row.get('path')
+    import_type = row.get("import_type") or "single"
+    sync_path = (
+        row.get("parent_repo_path") if import_type == "multi" else row.get("path")
+    )
 
     if not sync_path or not os.path.exists(sync_path):
         return {"status": "error", "message": f"Project path not found: {sync_path}"}
@@ -776,24 +846,24 @@ def sync_project(project_id: str) -> dict:
                 "path": sync_path,
             }
 
-        origin = repo.remote('origin')
+        origin = repo.remote("origin")
 
         env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
 
         fetch_info = origin.fetch(env=env)
         origin.pull(env=env)
 
         # Refresh cached paths after sync
         path_config_service.clear_config_cache()
-        project_path = row.get('path', '')
+        project_path = row.get("path", "")
         if project_path and os.path.isdir(project_path):
             cached = _resolve_cached_paths(project_path)
             workspace.update_project(project_id, **cached)
 
         # Update repo last_synced_at
-        workspace.update_repository_synced(row.get('repo_id', ''))
+        workspace.update_repository_synced(row.get("repo_id", ""))
 
         return {
             "status": "success",
