@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.core.roles import Role, normalize_role
 from app.services import project_service
+from app.services.workspace_service import workspace
 
 
 class Folder(BaseModel):
@@ -454,7 +455,18 @@ def get_folder_contents(folder_id: str | None, user_role: Role | None = None) ->
     projects = sorted(
         [
             project
-            for project in project_service.get_registered_projects()
+            for project in [
+                project_service.Project(
+                    id=r["id"],
+                    name=r["name"],
+                    display_name=r.get("display_name"),
+                    description=r.get("description", ""),
+                    path=r.get("path", ""),
+                    last_modified=r.get("last_modified", ""),
+                    folder_id=r.get("folder_id"),
+                )
+                for r in workspace.get_all_projects()
+            ]
             if project.folder_id == folder_id
             and (
                 folder_id is None

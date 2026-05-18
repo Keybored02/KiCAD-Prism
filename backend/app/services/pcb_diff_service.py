@@ -9,8 +9,6 @@ a structured change set suitable for the interactive PCB diff viewer.
 import subprocess
 from pathlib import Path
 
-from app.services.workspace_service import workspace
-
 # Reuse the s-expression parser and git helpers from sch_diff_service
 from app.services.sch_diff_service import (
     _at,
@@ -21,6 +19,7 @@ from app.services.sch_diff_service import (
     _read_file_at_commit,
     _uuid,
 )
+from app.services.workspace_service import workspace
 
 # ---------------------------------------------------------------------------
 # PCB element extraction
