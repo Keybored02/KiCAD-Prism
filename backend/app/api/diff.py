@@ -29,16 +29,15 @@ async def get_schematic_diff(
     if commit2 is None:
         from pathlib import Path
 
-        from app.services.project_service import get_registered_projects
+        from app.services.workspace_service import workspace
 
-        projects = get_registered_projects()
-        project = next((p for p in projects if p.id == project_id), None)
-        if not project:
+        row = workspace.get_project_by_id(project_id)
+        if not row:
             raise HTTPException(status_code=404, detail="Project not found")
         try:
             from git import Repo
 
-            repo_root = sch_diff_service._git_root(Path(project.path))
+            repo_root = sch_diff_service._git_root(Path(row["path"]))
             repo = Repo(str(repo_root))
             commit_obj = repo.commit(commit1)
             if not commit_obj.parents:
@@ -63,16 +62,15 @@ def _resolve_parent_commit(project_id: str, commit1: str) -> str:
     """Resolve the parent commit hash, raising HTTPException on failure."""
     from pathlib import Path
 
-    from app.services.project_service import get_registered_projects
+    from app.services.workspace_service import workspace
 
-    projects = get_registered_projects()
-    project = next((p for p in projects if p.id == project_id), None)
-    if not project:
+    row = workspace.get_project_by_id(project_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Project not found")
     try:
         from git import Repo
 
-        repo_root = sch_diff_service._git_root(Path(project.path))
+        repo_root = sch_diff_service._git_root(Path(row["path"]))
         repo = Repo(str(repo_root))
         commit_obj = repo.commit(commit1)
         if not commit_obj.parents:

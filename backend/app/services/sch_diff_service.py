@@ -10,7 +10,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from app.services.project_service import get_registered_projects
+from app.services.workspace_service import workspace
 
 logger = logging.getLogger(__name__)
 
@@ -454,12 +454,11 @@ def get_schematic_diff(project_id: str, commit1: str, commit2: str) -> dict | No
         }
     or None if the project or no schematics can be found.
     """
-    projects = get_registered_projects()
-    project = next((p for p in projects if p.id == project_id), None)
-    if not project:
+    row = workspace.get_project_by_id(project_id)
+    if not row:
         return None
 
-    project_path = Path(project.path)
+    project_path = Path(row["path"])
     repo_root = _git_root(project_path)
 
     paths1 = set(_find_all_sch_paths(repo_root, commit1))
