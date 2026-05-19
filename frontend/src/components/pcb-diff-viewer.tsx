@@ -417,7 +417,7 @@ interface OverlayProps {
 }
 
 // Per-kind stripe rotation so stacked changes remain distinguishable.
-const stripeRotation = { added: 90, removed: -45, changed: 45 } as const;
+const stripeRotation = { added: 45, removed: -45, changed: 45 } as const;
 
 function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick, activeId, showing, kickRef }: OverlayProps) {
     const boxRefs  = useRef<Map<string, HTMLDivElement>>(new Map());
