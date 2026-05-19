@@ -457,7 +457,7 @@ export function BomDiffViewer({
                 <div className="flex items-center gap-1">
                     <button
                         type="button"
-                        onClick={() => exportCsv(filteredRows, commit1)}
+                        onClick={() => exportCsv(filteredRows, commit1 ?? "")}
                         className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
                         title="Export CSV"
                     >
@@ -466,7 +466,7 @@ export function BomDiffViewer({
                     </button>
                     <button
                         type="button"
-                        onClick={() => exportXlsx(filteredRows, commit1)}
+                        onClick={() => exportXlsx(filteredRows, commit1 ?? "")}
                         className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
                         title="Export XLSX"
                     >
