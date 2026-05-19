@@ -90,7 +90,7 @@ interface SchematicDiffViewerProps {
     onClose: () => void;
     embedded?: boolean;
     onCrossProbe?: (reference: string) => void;
-    crossProbeTarget?: string; // reference to navigate to when switching from PCB
+    crossProbeTarget?: { ref: string; seq: number }; // reference to navigate to when switching from PCB
     /** Item id (uuid) to focus on when the diff loads. */
     focusItemId?: string;
     /** Filename (e.g. "power.kicad_sch") the focus item came from. When set,
@@ -939,25 +939,22 @@ export function SchematicDiffViewer({
     // watcher / readiness machinery then re-runs this effect once the viewer's
     // document.filename catches up, and we fire the probe.
     const crossProbeRunner = useCrossProbeRunner();
-    // Tracks which crossProbeTarget has already been dispatched so re-renders
-    // caused by navigation (sheetLoadTick, readiness changes) don't re-fire the
-    // probe and lock the viewer back onto a stale component.
-    const crossProbeFiredRef = useRef<string | null>(null);
+    // Tracks which seq has already been dispatched so re-renders caused by
+    // navigation (sheetLoadTick, readiness changes) don't re-fire the probe and
+    // lock the viewer back onto a stale component.
+    const crossProbeFiredSeqRef = useRef<number>(-1);
     useEffect(() => {
         if (!crossProbeTarget || !data) return;
-        // New target resets the fired guard.
-        if (crossProbeTarget !== crossProbeFiredRef.current) {
-            crossProbeFiredRef.current = null;
-        } else {
-            // Already dispatched this target — don't re-probe.
-            return;
-        }
+        // Already dispatched this exact request — don't re-probe.
+        if (crossProbeTarget.seq === crossProbeFiredSeqRef.current) return;
+
+        const { ref } = crossProbeTarget;
 
         // Locate the sheet containing this reference. The content strings are
         // full .kicad_sch s-expressions; a property of name "Reference" with the
         // target value uniquely identifies a symbol instance on that sheet.
         // Quote-escape regex meta in the reference (designators are A-Za-z0-9).
-        const refEscaped = crossProbeTarget.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const refEscaped = ref.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const refRe = new RegExp(`\\(property\\s+"Reference"\\s+"${refEscaped}"`);
         const containingSheet = data.sheets.find(s => {
             const content = showing === "new" ? s.new_content : s.old_content;
@@ -978,8 +975,8 @@ export function SchematicDiffViewer({
         const innerDoc = host ? (getSchEl(host)?.viewer as (InnerViewer & { document?: { filename?: string } }) | undefined) : undefined;
         if (containingSheet && innerDoc?.document?.filename !== containingSheet.filename) return;
 
-        crossProbeFiredRef.current = crossProbeTarget;
-        crossProbeRunner.run(host, "PCB", "SCH", crossProbeTarget);
+        crossProbeFiredSeqRef.current = crossProbeTarget.seq;
+        crossProbeRunner.run(host, "PCB", "SCH", ref);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [crossProbeTarget, data, activeSheet, newReady, oldReady, showing, sheetLoadTick]);
 

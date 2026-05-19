@@ -603,6 +603,9 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
 
     const handleBomCrossProbe = useCallback((reference: string) => {
         lastSelected.current.bom = reference;
+        const seq = ++crossProbeSeq.current;
+        setPcbCrossProbeTarget({ ref: reference, seq });
+        setSchCrossProbeTarget({ ref: reference, seq });
     }, []);
 
     const handleTabChange = useCallback((next: DiffTab) => {
@@ -665,7 +668,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
                         onClose={onClose}
                         embedded
                         onCrossProbe={handleSchematicCrossProbe}
-                        crossProbeTarget={schCrossProbeTarget?.ref}
+                        crossProbeTarget={schCrossProbeTarget}
                         focusItemId={initialTab === "schematic" ? focusItemId : undefined}
                         focusFilename={initialTab === "schematic" ? focusFilename : undefined}
                         singleCommit={singleCommit}
@@ -680,7 +683,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
                         embedded
                         active={tab === "pcb"}
                         onCrossProbe={handlePcbCrossProbe}
-                        crossProbeTarget={pcbCrossProbeTarget?.ref}
+                        crossProbeTarget={pcbCrossProbeTarget}
                         focusItemId={initialTab === "pcb" ? focusItemId : undefined}
                         singleCommit={singleCommit}
                     />

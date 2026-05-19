@@ -119,7 +119,7 @@ interface PcbDiffViewerProps {
     onClose: () => void;
     embedded?: boolean;
     onCrossProbe?: (reference: string) => void;
-    crossProbeTarget?: string; // reference to navigate to when switching from schematic
+    crossProbeTarget?: { ref: string; seq: number }; // reference to navigate to when switching from schematic
     /** Item id (uuid or geometric key) to focus on when the diff loads. */
     focusItemId?: string;
     /** When true, hide the OLD/NEW toggle and always show the new board.
@@ -1220,19 +1220,15 @@ export function PcbDiffViewer({
     // The shared runner retries up to ~1.4s, cancelling stale retries when
     // a newer probe arrives.
     const crossProbeRunner = useCrossProbeRunner();
-    const crossProbeFiredRef = useRef<string | null>(null);
+    const crossProbeFiredSeqRef = useRef<number>(-1);
     useEffect(() => {
         if (!crossProbeTarget || !active) return;
-        if (crossProbeTarget !== crossProbeFiredRef.current) {
-            crossProbeFiredRef.current = null;
-        } else {
-            return;
-        }
+        if (crossProbeTarget.seq === crossProbeFiredSeqRef.current) return;
         const sideReady = showing === "new" ? newReady : oldReady;
         if (!sideReady) return;
         const viewer = (showing === "new" ? newViewerRef : oldViewerRef).current;
-        crossProbeFiredRef.current = crossProbeTarget;
-        crossProbeRunner.run(viewer, "SCH", "PCB", crossProbeTarget);
+        crossProbeFiredSeqRef.current = crossProbeTarget.seq;
+        crossProbeRunner.run(viewer, "SCH", "PCB", crossProbeTarget.ref);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [crossProbeTarget, active, newReady, oldReady, showing]);
 
