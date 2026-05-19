@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { X, Check, X as XIcon, ChevronRight, Layers, FileText, Boxes, Network, Cpu, Eye, EyeOff, Search } from "lucide-react";
+import { X, Check, X as XIcon, ChevronRight, Layers, FileText, Boxes, Network, Cpu, Eye, EyeOff, Search, Keyboard } from "lucide-react";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 
 // ---------------------------------------------------------------------------
@@ -2009,3 +2009,220 @@ export function useBoardClickFix({ viewerRefs, rebindKey }: UseBoardClickFixOpts
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rebindKey]);
 }
+
+// ---------------------------------------------------------------------------
+// Viewer hotkeys
+// ---------------------------------------------------------------------------
+//
+// Maps a KiCad-ish subset of keyboard shortcuts onto the read-only kicanvas
+// viewers. Only the ones that make sense without an editor are wired up:
+// zoom / fit / redraw / sheet navigation / close.
+
+type ZoomCapableInner = {
+    zoom_in?: () => void;
+    zoom_out?: () => void;
+    zoom_fit_top_item?: () => void;
+    zoom_to_board?: () => void;
+    draw?: () => void;
+    viewport?: { camera?: { zoom?: number } };
+};
+
+type InnerHost = HTMLElement & { viewer?: ZoomCapableInner };
+
+/** Walk shadow roots to find a kicanvas inner element exposing `viewer`. */
+function findInnerKicanvas(host: HTMLElement | null): InnerHost | null {
+    if (!host) return null;
+    const sels = "kc-board-viewer, kc-schematic-viewer, kc-schematic-app";
+    const walk = (root: ShadowRoot | Element): InnerHost | null => {
+        const sr = (root as HTMLElement).shadowRoot;
+        const searchRoot = sr ?? root;
+        const el = (searchRoot as ShadowRoot).querySelector?.(sels) as InnerHost | null;
+        if (el?.viewer) return el;
+        for (const child of (searchRoot as ShadowRoot).querySelectorAll?.("*") ?? []) {
+            if ((child as HTMLElement).shadowRoot) {
+                const f = walk(child as HTMLElement);
+                if (f) return f;
+            }
+        }
+        return el ?? null;
+    };
+    return walk(host);
+}
+
+export interface UseViewerHotkeysOpts {
+    /** Container that scopes the hotkeys. Keys are bound on this element. */
+    containerRef: React.RefObject<HTMLElement | null>;
+    /** Viewer hosts driven by the hotkeys. The first one with a hovered/focused
+     *  descendant wins; otherwise the first non-null ref is used. */
+    viewerRefs: React.RefObject<ECadViewerElement | null>[];
+    /** Optional: switch to the next sheet/board (PgDn). */
+    onNextSheet?: () => void;
+    /** Optional: switch to the previous sheet/board (PgUp). */
+    onPrevSheet?: () => void;
+    /** Optional: close the viewer (Esc). */
+    onClose?: () => void;
+    /** Disable all bindings (e.g. when a modal is open). */
+    enabled?: boolean;
+}
+
+/**
+ * Bind KiCad-style keyboard shortcuts to one or more ecad-viewer hosts.
+ * - F1 / + / =       zoom in
+ * - F2 / - / _       zoom out
+ * - Home             fit screen (top item / page)
+ * - Ctrl+Home        fit board outline (PCB only — falls back to fit screen)
+ * - PgUp / PgDn      previous / next sheet or board
+ * - Escape           close
+ */
+export function useViewerHotkeys({
+    containerRef, viewerRefs, onNextSheet, onPrevSheet, onClose, enabled = true,
+}: UseViewerHotkeysOpts) {
+    useEffect(() => {
+        if (!enabled) return;
+        const container = containerRef.current;
+        if (!container) return;
+
+        // Resolve the viewer the hotkey should target. Prefer the host that
+        // currently contains the hovered element; fall back to the first ref.
+        const pickViewer = (): ECadViewerElement | null => {
+            const hovered = container.querySelector(":hover");
+            if (hovered) {
+                for (const r of viewerRefs) {
+                    if (r.current && (r.current === hovered || r.current.contains(hovered))) {
+                        return r.current;
+                    }
+                }
+            }
+            for (const r of viewerRefs) if (r.current) return r.current;
+            return null;
+        };
+
+        const isTypingTarget = (t: EventTarget | null): boolean => {
+            const el = t as HTMLElement | null;
+            if (!el) return false;
+            const tag = el.tagName;
+            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+            if ((el as HTMLElement).isContentEditable) return true;
+            return false;
+        };
+
+        const handler = (e: KeyboardEvent) => {
+            if (isTypingTarget(e.target)) return;
+            // Don't fight modifier-combos we don't own (Ctrl+C, Ctrl+S, etc.)
+            if (e.altKey || e.metaKey) return;
+
+            const host = pickViewer();
+            const inner = findInnerKicanvas(host)?.viewer;
+
+            const consume = () => { e.preventDefault(); e.stopPropagation(); };
+            const redraw = () => inner?.draw?.();
+
+            switch (e.key) {
+                case "F1":
+                case "+":
+                case "=":
+                    if (e.ctrlKey || e.shiftKey) return;
+                    // kicanvas's `zoom_in()` actually shrinks the view (its
+                    // camera-zoom semantics are inverted from user expectation),
+                    // so we call zoom_out here to produce a visual zoom-in.
+                    inner?.zoom_out?.(); redraw(); consume(); return;
+                case "F2":
+                case "-":
+                case "_":
+                    if (e.ctrlKey || e.shiftKey) return;
+                    inner?.zoom_in?.(); redraw(); consume(); return;
+                case "Home":
+                    if (e.ctrlKey) {
+                        // Ctrl+Home → fit board outline if available, else fit page
+                        (inner?.zoom_to_board ?? inner?.zoom_fit_top_item)?.();
+                    } else {
+                        inner?.zoom_fit_top_item?.();
+                    }
+                    redraw(); consume(); return;
+                case "PageDown":
+                    if (e.ctrlKey || e.shiftKey) return;
+                    if (onNextSheet) { onNextSheet(); consume(); }
+                    return;
+                case "PageUp":
+                    if (e.ctrlKey || e.shiftKey) return;
+                    if (onPrevSheet) { onPrevSheet(); consume(); }
+                    return;
+                case "Escape":
+                    if (onClose) { onClose(); consume(); }
+                    return;
+            }
+        };
+
+        // Bind to window — focus on a custom element doesn't always reach our
+        // container. We still scope behavior by visibility via the container's
+        // own connectedness check.
+        window.addEventListener("keydown", handler);
+        return () => window.removeEventListener("keydown", handler);
+    }, [containerRef, viewerRefs, onNextSheet, onPrevSheet, onClose, enabled]);
+}
+
+// ---------------------------------------------------------------------------
+// Hotkeys legend
+// ---------------------------------------------------------------------------
+//
+// Small floating "?" pill that expands into a list of the active hotkeys.
+// Anchored to the bottom-right of the viewer container.
+
+export interface HotkeyEntry {
+    keys: string[];   // displayed as separate <kbd>s joined by "or"
+    label: string;
+}
+
+export interface HotkeysLegendProps {
+    entries: HotkeyEntry[];
+    /** Override absolute-position className (default: bottom-right). */
+    className?: string;
+}
+
+export function HotkeysLegend({ entries, className }: HotkeysLegendProps) {
+    const [open, setOpen] = useState(false);
+    return (
+        <div
+            className={className ?? "absolute bottom-2 right-2 z-30"}
+            onMouseEnter={() => setOpen(true)}
+            onMouseLeave={() => setOpen(false)}
+        >
+            <button
+                type="button"
+                onClick={() => setOpen(o => !o)}
+                aria-label="Show keyboard shortcuts"
+                className="flex items-center justify-center h-7 w-7 rounded-full bg-background/90 border border-border shadow-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+                <Keyboard className="h-3.5 w-3.5" />
+            </button>
+            {open && (
+                <div className="absolute bottom-9 right-0 min-w-[200px] rounded-md border border-border bg-popover text-popover-foreground shadow-lg p-2 text-xs">
+                    <p className="font-medium px-1 pb-1.5 text-muted-foreground">Keyboard shortcuts</p>
+                    <ul className="space-y-1">
+                        {entries.map((entry, i) => (
+                            <li key={i} className="flex items-center justify-between gap-3 px-1">
+                                <span className="text-foreground">{entry.label}</span>
+                                <span className="flex items-center gap-1">
+                                    {entry.keys.map((k, ki) => (
+                                        <span key={ki} className="flex items-center gap-1">
+                                            {ki > 0 && <span className="text-[10px] text-muted-foreground">or</span>}
+                                            <kbd className="font-mono text-[10px] leading-none px-1.5 py-0.5 rounded border border-border bg-muted">{k}</kbd>
+                                        </span>
+                                    ))}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** Common zoom/fit/redraw entries shared by every viewer. */
+export const COMMON_HOTKEYS: HotkeyEntry[] = [
+    { keys: ["F1", "+"],   label: "Zoom in" },
+    { keys: ["F2", "−"],   label: "Zoom out" },
+    { keys: ["Home"],      label: "Fit to page" },
+    { keys: ["Ctrl+Home"], label: "Fit to objects" },
+];

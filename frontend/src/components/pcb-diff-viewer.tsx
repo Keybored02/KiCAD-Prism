@@ -8,10 +8,13 @@ import {
 import { Button } from "@/components/ui/button";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 import {
+    COMMON_HOTKEYS,
     EcadInfoPanel,
     EcadViewerHost,
+    HotkeysLegend,
     useBoardClickFix,
     useEcadInfoPanel,
+    useViewerHotkeys,
     useViewerReadiness,
 } from "@/components/ecad-viewer-shared";
 import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
@@ -1143,6 +1146,22 @@ export function PcbDiffViewer({
 
     const activeBoardData = data?.boards.find(b => b.filename === activeBoard) ?? null;
 
+    // KiCad-style hotkeys: zoom, fit, redraw, board nav, close.
+    const cycleBoard = useCallback((delta: 1 | -1) => {
+        const boards = data?.boards;
+        if (!boards || boards.length === 0) return;
+        const idx = boards.findIndex(b => b.filename === activeBoard);
+        const next = boards[((idx === -1 ? 0 : idx) + delta + boards.length) % boards.length];
+        if (next) setActiveBoard(next.filename);
+    }, [data, activeBoard]);
+    useViewerHotkeys({
+        containerRef: viewerContainerRef,
+        viewerRefs: viewerRefsArr,
+        onNextSheet: () => cycleBoard(1),
+        onPrevSheet: () => cycleBoard(-1),
+        onClose,
+    });
+
     const rawMarkers: DiffMarker[] = [];
     if (activeBoardData) {
         for (const item of activeBoardData.diff.added)
@@ -1645,6 +1664,15 @@ export function PcbDiffViewer({
                                 </div>
                             )}
                             <EcadInfoPanel detail={selectedDetail} onClose={clearSelectedDetail} />
+                            <HotkeysLegend
+                                entries={[
+                                    ...COMMON_HOTKEYS,
+                                    ...(data.boards.length > 1
+                                        ? [{ keys: ["PgUp", "PgDn"], label: "Previous / next board" }]
+                                        : []),
+                                    { keys: ["Esc"], label: "Close" },
+                                ]}
+                            />
                         </>
                     )}
                 </div>

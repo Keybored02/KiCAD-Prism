@@ -16,10 +16,13 @@ import type {
     KiCanvasSelectDetail,
 } from "@/types/ecad-viewer";
 import {
+    COMMON_HOTKEYS,
     EcadInfoPanel,
     EcadViewerHost,
+    HotkeysLegend,
     useBoardClickFix,
     useEcadInfoPanel,
+    useViewerHotkeys,
 } from "./ecad-viewer-shared";
 
 const Model3DViewer = lazy(() =>
@@ -224,6 +227,15 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
 
     // PCB-only: layer-visibility map fix + pad-priority click reordering.
     useBoardClickFix({ viewerRefs: useRef([pcbViewerRef]).current, rebindKey: pcbViewerElement });
+
+    // Shared container ref + hotkey hook. The hook targets whichever viewer is
+    // currently visible by relying on :hover resolution inside the wrapper.
+    const visualizerContentRef = useRef<HTMLDivElement | null>(null);
+    const visualizerViewerRefs = useRef([schematicViewerRef, pcbViewerRef]).current;
+    useViewerHotkeys({
+        containerRef: visualizerContentRef,
+        viewerRefs: visualizerViewerRefs,
+    });
 
     const [activeTab, setActiveTab] = useState<VisualizerTab>("sch");
     const [schematicContent, setSchematicContent] = useState<string | null>(null);
@@ -1271,7 +1283,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             </Dialog>
 
             {/* Content Area */}
-            <div className="flex-1 relative overflow-hidden">
+            <div ref={visualizerContentRef} className="flex-1 relative overflow-hidden">
                 {/* Schematic View - always mounted but conditionally visible */}
                 <div
                     ref={schematicWrapperRef}
@@ -1353,6 +1365,11 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                 {/* Diff highlights overlay — PCB */}
                 {activeTab === "pcb" && pcbDiffMarkers.length > 0 && (
                     <CommitDiffOverlay markers={pcbDiffMarkers} viewerRef={pcbViewerRef} />
+                )}
+
+                {/* Keyboard shortcuts legend — only on the kicanvas tabs */}
+                {(activeTab === "sch" || activeTab === "pcb") && (
+                    <HotkeysLegend entries={COMMON_HOTKEYS} />
                 )}
 
                 {/* 3D View */}

@@ -8,9 +8,12 @@ import {
 import { Button } from "@/components/ui/button";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 import {
+    COMMON_HOTKEYS,
     EcadInfoPanel,
     EcadViewerHost,
+    HotkeysLegend,
     useEcadInfoPanel,
+    useViewerHotkeys,
     useViewerReadiness,
 } from "@/components/ecad-viewer-shared";
 import { categorise, CATEGORY_META } from "@/lib/diff-grouping";
@@ -871,6 +874,22 @@ export function SchematicDiffViewer({
 
     const activeSheetData = data?.sheets.find(s => s.filename === activeSheet) ?? null;
 
+    // KiCad-style hotkeys: zoom, fit, redraw, sheet nav, close.
+    const cycleSheet = useCallback((delta: 1 | -1) => {
+        const sheets = data?.sheets;
+        if (!sheets || sheets.length === 0) return;
+        const idx = sheets.findIndex(s => s.filename === activeSheet);
+        const next = sheets[((idx === -1 ? 0 : idx) + delta + sheets.length) % sheets.length];
+        if (next) setActiveSheet(next.filename);
+    }, [data, activeSheet]);
+    useViewerHotkeys({
+        containerRef: viewerContainerRef,
+        viewerRefs: viewerRefsArr,
+        onNextSheet: () => cycleSheet(1),
+        onPrevSheet: () => cycleSheet(-1),
+        onClose,
+    });
+
     // All markers for the active sheet (for the sidebar list)
     const allMarkers: DiffMarker[] = [];
     if (activeSheetData) {
@@ -1424,6 +1443,13 @@ export function SchematicDiffViewer({
                                 </div>
                             )}
                             <EcadInfoPanel detail={selectedDetail} onClose={clearSelectedDetail} />
+                            <HotkeysLegend
+                                entries={[
+                                    ...COMMON_HOTKEYS,
+                                    { keys: ["PgUp", "PgDn"], label: "Previous / next sheet" },
+                                    { keys: ["Esc"],          label: "Close" },
+                                ]}
+                            />
                         </>
                     )}
                 </div>
