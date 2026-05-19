@@ -799,7 +799,7 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                                     data-active={isActive ? "1" : "0"}
                                     stroke={color}
                                     strokeOpacity={isActive ? 1 : 0.78}
-                                    strokeLinecap={isActive ? "round" : "butt"}
+                                    strokeLinecap="round"
                                     filter={isActive ? `drop-shadow(0 0 3px ${color})` : undefined}
                                 />
                             </g>
