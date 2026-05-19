@@ -190,6 +190,26 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
             if (!rect.width) return false;
             let anyVisible = false;
 
+            // Access the inner schematic renderer for real item bboxes.
+            // The element is nested behind multiple shadow roots, so we do a
+            // recursive walk — same strategy as getSchEl.
+            type SchRenderer = { get_item_bbox?: (uuid: string) => { x: number; y: number; w: number; h: number } | undefined };
+            type SchInner = Element & { viewer?: { schematic_renderer?: SchRenderer } };
+            const findSchEl = (root: ShadowRoot | Element): SchInner | null => {
+                const sr = (root as HTMLElement).shadowRoot;
+                const searchIn = sr ?? root;
+                const found = (searchIn as ShadowRoot).querySelector?.("kc-schematic-app, kc-schematic-viewer") as SchInner | null;
+                if (found) return found;
+                for (const child of (searchIn as ShadowRoot).querySelectorAll?.("*") ?? []) {
+                    if ((child as HTMLElement).shadowRoot) {
+                        const f = findSchEl(child as HTMLElement);
+                        if (f) return f;
+                    }
+                }
+                return null;
+            };
+            const schRenderer = findSchEl(viewer as unknown as Element)?.viewer?.schematic_renderer;
+
             for (const m of markers) {
                 const item = m.item;
                 const isWire = WIRE_TYPES.has(item.type);
@@ -235,14 +255,27 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
                     // Div box for symbols, sheets, labels, text
                     const el = boxRefs.current.get(item.uuid);
                     if (!el) continue;
-                    const { hw, hh } = _boxHalfExtent(item.type);
-                    const tl = viewer.getScreenLocation(item.x - hw, item.y - hh);
-                    const br = viewer.getScreenLocation(item.x + hw, item.y + hh);
-                    if (!tl || !br) { el.style.display = "none"; continue; }
-                    const left = Math.min(tl.x, br.x);
-                    const top  = Math.min(tl.y, br.y);
-                    const w    = Math.abs(br.x - tl.x);
-                    const h    = Math.abs(br.y - tl.y);
+                    const PAD = 6; // px offset around the kicanvas hover bbox
+                    const realBBox = schRenderer?.get_item_bbox?.(item.uuid);
+                    let left: number, top: number, w: number, h: number;
+                    if (realBBox) {
+                        const tl = viewer.getScreenLocation(realBBox.x, realBBox.y);
+                        const br = viewer.getScreenLocation(realBBox.x + realBBox.w, realBBox.y + realBBox.h);
+                        if (!tl || !br) { el.style.display = "none"; continue; }
+                        left = Math.min(tl.x, br.x) - PAD;
+                        top  = Math.min(tl.y, br.y) - PAD;
+                        w    = Math.abs(br.x - tl.x) + PAD * 2;
+                        h    = Math.abs(br.y - tl.y) + PAD * 2;
+                    } else {
+                        const { hw, hh } = _boxHalfExtent(item.type);
+                        const tl = viewer.getScreenLocation(item.x - hw, item.y - hh);
+                        const br = viewer.getScreenLocation(item.x + hw, item.y + hh);
+                        if (!tl || !br) { el.style.display = "none"; continue; }
+                        left = Math.min(tl.x, br.x);
+                        top  = Math.min(tl.y, br.y);
+                        w    = Math.abs(br.x - tl.x);
+                        h    = Math.abs(br.y - tl.y);
+                    }
                     const vis  = left + w > 0 && left < rect.width && top + h > 0 && top < rect.height;
                     if (vis) {
                         el.style.display = "";

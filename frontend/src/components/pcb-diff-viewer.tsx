@@ -406,9 +406,15 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
             // to add the canvas offset relative to our container.
             // We derive that offset by calling getScreenLocation for a known world point and
             // comparing to worldToScreen on the internal viewer.
-            type InternalViewer = { worldToScreen?: (x: number, y: number) => { x: number; y: number } };
+            type FootprintBBox = { x: number; y: number; w: number; h: number };
+            type BoardDoc = { find_footprint?: (ref: string) => { bbox?: FootprintBBox } | null };
+            type InternalViewer = {
+                worldToScreen?: (x: number, y: number) => { x: number; y: number };
+                board?: BoardDoc;
+            };
             const boardEl = getBoardEl(viewer) as (HTMLElement & { viewer?: InternalViewer }) | null;
             const worldToScreen = boardEl?.viewer?.worldToScreen?.bind(boardEl.viewer);
+            const findFootprint = boardEl?.viewer?.board?.find_footprint?.bind(boardEl.viewer.board);
 
             // Prefer the host element's `getScreenLocation` (canvas-relative) which is
             // the same approach used by the schematic overlay. If unavailable, fall
@@ -460,12 +466,29 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                 } else {
                     const el = boxRefs.current.get(g.id);
                     if (!el) continue;
-                    const tl = toContainerPt(g.bboxMinX, g.bboxMinY);
-                    const br = toContainerPt(g.bboxMaxX, g.bboxMaxY);
-                    const left = Math.min(tl.x, br.x) - SCREEN_PAD;
-                    const top  = Math.min(tl.y, br.y) - SCREEN_PAD;
-                    const w    = Math.abs(br.x - tl.x) + SCREEN_PAD * 2;
-                    const h    = Math.abs(br.y - tl.y) + SCREEN_PAD * 2;
+                    // For footprint groups, use kicanvas's real footprint bbox
+                    // (same one used for the hover outline) + a pixel offset.
+                    const PAD = 6;
+                    let left: number, top: number, w: number, h: number;
+                    const fpRef = g.members[0]?.item.reference ?? g.members[0]?.item.uuid ?? "";
+                    const fpBBox = g.category === "components"
+                        ? findFootprint?.(fpRef)?.bbox ?? null
+                        : null;
+                    if (fpBBox) {
+                        const tl = toContainerPt(fpBBox.x, fpBBox.y);
+                        const br = toContainerPt(fpBBox.x + fpBBox.w, fpBBox.y + fpBBox.h);
+                        left = Math.min(tl.x, br.x) - PAD;
+                        top  = Math.min(tl.y, br.y) - PAD;
+                        w    = Math.abs(br.x - tl.x) + PAD * 2;
+                        h    = Math.abs(br.y - tl.y) + PAD * 2;
+                    } else {
+                        const tl = toContainerPt(g.bboxMinX, g.bboxMinY);
+                        const br = toContainerPt(g.bboxMaxX, g.bboxMaxY);
+                        left = Math.min(tl.x, br.x) - SCREEN_PAD;
+                        top  = Math.min(tl.y, br.y) - SCREEN_PAD;
+                        w    = Math.abs(br.x - tl.x) + SCREEN_PAD * 2;
+                        h    = Math.abs(br.y - tl.y) + SCREEN_PAD * 2;
+                    }
                     const vis  = left + w > 0 && left < containerRect.width && top + h > 0 && top < containerRect.height;
                     if (vis) {
                         el.style.display = "";
