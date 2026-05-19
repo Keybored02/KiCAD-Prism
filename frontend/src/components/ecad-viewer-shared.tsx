@@ -164,6 +164,21 @@ function viewerThemeCssForRoot(rootTag: string): string {
                     max-height: 50vh;
                     overflow-y: auto;
                     border-radius: 0.8rem;
+                    scrollbar-width: thin;
+                    scrollbar-color: hsl(var(--border)) transparent;
+                }
+                :host(.dropdown)::-webkit-scrollbar {
+                    width: 4px;
+                }
+                :host(.dropdown)::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+                :host(.dropdown)::-webkit-scrollbar-thumb {
+                    background: hsl(var(--border));
+                    border-radius: 9999px;
+                }
+                :host(.dropdown)::-webkit-scrollbar-thumb:hover {
+                    background: hsl(var(--muted-foreground) / 0.5);
                 }
 
                 :host(.outline) ::slotted(kc-ui-menu-item) {
@@ -1210,7 +1225,7 @@ function LayersPanel({
         return (
             <PanelShell>
                 <PanelHeader icon={FileText} label="Pages" onClose={onClose} />
-                <div className="overflow-y-auto px-1.5 py-1.5">
+                <div className="overflow-y-auto prism-panel-scroll px-1.5 py-1.5">
                     <ul className="space-y-0.5">
                         {pages.map((p) => (
                             <li key={p.filename}>
@@ -1244,7 +1259,7 @@ function LayersPanel({
     return (
         <PanelShell>
             {/* Tab bar */}
-            <div className="flex border-b shrink-0 bg-muted/20">
+            <div className="flex items-stretch border-b shrink-0 bg-muted/20">
                 {PCB_TABS.map(({ id, icon: Icon, label }) => (
                     <button
                         key={id}
@@ -1261,6 +1276,14 @@ function LayersPanel({
                         <span>{label}</span>
                     </button>
                 ))}
+                <button
+                    onClick={onClose}
+                    type="button"
+                    aria-label="Close panel"
+                    className="flex items-center justify-center px-2 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors border-b-2 border-transparent"
+                >
+                    <X className="h-3.5 w-3.5" />
+                </button>
             </div>
 
             {/* Tab bodies */}
@@ -1271,7 +1294,7 @@ function LayersPanel({
                     layers.length === 0
                         ? <p className="text-xs text-muted-foreground italic px-3 py-3">Loading…</p>
                         : <div className="flex flex-col flex-1 min-h-0">
-                            <ul className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-0.5">
+                            <ul className="flex-1 overflow-y-auto prism-panel-scroll px-1.5 py-1.5 space-y-0.5">
                                 {layers.map((l) => (
                                     <li key={l.name}>
                                         <button
@@ -1294,7 +1317,7 @@ function LayersPanel({
 
                 {/* ── Objects ── */}
                 {tab === "objects" && (
-                    <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+                    <div className="flex-1 overflow-y-auto prism-panel-scroll px-3 py-3 space-y-4">
                         {OBJECT_LABELS.map(({ key, label, icon: Icon }) => (
                             <div key={key}>
                                 <div className="flex items-center gap-2 mb-1.5">
@@ -1333,7 +1356,7 @@ function LayersPanel({
                         </div>
                         {filteredNets.length === 0
                             ? <p className="text-xs text-muted-foreground italic px-3 py-3">{nets.length === 0 ? "Loading…" : "No matches"}</p>
-                            : <ul className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-0.5">
+                            : <ul className="flex-1 overflow-y-auto prism-panel-scroll px-1.5 py-1.5 space-y-0.5">
                                 {filteredNets.map((n) => (
                                     <li key={n.number}>
                                         <button
@@ -1369,7 +1392,7 @@ function LayersPanel({
                         </div>
                         {filteredFps.length === 0
                             ? <p className="text-xs text-muted-foreground italic px-3 py-3">{footprints.length === 0 ? "Loading…" : "No matches"}</p>
-                            : <ul className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-0.5">
+                            : <ul className="flex-1 overflow-y-auto prism-panel-scroll px-1.5 py-1.5 space-y-0.5">
                                 {filteredFps.map((fp) => (
                                     <li key={fp.uuid}>
                                         <button
@@ -1585,6 +1608,24 @@ const LAYERS_PANEL_KEYFRAMES = `
             transform: scale(1);
             opacity: 1;
         }
+    }
+
+    .prism-panel-scroll {
+        scrollbar-width: thin;
+        scrollbar-color: hsl(var(--border)) transparent;
+    }
+    .prism-panel-scroll::-webkit-scrollbar {
+        width: 4px;
+    }
+    .prism-panel-scroll::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .prism-panel-scroll::-webkit-scrollbar-thumb {
+        background: hsl(var(--border));
+        border-radius: 9999px;
+    }
+    .prism-panel-scroll::-webkit-scrollbar-thumb:hover {
+        background: hsl(var(--muted-foreground) / 0.5);
     }
 `;
 
