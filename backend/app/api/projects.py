@@ -1,9 +1,11 @@
 import asyncio
+import io
 import os
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from app.api._helpers import (
@@ -1358,3 +1360,114 @@ async def update_project_description(
         "description": next_description,
         "message": "Project description updated successfully",
     }
+
+
+# Gerber file extensions recognised by gerbers-renderer
+_GERBER_EXTENSIONS = {
+    ".gbr",
+    ".ger",
+    ".art",
+    # layer-specific KiCad extensions
+    ".gtl",
+    ".gbl",
+    ".gts",
+    ".gbs",
+    ".gtp",
+    ".gbp",
+    ".gto",
+    ".gbo",
+    ".gm1",
+    ".gm2",
+    ".gm3",
+    ".gm4",
+    # drill files
+    ".drl",
+    ".xln",
+    ".exc",
+    ".ncd",
+}
+
+# Common folder names that contain gerbers (checked in the project root)
+_GERBER_FOLDER_HINTS = {
+    "gerbers",
+    "gerber",
+    "fab",
+    "manufacturing",
+    "manufacturing-outputs",
+    "mfg",
+    "production",
+    "fabrication",
+    "pcbfab",
+    "design-outputs",
+    "outputs",
+    "export",
+}
+
+
+def _find_gerber_files(project_path: str) -> list[tuple[str, str]]:
+    """
+    Search for gerber files in the project directory.
+    Returns list of (archive_name, absolute_path) tuples.
+    Priority: dedicated gerber sub-folders first, then project root.
+    """
+    root = Path(project_path)
+    results: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def _collect(directory: Path, prefix: str) -> None:
+        try:
+            for entry in sorted(directory.iterdir()):
+                if entry.name.startswith("."):
+                    continue
+                if entry.is_file() and entry.suffix.lower() in _GERBER_EXTENSIONS:
+                    key = str(entry.resolve())
+                    if key not in seen:
+                        seen.add(key)
+                        results.append((f"{prefix}{entry.name}", str(entry)))
+        except OSError:
+            pass
+
+    # 1. Check known gerber sub-folders
+    for sub in sorted(root.iterdir()) if root.exists() else []:
+        if sub.is_dir() and sub.name.lower() in _GERBER_FOLDER_HINTS:
+            _collect(sub, "")
+            # Also one level deeper (e.g. Design-Outputs/Gerbers/)
+            for subsub in sorted(sub.iterdir()) if sub.exists() else []:
+                if subsub.is_dir() and subsub.name.lower() in _GERBER_FOLDER_HINTS:
+                    _collect(subsub, "")
+
+    # 2. If nothing found yet, fall back to project root
+    if not results:
+        _collect(root, "")
+
+    return results
+
+
+@router.get("/{project_id}/gerbers")
+async def get_project_gerbers(
+    project_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """
+    Return all gerber/drill files for the project as an in-memory ZIP archive.
+    Scans common gerber output folders first, falls back to the project root.
+    """
+    project = get_project_for_role_or_404(project_id, user.role)
+    files = await asyncio.to_thread(_find_gerber_files, project.path)
+
+    if not files:
+        raise HTTPException(status_code=404, detail="No gerber files found")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for archive_name, abs_path in files:
+            zf.write(abs_path, arcname=archive_name)
+    buf.seek(0)
+
+    return Response(
+        content=buf.read(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{project_id}-gerbers.zip"'
+        },
+    )

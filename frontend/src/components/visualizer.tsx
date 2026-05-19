@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { Cpu, Box, FileText, List, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, RefreshCw } from "lucide-react";
+import { Cpu, Box, FileText, List, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, RefreshCw, Layers } from "lucide-react";
 import { BomDiffViewer } from "./bom-diff-viewer";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -27,6 +27,10 @@ import {
 
 const Model3DViewer = lazy(() =>
     import("./model-3d-viewer").then((module) => ({ default: module.Model3DViewer }))
+);
+
+const GerberViewer = lazy(() =>
+    import("./gerber-viewer").then((module) => ({ default: module.GerberViewer }))
 );
 
 interface VisualizerProps {
@@ -159,7 +163,7 @@ function CommitDiffOverlay({ markers, viewerRef }: {
     );
 }
 
-type VisualizerTab = "sch" | "pcb" | "3d" | "ibom" | "bom";
+type VisualizerTab = "sch" | "pcb" | "3d" | "ibom" | "bom" | "gerber";
 
 interface CommentsSourceUrls {
     project_id: string;
@@ -459,7 +463,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     fetch(`${baseUrl}/3d-model`, { signal }),
                     fetch(`${baseUrl}/ibom`, { signal }),
                     fetch(`/api/projects/${projectId}/comments`, { signal }),
-                    fetch(`${baseUrl}/files?type=design`, { signal })
+                    fetch(`${baseUrl}/files?type=design`, { signal }),
                 ]);
 
                 // Handle 3D
@@ -496,6 +500,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                 } else {
                     setIbomUrl(null);
                 }
+
 
                 // Handle Comments
                 if (commentsRes.status === "fulfilled" && commentsRes.value.ok) {
@@ -1082,6 +1087,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         { id: "3d", label: "3D View", icon: Box },
         { id: "bom", label: "BOM", icon: List },
         { id: "ibom", label: "iBoM", icon: FileText },
+        { id: "gerber", label: "Gerber", icon: Layers },
     ];
 
     if (loading) return <div className="flex justify-center items-center h-full">Loading Visualizer...</div>;
@@ -1399,6 +1405,15 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                 {activeTab === "ibom" && (
                     <div className="absolute inset-0 z-20 bg-white">
                         {ibomUrl ? <iframe src={ibomUrl} className="w-full h-full border-0" /> : <div className="p-10">No iBoM Found</div>}
+                    </div>
+                )}
+
+                {/* Gerber View */}
+                {activeTab === "gerber" && (
+                    <div className="absolute inset-0 z-20 bg-background">
+                        <Suspense fallback={<div className="p-10 text-sm text-muted-foreground">Loading Gerber Viewer...</div>}>
+                            <GerberViewer projectId={projectId} />
+                        </Suspense>
                     </div>
                 )}
 

@@ -8,6 +8,12 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // gerbers-renderer doesn't expose its CSS in the package exports map;
+      // alias the subpath directly to the filesystem file so Vite can resolve it.
+      "gerbers-renderer/dist/gerbers-renderer.css": path.resolve(
+        __dirname,
+        "node_modules/gerbers-renderer/dist/gerbers-renderer.css"
+      ),
     },
   },
   server: {
