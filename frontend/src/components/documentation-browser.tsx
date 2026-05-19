@@ -3,6 +3,7 @@ import { Download, File, FileText, Folder, ChevronRight, ChevronDown, Eye, X } f
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileItem, TreeNode, formatBytes, buildFileTree } from "@/lib/file-utils";
+import { PdfViewer } from "@/components/pdf-viewer";
 
 const MarkdownContent = lazy(() =>
     import("@/components/markdown-content").then((module) => ({ default: module.MarkdownContent }))
@@ -17,18 +18,21 @@ function TreeNodeComponent({
     node,
     projectId,
     onView,
+    onPreviewPdf,
     onDownload,
     level = 0
 }: {
     node: TreeNode;
     projectId: string;
     onView: (path: string, name: string) => void;
+    onPreviewPdf: (path: string, name: string) => void;
     onDownload: (path: string) => void;
     level?: number;
 }) {
     const [expanded, setExpanded] = useState(false);
     const hasChildren = node.children.length > 0;
     const isMarkdown = node.type === 'md';
+    const isPdf = node.type === 'pdf';
 
     return (
         <div>
@@ -54,6 +58,8 @@ function TreeNodeComponent({
                     <Folder className="h-4 w-4 text-yellow-500 flex-shrink-0" />
                 ) : isMarkdown ? (
                     <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                ) : isPdf ? (
+                    <FileText className="h-4 w-4 text-red-400 flex-shrink-0" />
                 ) : (
                     <File className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 )}
@@ -80,6 +86,16 @@ function TreeNodeComponent({
                                     <Eye className="h-4 w-4" />
                                 </Button>
                             )}
+                            {isPdf && (
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => onPreviewPdf(node.path, node.name)}
+                                    title="View PDF"
+                                >
+                                    <Eye className="h-4 w-4" />
+                                </Button>
+                            )}
                             <Button
                                 size="sm"
                                 variant="ghost"
@@ -101,6 +117,7 @@ function TreeNodeComponent({
                             node={child}
                             projectId={projectId}
                             onView={onView}
+                            onPreviewPdf={onPreviewPdf}
                             onDownload={onDownload}
                             level={level + 1}
                         />
@@ -115,6 +132,7 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
     const [files, setFiles] = useState<FileItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [viewingDoc, setViewingDoc] = useState<{ path: string; name: string; content: string } | null>(null);
+    const [pdfViewer, setPdfViewer] = useState<{ url: string; downloadUrl: string; filename: string } | null>(null);
 
     useEffect(() => {
         const fetchFiles = async () => {
@@ -147,6 +165,11 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
         } catch (err) {
             console.error("Failed to fetch doc content", err);
         }
+    };
+
+    const handlePreviewPdf = (path: string, name: string) => {
+        const inlineUrl = `/api/projects/${projectId}/asset/docs/${path}`;
+        setPdfViewer({ url: inlineUrl, downloadUrl: inlineUrl, filename: name });
     };
 
     const handleDownload = (path: string) => {
@@ -187,18 +210,29 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
     }
 
     return (
-        <div className="border rounded-lg p-4 max-h-[600px] overflow-y-auto">
-            <div className="space-y-1">
-                {tree.map((node) => (
-                    <TreeNodeComponent
-                        key={node.path}
-                        node={node}
-                        projectId={projectId}
-                        onView={handleView}
-                        onDownload={handleDownload}
-                    />
-                ))}
+        <>
+            {pdfViewer && (
+                <PdfViewer
+                    url={pdfViewer.url}
+                    downloadUrl={pdfViewer.downloadUrl}
+                    filename={pdfViewer.filename}
+                    onClose={() => setPdfViewer(null)}
+                />
+            )}
+            <div className="border rounded-lg p-4 max-h-[600px] overflow-y-auto">
+                <div className="space-y-1">
+                    {tree.map((node) => (
+                        <TreeNodeComponent
+                            key={node.path}
+                            node={node}
+                            projectId={projectId}
+                            onView={handleView}
+                            onPreviewPdf={handlePreviewPdf}
+                            onDownload={handleDownload}
+                        />
+                    ))}
+                </div>
             </div>
-        </div>
+        </>
     );
 }

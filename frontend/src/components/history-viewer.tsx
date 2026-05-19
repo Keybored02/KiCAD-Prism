@@ -9,6 +9,7 @@ import {
 import { SchematicDiffViewer } from "./schematic-diff-viewer";
 import { PcbDiffViewer } from "./pcb-diff-viewer";
 import { BomDiffViewer } from "./bom-diff-viewer";
+import { PdfViewer } from "./pdf-viewer";
 import { fetchJson } from "@/lib/api";
 import { categorise, CATEGORY_META, type KindedItem } from "@/lib/diff-grouping";
 
@@ -150,11 +151,14 @@ function fileSortRank(filename: string): number {
 // File-type icon picker. Returns the icon + a colour class so KiCad files
 // stand out from generic ones in the file list.
 function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string; label: string } {
-    if (filename.endsWith(".kicad_sch")) return { Icon: CircuitBoard, color: "text-blue-500",   label: "Schematic" };
+    if (filename.endsWith(".kicad_sch")) return { Icon: CircuitBoard, color: "text-blue-500",    label: "Schematic" };
     if (filename.endsWith(".kicad_pcb")) return { Icon: Cpu,          color: "text-emerald-500", label: "PCB" };
     if (filename.endsWith(".kicad_pro")) return { Icon: Settings,     color: "text-violet-500",  label: "Project" };
     if (filename.endsWith(".kicad_sym") || filename.endsWith(".kicad_mod")) {
         return { Icon: FileCode, color: "text-cyan-500", label: "Library" };
+    }
+    if (filename.toLowerCase().endsWith(".pdf")) {
+        return { Icon: FileText, color: "text-red-400", label: "PDF" };
     }
     return { Icon: FileText, color: "text-muted-foreground", label: "" };
 }
@@ -343,13 +347,15 @@ interface CommitItemProps {
         in `tab`. `filename` pins the viewer to the exact .kicad_sch/.kicad_pcb
         the change came from so it doesn't have to guess from the uuid. */
     onOpenItemDiff?: (tab: DiffTab, itemId?: string, filename?: string) => void;
+    /** Open the PDF viewer for a file at this commit. */
+    onOpenPdf?: (commitHash: string, path: string, filename: string) => void;
     /** Position in the commit list — used to draw the timeline. */
     isFirst?: boolean;
     isLast?: boolean;
 }
 
 function CommitItem({
-    commit, projectId, onViewCommit, isSelected, onSelect, selectable, onOpenItemDiff,
+    commit, projectId, onViewCommit, isSelected, onSelect, selectable, onOpenItemDiff, onOpenPdf,
     isFirst, isLast,
 }: CommitItemProps) {
     const [copied, setCopied] = useState(false);
@@ -498,7 +504,8 @@ function CommitItem({
                         const fileTab: DiffTab | null =
                             file.filename.endsWith(".kicad_sch") ? "schematic" :
                             file.filename.endsWith(".kicad_pcb") ? "pcb" : null;
-                        const fileClickable = !!fileTab && !!onOpenItemDiff;
+                        const isPdf = file.filename.toLowerCase().endsWith(".pdf");
+                        const fileClickable = (!!fileTab && !!onOpenItemDiff) || (isPdf && !!onOpenPdf && file.status !== "removed");
                         const headerNode = (
                             <div className="flex items-center gap-2 text-xs">
                                 <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
@@ -521,14 +528,18 @@ function CommitItem({
                                 )}
                             </div>
                         );
+                        const handleFileClick = isPdf
+                            ? () => onOpenPdf!(commit.full_hash, file.path, file.filename)
+                            : () => onOpenItemDiff!(fileTab!, itemDiff ? firstDiffItemId(itemDiff) : undefined, file.filename);
+
                         return (
                             <div key={file.path} className="space-y-0.5">
                                 {fileClickable ? (
                                     <button
                                         type="button"
-                                        onClick={() => onOpenItemDiff!(fileTab!, itemDiff ? firstDiffItemId(itemDiff) : undefined, file.filename)}
+                                        onClick={handleFileClick}
                                         className="w-full text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors"
-                                        title="Open diff viewer for this file"
+                                        title={isPdf ? "View PDF" : "Open diff viewer for this file"}
                                     >
                                         {headerNode}
                                     </button>
@@ -710,6 +721,18 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
         focusFilename?: string;
     } | null>(null);
 
+    // PDF viewer: open a PDF file from a specific commit
+    const [pdfViewer, setPdfViewer] = useState<{
+        url: string;
+        downloadUrl: string;
+        filename: string;
+    } | null>(null);
+
+    const handleOpenPdf = useCallback((commitHash: string, path: string, filename: string) => {
+        const url = `/api/projects/${projectId}/commits/${commitHash}/file?path=${encodeURIComponent(path)}`;
+        setPdfViewer({ url, downloadUrl: url, filename });
+    }, [projectId]);
+
     // Filter commits to find selected ones and determining newer/older
     const diffPair = useMemo(() => {
         if (selectedCommits.length !== 2) return null;
@@ -874,6 +897,16 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                 </div>
             )}
 
+            {/* PDF viewer overlay */}
+            {pdfViewer && (
+                <PdfViewer
+                    url={pdfViewer.url}
+                    downloadUrl={pdfViewer.downloadUrl}
+                    filename={pdfViewer.filename}
+                    onClose={() => setPdfViewer(null)}
+                />
+            )}
+
             {/* Tabbed diff modal — two-commit comparison */}
             {showDiff && diffPair && (
                 <CommitDiffModal
@@ -991,6 +1024,7 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                                         focusFilename: filename,
                                     });
                                 }}
+                                onOpenPdf={handleOpenPdf}
                             />
                         ))}
                     </div>
