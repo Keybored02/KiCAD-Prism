@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { Cpu, Box, FileText, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, RefreshCw } from "lucide-react";
+import { Cpu, Box, FileText, List, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, RefreshCw } from "lucide-react";
+import { BomDiffViewer } from "./bom-diff-viewer";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -155,7 +156,7 @@ function CommitDiffOverlay({ markers, viewerRef }: {
     );
 }
 
-type VisualizerTab = "sch" | "pcb" | "3d" | "ibom";
+type VisualizerTab = "sch" | "pcb" | "3d" | "ibom" | "bom";
 
 interface CommentsSourceUrls {
     project_id: string;
@@ -266,6 +267,9 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         SCH: 0,
         PCB: 0,
     });
+    const crossProbeSeqRef = useRef(0);
+    const [bomCrossProbeTarget, setBomCrossProbeTarget] = useState<{ ref: string; seq: number } | undefined>();
+
     const activeCommentContext: CommentContext | null = activeTab === "sch" ? "SCH" : activeTab === "pcb" ? "PCB" : null;
 
     const applyCommentModeToViewer = useCallback((viewer: ECadViewerElement | null, enabled: boolean) => {
@@ -708,6 +712,8 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         clearCrossProbeRetry("SCH");
         clearCrossProbeRetry("PCB");
         crossProbeRunIdRef.current = { SCH: 0, PCB: 0 };
+        crossProbeSeqRef.current = 0;
+        setBomCrossProbeTarget(undefined);
     }, [projectId, clearCrossProbeRetry]);
 
     useEffect(() => {
@@ -823,6 +829,9 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             if (!designator) return;
             lastCrossProbeRef.current[sourceContext] = designator;
             runCrossProbe(targetViewer, sourceContext, designator);
+            // Also update BOM highlight
+            crossProbeSeqRef.current += 1;
+            setBomCrossProbeTarget({ ref: designator, seq: crossProbeSeqRef.current });
         };
 
         const onSchematicSelect = (event: Event) =>
@@ -846,6 +855,14 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             runCrossProbe(schematicViewerRef.current, "PCB", lastCrossProbeRef.current.PCB);
         }
     }, [activeTab, runCrossProbe, schematicViewerElement, pcbViewerElement]);
+
+    // When a BOM row is clicked, cross-probe both SCH and PCB viewers and track for tab-switch
+    const handleBomCrossProbe = useCallback((designator: string) => {
+        lastCrossProbeRef.current.SCH = designator;
+        lastCrossProbeRef.current.PCB = designator;
+        runCrossProbe(schematicViewerRef.current, "PCB", designator);
+        runCrossProbe(pcbViewerRef.current, "SCH", designator);
+    }, [runCrossProbe]);
 
     // Submit Comment
     const handleSubmitComment = async (content: string) => {
@@ -1051,6 +1068,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         { id: "sch", label: "Schematic", icon: Cpu },
         { id: "pcb", label: "PCB Layout", icon: CircuitBoard },
         { id: "3d", label: "3D View", icon: Box },
+        { id: "bom", label: "BOM", icon: List },
         { id: "ibom", label: "iBoM", icon: FileText },
     ];
 
@@ -1349,6 +1367,16 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                         )}
                     </div>
                 )}
+
+                {/* BOM View — always mounted, hidden when not active */}
+                <div className="absolute inset-0 z-20" style={{ display: activeTab === "bom" ? undefined : "none" }}>
+                    <BomDiffViewer
+                        projectId={projectId}
+                        snapshot
+                        onCrossProbe={handleBomCrossProbe}
+                        crossProbeTarget={bomCrossProbeTarget}
+                    />
+                </div>
 
                 {/* iBoM View */}
                 {activeTab === "ibom" && (

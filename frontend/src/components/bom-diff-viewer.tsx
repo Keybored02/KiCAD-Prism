@@ -57,9 +57,16 @@ interface BomDiffData {
 
 export interface BomDiffViewerProps {
     projectId: string;
-    commit1: string;
-    commit2: string;
+    /** Required unless snapshot=true. */
+    commit1?: string;
+    /** Required unless snapshot=true. */
+    commit2?: string;
     singleCommit?: boolean;
+    /**
+     * Plain BOM view (no diff): fetches HEAD snapshot, hides all diff UI
+     * (kind badge, row colours, stats bar, change cells, "show unchanged" toggle).
+     */
+    snapshot?: boolean;
     onCrossProbe?: (reference: string) => void;
     /** Carries a seq number so re-delivering the same ref still triggers the effect. */
     crossProbeTarget?: { ref: string; seq: number };
@@ -285,7 +292,7 @@ function triggerDownload(blob: Blob, filename: string) {
 // ---------------------------------------------------------------------------
 
 export function BomDiffViewer({
-    projectId, commit1, commit2, singleCommit, onCrossProbe, crossProbeTarget,
+    projectId, commit1, commit2, singleCommit, snapshot, onCrossProbe, crossProbeTarget,
 }: BomDiffViewerProps) {
     useEffect(() => { ensureScrollStyle(); }, []);
 
@@ -312,12 +319,18 @@ export function BomDiffViewer({
         }
     }, [selected]);
 
-    // Fetch BOM diff
+    // Fetch BOM
     useEffect(() => {
         setLoading(true);
         setError(null);
-        const params = new URLSearchParams({ commit1, commit2 });
-        if (singleCommit) params.set("single", "1");
+        const params = new URLSearchParams();
+        if (snapshot) {
+            params.set("snapshot", "1");
+        } else {
+            if (commit1) params.set("commit1", commit1);
+            if (commit2) params.set("commit2", commit2);
+            if (singleCommit) params.set("single", "1");
+        }
         fetchJson<BomDiffData>(
             `/api/projects/${projectId}/bom-diff?${params}`,
             {},
@@ -325,7 +338,7 @@ export function BomDiffViewer({
         )
             .then(d => { setData(d); setLoading(false); })
             .catch(e => { setError(String(e)); setLoading(false); });
-    }, [projectId, commit1, commit2, singleCommit]);
+    }, [projectId, commit1, commit2, singleCommit, snapshot]);
 
     const handleSort = useCallback((col: SortKey) => {
         if (col === sortKey) {
@@ -392,8 +405,13 @@ export function BomDiffViewer({
     if (filteredRows.length === 0 && !filter) {
         return (
             <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
-                <p className="text-sm font-medium">No BOM changes in this {singleCommit ? "commit" : "diff"}</p>
-                <p className="text-xs opacity-60">All parts are unchanged</p>
+                {snapshot
+                    ? <p className="text-sm font-medium">No components found</p>
+                    : <>
+                        <p className="text-sm font-medium">No BOM changes in this {singleCommit ? "commit" : "diff"}</p>
+                        <p className="text-xs opacity-60">All parts are unchanged</p>
+                      </>
+                }
             </div>
         );
     }
@@ -413,7 +431,7 @@ export function BomDiffViewer({
                     />
                 </div>
 
-                {stats && (stats.added > 0 || stats.removed > 0 || stats.changed > 0) && (
+                {!snapshot && stats && (stats.added > 0 || stats.removed > 0 || stats.changed > 0) && (
                     <div className="flex items-center gap-2 text-[11px] font-mono">
                         {stats.added   > 0 && <span className="text-emerald-500">+{stats.added}</span>}
                         {stats.removed > 0 && <span className="text-red-500">−{stats.removed}</span>}
@@ -423,7 +441,7 @@ export function BomDiffViewer({
 
                 <div className="flex-1" />
 
-                {hasUnchanged && (
+                {!snapshot && hasUnchanged && (
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
                         <input
                             type="checkbox"
@@ -463,7 +481,7 @@ export function BomDiffViewer({
                 <table className="w-full text-xs border-collapse">
                     <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b">
                         <tr>
-                            <th className="w-6 pl-4 pr-1 py-2" />
+                            {!snapshot && <th className="w-6 pl-4 pr-1 py-2" />}
                             <SortTh label="Reference(s)" col="references" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="min-w-[7rem]" />
                             <SortTh label="Qty"          col="qty"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-12" />
                             <SortTh label="Value"        col="value"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="min-w-[6rem]" />
@@ -484,22 +502,31 @@ export function BomDiffViewer({
                                     key={i}
                                     ref={isSelected ? selectedRowRef : undefined}
                                     onClick={() => handleRowClick(row)}
-                                    style={KIND_ROW_STYLE[row.kind]}
-                                    className={`cursor-pointer transition-colors border-b border-border/20 ${KIND_ROW_HOVER[row.kind]} ${isSelected ? "outline outline-1 outline-primary/60" : ""}`}
+                                    style={isSelected
+                                        ? {
+                                            ...(snapshot ? {} : KIND_ROW_STYLE[row.kind]),
+                                            background: "color-mix(in srgb, hsl(var(--primary)) 14%, transparent)",
+                                            boxShadow: "inset 3px 0 0 hsl(var(--primary))",
+                                          }
+                                        : (snapshot ? undefined : KIND_ROW_STYLE[row.kind])
+                                    }
+                                    className={`cursor-pointer transition-colors border-b border-border/20 ${snapshot ? "hover:bg-muted/40" : KIND_ROW_HOVER[row.kind]}`}
                                 >
-                                    {/* Kind badge */}
-                                    <td className={`pl-4 pr-1 py-2 text-center font-mono ${badge.cls}`}>
-                                        {badge.label}
-                                    </td>
+                                    {/* Kind badge — hidden in snapshot mode */}
+                                    {!snapshot && (
+                                        <td className={`pl-4 pr-1 py-2 text-center font-mono ${badge.cls}`}>
+                                            {badge.label}
+                                        </td>
+                                    )}
 
                                     {/* References */}
-                                    <td className="px-3 py-2 font-mono font-medium whitespace-nowrap">
-                                        {row.kind === "removed"
+                                    <td className={`${snapshot ? "pl-4 " : ""}px-3 py-2 font-mono font-medium whitespace-nowrap`}>
+                                        {!snapshot && row.kind === "removed"
                                             ? <span className="line-through text-red-400/80">{row.references.join(" ")}</span>
                                             : <ChangedCell
                                                 value={row.references.join(" ")}
-                                                change={row.changes.references ?? null}
-                                                className={cellHighlight(row, "references")}
+                                                change={snapshot ? null : (row.changes.references ?? null)}
+                                                className={snapshot ? "" : cellHighlight(row, "references")}
                                               />
                                         }
                                     </td>
@@ -513,8 +540,8 @@ export function BomDiffViewer({
                                     <td className="px-3 py-2 max-w-[10rem] truncate">
                                         <ChangedCell
                                             value={row.value}
-                                            change={row.changes.value ?? null}
-                                            className={cellHighlight(row, "value")}
+                                            change={snapshot ? null : (row.changes.value ?? null)}
+                                            className={snapshot ? "" : cellHighlight(row, "value")}
                                         />
                                     </td>
 
@@ -522,11 +549,11 @@ export function BomDiffViewer({
                                     <td className="px-3 py-2 max-w-[13rem] truncate font-mono text-[11px] text-muted-foreground">
                                         <ChangedCell
                                             value={row.footprint.split(":").pop() ?? row.footprint}
-                                            change={row.changes.footprint ? {
+                                            change={snapshot || !row.changes.footprint ? null : {
                                                 old: row.changes.footprint.old?.split(":").pop() ?? row.changes.footprint.old,
                                                 new: row.changes.footprint.new?.split(":").pop() ?? row.changes.footprint.new,
-                                            } : null}
-                                            className={cellHighlight(row, "footprint")}
+                                            }}
+                                            className={snapshot ? "" : cellHighlight(row, "footprint")}
                                         />
                                     </td>
 
@@ -534,8 +561,8 @@ export function BomDiffViewer({
                                     <td className="px-3 py-2 max-w-[9rem] truncate font-mono text-[11px]">
                                         <ChangedCell
                                             value={row.mpn}
-                                            change={row.changes.mpn ?? null}
-                                            className={cellHighlight(row, "mpn")}
+                                            change={snapshot ? null : (row.changes.mpn ?? null)}
+                                            className={snapshot ? "" : cellHighlight(row, "mpn")}
                                         />
                                     </td>
 
@@ -543,8 +570,8 @@ export function BomDiffViewer({
                                     <td className="px-3 py-2 max-w-[9rem] truncate">
                                         <ChangedCell
                                             value={row.manufacturer}
-                                            change={row.changes.manufacturer ?? null}
-                                            className={cellHighlight(row, "manufacturer")}
+                                            change={snapshot ? null : (row.changes.manufacturer ?? null)}
+                                            className={snapshot ? "" : cellHighlight(row, "manufacturer")}
                                         />
                                     </td>
 
@@ -552,14 +579,14 @@ export function BomDiffViewer({
                                     <td className="px-3 py-2 max-w-[14rem] truncate text-muted-foreground">
                                         <ChangedCell
                                             value={row.description}
-                                            change={row.changes.description ?? null}
-                                            className={cellHighlight(row, "description")}
+                                            change={snapshot ? null : (row.changes.description ?? null)}
+                                            className={snapshot ? "" : cellHighlight(row, "description")}
                                         />
                                     </td>
 
                                     {/* Datasheet */}
                                     <td className="px-3 py-2 max-w-[10rem]">
-                                        {row.changes.datasheet
+                                        {!snapshot && row.changes.datasheet
                                             ? <ChangedCell value={row.datasheet} change={row.changes.datasheet} />
                                             : <DatasheetLink url={row.datasheet} />
                                         }
