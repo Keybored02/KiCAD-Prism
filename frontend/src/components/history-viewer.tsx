@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/select";
 import { SchematicDiffViewer } from "./schematic-diff-viewer";
 import { PcbDiffViewer } from "./pcb-diff-viewer";
+import { BomDiffViewer } from "./bom-diff-viewer";
 import { fetchJson } from "@/lib/api";
 import { categorise, CATEGORY_META, type KindedItem } from "@/lib/diff-grouping";
 
@@ -573,9 +574,13 @@ interface CommitDiffModalProps {
 function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, focusItemId, focusFilename, singleCommit }: CommitDiffModalProps) {
     const [tab, setTab] = useState<DiffTab>(initialTab ?? "schematic");
     // Last reference selected in each tab — used to navigate the other tab when switching
-    const lastSelected = useRef<{ schematic?: string; pcb?: string }>({});
-    const [schCrossProbeTarget, setSchCrossProbeTarget] = useState<string | undefined>(undefined);
-    const [pcbCrossProbeTarget, setPcbCrossProbeTarget] = useState<string | undefined>(undefined);
+    const lastSelected = useRef<{ schematic?: string; pcb?: string; bom?: string }>({});
+    // CrossProbe targets carry a seq number so re-delivering the same reference
+    // still triggers the effect in the receiving tab (seq changes even if ref doesn't).
+    const crossProbeSeq = useRef(0);
+    const [schCrossProbeTarget, setSchCrossProbeTarget] = useState<{ ref: string; seq: number } | undefined>(undefined);
+    const [pcbCrossProbeTarget, setPcbCrossProbeTarget] = useState<{ ref: string; seq: number } | undefined>(undefined);
+    const [bomCrossProbeTarget, setBomCrossProbeTarget] = useState<{ ref: string; seq: number } | undefined>(undefined);
 
     const handleSchematicCrossProbe = useCallback((reference: string) => {
         lastSelected.current.schematic = reference;
@@ -585,11 +590,22 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
         lastSelected.current.pcb = reference;
     }, []);
 
+    const handleBomCrossProbe = useCallback((reference: string) => {
+        lastSelected.current.bom = reference;
+    }, []);
+
     const handleTabChange = useCallback((next: DiffTab) => {
-        if (next === "pcb" && lastSelected.current.schematic) {
-            setPcbCrossProbeTarget(lastSelected.current.schematic);
-        } else if (next === "schematic" && lastSelected.current.pcb) {
-            setSchCrossProbeTarget(lastSelected.current.pcb);
+        const last = lastSelected.current;
+        const seq = ++crossProbeSeq.current;
+        if (next === "pcb") {
+            const ref = last.schematic ?? last.bom;
+            if (ref) setPcbCrossProbeTarget({ ref, seq });
+        } else if (next === "schematic") {
+            const ref = last.pcb ?? last.bom;
+            if (ref) setSchCrossProbeTarget({ ref, seq });
+        } else if (next === "bom") {
+            const ref = last.schematic ?? last.pcb;
+            if (ref) setBomCrossProbeTarget({ ref, seq });
         }
         setTab(next);
     }, []);
@@ -638,7 +654,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
                         onClose={onClose}
                         embedded
                         onCrossProbe={handleSchematicCrossProbe}
-                        crossProbeTarget={schCrossProbeTarget}
+                        crossProbeTarget={schCrossProbeTarget?.ref}
                         focusItemId={initialTab === "schematic" ? focusItemId : undefined}
                         focusFilename={initialTab === "schematic" ? focusFilename : undefined}
                         singleCommit={singleCommit}
@@ -652,20 +668,21 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
                         onClose={onClose}
                         embedded
                         onCrossProbe={handlePcbCrossProbe}
-                        crossProbeTarget={pcbCrossProbeTarget}
+                        crossProbeTarget={pcbCrossProbeTarget?.ref}
                         focusItemId={initialTab === "pcb" ? focusItemId : undefined}
                         singleCommit={singleCommit}
                     />
                 </div>
-                {tab === "bom" && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="flex flex-col items-center gap-3 text-center">
-                            <List className="h-10 w-10 text-muted-foreground/40" />
-                            <p className="text-sm font-medium text-muted-foreground">BOM diff coming soon</p>
-                            <p className="text-xs text-muted-foreground/60">Bill of materials comparison will appear here</p>
-                        </div>
-                    </div>
-                )}
+                <div className="absolute inset-0" style={{ display: tab === "bom" ? undefined : "none" }}>
+                    <BomDiffViewer
+                        projectId={projectId}
+                        commit1={commit1}
+                        commit2={commit2}
+                        singleCommit={singleCommit}
+                        onCrossProbe={handleBomCrossProbe}
+                        crossProbeTarget={bomCrossProbeTarget}
+                    />
+                </div>
             </div>
         </div>
     );

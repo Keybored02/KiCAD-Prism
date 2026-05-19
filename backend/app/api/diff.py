@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_viewer
-from app.services import pcb_diff_service, sch_diff_service
+from app.services import bom_service, pcb_diff_service, sch_diff_service
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
@@ -102,5 +102,31 @@ async def get_pcb_diff(
     if result is None:
         raise HTTPException(
             status_code=404, detail="PCB not found for this project/commits"
+        )
+    return result
+
+
+@router.get("/{project_id}/bom-diff")
+async def get_bom_diff(
+    project_id: str,
+    commit1: str,
+    commit2: str = None,
+    single: bool = False,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """
+    Return BOM diff between two commits.
+    If commit2 is omitted, diffs commit1 against its parent.
+    Pass ?single=1 to suppress unchanged rows (used by the single-commit history view).
+    """
+    get_project_for_role_or_404(project_id, user.role)
+    if commit2 is None:
+        commit2 = _resolve_parent_commit(project_id, commit1)
+    result = bom_service.get_bom_diff_response(
+        project_id, commit1, commit2, include_unchanged=not single
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404, detail="No schematic found for this project/commits"
         )
     return result
