@@ -667,6 +667,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
                         commit2={commit2}
                         onClose={onClose}
                         embedded
+                        active={tab === "pcb"}
                         onCrossProbe={handlePcbCrossProbe}
                         crossProbeTarget={pcbCrossProbeTarget?.ref}
                         focusItemId={initialTab === "pcb" ? focusItemId : undefined}

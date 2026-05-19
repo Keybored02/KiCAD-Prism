@@ -14,6 +14,7 @@ import {
     useViewerReadiness,
 } from "@/components/ecad-viewer-shared";
 import { categorise, CATEGORY_META } from "@/lib/diff-grouping";
+import { useCrossProbeRunner } from "@/lib/cross-probe-retry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -835,29 +836,46 @@ export function SchematicDiffViewer({
         return () => container.removeEventListener("kicanvas:select", handler);
     }, []);
 
-    // Navigate to a reference when cross-probed from the PCB diff viewer
+    // Navigate to a reference when cross-probed from the PCB / BOM viewer.
+    //
+    // kicanvas's requestCrossProbe only searches the currently-active sheet, so
+    // for multi-sheet projects we first locate which sheet actually contains
+    // the reference by string-searching each sheet's content. If that sheet
+    // differs from activeSheet, we drive setActiveSheet — the existing rAF
+    // watcher / readiness machinery then re-runs this effect once the viewer's
+    // document.filename catches up, and we fire the probe.
+    const crossProbeRunner = useCrossProbeRunner();
     useEffect(() => {
-        if (!crossProbeTarget) return;
-        const doProbe = () => {
-            const viewer = (showing === "new" ? newViewerRef : oldViewerRef).current;
-            if (!viewer) return false;
-            viewer.setCrossProbeEnabled?.(true);
-            const result = viewer.requestCrossProbe({
-                sourceContext: "PCB",
-                targetContext: "SCH",
-                mode: "select",
-                kind: "designator",
-                value: crossProbeTarget,
-                designator: crossProbeTarget,
-            });
-            return result?.resolved !== false || result.reason !== "target-not-available";
-        };
-        if (!doProbe()) {
-            const t = setTimeout(doProbe, 400);
-            return () => clearTimeout(t);
+        if (!crossProbeTarget || !data) return;
+
+        // Locate the sheet containing this reference. The content strings are
+        // full .kicad_sch s-expressions; a property of name "Reference" with the
+        // target value uniquely identifies a symbol instance on that sheet.
+        // Quote-escape regex meta in the reference (designators are A-Za-z0-9).
+        const refEscaped = crossProbeTarget.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const refRe = new RegExp(`\\(property\\s+"Reference"\\s+"${refEscaped}"`);
+        const containingSheet = data.sheets.find(s => {
+            const content = showing === "new" ? s.new_content : s.old_content;
+            return content ? refRe.test(content) : false;
+        });
+        if (containingSheet && containingSheet.filename !== activeSheet) {
+            setActiveSheet(containingSheet.filename);
+            return; // Re-run once activeSheet propagates and the viewer reloads.
         }
+
+        // Gate on readiness so we don't probe a viewer whose camera isn't live.
+        const sideReady = showing === "new" ? newReady : oldReady;
+        if (!sideReady) return;
+
+        // Verify the visible viewer actually shows the sheet we want before
+        // firing — same precondition the focus flow uses.
+        const host = (showing === "new" ? newViewerRef : oldViewerRef).current;
+        const innerDoc = host ? (getSchEl(host)?.viewer as (InnerViewer & { document?: { filename?: string } }) | undefined) : undefined;
+        if (containingSheet && innerDoc?.document?.filename !== containingSheet.filename) return;
+
+        crossProbeRunner.run(host, "PCB", "SCH", crossProbeTarget);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [crossProbeTarget]);
+    }, [crossProbeTarget, data, activeSheet, newReady, oldReady, showing, sheetLoadTick]);
 
     return (
         <div className={embedded ? "h-full bg-background flex flex-col" : "fixed inset-0 z-50 bg-background flex flex-col"}>

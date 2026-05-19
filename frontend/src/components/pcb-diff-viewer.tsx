@@ -15,6 +15,7 @@ import {
     useViewerReadiness,
 } from "@/components/ecad-viewer-shared";
 import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
+import { useCrossProbeRunner } from "@/lib/cross-probe-retry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,6 +125,10 @@ interface PcbDiffViewerProps {
     /** When true, hide the OLD/NEW toggle and always show the new board.
      *  Used when opening a single commit's changes (vs. a manual two-commit compare). */
     singleCommit?: boolean;
+    /** True when this viewer's tab is the currently visible one. Used to gate
+     *  cross-probe firing on visibility — probes that fire while display:none
+     *  zoom against a 0×0 canvas. Defaults to true for standalone usage. */
+    active?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -659,6 +664,7 @@ export function PcbDiffViewer({
     crossProbeTarget,
     focusItemId,
     singleCommit = false,
+    active = true,
 }: PcbDiffViewerProps) {
     const [data, setData] = useState<PcbDiffData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -1017,29 +1023,20 @@ export function PcbDiffViewer({
         return () => container.removeEventListener("kicanvas:select", handler);
     }, []);
 
-    // Navigate to a reference when cross-probed from the schematic diff viewer
+    // Navigate to a reference when cross-probed from the schematic / BOM viewer.
+    // Gated on (a) the tab being active (canvas visible & sized) and
+    // (b) the side-of-interest being ready (camera + GL context live).
+    // The shared runner retries up to ~1.4s, cancelling stale retries when
+    // a newer probe arrives.
+    const crossProbeRunner = useCrossProbeRunner();
     useEffect(() => {
-        if (!crossProbeTarget) return;
-        const doProbe = () => {
-            const viewer = (showing === "new" ? newViewerRef : oldViewerRef).current;
-            if (!viewer) return false;
-            viewer.setCrossProbeEnabled?.(true);
-            const result = viewer.requestCrossProbe({
-                sourceContext: "SCH",
-                targetContext: "PCB",
-                mode: "select",
-                kind: "designator",
-                value: crossProbeTarget,
-                designator: crossProbeTarget,
-            });
-            return result?.resolved !== false || result.reason !== "target-not-available";
-        };
-        if (!doProbe()) {
-            const t = setTimeout(doProbe, 400);
-            return () => clearTimeout(t);
-        }
+        if (!crossProbeTarget || !active) return;
+        const sideReady = showing === "new" ? newReady : oldReady;
+        if (!sideReady) return;
+        const viewer = (showing === "new" ? newViewerRef : oldViewerRef).current;
+        crossProbeRunner.run(viewer, "SCH", "PCB", crossProbeTarget);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [crossProbeTarget]);
+    }, [crossProbeTarget, active, newReady, oldReady, showing]);
 
     return (
         <div className={embedded ? "h-full bg-background flex flex-col" : "fixed inset-0 z-50 bg-background flex flex-col"}>
