@@ -1,4 +1,4 @@
-import { X, Download, ExternalLink } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface PdfViewerProps {
@@ -8,7 +8,7 @@ interface PdfViewerProps {
     onClose: () => void;
 }
 
-export function PdfViewer({ url, filename, downloadUrl, onClose }: PdfViewerProps) {
+export function PdfViewer({ url, filename, onClose }: PdfViewerProps) {
     return (
         <div
             className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur"
@@ -19,25 +19,6 @@ export function PdfViewer({ url, filename, downloadUrl, onClose }: PdfViewerProp
             {/* Header */}
             <div className="flex items-center gap-3 px-4 py-2.5 border-b bg-background shrink-0">
                 <span className="flex-1 text-sm font-medium truncate text-foreground">{filename}</span>
-                <a
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open in new tab"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Open tab
-                </a>
-                <a
-                    href={downloadUrl}
-                    download
-                    title="Download"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                >
-                    <Download className="h-3.5 w-3.5" />
-                    Download
-                </a>
                 <Button
                     variant="ghost"
                     size="sm"
