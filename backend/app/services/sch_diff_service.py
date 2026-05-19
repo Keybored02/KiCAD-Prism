@@ -231,7 +231,13 @@ def _extract_sheets(tree: list) -> dict:
 
 
 def _extract_wires(tree: list) -> dict:
-    """Extract wires, buses, bus_entries, junctions, no_connects by geometry hash."""
+    """Extract wires, buses, bus_entries, junctions, no_connects.
+
+    KiCad v6+ tags these with their own UUIDs, so we prefer the UUID as the
+    identity key — that makes a moved wire show up as a `changed` entry rather
+    than a paired `added`+`removed`. We fall back to a geometry hash only for
+    items missing a UUID (old files, hand-edited content).
+    """
     result = {}
     # Two-point elements: wire, bus, bus_entry
     for kind in ("wire", "bus", "bus_entry"):
@@ -249,15 +255,16 @@ def _extract_wires(tree: list) -> dict:
                         pass
             if len(coords) < 2:
                 continue
-            # Normalise direction
+            # Normalise direction so the geometry hash is stable, but only as
+            # a fallback identity when the wire has no UUID.
             if coords[0] > coords[1]:
                 coords[0], coords[1] = coords[1], coords[0]
             sx, sy = coords[0]
             ex, ey = coords[1]
-            geo_key = f"{kind}:{sx:.4f},{sy:.4f}-{ex:.4f},{ey:.4f}"
-            result[geo_key] = {
+            uid = _uuid(item) or f"{kind}:{sx:.4f},{sy:.4f}-{ex:.4f},{ey:.4f}"
+            result[uid] = {
                 "type": kind,
-                "uuid": geo_key,
+                "uuid": uid,
                 "x": (sx + ex) / 2,
                 "y": (sy + ey) / 2,
                 "start_x": sx,
@@ -270,10 +277,10 @@ def _extract_wires(tree: list) -> dict:
     for kind in ("junction", "no_connect"):
         for item in _get_all(tree, kind):
             x, y = _at(item)
-            geo_key = f"{kind}:{x:.4f},{y:.4f}"
-            result[geo_key] = {
+            uid = _uuid(item) or f"{kind}:{x:.4f},{y:.4f}"
+            result[uid] = {
                 "type": kind,
-                "uuid": geo_key,
+                "uuid": uid,
                 "x": x,
                 "y": y,
                 "net": "",
@@ -362,13 +369,84 @@ def diff_schematics(old_content: str, new_content: str) -> dict:
     for uid in old_uuids & new_uuids:
         changes = _item_changes(old_items[uid], new_items[uid])
         if changes:
-            changed.append({"item": new_items[uid], "changes": changes})
+            changed.append(
+                {"item": new_items[uid], "old_item": old_items[uid], "changes": changes}
+            )
+
+    # Pair moved wires/buses/bus_entries: items in `added`+`removed` of the
+    # same kind that share an endpoint are treated as `changed` (a single
+    # moved segment) rather than two separate add/remove markers.
+    added, removed, moved = _pair_moved_segments(added, removed)
+    changed.extend(moved)
 
     return {
         "added": added,
         "removed": removed,
         "changed": changed,
     }
+
+
+_SEGMENT_KINDS = {"wire", "bus", "bus_entry"}
+
+
+def _pair_moved_segments(added: list, removed: list) -> tuple:
+    """
+    Match segments in `removed` to segments in `added` that share an endpoint
+    (same x/y within tolerance). Matched pairs are converted to `changed`
+    entries so the diff overlay can show old geometry in the old view and
+    new geometry in the new view, instead of rendering both as separate
+    add/remove markers in both views.
+    """
+    EPS = 0.01  # mm — endpoint snap tolerance
+
+    def endpoints(it: dict) -> tuple:
+        return (
+            (it.get("start_x"), it.get("start_y")),
+            (it.get("end_x"), it.get("end_y")),
+        )
+
+    def share_endpoint(a: dict, b: dict) -> bool:
+        for ax, ay in endpoints(a):
+            if ax is None:
+                continue
+            for bx, by in endpoints(b):
+                if bx is None:
+                    continue
+                if abs(ax - bx) < EPS and abs(ay - by) < EPS:
+                    return True
+        return False
+
+    rem_segs = [i for i, it in enumerate(removed) if it.get("type") in _SEGMENT_KINDS]
+    add_segs = [i for i, it in enumerate(added) if it.get("type") in _SEGMENT_KINDS]
+
+    used_added: set = set()
+    used_removed: set = set()
+    moved: list = []
+
+    for ri in rem_segs:
+        if ri in used_removed:
+            continue
+        r_item = removed[ri]
+        for ai in add_segs:
+            if ai in used_added:
+                continue
+            a_item = added[ai]
+            if a_item.get("type") != r_item.get("type"):
+                continue
+            if not share_endpoint(r_item, a_item):
+                continue
+            changes = {}
+            for k in ("start_x", "start_y", "end_x", "end_y"):
+                if r_item.get(k) != a_item.get(k):
+                    changes[k] = {"old": r_item.get(k), "new": a_item.get(k)}
+            moved.append({"item": a_item, "old_item": r_item, "changes": changes})
+            used_added.add(ai)
+            used_removed.add(ri)
+            break
+
+    new_added = [it for i, it in enumerate(added) if i not in used_added]
+    new_removed = [it for i, it in enumerate(removed) if i not in used_removed]
+    return new_added, new_removed, moved
 
 
 # ---------------------------------------------------------------------------

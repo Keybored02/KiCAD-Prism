@@ -65,7 +65,8 @@ interface FieldChange {
 }
 
 interface ChangedItem {
-    item: PcbItem;
+    item: PcbItem;      // new version
+    old_item: PcbItem; // old version
     changes: Record<string, FieldChange>;
 }
 
@@ -90,7 +91,8 @@ interface PcbDiffData {
 
 interface DiffMarker {
     kind: "added" | "removed" | "changed";
-    item: PcbItem;
+    item: PcbItem;      // new version (or only version for added/removed)
+    old_item?: PcbItem; // old version (only for changed)
     changes?: Record<string, FieldChange>;
 }
 
@@ -103,13 +105,19 @@ interface GroupedMarker {
     kind: "added" | "removed" | "changed";
     label: string;
     members: DiffMarker[];
-    // merged world-space bbox for overlay
+    // merged world-space bbox for the new (or only) version
     bboxMinX: number;
     bboxMinY: number;
     bboxMaxX: number;
     bboxMaxY: number;
+    // bbox for the old version of changed items (undefined for added/removed)
+    oldBboxMinX?: number;
+    oldBboxMinY?: number;
+    oldBboxMaxX?: number;
+    oldBboxMaxY?: number;
     // zone polygon in world coords (only set for zone groups)
     polygonPoints?: [number, number][];
+    oldPolygonPoints?: [number, number][];
 }
 
 interface PcbDiffViewerProps {
@@ -285,16 +293,21 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
     let gid = 0;
     const nextId = () => `g${gid++}`;
 
+    // Helper: wrap old_item as a fake marker for bbox computation
+    const oldMarker = (m: DiffMarker): DiffMarker => ({ ...m, item: m.old_item! });
+
     // ── Components (footprints) — one group per UUID, keep kind as-is ──
     for (const m of raw) {
         if (m.item.type !== "footprint") continue;
         const { minX, minY, maxX, maxY } = _bboxFromMembers([m]);
         const ref = m.item.reference || m.item.lib_id || "?";
         const val = m.item.value ? ` (${m.item.value})` : "";
+        const oldBbox = m.kind === "changed" && m.old_item ? _bboxFromMembers([oldMarker(m)]) : null;
         result.push({
             id: nextId(), category: "components", kind: m.kind,
             label: `${ref}${val}`,
             members: [m], bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
+            ...(oldBbox && { oldBboxMinX: oldBbox.minX, oldBboxMinY: oldBbox.minY, oldBboxMaxX: oldBbox.maxX, oldBboxMaxY: oldBbox.maxY }),
         });
     }
 
@@ -317,10 +330,13 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
         if (trackCount) parts.push(`${trackCount} wire${trackCount > 1 ? "s" : ""}`);
         if (viaCount)   parts.push(`${viaCount} via${viaCount > 1 ? "s" : ""}`);
         const label = parts.length > 0 ? `${netLabel} — ${parts.join(", ")}` : netLabel;
+        const oldMembers = members.filter(m => m.kind === "changed" && m.old_item).map(oldMarker);
+        const oldBbox = oldMembers.length > 0 ? _bboxFromMembers(oldMembers) : null;
         result.push({
             id: nextId(), category: "nets", kind,
             label,
             members, bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
+            ...(oldBbox && { oldBboxMinX: oldBbox.minX, oldBboxMinY: oldBbox.minY, oldBboxMaxX: oldBbox.maxX, oldBboxMaxY: oldBbox.maxY }),
         });
     }
 
@@ -328,6 +344,7 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
     for (const m of raw) {
         if (m.item.type !== "zone") continue;
         const pts = m.item.polygon_points;
+        const oldPts = m.kind === "changed" && m.old_item ? (m.old_item.polygon_points ?? undefined) : undefined;
         let minX: number, minY: number, maxX: number, maxY: number;
         if (pts && pts.length > 0) {
             minX = Math.min(...pts.map(p => p[0]));
@@ -337,6 +354,16 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
         } else {
             ({ minX, minY, maxX, maxY } = _bboxFromMembers([m]));
         }
+        let oldMinX: number | undefined, oldMinY: number | undefined, oldMaxX: number | undefined, oldMaxY: number | undefined;
+        if (oldPts && oldPts.length > 0) {
+            oldMinX = Math.min(...oldPts.map(p => p[0]));
+            oldMinY = Math.min(...oldPts.map(p => p[1]));
+            oldMaxX = Math.max(...oldPts.map(p => p[0]));
+            oldMaxY = Math.max(...oldPts.map(p => p[1]));
+        } else if (m.kind === "changed" && m.old_item) {
+            const ob = _bboxFromMembers([oldMarker(m)]);
+            oldMinX = ob.minX; oldMinY = ob.minY; oldMaxX = ob.maxX; oldMaxY = ob.maxY;
+        }
         const label = m.item.net_name && m.item.layer
             ? `${m.item.net_name} (${m.item.layer})`
             : m.item.net_name || m.item.name || "Zone";
@@ -345,6 +372,8 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
             label, members: [m],
             bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
             polygonPoints: pts && pts.length > 0 ? pts : undefined,
+            ...(oldMinX !== undefined && { oldBboxMinX: oldMinX, oldBboxMinY: oldMinY, oldBboxMaxX: oldMaxX, oldBboxMaxY: oldMaxY }),
+            ...(oldPts && oldPts.length > 0 && { oldPolygonPoints: oldPts }),
         });
     }
 
@@ -380,13 +409,14 @@ interface OverlayProps {
     getBoardEl: (host: ECadViewerElement) => BoardEl | null;
     onGroupClick: (group: GroupedMarker) => void;
     activeId: string | null;
+    showing: "new" | "old";
     kickRef?: React.MutableRefObject<((frames?: number) => void) | null>;
 }
 
 // Per-kind stripe rotation so stacked changes remain distinguishable.
 const stripeRotation = { added: 90, removed: -45, changed: 45 } as const;
 
-function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick, activeId, kickRef }: OverlayProps) {
+function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick, activeId, showing, kickRef }: OverlayProps) {
     const boxRefs  = useRef<Map<string, HTMLDivElement>>(new Map());
     const polyRefs = useRef<Map<string, SVGPolygonElement>>(new Map());
     const patternRefs = useRef<Map<string, SVGPatternElement>>(new Map());
@@ -443,10 +473,16 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
             let anyVisible = false;
             const SCREEN_PAD = 4;
             for (const g of groups) {
-                if (g.polygonPoints) {
+                // For changed groups, pick geometry for the currently-shown version.
+                const useOld = showing === "old" && g.kind === "changed";
+                const activePoly = useOld ? (g.oldPolygonPoints ?? g.polygonPoints) : g.polygonPoints;
+                const activeBbox = useOld
+                    ? { minX: g.oldBboxMinX ?? g.bboxMinX, minY: g.oldBboxMinY ?? g.bboxMinY, maxX: g.oldBboxMaxX ?? g.bboxMaxX, maxY: g.oldBboxMaxY ?? g.bboxMaxY }
+                    : { minX: g.bboxMinX, minY: g.bboxMinY, maxX: g.bboxMaxX, maxY: g.bboxMaxY };
+                if (activePoly) {
                     const poly = polyRefs.current.get(g.id);
                     if (!poly) continue;
-                    const pts = g.polygonPoints.map(([wx, wy]) => {
+                    const pts = activePoly.map(([wx, wy]) => {
                         const s = toContainerPt(wx, wy);
                         return `${s.x},${s.y}`;
                     });
@@ -457,8 +493,8 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                     // is set declaratively on the JSX; we rebuild the full transform
                     // here to combine translate + rotate.
                     const pat = patternRefs.current.get(g.id);
-                    if (pat && g.polygonPoints.length > 0) {
-                        const p0 = toContainerPt(g.polygonPoints[0][0], g.polygonPoints[0][1]);
+                    if (pat && activePoly && activePoly.length > 0) {
+                        const p0 = toContainerPt(activePoly[0][0], activePoly[0][1]);
                         const rot = stripeRotation[g.kind];
                         pat.setAttribute("patternTransform", `translate(${p0.x} ${p0.y}) rotate(${rot})`);
                     }
@@ -470,7 +506,11 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                     // (same one used for the hover outline) + a pixel offset.
                     const PAD = 6;
                     let left: number, top: number, w: number, h: number;
-                    const fpRef = g.members[0]?.item.reference ?? g.members[0]?.item.uuid ?? "";
+                    // For changed footprints in old view, look up by old reference
+                    const fpMember = g.members[0];
+                    const fpRef = useOld
+                        ? (fpMember?.old_item?.reference ?? fpMember?.old_item?.uuid ?? fpMember?.item.reference ?? "")
+                        : (fpMember?.item.reference ?? fpMember?.item.uuid ?? "");
                     const fpBBox = g.category === "components"
                         ? findFootprint?.(fpRef)?.bbox ?? null
                         : null;
@@ -482,8 +522,8 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                         w    = Math.abs(br.x - tl.x) + PAD * 2;
                         h    = Math.abs(br.y - tl.y) + PAD * 2;
                     } else {
-                        const tl = toContainerPt(g.bboxMinX, g.bboxMinY);
-                        const br = toContainerPt(g.bboxMaxX, g.bboxMaxY);
+                        const tl = toContainerPt(activeBbox.minX, activeBbox.minY);
+                        const br = toContainerPt(activeBbox.maxX, activeBbox.maxY);
                         left = Math.min(tl.x, br.x) - SCREEN_PAD;
                         top  = Math.min(tl.y, br.y) - SCREEN_PAD;
                         w    = Math.abs(br.x - tl.x) + SCREEN_PAD * 2;
@@ -504,7 +544,7 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
             }
             return anyVisible || groups.length === 0;
         } catch { return false; }
-    }, [viewerRef, containerRef, getBoardEl, groups]);
+    }, [viewerRef, containerRef, getBoardEl, groups, showing]);
 
     // Stub ref — filled in after updateSvgMembers is defined below. tick calls
     // through this ref so the RAF loop stays stable when svgGroups changes.
@@ -612,7 +652,23 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                     const el      = memberSvgRefs.current.get(key);
                     const baseEl  = memberSvgRefs.current.get(keyBase);
                     if (!el) continue;
-                    const item = g.members[mi].item as PcbItem;
+                    const m = g.members[mi];
+                    // Per-member visibility: a net group can mix `added` + `removed`
+                    // segments (a rerouted trace). Hide members that don't belong to
+                    // the version currently shown so the overlay doesn't render both
+                    // the old and new traces in the same view.
+                    if (m.kind === "added"   && showing === "old") {
+                        el.setAttribute("display", "none");
+                        baseEl?.setAttribute("display", "none");
+                        continue;
+                    }
+                    if (m.kind === "removed" && showing === "new") {
+                        el.setAttribute("display", "none");
+                        baseEl?.setAttribute("display", "none");
+                        continue;
+                    }
+                    // For changed members, show geometry of the currently-shown version.
+                    const item = (m.kind === "changed" && showing === "old" && m.old_item) ? m.old_item : m.item;
 
                     if (item.type === "via") {
                         // Render via as a small rect (bounding box) — circles read poorly.
@@ -680,11 +736,12 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                 }
             }
         } catch { /* viewer transiently unavailable */ }
-    }, [viewerRef, containerRef, svgGroups]);
+    }, [viewerRef, containerRef, svgGroups, showing]);
 
     useEffect(() => { updateSvgMembersRef.current = updateSvgMembers; }, [updateSvgMembers]);
-    // Kick immediately when groups change so elements appear before next interaction
-    useEffect(() => { kick(5); }, [svgGroups, kick]);
+    // Kick immediately when groups or the shown version change so visibility
+    // and geometry update before the next user interaction.
+    useEffect(() => { kick(5); }, [svgGroups, showing, kick]);
 
     return (
         <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
@@ -1041,8 +1098,8 @@ export function PcbDiffViewer({
             rawMarkers.push({ kind: "added", item });
         for (const item of activeBoardData.diff.removed)
             rawMarkers.push({ kind: "removed", item });
-        for (const { item, changes } of activeBoardData.diff.changed)
-            rawMarkers.push({ kind: "changed", item, changes });
+        for (const { item, old_item, changes } of activeBoardData.diff.changed)
+            rawMarkers.push({ kind: "changed", item, old_item, changes });
     }
     const allGroups = groupMarkers(rawMarkers);
 
@@ -1506,6 +1563,7 @@ export function PcbDiffViewer({
                                 getBoardEl={getBoardEl}
                                 onGroupClick={handleGroupClick}
                                 activeId={activeGroup?.id ?? null}
+                                showing={showing}
                                 kickRef={overlayKickRef}
                             />
                             {activeBoardData && (

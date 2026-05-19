@@ -507,7 +507,9 @@ def _match_segments(removed_segs: list, added_segs: list) -> tuple:
             if _segments_share_endpoint(old_seg, new_seg):
                 chg = _item_changes(old_seg, new_seg)
                 if chg:
-                    changed.append({"item": new_seg, "changes": chg})
+                    changed.append(
+                        {"item": new_seg, "old_item": old_seg, "changes": chg}
+                    )
                 used_removed.add(ri)
                 used_added.add(ai)
                 break  # each removed seg matches at most one added seg
@@ -532,7 +534,9 @@ def diff_pcb(old_content: str, new_content: str) -> dict:
     for u in old_uuids & new_uuids:
         chg = _item_changes(old_items[u], new_items[u])
         if chg:
-            changed.append({"item": new_items[u], "changes": chg})
+            changed.append(
+                {"item": new_items[u], "old_item": old_items[u], "changes": chg}
+            )
 
     # Reclassify added/removed segment/arc pairs that share an endpoint as "changed"
     added_segs = [i for i in added_all if i["type"] in ("segment", "arc")]

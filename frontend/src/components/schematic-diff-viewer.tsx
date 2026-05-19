@@ -54,7 +54,8 @@ interface FieldChange {
 }
 
 interface ChangedItem {
-    item: SchItem;
+    item: SchItem;       // new version
+    old_item: SchItem;  // old version
     changes: Record<string, FieldChange>;
 }
 
@@ -79,7 +80,8 @@ interface SchematicDiffData {
 
 interface DiffMarker {
     kind: "added" | "removed" | "changed";
-    item: SchItem;
+    item: SchItem;       // new version (or only version for added/removed)
+    old_item?: SchItem; // old version (only for changed)
     changes?: Record<string, FieldChange>;
 }
 
@@ -158,6 +160,7 @@ interface OverlayProps {
     viewerRef: React.RefObject<ECadViewerElement | null>;
     onMarkerClick: (marker: DiffMarker) => void;
     activeUuid: string | null;
+    showing: "new" | "old";
     kickRef?: React.MutableRefObject<((frames?: number) => void) | null>;
 }
 
@@ -174,7 +177,7 @@ function _boxHalfExtent(type: string): { hw: number; hh: number } {
 // Items rendered as SVG geometry rather than a bounding box
 const WIRE_TYPES = new Set(["wire", "bus", "bus_entry"]);
 
-function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }: OverlayProps) {
+function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, showing, kickRef }: OverlayProps) {
     const boxRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const svgRef  = useRef<SVGSVGElement | null>(null);
     // uuid → colored top line; uuid+":base" → black base line (both share coords)
@@ -211,24 +214,28 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
             const schRenderer = findSchEl(viewer as unknown as Element)?.viewer?.schematic_renderer;
 
             for (const m of markers) {
-                const item = m.item;
-                const isWire = WIRE_TYPES.has(item.type);
+                // For changed items, use the geometry of the version currently shown.
+                // Refs are always keyed by m.item.uuid (the stable render key), so
+                // use that for lookups regardless of which geometry version we read.
+                const geom = (m.kind === "changed" && showing === "old" && m.old_item) ? m.old_item : m.item;
+                const refKey = m.item.uuid;
+                const isWire = WIRE_TYPES.has(geom.type);
 
                 if (isWire) {
                     // Two lines share the same coords: shadow base + colored top
-                    const svgEl  = svgElRefs.current.get(item.uuid);
-                    const baseEl = svgElRefs.current.get(`${item.uuid}:base`);
+                    const svgEl  = svgElRefs.current.get(refKey);
+                    const baseEl = svgElRefs.current.get(`${refKey}:base`);
                     if (!svgEl) continue;
                     const hasStartEnd =
-                        item.start_x != null && item.start_y != null &&
-                        item.end_x   != null && item.end_y   != null;
+                        geom.start_x != null && geom.start_y != null &&
+                        geom.end_x   != null && geom.end_y   != null;
                     if (!hasStartEnd) {
                         svgEl.setAttribute("display", "none");
                         baseEl?.setAttribute("display", "none");
                         continue;
                     }
-                    const p1 = viewer.getScreenLocation(item.start_x!, item.start_y!);
-                    const p2 = viewer.getScreenLocation(item.end_x!,   item.end_y!);
+                    const p1 = viewer.getScreenLocation(geom.start_x!, geom.start_y!);
+                    const p2 = viewer.getScreenLocation(geom.end_x!,   geom.end_y!);
                     if (!p1 || !p2) {
                         svgEl.setAttribute("display", "none");
                         baseEl?.setAttribute("display", "none");
@@ -253,10 +260,11 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
                     }
                 } else {
                     // Div box for symbols, sheets, labels, text
-                    const el = boxRefs.current.get(item.uuid);
+                    const el = boxRefs.current.get(refKey);
                     if (!el) continue;
                     const PAD = 6; // px offset around the kicanvas hover bbox
-                    const realBBox = schRenderer?.get_item_bbox?.(item.uuid);
+                    // Try real bbox using the UUID that exists in the currently-shown viewer
+                    const realBBox = schRenderer?.get_item_bbox?.(geom.uuid);
                     let left: number, top: number, w: number, h: number;
                     if (realBBox) {
                         const tl = viewer.getScreenLocation(realBBox.x, realBBox.y);
@@ -267,9 +275,9 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
                         w    = Math.abs(br.x - tl.x) + PAD * 2;
                         h    = Math.abs(br.y - tl.y) + PAD * 2;
                     } else {
-                        const { hw, hh } = _boxHalfExtent(item.type);
-                        const tl = viewer.getScreenLocation(item.x - hw, item.y - hh);
-                        const br = viewer.getScreenLocation(item.x + hw, item.y + hh);
+                        const { hw, hh } = _boxHalfExtent(geom.type);
+                        const tl = viewer.getScreenLocation(geom.x - hw, geom.y - hh);
+                        const br = viewer.getScreenLocation(geom.x + hw, geom.y + hh);
                         if (!tl || !br) { el.style.display = "none"; continue; }
                         left = Math.min(tl.x, br.x);
                         top  = Math.min(tl.y, br.y);
@@ -291,7 +299,7 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
             }
             return anyVisible || markers.length === 0;
         } catch { return false; }
-    }, [viewerRef, markers]);
+    }, [viewerRef, markers, showing]);
 
     const tick = useCallback(() => {
         const done = updatePositions();
@@ -790,7 +798,7 @@ export function SchematicDiffViewer({
     if (activeSheetData) {
         for (const item of activeSheetData.diff.added)   allMarkers.push({ kind: "added",   item });
         for (const item of activeSheetData.diff.removed)  allMarkers.push({ kind: "removed", item });
-        for (const { item, changes } of activeSheetData.diff.changed) allMarkers.push({ kind: "changed", item, changes });
+        for (const { item, old_item, changes } of activeSheetData.diff.changed) allMarkers.push({ kind: "changed", item, old_item, changes });
     }
 
     // Filtered markers shown on the overlay
@@ -1306,6 +1314,7 @@ export function SchematicDiffViewer({
                                 viewerRef={viewerRef}
                                 onMarkerClick={handleMarkerClick}
                                 activeUuid={activeMarker?.item.uuid ?? null}
+                                showing={showing}
                                 kickRef={overlayKickRef}
                             />
                             {/* Sheet not present in the currently-showing version */}
