@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createIntegratedViewer, renderGerbersZip } from "gerbers-renderer";
+import { createIntegratedViewer, renderGerbersZip, type RenderResult } from "gerbers-renderer";
 // Resolved via vite.config.ts alias — the package exports map doesn't expose this path.
 import "gerbers-renderer/dist/gerbers-renderer.css";
 
@@ -15,6 +15,8 @@ export function GerberViewer({ projectId }: GerberViewerProps) {
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [side, setSide] = useState<Side>("top");
     const viewerRef = useRef<ReturnType<typeof createIntegratedViewer> | null>(null);
+    // Holds render result until the host div has non-zero dimensions
+    const pendingResultRef = useRef<RenderResult | null>(null);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -23,6 +25,7 @@ export function GerberViewer({ projectId }: GerberViewerProps) {
         const load = async () => {
             setStatus("loading");
             setErrorMsg(null);
+            pendingResultRef.current = null;
 
             try {
                 const res = await fetch(`/api/projects/${projectId}/gerbers`, {
@@ -44,22 +47,51 @@ export function GerberViewer({ projectId }: GerberViewerProps) {
                 const result = await renderGerbersZip(blob);
                 if (controller.signal.aborted || disposed) return;
 
-                if (!hostRef.current) return;
+                pendingResultRef.current = result;
 
-                // Dispose previous viewer instance if any
-                viewerRef.current?.dispose();
-                viewerRef.current = null;
+                // Wait until the host div has real layout dimensions before
+                // calling setData/fit — the canvas would be 0×0 if called while hidden.
+                const host = hostRef.current;
+                if (!host) return;
 
-                const viewer = createIntegratedViewer(hostRef.current);
-                viewerRef.current = viewer;
-                viewer.setData({ boardGeom: result.boardGeom, layers: result.layers });
-                viewer.setSideMode("top");
-                // Show the host div first so the canvas has real dimensions,
-                // then call fit() after a rAF so the layout has settled.
-                setStatus("ready");
-                requestAnimationFrame(() => {
-                    if (!disposed) viewer.fit();
+                const tryMount = () => {
+                    if (disposed) return;
+                    const { width, height } = host.getBoundingClientRect();
+                    if (width === 0 || height === 0) return; // observer will retry
+
+                    const pending = pendingResultRef.current;
+                    if (!pending) return;
+                    pendingResultRef.current = null;
+
+                    viewerRef.current?.dispose();
+                    viewerRef.current = null;
+
+                    const viewer = createIntegratedViewer(host);
+                    viewerRef.current = viewer;
+                    viewer.setData({ boardGeom: pending.boardGeom, layers: pending.layers });
+                    viewer.setSideMode("top");
+                    setStatus("ready");
+                    // fit() needs one more frame for the canvas resize inside setData to settle
+                    requestAnimationFrame(() => { if (!disposed) viewer.fit(); });
+                };
+
+                // Try immediately, then observe for when the tab becomes visible
+                tryMount();
+                const ro = new ResizeObserver(() => {
+                    if (pendingResultRef.current) tryMount();
                 });
+                ro.observe(host);
+                // Clean up observer once mounted or on abort
+                const cleanup = () => ro.disconnect();
+                controller.signal.addEventListener("abort", cleanup);
+                // Also clean up when pendingResult is consumed (mounted successfully)
+                const checkDone = setInterval(() => {
+                    if (!pendingResultRef.current || disposed) {
+                        clearInterval(checkDone);
+                        ro.disconnect();
+                    }
+                }, 200);
+
             } catch (err: unknown) {
                 if (controller.signal.aborted || disposed) return;
                 const msg = err instanceof Error ? err.message : String(err);
@@ -73,6 +105,7 @@ export function GerberViewer({ projectId }: GerberViewerProps) {
         return () => {
             disposed = true;
             controller.abort();
+            pendingResultRef.current = null;
             viewerRef.current?.dispose();
             viewerRef.current = null;
         };
@@ -117,7 +150,7 @@ export function GerberViewer({ projectId }: GerberViewerProps) {
                         {errorMsg && <span className="text-xs text-muted-foreground">{errorMsg}</span>}
                     </div>
                 )}
-                {/* Viewer host — always in the DOM so it has layout when fit() is called */}
+                {/* Viewer host — always in DOM with real layout so ResizeObserver fires */}
                 <div ref={hostRef} className="absolute inset-0" />
             </div>
         </div>
