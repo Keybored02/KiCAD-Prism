@@ -89,8 +89,8 @@ function sortRows(rows: BomRow[], key: SortKey, dir: SortDir): BomRow[] {
             const [pb, nb] = refSortKey(b.references[0] ?? "");
             cmp = pa < pb ? -1 : pa > pb ? 1 : na - nb;
         } else {
-            const av = (a as Record<string, unknown>)[key] as string ?? "";
-            const bv = (b as Record<string, unknown>)[key] as string ?? "";
+            const av = (a as unknown as Record<string, unknown>)[key] as string ?? "";
+            const bv = (b as unknown as Record<string, unknown>)[key] as string ?? "";
             cmp = av < bv ? -1 : av > bv ? 1 : 0;
         }
         return cmp * mul;
@@ -244,28 +244,31 @@ function exportCsv(rows: BomRow[], commit1: string) {
 }
 
 async function exportXlsx(rows: BomRow[], commit1: string) {
-    const XLSX = await import("xlsx");
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("BOM");
 
     const headers = ["Kind", "References", "Qty", "Value", "Footprint", "MPN", "Manufacturer", "Description", "Datasheet", "DNP"];
-    const data = rows.map(r => [
-        r.kind, r.references.join(" "), r.qty, r.value, r.footprint,
-        r.mpn, r.manufacturer, r.description, r.datasheet, r.dnp ? "DNP" : "",
-    ]);
+    const colWidths = [8, 20, 5, 14, 22, 14, 16, 28, 32, 5];
 
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+    ws.columns = headers.map((header, i) => ({ header, key: header, width: colWidths[i] }));
 
-    // Column widths
-    ws["!cols"] = [8, 20, 5, 14, 22, 14, 16, 28, 32, 5].map(w => ({ wch: w }));
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.commit();
 
-    // Style header row bold — basic header fill
-    for (let c = 0; c < headers.length; c++) {
-        const cell = ws[XLSX.utils.encode_cell({ r: 0, c })];
-        if (cell) cell.s = { font: { bold: true }, fill: { fgColor: { rgb: "1E293B" } } };
+    for (const r of rows) {
+        ws.addRow([
+            r.kind, r.references.join(" "), r.qty, r.value, r.footprint,
+            r.mpn, r.manufacturer, r.description, r.datasheet, r.dnp ? "DNP" : "",
+        ]);
     }
 
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "BOM");
-    XLSX.writeFile(wb, `bom-${commit1.slice(0, 7)}.xlsx`);
+    const buffer = await wb.xlsx.writeBuffer();
+    triggerDownload(
+        new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+        `bom-${commit1.slice(0, 7)}.xlsx`
+    );
 }
 
 function triggerDownload(blob: Blob, filename: string) {
