@@ -180,6 +180,84 @@ const WIRE_TYPES = new Set(["wire", "bus", "bus_entry"]);
 function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, showing, kickRef }: OverlayProps) {
     const boxRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const svgRef  = useRef<SVGSVGElement | null>(null);
+
+    // Find the schematic inner element (the one that owns the canvas + renderer).
+    // Mirrors the walk used by updatePositions for bbox lookups.
+    type SchInnerEl = HTMLElement & { viewer?: { renderer?: { canvas?: HTMLCanvasElement } } };
+    const findSchInner = useCallback((root: ShadowRoot | Element | null): SchInnerEl | null => {
+        if (!root) return null;
+        const sr = (root as HTMLElement).shadowRoot;
+        const searchIn: ShadowRoot | Element = sr ?? root;
+        const found = (searchIn as ShadowRoot).querySelector?.("kc-schematic-app, kc-schematic-viewer") as SchInnerEl | null;
+        if (found) return found;
+        for (const child of (searchIn as ShadowRoot).querySelectorAll?.("*") ?? []) {
+            if ((child as HTMLElement).shadowRoot) {
+                const f = findSchInner(child as HTMLElement);
+                if (f) return f;
+            }
+        }
+        return null;
+    }, []);
+
+    // Fallback: any <canvas> reachable via the shadow tree.
+    const findAnyCanvas = useCallback((root: Element | ShadowRoot | null): HTMLCanvasElement | null => {
+        if (!root) return null;
+        // Prefer a sized canvas — there can be hidden 1x1 helper canvases.
+        const candidates: HTMLCanvasElement[] = [];
+        const pushFrom = (r: ShadowRoot | Element) => {
+            const list = (r as ShadowRoot).querySelectorAll?.("canvas") ?? [];
+            for (const c of list) candidates.push(c as HTMLCanvasElement);
+        };
+        pushFrom(root);
+        const all = (root as ShadowRoot).querySelectorAll?.("*") ?? [];
+        for (const el of all) {
+            const sr = (el as HTMLElement).shadowRoot;
+            if (sr) pushFrom(sr);
+        }
+        // Recurse one level deeper through nested shadow roots
+        for (const el of all) {
+            const sr = (el as HTMLElement).shadowRoot;
+            if (sr) {
+                const inner = sr.querySelectorAll("*");
+                for (const e2 of inner) {
+                    const sr2 = (e2 as HTMLElement).shadowRoot;
+                    if (sr2) pushFrom(sr2);
+                }
+            }
+        }
+        return candidates.sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0] ?? null;
+    }, []);
+
+    const dispatchWheel = useCallback((source: { deltaX: number; deltaY: number; deltaZ: number; deltaMode: number; clientX: number; clientY: number; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; }) => {
+        const viewer = viewerRef.current;
+        if (!viewer) return;
+        const inner = findSchInner(viewer as unknown as Element);
+        const canvas =
+            inner?.viewer?.renderer?.canvas
+            ?? findAnyCanvas(viewer as unknown as Element)
+            ?? findAnyCanvas((viewer as unknown as HTMLElement).shadowRoot);
+        const target = canvas ?? (viewer as unknown as EventTarget);
+        target.dispatchEvent(new WheelEvent("wheel", {
+            bubbles: true, cancelable: true,
+            deltaX: source.deltaX, deltaY: source.deltaY, deltaZ: source.deltaZ,
+            deltaMode: source.deltaMode,
+            clientX: source.clientX, clientY: source.clientY,
+            ctrlKey: source.ctrlKey, shiftKey: source.shiftKey, altKey: source.altKey,
+        }));
+    }, [viewerRef, findSchInner, findAnyCanvas]);
+
+    const forwardWheel = useCallback((e: React.WheelEvent) => { dispatchWheel(e); }, [dispatchWheel]);
+
+    // The SVG has pointer-events:none so React onWheel never fires on children.
+    // Attach a native wheel listener directly — it fires regardless of CSS.
+    useEffect(() => {
+        const svg = svgRef.current;
+        if (!svg) return;
+        const handler = (e: WheelEvent) => { dispatchWheel(e); };
+        svg.addEventListener("wheel", handler, { passive: true });
+        return () => svg.removeEventListener("wheel", handler);
+    }, [dispatchWheel]);
+
     // uuid → colored top line; uuid+":base" → black base line (both share coords)
     const svgElRefs = useRef<Map<string, SVGElement>>(new Map());
     const rafRef  = useRef<number | null>(null);
@@ -401,7 +479,7 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, showing, k
                     const wTop  = isActive ? 5 : 3.5;
                     const wBase = wTop + 3;
                     return (
-                        <g key={m.item.uuid} style={{ cursor: "pointer", pointerEvents: "stroke" }} onClick={() => onMarkerClick(m)}>
+                        <g key={m.item.uuid} style={{ cursor: "pointer", pointerEvents: "stroke" }} onClick={() => onMarkerClick(m)} onWheel={forwardWheel}>
                             {/* Solid black outline — opacity 0 for now; rounded only at terminations */}
                             <line
                                 ref={(node) => {
@@ -459,10 +537,10 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, showing, k
                             pointerEvents: "none",
                         }}
                     >
-                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
-                        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
-                        <div style={{ position: "absolute", top: HIT, bottom: HIT, left: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
-                        <div style={{ position: "absolute", top: HIT, bottom: HIT, right: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
+                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} onWheel={forwardWheel} />
+                        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} onWheel={forwardWheel} />
+                        <div style={{ position: "absolute", top: HIT, bottom: HIT, left: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} onWheel={forwardWheel} />
+                        <div style={{ position: "absolute", top: HIT, bottom: HIT, right: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} onWheel={forwardWheel} />
                     </div>
                 );
             })}

@@ -423,6 +423,54 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
     const rafRef   = useRef<number | null>(null);
     const framesLeftRef = useRef(0);
 
+    // kicanvas attaches its wheel listener to the inner <canvas>, not the host
+    // element — so dispatching wheel events on the host has no effect. We have
+    // to find the canvas (behind nested shadow roots) and dispatch there.
+    const findCanvas = useCallback((root: Element | ShadowRoot | null): HTMLCanvasElement | null => {
+        if (!root) return null;
+        const c = (root as ShadowRoot).querySelector?.("canvas") as HTMLCanvasElement | null;
+        if (c) return c;
+        const all = (root as ShadowRoot).querySelectorAll?.("*") ?? [];
+        for (const el of all) {
+            const sr = (el as HTMLElement).shadowRoot;
+            if (sr) {
+                const found = findCanvas(sr);
+                if (found) return found;
+            }
+        }
+        return null;
+    }, []);
+
+    const dispatchWheel = useCallback((source: { deltaX: number; deltaY: number; deltaZ: number; deltaMode: number; clientX: number; clientY: number; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; }) => {
+        const viewer = viewerRef.current;
+        if (!viewer) return;
+        const canvas =
+            (getBoardEl(viewer) as ({ viewer?: { renderer?: { canvas?: HTMLCanvasElement } } } | null))?.viewer?.renderer?.canvas
+            ?? findCanvas(viewer as unknown as Element)
+            ?? findCanvas((viewer as unknown as HTMLElement).shadowRoot);
+        const target = canvas ?? (viewer as unknown as EventTarget);
+        target.dispatchEvent(new WheelEvent("wheel", {
+            bubbles: true, cancelable: true,
+            deltaX: source.deltaX, deltaY: source.deltaY, deltaZ: source.deltaZ,
+            deltaMode: source.deltaMode,
+            clientX: source.clientX, clientY: source.clientY,
+            ctrlKey: source.ctrlKey, shiftKey: source.shiftKey, altKey: source.altKey,
+        }));
+    }, [viewerRef, getBoardEl, findCanvas]);
+
+    const forwardWheel = useCallback((e: React.WheelEvent) => { dispatchWheel(e); }, [dispatchWheel]);
+
+    const svgRef = useRef<SVGSVGElement | null>(null);
+    // The SVG has pointer-events:none so React onWheel never fires on children.
+    // Attach a native wheel listener directly — it fires regardless of CSS.
+    useEffect(() => {
+        const svg = svgRef.current;
+        if (!svg) return;
+        const handler = (e: WheelEvent) => { dispatchWheel(e); };
+        svg.addEventListener("wheel", handler, { passive: true });
+        return () => svg.removeEventListener("wheel", handler);
+    }, [dispatchWheel]);
+
     const updatePositions = useCallback((): boolean => {
         const viewer = viewerRef.current;
         const container = containerRef.current;
@@ -745,7 +793,7 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
 
     return (
         <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
-            <svg className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none">
+            <svg ref={svgRef} className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none">
                 <defs>
                     {/* One pattern per zone group — patternTransform is updated each
                         frame in updatePositions so stripes pan with the polygon. */}
@@ -794,6 +842,7 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                             strokeOpacity={isActive ? 1 : 0.85}
                             filter={isActive ? `drop-shadow(0 0 4px ${color})` : undefined}
                             onClick={() => onGroupClick(g)}
+                            onWheel={forwardWheel}
                         />
                     );
                 })}
@@ -825,13 +874,14 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                                     strokeWidth={isActive ? 2.5 : 2}
                                     strokeOpacity={isActive ? 1 : 0.9}
                                     filter={filter}
-                                    style={{ cursor: "pointer", pointerEvents: "all" }}
+                                    style={{ cursor: "pointer", pointerEvents: "stroke" }}
                                     onClick={() => onGroupClick(g)}
+                                    onWheel={forwardWheel}
                                 />
                             );
                         }
                         return (
-                            <g key={key} style={{ cursor: "pointer", pointerEvents: "stroke" }} onClick={() => onGroupClick(g)}>
+                            <g key={key} style={{ cursor: "pointer", pointerEvents: "stroke" }} onClick={() => onGroupClick(g)} onWheel={forwardWheel}>
                                 {/* Solid black outline — opacity 0 (kept for future restyling). */}
                                 <line
                                     ref={(node) => {
@@ -894,6 +944,7 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                             <div
                                 key={side}
                                 onClick={(e) => { e.stopPropagation(); onGroupClick(g); }}
+                                onWheel={forwardWheel}
                                 className="absolute pointer-events-auto cursor-pointer"
                                 style={{
                                     top:    side === "bottom" ? "auto" : -HIT / 2,
