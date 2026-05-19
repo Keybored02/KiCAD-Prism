@@ -106,8 +106,7 @@ interface SchematicDiffViewerProps {
 // ---------------------------------------------------------------------------
 
 const KIND_COLOR: Record<DiffMarker["kind"], string> = {
-    added: "#00ffff",
-
+    added: "#22c55e",
     removed: "#ef4444",
     changed: "#f59e0b",
 };
@@ -940,8 +939,19 @@ export function SchematicDiffViewer({
     // watcher / readiness machinery then re-runs this effect once the viewer's
     // document.filename catches up, and we fire the probe.
     const crossProbeRunner = useCrossProbeRunner();
+    // Tracks which crossProbeTarget has already been dispatched so re-renders
+    // caused by navigation (sheetLoadTick, readiness changes) don't re-fire the
+    // probe and lock the viewer back onto a stale component.
+    const crossProbeFiredRef = useRef<string | null>(null);
     useEffect(() => {
         if (!crossProbeTarget || !data) return;
+        // New target resets the fired guard.
+        if (crossProbeTarget !== crossProbeFiredRef.current) {
+            crossProbeFiredRef.current = null;
+        } else {
+            // Already dispatched this target — don't re-probe.
+            return;
+        }
 
         // Locate the sheet containing this reference. The content strings are
         // full .kicad_sch s-expressions; a property of name "Reference" with the
@@ -968,6 +978,7 @@ export function SchematicDiffViewer({
         const innerDoc = host ? (getSchEl(host)?.viewer as (InnerViewer & { document?: { filename?: string } }) | undefined) : undefined;
         if (containingSheet && innerDoc?.document?.filename !== containingSheet.filename) return;
 
+        crossProbeFiredRef.current = crossProbeTarget;
         crossProbeRunner.run(host, "PCB", "SCH", crossProbeTarget);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [crossProbeTarget, data, activeSheet, newReady, oldReady, showing, sheetLoadTick]);

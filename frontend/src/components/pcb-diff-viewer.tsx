@@ -1220,11 +1220,18 @@ export function PcbDiffViewer({
     // The shared runner retries up to ~1.4s, cancelling stale retries when
     // a newer probe arrives.
     const crossProbeRunner = useCrossProbeRunner();
+    const crossProbeFiredRef = useRef<string | null>(null);
     useEffect(() => {
         if (!crossProbeTarget || !active) return;
+        if (crossProbeTarget !== crossProbeFiredRef.current) {
+            crossProbeFiredRef.current = null;
+        } else {
+            return;
+        }
         const sideReady = showing === "new" ? newReady : oldReady;
         if (!sideReady) return;
         const viewer = (showing === "new" ? newViewerRef : oldViewerRef).current;
+        crossProbeFiredRef.current = crossProbeTarget;
         crossProbeRunner.run(viewer, "SCH", "PCB", crossProbeTarget);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [crossProbeTarget, active, newReady, oldReady, showing]);
