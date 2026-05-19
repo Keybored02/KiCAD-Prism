@@ -1,5 +1,5 @@
 import {
-    useState, useEffect, useRef, useCallback,
+    useState, useEffect, useRef, useCallback, useMemo,
 } from "react";
 import {
     X, Loader2, AlertCircle, ChevronLeft, ChevronRight,
@@ -11,6 +11,7 @@ import {
     EcadInfoPanel,
     EcadViewerHost,
     useEcadInfoPanel,
+    useViewerReadiness,
 } from "@/components/ecad-viewer-shared";
 import { categorise, CATEGORY_META } from "@/lib/diff-grouping";
 
@@ -383,17 +384,29 @@ export function SchematicDiffViewer({
     const schElCache = useRef<WeakMap<ECadViewerElement, SchEl>>(new WeakMap());
 
     const getSchEl = useCallback((host: ECadViewerElement): SchEl | null => {
+        // Cache entry is valid only if the viewer is still ALIVE — i.e. its
+        // Canvas2DRenderer hasn't been disposed (dispose() sets ctx2d = void 0).
+        // React StrictMode's mount/unmount/remount cycle (and any future
+        // viewer rebuild inside the shadow DOM) can leave us with a cached
+        // dead reference while a fresh kc-schematic-app paints alongside —
+        // see the parallel fix in pcb-diff-viewer.tsx.
         const cached = schElCache.current.get(host);
-        if (cached?.viewer?.viewport?.camera) return cached;
-        // Depth-first walk through shadow DOMs looking for kc-schematic-app (preferred) or kc-schematic-viewer
+        const cachedInner = cached?.viewer as (InnerViewer & { renderer?: { ctx2d?: unknown } }) | undefined;
+        if (cached && cachedInner?.viewport?.camera && cachedInner?.renderer?.ctx2d) return cached;
+        // Cache miss or stale — re-walk and prefer the live viewer.
+        const isLive = (el: SchEl | null): boolean => {
+            const v = el?.viewer as (InnerViewer & { renderer?: { ctx2d?: unknown } }) | undefined;
+            return !!v?.viewport?.camera && !!v?.renderer?.ctx2d;
+        };
         const walk = (root: ShadowRoot | Element): SchEl | null => {
             const sr = (root as HTMLElement).shadowRoot;
             const searchRoot: ShadowRoot | Element = sr ?? root;
-            // Prefer kc-schematic-app — it has the canonical zoom_fit_item used by cross-probe
-            const app = (searchRoot as ShadowRoot).querySelector?.("kc-schematic-app") as SchEl | null;
-            if (app?.viewer?.viewport?.camera) return app;
-            const viewer = (searchRoot as ShadowRoot).querySelector?.("kc-schematic-viewer") as SchEl | null;
-            if (viewer?.viewer?.viewport?.camera) return viewer;
+            // Prefer a LIVE kc-schematic-app, then any kc-schematic-app, then
+            // a live kc-schematic-viewer, then any kc-schematic-viewer.
+            const apps = Array.from((searchRoot as ShadowRoot).querySelectorAll?.("kc-schematic-app") ?? []) as SchEl[];
+            for (const el of apps) if (isLive(el)) return el;
+            const viewers = Array.from((searchRoot as ShadowRoot).querySelectorAll?.("kc-schematic-viewer") ?? []) as SchEl[];
+            for (const el of viewers) if (isLive(el)) return el;
             // Recurse into children's shadow roots
             for (const el of (searchRoot as ShadowRoot).querySelectorAll?.("*") ?? []) {
                 if ((el as HTMLElement).shadowRoot) {
@@ -401,10 +414,12 @@ export function SchematicDiffViewer({
                     if (f) return f;
                 }
             }
-            return app ?? viewer ?? null;
+            // Fall back to any candidate (even disposed) so callers that don't
+            // need ctx2d still work — e.g. overlay positioning via getScreenLocation.
+            return apps[0] ?? viewers[0] ?? null;
         };
         const result = host.shadowRoot ? walk(host) : null;
-        if (result?.viewer?.viewport?.camera) schElCache.current.set(host, result);
+        if (isLive(result)) schElCache.current.set(host, result!);
         return result;
     }, []);
 
@@ -492,6 +507,60 @@ export function SchematicDiffViewer({
     }, [getCamera, safeDraw]);
 
     const [activeSheet, setActiveSheet] = useState<string>("");
+
+    // Readiness signals — both hosts must reach a state where camera AND the
+    // Canvas2D context are both up before we can drive the viewer. The camera
+    // is created early in Viewer.setup(), but the renderer's ctx2d is set
+    // later inside its own async setup(). Probing both prevents firing focus
+    // while safeDraw would silently no-op. See parallel fix in pcb-diff-viewer.
+    const newViewerKey = data ? `sch-diff-new-${data.commit1}-${data.commit2}` : "sch-diff-new-pending";
+    const oldViewerKey = data ? `sch-diff-old-${data.commit1}-${data.commit2}` : "sch-diff-old-pending";
+    const schReadyProbe = useCallback(
+        (host: ECadViewerElement) => {
+            const inner = getSchEl(host)?.viewer as (InnerViewer & { renderer?: { ctx2d?: unknown } }) | undefined;
+            return !!inner?.viewport?.camera && !!inner?.renderer?.ctx2d;
+        },
+        [getSchEl],
+    );
+    const { ready: newReady } = useViewerReadiness({ host: newViewerRef, viewerKey: newViewerKey, probe: schReadyProbe });
+    const { ready: oldReady } = useViewerReadiness({ host: oldViewerRef, viewerKey: oldViewerKey, probe: schReadyProbe });
+
+    // Counter that bumps every time the viewer finishes loading a sheet. Used
+    // as a focus-gate dep so the effect re-evaluates after the rAF watcher
+    // eventually drives the viewer onto the target sheet — without it, the
+    // gate could be stuck "waiting for the right document" forever despite no
+    // other React deps changing.
+    const [sheetLoadTick, setSheetLoadTick] = useState(0);
+    useEffect(() => {
+        const bump = () => setSheetLoadTick(t => t + 1);
+        const attach = (host: ECadViewerElement | null) => {
+            if (!host) return () => {};
+            host.addEventListener("kicanvas:sheet:loaded", bump);
+            const sr = (host as HTMLElement).shadowRoot;
+            sr?.addEventListener("kicanvas:sheet:loaded", bump);
+            return () => {
+                host.removeEventListener("kicanvas:sheet:loaded", bump);
+                sr?.removeEventListener("kicanvas:sheet:loaded", bump);
+            };
+        };
+        let detachNew: (() => void) | null = null;
+        let detachOld: (() => void) | null = null;
+        const tryAttach = () => {
+            if (!detachNew && newViewerRef.current) detachNew = attach(newViewerRef.current);
+            if (!detachOld && oldViewerRef.current) detachOld = attach(oldViewerRef.current);
+        };
+        tryAttach();
+        const poll = window.setInterval(() => {
+            tryAttach();
+            if (detachNew && detachOld) window.clearInterval(poll);
+        }, 100);
+        window.setTimeout(() => window.clearInterval(poll), 5000);
+        return () => {
+            window.clearInterval(poll);
+            detachNew?.();
+            detachOld?.();
+        };
+    }, []);
 
     // Pin both viewer hosts to whatever sheet React thinks is active. Naively
     // this would be a one-shot switchPage call when activeSheet changes, but
@@ -672,48 +741,82 @@ export function SchematicDiffViewer({
         }
     }, [zoomToMarkerOn, showing, handleToggle]);
 
-    // Focus a specific item on first data load (or when focusItemId / focusFilename changes).
-    // When focusFilename is provided we restrict the uuid search to that sheet — uuids
-    // can repeat across sheets (hierarchical instances), and the previous "first match
-    // wins" walk could land on the wrong page and bounce the user back to root.
-    // focusFilename alone (no uuid) just switches to that sheet.
-    const focusedKeyRef = useRef<string | undefined>(undefined);
-    useEffect(() => {
-        if (!data) return;
-        if (!focusItemId && !focusFilename) return;
-        const focusKey = `${focusFilename ?? ""}::${focusItemId ?? ""}`;
-        if (focusedKeyRef.current === focusKey) return;
-
-        // Candidate sheets: the named one if given, else all sheets.
+    // Resolve the focus item synchronously from data. Returns null until data
+    // is available or the uuid can't be found on the requested sheet. When
+    // focusFilename is provided we restrict the search to that sheet — uuids
+    // can repeat across sheets (hierarchical instances).
+    type FocusTarget = { sheet: string; marker: DiffMarker | null };
+    const focusTarget = useMemo<FocusTarget | null>(() => {
+        if (!data) return null;
+        if (!focusItemId && !focusFilename) return null;
         const candidateSheets = focusFilename
             ? data.sheets.filter(s => s.filename === focusFilename)
             : data.sheets;
-
-        let foundSheet: string | null = null;
-        let foundMarker: DiffMarker | null = null;
         if (focusItemId) {
             for (const s of candidateSheets) {
                 const inAdded   = s.diff.added.find(i => i.uuid === focusItemId);
                 const inRemoved = s.diff.removed.find(i => i.uuid === focusItemId);
                 const inChanged = s.diff.changed.find(c => c.item.uuid === focusItemId);
-                if (inAdded)   { foundSheet = s.filename; foundMarker = { kind: "added",   item: inAdded };   break; }
-                if (inRemoved) { foundSheet = s.filename; foundMarker = { kind: "removed", item: inRemoved }; break; }
-                if (inChanged) { foundSheet = s.filename; foundMarker = { kind: "changed", item: inChanged.item, changes: inChanged.changes }; break; }
+                if (inAdded)   return { sheet: s.filename, marker: { kind: "added",   item: inAdded } };
+                if (inRemoved) return { sheet: s.filename, marker: { kind: "removed", item: inRemoved } };
+                if (inChanged) return { sheet: s.filename, marker: { kind: "changed", item: inChanged.item, changes: inChanged.changes } };
             }
         }
-        // No uuid match but we know the filename — at least pin the sheet.
-        if (!foundSheet && focusFilename && data.sheets.some(s => s.filename === focusFilename)) {
-            foundSheet = focusFilename;
+        // No uuid match but the filename is known — pin the sheet without a marker.
+        if (focusFilename && data.sheets.some(s => s.filename === focusFilename)) {
+            return { sheet: focusFilename, marker: null };
         }
-        if (!foundSheet) return;
-        focusedKeyRef.current = focusKey;
-        if (foundSheet !== activeSheet) setActiveSheet(foundSheet);
-        if (!foundMarker) return;
-        const marker = foundMarker;
-        const t = window.setTimeout(() => handleMarkerClick(marker), 250);
-        return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        return null;
     }, [data, focusItemId, focusFilename]);
+
+    // Focus flow — event-driven state machine, no timers. Fires exactly once
+    // per focus request when all prerequisites converge:
+    //   1. focusTarget is resolved.
+    //   2. activeSheet matches the target sheet (we drive setActiveSheet if not).
+    //   3. The target side's viewer host has reached readiness (camera +
+    //      ctx2d both live), AND its current document is the target sheet
+    //      (the rAF watcher above eventually drives this).
+    //   4. handleMarkerClick is then safe to call.
+    const focusFiredRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!focusTarget) return;
+        const fingerprint = `${focusTarget.sheet}::${focusTarget.marker?.item.uuid ?? ""}`;
+        if (focusFiredRef.current === fingerprint) return;
+        if (focusTarget.sheet !== activeSheet) {
+            setActiveSheet(focusTarget.sheet);
+            return;
+        }
+        // Determine which side will be navigated to.
+        const targetSide: "new" | "old" = focusTarget.marker
+            ? (focusTarget.marker.kind === "removed" ? "old" : "new")
+            : showing;
+        const sideReady = targetSide === "new" ? newReady : oldReady;
+        if (!sideReady) return;
+        // Verify the viewer is actually showing the target sheet — otherwise
+        // the bbox lookup would run against the wrong page's renderer index.
+        const host = (targetSide === "new" ? newViewerRef : oldViewerRef).current;
+        const innerWithDoc = host ? (getSchEl(host)?.viewer as (InnerViewer & { document?: { filename?: string } }) | undefined) : undefined;
+        if (innerWithDoc?.document?.filename !== focusTarget.sheet) return;
+        focusFiredRef.current = fingerprint;
+        if (focusTarget.marker) handleMarkerClick(focusTarget.marker);
+    }, [focusTarget, activeSheet, newReady, oldReady, showing, getSchEl, handleMarkerClick, sheetLoadTick]);
+
+    // Diagnostic safety net: if everything fails to converge after 8s, log
+    // which signal is missing. No best-effort fire — we don't want to drive
+    // a half-mounted viewer.
+    useEffect(() => {
+        if (!focusTarget) return;
+        const fingerprint = `${focusTarget.sheet}::${focusTarget.marker?.item.uuid ?? ""}`;
+        if (focusFiredRef.current === fingerprint) return;
+        const t = window.setTimeout(() => {
+            if (focusFiredRef.current === fingerprint) return;
+            // eslint-disable-next-line no-console
+            console.warn("[sch-diff] focus stalled — target:", focusTarget,
+                "activeSheet:", activeSheet,
+                "newReady:", newReady, "oldReady:", oldReady);
+        }, 8000);
+        return () => window.clearTimeout(t);
+    }, [focusTarget, activeSheet, newReady, oldReady]);
 
     // Fire onCrossProbe when the user selects an item.
     // kicanvas:select bubbles+composed so it reaches the container div.

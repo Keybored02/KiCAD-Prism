@@ -681,23 +681,38 @@ export function PcbDiffViewer({
     const boardElCache = useRef<WeakMap<ECadViewerElement, BoardEl>>(new WeakMap());
 
     const getBoardEl = useCallback((host: ECadViewerElement): BoardEl | null => {
+        // Cache entry is valid only if the viewer is still ALIVE — i.e. its
+        // renderer hasn't been disposed (WebGL2Renderer.dispose() sets gl =
+        // void 0). React StrictMode (and any future unmount/remount cycle of
+        // the kc-board-viewer inside the shadow DOM) can leave us with a
+        // cached dead reference while a fresh kc-board-viewer paints alongside.
         const cached = boardElCache.current.get(host);
-        if (cached?.viewer?.viewport?.camera) return cached;
+        const cachedInner = cached?.viewer as (BoardEl["viewer"] & { renderer?: { gl?: unknown } }) | undefined;
+        if (cached && cachedInner?.viewport?.camera && cachedInner?.renderer?.gl) return cached;
+        // Cache miss or stale — re-walk and prefer the live viewer.
         const walk = (root: ShadowRoot | Element): BoardEl | null => {
             const sr = (root as HTMLElement).shadowRoot;
             const searchRoot = sr ?? root;
-            const el = (searchRoot as ShadowRoot).querySelector?.("kc-board-viewer") as BoardEl | null;
-            if (el?.viewer?.viewport?.camera) return el;
+            const candidates = Array.from((searchRoot as ShadowRoot).querySelectorAll?.("kc-board-viewer") ?? []) as BoardEl[];
+            for (const el of candidates) {
+                const v = el?.viewer as (BoardEl["viewer"] & { renderer?: { gl?: unknown } }) | undefined;
+                if (v?.viewport?.camera && v?.renderer?.gl) return el;
+            }
             for (const child of (searchRoot as ShadowRoot).querySelectorAll?.("*") ?? []) {
                 if ((child as HTMLElement).shadowRoot) {
                     const f = walk(child as HTMLElement);
                     if (f) return f;
                 }
             }
-            return el ?? null;
+            // Fall back to any candidate (even disposed) so callers that don't
+            // need gl (e.g. overlay positioning via worldToScreen) still work.
+            return candidates[0] ?? null;
         };
         const result = host.shadowRoot ? walk(host) : null;
-        if (result?.viewer?.viewport?.camera) boardElCache.current.set(host, result);
+        const resultInner = result?.viewer as (BoardEl["viewer"] & { renderer?: { gl?: unknown } }) | undefined;
+        if (resultInner?.viewport?.camera && resultInner?.renderer?.gl) {
+            boardElCache.current.set(host, result!);
+        }
         return result;
     }, []);
 
@@ -839,8 +854,31 @@ export function PcbDiffViewer({
     // Probe: inner kc-board-viewer reachable with a live camera == ready.
     const newViewerKey = data ? `pcb-diff-new-${data.commit1}-${data.commit2}` : "pcb-diff-new-pending";
     const oldViewerKey = data ? `pcb-diff-old-${data.commit1}-${data.commit2}` : "pcb-diff-old-pending";
+    // Readiness requires: camera present, WebGL context up, AND the canvas
+    // is actually sized to its container. Without the canvas-size check we
+    // can fire focus while the canvas is still at its default 300x150 — the
+    // bbox setter computes zoom against that small viewport, and once the
+    // SizeObserver fires later and resizes the canvas, the locked zoom
+    // displays the component at the wrong scale (looks un-zoomed).
     const boardReadyProbe = useCallback(
-        (host: ECadViewerElement) => !!getBoardEl(host)?.viewer?.viewport?.camera,
+        (host: ECadViewerElement) => {
+            const inner = getBoardEl(host)?.viewer as {
+                viewport?: { camera?: { viewport_size?: { x?: number; y?: number } } };
+                renderer?: { gl?: unknown; canvas?: HTMLCanvasElement };
+            } | undefined;
+            if (!inner?.viewport?.camera || !inner?.renderer?.gl) return false;
+            // viewport_size mirrors canvas.clientWidth/clientHeight via the
+            // SizeObserver; zero or default values mean the layout hasn't
+            // settled. Require both > the default 300x150 OR at least non-zero
+            // and matching the canvas client size.
+            const vp = inner.viewport.camera.viewport_size;
+            const canvas = inner.renderer.canvas;
+            if (!vp || !canvas) return false;
+            const cw = canvas.clientWidth;
+            const ch = canvas.clientHeight;
+            // Real layout: client size is non-zero and viewport_size matches.
+            return cw > 0 && ch > 0 && vp.x === cw && vp.y === ch;
+        },
         [getBoardEl],
     );
     const { ready: newReady } = useViewerReadiness({ host: newViewerRef, viewerKey: newViewerKey, probe: boardReadyProbe });
