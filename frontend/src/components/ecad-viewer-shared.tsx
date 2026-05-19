@@ -1875,8 +1875,13 @@ type InnerBoardViewer = {
     layer_visibility_ctrl?: { visibilities?: Map<string, boolean>; clear_highlight?: () => void } | null;
     layer_visibility?: Map<string, boolean> | null;
     find_items_under_pos?: (p: { x: number; y: number }) => InteractiveItem[];
+    /** kicanvas-internal: isolates a footprint on dblclick. We wrap this to
+     *  suppress the slanted-stripe overlay that's drawn on top. */
+    highlight_fp?: (item: unknown) => void;
+    painter?: { highlight?: (h: unknown) => void };
     __padPriorityPatched?: boolean;
     __stubCtrlInstalled?: boolean;
+    __fpHighlightPatched?: boolean;
 };
 type BoardEl = HTMLElement & { viewer?: InnerBoardViewer };
 
@@ -1938,6 +1943,39 @@ export function useBoardClickFix({ viewerRefs, rebindKey }: UseBoardClickFixOpts
                     clear_highlight: () => { /* no-op — real Layers panel handles this when present */ },
                 };
                 inner.__stubCtrlInstalled = true;
+            }
+
+            // (2a) Suppress kicanvas's slanted-stripe overlay drawn on a
+            // footprint when it's focused via double-click. The stripes come
+            // from painting onto the selection_mask layer inside
+            // `paint_footprint` (which the GL pipeline renders with a striped
+            // mask shader). We wrap `highlight_fp` so it skips paint_footprint
+            // and painter.highlight, while preserving zone-layer hiding (the
+            // grayed-out look) and the camera zoom that focus_footprint adds.
+            if (!inner.__fpHighlightPatched
+                && typeof inner.highlight_fp === "function"
+                && inner.painter
+            ) {
+                const painter = inner.painter as {
+                    paint_footprint?: (e: unknown) => void;
+                    highlight?: (h: unknown) => void;
+                };
+                const origPaintFp   = painter.paint_footprint?.bind(painter);
+                const origHighlight = painter.highlight?.bind(painter);
+                const origFp = inner.highlight_fp.bind(inner);
+                inner.highlight_fp = (item: unknown) => {
+                    // Temporarily neuter the two calls inside highlight_fp that
+                    // draw the stripes. The zone-layer hide loop at the top of
+                    // highlight_fp still runs, so we keep the gray-out + zoom.
+                    if (painter.paint_footprint) painter.paint_footprint = () => {};
+                    if (painter.highlight)      painter.highlight      = () => {};
+                    try { origFp(item); }
+                    finally {
+                        if (origPaintFp)   painter.paint_footprint = origPaintFp;
+                        if (origHighlight) painter.highlight       = origHighlight;
+                    }
+                };
+                inner.__fpHighlightPatched = true;
             }
 
             // (2) Bubble pads to the front of pick results.

@@ -383,9 +383,13 @@ interface OverlayProps {
     kickRef?: React.MutableRefObject<((frames?: number) => void) | null>;
 }
 
+// Per-kind stripe rotation so stacked changes remain distinguishable.
+const stripeRotation = { added: 90, removed: -45, changed: 45 } as const;
+
 function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick, activeId, kickRef }: OverlayProps) {
     const boxRefs  = useRef<Map<string, HTMLDivElement>>(new Map());
     const polyRefs = useRef<Map<string, SVGPolygonElement>>(new Map());
+    const patternRefs = useRef<Map<string, SVGPatternElement>>(new Map());
     const rafRef   = useRef<number | null>(null);
     const framesLeftRef = useRef(0);
 
@@ -442,6 +446,16 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                     });
                     poly.setAttribute("points", pts.join(" "));
                     poly.style.display = "";
+                    // Translate the per-polygon pattern by the first vertex so the
+                    // stripes pan with the polygon when the canvas moves. Rotation
+                    // is set declaratively on the JSX; we rebuild the full transform
+                    // here to combine translate + rotate.
+                    const pat = patternRefs.current.get(g.id);
+                    if (pat && g.polygonPoints.length > 0) {
+                        const p0 = toContainerPt(g.polygonPoints[0][0], g.polygonPoints[0][1]);
+                        const rot = stripeRotation[g.kind];
+                        pat.setAttribute("patternTransform", `translate(${p0.x} ${p0.y}) rotate(${rot})`);
+                    }
                     anyVisible = true;
                 } else {
                     const el = boxRefs.current.get(g.id);
@@ -469,8 +483,14 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
         } catch { return false; }
     }, [viewerRef, containerRef, getBoardEl, groups]);
 
+    // Stub ref — filled in after updateSvgMembers is defined below. tick calls
+    // through this ref so the RAF loop stays stable when svgGroups changes.
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    const updateSvgMembersRef = useRef<() => void>(() => {});
+
     const tick = useCallback(() => {
         const done = updatePositions();
+        updateSvgMembersRef.current();
         if (framesLeftRef.current > 0 || !done) {
             if (framesLeftRef.current > 0) framesLeftRef.current--;
             rafRef.current = requestAnimationFrame(tick);
@@ -536,37 +556,143 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
         return () => { stopped = true; };
     }, [viewerRef, getBoardEl, kick]);
 
-    // Build a unique stripe pattern id per (kind, activeId) combination so
-    // active zones get a denser/brighter stripe than inactive ones.
-    const stripeIds = {
-        added:   "diff-stripe-added",
-        removed: "diff-stripe-removed",
-        changed: "diff-stripe-changed",
-    };
+    // Groups rendered as individual SVG geometries (net tracks + vias)
+    // vs. groups still using a bbox div (footprints, gr_* graphics)
+    const svgGroups    = groups.filter(g => !g.polygonPoints && g.category === "nets");
+    const boxGroups    = groups.filter(g => !g.polygonPoints && g.category !== "nets");
+    const polygonGroups = groups.filter(g => g.polygonPoints);
+
+    const memberSvgRefs = useRef<Map<string, SVGElement>>(new Map());
+
+    const updateSvgMembers = useCallback((): void => {
+        const viewer = viewerRef.current;
+        const container = containerRef.current;
+        if (!viewer || !container) return;
+        try {
+            const containerRect = container.getBoundingClientRect();
+            if (!containerRect.width) return;
+            const viewerRect = viewer.getBoundingClientRect();
+            const dx = viewerRect.left - containerRect.left;
+            const dy = viewerRect.top  - containerRect.top;
+            const toScreen = viewer.getScreenLocation
+                ? (wx: number, wy: number) => {
+                    const s = viewer.getScreenLocation(wx, wy);
+                    return s ? { x: s.x + dx, y: s.y + dy } : null;
+                  }
+                : null;
+            if (!toScreen) return;
+
+            for (const g of svgGroups) {
+                for (let mi = 0; mi < g.members.length; mi++) {
+                    const key     = `${g.id}:${mi}`;
+                    const keyBase = `${key}:base`;
+                    const el      = memberSvgRefs.current.get(key);
+                    const baseEl  = memberSvgRefs.current.get(keyBase);
+                    if (!el) continue;
+                    const item = g.members[mi].item as PcbItem;
+
+                    if (item.type === "via") {
+                        // Render via as a small rect (bounding box) — circles read poorly.
+                        const c = toScreen(item.x, item.y);
+                        if (!c) {
+                            el.setAttribute("display", "none");
+                            baseEl?.setAttribute("display", "none");
+                            continue;
+                        }
+                        const r_mm = (item.size ?? 0.8) / 2;
+                        const edge = toScreen(item.x + r_mm, item.y);
+                        const r_px = edge ? Math.max(5, Math.abs(edge.x - c.x)) : 6;
+                        // Bbox padding so the outline sits outside the via copper
+                        const pad = 2;
+                        const side = (r_px + pad) * 2;
+                        el.setAttribute("x", String(c.x - r_px - pad));
+                        el.setAttribute("y", String(c.y - r_px - pad));
+                        el.setAttribute("width",  String(side));
+                        el.setAttribute("height", String(side));
+                        el.removeAttribute("display");
+                    } else {
+                        const hasStartEnd =
+                            item.start_x != null && item.start_y != null &&
+                            item.end_x   != null && item.end_y   != null;
+                        if (!hasStartEnd) {
+                            el.setAttribute("display", "none");
+                            baseEl?.setAttribute("display", "none");
+                            continue;
+                        }
+                        const p1 = toScreen(item.start_x!, item.start_y!);
+                        const p2 = toScreen(item.end_x!,   item.end_y!);
+                        if (!p1 || !p2) {
+                            el.setAttribute("display", "none");
+                            baseEl?.setAttribute("display", "none");
+                            continue;
+                        }
+                        const w_mm  = (item.width ?? 0.2) / 2;
+                        const edgePt = toScreen(item.start_x! + w_mm, item.start_y!);
+                        const sw    = edgePt ? Math.max(2, Math.abs(edgePt.x - p1.x) * 2) : 3;
+                        // Solid black outline (continuous, rounded) + dashed translucent
+                        // colored top. Dash size scales with on-screen track width.
+                        const swTop  = sw + 3;
+                        const swBase = sw + 6;
+                        const dashLen = Math.max(10, sw * 3.5);
+                        const dashGap = Math.max(8,  sw * 2.5);
+                        if (baseEl) {
+                            baseEl.setAttribute("x1", String(p1.x));
+                            baseEl.setAttribute("y1", String(p1.y));
+                            baseEl.setAttribute("x2", String(p2.x));
+                            baseEl.setAttribute("y2", String(p2.y));
+                            baseEl.setAttribute("stroke-width", String(swBase));
+                            // Base stays solid so rounded caps appear only at the
+                            // line's terminations, not at every dash boundary.
+                            baseEl.removeAttribute("stroke-dasharray");
+                            baseEl.removeAttribute("display");
+                        }
+                        el.setAttribute("x1", String(p1.x));
+                        el.setAttribute("y1", String(p1.y));
+                        el.setAttribute("x2", String(p2.x));
+                        el.setAttribute("y2", String(p2.y));
+                        el.setAttribute("stroke-width", String(swTop));
+                        el.setAttribute("stroke-dasharray", `${dashLen} ${dashGap}`);
+                        el.removeAttribute("display");
+                    }
+                }
+            }
+        } catch { /* viewer transiently unavailable */ }
+    }, [viewerRef, containerRef, svgGroups]);
+
+    useEffect(() => { updateSvgMembersRef.current = updateSvgMembers; }, [updateSvgMembers]);
+    // Kick immediately when groups change so elements appear before next interaction
+    useEffect(() => { kick(5); }, [svgGroups, kick]);
 
     return (
         <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
-            {/* SVG layer for zone polygons */}
             <svg className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none">
                 <defs>
-                    {(["added", "removed", "changed"] as const).map((kind) => {
-                        const color = KIND_COLOR[kind];
+                    {/* One pattern per zone group — patternTransform is updated each
+                        frame in updatePositions so stripes pan with the polygon. */}
+                    {polygonGroups.map((g) => {
+                        const color = KIND_COLOR[g.kind];
                         return (
                             <pattern
-                                key={kind}
-                                id={stripeIds[kind]}
+                                key={g.id}
+                                id={`zs-${g.id}`}
+                                ref={(node) => {
+                                    if (node) patternRefs.current.set(g.id, node);
+                                    else patternRefs.current.delete(g.id);
+                                }}
                                 patternUnits="userSpaceOnUse"
-                                width="8" height="8"
-                                patternTransform="rotate(45)"
+                                width="14" height="14"
+                                patternTransform={`rotate(${stripeRotation[g.kind]})`}
                             >
-                                <rect width="8" height="8" fill="transparent" />
-                                <line x1="0" y1="0" x2="0" y2="8"
-                                    stroke={color} strokeWidth="3" strokeOpacity="0.6" />
+                                <rect width="14" height="14" fill="transparent" />
+                                <line x1="0" y1="0" x2="0" y2="14"
+                                    stroke={color} strokeWidth="3" strokeOpacity="0.85" />
                             </pattern>
                         );
                     })}
                 </defs>
-                {groups.filter(g => g.polygonPoints).map((g) => {
+
+                {/* Zone polygons — striped fill with screen blend so items inside remain visible */}
+                {polygonGroups.map((g) => {
                     const color = KIND_COLOR[g.kind];
                     const isActive = g.id === activeId;
                     return (
@@ -576,28 +702,94 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                                 if (node) polyRefs.current.set(g.id, node as SVGPolygonElement);
                                 else polyRefs.current.delete(g.id);
                             }}
-                            // pointer-events: stroke → only the outline catches clicks,
-                            // so pads/traces inside the zone remain clickable.
-                            style={{ display: "none", cursor: "pointer", pointerEvents: "stroke" }}
-                            fill={`url(#${stripeIds[g.kind]})`}
+                            style={{
+                                display: "none",
+                                cursor: "pointer",
+                                pointerEvents: "stroke",
+                                mixBlendMode: "screen",
+                            }}
+                            fill={`url(#zs-${g.id})`}
                             stroke={color}
                             strokeWidth={isActive ? 4 : 3}
-                            strokeOpacity={isActive ? 1 : 0.7}
+                            strokeOpacity={isActive ? 1 : 0.85}
                             filter={isActive ? `drop-shadow(0 0 4px ${color})` : undefined}
                             onClick={() => onGroupClick(g)}
                         />
                     );
                 })}
+
+                {/* Net groups: solid black outline around each trace + softer
+                   translucent colored dash on top. Vias render as bounding boxes. */}
+                {svgGroups.map((g) => {
+                    const color = KIND_COLOR[g.kind];
+                    const isActive = g.id === activeId;
+                    const filter = isActive ? `drop-shadow(0 0 3px ${color})` : undefined;
+                    return g.members.map((dm, mi) => {
+                        const key     = `${g.id}:${mi}`;
+                        const keyBase = `${key}:base`;
+                        const item = dm.item as PcbItem;
+                        const isVia = item.type === "via";
+                        if (isVia) {
+                            return (
+                                <rect
+                                    key={key}
+                                    ref={(node) => {
+                                        if (node) memberSvgRefs.current.set(key, node);
+                                        else memberSvgRefs.current.delete(key);
+                                    }}
+                                    display="none"
+                                    x="0" y="0" width="0" height="0"
+                                    rx="2" ry="2"
+                                    fill={`${color}1A`}
+                                    stroke={color}
+                                    strokeWidth={isActive ? 2.5 : 2}
+                                    strokeOpacity={isActive ? 1 : 0.9}
+                                    filter={filter}
+                                    style={{ cursor: "pointer", pointerEvents: "all" }}
+                                    onClick={() => onGroupClick(g)}
+                                />
+                            );
+                        }
+                        return (
+                            <g key={key} style={{ cursor: "pointer", pointerEvents: "stroke" }} onClick={() => onGroupClick(g)}>
+                                {/* Solid black outline — opacity 0 (kept for future restyling). */}
+                                <line
+                                    ref={(node) => {
+                                        if (node) memberSvgRefs.current.set(keyBase, node);
+                                        else memberSvgRefs.current.delete(keyBase);
+                                    }}
+                                    display="none"
+                                    x1="0" y1="0" x2="0" y2="0"
+                                    stroke="#000"
+                                    strokeOpacity="0"
+                                    strokeLinecap="round"
+                                />
+                                {/* Color on top — dashed zebra when idle, solid outline when selected.
+                                    updateSvgMembers writes/clears stroke-dasharray based on isActive. */}
+                                <line
+                                    ref={(node) => {
+                                        if (node) memberSvgRefs.current.set(key, node);
+                                        else memberSvgRefs.current.delete(key);
+                                    }}
+                                    display="none"
+                                    x1="0" y1="0" x2="0" y2="0"
+                                    data-active={isActive ? "1" : "0"}
+                                    stroke={color}
+                                    strokeOpacity={isActive ? 1 : 0.78}
+                                    strokeLinecap={isActive ? "round" : "butt"}
+                                    filter={isActive ? `drop-shadow(0 0 3px ${color})` : undefined}
+                                />
+                            </g>
+                        );
+                    });
+                })}
             </svg>
 
-            {/* Div boxes for everything else.
-                The visual box is pointer-events:none so clicks pass through to
-                the canvas below (lets the user click pads/traces inside the box).
-                A thin "frame" overlay catches clicks only on the border. */}
-            {groups.filter(g => !g.polygonPoints).map((g) => {
+            {/* Div boxes for footprints and graphics — bbox is accurate for these */}
+            {boxGroups.map((g) => {
                 const color = KIND_COLOR[g.kind];
                 const isActive = g.id === activeId;
-                const HIT = 6; // px — clickable frame thickness
+                const HIT = 6;
                 return (
                     <div
                         key={g.id}
@@ -618,7 +810,6 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                                 : `0 0 0 1.5px rgba(0,0,0,0.5)`,
                         }}
                     >
-                        {/* clickable border-only frame */}
                         {(["top", "right", "bottom", "left"] as const).map((side) => (
                             <div
                                 key={side}

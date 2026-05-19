@@ -106,7 +106,8 @@ interface SchematicDiffViewerProps {
 // ---------------------------------------------------------------------------
 
 const KIND_COLOR: Record<DiffMarker["kind"], string> = {
-    added: "#22c55e",
+    added: "#00ffff",
+
     removed: "#ef4444",
     changed: "#f59e0b",
 };
@@ -162,18 +163,24 @@ interface OverlayProps {
 }
 
 // World-space half-extents (mm) per item type for the bounding box
+// (only used for symbols and sheets — wire/text use their own geometry)
 function _boxHalfExtent(type: string): { hw: number; hh: number } {
     switch (type) {
         case "symbol": return { hw: 5, hh: 4 };
         case "sheet":  return { hw: 6, hh: 5 };
-        default:       return { hw: 3, hh: 1.5 }; // labels, text
+        default:       return { hw: 2, hh: 1.2 }; // labels, text — tighter than before
     }
 }
 
+// Items rendered as SVG geometry rather than a bounding box
+const WIRE_TYPES = new Set(["wire", "bus", "bus_entry"]);
+
 function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }: OverlayProps) {
     const boxRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const svgRef  = useRef<SVGSVGElement | null>(null);
+    // uuid → colored top line; uuid+":base" → black base line (both share coords)
+    const svgElRefs = useRef<Map<string, SVGElement>>(new Map());
     const rafRef  = useRef<number | null>(null);
-    // How many more consecutive frames to keep running after the last trigger
     const framesLeftRef = useRef(0);
 
     const updatePositions = useCallback((): boolean => {
@@ -183,27 +190,71 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
             const rect = viewer.getBoundingClientRect();
             if (!rect.width) return false;
             let anyVisible = false;
+
             for (const m of markers) {
-                const el = boxRefs.current.get(m.item.uuid);
-                if (!el) continue;
-                const { hw, hh } = _boxHalfExtent(m.item.type);
-                const tl = viewer.getScreenLocation(m.item.x - hw, m.item.y - hh);
-                const br = viewer.getScreenLocation(m.item.x + hw, m.item.y + hh);
-                if (!tl || !br) { el.style.display = "none"; continue; }
-                const left = Math.min(tl.x, br.x);
-                const top  = Math.min(tl.y, br.y);
-                const w    = Math.abs(br.x - tl.x);
-                const h    = Math.abs(br.y - tl.y);
-                const vis  = left + w > 0 && left < rect.width && top + h > 0 && top < rect.height;
-                if (vis) {
-                    el.style.display = "";
-                    el.style.left   = `${left}px`;
-                    el.style.top    = `${top}px`;
-                    el.style.width  = `${w}px`;
-                    el.style.height = `${h}px`;
-                    anyVisible = true;
+                const item = m.item;
+                const isWire = WIRE_TYPES.has(item.type);
+
+                if (isWire) {
+                    // Two lines share the same coords: shadow base + colored top
+                    const svgEl  = svgElRefs.current.get(item.uuid);
+                    const baseEl = svgElRefs.current.get(`${item.uuid}:base`);
+                    if (!svgEl) continue;
+                    const hasStartEnd =
+                        item.start_x != null && item.start_y != null &&
+                        item.end_x   != null && item.end_y   != null;
+                    if (!hasStartEnd) {
+                        svgEl.setAttribute("display", "none");
+                        baseEl?.setAttribute("display", "none");
+                        continue;
+                    }
+                    const p1 = viewer.getScreenLocation(item.start_x!, item.start_y!);
+                    const p2 = viewer.getScreenLocation(item.end_x!,   item.end_y!);
+                    if (!p1 || !p2) {
+                        svgEl.setAttribute("display", "none");
+                        baseEl?.setAttribute("display", "none");
+                        continue;
+                    }
+                    const vis =
+                        (Math.max(p1.x, p2.x) > 0 && Math.min(p1.x, p2.x) < rect.width) &&
+                        (Math.max(p1.y, p2.y) > 0 && Math.min(p1.y, p2.y) < rect.height);
+                    if (vis) {
+                        for (const el of [svgEl, baseEl]) {
+                            if (!el) continue;
+                            el.setAttribute("x1", String(p1.x));
+                            el.setAttribute("y1", String(p1.y));
+                            el.setAttribute("x2", String(p2.x));
+                            el.setAttribute("y2", String(p2.y));
+                            el.removeAttribute("display");
+                        }
+                        anyVisible = true;
+                    } else {
+                        svgEl.setAttribute("display", "none");
+                        baseEl?.setAttribute("display", "none");
+                    }
                 } else {
-                    el.style.display = "none";
+                    // Div box for symbols, sheets, labels, text
+                    const el = boxRefs.current.get(item.uuid);
+                    if (!el) continue;
+                    const { hw, hh } = _boxHalfExtent(item.type);
+                    const tl = viewer.getScreenLocation(item.x - hw, item.y - hh);
+                    const br = viewer.getScreenLocation(item.x + hw, item.y + hh);
+                    if (!tl || !br) { el.style.display = "none"; continue; }
+                    const left = Math.min(tl.x, br.x);
+                    const top  = Math.min(tl.y, br.y);
+                    const w    = Math.abs(br.x - tl.x);
+                    const h    = Math.abs(br.y - tl.y);
+                    const vis  = left + w > 0 && left < rect.width && top + h > 0 && top < rect.height;
+                    if (vis) {
+                        el.style.display = "";
+                        el.style.left   = `${left}px`;
+                        el.style.top    = `${top}px`;
+                        el.style.width  = `${w}px`;
+                        el.style.height = `${h}px`;
+                        anyVisible = true;
+                    } else {
+                        el.style.display = "none";
+                    }
                 }
             }
             return anyVisible || markers.length === 0;
@@ -299,10 +350,56 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
 
     return (
         <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
-            {markers.map((m) => {
+            {/* SVG layer: wires and buses — shadow base + solid colored line */}
+            <svg
+                ref={svgRef}
+                className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none"
+            >
+                {markers.filter(m => WIRE_TYPES.has(m.item.type)).map((m) => {
+                    const color = KIND_COLOR[m.kind];
+                    const isActive = m.item.uuid === activeUuid;
+                    const wTop  = isActive ? 5 : 3.5;
+                    const wBase = wTop + 3;
+                    return (
+                        <g key={m.item.uuid} style={{ cursor: "pointer", pointerEvents: "stroke" }} onClick={() => onMarkerClick(m)}>
+                            {/* Solid black outline — opacity 0 for now; rounded only at terminations */}
+                            <line
+                                ref={(node) => {
+                                    if (node) svgElRefs.current.set(`${m.item.uuid}:base`, node);
+                                    else svgElRefs.current.delete(`${m.item.uuid}:base`);
+                                }}
+                                display="none"
+                                x1="0" y1="0" x2="0" y2="0"
+                                stroke="#000"
+                                strokeOpacity="0"
+                                strokeWidth={wBase}
+                                strokeLinecap="round"
+                            />
+                            {/* Translucent color zebra on top */}
+                            <line
+                                ref={(node) => {
+                                    if (node) svgElRefs.current.set(m.item.uuid, node);
+                                    else svgElRefs.current.delete(m.item.uuid);
+                                }}
+                                display="none"
+                                x1="0" y1="0" x2="0" y2="0"
+                                stroke={color}
+                                strokeWidth={wTop}
+                                strokeOpacity={isActive ? 0.9 : 0.78}
+                                strokeLinecap="butt"
+                                strokeDasharray="16 12"
+                                filter={isActive ? `drop-shadow(0 0 6px ${color}) drop-shadow(0 0 3px ${color})` : `drop-shadow(0 0 3px ${color})`}
+                            />
+                        </g>
+                    );
+                })}
+            </svg>
+
+            {/* Div boxes: symbols, sheets, labels, text */}
+            {markers.filter(m => !WIRE_TYPES.has(m.item.type)).map((m) => {
                 const color = KIND_COLOR[m.kind];
                 const isActive = m.item.uuid === activeUuid;
-                const HIT = 6; // px — edge strip thickness, interior click-through
+                const HIT = 6;
                 return (
                     <div
                         key={m.item.uuid}
@@ -316,17 +413,15 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
                             border: `2px solid ${color}`,
                             borderRadius: 3,
                             backgroundColor: `${color}1A`,
-                            boxShadow: isActive ? `0 0 0 2px ${color}66, inset 0 0 0 1px ${color}44` : undefined,
+                            boxShadow: isActive
+                                ? `0 0 8px 2px ${color}, 0 0 0 2px ${color}66, inset 0 0 0 1px ${color}44`
+                                : `0 0 4px 1px ${color}99, 0 0 0 1px rgba(0,0,0,0.4)`,
                             pointerEvents: "none",
                         }}
                     >
-                        {/* top strip */}
                         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
-                        {/* bottom strip */}
                         <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
-                        {/* left strip */}
                         <div style={{ position: "absolute", top: HIT, bottom: HIT, left: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
-                        {/* right strip */}
                         <div style={{ position: "absolute", top: HIT, bottom: HIT, right: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
                     </div>
                 );
