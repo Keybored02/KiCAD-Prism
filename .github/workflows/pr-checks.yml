@@ -127,7 +127,9 @@ jobs:
       - run: pip install pip-audit
 
       - name: pip-audit
-        run: pip-audit -r requirements.txt
+        # PYSEC-2025-183: disputed advisory on PyJWT key length — the library
+        # delegates key-length enforcement to the caller; no fixed version exists.
+        run: pip-audit -r requirements.txt --ignore-vuln PYSEC-2025-183
 
   security-deps-frontend:
     name: Security / npm dependency audit
