@@ -1387,59 +1387,51 @@ _GERBER_EXTENSIONS = {
     ".ncd",
 }
 
-# Common folder names that contain gerbers (checked in the project root)
-_GERBER_FOLDER_HINTS = {
-    "gerbers",
-    "gerber",
-    "fab",
-    "manufacturing",
-    "manufacturing-outputs",
-    "mfg",
-    "production",
-    "fabrication",
-    "pcbfab",
-    "design-outputs",
-    "outputs",
-    "export",
+# Directory names to skip when walking the project tree
+_SKIP_DIRS = {
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "3d-models",
+    "3dmodels",
+    "packages",
+    "backups",
+    "archive",
+    "archived",
+    "old",
 }
 
 
 def _find_gerber_files(project_path: str) -> list[tuple[str, str]]:
     """
-    Search for gerber files in the project directory.
-    Returns list of (archive_name, absolute_path) tuples.
-    Priority: dedicated gerber sub-folders first, then project root.
+    Walk the entire project tree and collect all gerber/drill files.
+    Returns list of (relative_path_from_root, absolute_path) tuples sorted by path.
+    Skips hidden directories and directories in _SKIP_DIRS.
     """
     root = Path(project_path)
     results: list[tuple[str, str]] = []
     seen: set[str] = set()
 
-    def _collect(directory: Path, prefix: str) -> None:
+    def _walk(directory: Path) -> None:
         try:
             for entry in sorted(directory.iterdir()):
                 if entry.name.startswith("."):
                     continue
-                if entry.is_file() and entry.suffix.lower() in _GERBER_EXTENSIONS:
-                    key = str(entry.resolve())
-                    if key not in seen:
-                        seen.add(key)
-                        results.append((f"{prefix}{entry.name}", str(entry)))
+                if entry.is_file():
+                    if entry.suffix.lower() in _GERBER_EXTENSIONS:
+                        key = str(entry.resolve())
+                        if key not in seen:
+                            seen.add(key)
+                            rel = str(entry.relative_to(root))
+                            results.append((rel, str(entry)))
+                elif entry.is_dir() and entry.name.lower() not in _SKIP_DIRS:
+                    _walk(entry)
         except OSError:
             pass
 
-    # 1. Check known gerber sub-folders
-    for sub in sorted(root.iterdir()) if root.exists() else []:
-        if sub.is_dir() and sub.name.lower() in _GERBER_FOLDER_HINTS:
-            _collect(sub, "")
-            # Also one level deeper (e.g. Design-Outputs/Gerbers/)
-            for subsub in sorted(sub.iterdir()) if sub.exists() else []:
-                if subsub.is_dir() and subsub.name.lower() in _GERBER_FOLDER_HINTS:
-                    _collect(subsub, "")
-
-    # 2. If nothing found yet, fall back to project root
-    if not results:
-        _collect(root, "")
-
+    _walk(root)
     return results
 
 
@@ -1461,13 +1453,14 @@ async def get_project_gerbers(
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for archive_name, abs_path in files:
-            zf.write(abs_path, arcname=archive_name)
+            zf.write(abs_path, arcname=archive_name.replace("\\", "/"))
     buf.seek(0)
 
     return Response(
         content=buf.read(),
         media_type="application/zip",
         headers={
-            "Content-Disposition": f'attachment; filename="{project_id}-gerbers.zip"'
+            "Content-Disposition": f'attachment; filename="{project_id}-gerbers.zip"',
+            "X-Gerber-Files": ", ".join(name for name, _ in files),
         },
     )

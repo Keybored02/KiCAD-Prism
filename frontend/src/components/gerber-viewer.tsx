@@ -1,427 +1,353 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import JSZip from "jszip";
-import { createIntegratedViewer, renderGerbersFiles, type RenderResult, type ViewerLayers } from "gerbers-renderer";
-// Resolved via vite.config.ts alias — the package exports map doesn't expose this path.
-import "gerbers-renderer/dist/gerbers-renderer.css";
-import { Maximize2, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Maximize2 } from "lucide-react";
+import { loadGerberLayers, unionViewBox } from "@/lib/gerber/load";
+import { svgToImage } from "@/lib/gerber/svg-image";
+import type { GerberLayer, GerberSide } from "@/lib/gerber/types";
 
 interface GerberViewerProps {
-    projectId: string;
+  projectId: string;
 }
 
-type Side = "top" | "bottom";
-type GridUnits = "mm" | "in";
-
-// Only the layers the library actually renders (renderGerbersFiles populates these keys).
-// top_mask / bottom_mask / outline are detected but never written to the layers output.
-interface LayerDef {
-    key: keyof ViewerLayers;
-    passId: string;
-    label: string;
-    color: string;
-    side: "top" | "bottom" | "both";
-    order: number;
+interface Transform {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
 }
 
-const LAYER_DEFS: LayerDef[] = [
-    { key: "top_copper",    passId: "layer:top-copper",    label: "Top Copper",     color: "#f59e0b", side: "top",    order: 25 },
-    { key: "top_silk",      passId: "layer:top-silk",      label: "Top Silkscreen", color: "#f9fafb", side: "top",    order: 35 },
-    { key: "bottom_copper", passId: "layer:bottom-copper", label: "Bottom Copper",  color: "#38bdf8", side: "bottom", order: 10 },
-    { key: "bottom_silk",   passId: "layer:bottom-silk",   label: "Bottom Silk",    color: "#e5e7eb", side: "bottom", order: 20 },
-    { key: "drills",        passId: "layer:drills",        label: "Drills",         color: "#ef4444", side: "both",   order: 40 },
-];
-
-// Build a render pass mirroring the L() factory inside createIntegratedViewer
-function makeImagePass(
-    passId: string,
-    order: number,
-    url: string,
-    boardGeomRef: React.MutableRefObject<{ width_in: number; height_in: number } | null>,
-    requestRender: (reason: string) => void,
-) {
-    const img = new Image();
-    img.src = url;
-    img.addEventListener("load", () => requestRender(`image-loaded-${passId}`));
-    return {
-        id: passId,
-        order,
-        enabled: () => true,
-        draw: (ctx: { ctx: CanvasRenderingContext2D; xform: { getWorldToScreenMatrix: () => number[] } }) => {
-            if (!img.complete) return;
-            const board = boardGeomRef.current;
-            const mm = 25.4;
-            const w = (board?.width_in  ?? 1) * mm;
-            const h = (board?.height_in ?? 1) * mm;
-            const m = ctx.xform.getWorldToScreenMatrix();
-            ctx.ctx.setTransform(m[0], m[3], m[1], m[4], m[2], m[5]);
-            ctx.ctx.drawImage(img, 0, 0, w, h);
-        },
-    };
+// gerber-to-svg SVGs have Y flipped internally. In draw-space the board
+// occupies [boardX, 0, boardW, boardH] regardless of the gerber Y origin.
+function gerberToDrawBox(
+  vb: [number, number, number, number],
+): [number, number, number, number] {
+  const [bx, , bw, bh] = vb;
+  return [bx, 0, bw, bh];
 }
 
-// Unzip the gerber archive client-side and return a filename→Uint8Array map
-async function unzipGerbers(arrayBuffer: ArrayBuffer): Promise<Record<string, Uint8Array>> {
-    const zip = await JSZip.loadAsync(arrayBuffer);
-    const out: Record<string, Uint8Array> = {};
-    await Promise.all(
-        Object.entries(zip.files).map(async ([name, file]) => {
-            if (!file.dir) {
-                out[name] = await file.async("uint8array");
-            }
-        })
-    );
-    return out;
+function fitTransform(
+  viewBox: [number, number, number, number],
+  canvasW: number,
+  canvasH: number,
+  padding = 24,
+): Transform {
+  const [vx, vy, vw, vh] = viewBox;
+  if (vw === 0 || vh === 0) return { scale: 1, offsetX: 0, offsetY: 0 };
+  const scale = Math.min(
+    (canvasW - padding * 2) / vw,
+    (canvasH - padding * 2) / vh,
+  );
+  const offsetX = (canvasW - vw * scale) / 2 - vx * scale;
+  const offsetY = (canvasH - vh * scale) / 2 - vy * scale;
+  return { scale, offsetX, offsetY };
+}
+
+function layerVisible(layerSide: GerberSide, viewSide: "top" | "bottom"): boolean {
+  if (layerSide === "all" || layerSide === null) return true;
+  return layerSide === viewSide;
 }
 
 export function GerberViewer({ projectId }: GerberViewerProps) {
-    const hostRef = useRef<HTMLDivElement | null>(null);
-    const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
-    const [errorMsg, setErrorMsg] = useState<string | null>(null);
-    const [side, setSide] = useState<Side>("top");
-    const [gridOn, setGridOn] = useState(false);
-    const [gridUnits, setGridUnits] = useState<GridUnits>("mm");
-    const [layerVis, setLayerVis] = useState<Record<string, boolean>>(() =>
-        Object.fromEntries(LAYER_DEFS.map(l => [l.passId, true]))
-    );
-    // Available layers (only keys that actually came back from renderGerbersFiles)
-    const [availableLayers, setAvailableLayers] = useState<LayerDef[]>([]);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [layers, setLayers] = useState<GerberLayer[]>([]);
+  const [layerVis, setLayerVis] = useState<Record<string, boolean>>({});
+  const [side, setSide] = useState<"top" | "bottom">("top");
+  const [transform, setTransform] = useState<Transform>({ scale: 1, offsetX: 0, offsetY: 0 });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-    const viewerRef = useRef<ReturnType<typeof createIntegratedViewer> | null>(null);
-    const pendingResultRef = useRef<RenderResult | null>(null);
-    const layersRef = useRef<ViewerLayers>({});
-    const boardGeomRef = useRef<{ width_in: number; height_in: number } | null>(null);
+  const boardViewBox = useRef<[number, number, number, number]>([0, 0, 0, 0]);
+  const isDragging = useRef(false);
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
 
-    const toggleLayer = useCallback((passId: string) => {
-        const viewer = viewerRef.current;
-        if (!viewer) return;
-        setLayerVis(prev => {
-            const next = !prev[passId];
-            if (!next) {
-                viewer.viewer.removePass(passId);
-            } else {
-                const def = LAYER_DEFS.find(l => l.passId === passId);
-                if (!def) return prev;
-                const url = layersRef.current[def.key];
-                if (!url) return prev;
-                const pass = makeImagePass(passId, def.order, url, boardGeomRef, r => viewer.viewer.requestRender(r));
-                viewer.viewer.addPass(pass);
-            }
-            return { ...prev, [passId]: next };
-        });
-    }, []);
+  // ── Load ───────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setLayers([]);
+    setLayerVis({});
 
-    const soloLayer = useCallback((passId: string) => {
-        const viewer = viewerRef.current;
-        if (!viewer) return;
-        setLayerVis(prev => {
-            const next: Record<string, boolean> = {};
-            for (const def of LAYER_DEFS) {
-                const on = def.passId === passId;
-                next[def.passId] = on;
-                if (on && !prev[def.passId]) {
-                    const url = layersRef.current[def.key];
-                    if (url) viewer.viewer.addPass(makeImagePass(def.passId, def.order, url, boardGeomRef, r => viewer.viewer.requestRender(r)));
-                } else if (!on && prev[def.passId]) {
-                    viewer.viewer.removePass(def.passId);
-                }
-            }
-            return next;
-        });
-    }, []);
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/gerbers`, { credentials: "include" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        const blob = await res.blob();
+        const zip = await JSZip.loadAsync(blob);
+        const zipEntries = Object.keys(zip.files).filter(k => !zip.files[k].dir);
 
-    const showAll = useCallback(() => {
-        const viewer = viewerRef.current;
-        if (!viewer) return;
-        setLayerVis(prev => {
-            const next: Record<string, boolean> = {};
-            for (const def of LAYER_DEFS) {
-                next[def.passId] = true;
-                if (!prev[def.passId]) {
-                    const url = layersRef.current[def.key];
-                    if (url) viewer.viewer.addPass(makeImagePass(def.passId, def.order, url, boardGeomRef, r => viewer.viewer.requestRender(r)));
-                }
-            }
-            return next;
-        });
-    }, []);
+        const files: Record<string, string> = {};
+        await Promise.all(zipEntries.map(async (name) => {
+          files[name] = await zip.files[name].async("string");
+        }));
 
-    const hideAll = useCallback(() => {
-        const viewer = viewerRef.current;
-        if (!viewer) return;
-        setLayerVis(prev => {
-            const next: Record<string, boolean> = {};
-            for (const def of LAYER_DEFS) {
-                next[def.passId] = false;
-                if (prev[def.passId]) viewer.viewer.removePass(def.passId);
-            }
-            return next;
-        });
-    }, []);
+        const loaded = await loadGerberLayers(files);
+        if (cancelled) return;
 
-    useEffect(() => {
-        const controller = new AbortController();
-        let disposed = false;
+        const withImages = await Promise.all(loaded.map(async (layer) => {
+          try {
+            return { ...layer, image: await svgToImage(layer.svg) };
+          } catch {
+            return layer;
+          }
+        }));
+        if (cancelled) return;
 
-        const load = async () => {
-            setStatus("loading");
-            setErrorMsg(null);
-            pendingResultRef.current = null;
+        const vb = unionViewBox(withImages);
+        boardViewBox.current = vb;
+        setLayers(withImages);
+        setLayerVis(Object.fromEntries(withImages.map((l) => [l.id, true])));
 
-            try {
-                const res = await fetch(`/api/projects/${projectId}/gerbers`, {
-                    signal: controller.signal,
-                });
-                if (res.status === 404) { setStatus("empty"); return; }
-                if (!res.ok) throw new Error(`Server error ${res.status}`);
+        const canvas = canvasRef.current;
+        if (canvas) {
+          setTransform(fitTransform(gerberToDrawBox(vb), canvas.clientWidth, canvas.clientHeight));
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
 
-                const arrayBuffer = await res.arrayBuffer();
-                if (controller.signal.aborted || disposed) return;
+    return () => { cancelled = true; };
+  }, [projectId]);
 
-                // Unzip client-side so we can inspect filenames
-                const files = await unzipGerbers(arrayBuffer);
-                if (controller.signal.aborted || disposed) return;
+  // ── Render ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-                console.log("[GerberViewer] files in ZIP:", Object.keys(files));
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+    if (layers.length === 0) return;
 
-                const result = await renderGerbersFiles(files);
-                if (controller.signal.aborted || disposed) return;
+    const t = transform;
+    const [, boardY, , boardH] = boardViewBox.current;
 
-                console.log("[GerberViewer] layers returned:", Object.keys(result.layers).filter(k => !!(result.layers as Record<string,unknown>)[k]));
+    for (const layer of layers) {
+      if (!layerVis[layer.id]) continue;
+      if (!layerVisible(layer.side, side)) continue;
+      if (!layer.image) continue;
 
-                pendingResultRef.current = result;
+      const [vx, vy, vw, vh] = layer.viewBox;
+      const sx = vx * t.scale + t.offsetX;
+      const sy = (boardY + boardH - vy - vh) * t.scale + t.offsetY;
+      const sw = vw * t.scale;
+      const sh = vh * t.scale;
 
-                // Determine which LAYER_DEFS actually have data
-                const available = LAYER_DEFS.filter(def => !!result.layers[def.key]);
-                setAvailableLayers(available);
-                setLayerVis(Object.fromEntries(LAYER_DEFS.map(l => [l.passId, !!result.layers[l.key]])));
+      ctx.save();
+      if (side === "bottom") {
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(layer.image, sx, sy, sw, sh);
+      ctx.restore();
+    }
+  }, [layers, layerVis, side, transform]);
 
-                const host = hostRef.current;
-                if (!host) return;
+  // ── Pan / zoom ─────────────────────────────────────────────────────────────
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    setTransform((prev) => ({
+      scale: prev.scale * factor,
+      offsetX: mx - (mx - prev.offsetX) * factor,
+      offsetY: my - (my - prev.offsetY) * factor,
+    }));
+  }, []);
 
-                const tryMount = () => {
-                    if (disposed) return;
-                    const { width, height } = host.getBoundingClientRect();
-                    if (width === 0 || height === 0) return;
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    isDragging.current = true;
+    lastPointer.current = { x: e.clientX, y: e.clientY };
+    canvasRef.current?.setPointerCapture(e.pointerId);
+  }, []);
 
-                    const pending = pendingResultRef.current;
-                    if (!pending) return;
-                    pendingResultRef.current = null;
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDragging.current || !lastPointer.current) return;
+    const dx = e.clientX - lastPointer.current.x;
+    const dy = e.clientY - lastPointer.current.y;
+    lastPointer.current = { x: e.clientX, y: e.clientY };
+    // Bottom view mirrors X, so pan direction must be flipped on that axis
+    const xDir = side === "bottom" ? -1 : 1;
+    setTransform((prev) => ({ ...prev, offsetX: prev.offsetX + dx * xDir, offsetY: prev.offsetY + dy }));
+  }, [side]);
 
-                    viewerRef.current?.dispose();
-                    viewerRef.current = null;
+  const handlePointerUp = useCallback(() => {
+    isDragging.current = false;
+    lastPointer.current = null;
+  }, []);
 
-                    layersRef.current = pending.layers;
-                    boardGeomRef.current = pending.boardGeom?.board
-                        ? { width_in: pending.boardGeom.board.width_in, height_in: pending.boardGeom.board.height_in }
-                        : null;
+  const handleFit = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setTransform(fitTransform(gerberToDrawBox(boardViewBox.current), canvas.clientWidth, canvas.clientHeight));
+  }, []);
 
-                    const viewer = createIntegratedViewer(host, { showDownloadButton: false });
-                    viewerRef.current = viewer;
+  // ── Layer controls ─────────────────────────────────────────────────────────
+  const toggleLayer = useCallback((id: string) => {
+    setLayerVis((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
 
-                    // Hide the built-in header and expand the viewer body
-                    const header = host.querySelector<HTMLElement>(".viewer-header");
-                    if (header) header.style.display = "none";
-                    const body = host.querySelector<HTMLElement>(".viewer-body");
-                    if (body) { body.style.inset = "0"; body.style.top = "0"; }
+  const soloLayer = useCallback((id: string) => {
+    setLayerVis((prev) => {
+      // If already in solo mode for this layer, restore all to visible
+      const isSoloed = layers.every((l) => prev[l.id] === (l.id === id));
+      if (isSoloed) return Object.fromEntries(layers.map((l) => [l.id, true]));
+      return Object.fromEntries(layers.map((l) => [l.id, l.id === id]));
+    });
+  }, [layers]);
 
-                    // Override the library's hardcoded backgrounds to match the project theme.
-                    // Use getComputedStyle(body) so we get the resolved RGB value directly,
-                    // avoiding HSL space-separated CSS variable parsing issues.
-                    const bgCss = getComputedStyle(document.body).backgroundColor;
-                    const canvas = host.querySelector<HTMLCanvasElement>("#render-canvas");
-                    const root   = host.querySelector<HTMLElement>(".board-viewer-root");
-                    const vport  = host.querySelector<HTMLElement>("#board-viewport");
-                    if (root)  root.style.background  = bgCss;
-                    if (vport) vport.style.background = bgCss;
-                    if (canvas) {
-                        canvas.style.background = bgCss;
-                        const ctx = canvas.getContext("2d");
-                        if (ctx) {
-                            // The library draws a full-canvas fillRect every frame with #f5f5f5.
-                            // Intercept it and use the theme color instead.
-                            const LIB_BG = "rgb(245, 245, 245)"; // #f5f5f5 normalised by browser
-                            const origFillRect = ctx.fillRect.bind(ctx);
-                            ctx.fillRect = function(x: number, y: number, w: number, h: number) {
-                                const saved = ctx.fillStyle;
-                                if (saved === "#f5f5f5" || saved === LIB_BG) {
-                                    ctx.fillStyle = bgCss;
-                                    origFillRect(x, y, w, h);
-                                    ctx.fillStyle = saved;
-                                    return;
-                                }
-                                origFillRect(x, y, w, h);
-                            };
-                        }
-                    }
+  const showAll = useCallback(() => {
+    setLayerVis(() => Object.fromEntries(layers.map((l) => [l.id, true])));
+  }, [layers]);
 
-                    viewer.setData({ boardGeom: pending.boardGeom, layers: pending.layers });
-                    viewer.setSideMode("top");
-                    setStatus("ready");
-                    requestAnimationFrame(() => { if (!disposed) viewer.fit(); });
-                };
+  const hideAll = useCallback(() => {
+    setLayerVis(() => Object.fromEntries(layers.map((l) => [l.id, false])));
+  }, [layers]);
 
-                tryMount();
-                const ro = new ResizeObserver(() => { if (pendingResultRef.current) tryMount(); });
-                ro.observe(host);
-                const checkDone = setInterval(() => {
-                    if (!pendingResultRef.current || disposed) { clearInterval(checkDone); ro.disconnect(); }
-                }, 200);
-                controller.signal.addEventListener("abort", () => { clearInterval(checkDone); ro.disconnect(); });
+  const sidebarLayers = layers.filter(
+    (l) => l.side === side || l.side === "all" || l.side === null,
+  );
 
-            } catch (err: unknown) {
-                if (controller.signal.aborted || disposed) return;
-                setErrorMsg(err instanceof Error ? err.message : String(err));
-                setStatus("error");
-            }
-        };
-
-        void load();
-        return () => {
-            disposed = true;
-            controller.abort();
-            pendingResultRef.current = null;
-            viewerRef.current?.dispose();
-            viewerRef.current = null;
-        };
-    }, [projectId]);
-
-    const handleSideChange = (next: Side) => {
-        setSide(next);
-        viewerRef.current?.setSideMode(next);
-    };
-
-    const handleGridToggle = () => {
-        const next = !gridOn;
-        setGridOn(next);
-        const toggle = hostRef.current?.querySelector<HTMLInputElement>("#grid-toggle");
-        if (toggle) { toggle.checked = next; toggle.dispatchEvent(new Event("change")); }
-    };
-
-    const handleUnitsChange = (next: GridUnits) => {
-        setGridUnits(next);
-        const sel = hostRef.current?.querySelector<HTMLSelectElement>("#grid-units");
-        if (sel) { sel.value = next; sel.dispatchEvent(new Event("change")); }
-    };
-
-    // Sidebar shows layers for current side that the library actually rendered
-    const sidebarLayers = availableLayers.filter(l => l.side === "both" || l.side === side);
-    const allOn = sidebarLayers.every(l => layerVis[l.passId]);
-
-    return (
-        <div className="absolute inset-0 flex flex-col bg-background">
-
-            {/* ── Toolbar ── */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 border-b bg-background/95 backdrop-blur shrink-0">
-                {/* Side */}
-                <div className="flex rounded-md border overflow-hidden text-xs font-medium">
-                    {(["top", "bottom"] as Side[]).map(s => (
-                        <button key={s} onClick={() => handleSideChange(s)}
-                            className={`px-3 py-1.5 transition-colors capitalize ${side === s ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
-                            {s}
-                        </button>
-                    ))}
-                </div>
-
-                <div className="w-px h-4 bg-border mx-0.5" />
-
-                {/* Grid */}
-                <button onClick={handleGridToggle}
-                    className={`text-xs px-2.5 py-1.5 rounded border transition-colors ${gridOn ? "bg-primary/10 border-primary/40 text-primary" : "border-border/60 text-muted-foreground hover:bg-muted"}`}>
-                    Grid
-                </button>
-
-                {/* Units */}
-                <div className="flex rounded-md border overflow-hidden text-xs font-medium">
-                    {(["mm", "in"] as GridUnits[]).map(u => (
-                        <button key={u} onClick={() => handleUnitsChange(u)}
-                            className={`px-2.5 py-1.5 transition-colors ${gridUnits === u ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
-                            {u}
-                        </button>
-                    ))}
-                </div>
-
-                <div className="w-px h-4 bg-border mx-0.5" />
-
-                {/* Fit */}
-                <button onClick={() => viewerRef.current?.fit()}
-                    className="text-xs px-2.5 py-1.5 rounded border border-border/60 text-muted-foreground hover:bg-muted transition-colors flex items-center gap-1.5">
-                    <Maximize2 className="h-3 w-3" />
-                    Fit
-                </button>
-            </div>
-
-            {/* ── Body ── */}
-            <div className="flex flex-1 overflow-hidden">
-
-                {/* ── Left sidebar ── */}
-                {status === "ready" && sidebarLayers.length > 0 && (
-                    <div className="w-48 shrink-0 border-r flex flex-col bg-background overflow-hidden">
-                        <div className="px-3 pt-3 pb-1 shrink-0 flex items-center justify-between">
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Layers</p>
-                            <button
-                                onClick={allOn ? hideAll : showAll}
-                                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
-                                {allOn ? "Hide all" : "Show all"}
-                            </button>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto py-1">
-                            {sidebarLayers.map(def => {
-                                const on = layerVis[def.passId] ?? true;
-                                const soloActive = sidebarLayers.filter(l => layerVis[l.passId]).length === 1 && on;
-                                return (
-                                    <div key={def.passId}
-                                        className="group flex items-center gap-2 px-2 py-1 mx-1 rounded hover:bg-muted/60 transition-colors">
-                                        {/* Swatch */}
-                                        <button
-                                            onClick={() => toggleLayer(def.passId)}
-                                            className="shrink-0 w-3 h-3 rounded-sm border transition-opacity"
-                                            style={{ backgroundColor: on ? def.color : "transparent", borderColor: def.color, opacity: on ? 1 : 0.4 }}
-                                            title={on ? "Hide" : "Show"}
-                                        />
-                                        {/* Label */}
-                                        <span
-                                            onClick={() => toggleLayer(def.passId)}
-                                            className={`flex-1 text-xs cursor-pointer select-none transition-opacity ${on ? "text-foreground" : "text-muted-foreground opacity-50"}`}>
-                                            {def.label}
-                                        </span>
-                                        {/* Solo */}
-                                        <button
-                                            onClick={() => soloActive ? showAll() : soloLayer(def.passId)}
-                                            className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
-                                            title={soloActive ? "Show all" : "Solo"}>
-                                            {soloActive
-                                                ? <Eye className="h-3 w-3 text-primary" />
-                                                : <EyeOff className="h-3 w-3 text-muted-foreground" />}
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
-                {/* ── Canvas ── */}
-                <div className="flex-1 relative overflow-hidden">
-                    {status === "loading" && (
-                        <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
-                            Loading gerbers...
-                        </div>
-                    )}
-                    {status === "empty" && (
-                        <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
-                            No gerber files found for this project.
-                        </div>
-                    )}
-                    {status === "error" && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-destructive text-sm">
-                            <span>Failed to load gerbers</span>
-                            {errorMsg && <span className="text-xs text-muted-foreground">{errorMsg}</span>}
-                        </div>
-                    )}
-                    <div ref={hostRef} className="absolute inset-0" />
-                </div>
-            </div>
+  // ── Layout ─────────────────────────────────────────────────────────────────
+  return (
+    <div className="flex h-full w-full overflow-hidden bg-background">
+      {/* Sidebar — left */}
+      <div className="w-52 flex-none border-r border-border flex flex-col bg-background">
+        {/* Side + Fit controls */}
+        <div className="px-2 py-2 border-b border-border flex items-center gap-1.5">
+          <button
+            onClick={() => setSide("top")}
+            className={`flex-1 py-1 rounded text-xs font-medium border transition-colors ${
+              side === "top"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background text-muted-foreground border-border hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            Top
+          </button>
+          <button
+            onClick={() => setSide("bottom")}
+            className={`flex-1 py-1 rounded text-xs font-medium border transition-colors ${
+              side === "bottom"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background text-muted-foreground border-border hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            Bottom
+          </button>
+          <button
+            onClick={handleFit}
+            title="Fit to view"
+            className="p-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <Maximize2 size={12} />
+          </button>
         </div>
-    );
+
+        {/* Layer list header */}
+        <div className="px-3 py-1.5 border-b border-border flex items-center justify-between">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Layers
+          </span>
+          <div className="flex gap-1">
+            <button
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              onClick={showAll}
+              title="Show all"
+            >
+              <Eye size={12} />
+            </button>
+            <button
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              onClick={hideAll}
+              title="Hide all"
+            >
+              <EyeOff size={12} />
+            </button>
+          </div>
+        </div>
+
+        {/* Layer rows */}
+        <div className="flex-1 overflow-y-auto py-1">
+          {sidebarLayers.length === 0 && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              No layers for this side
+            </p>
+          )}
+          {sidebarLayers.map((layer) => (
+            <div
+              key={layer.id}
+              className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted group"
+            >
+              <span
+                className="w-2.5 h-2.5 rounded-sm flex-none border border-border/60"
+                style={{ backgroundColor: layer.color }}
+              />
+              {/* Clicking label toggles visibility */}
+              <span
+                className={`flex-1 text-xs truncate cursor-pointer select-none ${
+                  layerVis[layer.id]
+                    ? "text-foreground"
+                    : "text-muted-foreground line-through"
+                }`}
+                onClick={() => toggleLayer(layer.id)}
+                title={layer.label}
+              >
+                {layer.label}
+              </span>
+              {/* Eye icon solos the layer */}
+              <button
+                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
+                onClick={() => soloLayer(layer.id)}
+                title="Solo this layer"
+              >
+                <Eye size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Canvas area */}
+      <div className="relative flex-1">
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm z-10">
+            Loading gerber files…
+          </div>
+        )}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center text-destructive text-sm z-10 px-8 text-center">
+            {error}
+          </div>
+        )}
+        {!loading && !error && layers.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm z-10">
+            No gerber layers found
+          </div>
+        )}
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full block cursor-grab active:cursor-grabbing"
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        />
+      </div>
+    </div>
+  );
 }
