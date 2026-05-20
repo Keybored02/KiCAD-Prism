@@ -1,4 +1,4 @@
-# KiCAD Prism
+﻿# KiCAD Prism
 
 KiCAD Prism is a web platform for browsing, reviewing, and operating on KiCad repositories from the browser. It combines a FastAPI backend, a React/Vite frontend, repository import/sync flows, RBAC-based access control, comments export helpers, and manufacturing/documentation workflows in one workspace.
 
@@ -145,6 +145,27 @@ Frontend dev server runs on [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
 By default, local development usually runs without auth because `DEV_MODE=true` and no OIDC client is configured.
 
+### Pre-commit hooks
+
+The project ships `.pre-commit-config.yaml` with Ruff, ESLint, and TypeScript
+type-check hooks.
+
+Install pre-commit **outside** the backend venv (as a system or user tool) and
+run it after `npm install` so the frontend hooks can resolve `npx`:
+
+```bash
+# from the repo root — outside any venv
+pip install pre-commit      # or: pipx install pre-commit
+npm install --prefix frontend   # needed before the first hook run
+pre-commit install
+```
+
+Run all hooks against every file once to verify the setup:
+
+```bash
+pre-commit run --all-files
+```
+
 ## Authentication Model
 
 Current auth behavior is session-based:
@@ -181,11 +202,11 @@ Auth is effectively enabled only when all of the following are true:
 
 ```text
 KiCAD-Prism/
-├── backend/            # FastAPI backend
-├── frontend/           # React frontend
-├── docs/               # Project documentation
-├── assets/             # Screenshots and media for docs
-└── data/               # Runtime data in local/Docker use
+â”œâ”€â”€ backend/            # FastAPI backend
+â”œâ”€â”€ frontend/           # React frontend
+â”œâ”€â”€ docs/               # Project documentation
+â”œâ”€â”€ assets/             # Screenshots and media for docs
+â””â”€â”€ data/               # Runtime data in local/Docker use
 ```
 
 ## Acknowledgements
@@ -195,6 +216,7 @@ KiCAD-Prism/
 - [Interactive HTML BOM](https://github.com/quindorian/Sublime-iBOM-Plugin)
 - [Three.js](https://threejs.org/)
 - [FastAPI](https://fastapi.tiangolo.com/)
+- [Tracespace](https://github.com/tracespace/tracespace)
 
 ## License
 

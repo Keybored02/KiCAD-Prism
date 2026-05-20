@@ -1,5 +1,5 @@
 import {
-    useState, useEffect, useRef, useCallback,
+    useState, useEffect, useRef, useCallback, useMemo,
 } from "react";
 import {
     X, Loader2, AlertCircle, ChevronLeft, ChevronRight,
@@ -8,12 +8,17 @@ import {
 import { Button } from "@/components/ui/button";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 import {
+    COMMON_HOTKEYS,
     EcadInfoPanel,
     EcadViewerHost,
+    HotkeysLegend,
     useBoardClickFix,
     useEcadInfoPanel,
+    useViewerHotkeys,
+    useViewerReadiness,
 } from "@/components/ecad-viewer-shared";
 import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
+import { useCrossProbeRunner } from "@/lib/cross-probe-retry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,7 +68,8 @@ interface FieldChange {
 }
 
 interface ChangedItem {
-    item: PcbItem;
+    item: PcbItem;      // new version
+    old_item: PcbItem; // old version
     changes: Record<string, FieldChange>;
 }
 
@@ -88,7 +94,8 @@ interface PcbDiffData {
 
 interface DiffMarker {
     kind: "added" | "removed" | "changed";
-    item: PcbItem;
+    item: PcbItem;      // new version (or only version for added/removed)
+    old_item?: PcbItem; // old version (only for changed)
     changes?: Record<string, FieldChange>;
 }
 
@@ -101,13 +108,19 @@ interface GroupedMarker {
     kind: "added" | "removed" | "changed";
     label: string;
     members: DiffMarker[];
-    // merged world-space bbox for overlay
+    // merged world-space bbox for the new (or only) version
     bboxMinX: number;
     bboxMinY: number;
     bboxMaxX: number;
     bboxMaxY: number;
+    // bbox for the old version of changed items (undefined for added/removed)
+    oldBboxMinX?: number;
+    oldBboxMinY?: number;
+    oldBboxMaxX?: number;
+    oldBboxMaxY?: number;
     // zone polygon in world coords (only set for zone groups)
     polygonPoints?: [number, number][];
+    oldPolygonPoints?: [number, number][];
 }
 
 interface PcbDiffViewerProps {
@@ -117,12 +130,16 @@ interface PcbDiffViewerProps {
     onClose: () => void;
     embedded?: boolean;
     onCrossProbe?: (reference: string) => void;
-    crossProbeTarget?: string; // reference to navigate to when switching from schematic
+    crossProbeTarget?: { ref: string; seq: number }; // reference to navigate to when switching from schematic
     /** Item id (uuid or geometric key) to focus on when the diff loads. */
     focusItemId?: string;
     /** When true, hide the OLD/NEW toggle and always show the new board.
      *  Used when opening a single commit's changes (vs. a manual two-commit compare). */
     singleCommit?: boolean;
+    /** True when this viewer's tab is the currently visible one. Used to gate
+     *  cross-probe firing on visibility — probes that fire while display:none
+     *  zoom against a 0×0 canvas. Defaults to true for standalone usage. */
+    active?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,16 +296,21 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
     let gid = 0;
     const nextId = () => `g${gid++}`;
 
+    // Helper: wrap old_item as a fake marker for bbox computation
+    const oldMarker = (m: DiffMarker): DiffMarker => ({ ...m, item: m.old_item! });
+
     // ── Components (footprints) — one group per UUID, keep kind as-is ──
     for (const m of raw) {
         if (m.item.type !== "footprint") continue;
         const { minX, minY, maxX, maxY } = _bboxFromMembers([m]);
         const ref = m.item.reference || m.item.lib_id || "?";
         const val = m.item.value ? ` (${m.item.value})` : "";
+        const oldBbox = m.kind === "changed" && m.old_item ? _bboxFromMembers([oldMarker(m)]) : null;
         result.push({
             id: nextId(), category: "components", kind: m.kind,
             label: `${ref}${val}`,
             members: [m], bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
+            ...(oldBbox && { oldBboxMinX: oldBbox.minX, oldBboxMinY: oldBbox.minY, oldBboxMaxX: oldBbox.maxX, oldBboxMaxY: oldBbox.maxY }),
         });
     }
 
@@ -311,10 +333,13 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
         if (trackCount) parts.push(`${trackCount} wire${trackCount > 1 ? "s" : ""}`);
         if (viaCount)   parts.push(`${viaCount} via${viaCount > 1 ? "s" : ""}`);
         const label = parts.length > 0 ? `${netLabel} — ${parts.join(", ")}` : netLabel;
+        const oldMembers = members.filter(m => m.kind === "changed" && m.old_item).map(oldMarker);
+        const oldBbox = oldMembers.length > 0 ? _bboxFromMembers(oldMembers) : null;
         result.push({
             id: nextId(), category: "nets", kind,
             label,
             members, bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
+            ...(oldBbox && { oldBboxMinX: oldBbox.minX, oldBboxMinY: oldBbox.minY, oldBboxMaxX: oldBbox.maxX, oldBboxMaxY: oldBbox.maxY }),
         });
     }
 
@@ -322,6 +347,7 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
     for (const m of raw) {
         if (m.item.type !== "zone") continue;
         const pts = m.item.polygon_points;
+        const oldPts = m.kind === "changed" && m.old_item ? (m.old_item.polygon_points ?? undefined) : undefined;
         let minX: number, minY: number, maxX: number, maxY: number;
         if (pts && pts.length > 0) {
             minX = Math.min(...pts.map(p => p[0]));
@@ -331,6 +357,16 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
         } else {
             ({ minX, minY, maxX, maxY } = _bboxFromMembers([m]));
         }
+        let oldMinX: number | undefined, oldMinY: number | undefined, oldMaxX: number | undefined, oldMaxY: number | undefined;
+        if (oldPts && oldPts.length > 0) {
+            oldMinX = Math.min(...oldPts.map(p => p[0]));
+            oldMinY = Math.min(...oldPts.map(p => p[1]));
+            oldMaxX = Math.max(...oldPts.map(p => p[0]));
+            oldMaxY = Math.max(...oldPts.map(p => p[1]));
+        } else if (m.kind === "changed" && m.old_item) {
+            const ob = _bboxFromMembers([oldMarker(m)]);
+            oldMinX = ob.minX; oldMinY = ob.minY; oldMaxX = ob.maxX; oldMaxY = ob.maxY;
+        }
         const label = m.item.net_name && m.item.layer
             ? `${m.item.net_name} (${m.item.layer})`
             : m.item.net_name || m.item.name || "Zone";
@@ -339,6 +375,8 @@ function groupMarkers(raw: DiffMarker[]): GroupedMarker[] {
             label, members: [m],
             bboxMinX: minX, bboxMinY: minY, bboxMaxX: maxX, bboxMaxY: maxY,
             polygonPoints: pts && pts.length > 0 ? pts : undefined,
+            ...(oldMinX !== undefined && { oldBboxMinX: oldMinX, oldBboxMinY: oldMinY, oldBboxMaxX: oldMaxX, oldBboxMaxY: oldMaxY }),
+            ...(oldPts && oldPts.length > 0 && { oldPolygonPoints: oldPts }),
         });
     }
 
@@ -374,14 +412,67 @@ interface OverlayProps {
     getBoardEl: (host: ECadViewerElement) => BoardEl | null;
     onGroupClick: (group: GroupedMarker) => void;
     activeId: string | null;
+    showing: "new" | "old";
     kickRef?: React.MutableRefObject<((frames?: number) => void) | null>;
 }
 
-function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick, activeId, kickRef }: OverlayProps) {
+// Per-kind stripe rotation so stacked changes remain distinguishable.
+const stripeRotation = { added: 45, removed: -45, changed: 45 } as const;
+
+function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick, activeId, showing, kickRef }: OverlayProps) {
     const boxRefs  = useRef<Map<string, HTMLDivElement>>(new Map());
     const polyRefs = useRef<Map<string, SVGPolygonElement>>(new Map());
+    const patternRefs = useRef<Map<string, SVGPatternElement>>(new Map());
     const rafRef   = useRef<number | null>(null);
     const framesLeftRef = useRef(0);
+
+    // kicanvas attaches its wheel listener to the inner <canvas>, not the host
+    // element — so dispatching wheel events on the host has no effect. We have
+    // to find the canvas (behind nested shadow roots) and dispatch there.
+    const findCanvas = useCallback((root: Element | ShadowRoot | null): HTMLCanvasElement | null => {
+        if (!root) return null;
+        const c = (root as ShadowRoot).querySelector?.("canvas") as HTMLCanvasElement | null;
+        if (c) return c;
+        const all = (root as ShadowRoot).querySelectorAll?.("*") ?? [];
+        for (const el of all) {
+            const sr = (el as HTMLElement).shadowRoot;
+            if (sr) {
+                const found = findCanvas(sr);
+                if (found) return found;
+            }
+        }
+        return null;
+    }, []);
+
+    const dispatchWheel = useCallback((source: { deltaX: number; deltaY: number; deltaZ: number; deltaMode: number; clientX: number; clientY: number; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; }) => {
+        const viewer = viewerRef.current;
+        if (!viewer) return;
+        const canvas =
+            (getBoardEl(viewer) as ({ viewer?: { renderer?: { canvas?: HTMLCanvasElement } } } | null))?.viewer?.renderer?.canvas
+            ?? findCanvas(viewer as unknown as Element)
+            ?? findCanvas((viewer as unknown as HTMLElement).shadowRoot);
+        const target = canvas ?? (viewer as unknown as EventTarget);
+        target.dispatchEvent(new WheelEvent("wheel", {
+            bubbles: true, cancelable: true,
+            deltaX: source.deltaX, deltaY: source.deltaY, deltaZ: source.deltaZ,
+            deltaMode: source.deltaMode,
+            clientX: source.clientX, clientY: source.clientY,
+            ctrlKey: source.ctrlKey, shiftKey: source.shiftKey, altKey: source.altKey,
+        }));
+    }, [viewerRef, getBoardEl, findCanvas]);
+
+    const forwardWheel = useCallback((e: React.WheelEvent) => { dispatchWheel(e); }, [dispatchWheel]);
+
+    const svgRef = useRef<SVGSVGElement | null>(null);
+    // The SVG has pointer-events:none so React onWheel never fires on children.
+    // Attach a native wheel listener directly — it fires regardless of CSS.
+    useEffect(() => {
+        const svg = svgRef.current;
+        if (!svg) return;
+        const handler = (e: WheelEvent) => { dispatchWheel(e); };
+        svg.addEventListener("wheel", handler, { passive: true });
+        return () => svg.removeEventListener("wheel", handler);
+    }, [dispatchWheel]);
 
     const updatePositions = useCallback((): boolean => {
         const viewer = viewerRef.current;
@@ -396,9 +487,15 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
             // to add the canvas offset relative to our container.
             // We derive that offset by calling getScreenLocation for a known world point and
             // comparing to worldToScreen on the internal viewer.
-            type InternalViewer = { worldToScreen?: (x: number, y: number) => { x: number; y: number } };
+            type FootprintBBox = { x: number; y: number; w: number; h: number };
+            type BoardDoc = { find_footprint?: (ref: string) => { bbox?: FootprintBBox } | null };
+            type InternalViewer = {
+                worldToScreen?: (x: number, y: number) => { x: number; y: number };
+                board?: BoardDoc;
+            };
             const boardEl = getBoardEl(viewer) as (HTMLElement & { viewer?: InternalViewer }) | null;
             const worldToScreen = boardEl?.viewer?.worldToScreen?.bind(boardEl.viewer);
+            const findFootprint = boardEl?.viewer?.board?.find_footprint?.bind(boardEl.viewer.board);
 
             // Prefer the host element's `getScreenLocation` (canvas-relative) which is
             // the same approach used by the schematic overlay. If unavailable, fall
@@ -427,25 +524,62 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
             let anyVisible = false;
             const SCREEN_PAD = 4;
             for (const g of groups) {
-                if (g.polygonPoints) {
+                // For changed groups, pick geometry for the currently-shown version.
+                const useOld = showing === "old" && g.kind === "changed";
+                const activePoly = useOld ? (g.oldPolygonPoints ?? g.polygonPoints) : g.polygonPoints;
+                const activeBbox = useOld
+                    ? { minX: g.oldBboxMinX ?? g.bboxMinX, minY: g.oldBboxMinY ?? g.bboxMinY, maxX: g.oldBboxMaxX ?? g.bboxMaxX, maxY: g.oldBboxMaxY ?? g.bboxMaxY }
+                    : { minX: g.bboxMinX, minY: g.bboxMinY, maxX: g.bboxMaxX, maxY: g.bboxMaxY };
+                if (activePoly) {
                     const poly = polyRefs.current.get(g.id);
                     if (!poly) continue;
-                    const pts = g.polygonPoints.map(([wx, wy]) => {
+                    const pts = activePoly.map(([wx, wy]) => {
                         const s = toContainerPt(wx, wy);
                         return `${s.x},${s.y}`;
                     });
                     poly.setAttribute("points", pts.join(" "));
                     poly.style.display = "";
+                    // Translate the per-polygon pattern by the first vertex so the
+                    // stripes pan with the polygon when the canvas moves. Rotation
+                    // is set declaratively on the JSX; we rebuild the full transform
+                    // here to combine translate + rotate.
+                    const pat = patternRefs.current.get(g.id);
+                    if (pat && activePoly && activePoly.length > 0) {
+                        const p0 = toContainerPt(activePoly[0][0], activePoly[0][1]);
+                        const rot = stripeRotation[g.kind];
+                        pat.setAttribute("patternTransform", `translate(${p0.x} ${p0.y}) rotate(${rot})`);
+                    }
                     anyVisible = true;
                 } else {
                     const el = boxRefs.current.get(g.id);
                     if (!el) continue;
-                    const tl = toContainerPt(g.bboxMinX, g.bboxMinY);
-                    const br = toContainerPt(g.bboxMaxX, g.bboxMaxY);
-                    const left = Math.min(tl.x, br.x) - SCREEN_PAD;
-                    const top  = Math.min(tl.y, br.y) - SCREEN_PAD;
-                    const w    = Math.abs(br.x - tl.x) + SCREEN_PAD * 2;
-                    const h    = Math.abs(br.y - tl.y) + SCREEN_PAD * 2;
+                    // For footprint groups, use kicanvas's real footprint bbox
+                    // (same one used for the hover outline) + a pixel offset.
+                    const PAD = 6;
+                    let left: number, top: number, w: number, h: number;
+                    // For changed footprints in old view, look up by old reference
+                    const fpMember = g.members[0];
+                    const fpRef = useOld
+                        ? (fpMember?.old_item?.reference ?? fpMember?.old_item?.uuid ?? fpMember?.item.reference ?? "")
+                        : (fpMember?.item.reference ?? fpMember?.item.uuid ?? "");
+                    const fpBBox = g.category === "components"
+                        ? findFootprint?.(fpRef)?.bbox ?? null
+                        : null;
+                    if (fpBBox) {
+                        const tl = toContainerPt(fpBBox.x, fpBBox.y);
+                        const br = toContainerPt(fpBBox.x + fpBBox.w, fpBBox.y + fpBBox.h);
+                        left = Math.min(tl.x, br.x) - PAD;
+                        top  = Math.min(tl.y, br.y) - PAD;
+                        w    = Math.abs(br.x - tl.x) + PAD * 2;
+                        h    = Math.abs(br.y - tl.y) + PAD * 2;
+                    } else {
+                        const tl = toContainerPt(activeBbox.minX, activeBbox.minY);
+                        const br = toContainerPt(activeBbox.maxX, activeBbox.maxY);
+                        left = Math.min(tl.x, br.x) - SCREEN_PAD;
+                        top  = Math.min(tl.y, br.y) - SCREEN_PAD;
+                        w    = Math.abs(br.x - tl.x) + SCREEN_PAD * 2;
+                        h    = Math.abs(br.y - tl.y) + SCREEN_PAD * 2;
+                    }
                     const vis  = left + w > 0 && left < containerRect.width && top + h > 0 && top < containerRect.height;
                     if (vis) {
                         el.style.display = "";
@@ -461,10 +595,16 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
             }
             return anyVisible || groups.length === 0;
         } catch { return false; }
-    }, [viewerRef, containerRef, getBoardEl, groups]);
+    }, [viewerRef, containerRef, getBoardEl, groups, showing]);
+
+    // Stub ref — filled in after updateSvgMembers is defined below. tick calls
+    // through this ref so the RAF loop stays stable when svgGroups changes.
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    const updateSvgMembersRef = useRef<() => void>(() => {});
 
     const tick = useCallback(() => {
         const done = updatePositions();
+        updateSvgMembersRef.current();
         if (framesLeftRef.current > 0 || !done) {
             if (framesLeftRef.current > 0) framesLeftRef.current--;
             rafRef.current = requestAnimationFrame(tick);
@@ -530,37 +670,160 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
         return () => { stopped = true; };
     }, [viewerRef, getBoardEl, kick]);
 
-    // Build a unique stripe pattern id per (kind, activeId) combination so
-    // active zones get a denser/brighter stripe than inactive ones.
-    const stripeIds = {
-        added:   "diff-stripe-added",
-        removed: "diff-stripe-removed",
-        changed: "diff-stripe-changed",
-    };
+    // Groups rendered as individual SVG geometries (net tracks + vias)
+    // vs. groups still using a bbox div (footprints, gr_* graphics)
+    const svgGroups    = groups.filter(g => !g.polygonPoints && g.category === "nets");
+    const boxGroups    = groups.filter(g => !g.polygonPoints && g.category !== "nets");
+    const polygonGroups = groups.filter(g => g.polygonPoints);
+
+    const memberSvgRefs = useRef<Map<string, SVGElement>>(new Map());
+
+    const updateSvgMembers = useCallback((): void => {
+        const viewer = viewerRef.current;
+        const container = containerRef.current;
+        if (!viewer || !container) return;
+        try {
+            const containerRect = container.getBoundingClientRect();
+            if (!containerRect.width) return;
+            const viewerRect = viewer.getBoundingClientRect();
+            const dx = viewerRect.left - containerRect.left;
+            const dy = viewerRect.top  - containerRect.top;
+            const toScreen = viewer.getScreenLocation
+                ? (wx: number, wy: number) => {
+                    const s = viewer.getScreenLocation(wx, wy);
+                    return s ? { x: s.x + dx, y: s.y + dy } : null;
+                  }
+                : null;
+            if (!toScreen) return;
+
+            for (const g of svgGroups) {
+                for (let mi = 0; mi < g.members.length; mi++) {
+                    const key     = `${g.id}:${mi}`;
+                    const keyBase = `${key}:base`;
+                    const el      = memberSvgRefs.current.get(key);
+                    const baseEl  = memberSvgRefs.current.get(keyBase);
+                    if (!el) continue;
+                    const m = g.members[mi];
+                    // Per-member visibility: a net group can mix `added` + `removed`
+                    // segments (a rerouted trace). Hide members that don't belong to
+                    // the version currently shown so the overlay doesn't render both
+                    // the old and new traces in the same view.
+                    if (m.kind === "added"   && showing === "old") {
+                        el.setAttribute("display", "none");
+                        baseEl?.setAttribute("display", "none");
+                        continue;
+                    }
+                    if (m.kind === "removed" && showing === "new") {
+                        el.setAttribute("display", "none");
+                        baseEl?.setAttribute("display", "none");
+                        continue;
+                    }
+                    // For changed members, show geometry of the currently-shown version.
+                    const item = (m.kind === "changed" && showing === "old" && m.old_item) ? m.old_item : m.item;
+
+                    if (item.type === "via") {
+                        // Render via as a small rect (bounding box) — circles read poorly.
+                        const c = toScreen(item.x, item.y);
+                        if (!c) {
+                            el.setAttribute("display", "none");
+                            baseEl?.setAttribute("display", "none");
+                            continue;
+                        }
+                        const r_mm = (item.size ?? 0.8) / 2;
+                        const edge = toScreen(item.x + r_mm, item.y);
+                        const r_px = edge ? Math.max(5, Math.abs(edge.x - c.x)) : 6;
+                        // Bbox padding so the outline sits outside the via copper
+                        const pad = 2;
+                        const side = (r_px + pad) * 2;
+                        el.setAttribute("x", String(c.x - r_px - pad));
+                        el.setAttribute("y", String(c.y - r_px - pad));
+                        el.setAttribute("width",  String(side));
+                        el.setAttribute("height", String(side));
+                        el.removeAttribute("display");
+                    } else {
+                        const hasStartEnd =
+                            item.start_x != null && item.start_y != null &&
+                            item.end_x   != null && item.end_y   != null;
+                        if (!hasStartEnd) {
+                            el.setAttribute("display", "none");
+                            baseEl?.setAttribute("display", "none");
+                            continue;
+                        }
+                        const p1 = toScreen(item.start_x!, item.start_y!);
+                        const p2 = toScreen(item.end_x!,   item.end_y!);
+                        if (!p1 || !p2) {
+                            el.setAttribute("display", "none");
+                            baseEl?.setAttribute("display", "none");
+                            continue;
+                        }
+                        const w_mm  = (item.width ?? 0.2) / 2;
+                        const edgePt = toScreen(item.start_x! + w_mm, item.start_y!);
+                        const sw    = edgePt ? Math.max(2, Math.abs(edgePt.x - p1.x) * 2) : 3;
+                        // Solid black outline (continuous, rounded) + dashed translucent
+                        // colored top. Dash size scales with on-screen track width.
+                        const swTop  = sw + 3;
+                        const swBase = sw + 6;
+                        const dashLen = Math.max(10, sw * 3.5);
+                        const dashGap = Math.max(8,  sw * 2.5);
+                        if (baseEl) {
+                            baseEl.setAttribute("x1", String(p1.x));
+                            baseEl.setAttribute("y1", String(p1.y));
+                            baseEl.setAttribute("x2", String(p2.x));
+                            baseEl.setAttribute("y2", String(p2.y));
+                            baseEl.setAttribute("stroke-width", String(swBase));
+                            // Base stays solid so rounded caps appear only at the
+                            // line's terminations, not at every dash boundary.
+                            baseEl.removeAttribute("stroke-dasharray");
+                            baseEl.removeAttribute("display");
+                        }
+                        el.setAttribute("x1", String(p1.x));
+                        el.setAttribute("y1", String(p1.y));
+                        el.setAttribute("x2", String(p2.x));
+                        el.setAttribute("y2", String(p2.y));
+                        el.setAttribute("stroke-width", String(swTop));
+                        el.setAttribute("stroke-dasharray", `${dashLen} ${dashGap}`);
+                        el.removeAttribute("display");
+                    }
+                }
+            }
+        } catch { /* viewer transiently unavailable */ }
+    }, [viewerRef, containerRef, svgGroups, showing]);
+
+    useEffect(() => { updateSvgMembersRef.current = updateSvgMembers; }, [updateSvgMembers]);
+    // Kick immediately when groups or the shown version change so visibility
+    // and geometry update before the next user interaction.
+    useEffect(() => { kick(5); }, [svgGroups, showing, kick]);
 
     return (
         <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
-            {/* SVG layer for zone polygons */}
-            <svg className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none">
+            <svg ref={svgRef} className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none">
                 <defs>
-                    {(["added", "removed", "changed"] as const).map((kind) => {
-                        const color = KIND_COLOR[kind];
+                    {/* One pattern per zone group — patternTransform is updated each
+                        frame in updatePositions so stripes pan with the polygon. */}
+                    {polygonGroups.map((g) => {
+                        const color = KIND_COLOR[g.kind];
                         return (
                             <pattern
-                                key={kind}
-                                id={stripeIds[kind]}
+                                key={g.id}
+                                id={`zs-${g.id}`}
+                                ref={(node) => {
+                                    if (node) patternRefs.current.set(g.id, node);
+                                    else patternRefs.current.delete(g.id);
+                                }}
                                 patternUnits="userSpaceOnUse"
-                                width="8" height="8"
-                                patternTransform="rotate(45)"
+                                width="14" height="14"
+                                patternTransform={`rotate(${stripeRotation[g.kind]})`}
                             >
-                                <rect width="8" height="8" fill="transparent" />
-                                <line x1="0" y1="0" x2="0" y2="8"
-                                    stroke={color} strokeWidth="3" strokeOpacity="0.6" />
+                                <rect width="14" height="14" fill="transparent" />
+                                <line x1="0" y1="0" x2="0" y2="14"
+                                    stroke={color} strokeWidth="3" strokeOpacity="0.85" />
                             </pattern>
                         );
                     })}
                 </defs>
-                {groups.filter(g => g.polygonPoints).map((g) => {
+
+                {/* Zone polygons — striped fill with screen blend so items inside remain visible */}
+                {polygonGroups.map((g) => {
                     const color = KIND_COLOR[g.kind];
                     const isActive = g.id === activeId;
                     return (
@@ -570,28 +833,96 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                                 if (node) polyRefs.current.set(g.id, node as SVGPolygonElement);
                                 else polyRefs.current.delete(g.id);
                             }}
-                            // pointer-events: stroke → only the outline catches clicks,
-                            // so pads/traces inside the zone remain clickable.
-                            style={{ display: "none", cursor: "pointer", pointerEvents: "stroke" }}
-                            fill={`url(#${stripeIds[g.kind]})`}
+                            style={{
+                                display: "none",
+                                cursor: "pointer",
+                                pointerEvents: "stroke",
+                                mixBlendMode: "screen",
+                            }}
+                            fill={`url(#zs-${g.id})`}
                             stroke={color}
                             strokeWidth={isActive ? 4 : 3}
-                            strokeOpacity={isActive ? 1 : 0.7}
+                            strokeOpacity={isActive ? 1 : 0.85}
                             filter={isActive ? `drop-shadow(0 0 4px ${color})` : undefined}
                             onClick={() => onGroupClick(g)}
+                            onWheel={forwardWheel}
                         />
                     );
                 })}
+
+                {/* Net groups: solid black outline around each trace + softer
+                   translucent colored dash on top. Vias render as bounding boxes. */}
+                {svgGroups.map((g) => {
+                    const color = KIND_COLOR[g.kind];
+                    const isActive = g.id === activeId;
+                    const filter = isActive ? `drop-shadow(0 0 3px ${color})` : undefined;
+                    return g.members.map((dm, mi) => {
+                        const key     = `${g.id}:${mi}`;
+                        const keyBase = `${key}:base`;
+                        const item = dm.item as PcbItem;
+                        const isVia = item.type === "via";
+                        if (isVia) {
+                            return (
+                                <rect
+                                    key={key}
+                                    ref={(node) => {
+                                        if (node) memberSvgRefs.current.set(key, node);
+                                        else memberSvgRefs.current.delete(key);
+                                    }}
+                                    display="none"
+                                    x="0" y="0" width="0" height="0"
+                                    rx="2" ry="2"
+                                    fill={`${color}1A`}
+                                    stroke={color}
+                                    strokeWidth={isActive ? 2.5 : 2}
+                                    strokeOpacity={isActive ? 1 : 0.9}
+                                    filter={filter}
+                                    style={{ cursor: "pointer", pointerEvents: "stroke" }}
+                                    onClick={() => onGroupClick(g)}
+                                    onWheel={forwardWheel}
+                                />
+                            );
+                        }
+                        return (
+                            <g key={key} style={{ cursor: "pointer", pointerEvents: "stroke" }} onClick={() => onGroupClick(g)} onWheel={forwardWheel}>
+                                {/* Solid black outline — opacity 0 (kept for future restyling). */}
+                                <line
+                                    ref={(node) => {
+                                        if (node) memberSvgRefs.current.set(keyBase, node);
+                                        else memberSvgRefs.current.delete(keyBase);
+                                    }}
+                                    display="none"
+                                    x1="0" y1="0" x2="0" y2="0"
+                                    stroke="#000"
+                                    strokeOpacity="0"
+                                    strokeLinecap="round"
+                                />
+                                {/* Color on top — dashed zebra when idle, solid outline when selected.
+                                    updateSvgMembers writes/clears stroke-dasharray based on isActive. */}
+                                <line
+                                    ref={(node) => {
+                                        if (node) memberSvgRefs.current.set(key, node);
+                                        else memberSvgRefs.current.delete(key);
+                                    }}
+                                    display="none"
+                                    x1="0" y1="0" x2="0" y2="0"
+                                    data-active={isActive ? "1" : "0"}
+                                    stroke={color}
+                                    strokeOpacity={isActive ? 1 : 0.78}
+                                    strokeLinecap="round"
+                                    filter={isActive ? `drop-shadow(0 0 3px ${color})` : undefined}
+                                />
+                            </g>
+                        );
+                    });
+                })}
             </svg>
 
-            {/* Div boxes for everything else.
-                The visual box is pointer-events:none so clicks pass through to
-                the canvas below (lets the user click pads/traces inside the box).
-                A thin "frame" overlay catches clicks only on the border. */}
-            {groups.filter(g => !g.polygonPoints).map((g) => {
+            {/* Div boxes for footprints and graphics — bbox is accurate for these */}
+            {boxGroups.map((g) => {
                 const color = KIND_COLOR[g.kind];
                 const isActive = g.id === activeId;
-                const HIT = 6; // px — clickable frame thickness
+                const HIT = 6;
                 return (
                     <div
                         key={g.id}
@@ -612,11 +943,11 @@ function DiffOverlay({ groups, viewerRef, containerRef, getBoardEl, onGroupClick
                                 : `0 0 0 1.5px rgba(0,0,0,0.5)`,
                         }}
                     >
-                        {/* clickable border-only frame */}
                         {(["top", "right", "bottom", "left"] as const).map((side) => (
                             <div
                                 key={side}
                                 onClick={(e) => { e.stopPropagation(); onGroupClick(g); }}
+                                onWheel={forwardWheel}
                                 className="absolute pointer-events-auto cursor-pointer"
                                 style={{
                                     top:    side === "bottom" ? "auto" : -HIT / 2,
@@ -658,6 +989,7 @@ export function PcbDiffViewer({
     crossProbeTarget,
     focusItemId,
     singleCommit = false,
+    active = true,
 }: PcbDiffViewerProps) {
     const [data, setData] = useState<PcbDiffData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -680,23 +1012,38 @@ export function PcbDiffViewer({
     const boardElCache = useRef<WeakMap<ECadViewerElement, BoardEl>>(new WeakMap());
 
     const getBoardEl = useCallback((host: ECadViewerElement): BoardEl | null => {
+        // Cache entry is valid only if the viewer is still ALIVE — i.e. its
+        // renderer hasn't been disposed (WebGL2Renderer.dispose() sets gl =
+        // void 0). React StrictMode (and any future unmount/remount cycle of
+        // the kc-board-viewer inside the shadow DOM) can leave us with a
+        // cached dead reference while a fresh kc-board-viewer paints alongside.
         const cached = boardElCache.current.get(host);
-        if (cached?.viewer?.viewport?.camera) return cached;
+        const cachedInner = cached?.viewer as (BoardEl["viewer"] & { renderer?: { gl?: unknown } }) | undefined;
+        if (cached && cachedInner?.viewport?.camera && cachedInner?.renderer?.gl) return cached;
+        // Cache miss or stale — re-walk and prefer the live viewer.
         const walk = (root: ShadowRoot | Element): BoardEl | null => {
             const sr = (root as HTMLElement).shadowRoot;
             const searchRoot = sr ?? root;
-            const el = (searchRoot as ShadowRoot).querySelector?.("kc-board-viewer") as BoardEl | null;
-            if (el?.viewer?.viewport?.camera) return el;
+            const candidates = Array.from((searchRoot as ShadowRoot).querySelectorAll?.("kc-board-viewer") ?? []) as BoardEl[];
+            for (const el of candidates) {
+                const v = el?.viewer as (BoardEl["viewer"] & { renderer?: { gl?: unknown } }) | undefined;
+                if (v?.viewport?.camera && v?.renderer?.gl) return el;
+            }
             for (const child of (searchRoot as ShadowRoot).querySelectorAll?.("*") ?? []) {
                 if ((child as HTMLElement).shadowRoot) {
                     const f = walk(child as HTMLElement);
                     if (f) return f;
                 }
             }
-            return el ?? null;
+            // Fall back to any candidate (even disposed) so callers that don't
+            // need gl (e.g. overlay positioning via worldToScreen) still work.
+            return candidates[0] ?? null;
         };
         const result = host.shadowRoot ? walk(host) : null;
-        if (result?.viewer?.viewport?.camera) boardElCache.current.set(host, result);
+        const resultInner = result?.viewer as (BoardEl["viewer"] & { renderer?: { gl?: unknown } }) | undefined;
+        if (resultInner?.viewport?.camera && resultInner?.renderer?.gl) {
+            boardElCache.current.set(host, result!);
+        }
         return result;
     }, []);
 
@@ -799,14 +1146,30 @@ export function PcbDiffViewer({
 
     const activeBoardData = data?.boards.find(b => b.filename === activeBoard) ?? null;
 
+    // KiCad-style hotkeys: zoom, fit, redraw, board nav, close.
+    const cycleBoard = useCallback((delta: 1 | -1) => {
+        const boards = data?.boards;
+        if (!boards || boards.length === 0) return;
+        const idx = boards.findIndex(b => b.filename === activeBoard);
+        const next = boards[((idx === -1 ? 0 : idx) + delta + boards.length) % boards.length];
+        if (next) setActiveBoard(next.filename);
+    }, [data, activeBoard]);
+    useViewerHotkeys({
+        containerRef: viewerContainerRef,
+        viewerRefs: viewerRefsArr,
+        onNextSheet: () => cycleBoard(1),
+        onPrevSheet: () => cycleBoard(-1),
+        onClose,
+    });
+
     const rawMarkers: DiffMarker[] = [];
     if (activeBoardData) {
         for (const item of activeBoardData.diff.added)
             rawMarkers.push({ kind: "added", item });
         for (const item of activeBoardData.diff.removed)
             rawMarkers.push({ kind: "removed", item });
-        for (const { item, changes } of activeBoardData.diff.changed)
-            rawMarkers.push({ kind: "changed", item, changes });
+        for (const { item, old_item, changes } of activeBoardData.diff.changed)
+            rawMarkers.push({ kind: "changed", item, old_item, changes });
     }
     const allGroups = groupMarkers(rawMarkers);
 
@@ -833,33 +1196,95 @@ export function PcbDiffViewer({
           ]))
         : {};
 
-    const zoomToGroupOn = useCallback((g: GroupedMarker, target: "new" | "old", attempt = 0) => {
+    // Readiness signals — both hosts must reach a mounted+loaded state before
+    // we can drive their cameras. Keyed on commit pair so a new diff re-arms.
+    // Probe: inner kc-board-viewer reachable with a live camera == ready.
+    const newViewerKey = data ? `pcb-diff-new-${data.commit1}-${data.commit2}` : "pcb-diff-new-pending";
+    const oldViewerKey = data ? `pcb-diff-old-${data.commit1}-${data.commit2}` : "pcb-diff-old-pending";
+    // Readiness requires: camera present, WebGL context up, AND the canvas
+    // is actually sized to its container. Without the canvas-size check we
+    // can fire focus while the canvas is still at its default 300x150 — the
+    // bbox setter computes zoom against that small viewport, and once the
+    // SizeObserver fires later and resizes the canvas, the locked zoom
+    // displays the component at the wrong scale (looks un-zoomed).
+    const boardReadyProbe = useCallback(
+        (host: ECadViewerElement) => {
+            const inner = getBoardEl(host)?.viewer as {
+                viewport?: { camera?: { viewport_size?: { x?: number; y?: number } } };
+                renderer?: { gl?: unknown; canvas?: HTMLCanvasElement };
+            } | undefined;
+            if (!inner?.viewport?.camera || !inner?.renderer?.gl) return false;
+            // viewport_size mirrors canvas.clientWidth/clientHeight via the
+            // SizeObserver; zero or default values mean the layout hasn't
+            // settled. Require both > the default 300x150 OR at least non-zero
+            // and matching the canvas client size.
+            const vp = inner.viewport.camera.viewport_size;
+            const canvas = inner.renderer.canvas;
+            if (!vp || !canvas) return false;
+            const cw = canvas.clientWidth;
+            const ch = canvas.clientHeight;
+            // Real layout: client size is non-zero and viewport_size matches.
+            return cw > 0 && ch > 0 && vp.x === cw && vp.y === ch;
+        },
+        [getBoardEl],
+    );
+    const { ready: newReady } = useViewerReadiness({ host: newViewerRef, viewerKey: newViewerKey, probe: boardReadyProbe });
+    const { ready: oldReady } = useViewerReadiness({ host: oldViewerRef, viewerKey: oldViewerKey, probe: boardReadyProbe });
+
+    // Resolve the focus item synchronously from data. Returns null until data
+    // is available or the uuid can't be found on any board. Memoized so the
+    // focus effect's deps don't churn every render.
+    const focusTarget = useMemo<{ board: string; uuid: string; side: "new" | "old" } | null>(() => {
+        if (!data || !focusItemId) return null;
+        for (const board of data.boards) {
+            const inAdded   = board.diff.added.some(i => i.uuid === focusItemId);
+            const inRemoved = board.diff.removed.some(i => i.uuid === focusItemId);
+            const inChanged = board.diff.changed.some(c => c.item.uuid === focusItemId);
+            if (!inAdded && !inRemoved && !inChanged) continue;
+            const side: "new" | "old" = singleCommit
+                ? "new"
+                : inRemoved && !inAdded && !inChanged ? "old"
+                : "new";
+            return { board: board.filename, uuid: focusItemId, side };
+        }
+        return null;
+    }, [data, focusItemId, singleCommit]);
+
+    // Zoom the named side's viewer to the group's bbox and lock the camera
+    // there. Caller MUST guarantee the viewer is ready (camera mounted, host
+    // load event fired) — see useViewerReadiness. If you're tempted to add a
+    // retry here, fix the caller's readiness contract instead.
+    const zoomToGroupOn = useCallback((g: GroupedMarker, target: "new" | "old") => {
         const ref = target === "new" ? newViewerRef : oldViewerRef;
         const viewer = ref.current;
-        if (!viewer) {
-            if (attempt < 24) window.setTimeout(() => zoomToGroupOn(g, target, attempt + 1), 125);
-            return;
-        }
-        try {
-            const boardEl = getBoardEl(viewer);
-            const camera  = boardEl?.viewer?.viewport?.camera;
-            if (!camera) {
-                // Camera not ready yet — retry up to ~3s
-                if (attempt < 24) window.setTimeout(() => zoomToGroupOn(g, target, attempt + 1), 125);
-                return;
-            }
-            const pad = 10;
-            camera.bbox = {
-                x: g.bboxMinX - pad, y: g.bboxMinY - pad,
-                w: (g.bboxMaxX - g.bboxMinX) + pad * 2,
-                h: (g.bboxMaxY - g.bboxMinY) + pad * 2,
+        if (!viewer) return;
+        const camera = getCamera(viewer);
+        if (!camera) return;
+        const pad = 10;
+        // Drop any existing impose so the bbox math runs against the camera's
+        // own settle. Re-engage after the viewer has recomputed zoom/center.
+        imposeCamRef.current = null;
+        camera.bbox = {
+            x: g.bboxMinX - pad, y: g.bboxMinY - pad,
+            w: (g.bboxMaxX - g.bboxMinX) + pad * 2,
+            h: (g.bboxMaxY - g.bboxMinY) + pad * 2,
+        };
+        safeDraw(viewer);
+        // The bbox setter schedules the zoom/center resolution for the next
+        // paint — reading camera.zoom/center *now* gives stale values (often
+        // zoom=1, which is what made the toggle look "miniscule"). Wait one
+        // rAF, then sample the resolved camera and lock it.
+        requestAnimationFrame(() => {
+            const cam = getCamera(viewer);
+            if (!cam) return;
+            imposeCamRef.current = {
+                zoom: cam.zoom,
+                cx: cam.center.x,
+                cy: cam.center.y,
             };
-            // Clear any prior impose so the bbox fit is allowed to settle.
-            imposeCamRef.current = null;
-            safeDraw(viewer);
-        } catch { /* ignore */ }
+        });
         overlayKickRef.current?.(40);
-    }, [getBoardEl, safeDraw]);
+    }, [getCamera, safeDraw]);
 
     const handleGroupClick = useCallback((g: GroupedMarker) => {
         setActiveGroup(prev => prev?.id === g.id ? null : g);
@@ -871,69 +1296,56 @@ export function PcbDiffViewer({
             : g.kind === "removed" ? "old"
             : showing;
         if (targetSide !== showing) {
-            // Temporarily hide the overlay so boxes from the previous viewer
-            // don't flash in the wrong place while we toggle and fit the camera.
-            setShowOverlay(false);
+            // handleToggle pre-writes the from-viewer's camera into the target
+            // viewer and sets impose, so the swap is seamless. After the React
+            // render flips visibility, run the zoom on the (now-active) viewer.
             handleToggle(targetSide);
-            // After the render, apply the bbox to the newly shown viewer and
-            // then re-enable the overlay once the camera has had a moment to
-            // settle. This avoids a brief visible mismatch.
-            requestAnimationFrame(() => {
-                zoomToGroupOn(g, targetSide);
-                // Small delay to let the camera fit take effect before showing
-                // overlay. 50-120ms works well across typical machines.
-                setTimeout(() => {
-                    setShowOverlay(true);
-                    overlayKickRef.current?.(40);
-                }, 80);
-            });
+            requestAnimationFrame(() => zoomToGroupOn(g, targetSide));
         } else {
             zoomToGroupOn(g, targetSide);
-            overlayKickRef.current?.(40);
         }
     }, [zoomToGroupOn, showing, handleToggle, singleCommit]);
 
-    // Focus a specific item on first data load (or whenever focusItemId changes).
-    // We match the requested id against any member's uuid in any group, then
-    // run the same flow as a manual click on that group.
-    const allGroupsRef = useRef(allGroups);
-    allGroupsRef.current = allGroups;
-    const handleGroupClickRef = useRef(handleGroupClick);
-    handleGroupClickRef.current = handleGroupClick;
-    const focusedIdRef = useRef<string | undefined>(undefined);
+    // Focus flow — strictly event-driven, no timers. Fires exactly once per
+    // focusItemId when all prerequisites converge:
+    //   1. focusTarget is resolved (data is fetched and the uuid is found).
+    //   2. activeBoard matches the target board (we drive setActiveBoard if not).
+    //   3. The target side's viewer host has finished loading (readiness ready).
+    //   4. The group is present in allGroups for the current render.
+    // Any state change above re-evaluates the gate; the gate flips true exactly
+    // once and we fire. No polling.
+    const focusFiredRef = useRef<string | null>(null);
     useEffect(() => {
-        if (!data || !focusItemId) return;
-        if (focusedIdRef.current === focusItemId) return;
-
-        let foundBoard: string | null = null;
-        for (const board of data.boards) {
-            const hasItem =
-                board.diff.added.some(i => i.uuid === focusItemId) ||
-                board.diff.removed.some(i => i.uuid === focusItemId) ||
-                board.diff.changed.some(c => c.item.uuid === focusItemId);
-            if (hasItem) {
-                foundBoard = board.filename;
-                break;
-            }
-        }
-
-        if (!foundBoard) return;
-        if (foundBoard !== activeBoard) {
-            setActiveBoard(foundBoard);
+        if (!focusTarget) return;
+        if (focusFiredRef.current === focusTarget.uuid) return;
+        if (focusTarget.board !== activeBoard) {
+            setActiveBoard(focusTarget.board);
             return;
         }
+        const sideReady = focusTarget.side === "new" ? newReady : oldReady;
+        if (!sideReady) return;
+        const group = allGroups.find(g => g.members.some(m => m.item.uuid === focusTarget.uuid));
+        if (!group) return;
+        focusFiredRef.current = focusTarget.uuid;
+        handleGroupClick(group);
+    }, [focusTarget, activeBoard, newReady, oldReady, allGroups, handleGroupClick]);
 
-        focusedIdRef.current = focusItemId;
-        // Defer so the viewer has time to mount/load; use refs so we always
-        // read the latest allGroups and handleGroupClick when the timer fires.
+    // Diagnostic safety net (option C): if everything except readiness is in
+    // place after 8s of waiting, log which signal is missing. No best-effort
+    // click — we don't want to fire against a viewer that genuinely isn't ready.
+    useEffect(() => {
+        if (!focusTarget) return;
+        if (focusFiredRef.current === focusTarget.uuid) return;
         const t = window.setTimeout(() => {
-            const target = allGroupsRef.current.find(
-                g => g.members.some(m => m.item.uuid === focusItemId)
-            );
-            if (target) handleGroupClickRef.current(target);
-        }, 500);
+            if (focusFiredRef.current === focusTarget.uuid) return;
+            // eslint-disable-next-line no-console
+            console.warn("[pcb-diff] focus stalled — target:", focusTarget,
+                "activeBoard:", activeBoard,
+                "newReady:", newReady, "oldReady:", oldReady,
+                "groupFound:", allGroups.some(g => g.members.some(m => m.item.uuid === focusTarget.uuid)));
+        }, 8000);
         return () => window.clearTimeout(t);
-    }, [data, focusItemId, activeBoard]);
+    }, [focusTarget, activeBoard, newReady, oldReady, allGroups]);
 
     // Fire onCrossProbe when the user selects an item.
     // kicanvas:select bubbles+composed so it reaches the container div.
@@ -952,29 +1364,23 @@ export function PcbDiffViewer({
         return () => container.removeEventListener("kicanvas:select", handler);
     }, []);
 
-    // Navigate to a reference when cross-probed from the schematic diff viewer
+    // Navigate to a reference when cross-probed from the schematic / BOM viewer.
+    // Gated on (a) the tab being active (canvas visible & sized) and
+    // (b) the side-of-interest being ready (camera + GL context live).
+    // The shared runner retries up to ~1.4s, cancelling stale retries when
+    // a newer probe arrives.
+    const crossProbeRunner = useCrossProbeRunner();
+    const crossProbeFiredSeqRef = useRef<number>(-1);
     useEffect(() => {
-        if (!crossProbeTarget) return;
-        const doProbe = () => {
-            const viewer = (showing === "new" ? newViewerRef : oldViewerRef).current;
-            if (!viewer) return false;
-            viewer.setCrossProbeEnabled?.(true);
-            const result = viewer.requestCrossProbe({
-                sourceContext: "SCH",
-                targetContext: "PCB",
-                mode: "select",
-                kind: "designator",
-                value: crossProbeTarget,
-                designator: crossProbeTarget,
-            });
-            return result?.resolved !== false || result.reason !== "target-not-available";
-        };
-        if (!doProbe()) {
-            const t = setTimeout(doProbe, 400);
-            return () => clearTimeout(t);
-        }
+        if (!crossProbeTarget || !active) return;
+        if (crossProbeTarget.seq === crossProbeFiredSeqRef.current) return;
+        const sideReady = showing === "new" ? newReady : oldReady;
+        if (!sideReady) return;
+        const viewer = (showing === "new" ? newViewerRef : oldViewerRef).current;
+        crossProbeFiredSeqRef.current = crossProbeTarget.seq;
+        crossProbeRunner.run(viewer, "SCH", "PCB", crossProbeTarget.ref);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [crossProbeTarget]);
+    }, [crossProbeTarget, active, newReady, oldReady, showing]);
 
     return (
         <div className={embedded ? "h-full bg-background flex flex-col" : "fixed inset-0 z-50 bg-background flex flex-col"}>
@@ -1227,6 +1633,7 @@ export function PcbDiffViewer({
                                 getBoardEl={getBoardEl}
                                 onGroupClick={handleGroupClick}
                                 activeId={activeGroup?.id ?? null}
+                                showing={showing}
                                 kickRef={overlayKickRef}
                             />
                             {activeBoardData && (
@@ -1257,6 +1664,15 @@ export function PcbDiffViewer({
                                 </div>
                             )}
                             <EcadInfoPanel detail={selectedDetail} onClose={clearSelectedDetail} />
+                            <HotkeysLegend
+                                entries={[
+                                    ...COMMON_HOTKEYS,
+                                    ...(data.boards.length > 1
+                                        ? [{ keys: ["PgUp", "PgDn"], label: "Previous / next board" }]
+                                        : []),
+                                    { keys: ["Esc"], label: "Close" },
+                                ]}
+                            />
                         </>
                     )}
                 </div>

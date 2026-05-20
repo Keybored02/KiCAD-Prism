@@ -3,8 +3,8 @@ uvicorn
 gitpython
 pydantic
 pydantic-settings
-python-dotenv
-requests
+python-dotenv>=1.2.2
+requests>=2.32.4
 PyJWT[crypto]
 kiutils
 python-multipart

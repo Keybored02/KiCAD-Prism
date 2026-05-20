@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { Cpu, Box, FileText, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, RefreshCw } from "lucide-react";
+import { Cpu, Box, FileText, List, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, RefreshCw, Layers } from "lucide-react";
+import { BomDiffViewer } from "./bom-diff-viewer";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -15,14 +16,21 @@ import type {
     KiCanvasSelectDetail,
 } from "@/types/ecad-viewer";
 import {
+    COMMON_HOTKEYS,
     EcadInfoPanel,
     EcadViewerHost,
+    HotkeysLegend,
     useBoardClickFix,
     useEcadInfoPanel,
+    useViewerHotkeys,
 } from "./ecad-viewer-shared";
 
 const Model3DViewer = lazy(() =>
     import("./model-3d-viewer").then((module) => ({ default: module.Model3DViewer }))
+);
+
+const GerberViewer = lazy(() =>
+    import("./gerber-viewer").then((module) => ({ default: module.GerberViewer }))
 );
 
 interface VisualizerProps {
@@ -155,7 +163,7 @@ function CommitDiffOverlay({ markers, viewerRef }: {
     );
 }
 
-type VisualizerTab = "sch" | "pcb" | "3d" | "ibom";
+type VisualizerTab = "sch" | "pcb" | "3d" | "ibom" | "bom" | "gerber";
 
 interface CommentsSourceUrls {
     project_id: string;
@@ -224,6 +232,15 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     // PCB-only: layer-visibility map fix + pad-priority click reordering.
     useBoardClickFix({ viewerRefs: useRef([pcbViewerRef]).current, rebindKey: pcbViewerElement });
 
+    // Shared container ref + hotkey hook. The hook targets whichever viewer is
+    // currently visible by relying on :hover resolution inside the wrapper.
+    const visualizerContentRef = useRef<HTMLDivElement | null>(null);
+    const visualizerViewerRefs = useRef([schematicViewerRef, pcbViewerRef]).current;
+    useViewerHotkeys({
+        containerRef: visualizerContentRef,
+        viewerRefs: visualizerViewerRefs,
+    });
+
     const [activeTab, setActiveTab] = useState<VisualizerTab>("sch");
     const [schematicContent, setSchematicContent] = useState<string | null>(null);
     const [subsheets, setSubsheets] = useState<{ filename: string, content: string }[]>([]);
@@ -266,6 +283,9 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         SCH: 0,
         PCB: 0,
     });
+    const crossProbeSeqRef = useRef(0);
+    const [bomCrossProbeTarget, setBomCrossProbeTarget] = useState<{ ref: string; seq: number } | undefined>();
+
     const activeCommentContext: CommentContext | null = activeTab === "sch" ? "SCH" : activeTab === "pcb" ? "PCB" : null;
 
     const applyCommentModeToViewer = useCallback((viewer: ECadViewerElement | null, enabled: boolean) => {
@@ -443,7 +463,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     fetch(`${baseUrl}/3d-model`, { signal }),
                     fetch(`${baseUrl}/ibom`, { signal }),
                     fetch(`/api/projects/${projectId}/comments`, { signal }),
-                    fetch(`${baseUrl}/files?type=design`, { signal })
+                    fetch(`${baseUrl}/files?type=design`, { signal }),
                 ]);
 
                 // Handle 3D
@@ -480,6 +500,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                 } else {
                     setIbomUrl(null);
                 }
+
 
                 // Handle Comments
                 if (commentsRes.status === "fulfilled" && commentsRes.value.ok) {
@@ -708,6 +729,8 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         clearCrossProbeRetry("SCH");
         clearCrossProbeRetry("PCB");
         crossProbeRunIdRef.current = { SCH: 0, PCB: 0 };
+        crossProbeSeqRef.current = 0;
+        setBomCrossProbeTarget(undefined);
     }, [projectId, clearCrossProbeRetry]);
 
     useEffect(() => {
@@ -823,6 +846,9 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             if (!designator) return;
             lastCrossProbeRef.current[sourceContext] = designator;
             runCrossProbe(targetViewer, sourceContext, designator);
+            // Also update BOM highlight
+            crossProbeSeqRef.current += 1;
+            setBomCrossProbeTarget({ ref: designator, seq: crossProbeSeqRef.current });
         };
 
         const onSchematicSelect = (event: Event) =>
@@ -846,6 +872,14 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             runCrossProbe(schematicViewerRef.current, "PCB", lastCrossProbeRef.current.PCB);
         }
     }, [activeTab, runCrossProbe, schematicViewerElement, pcbViewerElement]);
+
+    // When a BOM row is clicked, cross-probe both SCH and PCB viewers and track for tab-switch
+    const handleBomCrossProbe = useCallback((designator: string) => {
+        lastCrossProbeRef.current.SCH = designator;
+        lastCrossProbeRef.current.PCB = designator;
+        runCrossProbe(schematicViewerRef.current, "PCB", designator);
+        runCrossProbe(pcbViewerRef.current, "SCH", designator);
+    }, [runCrossProbe]);
 
     // Submit Comment
     const handleSubmitComment = async (content: string) => {
@@ -1051,7 +1085,9 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         { id: "sch", label: "Schematic", icon: Cpu },
         { id: "pcb", label: "PCB Layout", icon: CircuitBoard },
         { id: "3d", label: "3D View", icon: Box },
+        { id: "bom", label: "BOM", icon: List },
         { id: "ibom", label: "iBoM", icon: FileText },
+        { id: "gerber", label: "Gerber", icon: Layers },
     ];
 
     if (loading) return <div className="flex justify-center items-center h-full">Loading Visualizer...</div>;
@@ -1253,7 +1289,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             </Dialog>
 
             {/* Content Area */}
-            <div className="flex-1 relative overflow-hidden">
+            <div ref={visualizerContentRef} className="flex-1 relative overflow-hidden">
                 {/* Schematic View - always mounted but conditionally visible */}
                 <div
                     ref={schematicWrapperRef}
@@ -1337,6 +1373,11 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     <CommitDiffOverlay markers={pcbDiffMarkers} viewerRef={pcbViewerRef} />
                 )}
 
+                {/* Keyboard shortcuts legend — only on the kicanvas tabs */}
+                {(activeTab === "sch" || activeTab === "pcb") && (
+                    <HotkeysLegend entries={COMMON_HOTKEYS} />
+                )}
+
                 {/* 3D View */}
                 {activeTab === "3d" && (
                     <div className="absolute inset-0 z-20 bg-background">
@@ -1350,10 +1391,29 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     </div>
                 )}
 
+                {/* BOM View — always mounted, hidden when not active */}
+                <div className="absolute inset-0 z-20" style={{ display: activeTab === "bom" ? undefined : "none" }}>
+                    <BomDiffViewer
+                        projectId={projectId}
+                        snapshot
+                        onCrossProbe={handleBomCrossProbe}
+                        crossProbeTarget={bomCrossProbeTarget}
+                    />
+                </div>
+
                 {/* iBoM View */}
                 {activeTab === "ibom" && (
                     <div className="absolute inset-0 z-20 bg-white">
                         {ibomUrl ? <iframe src={ibomUrl} className="w-full h-full border-0" /> : <div className="p-10">No iBoM Found</div>}
+                    </div>
+                )}
+
+                {/* Gerber View */}
+                {activeTab === "gerber" && (
+                    <div className="absolute inset-0 z-20 bg-background">
+                        <Suspense fallback={<div className="p-10 text-sm text-muted-foreground">Loading Gerber Viewer...</div>}>
+                            <GerberViewer projectId={projectId} />
+                        </Suspense>
                     </div>
                 )}
 

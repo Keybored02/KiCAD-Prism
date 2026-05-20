@@ -3,6 +3,7 @@ import { Download, File, FileText, Package, Image as ImageIcon, Folder, ChevronR
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileItem, TreeNode, formatBytes, buildFileTree, calculateTotalSize } from "@/lib/file-utils";
+import { PdfViewer } from "@/components/pdf-viewer";
 
 interface AssetsPortalProps {
     projectId: string;
@@ -130,6 +131,7 @@ export function AssetsPortal({ projectId }: AssetsPortalProps) {
     const [designFiles, setDesignFiles] = useState<FileItem[]>([]);
     const [mfgFiles, setMfgFiles] = useState<FileItem[]>([]);
     const [loading, setLoading] = useState(true);
+    const [pdfViewer, setPdfViewer] = useState<{ url: string; downloadUrl: string; filename: string } | null>(null);
 
     useEffect(() => {
         const fetchFiles = async () => {
@@ -163,9 +165,10 @@ export function AssetsPortal({ projectId }: AssetsPortalProps) {
     };
 
     const handlePreview = (path: string, type: string) => {
-        // Open in new tab with inline=true to force browser display
-        const url = `/api/projects/${projectId}/download?path=${encodeURIComponent(path)}&type=${type}&inline=true`;
-        window.open(url, '_blank');
+        const inlineUrl = `/api/projects/${projectId}/download?path=${encodeURIComponent(path)}&type=${type}&inline=true`;
+        const downloadUrl = `/api/projects/${projectId}/download?path=${encodeURIComponent(path)}&type=${type}`;
+        const filename = path.split("/").pop() ?? path;
+        setPdfViewer({ url: inlineUrl, downloadUrl, filename });
     };
 
     const designTree = useMemo(() => buildFileTree(designFiles), [designFiles]);
@@ -187,6 +190,15 @@ export function AssetsPortal({ projectId }: AssetsPortalProps) {
     }
 
     return (
+        <>
+        {pdfViewer && (
+            <PdfViewer
+                url={pdfViewer.url}
+                downloadUrl={pdfViewer.downloadUrl}
+                filename={pdfViewer.filename}
+                onClose={() => setPdfViewer(null)}
+            />
+        )}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Design Outputs */}
             <div className="space-y-4">
@@ -244,5 +256,6 @@ export function AssetsPortal({ projectId }: AssetsPortalProps) {
                 </div>
             </div>
         </div>
+        </>
     );
 }

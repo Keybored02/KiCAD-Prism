@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.config import settings
@@ -10,7 +10,7 @@ ROLE_STORE_VERSION = "1"
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _normalize_email(email: str) -> str:
@@ -21,11 +21,19 @@ def _normalize_email(email: str) -> str:
 
 
 def _bootstrap_admin_set() -> set[str]:
-    return {email.strip().lower() for email in settings.BOOTSTRAP_ADMIN_USERS if email.strip()}
+    return {
+        email.strip().lower()
+        for email in settings.BOOTSTRAP_ADMIN_USERS
+        if email.strip()
+    }
 
 
 def _default_viewer_domain_set() -> set[str]:
-    return {domain.strip().lower() for domain in settings.DEFAULT_VIEWER_DOMAINS if domain.strip()}
+    return {
+        domain.strip().lower()
+        for domain in settings.DEFAULT_VIEWER_DOMAINS
+        if domain.strip()
+    }
 
 
 def _default_store() -> dict[str, Any]:
@@ -62,7 +70,7 @@ def _load_role_store() -> dict[str, Any]:
         return _role_cache
 
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             payload = json.load(handle)
         if not isinstance(payload, dict):
             payload = _default_store()
@@ -128,7 +136,9 @@ def ensure_default_viewer_assignment(email: str) -> dict[str, str] | None:
     if domain not in _default_viewer_domain_set():
         return None
 
-    return upsert_user_role(email=normalized_email, role="viewer", updated_by="system@local")
+    return upsert_user_role(
+        email=normalized_email, role="viewer", updated_by="system@local"
+    )
 
 
 def list_role_assignments() -> list[dict[str, str]]:
@@ -139,7 +149,9 @@ def list_role_assignments() -> list[dict[str, str]]:
     assignments: list[dict[str, str]] = []
     for email, value in users.items():
         if email in bootstrap_admins:
-            assignments.append({"email": str(email), "role": "admin", "source": "bootstrap"})
+            assignments.append(
+                {"email": str(email), "role": "admin", "source": "bootstrap"}
+            )
             continue
         role = _entry_to_role(value)
         if not role:

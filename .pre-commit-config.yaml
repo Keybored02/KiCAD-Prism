@@ -1,0 +1,50 @@
+repos:
+  # ── Python (backend) ────────────────────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.11
+    hooks:
+      - id: ruff
+        name: Ruff lint (backend)
+        args: [--fix, --exit-non-zero-on-fix]
+        types_or: [python, pyi]
+
+      - id: ruff-format
+        name: Ruff format (backend)
+        types_or: [python, pyi]
+
+  # ── Frontend (TypeScript/React) ─────────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: eslint-frontend
+        name: ESLint (frontend)
+        language: system
+        entry: powershell
+        args: [-NoProfile, -Command, "Set-Location frontend; npm run lint"]
+        files: ^frontend/src/.*\.[tj]sx?$
+        pass_filenames: false
+
+      - id: frontend-typecheck
+        name: TypeScript type check (frontend)
+        language: system
+        entry: powershell
+        args: [-NoProfile, -Command, "Set-Location frontend; npx tsc --noEmit"]
+        pass_filenames: false
+        files: ^frontend/src/.*\.[tj]sx?$
+
+  # ── General hygiene ─────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(static/|gcode_viewer/)
+      - id: end-of-file-fixer
+        exclude: ^(static/|gcode_viewer/)
+      - id: check-yaml
+      - id: check-json
+        exclude: ^(static/|frontend/tsconfig\.)
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+        exclude: ^static/assets/
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: detect-private-key

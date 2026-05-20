@@ -1,36 +1,42 @@
-import os
+import datetime
 import json
+import logging
+import os
+import shutil
+import subprocess
+import threading
 import time
 import uuid
-import shutil
-import threading
-import datetime
-import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import quote
 
-from git import Repo, RemoteProgress
+from git import RemoteProgress, Repo
 from pydantic import BaseModel
 
 from app.services import path_config_service
 
+logger = logging.getLogger(__name__)
+
+
 class Project(BaseModel):
     id: str
     name: str
-    display_name: Optional[str] = None  # Custom name from .prism.json
+    display_name: str | None = None  # Custom name from .prism.json
     description: str
     path: str
     last_modified: str
-    registered_at: Optional[str] = None
-    thumbnail_url: Optional[str] = None
-    sub_path: Optional[str] = None  # Relative path within parent repo
-    parent_repo: Optional[str] = None  # Parent monorepo name
-    repo_url: Optional[str] = None  # Original Git URL
-    import_type: Optional[str] = None  # "type1" or "type2_subproject"
-    parent_repo_path: Optional[str] = None  # Path to parent repo for Type-2
-    folder_id: Optional[str] = None  # Optional folder assignment for workspace organization
-    portfolio: Optional[Dict[str, Any]] = None  # Portfolio scene/detail metadata
-    local_path_mode: Optional[str] = None  # "reference" or "copy" for local-path imports
+    registered_at: str | None = None
+    thumbnail_url: str | None = None
+    sub_path: str | None = None  # Relative path within parent repo
+    parent_repo: str | None = None  # Parent monorepo name
+    repo_url: str | None = None  # Original Git URL
+    import_type: str | None = None  # "type1" or "type2_subproject"
+    parent_repo_path: str | None = None  # Path to parent repo for Type-2
+    folder_id: str | None = (
+        None  # Optional folder assignment for workspace organization
+    )
+    portfolio: dict[str, Any] | None = None  # Portfolio scene/detail metadata
+    local_path_mode: str | None = None  # "reference" or "copy" for local-path imports
 
 
 class RegisteredProjectRecord(BaseModel):
@@ -39,18 +45,22 @@ class RegisteredProjectRecord(BaseModel):
     path: str
     description: str
     last_modified: str
-    registered_at: Optional[str] = None
-    sub_path: Optional[str] = None
-    parent_repo: Optional[str] = None
-    repo_url: Optional[str] = None
-    import_type: Optional[str] = None
-    parent_repo_path: Optional[str] = None
-    folder_id: Optional[str] = None
-    local_path_mode: Optional[str] = None  # "reference" or "copy" for local-path imports
+    registered_at: str | None = None
+    sub_path: str | None = None
+    parent_repo: str | None = None
+    repo_url: str | None = None
+    import_type: str | None = None
+    parent_repo_path: str | None = None
+    folder_id: str | None = None
+    local_path_mode: str | None = None  # "reference" or "copy" for local-path imports
+
 
 # PROJECTS_ROOT is where imported projects are stored.
 # In Docker, this should be a persistent volume mount.
-PROJECTS_ROOT = os.environ.get("KICAD_PROJECTS_ROOT", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")))
+PROJECTS_ROOT = os.environ.get(
+    "KICAD_PROJECTS_ROOT",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")),
+)
 
 # MONOREPOS_ROOT is where monorepos are cloned (Type-2 sub-projects)
 MONOREPOS_ROOT = os.path.join(PROJECTS_ROOT, "type2")
@@ -65,29 +75,37 @@ os.makedirs(os.path.join(PROJECTS_ROOT, "type1"), exist_ok=True)
 
 PROJECTS_CACHE_TTL = 5.0  # seconds
 
-_project_records_cache: List[RegisteredProjectRecord] = []
+_project_records_cache: list[RegisteredProjectRecord] = []
 _project_records_cache_time: float = 0
-_projects_cache: List[Project] = []
+_projects_cache: list[Project] = []
 _projects_cache_time: float = 0
 
-def _load_project_registry() -> Dict[str, dict]:
+
+def _load_project_registry() -> dict[str, dict]:
     """Load the project registry from JSON file."""
     if os.path.exists(PROJECT_REGISTRY_FILE):
         try:
-            with open(PROJECT_REGISTRY_FILE, 'r') as f:
+            with open(PROJECT_REGISTRY_FILE) as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
+        except (json.JSONDecodeError, OSError) as err:
+            logger.warning(
+                "Failed to load project registry from %s: %s",
+                PROJECT_REGISTRY_FILE,
+                err,
+            )
     return {}
 
-def _save_project_registry(registry: Dict[str, dict]) -> None:
+
+def _save_project_registry(registry: dict[str, dict]) -> None:
     """Save the project registry to JSON file."""
     try:
-        with open(PROJECT_REGISTRY_FILE, 'w') as f:
+        with open(PROJECT_REGISTRY_FILE, "w") as f:
             json.dump(registry, f, indent=2)
         invalidate_project_caches()
-    except IOError as e:
-        print(f"Warning: Failed to save project registry: {e}")
+    except OSError as err:
+        logger.warning(
+            "Failed to save project registry to %s: %s", PROJECT_REGISTRY_FILE, err
+        )
 
 
 def invalidate_project_caches() -> None:
@@ -101,19 +119,28 @@ def invalidate_project_caches() -> None:
     _projects_cache_time = 0
     project_properties_service.invalidate_project_properties_cache()
 
-def register_project(project_id: str, name: str, path: str, repo_url: str,
-                     sub_path: Optional[str] = None, parent_repo: Optional[str] = None,
-                     description: Optional[str] = None, folder_id: Optional[str] = None) -> None:
+
+def register_project(
+    project_id: str,
+    name: str,
+    path: str,
+    repo_url: str,
+    sub_path: str | None = None,
+    parent_repo: str | None = None,
+    description: str | None = None,
+    folder_id: str | None = None,
+) -> None:
     """Register a project in the registry."""
     registry = _load_project_registry()
-    
+
     # Get last modified time
     try:
         mtime = os.path.getmtime(path)
-        last_modified = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
-    except:
+        last_modified = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+    except OSError as err:
+        logger.warning("Could not read project mtime for %s: %s", path, err)
         last_modified = "Unknown"
-    
+
     registry[project_id] = {
         "name": name,
         "path": path,
@@ -123,10 +150,11 @@ def register_project(project_id: str, name: str, path: str, repo_url: str,
         "description": description or f"Project {name}",
         "last_modified": last_modified,
         "registered_at": datetime.datetime.now().isoformat(),
-        "folder_id": folder_id
+        "folder_id": folder_id,
     }
-    
+
     _save_project_registry(registry)
+
 
 def _normalize_path(path: str) -> str:
     """
@@ -136,13 +164,13 @@ def _normalize_path(path: str) -> str:
     # If path is already correct for current environment and exists, return as-is
     if os.path.exists(path):
         return os.path.abspath(path)
-    
+
     # Convert Docker path to local path (running on host, registry has docker paths)
     if path.startswith("/app/projects"):
         local_path = path.replace("/app/projects", PROJECTS_ROOT)
         if os.path.exists(local_path):
             return local_path
-            
+
     # Convert Host path to Docker path (running in docker, registry has host paths)
     # Strategy: locate 'data/projects/' or 'type1'/'type2' and append to current PROJECTS_ROOT
     for marker in ["data/projects/", "type1/", "type2/", "monorepos/"]:
@@ -156,33 +184,34 @@ def _normalize_path(path: str) -> str:
                 remapped = os.path.join(PROJECTS_ROOT, suffix)
             else:
                 remapped = os.path.join(PROJECTS_ROOT, marker.strip("/"), suffix)
-                
+
             if os.path.exists(remapped):
                 return remapped
-    
+
     # Convert relative path to absolute
     if not os.path.isabs(path):
         abs_path = os.path.abspath(os.path.join(PROJECTS_ROOT, "..", "..", path))
         if os.path.exists(abs_path):
             return abs_path
-        
+
         # Try relative to PROJECTS_ROOT
         abs_path = os.path.abspath(os.path.join(PROJECTS_ROOT, path))
         if os.path.exists(abs_path):
             return abs_path
-    
+
     # Return original path if no conversion worked
     return path
+
 
 def _record_last_modified(path: str, fallback: str) -> str:
     try:
         mtime = os.path.getmtime(path)
-        return datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
+        return datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
     except OSError:
         return fallback
 
 
-def _to_relative_project_path(project_path: str, file_path: Optional[str]) -> Optional[str]:
+def _to_relative_project_path(project_path: str, file_path: str | None) -> str | None:
     if not file_path:
         return None
     try:
@@ -194,7 +223,7 @@ def _to_relative_project_path(project_path: str, file_path: Optional[str]) -> Op
     return relative.replace(os.sep, "/")
 
 
-def _resolve_thumbnail_from_path(project_path: str) -> Optional[str]:
+def _resolve_thumbnail_from_path(project_path: str) -> str | None:
     config = path_config_service.get_path_config(project_path)
     resolved = path_config_service.resolve_paths(project_path, config)
     thumbnail_path = resolved.thumbnail_dir
@@ -212,9 +241,11 @@ def _resolve_thumbnail_from_path(project_path: str) -> Optional[str]:
     return None
 
 
-def _build_portfolio_metadata(project_id: str, project_path: str) -> Optional[Dict[str, Any]]:
+def _build_portfolio_metadata(
+    project_id: str, project_path: str
+) -> dict[str, Any] | None:
     configured = path_config_service.get_portfolio_config(project_path)
-    portfolio: Dict[str, Any] = dict(configured) if configured else {}
+    portfolio: dict[str, Any] = dict(configured) if configured else {}
 
     model_path = portfolio.get("modelPath")
     if not model_path:
@@ -229,12 +260,16 @@ def _build_portfolio_metadata(project_id: str, project_path: str) -> Optional[Di
     if model_path:
         encoded_model_path = quote(model_path, safe="/")
         portfolio["modelPath"] = model_path
-        portfolio["modelUrl"] = f"/api/projects/{quote(project_id, safe='')}/asset/{encoded_model_path}"
+        portfolio["modelUrl"] = (
+            f"/api/projects/{quote(project_id, safe='')}/asset/{encoded_model_path}"
+        )
 
     if thumbnail_path:
         encoded_thumbnail_path = quote(thumbnail_path, safe="/")
         portfolio["thumbnailPath"] = thumbnail_path
-        portfolio["thumbnailUrl"] = f"/api/projects/{quote(project_id, safe='')}/asset/{encoded_thumbnail_path}"
+        portfolio["thumbnailUrl"] = (
+            f"/api/projects/{quote(project_id, safe='')}/asset/{encoded_thumbnail_path}"
+        )
 
     if "tags" not in portfolio:
         portfolio["tags"] = []
@@ -256,7 +291,9 @@ def _record_to_project(record: RegisteredProjectRecord) -> Project:
         path=record.path,
         last_modified=record.last_modified,
         registered_at=record.registered_at,
-        thumbnail_url=f"/api/projects/{record.id}/thumbnail" if thumbnail_path else None,
+        thumbnail_url=f"/api/projects/{record.id}/thumbnail"
+        if thumbnail_path
+        else None,
         sub_path=record.sub_path,
         parent_repo=record.parent_repo,
         repo_url=record.repo_url,
@@ -268,18 +305,21 @@ def _record_to_project(record: RegisteredProjectRecord) -> Project:
     )
 
 
-def get_registered_project_records() -> List[RegisteredProjectRecord]:
+def get_registered_project_records() -> list[RegisteredProjectRecord]:
     """
     Return normalized registry-backed project records without hydrating `.prism.json`.
     """
     global _project_records_cache, _project_records_cache_time
 
     current_time = time.time()
-    if _project_records_cache and (current_time - _project_records_cache_time) < PROJECTS_CACHE_TTL:
+    if (
+        _project_records_cache
+        and (current_time - _project_records_cache_time) < PROJECTS_CACHE_TTL
+    ):
         return _project_records_cache
 
     registry = _load_project_registry()
-    records: List[RegisteredProjectRecord] = []
+    records: list[RegisteredProjectRecord] = []
     for project_id, data in registry.items():
         normalized_path = _normalize_path(data["path"])
         if not os.path.exists(normalized_path):
@@ -291,7 +331,9 @@ def get_registered_project_records() -> List[RegisteredProjectRecord]:
                 name=data["name"],
                 path=normalized_path,
                 description=data.get("description", f"Project {data['name']}"),
-                last_modified=_record_last_modified(normalized_path, data.get("last_modified", "Unknown")),
+                last_modified=_record_last_modified(
+                    normalized_path, data.get("last_modified", "Unknown")
+                ),
                 registered_at=data.get("registered_at"),
                 sub_path=data.get("sub_path"),
                 parent_repo=data.get("parent_repo"),
@@ -299,7 +341,8 @@ def get_registered_project_records() -> List[RegisteredProjectRecord]:
                 import_type=data.get("import_type"),
                 parent_repo_path=(
                     _normalize_path(data.get("parent_repo_path"))
-                    if data.get("import_type") == "type2_subproject" and data.get("parent_repo_path")
+                    if data.get("import_type") == "type2_subproject"
+                    and data.get("parent_repo_path")
                     else None
                 ),
                 folder_id=data.get("folder_id"),
@@ -311,25 +354,28 @@ def get_registered_project_records() -> List[RegisteredProjectRecord]:
     _project_records_cache_time = current_time
     return records
 
-def get_registered_projects() -> List[Project]:
+
+def get_registered_projects() -> list[Project]:
     """
     Get all registered projects from the registry.
     Uses a short-term cache to avoid excessive I/O.
     """
     global _projects_cache, _projects_cache_time
-    
+
     current_time = time.time()
     if _projects_cache and (current_time - _projects_cache_time) < PROJECTS_CACHE_TTL:
         return _projects_cache
-        
-    projects = [_record_to_project(record) for record in get_registered_project_records()]
-    
+
+    projects = [
+        _record_to_project(record) for record in get_registered_project_records()
+    ]
+
     _projects_cache = projects
     _projects_cache_time = current_time
     return projects
 
 
-def get_project_by_id(project_id: str) -> Optional[Project]:
+def get_project_by_id(project_id: str) -> Project | None:
     """
     Efficiently get a single project by its ID without scanning all projects if possible.
     """
@@ -341,94 +387,107 @@ def get_project_by_id(project_id: str) -> Optional[Project]:
         if project:
             return project
 
-    record = next((item for item in get_registered_project_records() if item.id == project_id), None)
+    record = next(
+        (item for item in get_registered_project_records() if item.id == project_id),
+        None,
+    )
     if not record:
         return None
 
     return _record_to_project(record)
 
+
 # Global job store: {job_id: {status: str, message: str, percent: float, project_id: str, error: str, logs: list[str], type: str}}
 jobs = {}
+
 
 class CloneProgress(RemoteProgress):
     def __init__(self, job_id):
         super().__init__()
         self.job_id = job_id
-        
-    def update(self, op_code, cur_count, max_count=None, message=''):
+
+    def update(self, op_code, cur_count, max_count=None, message=""):
         if self.job_id in jobs:
             job = jobs[self.job_id]
             # Calculate percentage if max_count is available
             percent = 0
             if max_count:
                 percent = (cur_count / max_count) * 100
-                
-            job['percent'] = percent
-            job['message'] = message or f"Processing... {int(percent)}%"
+
+            job["percent"] = percent
+            job["message"] = message or f"Processing... {int(percent)}%"
             # Add to logs only if message makes sense
             if message:
-                job['logs'].append(f"[GIT] {message}")
+                job["logs"].append(f"[GIT] {message}")
 
-def _run_clone_job(job_id: str, repo_url: str, selected_paths: Optional[List[str]] = None):
+
+def _run_clone_job(job_id: str, repo_url: str, selected_paths: list[str] | None = None):
     job = jobs[job_id]
-    
+
     # Extract project name
-    project_name = repo_url.rstrip('/').split('/')[-1]
-    if project_name.endswith('.git'):
+    project_name = repo_url.rstrip("/").split("/")[-1]
+    if project_name.endswith(".git"):
         project_name = project_name[:-4]
-    
+
     # Clone to monorepos directory
     target_path = os.path.join(MONOREPOS_ROOT, project_name)
     target_path_abs = os.path.abspath(target_path)
-    
+
     # Check if monorepo already exists
     if os.path.exists(target_path):
-        job['status'] = 'failed'
-        job['error'] = f"Monorepo '{project_name}' already exists"
-        job['logs'].append(f"Error: Monorepo '{project_name}' already exists")
+        job["status"] = "failed"
+        job["error"] = f"Monorepo '{project_name}' already exists"
+        job["logs"].append(f"Error: Monorepo '{project_name}' already exists")
         return
 
     try:
-        job['logs'].append(f"Cloning {repo_url} into {target_path}...")
+        job["logs"].append(f"Cloning {repo_url} into {target_path}...")
         # Prevent git from asking for credentials (avoid hanging)
         env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        
-        Repo.clone_from(
-            repo_url, 
-            target_path, 
-            progress=CloneProgress(job_id),
-            env=env
-        )
-        
+        env["GIT_TERMINAL_PROMPT"] = "0"
+
+        Repo.clone_from(repo_url, target_path, progress=CloneProgress(job_id), env=env)
+
         # Register project(s)
         if selected_paths and len(selected_paths) > 0:
             # Multi-project import
             imported_projects = []
             for sub_path in selected_paths:
                 # Generate unique project ID
-                safe_name = sub_path.replace('/', '-').replace(' ', '_')
+                safe_name = sub_path.replace("/", "-").replace(" ", "_")
                 project_id = f"{project_name}-{safe_name}"
-                
+
                 # Check for duplicate ID
                 registry = _load_project_registry()
                 if project_id in registry:
-                    existing_path = _normalize_path(registry[project_id].get("path", ""))
-                    if existing_path != os.path.abspath(os.path.join(target_path, sub_path)):
+                    existing_path = _normalize_path(
+                        registry[project_id].get("path", "")
+                    )
+                    if existing_path != os.path.abspath(
+                        os.path.join(target_path, sub_path)
+                    ):
                         # Different project with same ID - add numeric suffix
                         suffix = 1
                         original_id = project_id
                         while f"{original_id}-{suffix}" in registry:
                             suffix += 1
                         project_id = f"{original_id}-{suffix}"
-                        job['logs'].append(f"Warning: ID collision detected, using {project_id}")
-                
+                        job["logs"].append(
+                            f"Warning: ID collision detected, using {project_id}"
+                        )
+
                 full_project_path = os.path.join(target_path, sub_path)
-                
+
                 # Get project name from the .kicad_pro file
-                pro_files = [f for f in os.listdir(full_project_path) if f.endswith('.kicad_pro')]
-                board_name = pro_files[0].replace('.kicad_pro', '') if pro_files else os.path.basename(sub_path)
-                
+                pro_files = [
+                    f for f in os.listdir(full_project_path) if f.endswith(".kicad_pro")
+                ]
+                board_name = (
+                    pro_files[0].replace(".kicad_pro", "")
+                    if pro_files
+                    else os.path.basename(sub_path)
+                )
+
                 register_project(
                     project_id=project_id,
                     name=board_name,
@@ -436,26 +495,28 @@ def _run_clone_job(job_id: str, repo_url: str, selected_paths: Optional[List[str
                     repo_url=repo_url,
                     sub_path=sub_path,
                     parent_repo=project_name,
-                    description=f"{project_name} / {board_name}"
+                    description=f"{project_name} / {board_name}",
                 )
                 imported_projects.append(project_id)
-                job['logs'].append(f"Registered sub-project: {project_id}")
-            
-            job['project_ids'] = imported_projects
-            job['message'] = f'Imported {len(imported_projects)} projects'
+                job["logs"].append(f"Registered sub-project: {project_id}")
+
+            job["project_ids"] = imported_projects
+            job["message"] = f"Imported {len(imported_projects)} projects"
         else:
             # Single project import (root level)
             # Check if root has .kicad_pro files
-            pro_files = [f for f in os.listdir(target_path) if f.endswith('.kicad_pro')]
-            
+            pro_files = [f for f in os.listdir(target_path) if f.endswith(".kicad_pro")]
+
             if pro_files:
                 # Root has KiCAD project
                 project_id = project_name
-                
+
                 # Check for duplicate ID
                 registry = _load_project_registry()
                 if project_id in registry:
-                    existing_path = _normalize_path(registry[project_id].get("path", ""))
+                    existing_path = _normalize_path(
+                        registry[project_id].get("path", "")
+                    )
                     if existing_path != target_path_abs:
                         # Different project with same ID - add numeric suffix
                         suffix = 1
@@ -463,8 +524,10 @@ def _run_clone_job(job_id: str, repo_url: str, selected_paths: Optional[List[str
                         while f"{original_id}-{suffix}" in registry:
                             suffix += 1
                         project_id = f"{original_id}-{suffix}"
-                        job['logs'].append(f"Warning: ID collision detected, using {project_id}")
-                
+                        job["logs"].append(
+                            f"Warning: ID collision detected, using {project_id}"
+                        )
+
                 register_project(
                     project_id=project_id,
                     name=project_name,
@@ -472,30 +535,36 @@ def _run_clone_job(job_id: str, repo_url: str, selected_paths: Optional[List[str
                     repo_url=repo_url,
                     sub_path=None,
                     parent_repo=None,
-                    description=f"Project {project_name}"
+                    description=f"Project {project_name}",
                 )
-                job['project_id'] = project_id
+                job["project_id"] = project_id
             else:
                 # No KiCAD files at root - register as monorepo container
-                job['logs'].append("Warning: No .kicad_pro files found at root level")
-                job['project_id'] = project_name
-        
-        job['status'] = 'completed'
-        job['percent'] = 100
-        job['logs'].append("Clone and registration successful.")
-        
+                job["logs"].append("Warning: No .kicad_pro files found at root level")
+                job["project_id"] = project_name
+
+        job["status"] = "completed"
+        job["percent"] = 100
+        job["logs"].append("Clone and registration successful.")
+
     except Exception as e:
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        job['logs'].append(f"Error: {str(e)}")
+        job["status"] = "failed"
+        job["error"] = str(e)
+        job["logs"].append(f"Error: {str(e)}")
+        logger.exception("Clone and registration job failed")
         # Cleanup
         if os.path.exists(target_path):
             try:
                 shutil.rmtree(target_path)
-            except:
-                pass
+            except Exception as cleanup_err:
+                logger.warning(
+                    "Failed to clean up cloned target %s after failure: %s",
+                    target_path,
+                    cleanup_err,
+                )
 
-def start_import_job(repo_url: str, selected_paths: Optional[List[str]] = None) -> str:
+
+def start_import_job(repo_url: str, selected_paths: list[str] | None = None) -> str:
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         "status": "running",
@@ -505,17 +574,21 @@ def start_import_job(repo_url: str, selected_paths: Optional[List[str]] = None) 
         "project_ids": [],
         "error": None,
         "logs": [],
-        "type": "import"
+        "type": "import",
     }
-    
-    thread = threading.Thread(target=_run_clone_job, args=(job_id, repo_url, selected_paths))
+
+    thread = threading.Thread(
+        target=_run_clone_job, args=(job_id, repo_url, selected_paths)
+    )
     thread.daemon = True
     thread.start()
-    
+
     return job_id
+
 
 def get_job_status(job_id: str):
     return jobs.get(job_id)
+
 
 # Workflow Jobs
 def _find_cli_path():
@@ -523,28 +596,31 @@ def _find_cli_path():
     mac_path = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
     if os.path.exists(mac_path):
         return mac_path
-    return "kicad-cli" # Fallback to PATH
+    return "kicad-cli"  # Fallback to PATH
+
 
 def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
     job = jobs[job_id]
-    
-    try:
-        projects = get_registered_projects()
-        project = next((p for p in projects if p.id == project_id), None)
-        if not project:
-            raise ValueError("Project not found")
 
-        job['logs'].append(f"Starting workflow: {workflow_type}")
+    try:
+        from app.services.workspace_service import workspace
+
+        row = workspace.get_project_by_id(project_id)
+        if not row:
+            raise ValueError("Project not found")
+        project_path = row["path"]
+
+        job["logs"].append(f"Starting workflow: {workflow_type}")
         cli_path = _find_cli_path()
-        job['logs'].append(f"Using KiCAD CLI: {cli_path}")
+        job["logs"].append(f"Using KiCAD CLI: {cli_path}")
 
         # Find .kicad_pro file
         pro_file = None
-        for file in os.listdir(project.path):
+        for file in os.listdir(project_path):
             if file.endswith(".kicad_pro"):
                 pro_file = file
                 break
-        
+
         if not pro_file:
             raise ValueError(".kicad_pro file not found in project root")
 
@@ -559,8 +635,8 @@ def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
             raise ValueError(f"Unknown workflow type: {workflow_type}")
 
         # Resolve workflow jobset from project settings (.prism.json) / auto-detection.
-        config = path_config_service.get_path_config(project.path)
-        resolved_paths = path_config_service.resolve_paths(project.path, config)
+        config = path_config_service.get_path_config(project_path)
+        resolved_paths = path_config_service.resolve_paths(project_path, config)
         jobset_path = resolved_paths.jobset_path
         configured_jobset = config.jobset or "Outputs.kicad_jobset"
 
@@ -569,113 +645,121 @@ def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
 
         # Prefer a path relative to project root for CLI invocation/log readability.
         try:
-            project_root_abs = os.path.abspath(project.path)
+            project_root_abs = os.path.abspath(project_path)
             jobset_abs = os.path.abspath(jobset_path)
             if os.path.commonpath([project_root_abs, jobset_abs]) == project_root_abs:
                 jobset_file = os.path.relpath(jobset_abs, project_root_abs)
             else:
                 jobset_file = jobset_path
         except ValueError:
-            # Fallback for uncommon path edge cases (e.g., different mount roots).
             jobset_file = jobset_path
 
         cmd = [
             cli_path,
             "jobset",
             "run",
-            "-f", jobset_file,
-            "--output", output_id,
-            pro_file
+            "-f",
+            jobset_file,
+            "--output",
+            output_id,
+            pro_file,
         ]
-        
-        job['logs'].append(f"Command: {' '.join(cmd)}")
-        
+
+        job["logs"].append(f"Command: {' '.join(cmd)}")
+
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            cwd=project.path,
+            cwd=project_path,
             text=True,
             bufsize=1,
-            universal_newlines=True
+            universal_newlines=True,
         )
 
         for line in process.stdout:
             line = line.strip()
             if line:
-                job['logs'].append(line)
-        
+                job["logs"].append(line)
+
         return_code = process.wait()
-        
+
         if return_code == 0:
-            job['percent'] = 100
-            job['message'] = 'Processing outputs...'
-            job['logs'].append("Job completed successfully.")
-            
+            job["percent"] = 100
+            job["message"] = "Processing outputs..."
+            job["logs"].append("Job completed successfully.")
+
             # --- Git Push Logic ---
             try:
-                job['logs'].append("Starting Git Sync...")
-                repo = Repo(project.path)
-                
+                job["logs"].append("Starting Git Sync...")
+                repo = Repo(project_path)
+
                 # Check for changes
                 if not repo.is_dirty(untracked_files=True):
-                    job['logs'].append("No changes detected to commit.")
+                    job["logs"].append("No changes detected to commit.")
                 else:
                     # Add all changes
-                    job['logs'].append("Staging files...")
-                    repo.git.add('.')
-                    job['logs'].append("Files staged.")
-                    
+                    job["logs"].append("Staging files...")
+                    repo.git.add(".")
+                    job["logs"].append("Files staged.")
+
                     # Commit
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    author_name = job.get('author', 'anonymous')
+                    author_name = job.get("author", "anonymous")
                     commit_message = f"Generated {workflow_type} outputs - {timestamp} by {author_name}"
-                    job['logs'].append(f"Committing with message: '{commit_message}'")
-                    
+                    job["logs"].append(f"Committing with message: '{commit_message}'")
+
                     # Set local config for this commit to ensure it works even if global config is missing
                     # Or just use author argument in commit
                     repo.git.commit(
-                        m=commit_message, 
-                        author="KiCAD Prism <prism@example.com>"
+                        m=commit_message, author="KiCAD Prism <prism@example.com>"
                     )
-                    job['logs'].append("Commit created.")
-                    
+                    job["logs"].append("Commit created.")
+
                     # Push
-                    job['logs'].append("Pushing to remote...")
+                    job["logs"].append("Pushing to remote...")
                     # Disable interactive prompt for push
                     env = os.environ.copy()
-                    env['GIT_TERMINAL_PROMPT'] = '0'
-                    
-                    origin = repo.remote(name='origin')
+                    env["GIT_TERMINAL_PROMPT"] = "0"
+
+                    origin = repo.remote(name="origin")
                     push_info = origin.push(env=env)
-                    
+
                     # Check push results
                     for info in push_info:
                         if info.flags & info.ERROR:
                             raise Exception(f"Push failed: {info.summary}")
-                            
-                    job['logs'].append("Successfully pushed to remote.")
-                    
+
+                    job["logs"].append("Successfully pushed to remote.")
+
             except Exception as e:
-                job['logs'].append(f"Git Sync Warning: {str(e)}")
+                job["logs"].append(f"Git Sync Warning: {str(e)}")
+                logger.warning(
+                    "Git sync warning while pushing workflow output for %s: %s",
+                    project_id,
+                    e,
+                )
                 # We don't fail the job if push fails, just warn
             # ----------------------
 
-            job['status'] = 'completed'
-            job['message'] = 'Workflow completed successfully'
-            
+            job["status"] = "completed"
+            job["message"] = "Workflow completed successfully"
+
         else:
-            job['status'] = 'failed'
-            job['error'] = f"Process exited with code {return_code}"
-            job['logs'].append(f"Job failed with exit code {return_code}")
+            job["status"] = "failed"
+            job["error"] = f"Process exited with code {return_code}"
+            job["logs"].append(f"Job failed with exit code {return_code}")
 
     except Exception as e:
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        job['logs'].append(f"Error: {str(e)}")
+        job["status"] = "failed"
+        job["error"] = str(e)
+        job["logs"].append(f"Error: {str(e)}")
+        logger.exception("Workflow job %s failed", job_id)
 
 
-def start_workflow_job(project_id: str, workflow_type: str, author: str = "anonymous") -> str:
+def start_workflow_job(
+    project_id: str, workflow_type: str, author: str = "anonymous"
+) -> str:
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         "status": "running",
@@ -685,64 +769,70 @@ def start_workflow_job(project_id: str, workflow_type: str, author: str = "anony
         "error": None,
         "logs": [],
         "type": workflow_type,
-        "author": author
+        "author": author,
     }
-    
-    thread = threading.Thread(target=_run_workflow_job, args=(job_id, project_id, workflow_type))
+
+    thread = threading.Thread(
+        target=_run_workflow_job, args=(job_id, project_id, workflow_type)
+    )
     thread.daemon = True
     thread.start()
-    
+
     return job_id
 
-def get_project_thumbnail_path(project_id: str) -> Optional[str]:
+
+def get_project_thumbnail_path(project_id: str) -> str | None:
     project = get_project_by_id(project_id)
     if not project:
         print(f"[DEBUG] Project {project_id} not found")
         return None
-    
+
     # Use path config service to get thumbnail path
     config = path_config_service.get_path_config(project.path)
     resolved = path_config_service.resolve_paths(project.path, config)
     thumbnail_path = resolved.thumbnail_dir
-    
+
     print(f"[DEBUG] Project: {project.path}")
     print(f"[DEBUG] Config thumbnail: {config.thumbnail}")
     print(f"[DEBUG] Resolved thumbnail_dir: {thumbnail_path}")
-    
+
     if not thumbnail_path or not os.path.exists(thumbnail_path):
-        print(f"[DEBUG] Thumbnail path does not exist or is None")
+        print("[DEBUG] Thumbnail path does not exist or is None")
         return None
-    
+
     # If thumbnail path points to a specific file, return it directly
     if os.path.isfile(thumbnail_path):
         print(f"[DEBUG] Returning specific file: {thumbnail_path}")
         return thumbnail_path
-    
+
     # If it's a directory, find first image file
     if os.path.isdir(thumbnail_path):
         for file in os.listdir(thumbnail_path):
-            if file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+            if file.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
                 result = os.path.join(thumbnail_path, file)
                 print(f"[DEBUG] Returning file from directory: {result}")
                 return result
-    
-    print(f"[DEBUG] No valid thumbnail found")
+
+    print("[DEBUG] No valid thumbnail found")
     return None
 
-def find_schematic_file(project_path: str) -> Optional[str]:
+
+def find_schematic_file(project_path: str) -> str | None:
     """Find the main .kicad_sch file using path config."""
     resolved = path_config_service.resolve_paths(project_path)
     return resolved.schematic
 
-def find_pcb_file(project_path: str) -> Optional[str]:
+
+def find_pcb_file(project_path: str) -> str | None:
     """Find the main .kicad_pcb file using path config."""
     resolved = path_config_service.resolve_paths(project_path)
     return resolved.pcb
 
-def find_3d_model(project_path: str) -> Optional[str]:
+
+def find_3d_model(project_path: str) -> str | None:
     """Find the .glb or .step model using path config."""
     resolved = path_config_service.resolve_paths(project_path)
-    
+
     # Check Design-Outputs/3DModel subdirectory
     if resolved.design_outputs_dir:
         model_dir = os.path.join(resolved.design_outputs_dir, "3DModel")
@@ -750,26 +840,30 @@ def find_3d_model(project_path: str) -> Optional[str]:
             for file in os.listdir(model_dir):
                 if file.lower().endswith((".glb", ".step", ".stp")):
                     return os.path.join(model_dir, file)
-    
+
     # Check Design-Outputs root for 3D models
     if resolved.design_outputs_dir and os.path.exists(resolved.design_outputs_dir):
         for file in os.listdir(resolved.design_outputs_dir):
             if file.lower().endswith((".glb", ".step", ".stp")):
                 return os.path.join(resolved.design_outputs_dir, file)
-    
+
     return None
 
-def find_ibom_file(project_path: str) -> Optional[str]:
+
+def find_ibom_file(project_path: str) -> str | None:
     """Find the iBoM HTML file using path config."""
     resolved = path_config_service.resolve_paths(project_path)
-    
-    if not resolved.design_outputs_dir or not os.path.exists(resolved.design_outputs_dir):
+
+    if not resolved.design_outputs_dir or not os.path.exists(
+        resolved.design_outputs_dir
+    ):
         return None
-    
+
     for file in os.listdir(resolved.design_outputs_dir):
         if "ibom" in file.lower() and file.endswith(".html"):
             return os.path.join(resolved.design_outputs_dir, file)
     return None
+
 
 def delete_project(project_id: str) -> bool:
     """
@@ -800,8 +894,10 @@ def delete_project(project_id: str) -> bool:
     if import_type == "type2_subproject" and parent_repo:
         # Check if there are any remaining subprojects for this parent repo
         remaining_subprojects = [
-            p for p in registry.values()
-            if p.get("parent_repo") == parent_repo and p.get("import_type") == "type2_subproject"
+            p
+            for p in registry.values()
+            if p.get("parent_repo") == parent_repo
+            and p.get("import_type") == "type2_subproject"
         ]
 
         # If no remaining subprojects, delete the parent repo directory
@@ -810,20 +906,26 @@ def delete_project(project_id: str) -> bool:
             if os.path.exists(parent_repo_path):
                 try:
                     shutil.rmtree(parent_repo_path)
-                    print(f"Deleted Type-2 parent repo: {parent_repo_path}")
-                except Exception as e:
-                    print(f"Warning: Failed to delete parent repo directory {parent_repo_path}: {e}")
+                    logger.info("Deleted Type-2 parent repo: %s", parent_repo_path)
+                except Exception as err:
+                    logger.warning(
+                        "Failed to delete parent repo directory %s: %s",
+                        parent_repo_path,
+                        err,
+                    )
     elif not parent_repo and project_path and os.path.exists(project_path):
         # For Type-1 projects (standalone), delete the directory
         try:
             shutil.rmtree(project_path)
-        except Exception as e:
-            print(f"Warning: Failed to delete project directory {project_path}: {e}")
-    
+        except Exception as err:
+            logger.warning(
+                "Failed to delete project directory %s: %s", project_path, err
+            )
+
     return True
 
 
-def update_project_folder_id(project_id: str, folder_id: Optional[str]) -> bool:
+def update_project_folder_id(project_id: str, folder_id: str | None) -> bool:
     """
     Persist workspace folder assignment for a project.
     Returns False if project does not exist.
@@ -860,20 +962,21 @@ def update_project_description(project_id: str, description: str) -> bool:
 
     return True
 
-def get_subsheets(project_path: str, main_schematic: str) -> List[str]:
+
+def get_subsheets(project_path: str, main_schematic: str) -> list[str]:
     """Find all .kicad_sch files using path config."""
     subsheets = []
     main_name = os.path.basename(main_schematic)
-    
+
     # Get path config
     resolved = path_config_service.resolve_paths(project_path)
     config = path_config_service.get_path_config(project_path)
-    
+
     # Check root directory for other schematic files
     for file in os.listdir(project_path):
         if file.endswith(".kicad_sch") and file != main_name:
             subsheets.append(file)
-            
+
     # Check configured subsheets directory
     if resolved.subsheets_dir and os.path.isdir(resolved.subsheets_dir):
         for file in os.listdir(resolved.subsheets_dir):
@@ -881,5 +984,5 @@ def get_subsheets(project_path: str, main_schematic: str) -> List[str]:
                 # Return path relative to project root
                 subsheet_rel = os.path.join(config.subsheets or "Subsheets", file)
                 subsheets.append(subsheet_rel)
-                
+
     return subsheets

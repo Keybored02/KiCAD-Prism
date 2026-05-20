@@ -1,22 +1,30 @@
+import datetime
+import logging
 import os
+from typing import Any
+
 from fastapi import HTTPException
 from git import Repo
 from git.exc import BadName, GitCommandError
-from typing import Dict, Any, List, Optional
-import datetime
+
+logger = logging.getLogger(__name__)
 
 
 def _open_repo(repo_path: str) -> Repo:
     if not os.path.exists(repo_path):
-        raise HTTPException(status_code=404, detail=f"Repository not found at {repo_path}")
+        raise HTTPException(
+            status_code=404, detail=f"Repository not found at {repo_path}"
+        )
 
     try:
         return Repo(repo_path)
     except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
+        raise HTTPException(
+            status_code=500, detail=f"Git error: {str(error)}"
+        ) from error
 
 
-def _serialize_commit(commit) -> Dict[str, Any]:
+def _serialize_commit(commit) -> dict[str, Any]:
     return {
         "hash": commit.hexsha[:7],
         "full_hash": commit.hexsha,
@@ -28,7 +36,9 @@ def _serialize_commit(commit) -> Dict[str, Any]:
     }
 
 
-def _get_commits(repo_path: str, limit: int, relative_path: str = None, branch: str = None):
+def _get_commits(
+    repo_path: str, limit: int, relative_path: str = None, branch: str = None
+):
     repo = _open_repo(repo_path)
     iter_kwargs = {"max_count": limit}
     if relative_path:
@@ -36,18 +46,31 @@ def _get_commits(repo_path: str, limit: int, relative_path: str = None, branch: 
 
     rev = branch if branch else "HEAD"
     try:
-        commits = [_serialize_commit(commit) for commit in repo.iter_commits(rev, **iter_kwargs)]
+        commits = [
+            _serialize_commit(commit)
+            for commit in repo.iter_commits(rev, **iter_kwargs)
+        ]
     except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
+        raise HTTPException(
+            status_code=500, detail=f"Git error: {str(error)}"
+        ) from error
 
     # Cheap enrichment: per-commit flags signalling which kinds of KiCad files
     # were touched (without running a full diff). One `git log` call covers all.
     try:
-        flags_by_hash = _kicad_change_flags(repo, [c["full_hash"] for c in commits], relative_path)
+        flags_by_hash = _kicad_change_flags(
+            repo, [c["full_hash"] for c in commits], relative_path
+        )
         for c in commits:
-            c["kicad_changes"] = flags_by_hash.get(c["full_hash"], {
-                "sch": 0, "pcb": 0, "pro": 0, "other": 0,
-            })
+            c["kicad_changes"] = flags_by_hash.get(
+                c["full_hash"],
+                {
+                    "sch": 0,
+                    "pcb": 0,
+                    "pro": 0,
+                    "other": 0,
+                },
+            )
     except Exception:
         # Best-effort — never block the commits list on this enrichment.
         for c in commits:
@@ -56,7 +79,9 @@ def _get_commits(repo_path: str, limit: int, relative_path: str = None, branch: 
     return commits
 
 
-def _kicad_change_flags(repo, full_hashes: List[str], relative_path: Optional[str]) -> Dict[str, Dict[str, int]]:
+def _kicad_change_flags(
+    repo, full_hashes: list[str], relative_path: str | None
+) -> dict[str, dict[str, int]]:
     """
     Return {full_hash: {sch, pcb, pro, other}} where each value is the count of
     files of that kind changed in the commit (vs its first parent).
@@ -77,11 +102,11 @@ def _kicad_change_flags(repo, full_hashes: List[str], relative_path: Optional[st
         args.extend(["--", relative_path])
 
     raw = repo.git.execute(["git", *args])
-    out: Dict[str, Dict[str, int]] = {}
+    out: dict[str, dict[str, int]] = {}
     current = None
     for line in raw.splitlines():
         if line.startswith("PRISMHASH:"):
-            current = line[len("PRISMHASH:"):]
+            current = line[len("PRISMHASH:") :]
             out[current] = {"sch": 0, "pcb": 0, "pro": 0, "other": 0}
             continue
         if not current or not line.strip():
@@ -97,7 +122,9 @@ def _kicad_change_flags(repo, full_hashes: List[str], relative_path: Optional[st
     return out
 
 
-def get_commits_list_filtered(repo_path: str, relative_path: str = None, limit: int = 50, branch: str = None):
+def get_commits_list_filtered(
+    repo_path: str, relative_path: str = None, limit: int = 50, branch: str = None
+):
     """
     Get list of commits from repository, optionally filtered to a subdirectory
     and/or to a specific branch (or any other rev). Defaults to HEAD.
@@ -137,17 +164,23 @@ def _get_releases(repo_path: str, relative_path: str = None):
             release = {
                 "tag": tag.name,
                 "commit_hash": commit.hexsha[:7],
-                "date": datetime.datetime.fromtimestamp(commit.committed_date).isoformat(),
+                "date": datetime.datetime.fromtimestamp(
+                    commit.committed_date
+                ).isoformat(),
                 "message": commit.message.strip(),
             }
             if relative_path:
-                release["subproject_files_changed"] = _count_tree_entries(commit, relative_path)
+                release["subproject_files_changed"] = _count_tree_entries(
+                    commit, relative_path
+                )
             releases.append(release)
 
         releases.sort(key=lambda item: item["date"], reverse=True)
         return releases
     except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
+        raise HTTPException(
+            status_code=500, detail=f"Git error: {str(error)}"
+        ) from error
 
 
 def get_releases_filtered(repo_path: str, relative_path: str = None):
@@ -158,7 +191,9 @@ def get_releases_filtered(repo_path: str, relative_path: str = None):
     return _get_releases(repo_path, relative_path)
 
 
-def get_file_from_commit_with_prefix(repo_path: str, commit_hash: str, file_path: str, relative_prefix: str = None) -> str:
+def get_file_from_commit_with_prefix(
+    repo_path: str, commit_hash: str, file_path: str, relative_prefix: str = None
+) -> str:
     """
     Get file content from a specific commit.
     For Type-2 projects, relative_prefix is prepended to file_path.
@@ -167,7 +202,7 @@ def get_file_from_commit_with_prefix(repo_path: str, commit_hash: str, file_path
         repo = Repo(repo_path)
         commit = repo.commit(commit_hash)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}") from e
 
     full_path = file_path
     if relative_prefix:
@@ -176,16 +211,22 @@ def get_file_from_commit_with_prefix(repo_path: str, commit_hash: str, file_path
     try:
         blob = commit.tree / full_path
         content = blob.data_stream.read()
-        return content.decode('utf-8')
+        return content.decode("utf-8")
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"File {file_path} not found in commit")
+        raise HTTPException(
+            status_code=404, detail=f"File {file_path} not found in commit"
+        ) from None
     except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="Binary file cannot be decoded")
+        raise HTTPException(
+            status_code=400, detail="Binary file cannot be decoded"
+        ) from None
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}") from e
 
 
-def file_exists_in_commit_with_prefix(repo_path: str, commit_hash: str, file_path: str, relative_prefix: str = None) -> bool:
+def file_exists_in_commit_with_prefix(
+    repo_path: str, commit_hash: str, file_path: str, relative_prefix: str = None
+) -> bool:
     """
     Check if a file exists in a specific commit.
     For Type-2 projects, relative_prefix is prepended to file_path.
@@ -193,24 +234,26 @@ def file_exists_in_commit_with_prefix(repo_path: str, commit_hash: str, file_pat
     try:
         repo = Repo(repo_path)
         commit = repo.commit(commit_hash)
-        
+
         full_path = file_path
         if relative_prefix:
             full_path = os.path.join(relative_prefix, file_path)
-        
+
         try:
             _ = commit.tree / full_path
             return True
         except KeyError:
             return False
-    except:
+    except Exception:
         return False
+
 
 def get_releases(repo_path: str):
     """
     Get list of Git tags/releases from repository.
     """
     return _get_releases(repo_path)
+
 
 def get_commits_list(repo_path: str, limit: int = 50, branch: str = None):
     """
@@ -219,7 +262,7 @@ def get_commits_list(repo_path: str, limit: int = 50, branch: str = None):
     return _get_commits(repo_path, limit, branch=branch)
 
 
-def list_branches(repo_path: str) -> List[Dict[str, Any]]:
+def list_branches(repo_path: str) -> list[dict[str, Any]]:
     """
     Return all branches (local and remote-tracking) in display-friendly form.
 
@@ -235,7 +278,7 @@ def list_branches(repo_path: str) -> List[Dict[str, Any]]:
         }
     """
     repo = _open_repo(repo_path)
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
 
     try:
         active = repo.active_branch.name if not repo.head.is_detached else None
@@ -253,50 +296,62 @@ def list_branches(repo_path: str) -> List[Dict[str, Any]]:
                     upstream = tracking.name
             except Exception:
                 upstream = None
-            out.append({
-                "name": h.name,
-                "full_name": h.path,
-                "type": "local",
-                "current": h.name == active,
-                "head_hash": commit.hexsha[:7],
-                "full_head_hash": commit.hexsha,
-                "upstream": upstream,
-            })
+            out.append(
+                {
+                    "name": h.name,
+                    "full_name": h.path,
+                    "type": "local",
+                    "current": h.name == active,
+                    "head_hash": commit.hexsha[:7],
+                    "full_head_hash": commit.hexsha,
+                    "upstream": upstream,
+                }
+            )
             seen_names.add(h.name)
     except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Git error listing branches: {error}") from error
+        raise HTTPException(
+            status_code=500, detail=f"Git error listing branches: {error}"
+        ) from error
 
     # Remote-tracking branches that don't have a local equivalent.
     try:
         for remote in repo.remotes:
             for r in remote.refs:
                 # r.name is "origin/main"; r.remote_head is "main"
-                short = r.remote_head if hasattr(r, "remote_head") else r.name.split("/", 1)[-1]
+                short = (
+                    r.remote_head
+                    if hasattr(r, "remote_head")
+                    else r.name.split("/", 1)[-1]
+                )
                 if short in seen_names or short == "HEAD":
                     continue
                 commit = r.commit
-                out.append({
-                    "name": r.name,                # "origin/main"
-                    "full_name": r.path,
-                    "type": "remote",
-                    "current": False,
-                    "head_hash": commit.hexsha[:7],
-                    "full_head_hash": commit.hexsha,
-                    "upstream": None,
-                })
-    except Exception:
+                out.append(
+                    {
+                        "name": r.name,  # "origin/main"
+                        "full_name": r.path,
+                        "type": "remote",
+                        "current": False,
+                        "head_hash": commit.hexsha[:7],
+                        "full_head_hash": commit.hexsha,
+                        "upstream": None,
+                    }
+                )
+    except Exception as error:
         # Remote enumeration is best-effort — never block the response.
-        pass
+        logger.debug("Remote branch enumeration failed for %s: %s", repo_path, error)
 
     # Stable order: current first, then locals, then remotes, alphabetised within group.
-    out.sort(key=lambda b: (
-        0 if b["current"] else (1 if b["type"] == "local" else 2),
-        b["name"].lower(),
-    ))
+    out.sort(
+        key=lambda b: (
+            0 if b["current"] else (1 if b["type"] == "local" else 2),
+            b["name"].lower(),
+        )
+    )
     return out
 
 
-def get_current_branch(repo_path: str) -> Optional[str]:
+def get_current_branch(repo_path: str) -> str | None:
     """Return the current branch name, or None if HEAD is detached."""
     repo = _open_repo(repo_path)
     try:
@@ -307,7 +362,9 @@ def get_current_branch(repo_path: str) -> Optional[str]:
         return None
 
 
-def get_commit_distance(repo_path: str, commit_hash: str, relative_path: str = None) -> int:
+def get_commit_distance(
+    repo_path: str, commit_hash: str, relative_path: str = None
+) -> int:
     """
     Count commits between the requested commit and HEAD.
     When relative_path is provided, only count commits that affect that path.
@@ -322,14 +379,23 @@ def get_commit_distance(repo_path: str, commit_hash: str, relative_path: str = N
 
         return int(repo.git.rev_list(*rev_list_args).strip() or "0")
     except BadName as error:
-        raise HTTPException(status_code=404, detail=f"Commit not found: {commit_hash}") from error
+        raise HTTPException(
+            status_code=404, detail=f"Commit not found: {commit_hash}"
+        ) from error
     except GitCommandError as error:
         message = str(error).lower()
         if "bad revision" in message or "unknown revision" in message:
-            raise HTTPException(status_code=404, detail=f"Commit not found: {commit_hash}") from error
-        raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
+            raise HTTPException(
+                status_code=404, detail=f"Commit not found: {commit_hash}"
+            ) from error
+        raise HTTPException(
+            status_code=500, detail=f"Git error: {str(error)}"
+        ) from error
     except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
+        raise HTTPException(
+            status_code=500, detail=f"Git error: {str(error)}"
+        ) from error
+
 
 def get_file_from_commit(repo_path: str, commit_hash: str, file_path: str) -> str:
     """
@@ -340,18 +406,23 @@ def get_file_from_commit(repo_path: str, commit_hash: str, file_path: str) -> st
         repo = Repo(repo_path)
         commit = repo.commit(commit_hash)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}") from e
 
     try:
         blob = commit.tree / file_path
         content = blob.data_stream.read()
-        return content.decode('utf-8')
+        return content.decode("utf-8")
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"File {file_path} not found in commit")
+        raise HTTPException(
+            status_code=404, detail=f"File {file_path} not found in commit"
+        ) from None
     except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="Binary file cannot be decoded")
+        raise HTTPException(
+            status_code=400, detail="Binary file cannot be decoded"
+        ) from None
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}") from e
+
 
 def file_exists_in_commit(repo_path: str, commit_hash: str, file_path: str) -> bool:
     """
@@ -365,11 +436,13 @@ def file_exists_in_commit(repo_path: str, commit_hash: str, file_path: str) -> b
             return True
         except KeyError:
             return False
-    except:
+    except Exception:
         return False
 
 
-def get_commit_file_summary(repo_path: str, commit_hash: str, relative_path: str = None) -> list:
+def get_commit_file_summary(
+    repo_path: str, commit_hash: str, relative_path: str = None
+) -> list:
     """
     Return the list of files changed in a commit vs its parent.
     Each entry: { path, status, additions, deletions }
@@ -399,36 +472,53 @@ def get_commit_file_summary(repo_path: str, commit_hash: str, relative_path: str
             # Count added/deleted lines for text files
             additions, deletions = None, None
             try:
-                if not d.a_blob or not d.b_blob or not (d.a_blob.mime_type or "").startswith("text") or d.a_blob.size > 500_000:
+                if (
+                    not d.a_blob
+                    or not d.b_blob
+                    or not (d.a_blob.mime_type or "").startswith("text")
+                    or d.a_blob.size > 500_000
+                ):
                     pass
                 else:
-                    old_lines = set(d.a_blob.data_stream.read().decode("utf-8", errors="replace").splitlines())
-                    new_lines = set(d.b_blob.data_stream.read().decode("utf-8", errors="replace").splitlines())
+                    old_lines = set(
+                        d.a_blob.data_stream.read()
+                        .decode("utf-8", errors="replace")
+                        .splitlines()
+                    )
+                    new_lines = set(
+                        d.b_blob.data_stream.read()
+                        .decode("utf-8", errors="replace")
+                        .splitlines()
+                    )
                     additions = len(new_lines - old_lines)
                     deletions = len(old_lines - new_lines)
-            except Exception:
-                pass
+            except Exception as error:
+                logger.debug("Could not count line changes for %s: %s", path, error)
 
-            result.append({
-                "path": path,
-                "filename": path.split("/")[-1],
-                "status": status,
-                "additions": additions,
-                "deletions": deletions,
-            })
+            result.append(
+                {
+                    "path": path,
+                    "filename": path.split("/")[-1],
+                    "status": status,
+                    "additions": additions,
+                    "deletions": deletions,
+                }
+            )
 
         result.sort(key=lambda x: x["path"])
         return result
     except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
+        raise HTTPException(
+            status_code=500, detail=f"Git error: {str(error)}"
+        ) from error
 
 
-def sync_with_remote(repo_path: str) -> Dict[str, Any]:
+def sync_with_remote(repo_path: str) -> dict[str, Any]:
     """
     Sync local repository with remote by performing a git pull.
-    
+
     This fetches and merges the latest changes from the remote tracking branch.
-    
+
     Returns:
         Dict with sync status information including:
         - success: bool
@@ -438,42 +528,46 @@ def sync_with_remote(repo_path: str) -> Dict[str, Any]:
         - message: str
     """
     if not os.path.exists(repo_path):
-        raise HTTPException(status_code=404, detail=f"Repository not found at {repo_path}")
-    
+        raise HTTPException(
+            status_code=404, detail=f"Repository not found at {repo_path}"
+        )
+
     try:
         repo = Repo(repo_path)
-        
+
         # Get current HEAD before sync
         previous_commit = repo.head.commit.hexsha
-        
+
         # Perform git pull
         origin = repo.remotes.origin
-        
+
         env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
+        env["GIT_TERMINAL_PROMPT"] = "0"
         # Trust On First Use (TOFU) for SSH
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
-        pull_info = origin.pull(env=env)
-        
+        env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
+
+        origin.pull(env=env)
+
         # Get new HEAD after sync
         current_commit = repo.head.commit.hexsha
-        
+
         # Count how many commits were pulled
         commits_pulled = 0
         if previous_commit != current_commit:
             try:
-                commits_pulled = len(list(repo.iter_commits(f'{previous_commit}..{current_commit}')))
+                commits_pulled = len(
+                    list(repo.iter_commits(f"{previous_commit}..{current_commit}"))
+                )
             except Exception:
                 commits_pulled = 1  # At least one if heads differ
-        
+
         return {
             "success": True,
             "previous_commit": previous_commit[:7],
             "current_commit": current_commit[:7],
             "commits_pulled": commits_pulled,
-            "message": f"Successfully pulled {commits_pulled} commit(s) from remote."
+            "message": f"Successfully pulled {commits_pulled} commit(s) from remote.",
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}") from e

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { X, Check, X as XIcon, ChevronRight, Layers, FileText, Boxes, Network, Cpu, Eye, EyeOff, Search } from "lucide-react";
+import { X, Check, X as XIcon, ChevronRight, Layers, FileText, Boxes, Network, Cpu, Eye, EyeOff, Search, Keyboard } from "lucide-react";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 
 // ---------------------------------------------------------------------------
@@ -164,6 +164,21 @@ function viewerThemeCssForRoot(rootTag: string): string {
                     max-height: 50vh;
                     overflow-y: auto;
                     border-radius: 0.8rem;
+                    scrollbar-width: thin;
+                    scrollbar-color: hsl(var(--border)) transparent;
+                }
+                :host(.dropdown)::-webkit-scrollbar {
+                    width: 4px;
+                }
+                :host(.dropdown)::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+                :host(.dropdown)::-webkit-scrollbar-thumb {
+                    background: hsl(var(--border));
+                    border-radius: 9999px;
+                }
+                :host(.dropdown)::-webkit-scrollbar-thumb:hover {
+                    background: hsl(var(--muted-foreground) / 0.5);
                 }
 
                 :host(.outline) ::slotted(kc-ui-menu-item) {
@@ -1210,7 +1225,7 @@ function LayersPanel({
         return (
             <PanelShell>
                 <PanelHeader icon={FileText} label="Pages" onClose={onClose} />
-                <div className="overflow-y-auto px-1.5 py-1.5">
+                <div className="overflow-y-auto prism-panel-scroll px-1.5 py-1.5">
                     <ul className="space-y-0.5">
                         {pages.map((p) => (
                             <li key={p.filename}>
@@ -1242,9 +1257,9 @@ function LayersPanel({
         : footprints;
 
     return (
-        <PanelShell onClose={onClose}>
+        <PanelShell>
             {/* Tab bar */}
-            <div className="flex border-b shrink-0 bg-muted/20">
+            <div className="flex items-stretch border-b shrink-0 bg-muted/20">
                 {PCB_TABS.map(({ id, icon: Icon, label }) => (
                     <button
                         key={id}
@@ -1261,6 +1276,14 @@ function LayersPanel({
                         <span>{label}</span>
                     </button>
                 ))}
+                <button
+                    onClick={onClose}
+                    type="button"
+                    aria-label="Close panel"
+                    className="flex items-center justify-center px-2 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors border-b-2 border-transparent"
+                >
+                    <X className="h-3.5 w-3.5" />
+                </button>
             </div>
 
             {/* Tab bodies */}
@@ -1271,7 +1294,7 @@ function LayersPanel({
                     layers.length === 0
                         ? <p className="text-xs text-muted-foreground italic px-3 py-3">Loading…</p>
                         : <div className="flex flex-col flex-1 min-h-0">
-                            <ul className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-0.5">
+                            <ul className="flex-1 overflow-y-auto prism-panel-scroll px-1.5 py-1.5 space-y-0.5">
                                 {layers.map((l) => (
                                     <li key={l.name}>
                                         <button
@@ -1294,7 +1317,7 @@ function LayersPanel({
 
                 {/* ── Objects ── */}
                 {tab === "objects" && (
-                    <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+                    <div className="flex-1 overflow-y-auto prism-panel-scroll px-3 py-3 space-y-4">
                         {OBJECT_LABELS.map(({ key, label, icon: Icon }) => (
                             <div key={key}>
                                 <div className="flex items-center gap-2 mb-1.5">
@@ -1333,7 +1356,7 @@ function LayersPanel({
                         </div>
                         {filteredNets.length === 0
                             ? <p className="text-xs text-muted-foreground italic px-3 py-3">{nets.length === 0 ? "Loading…" : "No matches"}</p>
-                            : <ul className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-0.5">
+                            : <ul className="flex-1 overflow-y-auto prism-panel-scroll px-1.5 py-1.5 space-y-0.5">
                                 {filteredNets.map((n) => (
                                     <li key={n.number}>
                                         <button
@@ -1369,7 +1392,7 @@ function LayersPanel({
                         </div>
                         {filteredFps.length === 0
                             ? <p className="text-xs text-muted-foreground italic px-3 py-3">{footprints.length === 0 ? "Loading…" : "No matches"}</p>
-                            : <ul className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-0.5">
+                            : <ul className="flex-1 overflow-y-auto prism-panel-scroll px-1.5 py-1.5 space-y-0.5">
                                 {filteredFps.map((fp) => (
                                     <li key={fp.uuid}>
                                         <button
@@ -1586,6 +1609,24 @@ const LAYERS_PANEL_KEYFRAMES = `
             opacity: 1;
         }
     }
+
+    .prism-panel-scroll {
+        scrollbar-width: thin;
+        scrollbar-color: hsl(var(--border)) transparent;
+    }
+    .prism-panel-scroll::-webkit-scrollbar {
+        width: 4px;
+    }
+    .prism-panel-scroll::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .prism-panel-scroll::-webkit-scrollbar-thumb {
+        background: hsl(var(--border));
+        border-radius: 9999px;
+    }
+    .prism-panel-scroll::-webkit-scrollbar-thumb:hover {
+        background: hsl(var(--muted-foreground) / 0.5);
+    }
 `;
 
 function ensureLayersPanelKeyframes() {
@@ -1595,6 +1636,60 @@ function ensureLayersPanelKeyframes() {
     style.id = "prism-layers-panel-keyframes";
     style.textContent = LAYERS_PANEL_KEYFRAMES;
     document.head.appendChild(style);
+}
+
+// ---------------------------------------------------------------------------
+// useViewerReadiness — true once the underlying ecad-viewer is safe to drive
+// (camera mounted, document loaded). The caller supplies a `probe` predicate
+// that returns true when the inner element is ready — schematics check
+// `kc-schematic-app` + viewer.document, PCB check `kc-board-viewer` + viewer.viewport.camera.
+//
+// Why not events-only: kicanvas reliably dispatches kicanvas:sheet:loaded for
+// schematics but the corresponding signal for PCB is not exposed at the host
+// level in this build. A single rAF-driven probe (no setTimeout chains) is the
+// only universally-available "is this thing ready yet" check. It self-stops
+// the moment probe returns true.
+//
+// Resets on viewerKey change so consumers re-await when the host is rebuilt.
+// ---------------------------------------------------------------------------
+
+export interface UseViewerReadinessOpts {
+    host: React.RefObject<ECadViewerElement | null>;
+    /** Same viewerKey passed to EcadViewerHost. Resetting it (e.g. on commit
+     *  change) re-arms the readiness signal. */
+    viewerKey: string;
+    /** Returns true when the host's inner viewer is mounted and loaded. */
+    probe: (host: ECadViewerElement) => boolean;
+}
+
+export function useViewerReadiness({ host, viewerKey, probe }: UseViewerReadinessOpts): { ready: boolean } {
+    const [ready, setReady] = useState(false);
+    const probeRef = useRef(probe);
+    probeRef.current = probe;
+
+    useEffect(() => {
+        setReady(false);
+        let cancelled = false;
+        let raf = 0;
+
+        const tick = () => {
+            if (cancelled) return;
+            const el = host.current;
+            if (el && probeRef.current(el)) {
+                setReady(true);
+                return; // Self-terminating — no infinite poll.
+            }
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+
+        return () => {
+            cancelled = true;
+            if (raf) cancelAnimationFrame(raf);
+        };
+    }, [host, viewerKey]);
+
+    return { ready };
 }
 
 export function EcadViewerHost({
@@ -1780,8 +1875,13 @@ type InnerBoardViewer = {
     layer_visibility_ctrl?: { visibilities?: Map<string, boolean>; clear_highlight?: () => void } | null;
     layer_visibility?: Map<string, boolean> | null;
     find_items_under_pos?: (p: { x: number; y: number }) => InteractiveItem[];
+    /** kicanvas-internal: isolates a footprint on dblclick. We wrap this to
+     *  suppress the slanted-stripe overlay that's drawn on top. */
+    highlight_fp?: (item: unknown) => void;
+    painter?: { highlight?: (h: unknown) => void };
     __padPriorityPatched?: boolean;
     __stubCtrlInstalled?: boolean;
+    __fpHighlightPatched?: boolean;
 };
 type BoardEl = HTMLElement & { viewer?: InnerBoardViewer };
 
@@ -1845,6 +1945,39 @@ export function useBoardClickFix({ viewerRefs, rebindKey }: UseBoardClickFixOpts
                 inner.__stubCtrlInstalled = true;
             }
 
+            // (2a) Suppress kicanvas's slanted-stripe overlay drawn on a
+            // footprint when it's focused via double-click. The stripes come
+            // from painting onto the selection_mask layer inside
+            // `paint_footprint` (which the GL pipeline renders with a striped
+            // mask shader). We wrap `highlight_fp` so it skips paint_footprint
+            // and painter.highlight, while preserving zone-layer hiding (the
+            // grayed-out look) and the camera zoom that focus_footprint adds.
+            if (!inner.__fpHighlightPatched
+                && typeof inner.highlight_fp === "function"
+                && inner.painter
+            ) {
+                const painter = inner.painter as {
+                    paint_footprint?: (e: unknown) => void;
+                    highlight?: (h: unknown) => void;
+                };
+                const origPaintFp   = painter.paint_footprint?.bind(painter);
+                const origHighlight = painter.highlight?.bind(painter);
+                const origFp = inner.highlight_fp.bind(inner);
+                inner.highlight_fp = (item: unknown) => {
+                    // Temporarily neuter the two calls inside highlight_fp that
+                    // draw the stripes. The zone-layer hide loop at the top of
+                    // highlight_fp still runs, so we keep the gray-out + zoom.
+                    if (painter.paint_footprint) painter.paint_footprint = () => {};
+                    if (painter.highlight)      painter.highlight      = () => {};
+                    try { origFp(item); }
+                    finally {
+                        if (origPaintFp)   painter.paint_footprint = origPaintFp;
+                        if (origHighlight) painter.highlight       = origHighlight;
+                    }
+                };
+                inner.__fpHighlightPatched = true;
+            }
+
             // (2) Bubble pads to the front of pick results.
             if (!inner.__padPriorityPatched && typeof inner.find_items_under_pos === "function") {
                 const orig = inner.find_items_under_pos.bind(inner);
@@ -1876,3 +2009,220 @@ export function useBoardClickFix({ viewerRefs, rebindKey }: UseBoardClickFixOpts
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rebindKey]);
 }
+
+// ---------------------------------------------------------------------------
+// Viewer hotkeys
+// ---------------------------------------------------------------------------
+//
+// Maps a KiCad-ish subset of keyboard shortcuts onto the read-only kicanvas
+// viewers. Only the ones that make sense without an editor are wired up:
+// zoom / fit / redraw / sheet navigation / close.
+
+type ZoomCapableInner = {
+    zoom_in?: () => void;
+    zoom_out?: () => void;
+    zoom_fit_top_item?: () => void;
+    zoom_to_board?: () => void;
+    draw?: () => void;
+    viewport?: { camera?: { zoom?: number } };
+};
+
+type InnerHost = HTMLElement & { viewer?: ZoomCapableInner };
+
+/** Walk shadow roots to find a kicanvas inner element exposing `viewer`. */
+function findInnerKicanvas(host: HTMLElement | null): InnerHost | null {
+    if (!host) return null;
+    const sels = "kc-board-viewer, kc-schematic-viewer, kc-schematic-app";
+    const walk = (root: ShadowRoot | Element): InnerHost | null => {
+        const sr = (root as HTMLElement).shadowRoot;
+        const searchRoot = sr ?? root;
+        const el = (searchRoot as ShadowRoot).querySelector?.(sels) as InnerHost | null;
+        if (el?.viewer) return el;
+        for (const child of (searchRoot as ShadowRoot).querySelectorAll?.("*") ?? []) {
+            if ((child as HTMLElement).shadowRoot) {
+                const f = walk(child as HTMLElement);
+                if (f) return f;
+            }
+        }
+        return el ?? null;
+    };
+    return walk(host);
+}
+
+export interface UseViewerHotkeysOpts {
+    /** Container that scopes the hotkeys. Keys are bound on this element. */
+    containerRef: React.RefObject<HTMLElement | null>;
+    /** Viewer hosts driven by the hotkeys. The first one with a hovered/focused
+     *  descendant wins; otherwise the first non-null ref is used. */
+    viewerRefs: React.RefObject<ECadViewerElement | null>[];
+    /** Optional: switch to the next sheet/board (PgDn). */
+    onNextSheet?: () => void;
+    /** Optional: switch to the previous sheet/board (PgUp). */
+    onPrevSheet?: () => void;
+    /** Optional: close the viewer (Esc). */
+    onClose?: () => void;
+    /** Disable all bindings (e.g. when a modal is open). */
+    enabled?: boolean;
+}
+
+/**
+ * Bind KiCad-style keyboard shortcuts to one or more ecad-viewer hosts.
+ * - F1 / + / =       zoom in
+ * - F2 / - / _       zoom out
+ * - Home             fit screen (top item / page)
+ * - Ctrl+Home        fit board outline (PCB only — falls back to fit screen)
+ * - PgUp / PgDn      previous / next sheet or board
+ * - Escape           close
+ */
+export function useViewerHotkeys({
+    containerRef, viewerRefs, onNextSheet, onPrevSheet, onClose, enabled = true,
+}: UseViewerHotkeysOpts) {
+    useEffect(() => {
+        if (!enabled) return;
+        const container = containerRef.current;
+        if (!container) return;
+
+        // Resolve the viewer the hotkey should target. Prefer the host that
+        // currently contains the hovered element; fall back to the first ref.
+        const pickViewer = (): ECadViewerElement | null => {
+            const hovered = container.querySelector(":hover");
+            if (hovered) {
+                for (const r of viewerRefs) {
+                    if (r.current && (r.current === hovered || r.current.contains(hovered))) {
+                        return r.current;
+                    }
+                }
+            }
+            for (const r of viewerRefs) if (r.current) return r.current;
+            return null;
+        };
+
+        const isTypingTarget = (t: EventTarget | null): boolean => {
+            const el = t as HTMLElement | null;
+            if (!el) return false;
+            const tag = el.tagName;
+            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+            if ((el as HTMLElement).isContentEditable) return true;
+            return false;
+        };
+
+        const handler = (e: KeyboardEvent) => {
+            if (isTypingTarget(e.target)) return;
+            // Don't fight modifier-combos we don't own (Ctrl+C, Ctrl+S, etc.)
+            if (e.altKey || e.metaKey) return;
+
+            const host = pickViewer();
+            const inner = findInnerKicanvas(host)?.viewer;
+
+            const consume = () => { e.preventDefault(); e.stopPropagation(); };
+            const redraw = () => inner?.draw?.();
+
+            switch (e.key) {
+                case "F1":
+                case "+":
+                case "=":
+                    if (e.ctrlKey || e.shiftKey) return;
+                    // kicanvas's `zoom_in()` actually shrinks the view (its
+                    // camera-zoom semantics are inverted from user expectation),
+                    // so we call zoom_out here to produce a visual zoom-in.
+                    inner?.zoom_out?.(); redraw(); consume(); return;
+                case "F2":
+                case "-":
+                case "_":
+                    if (e.ctrlKey || e.shiftKey) return;
+                    inner?.zoom_in?.(); redraw(); consume(); return;
+                case "Home":
+                    if (e.ctrlKey) {
+                        // Ctrl+Home → fit board outline if available, else fit page
+                        (inner?.zoom_to_board ?? inner?.zoom_fit_top_item)?.();
+                    } else {
+                        inner?.zoom_fit_top_item?.();
+                    }
+                    redraw(); consume(); return;
+                case "PageDown":
+                    if (e.ctrlKey || e.shiftKey) return;
+                    if (onNextSheet) { onNextSheet(); consume(); }
+                    return;
+                case "PageUp":
+                    if (e.ctrlKey || e.shiftKey) return;
+                    if (onPrevSheet) { onPrevSheet(); consume(); }
+                    return;
+                case "Escape":
+                    if (onClose) { onClose(); consume(); }
+                    return;
+            }
+        };
+
+        // Bind to window — focus on a custom element doesn't always reach our
+        // container. We still scope behavior by visibility via the container's
+        // own connectedness check.
+        window.addEventListener("keydown", handler);
+        return () => window.removeEventListener("keydown", handler);
+    }, [containerRef, viewerRefs, onNextSheet, onPrevSheet, onClose, enabled]);
+}
+
+// ---------------------------------------------------------------------------
+// Hotkeys legend
+// ---------------------------------------------------------------------------
+//
+// Small floating "?" pill that expands into a list of the active hotkeys.
+// Anchored to the bottom-right of the viewer container.
+
+export interface HotkeyEntry {
+    keys: string[];   // displayed as separate <kbd>s joined by "or"
+    label: string;
+}
+
+export interface HotkeysLegendProps {
+    entries: HotkeyEntry[];
+    /** Override absolute-position className (default: bottom-right). */
+    className?: string;
+}
+
+export function HotkeysLegend({ entries, className }: HotkeysLegendProps) {
+    const [open, setOpen] = useState(false);
+    return (
+        <div
+            className={className ?? "absolute bottom-2 right-2 z-30"}
+            onMouseEnter={() => setOpen(true)}
+            onMouseLeave={() => setOpen(false)}
+        >
+            <button
+                type="button"
+                onClick={() => setOpen(o => !o)}
+                aria-label="Show keyboard shortcuts"
+                className="flex items-center justify-center h-7 w-7 rounded-full bg-background/90 border border-border shadow-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+                <Keyboard className="h-3.5 w-3.5" />
+            </button>
+            {open && (
+                <div className="absolute bottom-9 right-0 min-w-[200px] rounded-md border border-border bg-popover text-popover-foreground shadow-lg p-2 text-xs">
+                    <p className="font-medium px-1 pb-1.5 text-muted-foreground">Keyboard shortcuts</p>
+                    <ul className="space-y-1">
+                        {entries.map((entry, i) => (
+                            <li key={i} className="flex items-center justify-between gap-3 px-1">
+                                <span className="text-foreground">{entry.label}</span>
+                                <span className="flex items-center gap-1">
+                                    {entry.keys.map((k, ki) => (
+                                        <span key={ki} className="flex items-center gap-1">
+                                            {ki > 0 && <span className="text-[10px] text-muted-foreground">or</span>}
+                                            <kbd className="font-mono text-[10px] leading-none px-1.5 py-0.5 rounded border border-border bg-muted">{k}</kbd>
+                                        </span>
+                                    ))}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** Common zoom/fit/redraw entries shared by every viewer. */
+export const COMMON_HOTKEYS: HotkeyEntry[] = [
+    { keys: ["F1", "+"],   label: "Zoom in" },
+    { keys: ["F2", "−"],   label: "Zoom out" },
+    { keys: ["Home"],      label: "Fit to page" },
+    { keys: ["Ctrl+Home"], label: "Fit to objects" },
+];

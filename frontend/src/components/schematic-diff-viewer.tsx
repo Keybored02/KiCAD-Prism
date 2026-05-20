@@ -1,5 +1,5 @@
 import {
-    useState, useEffect, useRef, useCallback,
+    useState, useEffect, useRef, useCallback, useMemo,
 } from "react";
 import {
     X, Loader2, AlertCircle, ChevronLeft, ChevronRight,
@@ -8,11 +8,16 @@ import {
 import { Button } from "@/components/ui/button";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 import {
+    COMMON_HOTKEYS,
     EcadInfoPanel,
     EcadViewerHost,
+    HotkeysLegend,
     useEcadInfoPanel,
+    useViewerHotkeys,
+    useViewerReadiness,
 } from "@/components/ecad-viewer-shared";
 import { categorise, CATEGORY_META } from "@/lib/diff-grouping";
+import { useCrossProbeRunner } from "@/lib/cross-probe-retry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,7 +57,8 @@ interface FieldChange {
 }
 
 interface ChangedItem {
-    item: SchItem;
+    item: SchItem;       // new version
+    old_item: SchItem;  // old version
     changes: Record<string, FieldChange>;
 }
 
@@ -77,7 +83,8 @@ interface SchematicDiffData {
 
 interface DiffMarker {
     kind: "added" | "removed" | "changed";
-    item: SchItem;
+    item: SchItem;       // new version (or only version for added/removed)
+    old_item?: SchItem; // old version (only for changed)
     changes?: Record<string, FieldChange>;
 }
 
@@ -88,9 +95,13 @@ interface SchematicDiffViewerProps {
     onClose: () => void;
     embedded?: boolean;
     onCrossProbe?: (reference: string) => void;
-    crossProbeTarget?: string; // reference to navigate to when switching from PCB
+    crossProbeTarget?: { ref: string; seq: number }; // reference to navigate to when switching from PCB
     /** Item id (uuid) to focus on when the diff loads. */
     focusItemId?: string;
+    /** Filename (e.g. "power.kicad_sch") the focus item came from. When set,
+        we pin to this sheet directly instead of guessing by uuid match — uuids
+        can collide across sheets and the first match would otherwise win. */
+    focusFilename?: string;
     /** When true, hide the OLD/NEW toggle for single-commit history views. */
     singleCommit?: boolean;
 }
@@ -132,7 +143,7 @@ function fieldLabel(key: string): string {
     return LABELS[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatFieldValue(field: string, value: unknown): string {
+function formatFieldValue(_field: string, value: unknown): string {
     if (value == null || value === "") return "–";
     if (typeof value === "boolean") return value ? "yes" : "no";
     return String(value);
@@ -152,22 +163,107 @@ interface OverlayProps {
     viewerRef: React.RefObject<ECadViewerElement | null>;
     onMarkerClick: (marker: DiffMarker) => void;
     activeUuid: string | null;
+    showing: "new" | "old";
     kickRef?: React.MutableRefObject<((frames?: number) => void) | null>;
 }
 
 // World-space half-extents (mm) per item type for the bounding box
+// (only used for symbols and sheets — wire/text use their own geometry)
 function _boxHalfExtent(type: string): { hw: number; hh: number } {
     switch (type) {
         case "symbol": return { hw: 5, hh: 4 };
         case "sheet":  return { hw: 6, hh: 5 };
-        default:       return { hw: 3, hh: 1.5 }; // labels, text
+        default:       return { hw: 2, hh: 1.2 }; // labels, text — tighter than before
     }
 }
 
-function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }: OverlayProps) {
+// Items rendered as SVG geometry rather than a bounding box
+const WIRE_TYPES = new Set(["wire", "bus", "bus_entry"]);
+
+function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, showing, kickRef }: OverlayProps) {
     const boxRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const svgRef  = useRef<SVGSVGElement | null>(null);
+
+    // Find the schematic inner element (the one that owns the canvas + renderer).
+    // Mirrors the walk used by updatePositions for bbox lookups.
+    type SchInnerEl = HTMLElement & { viewer?: { renderer?: { canvas?: HTMLCanvasElement } } };
+    const findSchInner = useCallback((root: ShadowRoot | Element | null): SchInnerEl | null => {
+        if (!root) return null;
+        const sr = (root as HTMLElement).shadowRoot;
+        const searchIn: ShadowRoot | Element = sr ?? root;
+        const found = (searchIn as ShadowRoot).querySelector?.("kc-schematic-app, kc-schematic-viewer") as SchInnerEl | null;
+        if (found) return found;
+        for (const child of (searchIn as ShadowRoot).querySelectorAll?.("*") ?? []) {
+            if ((child as HTMLElement).shadowRoot) {
+                const f = findSchInner(child as HTMLElement);
+                if (f) return f;
+            }
+        }
+        return null;
+    }, []);
+
+    // Fallback: any <canvas> reachable via the shadow tree.
+    const findAnyCanvas = useCallback((root: Element | ShadowRoot | null): HTMLCanvasElement | null => {
+        if (!root) return null;
+        // Prefer a sized canvas — there can be hidden 1x1 helper canvases.
+        const candidates: HTMLCanvasElement[] = [];
+        const pushFrom = (r: ShadowRoot | Element) => {
+            const list = (r as ShadowRoot).querySelectorAll?.("canvas") ?? [];
+            for (const c of list) candidates.push(c as HTMLCanvasElement);
+        };
+        pushFrom(root);
+        const all = (root as ShadowRoot).querySelectorAll?.("*") ?? [];
+        for (const el of all) {
+            const sr = (el as HTMLElement).shadowRoot;
+            if (sr) pushFrom(sr);
+        }
+        // Recurse one level deeper through nested shadow roots
+        for (const el of all) {
+            const sr = (el as HTMLElement).shadowRoot;
+            if (sr) {
+                const inner = sr.querySelectorAll("*");
+                for (const e2 of inner) {
+                    const sr2 = (e2 as HTMLElement).shadowRoot;
+                    if (sr2) pushFrom(sr2);
+                }
+            }
+        }
+        return candidates.sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0] ?? null;
+    }, []);
+
+    const dispatchWheel = useCallback((source: { deltaX: number; deltaY: number; deltaZ: number; deltaMode: number; clientX: number; clientY: number; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; }) => {
+        const viewer = viewerRef.current;
+        if (!viewer) return;
+        const inner = findSchInner(viewer as unknown as Element);
+        const canvas =
+            inner?.viewer?.renderer?.canvas
+            ?? findAnyCanvas(viewer as unknown as Element)
+            ?? findAnyCanvas((viewer as unknown as HTMLElement).shadowRoot);
+        const target = canvas ?? (viewer as unknown as EventTarget);
+        target.dispatchEvent(new WheelEvent("wheel", {
+            bubbles: true, cancelable: true,
+            deltaX: source.deltaX, deltaY: source.deltaY, deltaZ: source.deltaZ,
+            deltaMode: source.deltaMode,
+            clientX: source.clientX, clientY: source.clientY,
+            ctrlKey: source.ctrlKey, shiftKey: source.shiftKey, altKey: source.altKey,
+        }));
+    }, [viewerRef, findSchInner, findAnyCanvas]);
+
+    const forwardWheel = useCallback((e: React.WheelEvent) => { dispatchWheel(e); }, [dispatchWheel]);
+
+    // The SVG has pointer-events:none so React onWheel never fires on children.
+    // Attach a native wheel listener directly — it fires regardless of CSS.
+    useEffect(() => {
+        const svg = svgRef.current;
+        if (!svg) return;
+        const handler = (e: WheelEvent) => { dispatchWheel(e); };
+        svg.addEventListener("wheel", handler, { passive: true });
+        return () => svg.removeEventListener("wheel", handler);
+    }, [dispatchWheel]);
+
+    // uuid → colored top line; uuid+":base" → black base line (both share coords)
+    const svgElRefs = useRef<Map<string, SVGElement>>(new Map());
     const rafRef  = useRef<number | null>(null);
-    // How many more consecutive frames to keep running after the last trigger
     const framesLeftRef = useRef(0);
 
     const updatePositions = useCallback((): boolean => {
@@ -177,32 +273,114 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
             const rect = viewer.getBoundingClientRect();
             if (!rect.width) return false;
             let anyVisible = false;
+
+            // Access the inner schematic renderer for real item bboxes.
+            // The element is nested behind multiple shadow roots, so we do a
+            // recursive walk — same strategy as getSchEl.
+            type SchRenderer = { get_item_bbox?: (uuid: string) => { x: number; y: number; w: number; h: number } | undefined };
+            type SchInner = Element & { viewer?: { schematic_renderer?: SchRenderer } };
+            const findSchEl = (root: ShadowRoot | Element): SchInner | null => {
+                const sr = (root as HTMLElement).shadowRoot;
+                const searchIn = sr ?? root;
+                const found = (searchIn as ShadowRoot).querySelector?.("kc-schematic-app, kc-schematic-viewer") as SchInner | null;
+                if (found) return found;
+                for (const child of (searchIn as ShadowRoot).querySelectorAll?.("*") ?? []) {
+                    if ((child as HTMLElement).shadowRoot) {
+                        const f = findSchEl(child as HTMLElement);
+                        if (f) return f;
+                    }
+                }
+                return null;
+            };
+            const schRenderer = findSchEl(viewer as unknown as Element)?.viewer?.schematic_renderer;
+
             for (const m of markers) {
-                const el = boxRefs.current.get(m.item.uuid);
-                if (!el) continue;
-                const { hw, hh } = _boxHalfExtent(m.item.type);
-                const tl = viewer.getScreenLocation(m.item.x - hw, m.item.y - hh);
-                const br = viewer.getScreenLocation(m.item.x + hw, m.item.y + hh);
-                if (!tl || !br) { el.style.display = "none"; continue; }
-                const left = Math.min(tl.x, br.x);
-                const top  = Math.min(tl.y, br.y);
-                const w    = Math.abs(br.x - tl.x);
-                const h    = Math.abs(br.y - tl.y);
-                const vis  = left + w > 0 && left < rect.width && top + h > 0 && top < rect.height;
-                if (vis) {
-                    el.style.display = "";
-                    el.style.left   = `${left}px`;
-                    el.style.top    = `${top}px`;
-                    el.style.width  = `${w}px`;
-                    el.style.height = `${h}px`;
-                    anyVisible = true;
+                // For changed items, use the geometry of the version currently shown.
+                // Refs are always keyed by m.item.uuid (the stable render key), so
+                // use that for lookups regardless of which geometry version we read.
+                const geom = (m.kind === "changed" && showing === "old" && m.old_item) ? m.old_item : m.item;
+                const refKey = m.item.uuid;
+                const isWire = WIRE_TYPES.has(geom.type);
+
+                if (isWire) {
+                    // Two lines share the same coords: shadow base + colored top
+                    const svgEl  = svgElRefs.current.get(refKey);
+                    const baseEl = svgElRefs.current.get(`${refKey}:base`);
+                    if (!svgEl) continue;
+                    const hasStartEnd =
+                        geom.start_x != null && geom.start_y != null &&
+                        geom.end_x   != null && geom.end_y   != null;
+                    if (!hasStartEnd) {
+                        svgEl.setAttribute("display", "none");
+                        baseEl?.setAttribute("display", "none");
+                        continue;
+                    }
+                    const p1 = viewer.getScreenLocation(geom.start_x!, geom.start_y!);
+                    const p2 = viewer.getScreenLocation(geom.end_x!,   geom.end_y!);
+                    if (!p1 || !p2) {
+                        svgEl.setAttribute("display", "none");
+                        baseEl?.setAttribute("display", "none");
+                        continue;
+                    }
+                    const vis =
+                        (Math.max(p1.x, p2.x) > 0 && Math.min(p1.x, p2.x) < rect.width) &&
+                        (Math.max(p1.y, p2.y) > 0 && Math.min(p1.y, p2.y) < rect.height);
+                    if (vis) {
+                        for (const el of [svgEl, baseEl]) {
+                            if (!el) continue;
+                            el.setAttribute("x1", String(p1.x));
+                            el.setAttribute("y1", String(p1.y));
+                            el.setAttribute("x2", String(p2.x));
+                            el.setAttribute("y2", String(p2.y));
+                            el.removeAttribute("display");
+                        }
+                        anyVisible = true;
+                    } else {
+                        svgEl.setAttribute("display", "none");
+                        baseEl?.setAttribute("display", "none");
+                    }
                 } else {
-                    el.style.display = "none";
+                    // Div box for symbols, sheets, labels, text
+                    const el = boxRefs.current.get(refKey);
+                    if (!el) continue;
+                    const PAD = 6; // px offset around the kicanvas hover bbox
+                    // Try real bbox using the UUID that exists in the currently-shown viewer
+                    const realBBox = schRenderer?.get_item_bbox?.(geom.uuid);
+                    let left: number, top: number, w: number, h: number;
+                    if (realBBox) {
+                        const tl = viewer.getScreenLocation(realBBox.x, realBBox.y);
+                        const br = viewer.getScreenLocation(realBBox.x + realBBox.w, realBBox.y + realBBox.h);
+                        if (!tl || !br) { el.style.display = "none"; continue; }
+                        left = Math.min(tl.x, br.x) - PAD;
+                        top  = Math.min(tl.y, br.y) - PAD;
+                        w    = Math.abs(br.x - tl.x) + PAD * 2;
+                        h    = Math.abs(br.y - tl.y) + PAD * 2;
+                    } else {
+                        const { hw, hh } = _boxHalfExtent(geom.type);
+                        const tl = viewer.getScreenLocation(geom.x - hw, geom.y - hh);
+                        const br = viewer.getScreenLocation(geom.x + hw, geom.y + hh);
+                        if (!tl || !br) { el.style.display = "none"; continue; }
+                        left = Math.min(tl.x, br.x);
+                        top  = Math.min(tl.y, br.y);
+                        w    = Math.abs(br.x - tl.x);
+                        h    = Math.abs(br.y - tl.y);
+                    }
+                    const vis  = left + w > 0 && left < rect.width && top + h > 0 && top < rect.height;
+                    if (vis) {
+                        el.style.display = "";
+                        el.style.left   = `${left}px`;
+                        el.style.top    = `${top}px`;
+                        el.style.width  = `${w}px`;
+                        el.style.height = `${h}px`;
+                        anyVisible = true;
+                    } else {
+                        el.style.display = "none";
+                    }
                 }
             }
             return anyVisible || markers.length === 0;
         } catch { return false; }
-    }, [viewerRef, markers]);
+    }, [viewerRef, markers, showing]);
 
     const tick = useCallback(() => {
         const done = updatePositions();
@@ -293,10 +471,56 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
 
     return (
         <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
-            {markers.map((m) => {
+            {/* SVG layer: wires and buses — shadow base + solid colored line */}
+            <svg
+                ref={svgRef}
+                className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none"
+            >
+                {markers.filter(m => WIRE_TYPES.has(m.item.type)).map((m) => {
+                    const color = KIND_COLOR[m.kind];
+                    const isActive = m.item.uuid === activeUuid;
+                    const wTop  = isActive ? 5 : 3.5;
+                    const wBase = wTop + 3;
+                    return (
+                        <g key={m.item.uuid} style={{ cursor: "pointer", pointerEvents: "stroke" }} onClick={() => onMarkerClick(m)} onWheel={forwardWheel}>
+                            {/* Solid black outline — opacity 0 for now; rounded only at terminations */}
+                            <line
+                                ref={(node) => {
+                                    if (node) svgElRefs.current.set(`${m.item.uuid}:base`, node);
+                                    else svgElRefs.current.delete(`${m.item.uuid}:base`);
+                                }}
+                                display="none"
+                                x1="0" y1="0" x2="0" y2="0"
+                                stroke="#000"
+                                strokeOpacity="0"
+                                strokeWidth={wBase}
+                                strokeLinecap="round"
+                            />
+                            {/* Translucent color zebra on top */}
+                            <line
+                                ref={(node) => {
+                                    if (node) svgElRefs.current.set(m.item.uuid, node);
+                                    else svgElRefs.current.delete(m.item.uuid);
+                                }}
+                                display="none"
+                                x1="0" y1="0" x2="0" y2="0"
+                                stroke={color}
+                                strokeWidth={wTop}
+                                strokeOpacity={isActive ? 0.9 : 0.78}
+                                strokeLinecap="butt"
+                                strokeDasharray="16 12"
+                                filter={isActive ? `drop-shadow(0 0 6px ${color}) drop-shadow(0 0 3px ${color})` : `drop-shadow(0 0 3px ${color})`}
+                            />
+                        </g>
+                    );
+                })}
+            </svg>
+
+            {/* Div boxes: symbols, sheets, labels, text */}
+            {markers.filter(m => !WIRE_TYPES.has(m.item.type)).map((m) => {
                 const color = KIND_COLOR[m.kind];
                 const isActive = m.item.uuid === activeUuid;
-                const HIT = 6; // px — edge strip thickness, interior click-through
+                const HIT = 6;
                 return (
                     <div
                         key={m.item.uuid}
@@ -310,18 +534,16 @@ function DiffOverlay({ markers, viewerRef, onMarkerClick, activeUuid, kickRef }:
                             border: `2px solid ${color}`,
                             borderRadius: 3,
                             backgroundColor: `${color}1A`,
-                            boxShadow: isActive ? `0 0 0 2px ${color}66, inset 0 0 0 1px ${color}44` : undefined,
+                            boxShadow: isActive
+                                ? `0 0 8px 2px ${color}, 0 0 0 2px ${color}66, inset 0 0 0 1px ${color}44`
+                                : `0 0 4px 1px ${color}99, 0 0 0 1px rgba(0,0,0,0.4)`,
                             pointerEvents: "none",
                         }}
                     >
-                        {/* top strip */}
-                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
-                        {/* bottom strip */}
-                        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
-                        {/* left strip */}
-                        <div style={{ position: "absolute", top: HIT, bottom: HIT, left: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
-                        {/* right strip */}
-                        <div style={{ position: "absolute", top: HIT, bottom: HIT, right: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} />
+                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} onWheel={forwardWheel} />
+                        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} onWheel={forwardWheel} />
+                        <div style={{ position: "absolute", top: HIT, bottom: HIT, left: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} onWheel={forwardWheel} />
+                        <div style={{ position: "absolute", top: HIT, bottom: HIT, right: 0, width: HIT, pointerEvents: "auto", cursor: "pointer" }} onClick={() => onMarkerClick(m)} onWheel={forwardWheel} />
                     </div>
                 );
             })}
@@ -342,6 +564,7 @@ export function SchematicDiffViewer({
     onCrossProbe,
     crossProbeTarget,
     focusItemId,
+    focusFilename,
     singleCommit = false,
 }: SchematicDiffViewerProps) {
     const [data, setData] = useState<SchematicDiffData | null>(null);
@@ -378,17 +601,29 @@ export function SchematicDiffViewer({
     const schElCache = useRef<WeakMap<ECadViewerElement, SchEl>>(new WeakMap());
 
     const getSchEl = useCallback((host: ECadViewerElement): SchEl | null => {
+        // Cache entry is valid only if the viewer is still ALIVE — i.e. its
+        // Canvas2DRenderer hasn't been disposed (dispose() sets ctx2d = void 0).
+        // React StrictMode's mount/unmount/remount cycle (and any future
+        // viewer rebuild inside the shadow DOM) can leave us with a cached
+        // dead reference while a fresh kc-schematic-app paints alongside —
+        // see the parallel fix in pcb-diff-viewer.tsx.
         const cached = schElCache.current.get(host);
-        if (cached?.viewer?.viewport?.camera) return cached;
-        // Depth-first walk through shadow DOMs looking for kc-schematic-app (preferred) or kc-schematic-viewer
+        const cachedInner = cached?.viewer as (InnerViewer & { renderer?: { ctx2d?: unknown } }) | undefined;
+        if (cached && cachedInner?.viewport?.camera && cachedInner?.renderer?.ctx2d) return cached;
+        // Cache miss or stale — re-walk and prefer the live viewer.
+        const isLive = (el: SchEl | null): boolean => {
+            const v = el?.viewer as (InnerViewer & { renderer?: { ctx2d?: unknown } }) | undefined;
+            return !!v?.viewport?.camera && !!v?.renderer?.ctx2d;
+        };
         const walk = (root: ShadowRoot | Element): SchEl | null => {
             const sr = (root as HTMLElement).shadowRoot;
             const searchRoot: ShadowRoot | Element = sr ?? root;
-            // Prefer kc-schematic-app — it has the canonical zoom_fit_item used by cross-probe
-            const app = (searchRoot as ShadowRoot).querySelector?.("kc-schematic-app") as SchEl | null;
-            if (app?.viewer?.viewport?.camera) return app;
-            const viewer = (searchRoot as ShadowRoot).querySelector?.("kc-schematic-viewer") as SchEl | null;
-            if (viewer?.viewer?.viewport?.camera) return viewer;
+            // Prefer a LIVE kc-schematic-app, then any kc-schematic-app, then
+            // a live kc-schematic-viewer, then any kc-schematic-viewer.
+            const apps = Array.from((searchRoot as ShadowRoot).querySelectorAll?.("kc-schematic-app") ?? []) as SchEl[];
+            for (const el of apps) if (isLive(el)) return el;
+            const viewers = Array.from((searchRoot as ShadowRoot).querySelectorAll?.("kc-schematic-viewer") ?? []) as SchEl[];
+            for (const el of viewers) if (isLive(el)) return el;
             // Recurse into children's shadow roots
             for (const el of (searchRoot as ShadowRoot).querySelectorAll?.("*") ?? []) {
                 if ((el as HTMLElement).shadowRoot) {
@@ -396,10 +631,12 @@ export function SchematicDiffViewer({
                     if (f) return f;
                 }
             }
-            return app ?? viewer ?? null;
+            // Fall back to any candidate (even disposed) so callers that don't
+            // need ctx2d still work — e.g. overlay positioning via getScreenLocation.
+            return apps[0] ?? viewers[0] ?? null;
         };
         const result = host.shadowRoot ? walk(host) : null;
-        if (result?.viewer?.viewport?.camera) schElCache.current.set(host, result);
+        if (isLive(result)) schElCache.current.set(host, result!);
         return result;
     }, []);
 
@@ -488,6 +725,116 @@ export function SchematicDiffViewer({
 
     const [activeSheet, setActiveSheet] = useState<string>("");
 
+    // Readiness signals — both hosts must reach a state where camera AND the
+    // Canvas2D context are both up before we can drive the viewer. The camera
+    // is created early in Viewer.setup(), but the renderer's ctx2d is set
+    // later inside its own async setup(). Probing both prevents firing focus
+    // while safeDraw would silently no-op. See parallel fix in pcb-diff-viewer.
+    const newViewerKey = data ? `sch-diff-new-${data.commit1}-${data.commit2}` : "sch-diff-new-pending";
+    const oldViewerKey = data ? `sch-diff-old-${data.commit1}-${data.commit2}` : "sch-diff-old-pending";
+    const schReadyProbe = useCallback(
+        (host: ECadViewerElement) => {
+            const inner = getSchEl(host)?.viewer as (InnerViewer & { renderer?: { ctx2d?: unknown } }) | undefined;
+            return !!inner?.viewport?.camera && !!inner?.renderer?.ctx2d;
+        },
+        [getSchEl],
+    );
+    const { ready: newReady } = useViewerReadiness({ host: newViewerRef, viewerKey: newViewerKey, probe: schReadyProbe });
+    const { ready: oldReady } = useViewerReadiness({ host: oldViewerRef, viewerKey: oldViewerKey, probe: schReadyProbe });
+
+    // Counter that bumps every time the viewer finishes loading a sheet. Used
+    // as a focus-gate dep so the effect re-evaluates after the rAF watcher
+    // eventually drives the viewer onto the target sheet — without it, the
+    // gate could be stuck "waiting for the right document" forever despite no
+    // other React deps changing.
+    const [sheetLoadTick, setSheetLoadTick] = useState(0);
+    useEffect(() => {
+        const bump = () => setSheetLoadTick(t => t + 1);
+        const attach = (host: ECadViewerElement | null) => {
+            if (!host) return () => {};
+            host.addEventListener("kicanvas:sheet:loaded", bump);
+            const sr = (host as HTMLElement).shadowRoot;
+            sr?.addEventListener("kicanvas:sheet:loaded", bump);
+            return () => {
+                host.removeEventListener("kicanvas:sheet:loaded", bump);
+                sr?.removeEventListener("kicanvas:sheet:loaded", bump);
+            };
+        };
+        let detachNew: (() => void) | null = null;
+        let detachOld: (() => void) | null = null;
+        const tryAttach = () => {
+            if (!detachNew && newViewerRef.current) detachNew = attach(newViewerRef.current);
+            if (!detachOld && oldViewerRef.current) detachOld = attach(oldViewerRef.current);
+        };
+        tryAttach();
+        const poll = window.setInterval(() => {
+            tryAttach();
+            if (detachNew && detachOld) window.clearInterval(poll);
+        }, 100);
+        window.setTimeout(() => window.clearInterval(poll), 5000);
+        return () => {
+            window.clearInterval(poll);
+            detachNew?.();
+            detachOld?.();
+        };
+    }, []);
+
+    // Pin both viewer hosts to whatever sheet React thinks is active. Naively
+    // this would be a one-shot switchPage call when activeSheet changes, but
+    // the underlying ecad-viewer fights us:
+    //   - EcadViewerHost's mount (whenDefined → append blobs → load_src) is
+    //     async; switchPage calls before load_src completes are dropped, and
+    //     load_src itself always loads files[0] (the root) by default.
+    //   - The viewer's project fires a "change" event after init that triggers
+    //     another auto-load of get_first_page — a second hijack that arrives
+    //     AFTER any one-shot switchPage has already returned.
+    // So we run a rAF watcher that reads each host's current document filename
+    // and re-pushes switchPage whenever it drifts from desiredSheetRef. The
+    // PUSH_COOLDOWN_MS throttle prevents hammering a load that's still in
+    // flight (sch_name doesn't update until it resolves).
+    const desiredSheetRef = useRef<string>("");
+
+    useEffect(() => {
+        desiredSheetRef.current = activeSheet;
+        if (!activeSheet) return;
+        newViewerRef.current?.switchPage?.(activeSheet);
+        oldViewerRef.current?.switchPage?.(activeSheet);
+    }, [activeSheet]);
+
+    useEffect(() => {
+        let raf = 0;
+        const PUSH_COOLDOWN_MS = 200;
+        const lastPushAt = new Map<ECadViewerElement, number>();
+
+        const reconcileHost = (host: ECadViewerElement | null) => {
+            if (!host) return;
+            const want = desiredSheetRef.current;
+            if (!want) return;
+            const schEl = getSchEl(host) as (SchEl & { viewer?: { document?: { filename?: string } } }) | null;
+            // viewer.document.filename is the live current page on kc-schematic-app
+            // (the sch_name getter is undefined in this build).
+            const current = schEl?.viewer?.document?.filename ?? "";
+            if (current === want) {
+                if (lastPushAt.has(host)) lastPushAt.delete(host);
+                return;
+            }
+            const now = performance.now();
+            const last = lastPushAt.get(host) ?? 0;
+            if (now - last < PUSH_COOLDOWN_MS) return;
+            lastPushAt.set(host, now);
+            host.switchPage?.(want);
+        };
+
+        const tick = () => {
+            reconcileHost(newViewerRef.current);
+            reconcileHost(oldViewerRef.current);
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => { if (raf) cancelAnimationFrame(raf); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // Cancel pending rAFs on unmount
     useEffect(() => () => {
         if (syncRafRef.current !== null) cancelAnimationFrame(syncRafRef.current);
@@ -505,23 +852,50 @@ export function SchematicDiffViewer({
             })
             .then((d) => {
                 setData(d);
-                if (d.sheets.length > 0) setActiveSheet(d.sheets[0].filename);
+                if (d.sheets.length > 0) {
+                    // Prefer focusFilename when it points at a real sheet, so
+                    // a re-firing fetch (StrictMode, parent re-render) doesn't
+                    // clobber the focus path's sheet choice with the root sheet.
+                    const preferred = focusFilename && d.sheets.some(s => s.filename === focusFilename)
+                        ? focusFilename
+                        : d.sheets[0].filename;
+                    setActiveSheet(preferred);
+                }
                 setLoading(false);
             })
             .catch((e: unknown) => {
                 setError(e instanceof Error ? e.message : "Failed to load diff");
                 setLoading(false);
             });
+    // focusFilename intentionally read at effect-creation time only — we don't
+    // want fetch to re-fire when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId, commit1, commit2]);
 
     const activeSheetData = data?.sheets.find(s => s.filename === activeSheet) ?? null;
+
+    // KiCad-style hotkeys: zoom, fit, redraw, sheet nav, close.
+    const cycleSheet = useCallback((delta: 1 | -1) => {
+        const sheets = data?.sheets;
+        if (!sheets || sheets.length === 0) return;
+        const idx = sheets.findIndex(s => s.filename === activeSheet);
+        const next = sheets[((idx === -1 ? 0 : idx) + delta + sheets.length) % sheets.length];
+        if (next) setActiveSheet(next.filename);
+    }, [data, activeSheet]);
+    useViewerHotkeys({
+        containerRef: viewerContainerRef,
+        viewerRefs: viewerRefsArr,
+        onNextSheet: () => cycleSheet(1),
+        onPrevSheet: () => cycleSheet(-1),
+        onClose,
+    });
 
     // All markers for the active sheet (for the sidebar list)
     const allMarkers: DiffMarker[] = [];
     if (activeSheetData) {
         for (const item of activeSheetData.diff.added)   allMarkers.push({ kind: "added",   item });
         for (const item of activeSheetData.diff.removed)  allMarkers.push({ kind: "removed", item });
-        for (const { item, changes } of activeSheetData.diff.changed) allMarkers.push({ kind: "changed", item, changes });
+        for (const { item, old_item, changes } of activeSheetData.diff.changed) allMarkers.push({ kind: "changed", item, old_item, changes });
     }
 
     // Filtered markers shown on the overlay
@@ -567,7 +941,8 @@ export function SchematicDiffViewer({
             if (bbox) {
                 // Replicate zoom_fit_item but skip paint_selected
                 const grown = bbox.grow?.(20) ?? bbox;
-                camera.bbox = grown as never;
+                const cameraWithBBox = camera as typeof camera & { bbox?: unknown };
+                cameraWithBBox.bbox = grown;
             } else {
                 // UUID not indexed — manually center on item position
                 camera.zoom = 20;
@@ -599,33 +974,82 @@ export function SchematicDiffViewer({
         }
     }, [zoomToMarkerOn, showing, handleToggle]);
 
-    // Focus a specific item on first data load (or when focusItemId changes).
-    // Walks all sheets to find the matching uuid; switches sheet first, then
-    // runs the standard click flow once the marker is in scope.
-    const focusedIdRef = useRef<string | undefined>(undefined);
-    useEffect(() => {
-        if (!data || !focusItemId) return;
-        if (focusedIdRef.current === focusItemId) return;
-
-        // Find which sheet contains the requested uuid.
-        let foundSheet: string | null = null;
-        let foundMarker: DiffMarker | null = null;
-        for (const s of data.sheets) {
-            const inAdded   = s.diff.added.find(i => i.uuid === focusItemId);
-            const inRemoved = s.diff.removed.find(i => i.uuid === focusItemId);
-            const inChanged = s.diff.changed.find(c => c.item.uuid === focusItemId);
-            if (inAdded)   { foundSheet = s.filename; foundMarker = { kind: "added",   item: inAdded };   break; }
-            if (inRemoved) { foundSheet = s.filename; foundMarker = { kind: "removed", item: inRemoved }; break; }
-            if (inChanged) { foundSheet = s.filename; foundMarker = { kind: "changed", item: inChanged.item, changes: inChanged.changes }; break; }
+    // Resolve the focus item synchronously from data. Returns null until data
+    // is available or the uuid can't be found on the requested sheet. When
+    // focusFilename is provided we restrict the search to that sheet — uuids
+    // can repeat across sheets (hierarchical instances).
+    type FocusTarget = { sheet: string; marker: DiffMarker | null };
+    const focusTarget = useMemo<FocusTarget | null>(() => {
+        if (!data) return null;
+        if (!focusItemId && !focusFilename) return null;
+        const candidateSheets = focusFilename
+            ? data.sheets.filter(s => s.filename === focusFilename)
+            : data.sheets;
+        if (focusItemId) {
+            for (const s of candidateSheets) {
+                const inAdded   = s.diff.added.find(i => i.uuid === focusItemId);
+                const inRemoved = s.diff.removed.find(i => i.uuid === focusItemId);
+                const inChanged = s.diff.changed.find(c => c.item.uuid === focusItemId);
+                if (inAdded)   return { sheet: s.filename, marker: { kind: "added",   item: inAdded } };
+                if (inRemoved) return { sheet: s.filename, marker: { kind: "removed", item: inRemoved } };
+                if (inChanged) return { sheet: s.filename, marker: { kind: "changed", item: inChanged.item, changes: inChanged.changes } };
+            }
         }
-        if (!foundSheet || !foundMarker) return;
-        focusedIdRef.current = focusItemId;
-        if (foundSheet !== activeSheet) setActiveSheet(foundSheet);
-        const marker = foundMarker;
-        const t = window.setTimeout(() => handleMarkerClick(marker), 250);
+        // No uuid match but the filename is known — pin the sheet without a marker.
+        if (focusFilename && data.sheets.some(s => s.filename === focusFilename)) {
+            return { sheet: focusFilename, marker: null };
+        }
+        return null;
+    }, [data, focusItemId, focusFilename]);
+
+    // Focus flow — event-driven state machine, no timers. Fires exactly once
+    // per focus request when all prerequisites converge:
+    //   1. focusTarget is resolved.
+    //   2. activeSheet matches the target sheet (we drive setActiveSheet if not).
+    //   3. The target side's viewer host has reached readiness (camera +
+    //      ctx2d both live), AND its current document is the target sheet
+    //      (the rAF watcher above eventually drives this).
+    //   4. handleMarkerClick is then safe to call.
+    const focusFiredRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!focusTarget) return;
+        const fingerprint = `${focusTarget.sheet}::${focusTarget.marker?.item.uuid ?? ""}`;
+        if (focusFiredRef.current === fingerprint) return;
+        if (focusTarget.sheet !== activeSheet) {
+            setActiveSheet(focusTarget.sheet);
+            return;
+        }
+        // Determine which side will be navigated to.
+        const targetSide: "new" | "old" = focusTarget.marker
+            ? (focusTarget.marker.kind === "removed" ? "old" : "new")
+            : showing;
+        const sideReady = targetSide === "new" ? newReady : oldReady;
+        if (!sideReady) return;
+        // Verify the viewer is actually showing the target sheet — otherwise
+        // the bbox lookup would run against the wrong page's renderer index.
+        const host = (targetSide === "new" ? newViewerRef : oldViewerRef).current;
+        const innerWithDoc = host ? (getSchEl(host)?.viewer as (InnerViewer & { document?: { filename?: string } }) | undefined) : undefined;
+        if (innerWithDoc?.document?.filename !== focusTarget.sheet) return;
+        focusFiredRef.current = fingerprint;
+        if (focusTarget.marker) handleMarkerClick(focusTarget.marker);
+    }, [focusTarget, activeSheet, newReady, oldReady, showing, getSchEl, handleMarkerClick, sheetLoadTick]);
+
+    // Diagnostic safety net: if everything fails to converge after 8s, log
+    // which signal is missing. No best-effort fire — we don't want to drive
+    // a half-mounted viewer.
+    useEffect(() => {
+        if (!focusTarget) return;
+        const fingerprint = `${focusTarget.sheet}::${focusTarget.marker?.item.uuid ?? ""}`;
+        if (focusFiredRef.current === fingerprint) return;
+        const t = window.setTimeout(() => {
+            if (focusFiredRef.current === fingerprint) return;
+            // eslint-disable-next-line no-console
+            console.warn("[sch-diff] focus stalled — target:", focusTarget,
+                "activeSheet:", activeSheet,
+                "newReady:", newReady, "oldReady:", oldReady);
+        }, 8000);
         return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data, focusItemId]);
+    }, [focusTarget, activeSheet, newReady, oldReady]);
 
     // Fire onCrossProbe when the user selects an item.
     // kicanvas:select bubbles+composed so it reaches the container div.
@@ -644,29 +1068,55 @@ export function SchematicDiffViewer({
         return () => container.removeEventListener("kicanvas:select", handler);
     }, []);
 
-    // Navigate to a reference when cross-probed from the PCB diff viewer
+    // Navigate to a reference when cross-probed from the PCB / BOM viewer.
+    //
+    // kicanvas's requestCrossProbe only searches the currently-active sheet, so
+    // for multi-sheet projects we first locate which sheet actually contains
+    // the reference by string-searching each sheet's content. If that sheet
+    // differs from activeSheet, we drive setActiveSheet — the existing rAF
+    // watcher / readiness machinery then re-runs this effect once the viewer's
+    // document.filename catches up, and we fire the probe.
+    const crossProbeRunner = useCrossProbeRunner();
+    // Tracks which seq has already been dispatched so re-renders caused by
+    // navigation (sheetLoadTick, readiness changes) don't re-fire the probe and
+    // lock the viewer back onto a stale component.
+    const crossProbeFiredSeqRef = useRef<number>(-1);
     useEffect(() => {
-        if (!crossProbeTarget) return;
-        const doProbe = () => {
-            const viewer = (showing === "new" ? newViewerRef : oldViewerRef).current;
-            if (!viewer) return false;
-            viewer.setCrossProbeEnabled?.(true);
-            const result = viewer.requestCrossProbe({
-                sourceContext: "PCB",
-                targetContext: "SCH",
-                mode: "select",
-                kind: "designator",
-                value: crossProbeTarget,
-                designator: crossProbeTarget,
-            });
-            return result?.resolved !== false || result.reason !== "target-not-available";
-        };
-        if (!doProbe()) {
-            const t = setTimeout(doProbe, 400);
-            return () => clearTimeout(t);
+        if (!crossProbeTarget || !data) return;
+        // Already dispatched this exact request — don't re-probe.
+        if (crossProbeTarget.seq === crossProbeFiredSeqRef.current) return;
+
+        const { ref } = crossProbeTarget;
+
+        // Locate the sheet containing this reference. The content strings are
+        // full .kicad_sch s-expressions; a property of name "Reference" with the
+        // target value uniquely identifies a symbol instance on that sheet.
+        // Quote-escape regex meta in the reference (designators are A-Za-z0-9).
+        const refEscaped = ref.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const refRe = new RegExp(`\\(property\\s+"Reference"\\s+"${refEscaped}"`);
+        const containingSheet = data.sheets.find(s => {
+            const content = showing === "new" ? s.new_content : s.old_content;
+            return content ? refRe.test(content) : false;
+        });
+        if (containingSheet && containingSheet.filename !== activeSheet) {
+            setActiveSheet(containingSheet.filename);
+            return; // Re-run once activeSheet propagates and the viewer reloads.
         }
+
+        // Gate on readiness so we don't probe a viewer whose camera isn't live.
+        const sideReady = showing === "new" ? newReady : oldReady;
+        if (!sideReady) return;
+
+        // Verify the visible viewer actually shows the sheet we want before
+        // firing — same precondition the focus flow uses.
+        const host = (showing === "new" ? newViewerRef : oldViewerRef).current;
+        const innerDoc = host ? (getSchEl(host)?.viewer as (InnerViewer & { document?: { filename?: string } }) | undefined) : undefined;
+        if (containingSheet && innerDoc?.document?.filename !== containingSheet.filename) return;
+
+        crossProbeFiredSeqRef.current = crossProbeTarget.seq;
+        crossProbeRunner.run(host, "PCB", "SCH", ref);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [crossProbeTarget]);
+    }, [crossProbeTarget, data, activeSheet, newReady, oldReady, showing, sheetLoadTick]);
 
     return (
         <div className={embedded ? "h-full bg-background flex flex-col" : "fixed inset-0 z-50 bg-background flex flex-col"}>
@@ -961,6 +1411,7 @@ export function SchematicDiffViewer({
                                 viewerRef={viewerRef}
                                 onMarkerClick={handleMarkerClick}
                                 activeUuid={activeMarker?.item.uuid ?? null}
+                                showing={showing}
                                 kickRef={overlayKickRef}
                             />
                             {/* Sheet not present in the currently-showing version */}
@@ -992,6 +1443,13 @@ export function SchematicDiffViewer({
                                 </div>
                             )}
                             <EcadInfoPanel detail={selectedDetail} onClose={clearSelectedDetail} />
+                            <HotkeysLegend
+                                entries={[
+                                    ...COMMON_HOTKEYS,
+                                    { keys: ["PgUp", "PgDn"], label: "Previous / next sheet" },
+                                    { keys: ["Esc"],          label: "Close" },
+                                ]}
+                            />
                         </>
                     )}
                 </div>

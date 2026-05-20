@@ -987,15 +987,15 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
 
               <div className="h-4 w-px shrink-0 bg-border mx-2" />
 
-              <div className="min-w-0 overflow-x-auto">
+              <div className="min-w-0">
                 {viewMode === "workflow" ? (
-                  <div className="flex w-max items-center gap-1.5 rounded-md border border-border/50 bg-secondary/20 p-0.5">
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-secondary/20 p-0.5">
                     {(["", "place_ready", "files_partial", "metadata_only"] as const).map((s) => {
                       const labels: Record<string, string> = {
-                        "": "All Status",
-                        place_ready: "Place Ready",
+                        "": "All",
+                        place_ready: "Ready",
                         files_partial: "Partial",
-                        metadata_only: "Metadata Only",
+                        metadata_only: "Metadata",
                       };
                       return (
                         <button
@@ -1014,7 +1014,7 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
                     })}
                   </div>
                 ) : (
-                  <div className="flex w-max items-center gap-1.5 rounded-md border border-border/50 bg-secondary/20 p-0.5">
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-secondary/20 p-0.5">
                     {(["", ...WORKFLOW_ORDER] as const).map((s) => (
                       <button
                         key={s}
@@ -1026,7 +1026,7 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
                             : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                         )}
                       >
-                        {s ? WORKFLOW_META[s].label : "All Workflow"}
+                        {s ? WORKFLOW_META[s].label : "All"}
                       </button>
                     ))}
                   </div>

@@ -8,10 +8,11 @@ import {
 } from "@/components/ui/select";
 import { SchematicDiffViewer } from "./schematic-diff-viewer";
 import { PcbDiffViewer } from "./pcb-diff-viewer";
+import { BomDiffViewer } from "./bom-diff-viewer";
+import { PdfViewer } from "./pdf-viewer";
 import { fetchJson } from "@/lib/api";
 import { categorise, CATEGORY_META, type KindedItem } from "@/lib/diff-grouping";
 
-const COMMIT_AUTHOR_DISPLAY_NAME = "John Doe";
 
 interface Release {
     tag: string;
@@ -136,27 +137,6 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
     renamed:  <RefreshCw className="h-3 w-3" />,
 };
 
-const LABEL_BY_TYPE: Record<string, string> = {
-    // Schematic
-    symbol: "symbol",
-    label: "label",
-    global_label: "global label",
-    hierarchical_label: "hier label",
-    net_label: "net label",
-    text: "text",
-    sheet: "sheet",
-    // PCB
-    footprint: "footprint",
-    segment: "trace",
-    via: "via",
-    zone: "zone",
-    gr_text: "graphic text",
-    gr_line: "graphic line",
-    gr_circle: "graphic circle",
-    gr_rect: "graphic rect",
-    gr_arc: "graphic arc",
-};
-
 // Sort rank for the file list inside an expanded commit. Lower rank = shown
 // first. Schematic and PCB files lead, followed by project, libraries, then
 // everything else. Within a rank, original order is preserved (stable sort).
@@ -171,11 +151,14 @@ function fileSortRank(filename: string): number {
 // File-type icon picker. Returns the icon + a colour class so KiCad files
 // stand out from generic ones in the file list.
 function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string; label: string } {
-    if (filename.endsWith(".kicad_sch")) return { Icon: CircuitBoard, color: "text-blue-500",   label: "Schematic" };
+    if (filename.endsWith(".kicad_sch")) return { Icon: CircuitBoard, color: "text-blue-500",    label: "Schematic" };
     if (filename.endsWith(".kicad_pcb")) return { Icon: Cpu,          color: "text-emerald-500", label: "PCB" };
     if (filename.endsWith(".kicad_pro")) return { Icon: Settings,     color: "text-violet-500",  label: "Project" };
     if (filename.endsWith(".kicad_sym") || filename.endsWith(".kicad_mod")) {
         return { Icon: FileCode, color: "text-cyan-500", label: "Library" };
+    }
+    if (filename.toLowerCase().endsWith(".pdf")) {
+        return { Icon: FileText, color: "text-red-400", label: "PDF" };
     }
     return { Icon: FileText, color: "text-muted-foreground", label: "" };
 }
@@ -269,21 +252,6 @@ function BranchSelector({
     );
 }
 
-// Human label for one diff item — used as the visible row text.
-function diffItemLabel(item: DiffItem): string {
-    if (item.reference) {
-        return item.value ? `${item.reference} (${item.value})` : item.reference;
-    }
-    if (item.text)        return item.text.length > 40 ? item.text.slice(0, 37) + "…" : item.text;
-    if (item.net_name)    return item.net_name;
-    if (item.name)        return item.name;
-    if (item.sheet_name)  return `Sheet: ${item.sheet_name}`;
-    if (item.lib_id)      return item.lib_id;
-    if (item.layer)       return `${LABEL_BY_TYPE[item.type] ?? item.type} on ${item.layer}`;
-    if (item.net != null) return `${LABEL_BY_TYPE[item.type] ?? item.type} (net ${item.net})`;
-    return LABEL_BY_TYPE[item.type] ?? item.type;
-}
-
 const KIND_TINT: Record<"added" | "removed" | "changed", string> = {
     added:   "text-green-500",
     removed: "text-red-500",
@@ -293,24 +261,16 @@ const KIND_PREFIX: Record<"added" | "removed" | "changed", string> = {
     added: "+", removed: "−", changed: "~",
 };
 
-function ChangedFieldsLine({ changes }: { changes?: ChangedDiffItem["changes"] }) {
-    if (!changes) return null;
-    const entries = Object.entries(changes);
-    if (entries.length === 0) return null;
-    return (
-        <span className="text-muted-foreground/80 italic">
-            {" "}— {entries.map(([k]) => k).join(", ")}
-        </span>
-    );
-}
-
 interface ItemDiffListProps {
     diff: FileDiffPayload;
     tab: DiffTab;
-    onOpenItemDiff?: (tab: DiffTab, itemId?: string) => void;
+    /** The source file this diff belongs to — passed through so the viewer
+        can pin to the exact sheet/board instead of guessing from the uuid. */
+    filename: string;
+    onOpenItemDiff?: (tab: DiffTab, itemId?: string, filename?: string) => void;
 }
 
-function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
+function ItemDiffList({ diff, tab, filename, onOpenItemDiff }: ItemDiffListProps) {
     const [expanded, setExpanded] = useState(false);
 
     // Build the unified category groups using the same logic as the diff
@@ -347,7 +307,7 @@ function ItemDiffList({ diff, tab, onOpenItemDiff }: ItemDiffListProps) {
                     <button
                         key={group.id}
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); onOpenItemDiff?.(tab, group.members[0]?.item.id); }}
+                        onClick={(e) => { e.stopPropagation(); onOpenItemDiff?.(tab, group.members[0]?.item.id, filename); }}
                         className="flex items-baseline gap-2 text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors"
                         title="Open diff viewer at this change"
                     >
@@ -383,15 +343,19 @@ interface CommitItemProps {
     isSelected: boolean;
     onSelect: () => void;
     selectable: boolean;
-    /** Open the diff modal for this commit (vs its parent), focused on `itemId` in `tab`. */
-    onOpenItemDiff?: (tab: DiffTab, itemId?: string) => void;
+    /** Open the diff modal for this commit (vs its parent), focused on `itemId`
+        in `tab`. `filename` pins the viewer to the exact .kicad_sch/.kicad_pcb
+        the change came from so it doesn't have to guess from the uuid. */
+    onOpenItemDiff?: (tab: DiffTab, itemId?: string, filename?: string) => void;
+    /** Open the PDF viewer for a file at this commit. */
+    onOpenPdf?: (commitHash: string, path: string, filename: string) => void;
     /** Position in the commit list — used to draw the timeline. */
     isFirst?: boolean;
     isLast?: boolean;
 }
 
 function CommitItem({
-    commit, projectId, onViewCommit, isSelected, onSelect, selectable, onOpenItemDiff,
+    commit, projectId, onViewCommit, isSelected, onSelect, selectable, onOpenItemDiff, onOpenPdf,
     isFirst, isLast,
 }: CommitItemProps) {
     const [copied, setCopied] = useState(false);
@@ -499,7 +463,7 @@ function CommitItem({
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
                         <div className="flex items-center gap-1">
                             <User className="h-3 w-3" />
-                            {commit.author ? COMMIT_AUTHOR_DISPLAY_NAME : "Unknown"}
+                            {commit.author ?? "Unknown"}
                         </div>
                         {commit.kicad_changes && (
                             <div className="flex items-center gap-1">
@@ -540,7 +504,8 @@ function CommitItem({
                         const fileTab: DiffTab | null =
                             file.filename.endsWith(".kicad_sch") ? "schematic" :
                             file.filename.endsWith(".kicad_pcb") ? "pcb" : null;
-                        const fileClickable = !!fileTab && !!onOpenItemDiff;
+                        const isPdf = file.filename.toLowerCase().endsWith(".pdf");
+                        const fileClickable = (!!fileTab && !!onOpenItemDiff) || (isPdf && !!onOpenPdf && file.status !== "removed");
                         const headerNode = (
                             <div className="flex items-center gap-2 text-xs">
                                 <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
@@ -563,14 +528,18 @@ function CommitItem({
                                 )}
                             </div>
                         );
+                        const handleFileClick = isPdf
+                            ? () => onOpenPdf!(commit.full_hash, file.path, file.filename)
+                            : () => onOpenItemDiff!(fileTab!, itemDiff ? firstDiffItemId(itemDiff) : undefined, file.filename);
+
                         return (
                             <div key={file.path} className="space-y-0.5">
                                 {fileClickable ? (
                                     <button
                                         type="button"
-                                        onClick={() => onOpenItemDiff!(fileTab!, itemDiff ? firstDiffItemId(itemDiff) : undefined)}
+                                        onClick={handleFileClick}
                                         className="w-full text-left rounded hover:bg-muted/60 -mx-1 px-1 py-0.5 transition-colors"
-                                        title="Open diff viewer for this file"
+                                        title={isPdf ? "View PDF" : "Open diff viewer for this file"}
                                     >
                                         {headerNode}
                                     </button>
@@ -579,6 +548,7 @@ function CommitItem({
                                     <ItemDiffList
                                         diff={itemDiff}
                                         tab={fileTab}
+                                        filename={file.filename}
                                         onOpenItemDiff={onOpenItemDiff}
                                     />
                                 )}
@@ -605,16 +575,23 @@ interface CommitDiffModalProps {
     initialTab?: DiffTab;
     /** Optional: item id to focus inside that tab's diff viewer. */
     focusItemId?: string;
+    /** Optional: the source filename (e.g. "power.kicad_sch") the focus item
+        came from. Lets the viewer pin to the exact sheet instead of guessing. */
+    focusFilename?: string;
     /** When true, hide the OLD/NEW toggle — opened from a single commit row. */
     singleCommit?: boolean;
 }
 
-function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, focusItemId, singleCommit }: CommitDiffModalProps) {
+function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, focusItemId, focusFilename, singleCommit }: CommitDiffModalProps) {
     const [tab, setTab] = useState<DiffTab>(initialTab ?? "schematic");
     // Last reference selected in each tab — used to navigate the other tab when switching
-    const lastSelected = useRef<{ schematic?: string; pcb?: string }>({});
-    const [schCrossProbeTarget, setSchCrossProbeTarget] = useState<string | undefined>(undefined);
-    const [pcbCrossProbeTarget, setPcbCrossProbeTarget] = useState<string | undefined>(undefined);
+    const lastSelected = useRef<{ schematic?: string; pcb?: string; bom?: string }>({});
+    // CrossProbe targets carry a seq number so re-delivering the same reference
+    // still triggers the effect in the receiving tab (seq changes even if ref doesn't).
+    const crossProbeSeq = useRef(0);
+    const [schCrossProbeTarget, setSchCrossProbeTarget] = useState<{ ref: string; seq: number } | undefined>(undefined);
+    const [pcbCrossProbeTarget, setPcbCrossProbeTarget] = useState<{ ref: string; seq: number } | undefined>(undefined);
+    const [bomCrossProbeTarget, setBomCrossProbeTarget] = useState<{ ref: string; seq: number } | undefined>(undefined);
 
     const handleSchematicCrossProbe = useCallback((reference: string) => {
         lastSelected.current.schematic = reference;
@@ -624,11 +601,25 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
         lastSelected.current.pcb = reference;
     }, []);
 
+    const handleBomCrossProbe = useCallback((reference: string) => {
+        lastSelected.current.bom = reference;
+        const seq = ++crossProbeSeq.current;
+        setPcbCrossProbeTarget({ ref: reference, seq });
+        setSchCrossProbeTarget({ ref: reference, seq });
+    }, []);
+
     const handleTabChange = useCallback((next: DiffTab) => {
-        if (next === "pcb" && lastSelected.current.schematic) {
-            setPcbCrossProbeTarget(lastSelected.current.schematic);
-        } else if (next === "schematic" && lastSelected.current.pcb) {
-            setSchCrossProbeTarget(lastSelected.current.pcb);
+        const last = lastSelected.current;
+        const seq = ++crossProbeSeq.current;
+        if (next === "pcb") {
+            const ref = last.schematic ?? last.bom;
+            if (ref) setPcbCrossProbeTarget({ ref, seq });
+        } else if (next === "schematic") {
+            const ref = last.pcb ?? last.bom;
+            if (ref) setSchCrossProbeTarget({ ref, seq });
+        } else if (next === "bom") {
+            const ref = last.schematic ?? last.pcb;
+            if (ref) setBomCrossProbeTarget({ ref, seq });
         }
         setTab(next);
     }, []);
@@ -679,6 +670,7 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
                         onCrossProbe={handleSchematicCrossProbe}
                         crossProbeTarget={schCrossProbeTarget}
                         focusItemId={initialTab === "schematic" ? focusItemId : undefined}
+                        focusFilename={initialTab === "schematic" ? focusFilename : undefined}
                         singleCommit={singleCommit}
                     />
                 </div>
@@ -689,21 +681,23 @@ function CommitDiffModal({ projectId, commit1, commit2, onClose, initialTab, foc
                         commit2={commit2}
                         onClose={onClose}
                         embedded
+                        active={tab === "pcb"}
                         onCrossProbe={handlePcbCrossProbe}
                         crossProbeTarget={pcbCrossProbeTarget}
                         focusItemId={initialTab === "pcb" ? focusItemId : undefined}
                         singleCommit={singleCommit}
                     />
                 </div>
-                {tab === "bom" && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="flex flex-col items-center gap-3 text-center">
-                            <List className="h-10 w-10 text-muted-foreground/40" />
-                            <p className="text-sm font-medium text-muted-foreground">BOM diff coming soon</p>
-                            <p className="text-xs text-muted-foreground/60">Bill of materials comparison will appear here</p>
-                        </div>
-                    </div>
-                )}
+                <div className="absolute inset-0" style={{ display: tab === "bom" ? undefined : "none" }}>
+                    <BomDiffViewer
+                        projectId={projectId}
+                        commit1={commit1}
+                        commit2={commit2}
+                        singleCommit={singleCommit}
+                        onCrossProbe={handleBomCrossProbe}
+                        crossProbeTarget={bomCrossProbeTarget}
+                    />
+                </div>
             </div>
         </div>
     );
@@ -727,7 +721,20 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
         commit2: string;
         tab: DiffTab;
         focusItemId?: string;
+        focusFilename?: string;
     } | null>(null);
+
+    // PDF viewer: open a PDF file from a specific commit
+    const [pdfViewer, setPdfViewer] = useState<{
+        url: string;
+        downloadUrl: string;
+        filename: string;
+    } | null>(null);
+
+    const handleOpenPdf = useCallback((commitHash: string, path: string, filename: string) => {
+        const url = `/api/projects/${projectId}/commits/${commitHash}/file?path=${encodeURIComponent(path)}`;
+        setPdfViewer({ url, downloadUrl: url, filename });
+    }, [projectId]);
 
     // Filter commits to find selected ones and determining newer/older
     const diffPair = useMemo(() => {
@@ -893,6 +900,16 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                 </div>
             )}
 
+            {/* PDF viewer overlay */}
+            {pdfViewer && (
+                <PdfViewer
+                    url={pdfViewer.url}
+                    downloadUrl={pdfViewer.downloadUrl}
+                    filename={pdfViewer.filename}
+                    onClose={() => setPdfViewer(null)}
+                />
+            )}
+
             {/* Tabbed diff modal — two-commit comparison */}
             {showDiff && diffPair && (
                 <CommitDiffModal
@@ -913,6 +930,7 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                     onClose={() => setItemDiff(null)}
                     initialTab={itemDiff.tab}
                     focusItemId={itemDiff.focusItemId}
+                    focusFilename={itemDiff.focusFilename}
                     singleCommit
                 />
             )}
@@ -998,7 +1016,7 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                                 selectable={canCompareDiffs}
                                 isFirst={idx === 0}
                                 isLast={idx === commits.length - 1}
-                                onOpenItemDiff={(tab, itemId) => {
+                                onOpenItemDiff={(tab, itemId, filename) => {
                                     const parent = commit.parents?.[0];
                                     if (!parent) return; // root commit — nothing to diff against
                                     setItemDiff({
@@ -1006,8 +1024,10 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
                                         commit2: parent,
                                         tab,
                                         focusItemId: itemId,
+                                        focusFilename: filename,
                                     });
                                 }}
+                                onOpenPdf={handleOpenPdf}
                             />
                         ))}
                     </div>

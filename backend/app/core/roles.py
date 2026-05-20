@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 Role = Literal["admin", "designer", "viewer"]
 
@@ -9,7 +9,7 @@ ROLE_ORDER: dict[Role, int] = {
 }
 
 
-def normalize_role(value: Optional[str]) -> Optional[Role]:
+def normalize_role(value: str | None) -> Role | None:
     if value is None:
         return None
     lowered = value.strip().lower()
