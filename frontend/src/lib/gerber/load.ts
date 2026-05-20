@@ -115,8 +115,6 @@ export async function loadGerberLayers(
 
   const filenames = Object.keys(normalised)
   const identified = whatsThatGerber(filenames)
-  console.log('[load] whatsThatGerber result:', identified)
-
   const results: GerberLayer[] = []
 
   await Promise.all(
@@ -142,7 +140,6 @@ export async function loadGerberLayers(
 
       try {
         const { svg, viewBox } = await convertOne(normalised[filename], id, color)
-        console.log(`[load] converted ${filename}: viewBox=${viewBox}`)
         results.push({
           id,
           filename,
@@ -155,7 +152,6 @@ export async function loadGerberLayers(
         })
       } catch (e) {
         if (e instanceof Error && e.message === 'empty') return
-        console.warn(`[load] convertOne failed for ${filename}:`, e)
       }
     }),
   )

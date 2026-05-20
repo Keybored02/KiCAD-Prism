@@ -1461,6 +1461,5 @@ async def get_project_gerbers(
         media_type="application/zip",
         headers={
             "Content-Disposition": f'attachment; filename="{project_id}-gerbers.zip"',
-            "X-Gerber-Files": ", ".join(name for name, _ in files),
         },
     )
