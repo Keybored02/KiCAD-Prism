@@ -96,6 +96,12 @@ def install(source: Path, target_dir: Path, force_copy: bool) -> None:
 
 
 def uninstall(target_dir: Path) -> None:
+    if not target_dir.is_dir():
+        # Say so. An uninstaller that silently does nothing when handed a bad path
+        # is worse than one that fails: you walk away believing it worked.
+        print(f"Not a directory: {target_dir}", file=sys.stderr)
+        return
+
     target = target_dir / INSTALL_NAME
     if target.is_symlink():
         target.unlink()
@@ -103,6 +109,8 @@ def uninstall(target_dir: Path) -> None:
     elif target.is_dir():
         shutil.rmtree(target)
         print(f"Removed {target}")
+    else:
+        print(f"Nothing installed at {target}")
 
 
 def main() -> int:
