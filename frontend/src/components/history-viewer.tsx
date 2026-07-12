@@ -78,6 +78,12 @@ interface CommitFile {
     deletions: number | null;
     schematic_diff?: FileDiffPayload;
     pcb_diff?: FileDiffPayload;
+    /** KiCad's own droppings — backup archives, -bak files, autosaves, caches.
+        Flagged by the backend (kicad_noise_service), never hidden: a commit that
+        genuinely contains them shouldn't pretend otherwise, so they're folded away
+        behind a count instead. The KiCad plugin uses the same classifier, so both
+        surfaces agree on what counts as a backup. */
+    noise?: boolean;
 }
 
 type DiffTab = "schematic" | "pcb" | "bom" | "stackup";
@@ -144,6 +150,60 @@ function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string;
         return { Icon: FileText, color: "text-red-400", label: "PDF" };
     }
     return { Icon: FileText, color: "text-muted-foreground", label: "" };
+}
+
+/**
+ * KiCad's generated files, folded away behind a count.
+ *
+ * These are backup archives, -bak files, autosaves and caches — KiCad's auto-backup
+ * is ON by default and keeps up to 25 zips per project, so a commit that swept them
+ * in can bury the one board file you actually care about.
+ *
+ * Folded, not filtered. They ARE in the commit, and a list that silently omitted
+ * them would be lying about what was committed. Showing them collapsed is also how
+ * you notice they're being committed at all — the real fix is a .gitignore entry.
+ */
+function NoiseFiles({ files }: { files: CommitFile[] }) {
+    const [expanded, setExpanded] = useState(false);
+    const noise = files.filter((f) => f.noise);
+    if (noise.length === 0) return null;
+
+    return (
+        <div className="flex flex-col">
+            <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
+                className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground py-1 self-start"
+                title="KiCad regenerates these; they usually belong in .gitignore"
+            >
+                {expanded
+                    ? <ChevronDown  className="h-3 w-3" />
+                    : <ChevronRight className="h-3 w-3" />}
+                <span>
+                    {noise.length} KiCad backup{noise.length === 1 ? "" : "s"} &amp; generated file{noise.length === 1 ? "" : "s"}
+                </span>
+            </button>
+
+            {expanded && (
+                <div className="ml-4 flex flex-col gap-0.5 pb-1">
+                    {noise.map((file) => (
+                        <div
+                            key={file.path}
+                            className="flex items-center gap-2 text-[11px] text-muted-foreground/80"
+                        >
+                            <span className={STATUS_COLOR[file.status] ?? ""}>
+                                {STATUS_ICON[file.status]}
+                            </span>
+                            <span className="font-mono truncate">{file.path}</span>
+                        </div>
+                    ))}
+                    <p className="text-[10px] text-muted-foreground/70 pt-1">
+                        KiCad regenerates these. They usually belong in .gitignore.
+                    </p>
+                </div>
+            )}
+        </div>
+    );
 }
 
 // Small chip indicating that a commit touched N KiCad files of a given kind.
@@ -428,6 +488,7 @@ function CommitItem({
                         <p className="text-xs text-muted-foreground py-1">No tracked files changed</p>
                     )}
                     {summary?.files
+                        .filter((f) => !f.noise)
                         .slice()
                         .sort((a, b) => fileSortRank(a.filename) - fileSortRank(b.filename))
                         .map((file) => {
@@ -487,6 +548,7 @@ function CommitItem({
                             </div>
                         );
                     })}
+                    <NoiseFiles files={summary?.files ?? []} />
                 </div>
             )}
             </div>

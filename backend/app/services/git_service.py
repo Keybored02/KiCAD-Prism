@@ -7,6 +7,8 @@ from fastapi import HTTPException
 from git import Repo
 from git.exc import BadName, GitCommandError
 
+from app.services import kicad_noise_service
+
 logger = logging.getLogger(__name__)
 
 
@@ -552,10 +554,17 @@ def get_commit_file_summary(
                     "status": status,
                     "additions": additions,
                     "deletions": deletions,
+                    # KiCad's own droppings — backup archives, -bak files, autosaves,
+                    # caches. Flagged rather than dropped, so the UI can fold them
+                    # away behind a count instead of silently hiding a file that is
+                    # genuinely in the commit.
+                    "noise": kicad_noise_service.is_noise(path),
                 }
             )
 
-        result.sort(key=lambda x: x["path"])
+        # Noise last, then by path — so a commit that touched a board and 20 backup
+        # zips doesn't bury the board.
+        result.sort(key=lambda x: (x["noise"], x["path"]))
         return result
     except Exception as error:
         raise HTTPException(

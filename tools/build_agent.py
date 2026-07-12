@@ -48,7 +48,13 @@ def build(clean: bool = True, console: bool = False) -> Path:
     # binary has no repo to load them from, so they get bundled — otherwise the
     # diff silently degrades to "N changed files" with no item-level detail.
     services = TOOLS.parent / "backend" / "app" / "services"
-    for required in ("sch_diff_service.py", "pcb_diff_service.py"):
+    bundled_services = (
+        "sch_diff_service.py",
+        "pcb_diff_service.py",
+        # Shared with the web UI so both agree on what a KiCad backup is.
+        "kicad_noise_service.py",
+    )
+    for required in bundled_services:
         if not (services / required).is_file():
             raise SystemExit(f"can't find {required} in {services}")
 
@@ -71,10 +77,11 @@ def build(clean: bool = True, console: bool = False) -> Path:
         f"{assets}{_sep()}prism_agent/assets",
         # Flattened to backend_services/ — worktree_diff looks for them there when
         # frozen (sys._MEIPASS/backend_services).
-        "--add-data",
-        f"{services / 'sch_diff_service.py'}{_sep()}backend_services",
-        "--add-data",
-        f"{services / 'pcb_diff_service.py'}{_sep()}backend_services",
+        *[
+            arg
+            for svc in bundled_services
+            for arg in ("--add-data", f"{services / svc}{_sep()}backend_services")
+        ],
         # pystray picks its backend at import by trying each in turn, so the one it
         # needs is never a literal import PyInstaller can see. Name them all.
         "--hidden-import",

@@ -62,6 +62,34 @@ def _backend_services_dir() -> Path:
 
 
 @lru_cache(maxsize=1)
+def _load_noise_classifier():
+    """The backend's is_noise(), loaded the same way as the diff services.
+
+    Shared rather than duplicated on purpose: the web history and the plugin's
+    change list must agree on what counts as a KiCad backup, or a file hidden in
+    one place and shown in the other is just confusing. Two copies of these
+    patterns would drift the first time KiCad changes a suffix.
+    """
+    services = _backend_services_dir()
+    path = services / "kicad_noise_service.py"
+    if not path.is_file():
+        log.warning("kicad_noise_service not found; nothing will be flagged as noise")
+        return None
+    try:
+        return _load_by_path("app.services.kicad_noise_service", path)
+    except Exception:
+        log.warning("couldn't load the noise classifier", exc_info=True)
+        return None
+
+
+def _is_noise(path: str) -> bool:
+    mod = _load_noise_classifier()
+    # No classifier means show everything: better a noisy list than a silently
+    # incomplete one.
+    return bool(mod and mod.is_noise(path))
+
+
+@lru_cache(maxsize=1)
 def _load_diff_services() -> tuple[types.ModuleType | None, types.ModuleType | None]:
     """Import the backend diff services without their backend dependencies.
 
@@ -176,6 +204,11 @@ class FileChange:
     status: str  # added | removed | modified
     kind: str  # pcb | sch | other
     groups: list[Group]
+    # KiCad's own droppings — backup archives, -bak files, autosaves, caches. Tagged
+    # rather than dropped: the UI collapses them behind a count, so nothing vanishes
+    # without a trace. A file that silently disappears from a change list is worse
+    # than one that's merely noisy — it's a lie about the state of the repo.
+    noise: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -183,6 +216,7 @@ class FileChange:
             "filename": self.filename,
             "status": self.status,
             "kind": self.kind,
+            "noise": self.noise,
             "groups": [
                 {
                     "id": g.id,
@@ -293,6 +327,15 @@ def uncommitted_changes(
             continue
 
         name = Path(rel).name
+        noise = _is_noise(rel)
+
+        # A backup archive holds a *copy* of the board, so diffing it would find
+        # hundreds of "changes" that are really just the old design — expensive to
+        # compute and actively misleading. Never diff noise.
+        if noise:
+            changes.append(FileChange(rel, name, status, "other", [], noise=True))
+            continue
+
         if rel.endswith(SCH_EXT):
             kind, mod, diff_fn = "sch", sch_mod, "diff_schematics"
         elif rel.endswith(PCB_EXT):
@@ -304,9 +347,10 @@ def uncommitted_changes(
         groups = _diff_one(repo, rel, status, mod, diff_fn) if mod else []
         changes.append(FileChange(rel, name, status, kind, groups))
 
-    # Boards and schematics first — they're what the user came to see.
+    # Boards and schematics first — they're what the user came to see. Noise last,
+    # regardless of type.
     rank = {"sch": 0, "pcb": 1, "other": 2}
-    changes.sort(key=lambda c: (rank[c.kind], c.path))
+    changes.sort(key=lambda c: (c.noise, rank[c.kind], c.path))
     return [c.to_dict() for c in changes]
 
 

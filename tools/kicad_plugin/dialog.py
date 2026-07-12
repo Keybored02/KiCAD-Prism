@@ -54,6 +54,8 @@ class PrismDialog(wx.Dialog):
         # Collapsed by default: the header already carries the change count, which
         # is the answer most of the time. Expand when you want the detail.
         self.section_open = False
+        # KiCad's generated files stay folded unless you go looking for them.
+        self.noise_open = False
 
         self.SetBackgroundColour(_c(self.pal["background"]))
         self._build()
@@ -327,7 +329,14 @@ class PrismDialog(wx.Dialog):
             self.content.Add(card, 0, wx.EXPAND)
             return
 
-        total = sum(len(f.get("groups") or []) or 1 for f in self.changes)
+        # KiCad's own droppings (backup archives, -bak files, autosaves, caches) are
+        # kept separate. They're not hidden — a file that silently vanishes from a
+        # change list is a lie about the state of your repo — but they don't get to
+        # drown the design work, and there can be dozens of them per real edit.
+        design = [f for f in self.changes if not f.get("noise")]
+        noise = [f for f in self.changes if f.get("noise")]
+
+        total = sum(len(f.get("groups") or []) or 1 for f in design)
 
         def toggle_section(is_open):
             self.section_open = is_open
@@ -348,10 +357,81 @@ class PrismDialog(wx.Dialog):
         )
 
         if self.section_open:
-            for f in self.changes:
-                self._add_file(card, f)
+            if design:
+                for f in design:
+                    self._add_file(card, f)
+            else:
+                card.body.Add(
+                    card.label(
+                        "Nothing but KiCad's own backup files.",
+                        tone="muted_fg",
+                        small=True,
+                    ),
+                    0,
+                    wx.LEFT | wx.BOTTOM,
+                    th.SP_MD,
+                )
+
+        if noise:
+            self._add_noise(card, noise)
 
         self.content.Add(card, 0, wx.EXPAND)
+
+    def _add_noise(self, card, noise):
+        """KiCad's generated files, folded away behind a count.
+
+        Worth surfacing at all because the honest fix is a .gitignore entry: these
+        shouldn't be committed, and seeing them here is how you find out they are.
+        """
+
+        def toggle(is_open):
+            self.noise_open = is_open
+            self._rebuild()
+
+        card.body.Add(
+            Disclosure(
+                card,
+                self.pal,
+                "KiCad backups & generated files",
+                toggle,
+                expanded=self.noise_open,
+                count=len(noise),
+            ),
+            0,
+            wx.EXPAND | wx.TOP,
+            th.SP_XS,
+        )
+
+        if not self.noise_open:
+            return
+
+        for f in noise:
+            status = f.get("status", "modified")
+            card.body.Add(
+                ChangeRow(
+                    card,
+                    self.pal,
+                    {
+                        "kind": status if status in ("added", "removed") else "changed",
+                        "label": f["path"],  # full path: shows WHERE the noise is
+                        "category_label": status,
+                    },
+                ),
+                0,
+                wx.EXPAND | wx.LEFT,
+                th.SP_MD,
+            )
+
+        card.body.Add(
+            card.label(
+                "KiCad regenerates these. They usually belong in .gitignore.",
+                tone="muted_fg",
+                small=True,
+            ),
+            0,
+            wx.LEFT | wx.TOP,
+            th.SP_MD,
+        )
 
     def _add_file(self, card, f):
         path = f["path"]
