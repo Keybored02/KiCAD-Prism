@@ -43,16 +43,26 @@ def _agent_command() -> list[str]:
     """How the OS should launch the agent at login.
 
     Frozen, that's just the binary. From a checkout it needs the interpreter and
-    the module — and an absolute cwd, since login has no useful working directory.
+    the module — and an absolute path, since login has no useful working directory.
+
+    The profile is passed as an ARGUMENT, not left to the environment: a login
+    process gets a fresh environment, so PRISM_PROFILE would be lost, and a dev agent
+    set to autostart would come back as the *default* agent — colliding with the
+    installed one it was carefully kept separate from.
     """
+    from .discovery import PROFILE
+
+    args = ["--profile", PROFILE] if PROFILE else []
+
     if getattr(sys, "frozen", False):
-        return [sys.executable]
+        return [sys.executable, *args]
+
     root = Path(__file__).resolve().parent.parent  # tools/
     bootstrap = (
         f"import sys; sys.path.insert(0, r'{root}'); "
         "from prism_agent.__main__ import main; sys.exit(main())"
     )
-    return [sys.executable, "-c", bootstrap]
+    return [sys.executable, "-c", bootstrap, *args]
 
 
 # -- Windows --------------------------------------------------------------

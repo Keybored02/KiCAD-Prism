@@ -30,9 +30,28 @@ class AgentUnavailable(Exception):
     """The tray agent isn't running (or we can't reach it)."""
 
 
+def profile():
+    """Which agent are we talking to — the installed one, or a dev one?
+
+    A symlinked working copy and a real PCM install can both be loaded by KiCad at
+    once (that's the point: iterate on one, verify the other). They must not share an
+    agent, or the single-instance guard means only one starts and it silently serves
+    both — you edit agent code, restart, and see nothing change.
+
+    So the dev copy uses its own profile. PRISM_PROFILE wins if it's set (for running
+    the agent by hand); otherwise we detect it, the same way __init__ does: a dev
+    checkout has the repo's build script as a sibling, an install doesn't.
+    """
+    env = os.environ.get("PRISM_PROFILE", "").strip()
+    if env:
+        return env
+    tools = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    return "dev" if os.path.isfile(os.path.join(tools, "build_agent.py")) else ""
+
+
 def _config_dir():
     # Duplicated from prism_agent.discovery rather than imported: the plugin is
-    # copied into KiCad's plugin dir on its own and cannot import the agent
+    # installed into KiCad's plugin dir on its own and cannot import the agent
     # package. Keep the two in sync — they're both tiny.
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or os.path.expanduser("~/AppData/Roaming")
@@ -40,7 +59,8 @@ def _config_dir():
         base = os.path.expanduser("~/Library/Application Support")
     else:
         base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, APP_NAME)
+    p = profile()
+    return os.path.join(base, f"{APP_NAME}-{p}" if p else APP_NAME)
 
 
 def _endpoint():

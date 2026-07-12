@@ -18,11 +18,31 @@ from . import prism_theme
 from .dialog import PrismDialog
 
 
+def is_dev_install() -> bool:
+    """Are we the symlinked working copy, or a real installed package?
+
+    A dev checkout has the repo's siblings next to it (build_agent.py, the agent
+    source); a PCM install is just the plugin's own files plus the agent binary.
+
+    This matters because a developer wants BOTH at once: a symlink to iterate on,
+    and a real install to verify what users actually get. Without telling them
+    apart, two identically-named plugins appear in the menu and you have no idea
+    which one you just clicked — and the symlinked one has no bundled binary, so it
+    quietly exercises the source fallback instead of the thing under test.
+    """
+    tools = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    return os.path.isfile(os.path.join(tools, "build_agent.py"))
+
+
 class PrismPlugin(pcbnew.ActionPlugin):
     def defaults(self):
-        self.name = "Prism"
+        dev = is_dev_install()
+        # Label the working copy so it can't be mistaken for the installed one.
+        self.name = "Prism (dev)" if dev else "Prism"
         self.category = "Prism"
-        self.description = "Project status and Prism integration"
+        self.description = "Project status and Prism integration" + (
+            " — development copy, running from source" if dev else ""
+        )
         self.show_toolbar_button = True
         # KiCad wants a PNG next to the plugin; absent, it falls back to a
         # default icon rather than failing, so this is safe either way.

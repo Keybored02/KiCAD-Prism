@@ -25,6 +25,19 @@ from pathlib import Path
 APP_NAME = "kicad-prism"
 ENDPOINT_FILE = "agent.json"
 
+# Namespace everything the agent owns — discovery file, settings, single-instance
+# guard. Set PRISM_PROFILE to run a second, isolated agent.
+#
+# This exists for a specific and otherwise painful problem: a developer needs BOTH a
+# symlinked working copy (to iterate) and a real installed package (to verify what
+# users get) — but they'd share one discovery file and one settings file, so the
+# single-instance guard makes the second agent refuse to start, and whichever one IS
+# running silently serves both plugins. You then edit agent code, restart, and see
+# nothing change, because you're still talking to the installed binary.
+#
+#     PRISM_PROFILE=dev python -m prism_agent
+PROFILE = os.environ.get("PRISM_PROFILE", "").strip()
+
 
 def config_dir() -> Path:
     """Per-user config dir, following each OS's convention."""
@@ -34,7 +47,8 @@ def config_dir() -> Path:
         base = Path.home() / "Library" / "Application Support"
     else:
         base = os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
-    return Path(base) / APP_NAME
+    name = f"{APP_NAME}-{PROFILE}" if PROFILE else APP_NAME
+    return Path(base) / name
 
 
 def endpoint_path() -> Path:

@@ -226,6 +226,37 @@ python tools/install_plugin.py --uninstall
 python tools/install_plugin.py --dir <path>  # pick the KiCad version yourself
 ```
 
+### The dev copy and a real install coexist
+
+You need both: a symlink to iterate on, and a real PCM install to verify what users
+actually get. Left alone these collide — two identically named plugins in the menu,
+and, far worse, **one agent between them**: they share a discovery file and a
+settings file, so the single-instance guard means only one agent starts and it
+silently serves both. You edit agent code, restart, and see nothing change, because
+you're still talking to the installed binary.
+
+So the plugin detects how it was installed and namespaces itself. **Nothing to
+configure:**
+
+| | Menu entry | Agent state lives in |
+|---|---|---|
+| Symlinked working copy | **Prism (dev)** | `…/kicad-prism-dev/` |
+| Installed package | **Prism** | `…/kicad-prism/` |
+
+Separate agents, separate settings, separate single-instance guards. Install both
+and they stay out of each other's way.
+
+To run an isolated agent by hand:
+
+```bash
+python -m prism_agent --profile dev     # or set PRISM_PROFILE=dev
+```
+
+The profile is passed to autostart as an *argument* rather than left in the
+environment, because a login process gets a fresh one — otherwise a dev agent set to
+start at login would come back as the *default* agent and collide with the installed
+one it was carefully kept apart from.
+
 It symlinks rather than copies, so the repo stays the single source of truth: edit
 the plugin here and KiCad picks it up on *Tools → External Plugins → Refresh*. If
 the OS refuses symlinks (Windows without Developer Mode) it falls back to copying

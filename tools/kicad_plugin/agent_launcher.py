@@ -175,6 +175,22 @@ def _clear_quarantine(binary: Path) -> None:
         pass
 
 
+def _env() -> dict:
+    """The environment the agent runs in.
+
+    Carries the profile, so an agent started by the dev plugin writes its discovery
+    and settings under the dev namespace rather than fighting the installed one over
+    the same files. See agent_client.profile().
+    """
+    from .agent_client import profile
+
+    env = {**os.environ}
+    p = profile()
+    if p:
+        env["PRISM_PROFILE"] = p
+    return env
+
+
 def start_agent() -> str:
     """Launch the agent, detached. Returns what was started."""
     binary = find_binary()
@@ -187,6 +203,7 @@ def start_agent() -> str:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=_env(),
                 **_detached(),
             )
         except OSError as exc:
@@ -222,7 +239,7 @@ def start_agent() -> str:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            env={**os.environ, "PYTHONPATH": str(root)},
+            env={**_env(), "PYTHONPATH": str(root)},
             **_detached(),
         )
     except OSError as exc:
