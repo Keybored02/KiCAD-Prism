@@ -15,6 +15,7 @@ import wx
 from . import agent_launcher
 from . import prism_theme as th
 from .agent_client import AgentClient, AgentUnavailable
+from .settings_dialog import SettingsDialog
 from .widgets import Button, Card, ChangeRow, Disclosure, ScrollThumb
 
 try:
@@ -125,6 +126,14 @@ class PrismDialog(wx.Dialog):
         )
         buttons.AddStretchSpacer()
         buttons.Add(
+            Button(
+                self, "Settings", self.pal, variant="ghost", on_click=self._on_settings
+            ),
+            0,
+            wx.RIGHT,
+            th.SP_SM,
+        )
+        buttons.Add(
             Button(self, "Close", self.pal, variant="ghost", on_click=self.Close), 0
         )
         root.Add(buttons, 0, wx.EXPAND | wx.ALL, th.SP_LG)
@@ -211,6 +220,15 @@ class PrismDialog(wx.Dialog):
 
         self.content.Add(card, 0, wx.EXPAND)
         self.open_btn.Enable(False)
+
+    def _on_settings(self):
+        dlg = SettingsDialog(self, self.pal)
+        try:
+            dlg.ShowModal()
+        finally:
+            dlg.Destroy()
+        # The server URL (or the agent itself) may have changed underneath us.
+        self._load()
 
     def _on_start_agent(self):
         try:

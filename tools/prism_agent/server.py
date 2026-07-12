@@ -7,8 +7,11 @@ Endpoints
     GET  /health                     -> {ok, version, backend_reachable}
     GET  /project?path=<path>        -> {project, git, prism}   (the one the UI needs)
     GET  /changes?path=<path>        -> {changes: [...]}        uncommitted, item-level
+    GET  /settings                   -> {settings, identity, protocol}
+    PUT  /settings {..}              -> updates and re-points the backend client
     POST /open-in-prism {project_id} -> opens the web app in the browser
     POST /quit                       -> stops the agent
+    POST /restart                    -> stops, then relaunches the agent
 
 /quit exists so the API — not the tray icon — is the agent's control surface. On a
 desktop with no usable tray (Wayland without an appindicator, SSH, headless) there
@@ -23,18 +26,19 @@ from __future__ import annotations
 
 import json
 import secrets
+import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import discovery
+from . import discovery, protocol, settings as settings_store
 from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
 from .worktree_diff import uncommitted_changes
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 class AgentState:
@@ -46,6 +50,17 @@ class AgentState:
         # Set by the entry point. Lets /quit stop the agent, so the tray icon is a
         # convenience rather than the only way out.
         self.request_stop = None
+        self.request_restart = None
+
+    def rebuild_client(self, saved) -> None:
+        """Re-point at the backend after the URL or token changed.
+
+        Without this a new server URL wouldn't take effect until the agent
+        restarted, which is a confusing thing to hand a user who just pressed Save.
+        """
+        self.prism = PrismClient(
+            PrismConfig(base_url=saved.server_url, token=saved.api_token)
+        )
         # Diffing a big board takes a second or two, and reopening the dialog
         # shouldn't re-parse a board that hasn't changed. Keyed on the mtimes of
         # the files git says are dirty, so any edit invalidates it by itself.
@@ -153,6 +168,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, self._changes_payload(path))
             return
 
+        if route.path == "/settings":
+            self._send(200, self._settings_payload())
+            return
+
         self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
@@ -188,7 +207,87 @@ class _Handler(BaseHTTPRequestHandler):
             self.state.request_stop()
             return
 
+        if route.path == "/restart":
+            if not self.state.request_restart:
+                self._send(501, {"error": "this agent can't restart itself"})
+                return
+            self._send(200, {"ok": True, "restarting": True})
+            self.state.request_restart()
+            return
+
         self._send(404, {"error": "not found"})
+
+    def do_PUT(self):  # noqa: N802
+        route = urlparse(self.path)
+
+        if not self._authorised():
+            self._send(401, {"error": "unauthorised"})
+            return
+
+        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            self._send(400, {"error": "invalid json"})
+            return
+
+        if route.path == "/settings":
+            self._send(200, self._save_settings(body))
+            return
+
+        self._send(404, {"error": "not found"})
+
+    # -- settings ----------------------------------------------------------
+
+    def _settings_payload(self) -> dict:
+        current = settings_store.load()
+        return {
+            # Redacted: the token would otherwise travel over loopback HTTP and
+            # end up in logs and screenshots. The UI only needs to know it's set.
+            "settings": current.to_dict(redact=True),
+            "identity": self.state.prism.identity(),
+            "protocol": {
+                "registered": protocol.is_registered(),
+                # macOS can't register a scheme from a plain script (it needs an
+                # .app bundle), so tell the UI rather than offering a toggle that
+                # would always fail.
+                "supported": sys.platform != "darwin",
+            },
+        }
+
+    def _save_settings(self, body: dict) -> dict:
+        changes = {
+            k: body[k]
+            for k in ("server_url", "api_token", "protocol_handler")
+            if k in body
+        }
+
+        # An empty api_token means "leave it alone" (the UI never receives the real
+        # one, so it can't echo it back). Clearing is explicit, via clear_token.
+        if changes.get("api_token") == "" and not body.get("clear_token"):
+            changes.pop("api_token", None)
+        if body.get("clear_token"):
+            changes["api_token"] = ""
+
+        want_handler = changes.get("protocol_handler")
+        if want_handler is not None and want_handler != protocol.is_registered():
+            try:
+                protocol.register() if want_handler else protocol.unregister()
+            except protocol.RegistrationError as exc:
+                # Don't persist a setting the OS refused to honour — that would
+                # leave the UI claiming a handler that isn't installed.
+                changes.pop("protocol_handler", None)
+                saved = settings_store.update(**changes)
+                self.state.rebuild_client(saved)
+                payload = self._settings_payload()
+                payload["error"] = str(exc)
+                return payload
+
+        saved = settings_store.update(**changes)
+        # Re-point the backend client, or the new URL/token wouldn't take effect
+        # until the agent restarted.
+        self.state.rebuild_client(saved)
+        return self._settings_payload()
 
     # -- the payload the plugin renders ------------------------------------
 
@@ -229,6 +328,9 @@ def make_server(prism: PrismClient) -> tuple[ThreadingHTTPServer, AgentState]:
     handler = type("Handler", (_Handler,), {"state": state})
     # Port 0 = let the OS pick a free one; we publish it via discovery.
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    # Hang the state off the server too, so callers holding only the server (the
+    # tray menu) can reach request_stop/request_restart without extra plumbing.
+    server.state = state
     return server, state
 
 

@@ -77,8 +77,46 @@ purely local. Backend calls degrade to "not registered" rather than failing.
 GET  /health                       {ok, version, backend_reachable}     no auth
 GET  /project?path=<path>          {project, git, prism}
 GET  /changes?path=<path>          {changes, project, prism}
+GET  /settings                     {settings, identity, protocol}
+PUT  /settings {..}                updates, and re-points the backend client
 POST /open-in-prism {project_id}   opens the web app in the browser
+POST /restart                      stops, then relaunches the agent
+POST /quit                         stops the agent
 ```
+
+## Settings, accounts, and prism:// links
+
+Settings live in `settings.json` next to the discovery file, and are edited from
+**Settings** in the plugin dialog. They're deliberately not in the tray: a pystray
+menu is labels and checkmarks, it can't host a text field, and a half-usable tray
+form would be worse than none. The tray does carry *Restart agent* and *Quit*.
+
+Env vars (`PRISM_URL`, `PRISM_TOKEN`) still win over the saved file, so pointing at
+a staging backend for one run neither loses nor silently overwrites what you saved.
+The API token is **write-only**: the agent stores it but never sends it back, so
+the UI only ever learns *whether* one is set.
+
+**Accounts.** Prism authenticates with OIDC authorization-code — you sign in at an
+identity provider in a *browser*, which redirects back with a code. There is no
+username/password endpoint, so a desktop client cannot collect credentials itself;
+it has to hand off to the browser, and the redirect is what `prism://auth/callback`
+is for. Right now the server has `auth_enabled: false`, so every request is a guest
+and no token is needed; the settings dialog says so instead of showing a dead
+Sign-in button. The seam (token → bearer header → `identity`) is in place for when
+an issuer is configured.
+
+**prism:// links.** The URL *dispatch* is portable; the *registration* is not:
+
+| OS | How the scheme is claimed | Works? |
+|---|---|---|
+| Windows | per-user registry key under `HKCU\Software\Classes\prism` | yes, no admin needed |
+| Linux | a `.desktop` file with `MimeType=x-scheme-handler/prism` | yes |
+| macOS | `CFBundleURLTypes` in an app bundle's `Info.plist` | **no** — needs the agent shipped as a real `.app`; a plain script cannot register |
+
+Nothing is registered unless you tick the box and press Save: silently claiming a
+URL scheme is the sort of thing people rightly resent. The registered command
+bootstraps `sys.path` explicitly rather than relying on the working directory,
+because the browser launches it from *its* cwd, not ours.
 
 ### Uncommitted changes
 

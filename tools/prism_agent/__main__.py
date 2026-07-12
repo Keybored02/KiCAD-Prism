@@ -18,13 +18,14 @@ Run:  python -m prism_agent
 from __future__ import annotations
 
 import argparse
-import os
 import signal
+import subprocess
 import sys
 import threading
 from pathlib import Path
 
-from . import discovery
+from . import discovery, protocol
+from . import settings as settings_store
 from .prism_client import PrismConfig
 from .server import VERSION, serve
 
@@ -120,17 +121,82 @@ def _make_icon(Image, ImageDraw):
 
 
 def _prism_config() -> PrismConfig:
-    """Backend location. Env-overridable so a dev pointing at a remote Prism
-    doesn't have to edit code."""
-    return PrismConfig(
-        base_url=os.environ.get("PRISM_URL", PrismConfig.base_url),
-        token=os.environ.get("PRISM_TOKEN", ""),
-    )
+    """Backend location, from the user's saved settings.
+
+    settings.load() already lets PRISM_URL / PRISM_TOKEN win over the saved values,
+    so a dev pointing at a staging backend for one run neither loses their saved
+    setting nor silently overwrites it.
+    """
+    saved = settings_store.load()
+    return PrismConfig(base_url=saved.server_url, token=saved.api_token)
 
 
 def _shutdown(server) -> None:
     server.shutdown()
     discovery.clear_endpoint()
+
+
+def _handle_url(url: str) -> int:
+    """Act on a prism:// link. This is what the OS invokes for a registered scheme.
+
+    Runs as a short-lived process, separate from the agent: the browser launches a
+    *new* copy of us with the URL, it isn't delivered to the one already running.
+    So do the work and exit — don't try to start a second agent (which the
+    single-instance guard would refuse anyway).
+    """
+    link = protocol.parse(url)
+    if link is None:
+        print(f"Not a prism:// URL: {url}", file=sys.stderr)
+        return 2
+
+    saved = settings_store.load()
+
+    if link.action == "open":
+        import webbrowser
+
+        target = saved.server_url.rstrip("/")
+        if link.project_id:
+            target += f"/projects/{link.project_id}"
+        webbrowser.open(target)
+        return 0
+
+    if link.action == "auth":
+        # The OIDC redirect will land here. Handing the code to the running agent
+        # is the next piece of work; for now say so plainly rather than silently
+        # dropping a login the user just completed.
+        print(
+            "Received a prism://auth callback, but sign-in isn't wired up yet.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Don't know how to handle prism://{link.action}", file=sys.stderr)
+    return 2
+
+
+def _relaunch() -> None:
+    """Start a fresh agent process, for /restart.
+
+    Detached, and only *after* the current one has released its port and discovery
+    file — otherwise the new agent's single-instance guard would see us still alive
+    and politely refuse to start.
+    """
+    root = Path(__file__).resolve().parent.parent  # tools/
+    kwargs = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        )
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen(
+        [sys.executable, "-m", "prism_agent"],
+        cwd=str(root),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **kwargs,
+    )
 
 
 def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
@@ -141,14 +207,27 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
         _shutdown(server)
         icon.stop()
 
+    def on_restart(icon, _item):
+        # Same path /restart takes: stop, then relaunch once we've released the
+        # port and the discovery file.
+        if server.state.request_restart:
+            server.state.request_restart()
+        _shutdown(server)
+        icon.stop()
+
     def on_open_prism(_icon, _item):
         import webbrowser
 
-        webbrowser.open(config.base_url)
+        # Read the setting fresh: the user may have changed the server URL since
+        # the agent started, and opening the old one would be quietly wrong.
+        webbrowser.open(settings_store.load().server_url)
 
     def status_text(_item) -> str:
         # pystray re-evaluates this each time the menu opens, so it stays live.
         return f"Agent running on 127.0.0.1:{port}"
+
+    def server_text(_item) -> str:
+        return f"Server: {settings_store.load().server_url}"
 
     icon = pystray.Icon(
         "kicad-prism",
@@ -156,8 +235,13 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
         f"KiCad-Prism agent {VERSION}",
         menu=pystray.Menu(
             pystray.MenuItem(status_text, None, enabled=False),
+            pystray.MenuItem(server_text, None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Open Prism", on_open_prism),
+            # Settings live in the plugin's dialog, which is a real UI toolkit —
+            # pystray menus can't host text fields, so pointing at it beats a
+            # half-usable tray form.
+            pystray.MenuItem("Restart agent", on_restart),
             pystray.MenuItem("Quit", on_quit),
         ),
     )
@@ -216,7 +300,15 @@ def main() -> int:
         action="store_true",
         help="run without a tray icon (headless, SSH, or a desktop with no tray)",
     )
+    ap.add_argument(
+        "--open-url",
+        metavar="URL",
+        help="handle a prism:// link and exit (this is how the OS invokes us)",
+    )
     args = ap.parse_args()
+
+    if args.open_url:
+        return _handle_url(args.open_url)
 
     # One agent per machine. A second would bind a different port, overwrite the
     # discovery file, and leave two processes racing — with whichever exits last
@@ -239,17 +331,32 @@ def main() -> int:
     # API's /quit all set it. That's what keeps the agent controllable on a
     # machine where no tray icon can be drawn.
     stop = threading.Event()
+    restarting = threading.Event()
     state.request_stop = stop.set
 
-    if args.no_tray:
-        return _run_headless(server, stop, port, None)
+    def request_restart():
+        # Relaunch only after we've exited, so the new agent's single-instance
+        # guard doesn't see us still alive and refuse to start.
+        restarting.set()
+        stop.set()
 
+    state.request_restart = request_restart
+
+    try:
+        if args.no_tray:
+            return _run_headless(server, stop, port, None)
+        return _run_with_tray(server, stop, config, port)
+    finally:
+        if restarting.is_set():
+            _relaunch()
+
+
+def _run_with_tray(server, stop, config, port) -> int:
     tray_mods, problem = _load_tray()
     if tray_mods is None:
         # No tray available — but the agent is still perfectly useful, and exiting
         # here would take the plugin's only backend down with it.
         return _run_headless(server, stop, port, problem)
-
     return _run_tray(tray_mods, server, stop, config, port)
 
 

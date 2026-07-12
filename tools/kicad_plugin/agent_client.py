@@ -107,3 +107,23 @@ class AgentClient:
 
     def open_in_prism(self, project_id):
         return self._call("POST", "/open-in-prism", {"project_id": project_id})
+
+    # -- settings ----------------------------------------------------------
+
+    def settings(self):
+        """Current settings, backend identity, and prism:// registration state."""
+        return self._call("GET", "/settings")
+
+    def save_settings(self, changes):
+        """Update settings. Returns the same shape as settings().
+
+        The token is write-only: it's never sent back, so an empty api_token means
+        "leave it as it is" rather than "clear it" — pass clear_token to clear.
+        """
+        return self._call("PUT", "/settings", changes)
+
+    def restart(self):
+        return self._call("POST", "/restart", {})
+
+    def quit(self):
+        return self._call("POST", "/quit", {})

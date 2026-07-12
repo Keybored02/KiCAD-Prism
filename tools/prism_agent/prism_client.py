@@ -67,6 +67,45 @@ class PrismClient:
         """Is the backend reachable (and are we authenticated)?"""
         return self._request("GET", "/api/projects") is not None
 
+    def auth_config(self) -> dict | None:
+        """Whether the server wants anyone to log in, and via which provider.
+
+        Prism authenticates with OIDC authorization-code — you sign in at an
+        identity provider in a *browser*, which redirects back with a code. There
+        is no username/password endpoint to call, so a desktop client can't collect
+        credentials itself; it has to hand off to the browser. When `auth_enabled`
+        is false (the current default) every request is a guest and no token is
+        needed at all.
+        """
+        return self._request("GET", "/api/auth/config")
+
+    def me(self) -> dict | None:
+        """Who the backend thinks we are, or None if we're not authenticated."""
+        return self._request("GET", "/api/auth/me")
+
+    def identity(self) -> dict:
+        """A summary the settings UI can render without knowing about OIDC."""
+        cfg = self.auth_config()
+        if cfg is None:
+            return {"reachable": False, "auth_enabled": False, "user": None}
+
+        if not cfg.get("auth_enabled"):
+            return {
+                "reachable": True,
+                "auth_enabled": False,
+                "user": None,
+                "provider": "",
+                # Say why there's nothing to sign into, so the UI isn't just blank.
+                "note": "This server has authentication disabled — every request is a guest.",
+            }
+
+        return {
+            "reachable": True,
+            "auth_enabled": True,
+            "provider": cfg.get("oidc_provider_name", ""),
+            "user": self.me(),
+        }
+
     def find_project_by_path(self, path: str) -> dict | None:
         """Match a local project directory to a Prism project.
 
