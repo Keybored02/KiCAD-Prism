@@ -10,15 +10,35 @@ PCB (all versions)
     to a footprint reference when the item has no usable uuid — segments, for
     instance, are keyed by geometry in the diff, not by uuid.
 
-Schematic (not possible on any current KiCad)
-    KiCad 8 has no schematic Python API at all — the plugin system is pcbnew-only.
-    KiCad 9 added the IPC API (`kipy`), but its schematic module can only *read*
-    the selection (`get_selection_as_string`); `add_to_selection` exists for board
-    documents only. So nothing can drive eeschema's selection from outside today.
+Schematic (not possible on any current KiCad — verified against 10.0.4)
+    KiCad 8 has no schematic Python API at all; the plugin system is pcbnew-only.
 
-    Rather than ship a button that throws on first click, schematic rows are simply
-    not clickable, and probe_schematic explains why. When the API gains the
-    capability, schematic_probe_available() is the single place to flip.
+    KiCad 9/10 added the IPC API, and it is tempting to conclude from kipy that
+    selection is board-only, because kipy's Schematic class exposes no
+    add_to_selection(). That inference is wrong, and worth not repeating: the
+    selection commands are *generic editor commands*
+    (kiapi.common.commands.AddToSelection), they take an ItemHeader whose
+    DocumentSpecifier explicitly supports schematics (DOCTYPE_SCHEMATIC,
+    sheet_path), and board.py's implementation does nothing board-specific — it
+    just points the header at its own document.
+
+    The real blocker is one layer deeper, and only KiCad can answer it. Sending
+    those commands at a live schematic document on 10.0.4 returns:
+
+        ApiError: no handler available for request of type
+                  kiapi.common.commands.GetSelection
+
+    while the identical commands against the open PCB document succeed. So the
+    protocol defines selection for any document, but *eeschema has not implemented
+    the handlers*. There is nothing to call, and no way to route around it.
+
+    (Aside: kipy's Schematic wrapper doesn't even import on KiCad 10 — it targets
+    KiCad 11's protobufs and dies on `ImportError: BusEntryType`. Any future
+    implementation here should talk the raw commands, not that wrapper.)
+
+    Rather than ship a row that throws on first click, schematic rows are simply
+    not clickable. When eeschema ships the handlers,
+    schematic_probe_available() is the single place to flip.
 """
 
 from __future__ import annotations
@@ -117,19 +137,15 @@ def probe_pcb(item_id: str, reference: str = "") -> None:
 def schematic_probe_available() -> bool:
     """Can we select a symbol in eeschema?
 
-    No — not on any KiCad released so far, and this returns False everywhere. It's
-    a function rather than a constant so the dialog asks the question instead of
-    hard-coding the answer, and so there's exactly one place to flip when the API
-    grows the capability.
+    No — not on any KiCad released so far, so this returns False everywhere. It's a
+    function rather than a constant so the dialog asks the question instead of
+    hard-coding the answer, and so there is exactly one place to flip when eeschema
+    ships the handlers.
 
-    The detail, since it's easy to assume otherwise: KiCad 8 has no schematic
-    Python API at all (the plugin system is pcbnew-only). KiCad 9 added the IPC API
-    (`kipy`, from the `kicad-python` package), but as of 0.7.1 its schematic module
-    exposes only `get_selection_as_string` — it can *read* the selection, not set
-    it. Board documents get `add_to_selection` / `clear_selection`; schematics
-    don't. So there is currently no supported way to drive eeschema's selection
-    from outside, and pretending otherwise would just throw AttributeError on the
-    user's first click.
+    See the module docstring for the evidence. The short version: the selection
+    commands ARE generic and DO name schematic documents — but sending them at a
+    live schematic on KiCad 10.0.4 returns "no handler available", while the same
+    commands against the open PCB succeed. eeschema hasn't implemented them.
     """
     return False
 
@@ -144,9 +160,9 @@ def probe_schematic(item_id: str, reference: str = "") -> None:
             "Board items still cross-probe normally." % version
         )
     raise ProbeError(
-        "KiCad %s's IPC API can read the schematic selection but not set it "
-        "(kicad-python exposes add_to_selection for boards only), so the plugin "
-        "can't jump to a symbol yet.\n\n"
+        "KiCad %s's schematic editor doesn't answer the API's selection commands "
+        "yet — it replies 'no handler available', while the same commands work on "
+        "the board. So the plugin can't jump to a symbol.\n\n"
         "Board items still cross-probe normally." % version
     )
 
