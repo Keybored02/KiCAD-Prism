@@ -12,9 +12,15 @@ import os
 
 import wx
 
+from . import agent_launcher
 from . import prism_theme as th
 from .agent_client import AgentClient, AgentUnavailable
 from .widgets import Button, Card, ChangeRow, Disclosure
+
+try:
+    from . import crossprobe
+except ImportError:  # pcbnew is only importable inside KiCad
+    crossprobe = None
 
 LOGO = os.path.join(os.path.dirname(__file__), "assets", "prism-64.png")
 
@@ -149,19 +155,92 @@ class PrismDialog(wx.Dialog):
         self._relayout()
 
     def _render_unavailable(self, message):
-        self.status.SetLabel("Agent not reachable")
+        """The agent isn't running. Offer to start it rather than just saying so."""
+        self.status.SetLabel("Agent not running")
         self.status.SetForegroundColour(_c(self.pal["destructive"]))
 
         card = Card(self.scroll, "Prism agent", self.pal)
-        text = wx.StaticText(card, label=message)
+
+        text = wx.StaticText(
+            card,
+            label=(
+                "The Prism agent isn't running. It does the machine-side work —\n"
+                "git, project lookup, diffing your uncommitted changes — so the\n"
+                "plugin needs it."
+            ),
+        )
         text.SetForegroundColour(_c(self.pal["muted_fg"]))
         f = text.GetFont()
         f.SetPointSize(th.FONT_BODY)
         text.SetFont(f)
-        text.Wrap(400)
-        card.body.Add(text, 0)
+        card.body.Add(text, 0, wx.BOTTOM, th.SP_SM)
+
+        card.body.Add(
+            Button(
+                card,
+                "Start agent",
+                self.pal,
+                variant="primary",
+                on_click=self._on_start_agent,
+            ),
+            0,
+            wx.BOTTOM,
+            th.SP_SM,
+        )
+
+        hint = wx.StaticText(card, label="Or start it yourself (select to copy):")
+        hint.SetForegroundColour(_c(self.pal["muted_fg"]))
+        hf = hint.GetFont()
+        hf.SetPointSize(th.FONT_SMALL)
+        hint.SetFont(hf)
+        card.body.Add(hint, 0, wx.BOTTOM, th.SP_XS)
+
+        # A read-only TextCtrl, not a StaticText: the whole point is that the user
+        # can select and copy the command. StaticText can't be selected at all.
+        cmd = wx.TextCtrl(
+            card,
+            value=agent_launcher.manual_command(),
+            style=wx.TE_READONLY | wx.BORDER_SIMPLE,
+        )
+        cmd.SetBackgroundColour(_c(self.pal["muted"]))
+        cmd.SetForegroundColour(_c(self.pal["foreground"]))
+        cf = cmd.GetFont()
+        cf.SetPointSize(th.FONT_SMALL)
+        cf.SetFaceName(th.FONT_MONO_FAMILY)
+        cmd.SetFont(cf)
+        card.body.Add(cmd, 0, wx.EXPAND)
+
         self.content.Add(card, 0, wx.EXPAND)
         self.open_btn.Enable(False)
+
+    def _on_start_agent(self):
+        try:
+            with wx.BusyCursor():
+                agent_launcher.start_agent()
+        except agent_launcher.LaunchError as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        # The agent needs a moment to bind its port and publish the discovery
+        # file. Poll rather than guess at a sleep long enough to always work.
+        for _ in range(30):
+            wx.MilliSleep(200)
+            wx.Yield()
+            try:
+                AgentClient().health()
+                break
+            except AgentUnavailable:
+                continue
+        else:
+            wx.MessageBox(
+                "The agent was started but hasn't come up yet.\n"
+                "Give it a moment, then hit Refresh.",
+                "Prism",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+
+        self._load()
 
     def _render(self):
         project = (self.data or {}).get("project")
@@ -271,9 +350,23 @@ class PrismDialog(wx.Dialog):
         holder.Add(head, 0, wx.EXPAND)
 
         if path in self.expanded:
+            kind = f.get("kind", "other")
+            # Only rows KiCad can actually jump to are clickable. A schematic row
+            # on KiCad 8 gets no hand cursor and no hover, because clicking it
+            # could not do anything — better than a row that lies.
+            clickable = crossprobe is not None and (
+                kind == "pcb"
+                or (kind == "sch" and crossprobe.schematic_probe_available())
+            )
             for group in groups[:MAX_ROWS_PER_FILE]:
+                row_group = dict(group, file_kind=kind)
                 holder.Add(
-                    ChangeRow(card, self.pal, group, on_click=self._on_change_click),
+                    ChangeRow(
+                        card,
+                        self.pal,
+                        row_group,
+                        on_click=self._on_change_click if clickable else None,
+                    ),
                     0,
                     wx.EXPAND | wx.LEFT,
                     th.SP_MD,
@@ -292,15 +385,39 @@ class PrismDialog(wx.Dialog):
 
     # -- actions -----------------------------------------------------------
 
-    def _on_change_click(self, _group):
-        """Open the project in Prism.
+    def _on_change_click(self, group):
+        """Jump to the changed item *inside KiCad* — select it and zoom to it.
 
-        Not a deep-link to the item: the web app's routes only accept a `commit`,
-        and an uncommitted change has no commit to point at. Rather than fake a
-        landing spot, this opens the project. The item ids travel in the payload
-        already, so adding a real deep-link later needs no change on this side.
+        Not a link to the web app: you're already in the editor, so the useful
+        thing is to land on the item here. See crossprobe.py for why the schematic
+        side needs KiCad 9+.
         """
-        self.on_open()
+        try:
+            crossprobe.probe(
+                group.get("file_kind", "other"),
+                group.get("item_id", ""),
+                self._reference_of(group),
+            )
+        except crossprobe.ProbeError as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_INFORMATION)
+            return
+
+        # The item is selected behind the dialog; get out of the way so it can be
+        # seen. Modeless would be nicer, but KiCad's plugin API runs us modally.
+        self.EndModal(wx.ID_OK)
+
+    @staticmethod
+    def _reference_of(group) -> str:
+        """A component reference for the group, when it has one.
+
+        Segments and vias carry no uuid we can resolve (the diff keys them by
+        geometry), so a reference is the only fallback that can find them.
+        """
+        label = group.get("label", "")
+        if group.get("category") in ("components", "symbols") and label:
+            # Labels look like "J102 (Header)" — the reference is the leading token.
+            return label.split(" ", 1)[0]
+        return ""
 
     def on_open(self):
         prism = (self.data or {}).get("prism")

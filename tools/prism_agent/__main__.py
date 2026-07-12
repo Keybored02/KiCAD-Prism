@@ -1,16 +1,25 @@
-"""KiCad-Prism tray agent.
+"""KiCad-Prism agent.
 
-Runs in the system tray, independent of KiCad. It owns the machine-side work —
-knowing the local projects, running git, talking to the Prism backend — and
-exposes it on a loopback HTTP API (see server.py). The KiCad plugin is a thin UI
-client over that API, so the capabilities exist whether or not KiCad is open.
+Runs independent of KiCad. It owns the machine-side work — knowing the local
+projects, running git, diffing the working tree, talking to the Prism backend —
+and exposes it on a loopback HTTP API (see server.py). The KiCad plugin is a thin
+UI client over that API, so the capabilities exist whether or not KiCad is open.
+
+The tray icon is the *convenience*, not the architecture. The agent's real control
+surface is its HTTP API, which works identically everywhere. So when no tray can
+be drawn — Wayland without an appindicator, a headless box, SSH — the agent says
+so and keeps serving, rather than dying or (worse) running invisibly with no way
+to stop it. See _run_headless.
 
 Run:  python -m prism_agent
+      python -m prism_agent --no-tray     # explicit headless
 """
 
 from __future__ import annotations
 
+import argparse
 import os
+import signal
 import sys
 import threading
 from pathlib import Path
@@ -19,31 +28,95 @@ from . import discovery
 from .prism_client import PrismConfig
 from .server import VERSION, serve
 
-try:
-    import pystray
-    from PIL import Image, ImageDraw
-except ImportError:  # pragma: no cover - dependency guidance
-    sys.exit(
-        "The tray agent needs pystray and Pillow:\n"
-        "    pip install -r tools/prism_agent/requirements.txt"
-    )
+ASSETS = Path(__file__).parent / "assets"
 
-ICON_PATH = Path(__file__).parent / "assets" / "prism-256.png"
-
-# Fallback brand colours if the asset is missing (see kicad_plugin/prism_theme.py).
+# Fallback brand colour if the asset is missing (see kicad_plugin/prism_theme.py).
 PRIMARY = (37, 99, 235)  # #2563EB
 
+# Tray icons are small, and the platforms don't agree on how big. Handing a 256px
+# image straight to the tray gives a blurry or oversized icon, so we ship
+# purpose-built sizes and pick one. macOS wants a larger source because it renders
+# at 2x on Retina; Windows and Linux trays are nominally 16-24px but look better
+# fed a 32-64px image they can downscale once.
+TRAY_ICON_PX = 32 if sys.platform == "win32" else 64
 
-def _make_icon() -> "Image.Image":
-    """The Prism logo, from the shared branding assets."""
+
+def _load_tray():
+    """Import pystray, or explain precisely why there's no tray.
+
+    Two *different* failures both surface as ImportError here, and conflating them
+    sends the user down the wrong path:
+
+      - pystray/Pillow genuinely aren't installed  -> pip install
+      - they are installed, but no backend works   -> a system package (Linux) or
+        simply no desktop at all (headless/SSH)
+
+    pystray picks its backend at import: darwin on macOS, win32 on Windows, and on
+    Linux it tries appindicator -> gtk -> xorg, raising ImportError if all three
+    fail. That makes the "no tray available" case detectable rather than silent —
+    we don't have to know anything about individual distros.
+    """
     try:
-        return Image.open(ICON_PATH).convert("RGBA")
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return None, (
+            "Pillow isn't installed.\n"
+            "    pip install -r tools/prism_agent/requirements.txt"
+        )
+
+    try:
+        import pystray
+    except ImportError as exc:
+        # Distinguish "not installed" from "installed but unusable here".
+        try:
+            import importlib.util
+
+            installed = importlib.util.find_spec("pystray") is not None
+        except (ImportError, ValueError):
+            installed = False
+
+        if not installed:
+            return None, (
+                "pystray isn't installed.\n"
+                "    pip install -r tools/prism_agent/requirements.txt"
+            )
+        return None, (
+            "No system tray is available here (%s).\n"
+            "On Linux the tray needs an AppIndicator backend:\n"
+            "    sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi\n"
+            "The agent works fine without it — see below." % exc
+        )
+
+    return (pystray, Image, ImageDraw), None
+
+
+def _make_icon(Image, ImageDraw):
+    """The Prism logo at a size the tray can render crisply.
+
+    Prefers a purpose-built asset at the exact size (they're hand-tuned for small
+    renders and beat any downscale); falls back to resampling the 256px master,
+    then to a plain brand-coloured tile.
+    """
+    exact = ASSETS / f"prism-{TRAY_ICON_PX}.png"
+    if exact.is_file():
+        try:
+            return Image.open(exact).convert("RGBA")
+        except OSError:
+            pass
+
+    try:
+        icon = Image.open(ASSETS / "prism-256.png").convert("RGBA")
+        return icon.resize((TRAY_ICON_PX, TRAY_ICON_PX), Image.LANCZOS)
     except OSError:
-        # Never let a missing asset stop the agent from running — the tray icon is
-        # cosmetic, the agent is not.
-        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-        ImageDraw.Draw(img).rounded_rectangle([0, 0, 63, 63], radius=14, fill=PRIMARY)
-        return img
+        # A missing asset must never stop the agent — the icon is cosmetic, the
+        # agent is not.
+        icon = Image.new("RGBA", (TRAY_ICON_PX, TRAY_ICON_PX), (0, 0, 0, 0))
+        ImageDraw.Draw(icon).rounded_rectangle(
+            [0, 0, TRAY_ICON_PX - 1, TRAY_ICON_PX - 1],
+            radius=TRAY_ICON_PX // 5,
+            fill=PRIMARY,
+        )
+        return icon
 
 
 def _prism_config() -> PrismConfig:
@@ -55,17 +128,17 @@ def _prism_config() -> PrismConfig:
     )
 
 
-def main() -> int:
-    config = _prism_config()
-    server, _thread, state = serve(config)
-    port = server.server_address[1]
+def _shutdown(server) -> None:
+    server.shutdown()
+    discovery.clear_endpoint()
 
-    stopping = threading.Event()
+
+def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
+    pystray, Image, ImageDraw = tray_mods
 
     def on_quit(icon, _item):
-        stopping.set()
-        server.shutdown()
-        discovery.clear_endpoint()
+        stop.set()
+        _shutdown(server)
         icon.stop()
 
     def on_open_prism(_icon, _item):
@@ -79,7 +152,7 @@ def main() -> int:
 
     icon = pystray.Icon(
         "kicad-prism",
-        _make_icon(),
+        _make_icon(Image, ImageDraw),
         f"KiCad-Prism agent {VERSION}",
         menu=pystray.Menu(
             pystray.MenuItem(status_text, None, enabled=False),
@@ -89,13 +162,82 @@ def main() -> int:
         ),
     )
 
+    # /quit sets the same event the tray's Quit item does, so the API can stop the
+    # agent even while the tray loop owns the main thread. Without this the process
+    # would keep running after /quit answered "stopping".
+    def _watch_for_api_quit():
+        stop.wait()
+        _shutdown(server)
+        icon.stop()
+
+    threading.Thread(target=_watch_for_api_quit, daemon=True).start()
+
     try:
         icon.run()  # blocks on the platform's tray loop
     finally:
-        if not stopping.is_set():
-            server.shutdown()
-            discovery.clear_endpoint()
+        if not stop.is_set():
+            _shutdown(server)
     return 0
+
+
+def _run_headless(server, stop: threading.Event, port, reason: str | None) -> int:
+    """Serve with no tray. The API is the control surface, so nothing is lost but
+    the icon — as long as we say so loudly and explain how to stop it."""
+    if reason:
+        print(reason, file=sys.stderr)
+        print(file=sys.stderr)
+
+    print(f"KiCad-Prism agent {VERSION} running on 127.0.0.1:{port} (no tray).")
+    print("The KiCad plugin will find it as usual.")
+    print(f"Stop it with Ctrl-C, or POST /quit (token in {discovery.endpoint_path()}).")
+    sys.stdout.flush()
+
+    def _sig(_signum, _frame):
+        stop.set()
+
+    signal.signal(signal.SIGINT, _sig)
+    try:
+        signal.signal(signal.SIGTERM, _sig)
+    except (AttributeError, ValueError):
+        pass  # not settable on every platform / thread
+
+    try:
+        stop.wait()
+    finally:
+        _shutdown(server)
+    print("\nAgent stopped.")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="prism_agent", description=__doc__)
+    ap.add_argument(
+        "--no-tray",
+        action="store_true",
+        help="run without a tray icon (headless, SSH, or a desktop with no tray)",
+    )
+    args = ap.parse_args()
+
+    config = _prism_config()
+    server, _thread, state = serve(config)
+    port = server.server_address[1]
+
+    # One stop signal for every route out: the tray's Quit item, Ctrl-C, and the
+    # API's /quit all set it. That's what keeps the agent controllable on a
+    # machine where no tray icon can be drawn.
+    stop = threading.Event()
+    state.request_stop = stop.set
+
+    if args.no_tray:
+        return _run_headless(server, stop, port, None)
+
+    tray_mods, problem = _load_tray()
+    if tray_mods is None:
+        # No tray available — but the agent is still perfectly useful, and exiting
+        # here would take the plugin's only backend down with it.
+        return _run_headless(server, stop, port, problem)
+
+    return _run_tray(tray_mods, server, stop, config, port)
 
 
 if __name__ == "__main__":

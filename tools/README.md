@@ -30,7 +30,22 @@ plugin depends on nothing but the standard library and KiCad's bundled wxPython.
 ```bash
 pip install -r tools/prism_agent/requirements.txt
 python -m prism_agent                    # from the tools/ directory
+python -m prism_agent --no-tray          # headless
 ```
+
+**The tray icon is a convenience, not the architecture.** The agent's real control
+surface is its HTTP API, which behaves identically on every OS. That matters,
+because the tray is the one part that *doesn't*: on Linux pystray needs an
+AppIndicator backend (`sudo apt install gir1.2-ayatanaappindicator3-0.1
+python3-gi`), and under Wayland — the default on current GNOME — the X11 fallback
+doesn't work. On a headless box or over SSH there's no tray at all.
+
+So when no tray can be drawn the agent **says so and keeps serving** rather than
+exiting (which would take the plugin down with it) or running invisibly with no way
+to stop it. `POST /quit` stops it from anywhere, which is what makes a missing icon
+survivable instead of an orphaned process. pystray raises `ImportError` when no
+backend works, so this is detected rather than guessed — no per-distro knowledge
+required.
 
 It sits in the system tray and binds an ephemeral port on `127.0.0.1`, publishing
 `{port, token, pid}` to a discovery file so the plugin can find it:
@@ -128,6 +143,35 @@ config dir behind for every version you've ever run, so the newest config dir is
 often an orphan, and installing into it means the plugin silently never appears.
 
 Then in KiCad: **Tools → External Plugins → Prism** (or the toolbar button).
+
+If the agent isn't running, the dialog offers a **Start agent** button (and shows
+the command in a selectable field, so it can be copied). It launches the agent
+*detached* — it has to outlive KiCad, which is the whole premise — on a **system**
+Python, not KiCad's: the agent needs pystray and Pillow, and KiCad's embedded
+Python doesn't have them. That's also why the agent can't simply be bundled into
+the plugin: Pillow ships compiled C extensions, so it can't be vendored as source.
+
+Launching it is not an escalation, incidentally — the plugin already runs arbitrary
+Python inside KiCad with your full rights. It only ever launches our own module, by
+path, on an explicit click. (A *web page* could never do this: browsers can't spawn
+local processes. The web UI can only talk to the agent once it's already running.)
+
+### Cross-probe
+
+Clicking a change row jumps to that item **inside KiCad** — selected and zoomed —
+not to a web page. You're already in the editor; that's where the item should
+appear.
+
+Board rows work on every KiCad version, via `pcbnew.FocusOnItem()`, resolving the
+diff item back to a live `BOARD_ITEM` by uuid (with a footprint-reference fallback,
+since traces and vias are keyed by geometry rather than uuid).
+
+**Schematic rows are not clickable, on any current KiCad.** KiCad 8 has no
+schematic Python API at all. KiCad 9's IPC API (`kipy`, from the `kicad-python`
+package) can *read* the schematic selection but not set it — `add_to_selection`
+exists for board documents only. Rather than ship a row that throws on first click,
+schematic rows render identically but stay inert. `crossprobe.schematic_probe_available()`
+is the single place to flip when the API gains the capability.
 
 ## Theming
 

@@ -8,6 +8,12 @@ Endpoints
     GET  /project?path=<path>        -> {project, git, prism}   (the one the UI needs)
     GET  /changes?path=<path>        -> {changes: [...]}        uncommitted, item-level
     POST /open-in-prism {project_id} -> opens the web app in the browser
+    POST /quit                       -> stops the agent
+
+/quit exists so the API — not the tray icon — is the agent's control surface. On a
+desktop with no usable tray (Wayland without an appindicator, SSH, headless) there
+would otherwise be no way to stop it, which is exactly the situation that turns a
+missing icon into an orphaned process.
 
 Kept to the stdlib's http.server: this handles a handful of requests from one
 local client, so a framework would be dead weight and another thing to install.
@@ -37,6 +43,9 @@ class AgentState:
     def __init__(self, prism: PrismClient):
         self.prism = prism
         self.token = secrets.token_urlsafe(32)
+        # Set by the entry point. Lets /quit stop the agent, so the tray icon is a
+        # convenience rather than the only way out.
+        self.request_stop = None
         # Diffing a big board takes a second or two, and reopening the dialog
         # shouldn't re-parse a board that hasn't changed. Keyed on the mtimes of
         # the files git says are dirty, so any edit invalidates it by itself.
@@ -167,6 +176,16 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             webbrowser.open(self.state.prism.project_url(project_id))
             self._send(200, {"ok": True})
+            return
+
+        if route.path == "/quit":
+            if not self.state.request_stop:
+                self._send(501, {"error": "this agent can't stop itself"})
+                return
+            # Answer first, then stop: shutting the server down from inside a
+            # handler would deadlock, so request_stop defers to another thread.
+            self._send(200, {"ok": True, "stopping": True})
+            self.state.request_stop()
             return
 
         self._send(404, {"error": "not found"})
