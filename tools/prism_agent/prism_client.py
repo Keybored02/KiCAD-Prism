@@ -12,10 +12,12 @@ we ever want the plugin to talk to Prism directly.
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 TIMEOUT = 10
@@ -87,5 +89,24 @@ class PrismClient:
 
 
 def _normalise(path: str) -> str:
-    """Compare paths without tripping on separator/case differences."""
-    return path.replace("\\", "/").rstrip("/").lower()
+    """Canonical form of a path, for comparing two spellings of the same folder.
+
+    Resolving matters, not just lowercasing: Prism stores the path it was imported
+    with, which is often *relative to its own workspace* and full of `..` — e.g.
+
+        C:\\...\\KiCAD-Prism\\data\\projects\\..\\..\\..\\test board
+
+    That names the same folder as C:\\Users\\...\\Projects\\test board, but compared
+    as a string it doesn't match, so the plugin reported a registered project as
+    "Not registered". Collapse the traversal (and follow symlinks, so a project
+    reached through a link still matches) before comparing.
+    """
+    try:
+        # resolve() collapses `..` and follows symlinks. strict=False so a path
+        # that no longer exists still normalises rather than raising.
+        resolved = str(Path(path).expanduser().resolve())
+    except (OSError, ValueError):
+        resolved = os.path.normpath(os.path.expanduser(path))
+    # normcase folds case *and* separators on Windows; a no-op on POSIX, where
+    # paths really are case-sensitive.
+    return os.path.normcase(resolved).replace("\\", "/").rstrip("/")
