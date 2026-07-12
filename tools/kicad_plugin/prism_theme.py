@@ -1,0 +1,65 @@
+"""Prism theme, mirrored from the web app so the KiCad plugin looks like it.
+
+The web app's palette lives in frontend/src/index.css as shadcn HSL tokens. These
+are the same colours converted to hex. If the web theme changes, regenerate these
+rather than eyeballing new values.
+
+Kept dependency-free (no wx import) so it can be unit-tested and reused by the
+tray agent without pulling in a GUI toolkit.
+"""
+
+from __future__ import annotations
+
+LIGHT = {
+    "background": "#FFFFFF",
+    "foreground": "#020817",
+    "card": "#FFFFFF",
+    "primary": "#2563EB",
+    "primary_fg": "#F8FAFC",
+    "muted": "#F1F5F9",
+    "muted_fg": "#64748B",
+    "accent": "#F1F5F9",
+    "destructive": "#EF4444",
+    "success": "#16A34A",
+    "warning": "#D97706",
+    "border": "#E2E8F0",
+}
+
+DARK = {
+    "background": "#020817",
+    "foreground": "#F8FAFC",
+    "card": "#0B1222",
+    "primary": "#3B82F6",
+    "primary_fg": "#0F172A",
+    "muted": "#1E293B",
+    "muted_fg": "#94A3B8",
+    "accent": "#1E293B",
+    "destructive": "#EF4444",
+    "success": "#22C55E",
+    "warning": "#F59E0B",
+    "border": "#1E293B",
+}
+
+# Type scale (points). wx sizes in points, unlike the web's rem.
+FONT_BODY = 9
+FONT_SMALL = 8
+FONT_TITLE = 12
+FONT_MONO_FAMILY = "Consolas"
+
+# Spacing scale, mirroring the app's 4px rhythm.
+SP_XS = 4
+SP_SM = 8
+SP_MD = 12
+SP_LG = 16
+SP_XL = 24
+
+
+def palette(dark: bool) -> dict[str, str]:
+    """The colour set for the given mode."""
+    return DARK if dark else LIGHT
+
+
+def hex_to_rgb(value: str) -> tuple[int, int, int]:
+    """'#RRGGBB' -> (r, g, b)."""
+    v = value.lstrip("#")
+    return int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)
