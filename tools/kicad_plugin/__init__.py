@@ -13,6 +13,8 @@ import os
 import pcbnew
 import wx
 
+from . import first_run
+from . import prism_theme
 from .dialog import PrismDialog
 
 
@@ -34,6 +36,18 @@ class PrismPlugin(pcbnew.ActionPlugin):
         board_path = board.GetFileName() if board else ""
 
         parent = wx.FindWindowByName("PcbFrame") or wx.GetActiveWindow()
+        pal = prism_theme.palette(dark=wx.SystemSettings.GetAppearance().IsDark())
+
+        # First time in: start the agent and offer the OS-level integrations, each
+        # declinable. Only once — the answer lives in the agent's settings, so it
+        # survives a plugin reinstall.
+        if first_run.needed():
+            setup = first_run.FirstRunDialog(parent, pal)
+            try:
+                setup.ShowModal()
+            finally:
+                setup.Destroy()
+
         dialog = PrismDialog(parent, board_path)
         try:
             dialog.ShowModal()

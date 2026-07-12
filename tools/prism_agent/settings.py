@@ -41,6 +41,10 @@ class Settings:
     # only exists once KiCad has been opened, which undercuts the whole point of it
     # running independently.
     autostart: bool = False
+    # Has the user been through first-run setup? Lives here rather than beside the
+    # plugin so it survives a plugin reinstall — being asked to set up again just
+    # because you updated the plugin would be irritating and pointless.
+    first_run_done: bool = False
 
     def to_dict(self, redact: bool = False) -> dict:
         d = asdict(self)

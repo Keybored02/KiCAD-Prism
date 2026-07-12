@@ -288,7 +288,13 @@ class _Handler(BaseHTTPRequestHandler):
     def _save_settings(self, body: dict) -> dict:
         changes = {
             k: body[k]
-            for k in ("server_url", "api_token", "protocol_handler", "autostart")
+            for k in (
+                "server_url",
+                "api_token",
+                "protocol_handler",
+                "autostart",
+                "first_run_done",
+            )
             if k in body
         }
 

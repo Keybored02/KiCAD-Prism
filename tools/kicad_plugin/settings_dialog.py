@@ -223,6 +223,18 @@ class SettingsDialog(wx.Dialog):
                 small=True,
             ),
             0,
+            wx.BOTTOM,
+            th.SP_SM,
+        )
+        startup.body.Add(
+            Button(
+                startup,
+                "Run setup again",
+                self.pal,
+                variant="ghost",
+                on_click=self._rerun_setup,
+            ),
+            0,
         )
         self.content.Add(startup, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
@@ -293,6 +305,18 @@ class SettingsDialog(wx.Dialog):
         self.content.Clear(delete_windows=True)
         self._render()
         self._relayout()
+
+    def _rerun_setup(self):
+        """Reopen the first-run flow. Kept reachable because the two OS integrations
+        it offers are easy to decline on day one and want later."""
+        from .first_run import FirstRunDialog
+
+        dlg = FirstRunDialog(self, self.pal)
+        try:
+            dlg.ShowModal()
+        finally:
+            dlg.Destroy()
+        self._load()  # the toggles it applied are ours to redisplay
 
     def _clear_token(self):
         try:
