@@ -15,7 +15,7 @@ import wx
 from . import agent_launcher
 from . import prism_theme as th
 from .agent_client import AgentClient, AgentUnavailable
-from .widgets import Button, Card, ChangeRow, Disclosure
+from .widgets import Button, Card, ChangeRow, Disclosure, ScrollThumb
 
 try:
     from . import crossprobe
@@ -50,6 +50,9 @@ class PrismDialog(wx.Dialog):
         # Which files the user has expanded, by path. Kept across a re-render so
         # toggling one file doesn't collapse the others.
         self.expanded = set()
+        # The "Uncommitted changes" section starts open — it's why you opened the
+        # dialog. Collapsing it is for when you want the project/git cards alone.
+        self.section_open = True
 
         self.SetBackgroundColour(_c(self.pal["background"]))
         self._build()
@@ -89,13 +92,26 @@ class PrismDialog(wx.Dialog):
         root.Add(self.status, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
         root.AddSpacer(th.SP_MD)
 
-        # Scrolled body — a board with many edits makes a long list.
+        # Scrolled body — a board with many edits makes a long list. The native
+        # scrollbar can't be themed (wx offers no way to recolour it), so it's
+        # hidden and ScrollThumb draws a slim one over the content instead.
+        body = wx.BoxSizer(wx.HORIZONTAL)
         self.scroll = wx.ScrolledWindow(self, style=wx.VSCROLL)
+        self.scroll.surface = self.pal["background"]
+        self.scroll.pal = self.pal
         self.scroll.SetBackgroundColour(_c(self.pal["background"]))
         self.scroll.SetScrollRate(0, 12)
+        self.scroll.ShowScrollbars(wx.SHOW_SB_NEVER, wx.SHOW_SB_NEVER)
         self.content = wx.BoxSizer(wx.VERTICAL)
         self.scroll.SetSizer(self.content)
-        root.Add(self.scroll, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, th.SP_LG)
+        body.Add(self.scroll, 1, wx.EXPAND)
+
+        self.scroll.Bind(wx.EVT_MOUSEWHEEL, self._on_wheel)
+
+        self.thumb = ScrollThumb(self, self.scroll, self.pal)
+        body.Add(self.thumb, 0, wx.EXPAND | wx.LEFT, 2)
+
+        root.Add(body, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, th.SP_LG)
 
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         self.open_btn = Button(
@@ -115,9 +131,18 @@ class PrismDialog(wx.Dialog):
 
         self.SetSizer(root)
 
+    def _on_wheel(self, e):
+        """ShowScrollbars(NEVER) also disables wheel scrolling, so drive it here."""
+        lines = e.GetWheelRotation() / e.GetWheelDelta()
+        self.scroll.Scroll(
+            -1, max(0, self.scroll.GetScrollPos(wx.VERTICAL) - int(lines * 3))
+        )
+        self.thumb.Refresh()
+
     def _relayout(self):
         self.content.FitInside(self.scroll)
         self.scroll.Layout()
+        self.thumb.Refresh()  # the thumb size depends on the new content height
         self.Layout()
         self.Refresh()
 
@@ -161,19 +186,17 @@ class PrismDialog(wx.Dialog):
 
         card = Card(self.scroll, "Prism agent", self.pal)
 
-        text = wx.StaticText(
-            card,
-            label=(
+        card.body.Add(
+            card.label(
                 "The Prism agent isn't running. It does the machine-side work —\n"
                 "git, project lookup, diffing your uncommitted changes — so the\n"
-                "plugin needs it."
+                "plugin needs it.",
+                tone="muted_fg",
             ),
+            0,
+            wx.BOTTOM,
+            th.SP_SM,
         )
-        text.SetForegroundColour(_c(self.pal["muted_fg"]))
-        f = text.GetFont()
-        f.SetPointSize(th.FONT_BODY)
-        text.SetFont(f)
-        card.body.Add(text, 0, wx.BOTTOM, th.SP_SM)
 
         card.body.Add(
             Button(
@@ -188,12 +211,14 @@ class PrismDialog(wx.Dialog):
             th.SP_SM,
         )
 
-        hint = wx.StaticText(card, label="Or start it yourself (select to copy):")
-        hint.SetForegroundColour(_c(self.pal["muted_fg"]))
-        hf = hint.GetFont()
-        hf.SetPointSize(th.FONT_SMALL)
-        hint.SetFont(hf)
-        card.body.Add(hint, 0, wx.BOTTOM, th.SP_XS)
+        card.body.Add(
+            card.label(
+                "Or start it yourself (select to copy):", tone="muted_fg", small=True
+            ),
+            0,
+            wx.BOTTOM,
+            th.SP_XS,
+        )
 
         # A read-only TextCtrl, not a StaticText: the whole point is that the user
         # can select and copy the command. StaticText can't be selected at all.
@@ -289,16 +314,48 @@ class PrismDialog(wx.Dialog):
     def _render_changes(self):
         """What you've changed but not committed.
 
-        The same grouping and the same rows the web UI shows for a commit — but
-        these changes exist only on disk, so the web app can't show them at all.
+        One collapsible "Uncommitted changes" section holding a compact row per
+        board/schematic, each of which expands into its own item-level changes.
+        Same grouping the web UI applies to a commit — but these changes exist only
+        on disk, so the web app cannot show them at all.
         """
-        card = Card(self.scroll, "Uncommitted changes", self.pal)
+        # Untitled card: the disclosure below *is* the heading, so a separate
+        # "UNCOMMITTED CHANGES" caption above it would just say it twice.
+        card = Card(self.scroll, "", self.pal)
 
         if self.changes is None:
-            card.row("Status", "Couldn't read changes", tone="muted_fg")
-        elif not self.changes:
-            card.row("Working tree", "Nothing to commit", badge=True, tone="success")
-        else:
+            card.row("Uncommitted changes", "Couldn't read", tone="muted_fg")
+            self.content.Add(card, 0, wx.EXPAND)
+            return
+
+        if not self.changes:
+            card.row(
+                "Uncommitted changes", "Nothing to commit", badge=True, tone="success"
+            )
+            self.content.Add(card, 0, wx.EXPAND)
+            return
+
+        total = sum(len(f.get("groups") or []) or 1 for f in self.changes)
+
+        def toggle_section(is_open):
+            self.section_open = is_open
+            self._rebuild()
+
+        card.body.Add(
+            Disclosure(
+                card,
+                self.pal,
+                "Uncommitted changes",
+                toggle_section,
+                expanded=self.section_open,
+                count=total,
+                strong=True,
+            ),
+            0,
+            wx.EXPAND,
+        )
+
+        if self.section_open:
             for f in self.changes:
                 self._add_file(card, f)
 
@@ -308,6 +365,7 @@ class PrismDialog(wx.Dialog):
         path = f["path"]
         groups = f.get("groups") or []
         status = f.get("status", "modified")
+        kind = f.get("kind", "other")
 
         if not groups:
             # No item-level detail to show (a .kicad_pro, an asset, an untracked
@@ -323,8 +381,8 @@ class PrismDialog(wx.Dialog):
                     },
                 ),
                 0,
-                wx.EXPAND | wx.BOTTOM,
-                1,
+                wx.EXPAND | wx.LEFT | wx.BOTTOM,
+                th.SP_MD,
             )
             return
 
@@ -341,19 +399,21 @@ class PrismDialog(wx.Dialog):
         head = Disclosure(
             card,
             self.pal,
-            "%s  ·  %d change%s" % (f["filename"], count, "" if count == 1 else "s"),
+            f["filename"],
             on_toggle,
             expanded=path in self.expanded,
-            # Tint by file kind — the blue/emerald the web history list uses.
-            accent=self.pal.get(f.get("kind", "other")),
+            # The board/schematic glyph, tinted the blue/emerald the web history
+            # list uses, so you can tell what a file is at a glance.
+            kind=kind,
+            accent=self.pal.get(kind),
+            count=count,
         )
-        holder.Add(head, 0, wx.EXPAND)
+        holder.Add(head, 0, wx.EXPAND | wx.LEFT, th.SP_MD)
 
         if path in self.expanded:
-            kind = f.get("kind", "other")
             # Only rows KiCad can actually jump to are clickable. A schematic row
-            # on KiCad 8 gets no hand cursor and no hover, because clicking it
-            # could not do anything — better than a row that lies.
+            # gets no hand cursor and no hover, because clicking it could not do
+            # anything — better than a row that lies. See crossprobe.py.
             clickable = crossprobe is not None and (
                 kind == "pcb"
                 or (kind == "sch" and crossprobe.schematic_probe_available())
@@ -369,17 +429,19 @@ class PrismDialog(wx.Dialog):
                     ),
                     0,
                     wx.EXPAND | wx.LEFT,
-                    th.SP_MD,
+                    th.SP_MD * 2 + 6,
                 )
             if count > MAX_ROWS_PER_FILE:
-                more = wx.StaticText(
-                    card, label="+ %d more…" % (count - MAX_ROWS_PER_FILE)
+                holder.Add(
+                    card.label(
+                        "+ %d more…" % (count - MAX_ROWS_PER_FILE),
+                        tone="muted_fg",
+                        small=True,
+                    ),
+                    0,
+                    wx.LEFT | wx.TOP,
+                    th.SP_MD * 2 + 12,
                 )
-                more.SetForegroundColour(_c(self.pal["muted_fg"]))
-                mf = more.GetFont()
-                mf.SetPointSize(th.FONT_SMALL)
-                more.SetFont(mf)
-                holder.Add(more, 0, wx.LEFT | wx.TOP, th.SP_MD + 8)
 
         card.body.Add(holder, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS)
 

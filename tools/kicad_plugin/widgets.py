@@ -21,6 +21,26 @@ def _c(hex_value: str) -> wx.Colour:
     return wx.Colour(*th.hex_to_rgb(hex_value))
 
 
+def _surface_of(window: wx.Window, pal: dict) -> wx.Colour:
+    """The colour a transparent widget must paint before drawing on itself.
+
+    NOT GetParent().GetBackgroundColour(): a TRANSPARENT_WINDOW that never had its
+    background set reports wx's default #F0F0F0 regardless of theme. Rows nested in
+    a Card were therefore painting a near-white block and then drawing dark-theme
+    (near-white) text on it — the unreadable white-on-white list.
+
+    So widgets carry the surface they sit on explicitly. Walk up to the nearest
+    ancestor that declares one; fall back to the theme's page background.
+    """
+    node = window.GetParent()
+    while node is not None:
+        surface = getattr(node, "surface", None)
+        if surface is not None:
+            return _c(surface) if isinstance(surface, str) else surface
+        node = node.GetParent()
+    return _c(pal["background"])
+
+
 def _mix(a: str, b: str, t: float) -> wx.Colour:
     """Blend two hex colours — used for hover/press states, like the web UI's
     hover:bg-primary/90."""
@@ -148,7 +168,7 @@ class Button(wx.Panel):
 
         w, h = self.GetSize()
         # Paint the parent's colour first so our rounded corners aren't boxed in.
-        dc.SetBackground(wx.Brush(self.GetParent().GetBackgroundColour()))
+        dc.SetBackground(wx.Brush(_surface_of(self, self.pal)))
         dc.Clear()
 
         fill, text_colour, border = self._colours()
@@ -190,13 +210,18 @@ class Badge(wx.Panel):
         gc = wx.GraphicsContext.Create(dc)
         if not gc:
             return
-        dc.SetBackground(wx.Brush(self.GetParent().GetBackgroundColour()))
+        dc.SetBackground(wx.Brush(_surface_of(self, self.pal)))
         dc.Clear()
 
         w, h = self.GetSize()
         accent = self.pal.get(self.tone, self.pal["muted_fg"])
         # Tinted background + solid text, like the web's bg-x/10 text-x badges.
-        gc.SetBrush(wx.Brush(_mix(self.pal["background"], accent, 0.16)))
+        # Tint against the surface we're actually on (a card), not the page — on a
+        # dark card, blending toward the page colour would wash the pill out.
+        surface = _surface_of(self, self.pal)
+        gc.SetBrush(
+            wx.Brush(_mix(surface.GetAsString(wx.C2S_HTML_SYNTAX), accent, 0.18))
+        )
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.DrawRoundedRectangle(0, 0, w, h, self.RADIUS)
 
@@ -228,16 +253,84 @@ def _ellipsise(gc, text: str, max_width: float) -> str:
     return text[: max(0, lo - 1)] + "…"
 
 
-class Disclosure(wx.Panel):
-    """A clickable ▸/▾ header that expands a section, like the web UI's commit rows."""
+def draw_kind_icon(
+    gc, kind: str, x: float, y: float, colour: wx.Colour, size: float = 11
+):
+    """A small glyph marking a file as a board or a schematic.
 
-    def __init__(self, parent, pal, label, on_toggle, expanded=False, accent=None):
+    Drawn rather than bitmapped: it stays crisp at any DPI, takes the theme colour
+    for free, and needs no extra assets.
+
+    pcb — a board outline with a via, echoing the copper/drill look.
+    sch — a symbol body with two pins, echoing a schematic part.
+    """
+    gc.SetPen(wx.Pen(colour, 1.2))
+    gc.SetBrush(wx.TRANSPARENT_BRUSH)
+
+    if kind == "pcb":
+        path = gc.CreatePath()
+        path.AddRoundedRectangle(x, y, size, size, 2)
+        gc.StrokePath(path)
+        # the via: a filled dot, off-centre like a real pad
+        gc.SetBrush(wx.Brush(colour))
+        d = size * 0.28
+        gc.DrawEllipse(x + size * 0.52, y + size * 0.52, d, d)
+        # a trace running into it
+        trace = gc.CreatePath()
+        trace.MoveToPoint(x + size * 0.22, y + size * 0.28)
+        trace.AddLineToPoint(x + size * 0.62, y + size * 0.62)
+        gc.SetBrush(wx.TRANSPARENT_BRUSH)
+        gc.StrokePath(trace)
+        return
+
+    if kind == "sch":
+        # symbol body
+        path = gc.CreatePath()
+        path.AddRectangle(x + size * 0.25, y + size * 0.18, size * 0.5, size * 0.64)
+        gc.StrokePath(path)
+        # pins either side
+        pins = gc.CreatePath()
+        pins.MoveToPoint(x, y + size * 0.5)
+        pins.AddLineToPoint(x + size * 0.25, y + size * 0.5)
+        pins.MoveToPoint(x + size * 0.75, y + size * 0.5)
+        pins.AddLineToPoint(x + size, y + size * 0.5)
+        gc.StrokePath(pins)
+        return
+
+    # generic file
+    path = gc.CreatePath()
+    path.AddRectangle(x + size * 0.15, y, size * 0.7, size)
+    gc.StrokePath(path)
+
+
+class Disclosure(wx.Panel):
+    """A clickable ▸/▾ header that expands a section, like the web UI's commit rows.
+
+    `kind` draws a board/schematic glyph so you can tell at a glance what a file is.
+    `count` renders a trailing pill with the number of changes.
+    """
+
+    def __init__(
+        self,
+        parent,
+        pal,
+        label,
+        on_toggle,
+        expanded=False,
+        accent=None,
+        kind=None,
+        count=None,
+        strong=False,
+    ):
         super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
         self.pal = pal
         self.label = label
-        self.accent = accent  # optional tint for the label (e.g. the file kind)
+        self.accent = accent  # optional tint for the icon (e.g. the file kind)
         self.expanded = expanded
         self.on_toggle = on_toggle
+        self.kind = kind
+        self.count = count
+        self.strong = strong  # a section header rather than a file row
         self._hover = False
 
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
@@ -245,7 +338,7 @@ class Disclosure(wx.Panel):
 
         dc = wx.ClientDC(self)
         dc.SetFont(self._font())
-        self.SetMinSize(wx.Size(-1, dc.GetTextExtent(label or "X")[1] + 8))
+        self.SetMinSize(wx.Size(-1, dc.GetTextExtent(label or "X")[1] + 10))
 
         self.Bind(wx.EVT_PAINT, self._on_paint)
         self.Bind(wx.EVT_LEFT_UP, self._on_click)
@@ -255,7 +348,7 @@ class Disclosure(wx.Panel):
     def _font(self):
         f = self.GetFont()
         f.SetPointSize(th.FONT_BODY)
-        f.SetWeight(wx.FONTWEIGHT_SEMIBOLD)
+        f.SetWeight(wx.FONTWEIGHT_BOLD if self.strong else wx.FONTWEIGHT_SEMIBOLD)
         return f
 
     def _enter(self, _e):
@@ -276,7 +369,7 @@ class Disclosure(wx.Panel):
         gc = wx.GraphicsContext.Create(dc)
         if not gc:
             return
-        dc.SetBackground(wx.Brush(self.GetParent().GetBackgroundColour()))
+        dc.SetBackground(wx.Brush(_surface_of(self, self.pal)))
         dc.Clear()
 
         w, h = self.GetSize()
@@ -285,10 +378,40 @@ class Disclosure(wx.Panel):
             gc.SetPen(wx.TRANSPARENT_PEN)
             gc.DrawRoundedRectangle(0, 0, w, h, 4)
 
-        gc.SetFont(self._font(), _c(self.accent or self.pal["foreground"]))
-        gc.DrawText("▾" if self.expanded else "▸", 4, (h - 14) / 2)
-        text = _ellipsise(gc, self.label, w - 26)
-        gc.DrawText(text, 20, (h - gc.GetTextExtent(text or "X")[1]) / 2)
+        font = self._font()
+        text_colour = _c(self.pal["foreground"])
+
+        # chevron
+        gc.SetFont(font, _c(self.pal["muted_fg"]))
+        gc.DrawText("▾" if self.expanded else "▸", 5, (h - 14) / 2)
+
+        x = 19.0
+        if self.kind:
+            draw_kind_icon(
+                gc, self.kind, x, (h - 11) / 2, _c(self.accent or self.pal["muted_fg"])
+            )
+            x += 17
+
+        # trailing count pill — drawn first so the label knows its budget
+        pill_w = 0.0
+        if self.count is not None:
+            small = wx.Font(font)
+            small.SetPointSize(th.FONT_SMALL)
+            small.SetWeight(wx.FONTWEIGHT_BOLD)
+            gc.SetFont(small, _c(self.pal["muted_fg"]))
+            txt = str(self.count)
+            tw = gc.GetTextExtent(txt)[0]
+            pill_w = tw + 14
+            surface = _surface_of(self, self.pal).GetAsString(wx.C2S_HTML_SYNTAX)
+            gc.SetBrush(wx.Brush(_mix(surface, self.pal["muted_fg"], 0.16)))
+            gc.SetPen(wx.TRANSPARENT_PEN)
+            gc.DrawRoundedRectangle(w - pill_w - 4, (h - 15) / 2, pill_w, 15, 7)
+            gc.SetFont(small, _c(self.pal["muted_fg"]))
+            gc.DrawText(txt, w - pill_w - 4 + 7, (h - gc.GetTextExtent(txt)[1]) / 2)
+
+        gc.SetFont(font, text_colour)
+        text = _ellipsise(gc, self.label, w - x - pill_w - 10)
+        gc.DrawText(text, x, (h - gc.GetTextExtent(text or "X")[1]) / 2)
 
 
 class ChangeRow(wx.Panel):
@@ -333,7 +456,7 @@ class ChangeRow(wx.Panel):
         gc = wx.GraphicsContext.Create(dc)
         if not gc:
             return
-        dc.SetBackground(wx.Brush(self.GetParent().GetBackgroundColour()))
+        dc.SetBackground(wx.Brush(_surface_of(self, self.pal)))
         dc.Clear()
 
         w, h = self.GetSize()
@@ -365,6 +488,133 @@ class ChangeRow(wx.Panel):
         gc.DrawText(_ellipsise(gc, self.group.get("label", ""), w - 32 - cat_w), 20, 2)
 
 
+class ScrollThumb(wx.Panel):
+    """A slim, themed scrollbar drawn over a ScrolledWindow.
+
+    wx gives no way to recolour a native scrollbar: there's no SetScrollbarColour,
+    and SetBackgroundColour on a native wx.ScrollBar is ignored — the same trap as
+    wx.Button. So the native bar is hidden and this draws the overlay instead,
+    which is also how the web app's thin scrollbars look.
+
+    Draggable, and it tracks the window it scrolls.
+    """
+
+    WIDTH = 8
+
+    def __init__(self, parent, target: wx.ScrolledWindow, pal):
+        super().__init__(parent, size=wx.Size(self.WIDTH, -1))
+        self.pal = pal
+        self.target = target
+        self._hover = False
+        self._drag_from = None
+        self._drag_origin = 0
+
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_ENTER_WINDOW, self._enter)
+        self.Bind(wx.EVT_LEAVE_WINDOW, self._leave)
+        self.Bind(wx.EVT_LEFT_DOWN, self._down)
+        self.Bind(wx.EVT_LEFT_UP, self._up)
+        self.Bind(wx.EVT_MOTION, self._motion)
+
+        # Follow whatever moves the view: wheel, keys, layout changes.
+        target.Bind(wx.EVT_SCROLLWIN, self._on_target_scroll)
+
+    # -- geometry ----------------------------------------------------------
+
+    def _metrics(self):
+        """(view_start, page_size, total) in scroll units."""
+        total = self.target.GetScrollRange(wx.VERTICAL)
+        page = self.target.GetScrollThumb(wx.VERTICAL)
+        start = self.target.GetScrollPos(wx.VERTICAL)
+        return start, page, total
+
+    def _thumb_rect(self):
+        start, page, total = self._metrics()
+        h = self.GetSize().height
+        if total <= 0 or page <= 0 or page >= total:
+            return None  # nothing to scroll
+        thumb_h = max(24, int(h * page / total))
+        travel = h - thumb_h
+        span = max(1, total - page)
+        y = int(travel * start / span)
+        return y, thumb_h
+
+    # -- interaction -------------------------------------------------------
+
+    def _enter(self, _e):
+        self._hover = True
+        self.Refresh()
+
+    def _leave(self, _e):
+        self._hover = False
+        self.Refresh()
+
+    def _on_target_scroll(self, e):
+        self.Refresh()
+        e.Skip()  # never swallow the real scroll
+
+    def _down(self, e):
+        rect = self._thumb_rect()
+        if not rect:
+            return
+        y, thumb_h = rect
+        if y <= e.GetY() <= y + thumb_h:
+            self._drag_from = e.GetY()
+            self._drag_origin = self.target.GetScrollPos(wx.VERTICAL)
+            self.CaptureMouse()
+        else:
+            # Click the track: page toward the click, like a real scrollbar.
+            _, page, _ = self._metrics()
+            delta = page if e.GetY() > y else -page
+            self._scroll_to(self.target.GetScrollPos(wx.VERTICAL) + delta)
+
+    def _up(self, _e):
+        if self.HasCapture():
+            self.ReleaseMouse()
+        self._drag_from = None
+
+    def _motion(self, e):
+        if self._drag_from is None or not e.Dragging():
+            return
+        rect = self._thumb_rect()
+        if not rect:
+            return
+        _, thumb_h = rect
+        _, page, total = self._metrics()
+        travel = max(1, self.GetSize().height - thumb_h)
+        moved = e.GetY() - self._drag_from
+        self._scroll_to(self._drag_origin + int(moved * max(1, total - page) / travel))
+
+    def _scroll_to(self, pos):
+        _, page, total = self._metrics()
+        pos = max(0, min(pos, max(0, total - page)))
+        self.target.Scroll(-1, pos)
+        self.Refresh()
+
+    # -- painting ----------------------------------------------------------
+
+    def _on_paint(self, _e):
+        dc = wx.AutoBufferedPaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+        if not gc:
+            return
+        dc.SetBackground(wx.Brush(_surface_of(self, self.pal)))
+        dc.Clear()
+
+        rect = self._thumb_rect()
+        if not rect:
+            return  # content fits; show nothing rather than an inert bar
+        y, thumb_h = rect
+
+        surface = _surface_of(self, self.pal).GetAsString(wx.C2S_HTML_SYNTAX)
+        strength = 0.55 if self._hover or self._drag_from is not None else 0.32
+        gc.SetBrush(wx.Brush(_mix(surface, self.pal["muted_fg"], strength)))
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        w = self.GetSize().width
+        gc.DrawRoundedRectangle(1, y, w - 2, thumb_h, (w - 2) / 2)
+
+
 class Card(wx.Panel):
     """A bordered, rounded surface — the app's dominant layout primitive."""
 
@@ -373,19 +623,21 @@ class Card(wx.Panel):
     def __init__(self, parent, title, pal):
         super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
         self.pal = pal
+        # What our children sit on. Declared so nested widgets can find it — see
+        # _surface_of. Also set as the real background colour so native children
+        # (StaticText, TextCtrl) inherit it instead of wx's default grey, which is
+        # what made dark-theme labels unreadable.
+        self.surface = pal["card"]
+        self.SetBackgroundColour(_c(pal["card"]))
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.Bind(wx.EVT_PAINT, self._on_paint)
 
         outer = wx.BoxSizer(wx.VERTICAL)
         inner = wx.BoxSizer(wx.VERTICAL)
 
-        heading = wx.StaticText(self, label=title.upper())
-        heading.SetForegroundColour(_c(pal["muted_fg"]))
-        hf = heading.GetFont()
-        hf.SetPointSize(th.FONT_SMALL)
-        hf.SetWeight(wx.FONTWEIGHT_BOLD)
-        heading.SetFont(hf)
-        inner.Add(heading, 0, wx.BOTTOM, th.SP_SM)
+        if title:
+            heading = self.label(title.upper(), tone="muted_fg", bold=True, small=True)
+            inner.Add(heading, 0, wx.BOTTOM, th.SP_SM)
 
         self.body = wx.BoxSizer(wx.VERTICAL)
         inner.Add(self.body, 1, wx.EXPAND)
@@ -393,12 +645,31 @@ class Card(wx.Panel):
         outer.Add(inner, 1, wx.EXPAND | wx.ALL, th.SP_MD)
         self.SetSizer(outer)
 
+    def label(self, text, tone="foreground", bold=False, small=False, mono=False):
+        """A StaticText that actually respects the theme.
+
+        wx paints a StaticText's own background; left alone it uses the system
+        default, so on a dark card you get theme-coloured text on a light block.
+        Every label in a card must go through here.
+        """
+        st = wx.StaticText(self, label=str(text))
+        st.SetBackgroundColour(_c(self.pal["card"]))
+        st.SetForegroundColour(_c(self.pal.get(tone, tone)))
+        f = st.GetFont()
+        f.SetPointSize(th.FONT_SMALL if small else th.FONT_BODY)
+        if bold:
+            f.SetWeight(wx.FONTWEIGHT_BOLD)
+        if mono:
+            f.SetFaceName(th.FONT_MONO_FAMILY)
+        st.SetFont(f)
+        return st
+
     def _on_paint(self, _e):
         dc = wx.AutoBufferedPaintDC(self)
         gc = wx.GraphicsContext.Create(dc)
         if not gc:
             return
-        dc.SetBackground(wx.Brush(self.GetParent().GetBackgroundColour()))
+        dc.SetBackground(wx.Brush(_surface_of(self, self.pal)))
         dc.Clear()
         w, h = self.GetSize()
         gc.SetBrush(wx.Brush(_c(self.pal["card"])))
@@ -408,13 +679,7 @@ class Card(wx.Panel):
     def row(self, label, value, mono=False, tone=None, badge=False):
         """A label/value line. `badge=True` renders the value as a status pill."""
         line = wx.BoxSizer(wx.HORIZONTAL)
-
-        lbl = wx.StaticText(self, label=label)
-        lbl.SetForegroundColour(_c(self.pal["muted_fg"]))
-        lf = lbl.GetFont()
-        lf.SetPointSize(th.FONT_BODY)
-        lbl.SetFont(lf)
-        line.Add(lbl, 0, wx.ALIGN_CENTER_VERTICAL)
+        line.Add(self.label(label, tone="muted_fg"), 0, wx.ALIGN_CENTER_VERTICAL)
         line.AddStretchSpacer()
 
         if badge:
@@ -424,15 +689,10 @@ class Card(wx.Panel):
                 wx.ALIGN_CENTER_VERTICAL,
             )
         else:
-            val = wx.StaticText(self, label=str(value))
-            val.SetForegroundColour(
-                _c(self.pal[tone] if tone else self.pal["foreground"])
+            line.Add(
+                self.label(value, tone=tone or "foreground", mono=mono),
+                0,
+                wx.ALIGN_CENTER_VERTICAL,
             )
-            vf = val.GetFont()
-            vf.SetPointSize(th.FONT_BODY)
-            if mono:
-                vf.SetFaceName(th.FONT_MONO_FAMILY)
-            val.SetFont(vf)
-            line.Add(val, 0, wx.ALIGN_CENTER_VERTICAL)
 
         self.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
