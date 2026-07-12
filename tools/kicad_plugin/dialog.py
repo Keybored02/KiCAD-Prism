@@ -14,6 +14,7 @@ import wx
 
 from . import agent_launcher
 from . import prism_theme as th
+from . import version
 from .agent_client import AgentClient, AgentUnavailable
 from .settings_dialog import SettingsDialog
 from .widgets import Button, Card, ChangeRow, Disclosure, ScrollThumb
@@ -163,6 +164,19 @@ class PrismDialog(wx.Dialog):
         self.content.Clear(delete_windows=True)
         try:
             client = AgentClient()
+
+            # An update installs a new plugin beside an ALREADY-RUNNING old agent
+            # (it's detached, and autostart brings it back at login). Catch that
+            # here, or the plugin talks to it, gets a 404 from a route that didn't
+            # exist yet, and fails like a bug in the new code.
+            running = (client.health() or {}).get("version", "")
+            if version.agent_too_old(running):
+                self.data = None
+                self.changes = None
+                self._render_outdated_agent(running)
+                self._relayout()
+                return
+
             self.data = client.project(self.board_path)
         except AgentUnavailable as exc:
             self.data = None
@@ -189,6 +203,84 @@ class PrismDialog(wx.Dialog):
         self.content.Clear(delete_windows=True)
         self._render()
         self._relayout()
+
+    def _render_outdated_agent(self, running):
+        """An old agent is still running. Offer to restart it into the new one.
+
+        Recoverable in one click, because the cause is mundane: the agent outlives
+        KiCad by design, so an update leaves the previous one running. Telling the
+        user to go hunt a background process would be a poor way to end an install.
+        """
+        self.status.SetLabel("The Prism agent is out of date")
+        self.status.SetForegroundColour(_c(self.pal["warning"]))
+
+        card = Card(self.scroll, "Prism agent", self.pal)
+        card.body.Add(
+            card.label(
+                "A Prism agent from a previous version is still running (%s).\n"
+                "This plugin needs %s or newer.\n\n"
+                "The agent runs in the background and outlives KiCad, so updating\n"
+                "the plugin doesn't replace it. Restart it to pick up the new one."
+                % (running or "unknown", version.AGENT_MIN),
+                tone="muted_fg",
+            ),
+            0,
+            wx.BOTTOM,
+            th.SP_SM,
+        )
+        card.body.Add(
+            Button(
+                card,
+                "Restart the agent",
+                self.pal,
+                variant="primary",
+                on_click=self._restart_agent,
+            ),
+            0,
+        )
+        self.content.Add(card, 0, wx.EXPAND)
+        self.open_btn.Enable(False)
+
+    def _restart_agent(self):
+        """Stop the old agent, then start the one that shipped with THIS plugin.
+
+        Deliberately not /restart: that makes the agent re-execute *itself*, from
+        the path it was launched from. That path belongs to the old install — after
+        an update it may have been replaced (fine), but it may also be gone
+        entirely, and then the agent quietly fails to come back. The plugin knows
+        where its own binary is; use that.
+        """
+        try:
+            AgentClient().quit()
+        except AgentUnavailable:
+            pass  # already gone is the state we wanted
+
+        # Wait for the port and the discovery file to be released, or the new
+        # agent's single-instance guard sees the old one and politely refuses.
+        for _ in range(20):
+            wx.MilliSleep(250)
+            wx.Yield()
+            try:
+                AgentClient().health()
+            except AgentUnavailable:
+                break
+
+        try:
+            with wx.BusyCursor():
+                agent_launcher.start_agent()
+        except agent_launcher.LaunchError as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        for _ in range(40):
+            wx.MilliSleep(250)
+            wx.Yield()
+            try:
+                AgentClient().health()
+                break
+            except AgentUnavailable:
+                continue
+        self._load()
 
     def _render_unavailable(self, message):
         """The agent isn't running. Offer to start it rather than just saying so."""
