@@ -115,8 +115,3 @@ def start_agent() -> str:
         raise LaunchError("Couldn't start the agent: %s" % exc) from exc
 
     return exe
-
-
-def manual_command() -> str:
-    """The command to start the agent by hand — shown so it can be copied."""
-    return "cd %s && python -m prism_agent" % agent_root()

@@ -207,33 +207,7 @@ class PrismDialog(wx.Dialog):
                 on_click=self._on_start_agent,
             ),
             0,
-            wx.BOTTOM,
-            th.SP_SM,
         )
-
-        card.body.Add(
-            card.label(
-                "Or start it yourself (select to copy):", tone="muted_fg", small=True
-            ),
-            0,
-            wx.BOTTOM,
-            th.SP_XS,
-        )
-
-        # A read-only TextCtrl, not a StaticText: the whole point is that the user
-        # can select and copy the command. StaticText can't be selected at all.
-        cmd = wx.TextCtrl(
-            card,
-            value=agent_launcher.manual_command(),
-            style=wx.TE_READONLY | wx.BORDER_SIMPLE,
-        )
-        cmd.SetBackgroundColour(_c(self.pal["muted"]))
-        cmd.SetForegroundColour(_c(self.pal["foreground"]))
-        cf = cmd.GetFont()
-        cf.SetPointSize(th.FONT_SMALL)
-        cf.SetFaceName(th.FONT_MONO_FAMILY)
-        cmd.SetFont(cf)
-        card.body.Add(cmd, 0, wx.EXPAND)
 
         self.content.Add(card, 0, wx.EXPAND)
         self.open_btn.Enable(False)

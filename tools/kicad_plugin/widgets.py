@@ -254,53 +254,78 @@ def _ellipsise(gc, text: str, max_width: float) -> str:
 
 
 def draw_kind_icon(
-    gc, kind: str, x: float, y: float, colour: wx.Colour, size: float = 11
+    gc, kind: str, x: float, y: float, colour: wx.Colour, size: float = 13
 ):
-    """A small glyph marking a file as a board or a schematic.
+    """The web UI's file-kind icons, redrawn for wx.
 
-    Drawn rather than bitmapped: it stays crisp at any DPI, takes the theme colour
-    for free, and needs no extra assets.
-
-    pcb — a board outline with a via, echoing the copper/drill look.
-    sch — a symbol body with two pins, echoing a schematic part.
+    These are lucide's `CircuitBoard` (schematics) and `Cpu` (PCBs) — the very
+    icons frontend/src/components/history-viewer.tsx uses for the same job — so a
+    file reads the same in KiCad as it does in the browser. The geometry is
+    transcribed from lucide's 24x24 grid and scaled, not approximated by eye, and
+    drawn rather than bitmapped so it stays crisp at any DPI and picks up the theme
+    colour for free.
     """
-    gc.SetPen(wx.Pen(colour, 1.2))
+    s = size / 24.0  # lucide authors on a 24x24 grid
+
+    def px(a, b):
+        return x + a * s, y + b * s
+
+    # wx.Pen's width is an INT — passing a float raises TypeError, and inside a
+    # paint handler that aborts the rest of the render (which is exactly why the
+    # filename and count pill were missing). CreatePen takes a float.
+    gc.SetPen(gc.CreatePen(wx.GraphicsPenInfo(colour).Width(1.5)))
     gc.SetBrush(wx.TRANSPARENT_BRUSH)
 
-    if kind == "pcb":
-        path = gc.CreatePath()
-        path.AddRoundedRectangle(x, y, size, size, 2)
-        gc.StrokePath(path)
-        # the via: a filled dot, off-centre like a real pad
-        gc.SetBrush(wx.Brush(colour))
-        d = size * 0.28
-        gc.DrawEllipse(x + size * 0.52, y + size * 0.52, d, d)
-        # a trace running into it
-        trace = gc.CreatePath()
-        trace.MoveToPoint(x + size * 0.22, y + size * 0.28)
-        trace.AddLineToPoint(x + size * 0.62, y + size * 0.62)
-        gc.SetBrush(wx.TRANSPARENT_BRUSH)
-        gc.StrokePath(trace)
+    if kind == "sch":
+        # lucide "circuit-board": board outline, two traces, two pads.
+        board = gc.CreatePath()
+        board.AddRoundedRectangle(*px(3, 3), 18 * s, 18 * s, 2 * s)
+        gc.StrokePath(board)
+
+        traces = gc.CreatePath()
+        traces.MoveToPoint(*px(11, 9))  # M11 9h4a2 2 0 0 0 2-2V3
+        traces.AddLineToPoint(*px(15, 9))
+        traces.AddLineToPoint(*px(17, 7))
+        traces.AddLineToPoint(*px(17, 3))
+        traces.MoveToPoint(*px(7, 21))  # M7 21v-4a2 2 0 0 1 2-2h4
+        traces.AddLineToPoint(*px(7, 17))
+        traces.AddLineToPoint(*px(9, 15))
+        traces.AddLineToPoint(*px(13, 15))
+        gc.StrokePath(traces)
+
+        for cx, cy in ((9, 9), (15, 15)):  # the two pads
+            pad = gc.CreatePath()
+            pad.AddCircle(*px(cx, cy), 2 * s)
+            gc.StrokePath(pad)
         return
 
-    if kind == "sch":
-        # symbol body
-        path = gc.CreatePath()
-        path.AddRectangle(x + size * 0.25, y + size * 0.18, size * 0.5, size * 0.64)
-        gc.StrokePath(path)
-        # pins either side
+    if kind == "pcb":
+        # lucide "cpu": chip body, inner die, twelve pins.
+        body = gc.CreatePath()
+        body.AddRoundedRectangle(*px(4, 4), 16 * s, 16 * s, 2 * s)
+        gc.StrokePath(body)
+
+        die = gc.CreatePath()
+        die.AddRoundedRectangle(*px(8, 8), 8 * s, 8 * s, 1 * s)
+        gc.StrokePath(die)
+
         pins = gc.CreatePath()
-        pins.MoveToPoint(x, y + size * 0.5)
-        pins.AddLineToPoint(x + size * 0.25, y + size * 0.5)
-        pins.MoveToPoint(x + size * 0.75, y + size * 0.5)
-        pins.AddLineToPoint(x + size, y + size * 0.5)
+        for a in (7, 12, 17):
+            pins.MoveToPoint(*px(a, 2))  # top
+            pins.AddLineToPoint(*px(a, 4))
+            pins.MoveToPoint(*px(a, 20))  # bottom
+            pins.AddLineToPoint(*px(a, 22))
+            pins.MoveToPoint(*px(2, a))  # left
+            pins.AddLineToPoint(*px(4, a))
+            pins.MoveToPoint(*px(20, a))  # right
+            pins.AddLineToPoint(*px(22, a))
         gc.StrokePath(pins)
         return
 
-    # generic file
-    path = gc.CreatePath()
-    path.AddRectangle(x + size * 0.15, y, size * 0.7, size)
-    gc.StrokePath(path)
+    # anything else — a plain document outline
+    doc = gc.CreatePath()
+    doc.AddRectangle(*px(5, 2), 14 * s, 20 * s)
+    gc.StrokePath(doc)
 
 
 class Disclosure(wx.Panel):
@@ -387,10 +412,16 @@ class Disclosure(wx.Panel):
 
         x = 19.0
         if self.kind:
+            icon = 13.0
             draw_kind_icon(
-                gc, self.kind, x, (h - 11) / 2, _c(self.accent or self.pal["muted_fg"])
+                gc,
+                self.kind,
+                x,
+                (h - icon) / 2,
+                _c(self.accent or self.pal["muted_fg"]),
+                size=icon,
             )
-            x += 17
+            x += icon + 7
 
         # trailing count pill — drawn first so the label knows its budget
         pill_w = 0.0
