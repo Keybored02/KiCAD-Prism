@@ -1,0 +1,135 @@
+name: Build KiCad Plugin
+
+# Manual only. PyInstaller cannot cross-compile — a macOS binary must be built on
+# macOS, a Linux one on Linux — so this matrix is the only way to get all three
+# artifacts. It never runs on push: building 3 binaries on every commit would be
+# pure waste, and this is a release step, not a check.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for the package (e.g. 0.4.0)"
+        required: true
+        default: "0.4.0"
+      publish:
+        description: "Attach the zip to a GitHub Release"
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-plugin-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+
+permissions:
+  contents: read
+
+jobs:
+  # ── One binary per OS ────────────────────────────────────────────────────────
+  agent:
+    name: Agent / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # one platform failing shouldn't hide the others' results
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: prism-agent-windows
+            binary: prism-agent.exe
+          - os: macos-latest
+            artifact: prism-agent-macos
+            binary: prism-agent
+          - os: ubuntu-latest
+            artifact: prism-agent-linux
+            binary: prism-agent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # The tray needs a GTK/AppIndicator stack on Linux. Without it pystray raises
+      # ImportError at import, PyInstaller can't collect the backend, and the shipped
+      # binary would silently have no tray on every Linux machine.
+      - name: Install Linux tray dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gir1.2-ayatanaappindicator3-0.1 \
+            libcairo2-dev libgirepository1.0-dev python3-gi
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r tools/prism_agent/requirements.txt
+
+      - name: Build the agent
+        run: python tools/build_agent.py
+
+      # Prove the thing we just built actually runs. A binary that builds but
+      # crashes on launch is worse than a build failure — it ships.
+      - name: Smoke test
+        shell: bash
+        run: |
+          BIN="tools/dist/${{ matrix.binary }}"
+          test -f "$BIN" || { echo "::error::$BIN was not produced"; exit 1; }
+          # --help exercises argparse, which means the whole import graph loaded:
+          # the frozen agent, its bundled diff services, and the tray backend.
+          "$BIN" --help
+          echo "OK: $BIN starts"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: tools/dist/${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── Assemble the KiCad Plugin & Content Manager zip ──────────────────────────
+  package:
+    name: Package
+    needs: agent
+    runs-on: ubuntu-latest
+    # Only this job writes anything, and only when `publish` is ticked. Scoped here
+    # rather than granted workflow-wide.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: binaries
+
+      - name: Assemble the package
+        run: |
+          python tools/package_plugin.py \
+            --version "${{ inputs.version }}" \
+            --binaries binaries \
+            --out dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kicad-prism-plugin
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Attach to a release
+        if: inputs.publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          files: dist/*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
