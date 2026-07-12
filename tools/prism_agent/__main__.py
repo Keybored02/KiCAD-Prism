@@ -26,7 +26,7 @@ from pathlib import Path
 
 from . import discovery, protocol
 from . import settings as settings_store
-from .prism_client import PrismConfig
+from .prism_client import PrismClient, PrismConfig
 from .server import VERSION, serve
 
 ASSETS = Path(__file__).parent / "assets"
@@ -154,9 +154,17 @@ def _handle_url(url: str) -> int:
     if link.action == "open":
         import webbrowser
 
-        target = saved.server_url.rstrip("/")
-        if link.project_id:
-            target += f"/projects/{link.project_id}"
+        # Go through PrismClient rather than hand-rolling the path: it's the one
+        # place that knows the web app's route, and building it here is how this
+        # drifted to the wrong (pluralised) URL in the first place.
+        client = PrismClient(
+            PrismConfig(base_url=saved.server_url, token=saved.api_token)
+        )
+        target = (
+            client.project_url(link.project_id)
+            if link.project_id
+            else saved.server_url.rstrip("/")
+        )
         webbrowser.open(target)
         return 0
 

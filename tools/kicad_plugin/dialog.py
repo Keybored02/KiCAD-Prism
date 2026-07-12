@@ -51,9 +51,9 @@ class PrismDialog(wx.Dialog):
         # Which files the user has expanded, by path. Kept across a re-render so
         # toggling one file doesn't collapse the others.
         self.expanded = set()
-        # The "Uncommitted changes" section starts open — it's why you opened the
-        # dialog. Collapsing it is for when you want the project/git cards alone.
-        self.section_open = True
+        # Collapsed by default: the header already carries the change count, which
+        # is the answer most of the time. Expand when you want the detail.
+        self.section_open = False
 
         self.SetBackgroundColour(_c(self.pal["background"]))
         self._build()

@@ -123,8 +123,14 @@ class PrismClient:
         return None
 
     def project_url(self, project_id: str) -> str:
-        """Deep link into the web app for this project."""
-        return f"{self.config.base_url.rstrip('/')}/projects/{project_id}"
+        """Deep link into the web app for this project.
+
+        The route is `/project/<id>` — singular. Pluralising it (the natural typo,
+        and what this used to do) matches no route, so the app's catch-all bounces
+        you to the home page: "Open in Prism" appeared to work but just opened the
+        web UI. Keep this in step with the Route in frontend/src/App.tsx.
+        """
+        return f"{self.config.base_url.rstrip('/')}/project/{project_id}"
 
 
 def _normalise(path: str) -> str:
