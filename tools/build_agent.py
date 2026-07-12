@@ -116,9 +116,46 @@ def build(clean: bool = True, console: bool = False) -> Path:
     out = DIST / (NAME + (".exe" if sys.platform == "win32" else ""))
     if not out.exists():
         raise SystemExit(f"build reported success but {out} is missing")
+
+    if sys.platform == "darwin":
+        _adhoc_sign(out)
+
     size = out.stat().st_size / (1024 * 1024)
     print(f"\nbuilt {out}  ({size:.1f} MB)")
     return out
+
+
+def _adhoc_sign(binary: Path) -> None:
+    """Ad-hoc sign the macOS binary.
+
+    Free, and needs no Apple Developer account — `codesign -s -` signs with no
+    identity. It does NOT satisfy Gatekeeper for a quarantined file (that needs
+    notarisation), but:
+
+      * On Apple Silicon an arm64 binary must carry at least an ad-hoc signature to
+        execute *at all*, so this isn't optional.
+      * In the normal install path the binary never gets quarantined anyway —
+        Gatekeeper only inspects files carrying com.apple.quarantine, and that flag
+        is applied by the *downloading* app. KiCad's Plugin Manager fetches and
+        extracts the zip itself, so the flag is never set.
+
+    A user who instead downloads the zip in a browser and extracts it with Finder
+    *will* get a flagged binary and a "cannot be opened" prompt. The plugin strips
+    the flag from our own binary before launching (see agent_launcher), and the
+    install docs say the prompt may appear.
+    """
+    try:
+        subprocess.run(
+            ["codesign", "--force", "--sign", "-", str(binary)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print("ad-hoc signed", binary.name)
+    except FileNotFoundError:
+        print("WARNING: codesign not found; the binary is unsigned", file=sys.stderr)
+    except subprocess.CalledProcessError as exc:
+        print(f"WARNING: ad-hoc signing failed: {exc.stderr}", file=sys.stderr)
 
 
 def _png_to_ico(png: Path, ico: Path) -> None:
