@@ -27,7 +27,38 @@ ENDPOINT_FILE = "agent.json"
 
 
 class AgentUnavailable(Exception):
-    """The tray agent isn't running (or we can't reach it)."""
+    """We couldn't get an answer out of the agent — it's down, or it refused."""
+
+
+def _http_message(exc, route):
+    """Turn an HTTP failure into something that points at the actual fix.
+
+    A 404 from a *live* agent means the agent is older than the plugin: the route didn't
+    exist when it started. During development that's the single most likely thing to go
+    wrong — you edit the agent, reload the plugin, and the still-running old process
+    doesn't have the new endpoint. "Restart the agent" is the real fix, so say it,
+    instead of a bare status code or (worse) claiming the agent isn't running at all.
+    """
+    if exc.code == 404:
+        return (
+            "This Prism agent doesn't know about %s.\n\n"
+            "It's running an older build than the plugin — restart the agent to pick "
+            "up the new version." % route
+        )
+    if exc.code == 401:
+        return (
+            "The agent rejected our token.\n\n"
+            "Its endpoint file is probably stale. Restart the agent."
+        )
+
+    detail = ""
+    try:
+        body = json.loads(exc.read() or b"{}")
+        if isinstance(body, dict):
+            detail = body.get("error") or ""
+    except (ValueError, OSError):
+        pass
+    return detail or "The agent returned HTTP %d for %s." % (exc.code, route)
 
 
 def profile():
@@ -96,8 +127,15 @@ class AgentClient:
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
+        except urllib.error.HTTPError as exc:
+            # HTTPError subclasses URLError, so it MUST be caught first — otherwise an
+            # agent answering "404" is reported as an agent that isn't running, and the
+            # user goes off restarting a process that was working fine. An HTTP status
+            # is proof it's alive.
+            raise AgentUnavailable(_http_message(exc, path)) from exc
         except urllib.error.URLError as exc:
-            # A stale endpoint file (agent quit without cleaning up) lands here.
+            # Nothing answered: the agent really is gone, or the endpoint file is stale
+            # (it quit without cleaning up).
             raise AgentUnavailable(
                 "Couldn't reach the Prism agent at %s.\n\n"
                 "It may have stopped. Restart it from the tray." % self.base

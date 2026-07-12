@@ -57,6 +57,26 @@ def find_binary() -> Path | None:
     return None
 
 
+def _prefer_source() -> bool:
+    """Should we run the agent from source rather than the built binary?
+
+    Yes in a dev checkout — and this matters more than it sounds. The dev profile exists
+    so you can edit the agent, restart it, and see the change. But a stale
+    tools/dist/prism-agent.exe left over from an earlier `build_agent.py` would be found
+    first and launched instead, freezing your "dev" agent at whatever you last built.
+    The symptom is baffling: you add a route, the plugin calls it, and the agent 404s
+    with your new code sitting right there on disk.
+
+    An install has no source to run, so it always uses the binary.
+    """
+    from .agent_client import profile
+
+    if profile() != "dev":
+        return False
+    # Only if the source is actually importable from here.
+    return (agent_root() / "prism_agent" / "__main__.py").is_file()
+
+
 # -- development fallback --------------------------------------------------
 
 
@@ -191,29 +211,45 @@ def _env() -> dict:
     return env
 
 
-def start_agent() -> str:
-    """Launch the agent, detached. Returns what was started."""
-    binary = find_binary()
-    if binary is not None:
-        _clear_quarantine(binary)
-        try:
-            subprocess.Popen(
-                [str(binary)],
-                cwd=str(binary.parent),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=_env(),
-                **_detached(),
-            )
-        except OSError as exc:
-            raise LaunchError("Couldn't start %s: %s" % (binary.name, exc)) from exc
-        return str(binary)
+def _start_binary(binary: Path) -> str:
+    _clear_quarantine(binary)
+    try:
+        subprocess.Popen(
+            [str(binary)],
+            cwd=str(binary.parent),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=_env(),
+            **_detached(),
+        )
+    except OSError as exc:
+        raise LaunchError("Couldn't start %s: %s" % (binary.name, exc)) from exc
+    return str(binary)
 
-    # No binary — we're in a source checkout. Fall back to running from source.
+
+def start_agent() -> str:
+    """Launch the agent, detached. Returns what was started.
+
+    An install runs the binary. A dev checkout runs from SOURCE, even when a binary
+    happens to exist — otherwise a stale tools/dist build silently shadows the code you
+    are editing (see _prefer_source).
+    """
+    binary = find_binary()
+
+    if binary is not None and not _prefer_source():
+        return _start_binary(binary)
+
+    # From source: a dev checkout, or an install with no binary to run.
     root = agent_root()
     tried: list[tuple[str, str]] = []
     exe = find_python(report=tried)
+
+    if not exe and binary is not None:
+        # Dev, but no usable interpreter. A stale binary beats no agent at all — just
+        # don't pretend it's running your latest code.
+        return _start_binary(binary)
+
     if not exe:
         lines = [
             "The Prism agent isn't installed, and no Python here can run it from "
