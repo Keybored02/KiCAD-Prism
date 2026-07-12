@@ -6,6 +6,7 @@ shared token (see discovery.py for why that matters on loopback).
 Endpoints
     GET  /health                     -> {ok, version, backend_reachable}
     GET  /project?path=<path>        -> {project, git, prism}   (the one the UI needs)
+    GET  /changes?path=<path>        -> {changes: [...]}        uncommitted, item-level
     POST /open-in-prism {project_id} -> opens the web app in the browser
 
 Kept to the stdlib's http.server: this handles a handful of requests from one
@@ -19,13 +20,15 @@ import secrets
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import discovery
 from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
+from .worktree_diff import uncommitted_changes
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 class AgentState:
@@ -34,6 +37,52 @@ class AgentState:
     def __init__(self, prism: PrismClient):
         self.prism = prism
         self.token = secrets.token_urlsafe(32)
+        # Diffing a big board takes a second or two, and reopening the dialog
+        # shouldn't re-parse a board that hasn't changed. Keyed on the mtimes of
+        # the files git says are dirty, so any edit invalidates it by itself.
+        self._changes_cache: dict[tuple, list[dict]] = {}
+        self._changes_lock = threading.Lock()
+
+    def changes(self, repo_root: str, scope: str) -> list[dict]:
+        key = _worktree_fingerprint(repo_root, scope)
+        with self._changes_lock:
+            hit = self._changes_cache.get(key)
+            if hit is not None:
+                return hit
+
+        result = uncommitted_changes(repo_root, scope)
+
+        with self._changes_lock:
+            # One project's worth of state is all we need; a stale key just means
+            # the next call recomputes.
+            self._changes_cache = {key: result}
+        return result
+
+
+def _worktree_fingerprint(repo_root: str, scope: str) -> tuple:
+    """A key that changes whenever the working tree does.
+
+    git status is cheap (milliseconds); parsing boards is not. So we let git tell
+    us *which* files are dirty and stat those, rather than caching on a timer and
+    showing the user stale changes.
+    """
+    from .projects import _run_git
+
+    try:
+        status = _run_git(Path(repo_root), "status", "--porcelain", strip=False)
+    except Exception:
+        return (repo_root, scope, None)
+
+    stamps = []
+    for line in status.splitlines():
+        rel = line[3:].strip().strip('"')
+        if " -> " in rel:
+            rel = rel.split(" -> ", 1)[1]
+        try:
+            stamps.append((rel, (Path(repo_root) / rel).stat().st_mtime_ns))
+        except OSError:
+            stamps.append((rel, None))  # deleted; its absence is the signal
+    return (repo_root, scope, tuple(stamps))
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -87,6 +136,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, self._project_payload(path))
             return
 
+        if route.path == "/changes":
+            path = (query.get("path") or [""])[0]
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            self._send(200, self._changes_payload(path))
+            return
+
         self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
@@ -128,6 +185,21 @@ class _Handler(BaseHTTPRequestHandler):
         return {
             "project": project.to_dict(),
             "git": git.to_dict() if git else None,
+            "prism": prism,
+        }
+
+    def _changes_payload(self, path: str) -> dict:
+        """Uncommitted changes, grouped the way the web UI groups a commit's."""
+        project = identify_project(path)
+        if not project or not project.repo_root:
+            return {"changes": [], "project": None, "prism": None}
+
+        changes = self.state.changes(project.repo_root, project.path)
+        # The project id lets the plugin deep-link a change into Prism's viewer.
+        prism = self.state.prism.find_project_by_path(project.path)
+        return {
+            "changes": changes,
+            "project": project.to_dict(),
             "prism": prism,
         }
 

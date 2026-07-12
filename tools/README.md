@@ -61,8 +61,44 @@ purely local. Backend calls degrade to "not registered" rather than failing.
 ```
 GET  /health                       {ok, version, backend_reachable}     no auth
 GET  /project?path=<path>          {project, git, prism}
+GET  /changes?path=<path>          {changes, project, prism}
 POST /open-in-prism {project_id}   opens the web app in the browser
 ```
+
+### Uncommitted changes
+
+`/changes` is the interesting one. The web app can only ever show *committed*
+history — that's all the backend can see. But while you're working in KiCad, the
+changes you care about are the ones still on disk, which exist nowhere but your
+machine. The agent diffs them locally: **old side = the blob at HEAD, new side =
+the file as it currently is**.
+
+The result is grouped exactly the way the web UI groups a commit — Components /
+Nets / Zones / Graphics for boards, Symbols / Nets / Sheets / Text for schematics,
+with mixed add+remove on one net reconciled into a single "changed" row. That
+parity is deliberate: `prism_agent/diff_grouping.py` is a direct port of
+`frontend/src/lib/diff-grouping.ts`. **If you change grouping or labels in one,
+change them in the other** — the whole point is that a board reads the same in
+KiCad as it does in the browser.
+
+The parse/diff itself is not reimplemented: the agent loads the backend's real
+`pcb_diff_service` / `sch_diff_service`. Their `diff_pcb(old, new)` /
+`diff_schematics(old, new)` entry points take plain strings, so only their
+module-level imports (GitPython, the workspace DB, `kicad_monkey`) need stubbing
+out — see `worktree_diff.py`. Vendoring a copy of ~2000 lines of diff logic would
+have guaranteed drift, and then the plugin and the web app would disagree about
+the same board.
+
+`kicad_monkey` is stubbed rather than required: the backend uses it to render text
+glyphs for *exact* bounding boxes, which drive the web viewer's highlight
+rectangles. The agent draws nothing — it only needs to know *which* items changed,
+and identity doesn't depend on glyph outlines. Verified: the diff output is
+identical with the real library and with the stub. Without this, the agent would
+silently report zero PCB changes on any Python that isn't the backend's venv.
+
+Diffing a big board takes a second or two, so the agent caches the result keyed on
+the mtimes of the files git reports as dirty — any edit invalidates it by itself,
+so you never see a stale answer, and reopening the dialog is instant.
 
 Debuggable with curl:
 
@@ -120,6 +156,8 @@ tools/
     projects.py           project detection + git status
     prism_client.py       Prism backend client
     discovery.py          how the plugin finds the agent
+    worktree_diff.py      uncommitted changes: HEAD vs disk
+    diff_grouping.py      port of the web UI's diff-grouping.ts — keep in sync
     assets/               the Prism logo (tray icon)
   kicad_plugin/         the KiCad plugin (stdlib + wx only)
     __init__.py           the pcbnew ActionPlugin

@@ -19,6 +19,9 @@ import urllib.parse
 import urllib.request
 
 TIMEOUT = 15
+# Diffing the working tree means parsing every changed board; a big one takes a
+# couple of seconds cold (the agent caches on mtime, so it's ~instant after that).
+DIFF_TIMEOUT = 120
 APP_NAME = "kicad-prism"
 ENDPOINT_FILE = "agent.json"
 
@@ -62,7 +65,7 @@ class AgentClient:
         self.base = "http://127.0.0.1:%d" % ep["port"]
         self.token = ep["token"]
 
-    def _call(self, method, path, body=None):
+    def _call(self, method, path, body=None, timeout=TIMEOUT):
         url = self.base + path
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, method=method)
@@ -71,7 +74,7 @@ class AgentClient:
         if data is not None:
             req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
         except urllib.error.URLError as exc:
             # A stale endpoint file (agent quit without cleaning up) lands here.
@@ -89,6 +92,18 @@ class AgentClient:
     def project(self, path):
         """Everything the dialog shows: the project, its git state, its Prism row."""
         return self._call("GET", "/project?path=" + urllib.parse.quote(path))
+
+    def changes(self, path):
+        """Uncommitted changes, grouped the way the web UI groups a commit's.
+
+        Slow the first time (it parses every changed board); the agent caches on
+        file mtime, so subsequent calls are instant until you actually edit.
+        """
+        return self._call(
+            "GET",
+            "/changes?path=" + urllib.parse.quote(path),
+            timeout=DIFF_TIMEOUT,
+        )
 
     def open_in_prism(self, project_id):
         return self._call("POST", "/open-in-prism", {"project_id": project_id})

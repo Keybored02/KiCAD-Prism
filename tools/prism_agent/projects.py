@@ -16,8 +16,13 @@ from pathlib import Path
 PROJECT_GLOBS = ("*.kicad_pro", "*.kicad_pcb", "*.kicad_sch")
 
 
-def _run_git(repo: Path, *args: str) -> str:
-    """Run git in `repo` and return stdout. Raises on failure."""
+def _run_git(repo: Path, *args: str, strip: bool = True) -> str:
+    """Run git in `repo` and return stdout. Raises on failure.
+
+    `strip=False` for output whose leading whitespace is significant — porcelain
+    status is column-oriented (" M file" means modified-but-unstaged), so
+    stripping it shifts every field and eats the first character of the path.
+    """
     kwargs = {}
     if sys.platform == "win32":
         # Don't flash a console window when the agent runs windowless.
@@ -30,7 +35,7 @@ def _run_git(repo: Path, *args: str) -> str:
         timeout=20,
         **kwargs,
     )
-    return out.stdout.strip()
+    return out.stdout.strip() if strip else out.stdout
 
 
 @dataclass
@@ -113,10 +118,11 @@ def git_status(repo_root: str | Path) -> GitStatus:
     except Exception:
         return st  # not a repo / no commits yet — an empty status is the truth
 
-    # Porcelain v1 is stable and trivial to parse: XY <path>
+    # Porcelain v1 is stable and trivial to parse: XY <path>. It is *column*
+    # oriented, so the output must not be stripped (see _run_git).
     try:
-        for line in _run_git(repo, "status", "--porcelain").splitlines():
-            if not line:
+        for line in _run_git(repo, "status", "--porcelain", strip=False).splitlines():
+            if not line.strip():
                 continue
             code, name = line[:2], line[3:]
             if code == "??":

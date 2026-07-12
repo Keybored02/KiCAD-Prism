@@ -23,6 +23,11 @@ LIGHT = {
     "success": "#16A34A",
     "warning": "#D97706",
     "border": "#E2E8F0",
+    # File kinds — same hues the web history list uses (blue schematic, emerald
+    # PCB) so a file reads the same in both places.
+    "sch": "#3B82F6",
+    "pcb": "#10B981",
+    "other": "#64748B",
 }
 
 DARK = {
@@ -38,7 +43,15 @@ DARK = {
     "success": "#22C55E",
     "warning": "#F59E0B",
     "border": "#1E293B",
+    "sch": "#60A5FA",
+    "pcb": "#34D399",
+    "other": "#94A3B8",
 }
+
+
+# Diff kinds, matching the web UI's KIND_TINT / KIND_PREFIX.
+KIND_SYMBOL = {"added": "+", "removed": "−", "changed": "~"}
+KIND_TONE = {"added": "success", "removed": "destructive", "changed": "warning"}
 
 # Type scale (points). wx sizes in points, unlike the web's rem.
 FONT_BODY = 9

@@ -208,6 +208,163 @@ class Badge(wx.Panel):
         gc.DrawText(self.label, (w - tw) / 2, (h - tht) / 2)
 
 
+def _ellipsise(gc, text: str, max_width: float) -> str:
+    """Trim text to fit, with an ellipsis.
+
+    Measured rather than cut at a character count: the labels are proportional, so
+    a fixed length would clip "GND — 12 wires" and "J102 (Η1)" inconsistently.
+    """
+    if max_width <= 0 or not text:
+        return ""
+    if gc.GetTextExtent(text)[0] <= max_width:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if gc.GetTextExtent(text[:mid] + "…")[0] <= max_width:
+            lo = mid + 1
+        else:
+            hi = mid
+    return text[: max(0, lo - 1)] + "…"
+
+
+class Disclosure(wx.Panel):
+    """A clickable ▸/▾ header that expands a section, like the web UI's commit rows."""
+
+    def __init__(self, parent, pal, label, on_toggle, expanded=False, accent=None):
+        super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
+        self.pal = pal
+        self.label = label
+        self.accent = accent  # optional tint for the label (e.g. the file kind)
+        self.expanded = expanded
+        self.on_toggle = on_toggle
+        self._hover = False
+
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+
+        dc = wx.ClientDC(self)
+        dc.SetFont(self._font())
+        self.SetMinSize(wx.Size(-1, dc.GetTextExtent(label or "X")[1] + 8))
+
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_LEFT_UP, self._on_click)
+        self.Bind(wx.EVT_ENTER_WINDOW, self._enter)
+        self.Bind(wx.EVT_LEAVE_WINDOW, self._leave)
+
+    def _font(self):
+        f = self.GetFont()
+        f.SetPointSize(th.FONT_BODY)
+        f.SetWeight(wx.FONTWEIGHT_SEMIBOLD)
+        return f
+
+    def _enter(self, _e):
+        self._hover = True
+        self.Refresh()
+
+    def _leave(self, _e):
+        self._hover = False
+        self.Refresh()
+
+    def _on_click(self, _e):
+        self.expanded = not self.expanded
+        self.Refresh()
+        self.on_toggle(self.expanded)
+
+    def _on_paint(self, _e):
+        dc = wx.AutoBufferedPaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+        if not gc:
+            return
+        dc.SetBackground(wx.Brush(self.GetParent().GetBackgroundColour()))
+        dc.Clear()
+
+        w, h = self.GetSize()
+        if self._hover:
+            gc.SetBrush(wx.Brush(_c(self.pal["accent"])))
+            gc.SetPen(wx.TRANSPARENT_PEN)
+            gc.DrawRoundedRectangle(0, 0, w, h, 4)
+
+        gc.SetFont(self._font(), _c(self.accent or self.pal["foreground"]))
+        gc.DrawText("▾" if self.expanded else "▸", 4, (h - 14) / 2)
+        text = _ellipsise(gc, self.label, w - 26)
+        gc.DrawText(text, 20, (h - gc.GetTextExtent(text or "X")[1]) / 2)
+
+
+class ChangeRow(wx.Panel):
+    """One grouped change: kind glyph, label, and its category.
+
+    Mirrors the web UI's change rows — same +/−/~ glyph, same colour per kind,
+    same trailing uppercase category — so a board reads the same in KiCad as in
+    the browser.
+    """
+
+    def __init__(self, parent, pal, group, on_click=None):
+        super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
+        self.pal = pal
+        self.group = group
+        self.on_click = on_click
+        self._hover = False
+
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        if on_click:
+            self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        self.SetMinSize(wx.Size(-1, 18))
+
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_ENTER_WINDOW, self._enter)
+        self.Bind(wx.EVT_LEAVE_WINDOW, self._leave)
+        self.Bind(wx.EVT_LEFT_UP, self._click)
+
+    def _enter(self, _e):
+        self._hover = True
+        self.Refresh()
+
+    def _leave(self, _e):
+        self._hover = False
+        self.Refresh()
+
+    def _click(self, _e):
+        if self.on_click:
+            self.on_click(self.group)
+
+    def _on_paint(self, _e):
+        dc = wx.AutoBufferedPaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+        if not gc:
+            return
+        dc.SetBackground(wx.Brush(self.GetParent().GetBackgroundColour()))
+        dc.Clear()
+
+        w, h = self.GetSize()
+        if self._hover and self.on_click:
+            gc.SetBrush(wx.Brush(_c(self.pal["accent"])))
+            gc.SetPen(wx.TRANSPARENT_PEN)
+            gc.DrawRoundedRectangle(0, 0, w, h, 4)
+
+        kind = self.group.get("kind", "changed")
+        tone = self.pal[th.KIND_TONE.get(kind, "muted_fg")]
+
+        body = self.GetFont()
+        body.SetPointSize(th.FONT_SMALL)
+
+        bold = wx.Font(body)
+        bold.SetWeight(wx.FONTWEIGHT_BOLD)
+        gc.SetFont(bold, _c(tone))
+        gc.DrawText(th.KIND_SYMBOL.get(kind, "~"), 6, 2)
+
+        # Category sits right-aligned; draw it first so we know what's left for
+        # the label.
+        cat = (self.group.get("category_label") or "").upper()
+        gc.SetFont(body, _c(self.pal["muted_fg"]))
+        cat_w = gc.GetTextExtent(cat)[0] if cat else 0
+        if cat:
+            gc.DrawText(cat, max(0, w - cat_w - 4), 2)
+
+        gc.SetFont(body, _c(self.pal["foreground"]))
+        gc.DrawText(_ellipsise(gc, self.group.get("label", ""), w - 32 - cat_w), 20, 2)
+
+
 class Card(wx.Panel):
     """A bordered, rounded surface — the app's dominant layout primitive."""
 
