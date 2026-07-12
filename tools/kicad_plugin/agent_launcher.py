@@ -30,34 +30,87 @@ def agent_root() -> Path:
 
 
 def _candidate_pythons() -> list[str]:
-    """Pythons that might have pystray, most likely first.
+    """Pythons that might have the agent's dependencies, most likely first.
 
     Deliberately NOT sys.executable: inside KiCad that's KiCad's own interpreter,
-    which lacks pystray. Launching it would fail every time.
+    which has no pystray. Launching it would fail every time.
+
+    Searching PATH alone isn't enough. KiCad runs the plugin with *KiCad's*
+    environment, not a developer shell's, and a GUI app started from the Start menu
+    can have a PATH with no Python on it at all — at which point every name here
+    fails and the user gets "couldn't find a Python", while a perfectly good
+    interpreter sits at a well-known location. So look in real places too.
     """
-    names = []
+    names: list[str] = []
+    paths: list[str] = []
+
     if sys.platform == "win32":
-        # `py -3` is the launcher installed with python.org builds; it resolves a
-        # real system Python even when PATH is a mess.
+        # The py launcher lives in System32, so it resolves even when PATH is bare.
         names += ["py", "python", "python3"]
+
+        # A venv in the repo is the likeliest place the deps were installed —
+        # it's what `pip install -r requirements.txt` hits in a dev checkout.
+        repo = agent_root().parent
+        paths += [
+            str(repo / ".venv" / "Scripts" / "python.exe"),
+            str(repo / "venv" / "Scripts" / "python.exe"),
+        ]
+        # Standard per-user and system installs, newest first.
+        local = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python"
+        if local.is_dir():
+            for d in sorted(local.iterdir(), reverse=True):
+                paths.append(str(d / "python.exe"))
+        for base in (r"C:\Program Files", r"C:\Program Files (x86)"):
+            root = Path(base)
+            if root.is_dir():
+                paths += [
+                    str(p / "python.exe")
+                    for p in sorted(root.glob("Python*"), reverse=True)
+                ]
     else:
         names += ["python3", "python"]
-    return names
+        repo = agent_root().parent
+        paths += [
+            str(repo / ".venv" / "bin" / "python"),
+            str(repo / "venv" / "bin" / "python"),
+            "/usr/bin/python3",
+            "/usr/local/bin/python3",
+            "/opt/homebrew/bin/python3",
+        ]
+
+    # Names first (respects whatever the user has configured), then real paths.
+    return names + [p for p in paths if Path(p).is_file()]
 
 
-def _can_run_agent(exe: str, root: Path) -> bool:
-    """Does this interpreter have what the agent needs?"""
+def _can_run_agent(exe: str, root: Path) -> tuple[bool, str]:
+    """Does this interpreter have what the agent needs? Returns (ok, why-not).
+
+    The reason matters: without it the dialog can only say "couldn't find a
+    Python", which tells the user nothing about whether Python is missing, the
+    dependencies aren't installed, or the interpreter won't even start.
+    """
     try:
         proc = subprocess.run(
             [exe, "-c", "import pystray, PIL"],
             capture_output=True,
+            text=True,
             timeout=20,
             cwd=str(root),
             **_no_window(),
         )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return proc.returncode == 0
+    except FileNotFoundError:
+        return False, "not found"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, type(exc).__name__
+
+    if proc.returncode == 0:
+        return True, ""
+
+    err = (proc.stderr or "").strip().splitlines()
+    last = err[-1] if err else "exit %d" % proc.returncode
+    if "No module named" in last:
+        return False, last.split("ModuleNotFoundError: ")[-1]
+    return False, last[:80]
 
 
 def _no_window() -> dict:
@@ -67,12 +120,19 @@ def _no_window() -> dict:
     return {}
 
 
-def find_python() -> str | None:
-    """A system Python that can actually run the agent, or None."""
+def find_python(report: list | None = None) -> str | None:
+    """A Python that can actually run the agent, or None.
+
+    Pass `report` to collect (exe, reason) for everything that didn't work, so a
+    failure can say *why* rather than just "couldn't find one".
+    """
     root = agent_root()
     for exe in _candidate_pythons():
-        if _can_run_agent(exe, root):
+        ok, why = _can_run_agent(exe, root)
+        if ok:
             return exe
+        if report is not None:
+            report.append((exe, why))
     return None
 
 
@@ -84,13 +144,22 @@ def start_agent() -> str:
     premise is that the agent runs whether or not KiCad is open.
     """
     root = agent_root()
-    exe = find_python()
+    tried: list[tuple[str, str]] = []
+    exe = find_python(report=tried)
     if not exe:
-        raise LaunchError(
-            "Couldn't find a Python with the agent's dependencies.\n\n"
-            "Install them, then try again:\n"
-            "    pip install -r %s" % (root / "prism_agent" / "requirements.txt")
-        )
+        # Say what was tried and why each one failed. "Couldn't find a Python" on
+        # its own is useless: it doesn't distinguish "no Python here" from "Python
+        # is fine, the dependencies aren't installed" — which need different fixes.
+        lines = [
+            "Couldn't find a Python with the agent's dependencies (pystray, Pillow).",
+            "",
+            "Install them into a Python, then try again:",
+            "    pip install -r %s" % (root / "prism_agent" / "requirements.txt"),
+        ]
+        if tried:
+            lines += ["", "Tried:"]
+            lines += ["    %s — %s" % (exe, why) for exe, why in tried[:8]]
+        raise LaunchError("\n".join(lines))
 
     kwargs = {}
     if sys.platform == "win32":

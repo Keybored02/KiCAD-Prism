@@ -78,14 +78,17 @@ def parse(url: str) -> Link | None:
 def _launch_command() -> list[str]:
     """How the OS should invoke us to handle a link.
 
-    The browser launches this from *its* working directory, not ours, so
-    `-m prism_agent` alone would fail to import. Point Python at tools/ explicitly
-    with -c rather than relying on cwd or PYTHONPATH, neither of which we control
-    at the moment the OS invokes us.
+    Frozen, this is just the binary — the simple, robust case, and the reason we
+    ship one.
 
-    sys.executable is the interpreter currently running the agent — demonstrably
-    one that has our dependencies.
+    From a source checkout it's messier: the browser launches us from *its* working
+    directory, not ours, so `-m prism_agent` alone can't import. Bootstrap sys.path
+    explicitly rather than relying on cwd or PYTHONPATH, neither of which we
+    control at the moment the OS invokes us.
     """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--open-url"]
+
     root = Path(__file__).resolve().parent.parent  # tools/
     bootstrap = (
         f"import sys; sys.path.insert(0, r'{root}'); "

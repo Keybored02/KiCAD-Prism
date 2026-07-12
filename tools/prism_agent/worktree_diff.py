@@ -41,7 +41,23 @@ _MAX_BYTES = 40 * 1024 * 1024
 
 
 def _backend_services_dir() -> Path:
-    # tools/prism_agent/ → repo root → backend/app/services
+    """Where the backend's diff services live.
+
+    Two very different situations:
+
+    Frozen — the services are BUNDLED INTO the binary (build_agent.py copies them
+    in), because the user has a plugin zip and no repo. Resolving a path relative
+    to the source tree there would find nothing, the import would fail, and the
+    diff would silently degrade to file-level rows: a board full of edits reported
+    as "1 changed file" and no detail. That's the failure this branch exists to
+    prevent.
+
+    From a checkout — walk up to the repo and use the real backend source, so a dev
+    editing pcb_diff_service sees the effect immediately without rebuilding.
+    """
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        return Path(base) / "backend_services"
     return Path(__file__).resolve().parents[2] / "backend" / "app" / "services"
 
 

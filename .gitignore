@@ -35,3 +35,6 @@ data/
 # Deploy Data
 deploy/
 *.crt
+
+# PyInstaller scratch dir (tools/build_agent.py); dist/ is already ignored above
+tools/build/

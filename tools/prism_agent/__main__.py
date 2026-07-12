@@ -29,7 +29,27 @@ from . import settings as settings_store
 from .prism_client import PrismClient, PrismConfig
 from .server import VERSION, serve
 
-ASSETS = Path(__file__).parent / "assets"
+
+def _assets_dir() -> Path:
+    """Where the icons live — which differs once we're a frozen binary.
+
+    PyInstaller unpacks bundled data into a temp dir and points sys._MEIPASS at it,
+    so the source-relative path is wrong there and the tray would silently fall
+    back to a plain coloured tile.
+    """
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        return Path(base) / "prism_agent" / "assets"
+    return Path(__file__).parent / "assets"
+
+
+ASSETS = _assets_dir()
+
+
+def is_frozen() -> bool:
+    """Are we the packaged binary rather than a source checkout?"""
+    return getattr(sys, "frozen", False)
+
 
 # Fallback brand colour if the asset is missing (see kicad_plugin/prism_theme.py).
 PRIMARY = (37, 99, 235)  # #2563EB
@@ -182,6 +202,30 @@ def _handle_url(url: str) -> int:
     return 2
 
 
+def self_command(*args: str) -> list[str]:
+    """How to invoke *this* agent again, frozen or not.
+
+    Frozen, sys.executable IS the agent, so it takes the arguments directly. From a
+    checkout it's a Python interpreter, which needs `-m prism_agent`. Everything
+    that re-launches us (restart, autostart, the prism:// handler) must go through
+    here, or it will work in a dev tree and break in the shipped binary.
+    """
+    if is_frozen():
+        return [sys.executable, *args]
+    return [sys.executable, "-m", "prism_agent", *args]
+
+
+def _detached() -> dict:
+    """Popen flags for a process that must outlive its parent."""
+    if sys.platform == "win32":
+        return {
+            "creationflags": (
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            )
+        }
+    return {"start_new_session": True}  # setsid
+
+
 def _relaunch() -> None:
     """Start a fresh agent process, for /restart.
 
@@ -189,21 +233,14 @@ def _relaunch() -> None:
     file — otherwise the new agent's single-instance guard would see us still alive
     and politely refuse to start.
     """
-    root = Path(__file__).resolve().parent.parent  # tools/
-    kwargs = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = (
-            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-        )
-    else:
-        kwargs["start_new_session"] = True
+    cwd = None if is_frozen() else str(Path(__file__).resolve().parent.parent)
     subprocess.Popen(
-        [sys.executable, "-m", "prism_agent"],
-        cwd=str(root),
+        self_command(),
+        cwd=cwd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        **kwargs,
+        **_detached(),
     )
 
 
