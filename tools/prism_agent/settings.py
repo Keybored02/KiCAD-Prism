@@ -37,6 +37,10 @@ class Settings:
     # registered without an explicit yes — silently claiming a URL scheme is the
     # kind of thing people rightly resent.
     protocol_handler: bool = False
+    # Start the agent at login. Same principle: opt-in only. Without it the agent
+    # only exists once KiCad has been opened, which undercuts the whole point of it
+    # running independently.
+    autostart: bool = False
 
     def to_dict(self, redact: bool = False) -> dict:
         d = asdict(self)

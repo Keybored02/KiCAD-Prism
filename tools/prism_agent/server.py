@@ -34,7 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import discovery, protocol, settings as settings_store
+from . import autostart, discovery, protocol, settings as settings_store
 from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
 from .worktree_diff import uncommitted_changes
@@ -282,12 +282,13 @@ class _Handler(BaseHTTPRequestHandler):
                 # would always fail.
                 "supported": sys.platform != "darwin",
             },
+            "autostart": {"enabled": autostart.is_enabled(), "supported": True},
         }
 
     def _save_settings(self, body: dict) -> dict:
         changes = {
             k: body[k]
-            for k in ("server_url", "api_token", "protocol_handler")
+            for k in ("server_url", "api_token", "protocol_handler", "autostart")
             if k in body
         }
 
@@ -298,25 +299,46 @@ class _Handler(BaseHTTPRequestHandler):
         if body.get("clear_token"):
             changes["api_token"] = ""
 
-        want_handler = changes.get("protocol_handler")
-        if want_handler is not None and want_handler != protocol.is_registered():
+        # These two don't merely get stored — they register something with the OS.
+        # If the OS refuses, don't persist the setting: a saved `true` with nothing
+        # actually installed would leave the UI confidently reporting a handler
+        # that isn't there.
+        #
+        # `current` reads the OS, not the settings file, so the two can't drift: if
+        # a user deletes the registry key by hand, we notice.
+        errors: list[str] = []
+        toggles = (
+            (
+                "protocol_handler",
+                protocol.is_registered,
+                lambda want: protocol.register() if want else protocol.unregister(),
+                protocol.RegistrationError,
+            ),
+            (
+                "autostart",
+                autostart.is_enabled,
+                autostart.set_enabled,
+                autostart.AutostartError,
+            ),
+        )
+        for key, current, apply, failure in toggles:
+            want = changes.get(key)
+            if want is None or bool(want) == current():
+                continue  # not asked for, or already in that state
             try:
-                protocol.register() if want_handler else protocol.unregister()
-            except protocol.RegistrationError as exc:
-                # Don't persist a setting the OS refused to honour — that would
-                # leave the UI claiming a handler that isn't installed.
-                changes.pop("protocol_handler", None)
-                saved = settings_store.update(**changes)
-                self.state.rebuild_client(saved)
-                payload = self._settings_payload()
-                payload["error"] = str(exc)
-                return payload
+                apply(bool(want))
+            except failure as exc:
+                changes.pop(key, None)
+                errors.append(str(exc))
 
         saved = settings_store.update(**changes)
         # Re-point the backend client, or the new URL/token wouldn't take effect
         # until the agent restarted.
         self.state.rebuild_client(saved)
-        return self._settings_payload()
+        payload = self._settings_payload()
+        if errors:
+            payload["error"] = "\n\n".join(errors)
+        return payload
 
     # -- the payload the plugin renders ------------------------------------
 

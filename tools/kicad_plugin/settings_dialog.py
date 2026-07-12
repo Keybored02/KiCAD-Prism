@@ -106,6 +106,7 @@ class SettingsDialog(wx.Dialog):
         settings = self.data.get("settings", {})
         identity = self.data.get("identity", {})
         proto = self.data.get("protocol", {})
+        auto = self.data.get("autostart", {})
 
         # -- server ---------------------------------------------------------
         server = Card(self.scroll, "Server", self.pal)
@@ -207,6 +208,24 @@ class SettingsDialog(wx.Dialog):
             )
         self.content.Add(account, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
+        # -- startup --------------------------------------------------------
+        startup = Card(self.scroll, "Startup", self.pal)
+        self.autostart = wx.CheckBox(startup, label="Start the Prism agent at login")
+        self.autostart.SetValue(bool(auto.get("enabled")))
+        self.autostart.SetForegroundColour(_c(self.pal["foreground"]))
+        self.autostart.SetBackgroundColour(_c(self.pal["card"]))
+        startup.body.Add(self.autostart, 0, wx.BOTTOM, th.SP_XS)
+        startup.body.Add(
+            startup.label(
+                "Without this the agent only runs once you've opened KiCad, which\n"
+                "defeats the point of it working when KiCad is closed.",
+                tone="muted_fg",
+                small=True,
+            ),
+            0,
+        )
+        self.content.Add(startup, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
         # -- links ----------------------------------------------------------
         links = Card(self.scroll, "prism:// links", self.pal)
         if proto.get("supported"):
@@ -257,6 +276,7 @@ class SettingsDialog(wx.Dialog):
             payload["api_token"] = token
         if self.handler is not None:
             payload["protocol_handler"] = self.handler.GetValue()
+        payload["autostart"] = self.autostart.GetValue()
 
         try:
             result = AgentClient().save_settings(payload)
