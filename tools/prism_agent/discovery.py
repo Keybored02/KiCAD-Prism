@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.request
 from pathlib import Path
 
 APP_NAME = "kicad-prism"
@@ -66,11 +67,73 @@ def read_endpoint() -> dict | None:
 
 
 def clear_endpoint() -> None:
-    """Called by the agent on shutdown so clients don't chase a dead port."""
+    """Called by the agent on shutdown so clients don't chase a dead port.
+
+    Only removes the file if it still describes *us*. Otherwise a second agent
+    that has since taken over would have its endpoint deleted by our exit, leaving
+    it running but undiscoverable — see running_agent().
+    """
     try:
+        data = read_endpoint()
+        if data and data.get("pid") not in (None, os.getpid()):
+            return  # someone else owns it now; not ours to delete
         endpoint_path().unlink()
     except OSError:
         pass
+
+
+def running_agent() -> dict | None:
+    """The already-running agent, if there is one.
+
+    A second agent would bind a different port, overwrite the discovery file, and
+    leave two processes racing — with whichever exits last deleting the file and
+    orphaning the other. Since the plugin offers a "Start agent" button, hitting
+    that is easy, so the agent checks for a live predecessor before starting.
+
+    A stale file (agent killed without cleanup) reads as "not running", which is
+    the answer we want: it means go ahead and start.
+    """
+    data = read_endpoint()
+    if not data:
+        return None
+
+    pid = data.get("pid")
+    if pid and not _pid_alive(pid):
+        return None
+
+    # The pid may have been recycled by an unrelated process, so confirm something
+    # is actually listening and answering as us.
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{data['port']}/health", timeout=2
+        ) as resp:
+            if json.loads(resp.read()).get("ok"):
+                return data
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        # No signal 0 on Windows; ask the OS whether the handle opens.
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        return False
+    try:
+        os.kill(pid, 0)  # signal 0 tests existence without touching the process
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, just not ours
+    return True
 
 
 def _restrict_permissions(path: Path) -> None:

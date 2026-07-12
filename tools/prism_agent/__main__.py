@@ -218,6 +218,19 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    # One agent per machine. A second would bind a different port, overwrite the
+    # discovery file, and leave two processes racing — with whichever exits last
+    # deleting the file and orphaning the other, so the plugin can find neither.
+    # The plugin's "Start agent" button makes double-starting easy, so refuse here.
+    existing = discovery.running_agent()
+    if existing:
+        print(
+            f"The Prism agent is already running on 127.0.0.1:{existing['port']} "
+            f"(pid {existing.get('pid')}).",
+            file=sys.stderr,
+        )
+        return 0  # not an error: the desired state already holds
+
     config = _prism_config()
     server, _thread, state = serve(config)
     port = server.server_address[1]
