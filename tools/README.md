@@ -25,12 +25,65 @@ that renders the agent's answers. That also keeps the plugin **stdlib-only** —
 installing packages into KiCad's embedded Python is painful and fragile, so the
 plugin depends on nothing but the standard library and KiCad's bundled wxPython.
 
-## Tray agent
+## Installing
+
+Download the zip for your platform from the [releases][releases], then in KiCad:
+**Plugin and Content Manager → Install from File…**
+
+That's it. **No Python installation is required** — the agent ships as a
+self-contained binary inside the zip. The first time you open the plugin
+(*Tools → External Plugins → Prism*) it starts the agent and offers two optional,
+per-user integrations, each of which you can decline:
+
+| Option | What it actually writes |
+|---|---|
+| Start the agent at login | Windows: a value under `HKCU\…\CurrentVersion\Run`<br>macOS: a LaunchAgent in `~/Library/LaunchAgents`<br>Linux: a `.desktop` in `~/.config/autostart` |
+| Open `prism://` links | The URL scheme, registered for your user only |
+
+Nothing is written unless you tick the box. You can change both later, or re-run
+setup, from **Settings** in the plugin.
+
+[releases]: https://github.com/Keybored02/KiCAD-Prism/releases
+
+### macOS may ask you to authorise the agent
+
+The binary is ad-hoc signed but not notarised. In the normal path that's fine —
+Gatekeeper only inspects files carrying `com.apple.quarantine`, and KiCad's Plugin
+Manager downloads and extracts the zip itself, so the flag is never applied.
+
+If you instead download the zip **in a browser** and extract it with Finder, macOS
+will flag the binary and refuse to run it ("cannot be opened because the developer
+cannot be verified"). The plugin strips the flag from its own binary before
+launching, which handles most cases; if macOS still objects, allow it in
+**System Settings → Privacy & Security**, or run:
+
+```bash
+xattr -d com.apple.quarantine <plugin dir>/prism-agent
+```
+
+### Linux: the tray icon needs a system package
+
+The agent works regardless — the tray is a convenience, not the architecture (see
+below) — but to actually *see* an icon you need an AppIndicator backend:
+
+```bash
+sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi
+```
+
+## Running the agent by hand
+
+Normally the plugin starts it. To run it yourself — from a release:
+
+```bash
+./prism-agent            # or prism-agent.exe
+./prism-agent --no-tray  # headless
+```
+
+…or from a source checkout:
 
 ```bash
 pip install -r tools/prism_agent/requirements.txt
-python -m prism_agent                    # from the tools/ directory
-python -m prism_agent --no-tray          # headless
+python -m prism_agent    # from the tools/ directory
 ```
 
 **The tray icon is a convenience, not the architecture.** The agent's real control
@@ -111,12 +164,13 @@ an issuer is configured.
 |---|---|---|
 | Windows | per-user registry key under `HKCU\Software\Classes\prism` | yes, no admin needed |
 | Linux | a `.desktop` file with `MimeType=x-scheme-handler/prism` | yes |
-| macOS | `CFBundleURLTypes` in an app bundle's `Info.plist` | **no** — needs the agent shipped as a real `.app`; a plain script cannot register |
+| macOS | `CFBundleURLTypes` in an app bundle's `Info.plist` | **not yet** — only an `.app` bundle can claim a scheme, and we currently ship a bare binary. A PyInstaller `BUNDLE` step would fix it; no Apple account needed. |
 
-Nothing is registered unless you tick the box and press Save: silently claiming a
-URL scheme is the sort of thing people rightly resent. The registered command
+Nothing is registered unless you tick the box: silently claiming a URL scheme is the
+sort of thing people rightly resent. From a source checkout the registered command
 bootstraps `sys.path` explicitly rather than relying on the working directory,
-because the browser launches it from *its* cwd, not ours.
+because the browser launches it from *its* cwd, not ours; the shipped binary needs
+no such trick.
 
 ### Uncommitted changes
 
@@ -161,7 +215,10 @@ PORT=$(python -c  "import json,os;print(json.load(open(os.path.expandvars(r'%APP
 curl -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/project?path=/path/to/project"
 ```
 
-## KiCad plugin
+## Developing
+
+For a working copy, symlink the plugin into KiCad rather than reinstalling a zip
+each time:
 
 ```bash
 python tools/install_plugin.py               # symlink into KiCad's plugin dir
@@ -169,30 +226,83 @@ python tools/install_plugin.py --uninstall
 python tools/install_plugin.py --dir <path>  # pick the KiCad version yourself
 ```
 
-It **symlinks** rather than copies, so the repo stays the single source of truth:
-edit the plugin here and KiCad picks it up on *Tools → External Plugins → Refresh*.
-No copy step to forget, and no risk of editing an installed copy and losing the
-work. If the OS refuses symlinks (Windows without Developer Mode/admin) it falls
-back to copying and **says so** — a silent copy would quietly turn every later
-edit into a no-op.
+It symlinks rather than copies, so the repo stays the single source of truth: edit
+the plugin here and KiCad picks it up on *Tools → External Plugins → Refresh*. If
+the OS refuses symlinks (Windows without Developer Mode) it falls back to copying
+and **says so** — a silent copy would quietly turn every later edit into a no-op.
 
 Autodetect prefers a KiCad version that is actually **installed**: KiCad leaves a
 config dir behind for every version you've ever run, so the newest config dir is
 often an orphan, and installing into it means the plugin silently never appears.
 
-Then in KiCad: **Tools → External Plugins → Prism** (or the toolbar button).
+With no binary built, the plugin falls back to running the agent from source (it
+will tell you which interpreters it tried, and why each was rejected). To get the
+real thing:
 
-If the agent isn't running, the dialog offers a **Start agent** button (and shows
-the command in a selectable field, so it can be copied). It launches the agent
-*detached* — it has to outlive KiCad, which is the whole premise — on a **system**
-Python, not KiCad's: the agent needs pystray and Pillow, and KiCad's embedded
-Python doesn't have them. That's also why the agent can't simply be bundled into
-the plugin: Pillow ships compiled C extensions, so it can't be vendored as source.
+```bash
+pip install pyinstaller
+python tools/build_agent.py            # -> tools/dist/prism-agent[.exe]
+python tools/build_agent.py --console  # keep a console, so a crash is visible
+```
 
-Launching it is not an escalation, incidentally — the plugin already runs arbitrary
-Python inside KiCad with your full rights. It only ever launches our own module, by
-path, on an explicit click. (A *web page* could never do this: browsers can't spawn
-local processes. The web UI can only talk to the agent once it's already running.)
+`find_binary()` looks in `tools/dist/` too, so a local build is picked up
+automatically.
+
+### Building the release packages
+
+```bash
+python tools/package_plugin.py --version 0.4.0 --binaries <dir> --out dist
+```
+
+PyInstaller **cannot cross-compile** — a macOS binary must be built on macOS, a
+Linux one on Linux — so the real packages come from CI:
+`.github/workflows/build-plugin.yml`, a matrix of `windows-latest` /
+`macos-latest` / `ubuntu-latest`. It's **manual dispatch only** (Actions → Build
+KiCad Plugin → Run workflow); building three binaries on every commit would be
+waste, and it's a release step, not a check.
+
+One zip per platform, each carrying its own agent binary. The layout is fixed by
+KiCad: `metadata.json` at the root, the plugin **directly** inside `plugins/` (a
+further level of nesting is explicitly forbidden), `resources/icon.png`, and the
+agent binary beside the plugin — which is exactly where `find_binary()` looks
+first.
+
+### Why a binary at all
+
+The plugin runs inside KiCad's embedded Python, which has no pystray/Pillow — and
+we cannot assume the user has *any* other Python, since they installed a zip from
+the Plugin Manager and may never have run pip. Hunting the machine for a suitable
+interpreter is what this used to do, and it failed for exactly that person.
+Pillow also ships compiled C extensions, so it can't be vendored as source.
+
+Launching the agent isn't a privilege escalation, incidentally — the plugin already
+runs arbitrary Python inside KiCad with your full rights. It only ever launches our
+own binary, resolved relative to the plugin, and only when you ask. (A *web page*
+could never do this: browsers can't spawn local processes. The web UI can only talk
+to the agent once it's already running.)
+
+### KiCad's backups and generated files
+
+KiCad's auto-backup is **on by default** and keeps up to 25 zips / 100 MB per
+project in a `<project>-backups/` folder, plus `-bak` files, autosaves and caches.
+None of it says anything about your design, and there can be dozens of entries per
+real edit — which is exactly how the board you actually changed gets buried.
+
+Both the plugin's change list and the web history fold them behind a count.
+**Folded, not filtered**: the files really are in the commit / the working tree, and
+a list that silently omitted them would be lying about the state of your repo.
+Unfolding them is also how you notice they're being committed at all — the real fix
+is a `.gitignore` entry, and both surfaces say so.
+
+`backend/app/services/kicad_noise_service.py` is the single classifier. The backend
+imports it; the agent loads it by path (and bundles it into the binary), the same way
+it loads the diff engines. Two copies of these patterns would drift the first time
+KiCad changed a suffix, and then a file hidden in one surface but shown in the other
+is just confusing.
+
+A noise file is never diffed, incidentally: a backup archive contains a *copy of the
+board*, so diffing it would produce hundreds of phantom "changes" that are really
+just the old design.
 
 ### Cross-probe
 
@@ -232,25 +342,49 @@ hover/press states behave the same on every platform.
 
 ```
 tools/
-  prism_agent/          the tray agent (needs pystray + Pillow)
+  agent_main.py         PyInstaller entry point (see below)
+  build_agent.py        builds the agent into one executable
+  package_plugin.py     assembles the KiCad PCM zip
+  install_plugin.py     symlink the plugin into KiCad (development)
+
+  prism_agent/          the agent — ships as a binary (source needs pystray+Pillow)
     __main__.py           tray icon, menu, lifecycle
     server.py             the loopback HTTP API
     projects.py           project detection + git status
     prism_client.py       Prism backend client
     discovery.py          how the plugin finds the agent
+    settings.py           persisted settings
+    autostart.py          run at login (per-OS)
+    protocol.py           prism:// links (per-OS)
     worktree_diff.py      uncommitted changes: HEAD vs disk
     diff_grouping.py      port of the web UI's diff-grouping.ts — keep in sync
     assets/               the Prism logo (tray icon)
-  kicad_plugin/         the KiCad plugin (stdlib + wx only)
+
+  kicad_plugin/         the plugin (stdlib + KiCad's wx only)
     __init__.py           the pcbnew ActionPlugin
-    dialog.py             the themed wx dialog
-    widgets.py            owner-drawn Button/Badge/Card
+    first_run.py          setup on first launch
+    dialog.py             the main dialog
+    settings_dialog.py    settings
+    widgets.py            owner-drawn Button/Badge/Card/ScrollThumb
+    crossprobe.py         jump to a changed item inside KiCad
+    agent_launcher.py     finds and starts the agent binary
     agent_client.py       talks to the agent
     prism_theme.py        the palette
-    assets/, icon.png     the Prism logo (toolbar + dialog header)
-  install_plugin.py     symlink/copy the plugin into KiCad
+    assets/, icon.png     the Prism logo
 ```
 
-`discovery.py` is duplicated in miniature inside `agent_client.py` on purpose: the
-plugin is linked into KiCad's plugin dir on its own and cannot import the agent
-package. Both are tiny; keep them in sync.
+Three things in here look redundant and aren't:
+
+**`agent_main.py`** exists because PyInstaller runs its entry script with no package
+context, so pointing it at `prism_agent/__main__.py` dies on the first relative
+import.
+
+**`discovery.py` is duplicated in miniature inside `agent_client.py`.** The plugin
+is installed on its own and cannot import the agent package. Both are tiny; keep
+them in sync.
+
+**`diff_grouping.py` is a port of the frontend's `diff-grouping.ts`.** TypeScript
+can't be imported, and both surfaces must group a board's changes identically. The
+diff *engines* and the noise classifier are genuinely shared — the agent loads the
+backend's own modules by path (and bundles them into the binary) rather than keeping
+a second copy that would drift.
