@@ -25,6 +25,7 @@ local client, so a framework would be dead weight and another thing to install.
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import sys
 import threading
@@ -38,7 +39,9 @@ from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
 from .worktree_diff import uncommitted_changes
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
+
+log = logging.getLogger(__name__)
 
 
 class AgentState:
@@ -51,6 +54,11 @@ class AgentState:
         # convenience rather than the only way out.
         self.request_stop = None
         self.request_restart = None
+        # Diffing a big board takes a second or two, and reopening the dialog
+        # shouldn't re-parse a board that hasn't changed. Keyed on the mtimes of
+        # the files git says are dirty, so any edit invalidates it by itself.
+        self._changes_cache: dict[tuple, list[dict]] = {}
+        self._changes_lock = threading.Lock()
 
     def rebuild_client(self, saved) -> None:
         """Re-point at the backend after the URL or token changed.
@@ -61,11 +69,10 @@ class AgentState:
         self.prism = PrismClient(
             PrismConfig(base_url=saved.server_url, token=saved.api_token)
         )
-        # Diffing a big board takes a second or two, and reopening the dialog
-        # shouldn't re-parse a board that hasn't changed. Keyed on the mtimes of
-        # the files git says are dirty, so any edit invalidates it by itself.
-        self._changes_cache: dict[tuple, list[dict]] = {}
-        self._changes_lock = threading.Lock()
+        # A different server means different projects, so the cached diff answers
+        # (which carry the Prism project row) are no longer trustworthy.
+        with self._changes_lock:
+            self._changes_cache = {}
 
     def changes(self, repo_root: str, scope: str) -> list[dict]:
         key = _worktree_fingerprint(repo_root, scope)
@@ -130,6 +137,28 @@ class _Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):  # noqa: A003 - silence stdlib access logging
         pass
+
+    def handle_one_request(self):
+        """Never let a bug in one route take the agent down.
+
+        socketserver logs the traceback and closes the socket, so the client sees
+        `RemoteDisconnected: remote end closed connection without response` — a
+        baffling error that says nothing about the actual fault. Worse, the agent
+        can end up dead with its discovery file still on disk, so the plugin
+        cheerfully connects to a port nobody is listening on.
+
+        A single failing request should be a 500 with a real message, not a
+        casualty list. (This exact scenario is why: an AttributeError in /changes
+        killed the agent on every plugin launch.)
+        """
+        try:
+            super().handle_one_request()
+        except Exception:
+            log.exception("unhandled error serving %s", getattr(self, "path", "?"))
+            try:
+                self._send(500, {"error": "the agent hit an internal error"})
+            except Exception:  # noqa: S110 - the socket is probably already gone
+                pass
 
     # -- routes -----------------------------------------------------------
 
