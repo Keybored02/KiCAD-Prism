@@ -10,10 +10,19 @@ Endpoints
     GET  /settings                   -> {settings, identity, protocol}
     GET  /library                    -> is Prism KiCad's remote symbol provider, and
                                         does it point at the server we're configured for?
+    GET  /locate?id=<id>             -> where this machine keeps a project, by marker
+    GET  /publish?path=<path>        -> what publishing this folder would involve
+    GET  /checkout?path=&ref=        -> could we check this ref out, and if not, why not
     PUT  /settings {..}              -> updates and re-points the backend client
     POST /open-in-prism {project_id} -> opens the web app in the browser
+    POST /publish {path, name}       -> commit if needed, reserve a repo, push, register
+    POST /checkout {path, ref}       -> move the working tree to a commit/branch/tag
+    POST /pull {path}                -> fetch and FAST-FORWARD (never merge; see checkout)
     POST /quit                       -> stops the agent
     POST /restart                    -> stops, then relaunches the agent
+
+The write routes refuse rather than warn when they would destroy uncommitted work: a
+commit is recoverable from git, an unsaved board edit is not. See checkout.py.
 
 /quit exists so the API, not the tray icon, is the agent's control surface. On a
 desktop with no usable tray (Wayland without an appindicator, SSH, headless) there
