@@ -19,6 +19,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import identity
+
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 TIMEOUT = 10
 
@@ -115,15 +117,43 @@ class PrismClient:
             "user": self.me(),
         }
 
-    def find_project_by_path(self, path: str) -> dict | None:
-        """Match a local project directory to a Prism project.
+    def find_project(self, path: str) -> dict | None:
+        """Which Prism project is this local directory?
 
-        Prism's project list carries each project's on-disk `path`, so we resolve
-        locally rather than needing a dedicated lookup endpoint.
+        Two ways, in order:
+
+        1. **The marker.** The checkout's `.prism.json` carries the project id, so we
+           just look it up. This is the one that works when the server is on another
+           machine, which is the entire point.
+        2. **The path**, as a fallback. Only correct when the server and the client
+           are the same machine, which is the assumption this whole exercise exists
+           to remove. It stays because markers are still spreading: a project imported
+           before phase 1 and not yet reopened has no marker, and regressing it to
+           "Not registered" would be a real bug for no gain.
+
+        The fallback goes away in phase 3, when the server stops sending `path` at all.
         """
         rows = self._request("GET", "/api/projects")
         if not isinstance(rows, list):
             return None
+
+        marker_id = identity.project_id(path)
+        if marker_id:
+            for row in rows:
+                if isinstance(row, dict) and row.get("id") == marker_id:
+                    return row
+            # The checkout names a project this server does not have. Say nothing
+            # rather than fall back to a path match: a path collision would report
+            # the *wrong* project, and a wrong answer is worse than no answer.
+            return None
+
+        return self._find_by_path(rows, path)
+
+    def _find_by_path(self, rows: list, path: str) -> dict | None:
+        """Legacy lookup: compare the local path against the server's own path.
+
+        Same-machine only. See find_project.
+        """
         target = _normalise(path)
         for row in rows:
             p = row.get("path") if isinstance(row, dict) else None

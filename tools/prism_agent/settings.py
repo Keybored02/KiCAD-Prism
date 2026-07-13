@@ -45,6 +45,13 @@ class Settings:
     # plugin so it survives a plugin reinstall, being asked to set up again just
     # because you updated the plugin would be irritating and pointless.
     first_run_done: bool = False
+    # Directories to search for Prism projects, by their `.prism.json` marker.
+    #
+    # A place to *look*, not a place you are forced to put things: a checkout works
+    # wherever it is, and a user who keeps projects in three unrelated folders adds
+    # three roots. This exists so "do I have prj_x?" is a bounded search rather than
+    # a walk of the whole disk.
+    projects_roots: list[str] = field(default_factory=list)
 
     def to_dict(self, redact: bool = False) -> dict:
         d = asdict(self)

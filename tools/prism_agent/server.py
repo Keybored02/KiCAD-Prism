@@ -35,7 +35,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-from . import autostart, discovery, protocol, remote_library, settings as settings_store
+from . import (
+    autostart,
+    discovery,
+    identity,
+    protocol,
+    remote_library,
+    settings as settings_store,
+)
 from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
 from .worktree_diff import uncommitted_changes
@@ -241,6 +248,17 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, remote_library.status(server))
             return
 
+        if route.path == "/locate":
+            # "Do I have this project, and where?" Answered from the `.prism.json`
+            # markers under the user's projects roots, so it does not care where the
+            # server keeps its own copy. This is what prism://open/<id> will use.
+            project_id = (query.get("id") or [""])[0]
+            if not project_id:
+                self._send(400, {"error": "id is required"})
+                return
+            self._send(200, self._locate_payload(project_id))
+            return
+
         self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
@@ -356,9 +374,13 @@ class _Handler(BaseHTTPRequestHandler):
                 "protocol_handler",
                 "autostart",
                 "first_run_done",
+                "projects_roots",
             )
             if k in body
         }
+
+        if "projects_roots" in changes:
+            changes["projects_roots"] = _clean_roots(changes["projects_roots"])
 
         # An empty api_token means "leave it alone" (the UI never receives the real
         # one, so it can't echo it back). Clearing is explicit, via clear_token.
@@ -417,7 +439,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         git = git_status(project.repo_root) if project.repo_root else None
         # The backend may be down or unconfigured; that's fine, we just say so.
-        prism = self.state.prism.find_project_by_path(project.path)
+        prism = self.state.prism.find_project(project.path)
 
         return {
             "project": project.to_dict(),
@@ -440,12 +462,55 @@ class _Handler(BaseHTTPRequestHandler):
 
         changes = self.state.changes(project.repo_root, project.path)
         # The project id lets the plugin deep-link a change into Prism's viewer.
-        prism = self.state.prism.find_project_by_path(project.path)
+        prism = self.state.prism.find_project(project.path)
         return {
             "changes": changes,
             "project": project.to_dict(),
             "prism": prism,
         }
+
+    def _locate_payload(self, project_id: str) -> dict:
+        """Where this machine keeps a given Prism project, if anywhere.
+
+        `roots` comes back too, because "not found" means something different when
+        no roots are configured (we did not look anywhere) than when they are (we
+        looked and it is not there), and the caller has to be able to tell those
+        apart rather than guessing.
+        """
+        roots = settings_store.load().projects_roots
+        return {
+            "id": project_id,
+            "path": identity.find_by_id(project_id, roots),
+            "roots": roots,
+        }
+
+
+def _clean_roots(raw) -> list[str]:
+    """Tidy a list of projects roots without second-guessing the user.
+
+    Blanks and duplicates go, and paths are resolved to a canonical form so the same
+    folder spelled two ways is stored once. A root that does not exist is KEPT: a
+    removable drive or a network share that is offline right now is still where the
+    user keeps their projects, and quietly deleting it from their settings because
+    we could not stat it would be its own bug.
+    """
+    if not isinstance(raw, list):
+        return []
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        try:
+            resolved = str(Path(item.strip()).expanduser().resolve())
+        except (OSError, ValueError):
+            resolved = item.strip()
+        key = resolved.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(resolved)
+    return cleaned
 
 
 def make_server(prism: PrismClient) -> tuple[ThreadingHTTPServer, AgentState]:

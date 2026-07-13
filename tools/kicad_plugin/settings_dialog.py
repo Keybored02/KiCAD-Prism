@@ -209,6 +209,49 @@ class SettingsDialog(wx.Dialog):
             )
         self.content.Add(account, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
+        # -- projects -------------------------------------------------------
+        # Where to look for projects, by their .prism.json marker. A place to look,
+        # not a place you are forced to put things: a checkout works wherever it is.
+        projects = Card(self.scroll, "Projects", self.pal)
+        projects.body.Add(
+            projects.label(
+                "Folders to search for Prism projects.",
+                tone="muted_fg",
+                small=True,
+            ),
+            0,
+            wx.BOTTOM,
+            th.SP_XS,
+        )
+        self.roots = wx.ListBox(
+            projects,
+            choices=list(settings.get("projects_roots") or []),
+            size=wx.Size(-1, 90),
+        )
+        self.roots.SetForegroundColour(_c(self.pal["foreground"]))
+        self.roots.SetBackgroundColour(_c(self.pal["background"]))
+        projects.body.Add(self.roots, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS)
+
+        root_buttons = wx.BoxSizer(wx.HORIZONTAL)
+        root_buttons.Add(
+            Button(projects, "Add", self.pal, variant="ghost", on_click=self._add_root),
+            0,
+            wx.RIGHT,
+            th.SP_XS,
+        )
+        root_buttons.Add(
+            Button(
+                projects,
+                "Remove",
+                self.pal,
+                variant="ghost",
+                on_click=self._remove_root,
+            ),
+            0,
+        )
+        projects.body.Add(root_buttons, 0)
+        self.content.Add(projects, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
         # -- startup --------------------------------------------------------
         startup = Card(self.scroll, "Startup", self.pal)
         self.autostart = wx.CheckBox(startup, label="Start the Prism agent at login")
@@ -393,6 +436,7 @@ class SettingsDialog(wx.Dialog):
         if self.handler is not None:
             payload["protocol_handler"] = self.handler.GetValue()
         payload["autostart"] = self.autostart.GetValue()
+        payload["projects_roots"] = list(self.roots.GetStrings())
 
         try:
             result = AgentClient().save_settings(payload)
@@ -409,6 +453,25 @@ class SettingsDialog(wx.Dialog):
         self.content.Clear(delete_windows=True)
         self._render()
         self._relayout()
+
+    def _add_root(self):
+        with wx.DirDialog(
+            self,
+            "Choose a folder to search for Prism projects",
+            style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST,
+        ) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return
+            chosen = dlg.GetPath()
+        # The agent canonicalises and de-duplicates on save; this only stops the
+        # obvious case of adding the identical string twice in one sitting.
+        if chosen not in self.roots.GetStrings():
+            self.roots.Append(chosen)
+
+    def _remove_root(self):
+        selected = self.roots.GetSelection()
+        if selected != wx.NOT_FOUND:
+            self.roots.Delete(selected)
 
     def _rerun_setup(self):
         """Reopen the first-run flow. Kept reachable because the two OS integrations

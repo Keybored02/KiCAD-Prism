@@ -9,12 +9,15 @@ need to own the truth, so it does not need to own the remote.
 
 ---
 
-## Where we are today, and why it cannot stand
+## Where we started, and why it could not stand
 
-The agent maps a local checkout to a Prism project by **comparing filesystem paths**:
+*(Phases 1 and 2 are now done, so the first half of this is history. It is kept because
+the reasoning is what the rest of the plan rests on.)*
+
+The agent mapped a local checkout to a Prism project by **comparing filesystem paths**:
 
 ```python
-# prism_client.find_project_by_path
+# prism_client.find_project_by_path, as it was
 rows = GET /api/projects
 for row in rows:
     if normalise(row["path"]) == normalise(local_path):
@@ -23,6 +26,8 @@ for row in rows:
 
 That works only because the server and the client are the same machine. Move the server
 one hop and `row["path"]` is a *server-side* path that can never equal a local one.
+The path match survives today only as a fallback for checkouts that predate the marker,
+and phase 3 removes it by not sending `path` at all.
 
 The stored data confirms it. One live install currently holds three different models at
 once:
@@ -171,10 +176,17 @@ Ordered so nothing is broken mid-flight.
 import and on clone. Backfill on next open for existing projects. Nothing depends on it yet.
 *Reversible, no behaviour change.*
 
-**Phase 2: the agent stops guessing.** Add the projects-root setting and the marker index.
-`find_project_by_path` becomes `find_project_by_marker`, falling back to the old path match
-so nothing regresses while the markers are still spreading.
+**Phase 2: the agent stops guessing.** Add the projects-root setting and the marker
+search. `find_project_by_path` becomes `find_project`, which resolves by marker and falls
+back to the old path match so nothing regresses while the markers are still spreading.
+A new `/locate?id=` route answers "do I have this project, and where?" from the markers
+alone, which is what `prism://open/<id>` will use.
 *This is the fix for the same-machine assumption.*
+
+One rule worth stating: when a checkout carries a marker naming a project the server does
+not have, the answer is **no project**, not a path match. Falling back there could return
+the *wrong* project, and a wrong answer about which board you are looking at is worse than
+no answer.
 
 **Phase 3: the server stops leaking its workspace.** Split `path` into private
 `workspace_path` and public `origin_url` + `origin_owner`. Stop sending `path` to clients.
