@@ -249,6 +249,19 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True})
             return
 
+        if route.path == "/library":
+            server = settings_store.load().server_url
+            try:
+                if body.get("remove"):
+                    result = remote_library.unlink(server)
+                else:
+                    result = remote_library.link(server)
+            except remote_library.RemoteLibraryError as exc:
+                self._send(400, {"error": str(exc)})
+                return
+            self._send(200, {"ok": True, **result})
+            return
+
         if route.path == "/quit":
             if not self.state.request_stop:
                 self._send(501, {"error": "this agent can't stop itself"})

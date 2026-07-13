@@ -36,6 +36,7 @@ import json
 import os
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 PROVIDER_NAME = "Prism"
@@ -165,3 +166,125 @@ def status(server_url: str) -> dict:
         "server_url": server_url,
         "kicad_running": kicad_is_running(),
     }
+
+
+class RemoteLibraryError(Exception):
+    """Couldn't change the registration, with a reason worth showing."""
+
+
+def link(server_url: str) -> dict:
+    """Register Prism as KiCad's remote symbol provider.
+
+    KiCad MUST be closed. It loads eeschema.json at startup and writes its own copy back
+    on exit, so a write made while it's running is overwritten and the user is told a
+    lie. (An external write with KiCad closed does stick — verified across repeated
+    restarts.)
+
+    Read-modify-write: this is the user's own eeschema config, and every other setting in
+    it has to survive.
+    """
+    if kicad_is_running():
+        raise RemoteLibraryError(
+            "Close KiCad first.\n\n"
+            "KiCad overwrites its own settings when it exits, so this change would be "
+            "discarded."
+        )
+
+    cfg = kicad_config_dir()
+    if cfg is None:
+        raise RemoteLibraryError(
+            "Couldn't find a KiCad configuration. Run KiCad once first."
+        )
+
+    path = cfg / "eeschema.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RemoteLibraryError(f"Couldn't read {path}: {exc}") from exc
+
+    server_url = server_url.rstrip("/")
+    remote = data.setdefault("remote_symbols", {})
+    providers = remote.setdefault("providers", [])
+
+    # Drop any previous Prism entry — including one pointing at an old server, which is
+    # exactly the stale case we're here to fix. Leave other people's providers alone.
+    providers = [
+        p
+        for p in providers
+        if not (
+            isinstance(p, dict)
+            and (
+                p.get("display_name_override") == PROVIDER_NAME
+                or _same_server(p.get("metadata_url", ""), server_url)
+            )
+        )
+    ]
+
+    entry = {
+        # KiCad's own ids look like provider-<12 hex>; match the shape so nothing
+        # downstream is surprised by it.
+        "provider_id": "provider-%s" % uuid.uuid4().hex[:12],
+        "metadata_url": server_url,
+        "display_name_override": PROVIDER_NAME,
+        "last_account_label": "",
+        "last_auth_status": "signed_out",
+    }
+    providers.append(entry)
+
+    remote["providers"] = providers
+    remote["last_used_provider_id"] = entry["provider_id"]
+
+    _save(path, data)
+    return {"kicad_version": cfg.name, "server_url": server_url}
+
+
+def unlink(server_url: str) -> dict:
+    """Remove Prism from KiCad's providers. Leaves every other provider untouched."""
+    if kicad_is_running():
+        raise RemoteLibraryError(
+            "Close KiCad first.\n\n"
+            "KiCad overwrites its own settings when it exits, so this change would be "
+            "discarded."
+        )
+
+    cfg = kicad_config_dir()
+    if cfg is None:
+        return {"kicad_version": "", "removed": False}
+
+    path = cfg / "eeschema.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RemoteLibraryError(f"Couldn't read {path}: {exc}") from exc
+
+    remote = data.get("remote_symbols") or {}
+    providers = remote.get("providers") or []
+    keep = [
+        p
+        for p in providers
+        if not (
+            isinstance(p, dict)
+            and (
+                p.get("display_name_override") == PROVIDER_NAME
+                or _same_server(p.get("metadata_url", ""), server_url)
+            )
+        )
+    ]
+    if len(keep) == len(providers):
+        return {"kicad_version": cfg.name, "removed": False}
+
+    remote["providers"] = keep
+    remote["last_used_provider_id"] = ""
+    _save(path, data)
+    return {"kicad_version": cfg.name, "removed": True}
+
+
+def _save(path: Path, data: dict) -> None:
+    # Write-then-replace: a half-written eeschema.json would cost the user every
+    # preference they have.
+    tmp = path.with_name(path.name + ".prism-tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:
+        raise RemoteLibraryError(f"Couldn't write {path}: {exc}") from exc

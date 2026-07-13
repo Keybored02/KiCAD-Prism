@@ -175,6 +175,15 @@ class AgentClient:
         """
         return self._call("GET", "/library")
 
+    def link_library(self, remove=False):
+        """Register (or remove) Prism as KiCad's remote symbol provider.
+
+        Fails with a 400 if KiCad is running: KiCad writes its own eeschema.json on
+        exit, so the change would be discarded. The agent does the write, since the
+        plugin is by definition inside a live KiCad.
+        """
+        return self._call("POST", "/library", {"remove": remove})
+
     # -- settings ----------------------------------------------------------
 
     def settings(self):

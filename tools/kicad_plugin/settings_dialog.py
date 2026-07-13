@@ -128,6 +128,8 @@ class SettingsDialog(wx.Dialog):
         )
         self.content.Add(server, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
+        self._render_library()
+
         # -- account --------------------------------------------------------
         account = Card(self.scroll, "Account", self.pal)
         if not identity.get("reachable"):
@@ -269,6 +271,126 @@ class SettingsDialog(wx.Dialog):
                 0,
             )
         self.content.Add(links, 0, wx.EXPAND)
+
+    def _render_library(self):
+        """Is Prism KiCad's remote symbol provider, and does it point at our server?
+
+        Three states worth distinguishing:
+            Linked        healthy.
+            Wrong server  a Prism provider IS registered, but for a different server
+                          than the one above. You'd be browsing the wrong catalog with
+                          nothing to tell you.
+            Not linked    never registered; Prism's parts aren't in the Symbol Chooser.
+        """
+        card = Card(self.scroll, "Symbol library", self.pal)
+
+        try:
+            state = AgentClient().library()
+        except AgentUnavailable as exc:
+            card.row("Status", "Unavailable", badge=True, tone="warning")
+            card.body.Add(
+                card.label(str(exc), tone="muted_fg", small=True), 0, wx.TOP, th.SP_XS
+            )
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+            return
+
+        if not state.get("configured"):
+            card.row("Status", "No KiCad config found", tone="muted_fg")
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+            return
+
+        linked = state.get("linked")
+        stale = state.get("stale")
+        running = state.get("kicad_running")
+
+        if linked:
+            label, tone = "Linked", "success"
+        elif stale:
+            label, tone = "Wrong server", "warning"
+        else:
+            label, tone = "Not linked", "warning"
+        card.row("Prism", label, badge=True, tone=tone)
+        card.row("KiCad", state.get("kicad_version") or "—", tone="muted_fg")
+
+        if stale:
+            card.body.Add(
+                card.label(
+                    "KiCad points at a different Prism server:\n    %s"
+                    % state.get("linked_url", ""),
+                    tone="muted_fg",
+                    small=True,
+                ),
+                0,
+                wx.TOP | wx.BOTTOM,
+                th.SP_XS,
+            )
+        elif not linked:
+            card.body.Add(
+                card.label(
+                    "Prism's parts won't appear in KiCad's Symbol Chooser.",
+                    tone="muted_fg",
+                    small=True,
+                ),
+                0,
+                wx.TOP | wx.BOTTOM,
+                th.SP_XS,
+            )
+
+        if running:
+            # The write would be thrown away, so don't offer a button that lies. KiCad
+            # loads eeschema.json at startup and writes its own copy back on exit.
+            card.body.Add(
+                card.label(
+                    "Quit KiCad to change this — it overwrites its own settings\n"
+                    "when it exits, so the change wouldn't survive.",
+                    tone="muted_fg",
+                    small=True,
+                ),
+                0,
+                wx.TOP,
+                th.SP_XS,
+            )
+        else:
+            card.body.Add(
+                Button(
+                    card,
+                    "Re-link" if (linked or stale) else "Link Prism",
+                    self.pal,
+                    variant="ghost" if linked else "primary",
+                    on_click=self._link_library,
+                ),
+                0,
+                wx.TOP,
+                th.SP_XS,
+            )
+
+        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
+    def _link_library(self):
+        """Register Prism as KiCad's symbol provider.
+
+        The agent does the write: KiCad must be closed for it to stick, and this plugin
+        is by definition running inside a live KiCad. (The agent refuses and says so if
+        KiCad is up, rather than writing something that gets discarded.)
+        """
+        try:
+            with wx.BusyCursor():
+                result = AgentClient().link_library()
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        if result.get("error"):
+            wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
+        else:
+            wx.MessageBox(
+                "Prism is linked into KiCad %s.\n\n"
+                "Its parts are in the Symbol Chooser."
+                % (result.get("kicad_version") or ""),
+                "Prism",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+        self._load()
 
     def _style_input(self, ctrl):
         ctrl.SetBackgroundColour(_c(self.pal["muted"]))
