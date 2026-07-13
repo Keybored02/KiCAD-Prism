@@ -126,6 +126,12 @@ class PrismDialog(wx.Dialog):
         corner.Add(self.user, 0, wx.ALIGN_RIGHT | wx.BOTTOM, th.SP_XS)
 
         icons = wx.BoxSizer(wx.HORIZONTAL)
+        # First, because it's the precondition for the rest: with no agent, the other
+        # three know nothing and go grey.
+        self.agent_icon = StatusIcon(
+            self, "agent", self.pal, tooltip="Contacting the agent"
+        )
+        icons.Add(self.agent_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
         self.server_icon = StatusIcon(
             self, "server", self.pal, tooltip="Contacting the agent"
         )
@@ -232,11 +238,18 @@ class PrismDialog(wx.Dialog):
             # exist yet, and fails like a bug in the new code.
             health = client.health() or {}
 
+            running = health.get("version", "")
+
+            # It answered, so it's alive. Its version is the useful thing to say about
+            # it: "is the agent running" is a yes/no, and the yes is worth qualifying.
+            self.agent_icon.set(
+                "success", "Prism agent %s is running" % (running or "?")
+            )
+
             # The agent answered, so the only question left is whether IT can reach the
             # backend. The icon says which, and stays out of the way otherwise.
             self._set_server_icon(bool(health.get("backend_reachable")))
 
-            running = health.get("version", "")
             if version.agent_too_old(running):
                 self.data = None
                 self.changes = None
@@ -261,9 +274,12 @@ class PrismDialog(wx.Dialog):
         except AgentUnavailable as exc:
             self.data = None
             self.changes = None
-            # No agent means we know nothing about any of it. Grey, not amber: amber
+            # The one thing here that IS an error. An unreachable backend is normal and
+            # temporary; a missing agent means nothing works, so it gets the red.
+            self.agent_icon.set("destructive", "The Prism agent isn't running")
+            # And with no agent we know nothing about the rest. Grey, not amber: amber
             # says "reachable but unhappy", and we cannot even claim that much.
-            self.server_icon.set("muted_fg", "The Prism agent isn't running")
+            self.server_icon.set("muted_fg", "Unknown")
             self.git_icon.set("muted_fg", "Unknown")
             self.library_icon.set("muted_fg", "Unknown")
             self.user.SetLabel("")
@@ -472,6 +488,12 @@ class PrismDialog(wx.Dialog):
         """
         self.status.SetLabel("The Prism agent is out of date")
         self.status.SetForegroundColour(_c(self.pal["warning"]))
+
+        # Running, but too old to talk to. Amber: it's alive, which is not nothing, and
+        # a restart fixes it.
+        self.agent_icon.set(
+            "warning", "Prism agent %s is out of date" % (running or "?")
+        )
 
         card = Card(self.scroll, "Prism agent", self.pal)
         card.body.Add(

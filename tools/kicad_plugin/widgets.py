@@ -356,6 +356,19 @@ def draw_kind_icon(
     gc.SetPen(gc.CreatePen(wx.GraphicsPenInfo(colour).Width(1.5)))
     gc.SetBrush(wx.TRANSPARENT_BRUSH)
 
+    if kind == "agent":
+        # lucide "activity": a heartbeat trace. Reads as "this thing is alive", which is
+        # exactly and only what the agent icon claims.
+        pulse = gc.CreatePath()
+        pulse.MoveToPoint(*px(22, 12))
+        pulse.AddLineToPoint(*px(18, 12))
+        pulse.AddLineToPoint(*px(15, 21))
+        pulse.AddLineToPoint(*px(9, 3))
+        pulse.AddLineToPoint(*px(6, 12))
+        pulse.AddLineToPoint(*px(2, 12))
+        gc.StrokePath(pulse)
+        return
+
     if kind == "sch":
         # lucide "circuit-board": board outline, two traces, two pads.
         board = gc.CreatePath()
