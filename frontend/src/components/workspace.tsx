@@ -24,6 +24,9 @@ const WORKSPACE_PAGE_SIZE = 25;
 const ImportDialog = lazy(() =>
   import("./import-dialog").then((module) => ({ default: module.ImportDialog }))
 );
+const CreateProjectDialog = lazy(() =>
+  import("./create-project-dialog").then((module) => ({ default: module.CreateProjectDialog }))
+);
 const SettingsDialog = lazy(() =>
   import("./settings-dialog").then((module) => ({ default: module.SettingsDialog }))
 );
@@ -62,6 +65,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -322,6 +326,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
               <WorkspaceProjectToolbar
                 viewMode={viewMode}
                 onViewModeChange={setViewMode}
+                onCreate={() => canManageProjects && setIsCreateOpen(true)}
                 onImport={() => canManageProjects && setIsImportOpen(true)}
                 onCreateFolder={() => canManageProjects && setIsCreateFolderOpen(true)}
                 onRefresh={() => void refresh()}
@@ -457,6 +462,11 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
         </div>
       </div>
 
+      {isCreateOpen && (
+        <Suspense fallback={null}>
+          <CreateProjectDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} onCreated={refresh} />
+        </Suspense>
+      )}
       {isImportOpen && (
         <Suspense fallback={null}>
           <ImportDialog open={isImportOpen} onOpenChange={setIsImportOpen} onImportComplete={refresh} />

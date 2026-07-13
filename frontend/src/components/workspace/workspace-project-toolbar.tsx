@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderPlus, Grid3X3, Image, List, Plus, RefreshCw, Settings } from "lucide-react";
+import { Download, FolderPlus, Grid3X3, Image, List, Plus, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { ViewMode } from "./workspace-types";
 interface WorkspaceProjectToolbarProps {
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  onCreate: () => void;
   onImport: () => void;
   onCreateFolder: () => void;
   onRefresh: () => void;
@@ -35,6 +36,7 @@ async function pollJob(jobId: string): Promise<void> {
 export function WorkspaceProjectToolbar({
   viewMode,
   onViewModeChange,
+  onCreate,
   onImport,
   onCreateFolder,
   onRefresh,
@@ -90,9 +92,13 @@ export function WorkspaceProjectToolbar({
       <div className="ml-auto flex items-center gap-2">
         {canManageProjects && (
           <>
-            <Button onClick={onImport}>
+            <Button onClick={onCreate}>
               <Plus className="mr-2 h-4 w-4" />
-              Import Project
+              New Project
+            </Button>
+            <Button variant="outline" onClick={onImport}>
+              <Download className="mr-2 h-4 w-4" />
+              Import
             </Button>
             <Button variant="outline" size="icon" onClick={onCreateFolder} aria-label="Create new folder">
               <FolderPlus className="h-4 w-4" />
