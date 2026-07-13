@@ -96,6 +96,9 @@ interface HistoryViewerProps {
     projectId: string;
     onViewCommit: (commitHash: string) => void;
     canCompareDiffs: boolean;
+    /** Scroll to and flash this commit on arrival, as clicking a release does.
+     *  Set from ?history=<hash>, which is how the KiCad plugin links a commit. */
+    jumpToCommit?: string | null;
 }
 
 function formatDate(isoDate: string): string {
@@ -755,7 +758,7 @@ function PageNav({ page, pageCount, onPage, label, total }: {
     );
 }
 
-export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: HistoryViewerProps) {
+export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs, jumpToCommit }: HistoryViewerProps) {
     const [releases, setReleases] = useState<Release[]>([]);
     const [commits, setCommits] = useState<Commit[]>([]);
     const [loading, setLoading] = useState(true);
@@ -857,6 +860,21 @@ export function HistoryViewer({ projectId, onViewCommit, canCompareDiffs }: Hist
             flashAndScroll(target.full_hash);
         }
     }, [commits, flashAndScroll]);
+
+    // An external request (?history=<hash>, which is how the KiCad plugin links a
+    // commit) to jump to a commit. Handled exactly like clicking a release: page to it
+    // if it isn't on this page, scroll to it, flash it.
+    //
+    // Fires once per hash, not on every commits change: scrollToCommit depends on
+    // `commits`, so keying the effect on it would re-jump every time the list settles
+    // and yank the page out from under anyone who has since scrolled away.
+    const jumpedTo = useRef<string | null>(null);
+    useEffect(() => {
+        if (!jumpToCommit || commits.length === 0) return;
+        if (jumpedTo.current === jumpToCommit) return;
+        jumpedTo.current = jumpToCommit;
+        void scrollToCommit(jumpToCommit);
+    }, [jumpToCommit, commits, scrollToCommit]);
 
     useEffect(() => () => window.clearTimeout(highlightTimer.current), []);
     // Single-commit diff: opens the modal against the commit's parent and

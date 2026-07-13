@@ -269,7 +269,10 @@ class _Handler(BaseHTTPRequestHandler):
             url = self.state.prism.project_url(project_id)
             commit = body.get("commit")
             if commit:
-                url += "?commit=%s" % quote(str(commit))
+                # ?history= opens the History page and jumps to the commit, the way
+                # clicking a release does. (?commit= is a different thing: it opens the
+                # board *viewer* at that commit.)
+                url += "?history=%s" % quote(str(commit))
             webbrowser.open(url)
             self._send(200, {"ok": True})
             return

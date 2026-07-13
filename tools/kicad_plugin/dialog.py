@@ -9,6 +9,8 @@ button has to be drawn by hand).
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 
 import wx
 import wx.adv
@@ -99,12 +101,21 @@ class PrismDialog(wx.Dialog):
         tf.SetPointSize(th.FONT_TITLE)
         tf.SetWeight(wx.FONTWEIGHT_BOLD)
         self.title.SetFont(tf)
-        header.Add(self.title, 1, wx.ALIGN_CENTER_VERTICAL)
+        header.Add(self.title, 0, wx.ALIGN_CENTER_VERTICAL)
 
-        # Who you are, over the three things whose state you would otherwise go looking
-        # for. The user label reveals the git identity on hover, because the two are
-        # different people often enough to matter: you can be signed into Prism as one
-        # and committing as another without ever noticing.
+        # The branch sits with the project name, not with the path: it says WHICH
+        # version of this project you have open, which is a fact about the project, not
+        # about where it lives on disk.
+        self.branch = Badge(self, "", self.pal, tone="muted", size=th.FONT_BODY)
+        self.branch.SetToolTip("Current git branch")
+        self.branch.Hide()  # nothing to show until the agent tells us the branch
+        header.Add(self.branch, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_SM)
+
+        header.AddStretchSpacer()
+
+        # Who you are on the SERVER, over the three things whose state you would
+        # otherwise go looking for. The git identity is on the tooltip: it is a
+        # different identity, and the two can silently disagree.
         corner = wx.BoxSizer(wx.VERTICAL)
 
         self.user = wx.StaticText(self, label="", style=wx.ALIGN_RIGHT)
@@ -131,25 +142,17 @@ class PrismDialog(wx.Dialog):
 
         root.Add(header, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
 
-        # The path, then the branch under it as a tag. Two facts you want before doing
-        # anything else: where am I, and on what.
+        # The path, under the name. Clickable: seeing where a project lives and wanting
+        # to open that folder are the same impulse.
         self.status = wx.StaticText(self, label="Contacting agent...")
         self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
         sf = self.status.GetFont()
         sf.SetPointSize(th.FONT_SMALL)
         self.status.SetFont(sf)
-        root.Add(self.status, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
-
-        # A row of its own, so the tag reads as a tag rather than as a suffix on the
-        # path. Left-aligned under it, and always visible once we know the branch.
-        branch_row = wx.BoxSizer(wx.HORIZONTAL)
-        self.branch = Badge(self, "", self.pal, tone="muted")
-        self.branch.SetToolTip("Current git branch")
-        self.branch.Hide()  # nothing to show until the agent tells us the branch
-        branch_row.Add(self.branch, 0)
-
-        self.branch_row = branch_row
-        root.Add(branch_row, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
+        self.status.Bind(wx.EVT_LEFT_UP, self._on_open_folder)
+        self.status.Bind(wx.EVT_ENTER_WINDOW, self._on_path_enter)
+        self.status.Bind(wx.EVT_LEAVE_WINDOW, self._on_path_leave)
+        root.Add(self.status, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_XS)
         root.AddSpacer(th.SP_MD)
 
         # Scrolled body, a board with many edits makes a long list. The native
@@ -286,6 +289,32 @@ class PrismDialog(wx.Dialog):
         self._render()
         self._relayout()
 
+    def _on_path_enter(self, _e):
+        if self._project_dir():
+            self.status.SetForegroundColour(_c(self.pal["primary"]))
+            self.status.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+            self.status.Refresh()
+
+    def _on_path_leave(self, _e):
+        self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
+        self.status.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
+        self.status.Refresh()
+
+    def _project_dir(self):
+        return ((self.data or {}).get("project") or {}).get("path") or ""
+
+    def _on_open_folder(self, _e):
+        """Show the project folder in the system file manager."""
+        path = self._project_dir()
+        if not path or not os.path.isdir(path):
+            return
+        if sys.platform == "win32":
+            os.startfile(path)  # noqa: S606 - our own path, from the agent
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
+
     def _render_identity(self, git) -> None:
         """Who you are to Prism, with the git identity on hover.
 
@@ -304,10 +333,10 @@ class PrismDialog(wx.Dialog):
         elif git_name or git_email:
             git_who = git_name or git_email
 
-        # Show whoever we actually know about. Falling back to the git identity rather
-        # than "Guest" means the label says something true even when the backend has
-        # auth switched off, which is its default.
-        self.user.SetLabel(prism_name or git_name or "Guest")
+        # The label is the SERVER identity, and only that. The git identity is a
+        # different person and lives on the tooltip: showing both inline would suggest
+        # they're the same thing, and they are exactly the thing worth telling apart.
+        self.user.SetLabel(prism_name or "Guest")
 
         lines = [
             "Prism: %s" % (prism_name or "guest (this server has auth disabled)"),
@@ -595,11 +624,12 @@ class PrismDialog(wx.Dialog):
             self.open_btn.Enable(False)
             return
 
-        # The project's name IS the title, its path the subtitle, and the branch a tag
-        # under that. What the Project and Git cards used to spend rows saying.
+        # Name, then the branch beside it, then the path under both. What the Project
+        # and Git cards used to spend rows saying.
         self.title.SetLabel(project["name"])
         self.status.SetLabel(project["path"])
         self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
+        self.status.SetToolTip("Open this folder")
 
         branch = (git or {}).get("branch") or ""
         if branch:
@@ -608,7 +638,7 @@ class PrismDialog(wx.Dialog):
             self.branch.Show()
         else:
             self.branch.Hide()
-        self.branch_row.Layout()
+        self.Layout()
 
         self._render_git(git, prism)
         self._render_changes()

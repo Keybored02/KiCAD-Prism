@@ -233,11 +233,14 @@ class Badge(wx.Panel):
 
     RADIUS = 8
 
-    def __init__(self, parent, label, pal, tone="muted"):
+    def __init__(self, parent, label, pal, tone="muted", size=None):
         super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
         self.label = label
         self.pal = pal
         self.tone = tone  # muted | success | warning | destructive | primary
+        # Point size for the text. Defaults to the small type these pills normally use;
+        # the branch tag wants a touch more presence.
+        self.size = size or th.FONT_SMALL
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
 
         self._resize()
@@ -259,7 +262,7 @@ class Badge(wx.Panel):
         # the size we paint agree. Falls back to a single character for an empty label
         # (the branch tag before the agent has answered) so the pill keeps a sane height.
         f = self.GetFont()
-        f.SetPointSize(th.FONT_SMALL)
+        f.SetPointSize(self.size)
         f.SetWeight(wx.FONTWEIGHT_BOLD)
         self.SetFont(f)
         w, h = self.GetTextExtent(self.label or "x")
@@ -303,7 +306,7 @@ class Badge(wx.Panel):
         gc.DrawRoundedRectangle(0, 0, w, h, self.RADIUS)
 
         f = self.GetFont()
-        f.SetPointSize(th.FONT_SMALL)
+        f.SetPointSize(self.size)
         f.SetWeight(wx.FONTWEIGHT_BOLD)
         gc.SetFont(f, _c(text))
         tw, tht = gc.GetTextExtent(self.label)[:2]

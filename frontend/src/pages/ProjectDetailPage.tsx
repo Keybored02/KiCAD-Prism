@@ -134,6 +134,18 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         }
     }, [activeSection]);
 
+    // ?history=<hash> opens the History section and jumps to that commit, the same way
+    // clicking a release does. Distinct from ?commit=, which opens the *viewer* at a
+    // commit: "show me this in the log" and "show me this board" are different asks.
+    const historyCommit = searchParams.get('history');
+
+    useEffect(() => {
+        if (historyCommit) {
+            setActiveSection('history');
+            setHistoryLoaded(true);
+        }
+    }, [historyCommit]);
+
     const currentCommit = searchParams.get('commit');
 
     const handleViewCommit = (commitHash: string) => {
@@ -584,6 +596,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                         projectId={projectId}
                                         onViewCommit={handleViewCommit}
                                         canCompareDiffs={canMutateProject}
+                                        jumpToCommit={historyCommit}
                                     />
                                 </Suspense>
                             )}
