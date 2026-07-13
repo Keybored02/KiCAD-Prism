@@ -664,9 +664,138 @@ class PrismDialog(wx.Dialog):
             self.branch.Hide()
         self.Layout()
 
+        if not prism:
+            # Prism doesn't know this project. That is the moment to offer to add it,
+            # not to make the user go and find the web UI.
+            self._render_publish(project)
+
         self._render_git(git, prism)
         self._render_changes()
         self.open_btn.Enable(bool(prism))
+
+    # -- publishing ---------------------------------------------------------
+
+    def _render_publish(self, project):
+        """Offer to put this project in Prism.
+
+        Shown only when Prism does not already have it. The card says what will happen
+        before anything does, because publishing writes to the user's folder (a first
+        commit) and to the network (a push).
+        """
+        card = Card(self.scroll, "Not in Prism", self.pal)
+
+        try:
+            state = AgentClient().publish_status(project["path"])
+        except AgentUnavailable as exc:
+            card.body.Add(card.label(str(exc), tone="muted_fg"), 0)
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+            return
+
+        if state.get("has_origin"):
+            origin = state.get("origin") or ""
+            server = (self.data or {}).get("library", {}).get("server_url") or ""
+
+            # It already pushes somewhere, so publishing would repoint it away from the
+            # upstream it collaborates through. But WHICH somewhere changes the advice
+            # entirely, and telling a user their Prism remote is "another remote" would
+            # be a confusing lie.
+            if server and origin.startswith(server.rstrip("/")):
+                message = (
+                    "This project already pushes to Prism, but the server does not "
+                    "list it. It may have been deleted there."
+                )
+            else:
+                message = (
+                    "This project pushes to another remote. Import it in Prism instead."
+                )
+
+            card.body.Add(
+                card.label(message, tone="muted_fg", small=True),
+                0,
+                wx.BOTTOM,
+                th.SP_XS,
+            )
+            card.row("Remote", origin, mono=True)
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+            return
+
+        needs_commit = not state.get("is_repo") or not state.get("has_commits")
+        files = state.get("will_commit") or []
+
+        if needs_commit and not files:
+            card.body.Add(
+                card.label("There is nothing to commit here.", tone="muted_fg"),
+                0,
+            )
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+            return
+
+        summary = (
+            "Prism will host the git repository for this project."
+            if not needs_commit
+            else "This folder is not in git yet. Prism will set it up and host it."
+        )
+        card.body.Add(
+            card.label(summary, tone="muted_fg", small=True), 0, wx.BOTTOM, th.SP_XS
+        )
+
+        if needs_commit:
+            # Say exactly what a first commit takes. "Trust me" is not good enough for
+            # a list the user cannot see: this is how a private key ends up in a repo's
+            # history forever.
+            card.body.Add(
+                card.label(
+                    "%d file%s will be committed. Backups and caches are excluded."
+                    % (len(files), "" if len(files) == 1 else "s"),
+                    tone="muted_fg",
+                    small=True,
+                ),
+                0,
+                wx.BOTTOM,
+                th.SP_SM,
+            )
+
+        card.body.Add(
+            Button(
+                card,
+                "Add to Prism",
+                self.pal,
+                variant="primary",
+                on_click=lambda: self._publish(project, files if needs_commit else []),
+            ),
+            0,
+        )
+        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
+    def _publish(self, project, files):
+        """Confirm, then publish. Writes to the user's folder and to the network."""
+        if files:
+            preview = "\n".join("  " + f for f in files[:15])
+            if len(files) > 15:
+                preview += "\n  ... and %d more" % (len(files) - 15)
+            message = "Commit %d file%s and push %s to Prism?\n\n%s" % (
+                len(files),
+                "" if len(files) == 1 else "s",
+                project["name"],
+                preview,
+            )
+        else:
+            message = "Push %s to Prism?" % project["name"]
+
+        if (
+            wx.MessageBox(message, "Add to Prism", wx.YES_NO | wx.ICON_QUESTION)
+            != wx.YES
+        ):
+            return
+
+        try:
+            with wx.BusyCursor():
+                AgentClient().publish(project["path"], project["name"])
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        self._load()  # it is in Prism now; the whole dialog says something different
 
     def _render_git(self, git, prism):
         """What's left of the Git card once the branch moved to the header.

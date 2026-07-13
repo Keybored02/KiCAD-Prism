@@ -192,6 +192,31 @@ class AgentClient:
         """
         return self._call("POST", "/library", {"remove": remove})
 
+    # -- publishing --------------------------------------------------------
+
+    def publish_status(self, path):
+        """What publishing this folder would involve. Read-only.
+
+        Returns {is_repo, has_commits, has_origin, origin, will_commit}. `will_commit`
+        is the file list a first commit would take, so the user can see it BEFORE
+        agreeing to anything.
+        """
+        return self._call("GET", "/publish?path=" + urllib.parse.quote(path))
+
+    def publish(self, path, name, description=""):
+        """Publish this folder into a repo Prism hosts.
+
+        Slow: it commits, reserves a repo, and pushes a board over the network. Give it
+        the same room a diff gets rather than timing out mid-push, which would leave the
+        user unsure whether their work made it across.
+        """
+        return self._call(
+            "POST",
+            "/publish",
+            {"path": path, "name": name, "description": description},
+            timeout=DIFF_TIMEOUT,
+        )
+
     # -- settings ----------------------------------------------------------
 
     def settings(self):
