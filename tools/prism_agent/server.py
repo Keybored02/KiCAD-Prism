@@ -8,6 +8,8 @@ Endpoints
     GET  /project?path=<path>        -> {project, git, prism}   (the one the UI needs)
     GET  /changes?path=<path>        -> {changes: [...]}        uncommitted, item-level
     GET  /settings                   -> {settings, identity, protocol}
+    GET  /library                    -> is Prism KiCad's remote symbol provider, and
+                                        does it point at the server we're configured for?
     PUT  /settings {..}              -> updates and re-points the backend client
     POST /open-in-prism {project_id} -> opens the web app in the browser
     POST /quit                       -> stops the agent
@@ -34,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import autostart, discovery, protocol, settings as settings_store
+from . import autostart, discovery, protocol, remote_library, settings as settings_store
 from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
 from .worktree_diff import uncommitted_changes
@@ -215,6 +217,11 @@ class _Handler(BaseHTTPRequestHandler):
 
         if route.path == "/settings":
             self._send(200, self._settings_payload())
+            return
+
+        if route.path == "/library":
+            server = settings_store.load().server_url
+            self._send(200, remote_library.status(server))
             return
 
         self._send(404, {"error": "not found"})

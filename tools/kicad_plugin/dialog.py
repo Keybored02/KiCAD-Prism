@@ -49,6 +49,7 @@ class PrismDialog(wx.Dialog):
         self.board_path = board_path
         self.data = None
         self.changes = None  # None = couldn't fetch; [] = genuinely nothing
+        self.library = None  # symbol-provider link state; None = couldn't ask
         # Which files the user has expanded, by path. Kept across a re-render so
         # toggling one file doesn't collapse the others.
         self.expanded = set()
@@ -185,6 +186,14 @@ class PrismDialog(wx.Dialog):
             self._relayout()
             return
 
+        # Is Prism still KiCad's symbol provider, and pointed at the right server? Only
+        # surfaced when it ISN'T — a card confirming that things are fine is noise.
+        self.library = None
+        try:
+            self.library = client.library()
+        except AgentUnavailable:
+            pass  # an older agent has no /library; not worth blocking the dialog for
+
         # The diff parses every changed board, so it can take a second or two on
         # a big one. Show a wait cursor rather than appearing to freeze.
         self.changes = None
@@ -282,6 +291,75 @@ class PrismDialog(wx.Dialog):
                 continue
         self._load()
 
+    def _render_library_warning(self):
+        """Warn only when Prism ISN'T KiCad's symbol provider, or points elsewhere.
+
+        Silent when the link is healthy — a card saying "yes, still fine" every time you
+        open the dialog is noise. The two cases worth interrupting for:
+
+          not linked   Prism was never registered, so its parts aren't in the chooser.
+          stale        a Prism provider IS registered, but for a different server than
+                       the one you're now configured against. Silently the wrong catalog.
+        """
+        state = self.library
+        if not state or not state.get("configured"):
+            return
+        if state.get("linked"):
+            return  # healthy; say nothing
+
+        stale = state.get("stale")
+        card = Card(self.scroll, "Symbol library", self.pal)
+        card.row(
+            "Prism",
+            "Wrong server" if stale else "Not linked",
+            badge=True,
+            tone="warning",
+        )
+
+        if stale:
+            card.body.Add(
+                card.label(
+                    "KiCad is pointed at a different Prism server:\n"
+                    "    %s\n"
+                    "Your settings say:\n"
+                    "    %s"
+                    % (state.get("linked_url", ""), state.get("server_url", "")),
+                    tone="muted_fg",
+                    small=True,
+                ),
+                0,
+                wx.TOP | wx.BOTTOM,
+                th.SP_XS,
+            )
+        else:
+            card.body.Add(
+                card.label(
+                    "Prism isn't registered as KiCad's symbol provider, so its\n"
+                    "parts won't appear in the Symbol Chooser.",
+                    tone="muted_fg",
+                    small=True,
+                ),
+                0,
+                wx.TOP | wx.BOTTOM,
+                th.SP_XS,
+            )
+
+        card.body.Add(
+            card.label(
+                # The honest constraint. KiCad loads eeschema.json at startup and writes
+                # its own copy back on exit, so a write made now would be overwritten.
+                "KiCad has to be closed to change this — it overwrites its own\n"
+                "settings when it exits. Quit KiCad, then re-link from Settings.",
+                tone="muted_fg",
+                small=True,
+            ),
+            0,
+            wx.BOTTOM,
+            th.SP_XS,
+        )
+
+        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
     def _render_unavailable(self, message):
         """The agent isn't running. Offer to start it rather than just saying so."""
         self.status.SetLabel("Agent not running")
@@ -366,6 +444,8 @@ class PrismDialog(wx.Dialog):
 
         self.status.SetLabel(project["path"])
         self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
+
+        self._render_library_warning()
 
         card = Card(self.scroll, "Project", self.pal)
         card.row("Name", project["name"])

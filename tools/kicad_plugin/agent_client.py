@@ -166,6 +166,15 @@ class AgentClient:
     def open_in_prism(self, project_id):
         return self._call("POST", "/open-in-prism", {"project_id": project_id})
 
+    def library(self):
+        """Is Prism registered as KiCad's remote symbol provider?
+
+        Returns {configured, kicad_version, linked, stale, linked_url, server_url,
+        kicad_running}. `stale` means a Prism provider IS registered, but for a
+        different server than the one we're configured for.
+        """
+        return self._call("GET", "/library")
+
     # -- settings ----------------------------------------------------------
 
     def settings(self):
