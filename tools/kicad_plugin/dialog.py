@@ -152,7 +152,9 @@ class PrismDialog(wx.Dialog):
         self.status.Bind(wx.EVT_LEFT_UP, self._on_open_folder)
         self.status.Bind(wx.EVT_ENTER_WINDOW, self._on_path_enter)
         self.status.Bind(wx.EVT_LEAVE_WINDOW, self._on_path_leave)
-        root.Add(self.status, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_XS)
+        # SP_LG, the same gutter as the header, the cards and the buttons. Anything else
+        # and the path sits proud of every other element in the dialog.
+        root.Add(self.status, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
         root.AddSpacer(th.SP_MD)
 
         # Scrolled body, a board with many edits makes a long list. The native
