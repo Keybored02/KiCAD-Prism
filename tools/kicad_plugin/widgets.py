@@ -240,12 +240,24 @@ class Badge(wx.Panel):
         self.tone = tone  # muted | success | warning | destructive | primary
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
 
+        self._resize()
+
+    def set_label(self, label: str, tone: str | None = None) -> None:
+        """Relabel and resize. A badge built empty and filled in later (a branch name we
+        don't know until the agent answers) would otherwise keep its zero width."""
+        self.label = label
+        if tone is not None:
+            self.tone = tone
+        self._resize()
+        self.Refresh()
+
+    def _resize(self) -> None:
         dc = wx.ClientDC(self)
         f = self.GetFont()
         f.SetPointSize(th.FONT_SMALL)
         f.SetWeight(wx.FONTWEIGHT_BOLD)
         dc.SetFont(f)
-        w, h = dc.GetTextExtent(label)
+        w, h = dc.GetTextExtent(self.label)
         self.SetMinSize(wx.Size(w + 16, h + 6))
 
         self.Bind(wx.EVT_PAINT, self._on_paint)
@@ -380,21 +392,40 @@ def draw_kind_icon(
             gc.StrokePath(led)
         return
 
-    if kind == "project":
-        # lucide "folder": the tab-and-body outline.
-        folder = gc.CreatePath()
-        folder.MoveToPoint(*px(4, 20))
-        folder.AddLineToPoint(*px(2, 18))
-        folder.AddLineToPoint(*px(2, 5))
-        folder.AddLineToPoint(*px(4, 3))
-        folder.AddLineToPoint(*px(9, 3))
-        folder.AddLineToPoint(*px(11, 6))  # the tab
-        folder.AddLineToPoint(*px(20, 6))
-        folder.AddLineToPoint(*px(22, 8))
-        folder.AddLineToPoint(*px(22, 18))
-        folder.AddLineToPoint(*px(20, 20))
-        folder.CloseSubpath()
-        gc.StrokePath(folder)
+    if kind == "git":
+        # lucide "git-branch": a trunk, a branch, and the three nodes.
+        lines = gc.CreatePath()
+        lines.MoveToPoint(*px(6, 9))  # trunk, below the top node
+        lines.AddLineToPoint(*px(6, 15))
+        lines.MoveToPoint(*px(18, 9))  # branch curving down into the trunk
+        lines.AddLineToPoint(*px(18, 11))
+        lines.AddCurveToPoint(*px(18, 13), *px(16, 15), *px(12, 15))
+        lines.AddLineToPoint(*px(9, 15))
+        gc.StrokePath(lines)
+
+        for cx, cy in ((6, 6), (18, 6), (6, 18)):
+            node = gc.CreatePath()
+            node.AddCircle(*px(cx, cy), 3 * s)
+            gc.StrokePath(node)
+        return
+
+    if kind == "library":
+        # lucide "library": three books on a shelf, the middle one tilted.
+        books = gc.CreatePath()
+        books.MoveToPoint(*px(4, 4))  # upright
+        books.AddLineToPoint(*px(4, 20))
+        books.MoveToPoint(*px(8, 4))
+        books.AddLineToPoint(*px(8, 20))
+        books.MoveToPoint(*px(12, 4))  # tilted
+        books.AddLineToPoint(*px(16, 20))
+        books.MoveToPoint(*px(16, 3))
+        books.AddLineToPoint(*px(20, 19))
+        gc.StrokePath(books)
+
+        shelf = gc.CreatePath()
+        shelf.MoveToPoint(*px(2, 21))
+        shelf.AddLineToPoint(*px(22, 21))
+        gc.StrokePath(shelf)
         return
 
     # anything else, a plain document outline

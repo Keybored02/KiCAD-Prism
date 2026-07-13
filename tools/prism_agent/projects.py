@@ -49,6 +49,10 @@ class GitStatus:
     last_commit: str = ""
     last_commit_hash: str = ""
     remote_url: str = ""
+    # Who git will attribute a commit to here. Not the same person as the Prism user,
+    # and when they disagree that is worth being able to see.
+    user_name: str = ""
+    user_email: str = ""
 
     @property
     def dirty(self) -> bool:
@@ -146,6 +150,14 @@ def git_status(repo_root: str | Path) -> GitStatus:
     try:
         st.last_commit_hash = _run_git(repo, "log", "-1", "--format=%h")
         st.last_commit = _run_git(repo, "log", "-1", "--format=%s")
+    except Exception:
+        pass
+
+    # Who a commit from here would be attributed to. Resolved the way git itself does
+    # (repo config over global), so it is what would actually be written.
+    try:
+        st.user_name = _run_git(repo, "config", "user.name")
+        st.user_email = _run_git(repo, "config", "user.email")
     except Exception:
         pass
 

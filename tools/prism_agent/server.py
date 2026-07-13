@@ -34,7 +34,7 @@ import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from . import autostart, discovery, protocol, remote_library, settings as settings_store
 from .prism_client import PrismClient, PrismConfig
@@ -263,7 +263,14 @@ class _Handler(BaseHTTPRequestHandler):
             if not project_id:
                 self._send(400, {"error": "project_id is required"})
                 return
-            webbrowser.open(self.state.prism.project_url(project_id))
+            # The URL is built here, not in the plugin: project_url is the one place
+            # that knows the web app's route, and hand-rolling it elsewhere is how it
+            # drifted to the wrong (pluralised) path before.
+            url = self.state.prism.project_url(project_id)
+            commit = body.get("commit")
+            if commit:
+                url += "?commit=%s" % quote(str(commit))
+            webbrowser.open(url)
             self._send(200, {"ok": True})
             return
 
@@ -415,6 +422,13 @@ class _Handler(BaseHTTPRequestHandler):
             "project": project.to_dict(),
             "git": git.to_dict() if git else None,
             "prism": prism,
+            # Everything else the header needs, in the one call the dialog already
+            # makes. identity() is deliberately NOT cached the way the plugin version
+            # is: who you are can change under a running agent (you sign in, a token
+            # expires), and a stale name in the header would be worse than one more
+            # call to a backend this handler is already talking to.
+            "user": self.state.prism.identity().get("user"),
+            "library": remote_library.status(settings_store.load().server_url),
         }
 
     def _changes_payload(self, path: str) -> dict:

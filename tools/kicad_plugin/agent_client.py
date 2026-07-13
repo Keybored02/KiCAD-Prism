@@ -163,8 +163,16 @@ class AgentClient:
             timeout=DIFF_TIMEOUT,
         )
 
-    def open_in_prism(self, project_id):
-        return self._call("POST", "/open-in-prism", {"project_id": project_id})
+    def open_in_prism(self, project_id, commit=None):
+        """Open the project in the web app, optionally at a specific commit.
+
+        The agent builds the URL, because it owns the one function that knows the web
+        app's route. Rebuilding it here is how it drifted to the wrong path before.
+        """
+        body = {"project_id": project_id}
+        if commit:
+            body["commit"] = commit
+        return self._call("POST", "/open-in-prism", body)
 
     def library(self):
         """Is Prism registered as KiCad's remote symbol provider?

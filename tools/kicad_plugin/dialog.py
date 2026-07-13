@@ -11,13 +11,22 @@ from __future__ import annotations
 import os
 
 import wx
+import wx.adv
 
 from . import agent_launcher
 from . import prism_theme as th
 from . import version
 from .agent_client import AgentClient, AgentUnavailable
 from .settings_dialog import SettingsDialog
-from .widgets import Button, Card, ChangeRow, Disclosure, ScrollThumb, StatusIcon
+from .widgets import (
+    Badge,
+    Button,
+    Card,
+    ChangeRow,
+    Disclosure,
+    ScrollThumb,
+    StatusIcon,
+)
 
 try:
     from . import crossprobe
@@ -92,23 +101,55 @@ class PrismDialog(wx.Dialog):
         self.title.SetFont(tf)
         header.Add(self.title, 1, wx.ALIGN_CENTER_VERTICAL)
 
+        # Who you are, over the three things whose state you would otherwise go looking
+        # for. The user label reveals the git identity on hover, because the two are
+        # different people often enough to matter: you can be signed into Prism as one
+        # and committing as another without ever noticing.
+        corner = wx.BoxSizer(wx.VERTICAL)
+
+        self.user = wx.StaticText(self, label="", style=wx.ALIGN_RIGHT)
+        self.user.SetForegroundColour(_c(self.pal["muted_fg"]))
+        uf = self.user.GetFont()
+        uf.SetPointSize(th.FONT_SMALL)
+        self.user.SetFont(uf)
+        corner.Add(self.user, 0, wx.ALIGN_RIGHT | wx.BOTTOM, th.SP_XS)
+
+        icons = wx.BoxSizer(wx.HORIZONTAL)
         self.server_icon = StatusIcon(
             self, "server", self.pal, tooltip="Contacting the agent"
         )
-        header.Add(self.server_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
-        self.project_icon = StatusIcon(
-            self, "project", self.pal, tooltip="No project yet"
+        icons.Add(self.server_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        self.git_icon = StatusIcon(self, "git", self.pal, tooltip="No repository yet")
+        icons.Add(self.git_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        self.library_icon = StatusIcon(
+            self, "library", self.pal, tooltip="Symbol library"
         )
-        header.Add(self.project_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        icons.Add(self.library_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        corner.Add(icons, 0, wx.ALIGN_RIGHT)
+
+        header.Add(corner, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_SM)
 
         root.Add(header, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
 
+        # The path, then the branch under it as a tag. Two facts you want before doing
+        # anything else: where am I, and on what.
         self.status = wx.StaticText(self, label="Contacting agent...")
         self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
         sf = self.status.GetFont()
         sf.SetPointSize(th.FONT_SMALL)
         self.status.SetFont(sf)
         root.Add(self.status, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
+
+        # A row of its own, so the tag reads as a tag rather than as a suffix on the
+        # path. Left-aligned under it, and always visible once we know the branch.
+        branch_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.branch = Badge(self, "", self.pal, tone="muted")
+        self.branch.SetToolTip("Current git branch")
+        self.branch.Hide()  # nothing to show until the agent tells us the branch
+        branch_row.Add(self.branch, 0)
+
+        self.branch_row = branch_row
+        root.Add(branch_row, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
         root.AddSpacer(th.SP_MD)
 
         # Scrolled body, a board with many edits makes a long list. The native
@@ -215,10 +256,13 @@ class PrismDialog(wx.Dialog):
         except AgentUnavailable as exc:
             self.data = None
             self.changes = None
-            # No agent means we know nothing about either. Grey, not amber: amber says
-            # "reachable but unhappy", and we cannot even claim that much.
+            # No agent means we know nothing about any of it. Grey, not amber: amber
+            # says "reachable but unhappy", and we cannot even claim that much.
             self.server_icon.set("muted_fg", "The Prism agent isn't running")
-            self.project_icon.set("muted_fg", "Unknown")
+            self.git_icon.set("muted_fg", "Unknown")
+            self.library_icon.set("muted_fg", "Unknown")
+            self.user.SetLabel("")
+            self.branch.Hide()
             self._render_unavailable(str(exc))
             self._relayout()
             return
@@ -241,6 +285,69 @@ class PrismDialog(wx.Dialog):
         self.content.Clear(delete_windows=True)
         self._render()
         self._relayout()
+
+    def _render_identity(self, git) -> None:
+        """Who you are to Prism, with the git identity on hover.
+
+        These are two different identities and they can disagree. Being signed into
+        Prism as one person while git attributes your commits to another is easy to do
+        and impossible to notice, so the tooltip always shows both.
+        """
+        user = (self.data or {}).get("user") or {}
+        name = user.get("email") or user.get("name") or ""
+
+        git_name = (git or {}).get("user_name") or ""
+        git_email = (git or {}).get("user_email") or ""
+
+        if name:
+            self.user.SetLabel(name)
+        else:
+            # No account is a normal state: auth is off by default on the backend.
+            self.user.SetLabel("Guest")
+
+        lines = ["Prism: %s" % (name or "not signed in")]
+        if git_name or git_email:
+            lines.append("git:   %s <%s>" % (git_name or "?", git_email or "?"))
+        else:
+            lines.append("git:   no user.name configured")
+        self.user.SetToolTip("\n".join(lines))
+
+    def _set_git_icon(self, git, prism) -> None:
+        """The repository, and whether Prism knows about it.
+
+        One icon, because the two facts are the same question in practice: is this
+        project under version control that Prism can see?
+        """
+        if not git or not git.get("branch"):
+            self.git_icon.set("muted_fg", "Not a git repository")
+            return
+
+        if prism:
+            self.git_icon.set("success", "On %s, registered in Prism" % git["branch"])
+        else:
+            self.git_icon.set(
+                "warning", "On %s, but not registered in Prism" % git["branch"]
+            )
+
+    def _set_library_icon(self, library) -> None:
+        """Is the Prism remote library linked, and to THIS server?
+
+        The only question that matters is whether Prism is registered as KiCad's symbol
+        provider and pointing at the server we're configured for. Whether a KiCad config
+        directory exists is our problem, not the user's.
+        """
+        library = library or {}
+
+        if library.get("linked"):
+            self.library_icon.set("success", "Prism library linked")
+        elif library.get("stale"):
+            self.library_icon.set(
+                "warning",
+                "Prism library is linked to another server: %s"
+                % library.get("linked_url", ""),
+            )
+        else:
+            self.library_icon.set("muted_fg", "Prism library not linked")
 
     def _set_server_icon(self, reachable: bool) -> None:
         """Green when Prism is reachable, amber when it is not.
@@ -471,6 +578,10 @@ class PrismDialog(wx.Dialog):
         git = (self.data or {}).get("git")
         prism = (self.data or {}).get("prism")
 
+        self._render_identity(git)
+        self._set_git_icon(git, prism)
+        self._set_library_icon((self.data or {}).get("library"))
+
         if self.verdict == "update":
             self._render_update_available()
 
@@ -478,37 +589,104 @@ class PrismDialog(wx.Dialog):
             self.title.SetLabel("Prism")
             self.status.SetLabel("This board isn't inside a recognised KiCad project")
             self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
-            self.project_icon.set("muted_fg", "No KiCad project here")
             self.open_btn.Enable(False)
             return
 
-        # The project's name IS the title. Its path is the subtitle. That's what the
-        # Project card used to spend two rows saying.
+        # The project's name IS the title, its path the subtitle, and the branch a tag
+        # under that. What the Project and Git cards used to spend rows saying.
         self.title.SetLabel(project["name"])
         self.status.SetLabel(project["path"])
         self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
-        self.project_icon.set(
-            "success" if prism else "muted_fg",
-            "Registered in Prism" if prism else "Not registered in Prism",
-        )
 
-        g = Card(self.scroll, "Git", self.pal)
-        if git and git.get("branch"):
-            g.row("Branch", git["branch"], mono=True)
-            if git.get("ahead") or git.get("behind"):
-                g.row(
-                    "Ahead / behind",
-                    "%d / %d" % (git["ahead"], git["behind"]),
-                    mono=True,
-                )
-            if git.get("last_commit_hash"):
-                g.row("Last commit", git["last_commit_hash"], mono=True)
+        branch = (git or {}).get("branch") or ""
+        if branch:
+            self.branch.set_label(branch)
+            self.branch.SetToolTip("Current git branch")
+            self.branch.Show()
         else:
-            g.row("Status", "Not a git repository", tone="muted_fg")
-        self.content.Add(g, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+            self.branch.Hide()
+        self.branch_row.Layout()
 
+        self._render_git(git, prism)
         self._render_changes()
         self.open_btn.Enable(bool(prism))
+
+    def _render_git(self, git, prism):
+        """What's left of the Git card once the branch moved to the header.
+
+        The last commit is a link: seeing which commit you're on and wanting to look at
+        it are the same impulse, and the web UI can already show it.
+        """
+        if not git or not git.get("branch"):
+            card = Card(self.scroll, "Git", self.pal)
+            card.row("Status", "Not a git repository", tone="muted_fg")
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+            return
+
+        card = Card(self.scroll, "Git", self.pal)
+
+        if git.get("ahead") or git.get("behind"):
+            card.row(
+                "Ahead / behind",
+                "%d / %d" % (git["ahead"], git["behind"]),
+                mono=True,
+            )
+
+        commit_hash = git.get("last_commit_hash") or ""
+        if commit_hash:
+            self._add_commit_row(card, commit_hash, git.get("last_commit") or "", prism)
+
+        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
+    def _add_commit_row(self, card, commit_hash, subject, prism):
+        """The last commit: SHA in a tag, subject beside it, the pair a link into Prism.
+
+        Only a link when Prism actually knows the project. A link that lands on a 404 is
+        worse than plain text.
+        """
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(card.label("Last commit", tone="muted_fg"), 0, wx.ALIGN_CENTER_VERTICAL)
+        row.AddStretchSpacer()
+
+        sha = Badge(card, commit_hash, self.pal, tone="muted")
+        row.Add(sha, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        if subject:
+            if prism:
+                text = wx.adv.HyperlinkCtrl(card, label=subject, url="")
+                text.SetNormalColour(_c(self.pal["foreground"]))
+                text.SetHoverColour(_c(self.pal["primary"]))
+                text.SetVisitedColour(_c(self.pal["foreground"]))
+                text.SetBackgroundColour(_c(self.pal["card"]))
+                text.SetToolTip("Open this commit in Prism")
+                text.Bind(
+                    wx.adv.EVT_HYPERLINK,
+                    lambda _e, h=commit_hash, p=prism: self._open_commit(p, h),
+                )
+                # The tag is part of the link: clicking the SHA is the obvious gesture,
+                # and having it do nothing would be a small betrayal.
+                sha.SetToolTip("Open this commit in Prism")
+                sha.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+                sha.Bind(
+                    wx.EVT_LEFT_UP,
+                    lambda _e, h=commit_hash, p=prism: self._open_commit(p, h),
+                )
+            else:
+                text = card.label(subject)
+
+            f = text.GetFont()
+            f.SetPointSize(th.FONT_SMALL)
+            text.SetFont(f)
+            row.Add(text, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_SM)
+
+        card.body.Add(row, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
+
+    def _open_commit(self, prism, commit_hash):
+        """Open this commit on the project's page in Prism."""
+        try:
+            AgentClient().open_in_prism(prism.get("id"), commit=commit_hash)
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
 
     # -- uncommitted changes -----------------------------------------------
 
