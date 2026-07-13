@@ -295,5 +295,158 @@ def test_pull_mid_operation_is_refused(repo, clone):
         checkout.pull(clone)
 
 
+# -- stashing: the way out of the dirty guard ------------------------------
+
+
+def test_stashing_lets_a_blocked_checkout_proceed(repo):
+    """Refusing was correct but a dead end: the user was told to commit or stash, then
+    had to leave and do it by hand. This is the way forward."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb work in progress)")
+
+    result = checkout.checkout(repo, repo.first, stash_message="my track routing")
+
+    assert result["sha"] == repo.first
+    assert result["stashed"]["count"] == 1
+    # The tree really moved.
+    assert (repo / "board.kicad_pcb").read_text() == "(kicad_pcb v1)"
+
+
+def test_the_stashed_work_is_recoverable(repo):
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb work in progress)")
+    checkout.checkout(repo, repo.first, stash_message="my track routing")
+
+    # Back to where we were, then bring it back.
+    checkout.checkout(repo, "main")
+    checkout.restore(repo)
+
+    assert (repo / "board.kicad_pcb").read_text() == "(kicad_pcb work in progress)"
+
+
+def test_the_message_is_what_makes_a_stash_findable(repo):
+    """Git's default is "WIP on main: a1b2c3d", which says nothing about what is in it.
+    After two of those nobody knows which board they were editing."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb work in progress)")
+    checkout.checkout(repo, repo.first, stash_message="rerouting the power rail")
+
+    entries = checkout.stashes(repo)
+    assert len(entries) == 1
+    assert entries[0]["message"] == "rerouting the power rail"
+    assert entries[0]["ours"] is True
+
+
+def test_an_empty_message_still_gets_something_identifiable(repo):
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb wip)")
+    checkout.checkout(repo, repo.first, stash_message="")
+
+    assert checkout.stashes(repo)[0]["message"] == "Uncommitted changes"
+
+
+def test_without_a_message_uncommitted_changes_are_still_refused(repo):
+    """Stashing moves the user's work. That needs an explicit yes, not a default."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb work in progress)")
+
+    with pytest.raises(CheckoutError, match="uncommitted"):
+        checkout.checkout(repo, repo.first)  # no stash_message at all
+
+    assert (repo / "board.kicad_pcb").read_text() == "(kicad_pcb work in progress)"
+
+
+def test_untracked_files_are_not_swept_into_the_stash(repo):
+    """They survive a checkout on their own, so taking them would be taking something we
+    did not need to take, and the user would find them gone for no visible reason."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb wip)")
+    (repo / "gerbers.zip").write_text("output")
+
+    checkout.checkout(repo, repo.first, stash_message="wip")
+
+    assert (repo / "gerbers.zip").is_file()
+
+
+def test_stashing_a_clean_tree_is_refused(repo):
+    """An empty stash is a trap: it looks like your work is safe somewhere."""
+    with pytest.raises(CheckoutError, match="no uncommitted changes"):
+        checkout.stash(repo, "nothing here")
+
+
+def test_a_stash_cannot_rescue_a_mid_operation_checkout(repo):
+    """git would refuse anyway, and stashing on top of a half-finished merge turns a
+    recoverable mess into an unrecoverable one."""
+    git("checkout", "-b", "side", repo.first, cwd=repo)
+    commit(repo, "board.kicad_pcb", "(kicad_pcb side)", "side edit")
+    git("checkout", "main", cwd=repo)
+    git("merge", "side", cwd=repo, check=False)  # leaves a conflict
+
+    with pytest.raises(CheckoutError):
+        checkout.checkout(repo, repo.first, stash_message="rescue me")
+
+
+def test_restoring_onto_a_dirty_tree_is_refused(repo):
+    """A conflict between a stash and a board is exactly what we cannot merge our way
+    out of."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb first edit)")
+    checkout.stash(repo, "first")
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb second edit)")
+
+    with pytest.raises(CheckoutError, match="uncommitted"):
+        checkout.restore(repo)
+
+    # Both are intact: the stash is untouched and so is the tree.
+    assert (repo / "board.kicad_pcb").read_text() == "(kicad_pcb second edit)"
+    assert len(checkout.stashes(repo)) == 1
+
+
+def test_a_stash_made_by_hand_is_still_listed(repo):
+    """It is the user's work. Hiding it from a list titled "your stashed changes" would
+    be a good way to let them destroy it."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb by hand)")
+    git("stash", "push", "-m", "did this in a terminal", cwd=repo)
+
+    entries = checkout.stashes(repo)
+    assert len(entries) == 1
+    assert entries[0]["message"] == "did this in a terminal"
+    assert entries[0]["ours"] is False
+
+
+# -- stashing, and pulling -------------------------------------------------
+
+
+def test_stashing_lets_a_blocked_pull_proceed(repo, clone):
+    commit(repo, "board.kicad_pcb", "(kicad_pcb v3)", "third")
+    (clone / "board.kicad_pcb").write_text("(kicad_pcb my wip)")
+
+    result = checkout.pull(clone, stash_message="my wip")
+
+    assert result["changed"] is True
+    assert result["stashed"]["count"] == 1
+    assert (clone / "board.kicad_pcb").read_text() == "(kicad_pcb v3)"
+
+
+def test_a_stash_is_put_back_when_the_pull_does_not_happen(repo, clone):
+    """The trap. If we stash and then the pull turns out to be a no-op, the user's work
+    has left their tree with nothing to show for it. That is their work going missing."""
+    (clone / "board.kicad_pcb").write_text("(kicad_pcb my wip)")
+
+    result = checkout.pull(clone, stash_message="my wip")  # nothing to pull
+
+    assert result["changed"] is False
+    assert result["stashed"] is None
+    # Straight back where it was.
+    assert (clone / "board.kicad_pcb").read_text() == "(kicad_pcb my wip)"
+    assert checkout.stashes(clone) == []
+
+
+def test_a_stash_is_put_back_when_the_pull_is_refused_for_divergence(repo, clone):
+    commit(repo, "board.kicad_pcb", "(kicad_pcb theirs)", "their edit")
+    commit(clone, "board.kicad_pcb", "(kicad_pcb mine)", "my edit")
+    (clone / "board.kicad_pcb").write_text("(kicad_pcb my wip)")
+
+    with pytest.raises(CheckoutError, match="cannot be merged automatically"):
+        checkout.pull(clone, stash_message="my wip")
+
+    # Diverged is still refused, AND the work is back in the tree, not stranded.
+    assert (clone / "board.kicad_pcb").read_text() == "(kicad_pcb my wip)"
+    assert checkout.stashes(clone) == []
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

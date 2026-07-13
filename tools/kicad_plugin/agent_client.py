@@ -230,19 +230,37 @@ class AgentClient:
             url += "&ref=" + urllib.parse.quote(ref)
         return self._call("GET", url)
 
-    def checkout(self, path, ref):
+    def checkout(self, path, ref, stash_message=None):
         """Move the working tree to a commit, branch or tag.
 
         Refuses anything that would destroy uncommitted work. The agent re-checks that
         immediately before acting, so a stale "it was clean" from a moment ago cannot
         lose a board the user just saved.
-        """
-        return self._call("POST", "/checkout", {"path": path, "ref": ref})
 
-    def pull(self, path):
+        `stash_message` (even empty) means "put my changes aside first". Omitting it
+        entirely means uncommitted changes are still a refusal: moving someone's work
+        needs an explicit yes, not a default.
+        """
+        body = {"path": path, "ref": ref}
+        if stash_message is not None:
+            body["stash_message"] = stash_message
+        return self._call("POST", "/checkout", body)
+
+    def pull(self, path, stash_message=None):
         """Fetch and fast-forward. Never a merge: a KiCad board cannot be merged
         textually, and git would happily produce one neither author drew."""
-        return self._call("POST", "/pull", {"path": path}, timeout=DIFF_TIMEOUT)
+        body = {"path": path}
+        if stash_message is not None:
+            body["stash_message"] = stash_message
+        return self._call("POST", "/pull", body, timeout=DIFF_TIMEOUT)
+
+    def stashes(self, path):
+        """What is currently stashed, newest first."""
+        return self._call("GET", "/stash?path=" + urllib.parse.quote(path))
+
+    def restore_stash(self, path, ref="stash@{0}"):
+        """Bring a stash back into the working tree."""
+        return self._call("POST", "/stash", {"path": path, "restore": True, "ref": ref})
 
     # -- settings ----------------------------------------------------------
 

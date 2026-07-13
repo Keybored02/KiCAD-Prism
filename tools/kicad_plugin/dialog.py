@@ -826,6 +826,84 @@ class PrismDialog(wx.Dialog):
 
         self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
+        self._render_stashes()
+
+    def _render_stashes(self):
+        """Work the user set aside, and a way to get it back.
+
+        Only shown when there is some. A stash the user cannot see is a stash they will
+        never restore, and "where did my changes go" is the worst thing this feature
+        could leave them asking.
+        """
+        project = (self.data or {}).get("project")
+        if not project:
+            return
+
+        try:
+            entries = (AgentClient().stashes(project["path"]) or {}).get(
+                "stashes"
+            ) or []
+        except AgentUnavailable:
+            return  # not worth an error of its own; the rest of the dialog still works
+
+        if not entries:
+            return
+
+        card = Card(self.scroll, "Set aside", self.pal)
+        for entry in entries[:5]:
+            row = wx.BoxSizer(wx.HORIZONTAL)
+            label = card.label(entry["message"] or "(no message)")
+            row.Add(label, 1, wx.ALIGN_CENTER_VERTICAL)
+            row.Add(
+                card.label(entry["when"], tone="muted_fg", small=True),
+                0,
+                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+                th.SP_SM,
+            )
+            row.Add(
+                Button(
+                    card,
+                    "Restore",
+                    self.pal,
+                    variant="ghost",
+                    on_click=lambda e=entry: self._restore_stash(e),
+                ),
+                0,
+                wx.ALIGN_CENTER_VERTICAL,
+            )
+            card.body.Add(row, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS)
+
+        if len(entries) > 5:
+            card.body.Add(
+                card.label(
+                    "and %d more" % (len(entries) - 5), tone="muted_fg", small=True
+                ),
+                0,
+            )
+
+        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
+    def _restore_stash(self, entry):
+        project = (self.data or {}).get("project")
+        if not project:
+            return
+        try:
+            with wx.BusyCursor():
+                AgentClient().restore_stash(project["path"], entry["ref"])
+        except AgentUnavailable as exc:
+            # The agent refuses rather than forcing a conflict, and it says why. A stash
+            # that fails to apply is still in the list, so nothing is lost.
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        wx.MessageBox(
+            "Restored “%s”.\n\nReopen the board in KiCad to see it."
+            % (entry["message"] or "your changes"),
+            "Prism",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+        self._load()
+
     def _add_pull_row(self, card, git):
         """Offer to pull, but only when it would actually work.
 
@@ -835,21 +913,6 @@ class PrismDialog(wx.Dialog):
         """
         behind = git.get("behind") or 0
         ahead = git.get("ahead") or 0
-
-        if git.get("dirty"):
-            # A pull that touches a file you have edited either refuses or overwrites.
-            # Say so before offering anything.
-            card.body.Add(
-                card.label(
-                    "Commit or stash your changes before pulling.",
-                    tone="muted_fg",
-                    small=True,
-                ),
-                0,
-                wx.TOP,
-                th.SP_XS,
-            )
-            return
 
         if ahead and behind:
             # Diverged. A KiCad board cannot be merged textually, so this is not
@@ -888,22 +951,66 @@ class PrismDialog(wx.Dialog):
         project = (self.data or {}).get("project")
         if not project:
             return
+
+        git = (self.data or {}).get("git") or {}
+
+        # Uncommitted work blocks a pull. Rather than refusing and leaving the user to go
+        # and fix it by hand, offer to put it aside, and ask what to call it: a stash you
+        # cannot identify is a stash you will never restore.
+        stash_message = None
+        if git.get("dirty"):
+            stash_message = self._ask_stash_message(
+                "You have uncommitted changes, so the pull can't run.\n\n"
+                "Prism can set them aside and bring them back afterwards."
+            )
+            if stash_message is None:
+                return  # they said no
+
         try:
             with wx.BusyCursor():
-                result = AgentClient().pull(project["path"])
+                result = AgentClient().pull(project["path"], stash_message)
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
 
+        note = result.get("message", "Done.")
+        stashed = result.get("stashed")
+        if stashed:
+            # Tell them where their work went, and that getting it back is one click.
+            # Work that vanishes with no explanation is work the user thinks they lost.
+            note += (
+                "\n\nYour changes are stashed as “%s”. Use Restore to "
+                "bring them back." % stashed["message"]
+            )
+
         # The board on disk has changed under KiCad, which will not know. Saying so is
         # the difference between a confusing stale view and an understood one.
         wx.MessageBox(
-            "%s\n\nReopen the board in KiCad to see the updated version."
-            % result.get("message", "Done."),
+            "%s\n\nReopen the board in KiCad to see the updated version." % note,
             "Prism",
             wx.OK | wx.ICON_INFORMATION,
         )
         self._load()
+
+    def _ask_stash_message(self, why):
+        """Confirm a stash, and get a name for it. None if the user declines.
+
+        The message is the point. Git's own default is "WIP on main: a1b2c3d", which says
+        nothing about what is in it, and after two of them nobody knows which board they
+        were half way through editing.
+        """
+        dlg = wx.TextEntryDialog(
+            self,
+            why + "\n\nWhat were you working on?",
+            "Set changes aside",
+            value="",
+        )
+        try:
+            if dlg.ShowModal() != wx.ID_OK:
+                return None
+            return dlg.GetValue().strip()
+        finally:
+            dlg.Destroy()
 
     def _add_commit_row(self, card, commit_hash, subject, prism):
         """The last commit: SHA in a tag, subject beside it, the pair a link into Prism.

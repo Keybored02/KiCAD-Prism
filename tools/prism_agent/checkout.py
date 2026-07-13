@@ -33,6 +33,10 @@ log = logging.getLogger(__name__)
 
 TIMEOUT = 120
 
+# Marks a stash as one Prism made, so it is recognisable in `git stash list` and in a
+# terminal, not just in our own UI. The user's own message follows it.
+STASH_PREFIX = "prism: "
+
 
 class CheckoutError(Exception):
     """Refused, with a reason the user can act on."""
@@ -258,11 +262,120 @@ def status(repo: str | Path, ref: str = "") -> dict:
     return result
 
 
+# -- stashing --------------------------------------------------------------
+
+
+def stash(repo: str | Path, message: str = "") -> dict:
+    """Put uncommitted work aside so the tree can move, without losing it.
+
+    This is the way OUT of the dirty guard. Refusing to check out was correct but a dead
+    end: the user is told to commit or stash, and then has to leave and do it by hand.
+
+    Two things make a stash safe rather than a hiding place:
+
+      * The MESSAGE. A stash you cannot identify is a stash you will never restore. Git's
+        default ("WIP on main: a1b2c3d") says nothing about what is in it, and after two
+        of them nobody knows which board they were editing. So the caller supplies one,
+        and we prefix it so Prism's own stashes are recognisable in `git stash list`.
+
+      * `--include-untracked` is NOT used. Untracked files survive a checkout on their
+        own, so sweeping them into a stash would be taking something we did not need to
+        take, and the user would find their files gone with no obvious reason why.
+    """
+    path = Path(repo)
+
+    dirt = dirty_files(path)
+    if not dirt["blocking"]:
+        raise CheckoutError("There are no uncommitted changes to stash.")
+
+    label = (message or "").strip() or "Uncommitted changes"
+    _git(path, "stash", "push", "-m", f"{STASH_PREFIX}{label}")
+
+    return {
+        "ok": True,
+        "message": label,
+        "stashed": dirt["blocking"],
+        "count": len(dirt["blocking"]),
+    }
+
+
+def stashes(repo: str | Path) -> list[dict]:
+    """The stashes on this repo, newest first.
+
+    Includes everyone's, not just ours: a stash made by hand in a terminal is still the
+    user's work, and hiding it from a list titled "your stashed changes" would be a good
+    way to let them destroy it.
+    """
+    path = Path(repo)
+    if not (path / ".git").exists():
+        return []
+
+    out = _git(path, "stash", "list", "--format=%gd%x00%s%x00%cr", check=False)
+    result = []
+    for line in out.splitlines():
+        parts = line.split("\0")
+        if len(parts) < 3:
+            continue
+        ref, subject, when = parts[0], parts[1], parts[2]
+
+        # git decorates every stash subject with "On <branch>: " (or "WIP on <branch>: "
+        # for one it named itself). That is git's bookkeeping, not what the user typed,
+        # and repeating it in a list that already shows the branch is just noise.
+        for decoration in ("WIP on ", "On "):
+            if subject.startswith(decoration):
+                _, _, rest = subject.partition(": ")
+                subject = rest or subject
+                break
+
+        # Strip our own prefix too: it exists to identify the stash in git's tooling, not
+        # to be read back to the user who typed the message.
+        ours = subject.startswith(STASH_PREFIX)
+        if ours:
+            subject = subject[len(STASH_PREFIX) :]
+
+        result.append({"ref": ref, "message": subject, "when": when, "ours": ours})
+    return result
+
+
+def restore(repo: str | Path, ref: str = "stash@{0}") -> dict:
+    """Put a stash back.
+
+    `pop`, not `apply`: leaving the stash behind after restoring it is how you end up
+    with a list of near-identical entries and no idea which is live. If it conflicts, git
+    keeps the stash, which is the behaviour we want, so a failure here loses nothing.
+    """
+    path = Path(repo)
+
+    dirt = dirty_files(path)
+    if dirt["blocking"]:
+        # Restoring onto a dirty tree can conflict, and resolving a conflict between a
+        # stash and a board is exactly the situation we cannot merge our way out of.
+        raise CheckoutError(
+            f"{len(dirt['blocking'])} file(s) have uncommitted changes. "
+            "Commit or stash them before restoring another stash."
+        )
+
+    try:
+        _git(path, "stash", "pop", ref)
+    except CheckoutError as exc:
+        # The stash is still there: git does not drop one it could not apply cleanly.
+        raise CheckoutError(
+            f"Couldn't restore the stash: {exc}\n\n"
+            "It is still in the stash list, so nothing is lost."
+        ) from exc
+
+    return {"ok": True, "restored": ref}
+
+
 # -- doing it --------------------------------------------------------------
 
 
-def checkout(repo: str | Path, ref: str) -> dict:
+def checkout(repo: str | Path, ref: str, stash_message: str | None = None) -> dict:
     """Move the working tree to `ref`, refusing anything that would lose work.
+
+    `stash_message`, when given, means "put my uncommitted changes aside first". That is
+    the user's explicit consent to move their work, and the message is what makes it
+    findable again afterwards. Without it, uncommitted changes are still a refusal.
 
     Re-checks the guards immediately before acting rather than trusting whatever the UI
     saw a moment ago. The user may have saved a board in KiCad in between, and a stale
@@ -270,6 +383,15 @@ def checkout(repo: str | Path, ref: str) -> dict:
     """
     path = Path(repo)
     state = status(path, ref)
+
+    stashed = None
+    if not state["can"] and state["reason"] == "dirty" and stash_message is not None:
+        # Only "dirty" is stashable. A mid-rebase or an unresolved conflict is NOT: git
+        # would refuse anyway, and stashing on top of a half-finished operation is how
+        # you turn a recoverable mess into an unrecoverable one.
+        stashed = stash(path, stash_message)
+        state = status(path, ref)
+
     if not state["can"]:
         raise CheckoutError(state["message"])
 
@@ -289,11 +411,17 @@ def checkout(repo: str | Path, ref: str) -> dict:
         "kind": target["kind"],
         "detached": now == "HEAD",
         "branch": "" if now == "HEAD" else now,
+        # So the caller can tell the user their work was put aside, and where it went.
+        # A stash the user does not know about is a stash they will never restore.
+        "stashed": stashed,
     }
 
 
-def pull(repo: str | Path) -> dict:
+def pull(repo: str | Path, stash_message: str | None = None) -> dict:
     """Fetch and fast-forward the current branch.
+
+    `stash_message`, when given, puts uncommitted changes aside first. Without it they
+    are still a refusal.
 
     **Fast-forward only, deliberately.** A real merge of a KiCad board cannot be done
     textually: a .kicad_pcb is an s-expression tree where a three-way merge produces a
@@ -302,7 +430,8 @@ def pull(repo: str | Path) -> dict:
 
     So when the branches have diverged we stop and say so, and resolving it is a
     deliberate act (take one side whole) rather than something a Pull button does behind
-    the user's back.
+    the user's back. Stashing does NOT change that: it clears uncommitted work out of the
+    way, it does not make two divergent histories mergeable.
     """
     path = Path(repo)
 
@@ -320,14 +449,17 @@ def pull(repo: str | Path) -> dict:
             "Check out a branch first."
         )
 
+    stashed = None
     dirt = dirty_files(path)
     if dirt["blocking"]:
-        # A pull that has to touch a file you have edited will either refuse or
-        # overwrite. Refuse first, on our terms, with a message that says what to do.
-        raise CheckoutError(
-            f"{len(dirt['blocking'])} file(s) have uncommitted changes. "
-            "Commit or stash them before pulling."
-        )
+        if stash_message is None:
+            # A pull that has to touch a file you have edited will either refuse or
+            # overwrite. Refuse first, on our terms, with a message that says what to do.
+            raise CheckoutError(
+                f"{len(dirt['blocking'])} file(s) have uncommitted changes. "
+                "Commit or stash them before pulling."
+            )
+        stashed = stash(path, stash_message)
 
     upstream = _git(
         path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", check=False
@@ -347,12 +479,23 @@ def pull(repo: str | Path) -> dict:
     except ValueError:
         behind, ahead = 0, 0
 
+    if behind == 0 or ahead:
+        # We are not going to pull after all, either because there is nothing to pull or
+        # because the branches diverged. If we stashed to get here, the user's work is
+        # now out of their tree with nothing to show for it, so put it straight back:
+        # a stash they did not ask for and did not get a pull from is just their work
+        # gone missing.
+        if stashed:
+            restore(path)
+            stashed = None
+
     if behind == 0:
         return {
             "ok": True,
             "changed": False,
             "ahead": ahead,
             "behind": 0,
+            "stashed": None,
             "message": "Already up to date."
             if not ahead
             else f"Already up to date. You have {ahead} commit(s) to push.",
@@ -377,5 +520,6 @@ def pull(repo: str | Path) -> dict:
         "ahead": 0,
         "behind": 0,
         "pulled": behind,
+        "stashed": stashed,
         "message": f"Fast-forwarded {behind} commit(s).",
     }

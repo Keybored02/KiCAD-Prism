@@ -294,6 +294,17 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(exc)})
             return
 
+        if route.path == "/stash":
+            # What is currently stashed. Includes stashes made by hand in a terminal:
+            # they are still the user's work, and hiding them from a list of "your
+            # stashed changes" is a good way to let someone destroy them.
+            path = (query.get("path") or [""])[0]
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            self._send(200, {"stashes": checkout.stashes(path)})
+            return
+
         self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
@@ -366,13 +377,17 @@ class _Handler(BaseHTTPRequestHandler):
             # re-checked inside, immediately before acting: the user may have saved a
             # board in KiCad since the UI last looked, and a stale "it was clean" is
             # exactly how uncommitted work gets destroyed.
+            #
+            # `stash_message` present (even empty) means "put my changes aside first".
+            # Absent means uncommitted changes are still a refusal. The distinction is
+            # consent: moving someone's work needs an explicit yes.
             path = body.get("path") or ""
             ref = body.get("ref") or ""
             if not path or not ref:
                 self._send(400, {"error": "path and ref are required"})
                 return
             try:
-                self._send(200, checkout.checkout(path, ref))
+                self._send(200, checkout.checkout(path, ref, body.get("stash_message")))
             except checkout.CheckoutError as exc:
                 self._send(400, {"error": str(exc)})
             return
@@ -385,7 +400,25 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "path is required"})
                 return
             try:
-                self._send(200, checkout.pull(path))
+                self._send(200, checkout.pull(path, body.get("stash_message")))
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/stash":
+            # Put uncommitted work aside, or bring it back. The way OUT of the dirty
+            # guard: refusing to move was correct, but a refusal with no way forward is
+            # a dead end.
+            path = body.get("path") or ""
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            try:
+                if body.get("restore"):
+                    result = checkout.restore(path, body.get("ref") or "stash@{0}")
+                else:
+                    result = checkout.stash(path, body.get("message") or "")
+                self._send(200, result)
             except checkout.CheckoutError as exc:
                 self._send(400, {"error": str(exc)})
             return
