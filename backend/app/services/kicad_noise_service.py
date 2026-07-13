@@ -40,14 +40,27 @@ NOISE_SUFFIXES = (
     "~",  # editor/KiCad leftovers
 )
 
-# Exact names (case-insensitive) KiCad regenerates on demand.
-NOISE_NAMES = ("fp-info-cache",)
+# Exact names (case-insensitive) that are generated rather than designed.
+#   fp-info-cache  a footprint index KiCad rebuilds whenever it feels like it
+#   .prism.json    our own project marker. We put it there; it is not the user's work,
+#                  and showing it in their change list is us adding to the noise we are
+#                  supposed to be removing.
+NOISE_NAMES = ("fp-info-cache", ".prism.json")
+
+# Directories whose contents we fetch rather than the user authoring them. RemoteLibrary
+# is where the symbol provider downloads placed parts; it is a cache of upstream assets,
+# and it churns on every placement.
+_FETCHED_DIRS = re.compile(r"(^|/)RemoteLibrary(/|$)", re.IGNORECASE)
 
 # Autosaves: KiCad prefixes the filename, e.g. _autosave-board.kicad_pcb
 _AUTOSAVE = re.compile(r"(^|/)[_~]autosave[-_]", re.IGNORECASE)
 
 # Cache libraries KiCad rebuilds from the schematic.
 _CACHE_LIB = re.compile(r"-cache\.(lib|dcm)$", re.IGNORECASE)
+
+# Lock files: "~<project>.kicad_pcb.lck", written while a document is open and deleted
+# on close. They only appear in a change list because KiCad happened to be running.
+_LOCK = re.compile(r"(^|/)~.*\.lck$", re.IGNORECASE)
 
 
 def is_noise(path: str) -> bool:
@@ -74,10 +87,10 @@ def is_noise(path: str) -> bool:
     if lower.endswith(NOISE_SUFFIXES):
         return True
 
-    if _AUTOSAVE.search(lower) or _CACHE_LIB.search(lower):
+    if _AUTOSAVE.search(lower) or _CACHE_LIB.search(lower) or _LOCK.search(lower):
         return True
 
-    return False
+    return bool(_FETCHED_DIRS.search(p))
 
 
 def partition(paths):
