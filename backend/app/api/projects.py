@@ -739,6 +739,19 @@ class AdoptProjectRequest(BaseModel):
     folder_id: str | None = None
 
 
+class ReserveProjectRequest(BaseModel):
+    name: str
+    description: str = ""
+    folder_id: str | None = None
+
+
+class AdoptPushedRequest(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    folder_id: str | None = None
+
+
 @router.post("/create")
 async def create_project(
     request: CreateProjectRequest,
@@ -778,6 +791,50 @@ async def adopt_project(
         return await asyncio.to_thread(
             project_create_service.adopt,
             request.path,
+            request.name,
+            request.description,
+            request.folder_id,
+        )
+    except project_create_service.CreateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/reserve")
+async def reserve_project(
+    request: ReserveProjectRequest,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Reserve an empty hosted repo for a client to push an existing project into.
+
+    This is adoption when the server is NOT on the user's machine. The server cannot
+    read a folder on somebody else's laptop, so it cannot adopt it; what it can do is
+    offer an empty origin and let the client push. The plugin drives this: reserve, push,
+    then POST /adopt-pushed.
+
+    Designer, not admin: unlike /adopt, this reads no server-side path. The user is
+    pushing their own files over a transport that already authenticates them.
+    """
+    try:
+        return await asyncio.to_thread(
+            project_create_service.reserve,
+            request.name,
+            request.description,
+            request.folder_id,
+        )
+    except project_create_service.CreateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/adopt-pushed")
+async def adopt_pushed_project(
+    request: AdoptPushedRequest,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Finish an adoption after the client's push has landed."""
+    try:
+        return await asyncio.to_thread(
+            project_create_service.adopt_pushed,
+            request.id,
             request.name,
             request.description,
             request.folder_id,

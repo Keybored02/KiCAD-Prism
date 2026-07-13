@@ -83,6 +83,44 @@ def _iter_candidates(root: Path, depth: int = 0):
         yield from _iter_candidates(entry, depth + 1)
 
 
+def write(project_dir: str | Path, project_id: str, server: str = "") -> bool:
+    """Stamp the identity into a checkout's `.prism.json`, keeping everything else.
+
+    A local write, not a commit. Committing on the user's behalf, into a repo they may
+    not have looked at yet, is not ours to do; the marker is useful the moment it exists
+    on disk, and it gets committed whenever they next commit.
+
+    Never raises. A checkout that cannot be stamped still works, it just falls back to
+    matching by git origin.
+    """
+    marker = Path(project_dir) / MARKER_NAME
+
+    data: dict = {}
+    if marker.exists():
+        try:
+            loaded = json.loads(marker.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, ValueError):
+            # Do not clobber a file we could not parse. It may be hand-written and
+            # merely have a trailing comma, and destroying someone's path config to
+            # add an id they did not ask for is not a trade worth making.
+            return False
+
+    block = {"id": project_id}
+    if server:
+        block["server"] = server
+    if data.get("project") == block:
+        return False  # already says this; do not dirty the tree for nothing
+
+    data["project"] = block
+    try:
+        marker.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
 def find_by_id(target_id: str, roots: list[str]) -> str:
     """The local directory holding the project with this id, or "".
 

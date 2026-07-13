@@ -205,39 +205,10 @@ def open_project(project_id: str, confirm=None) -> str:
     # would fail to find it next time and clone it all over again. Stamp it.
     marker_dir = str(destination)
     if not identity.project_id(marker_dir):
-        _stamp(marker_dir, project_id, settings_store.load().server_url)
+        identity.write(marker_dir, project_id, settings_store.load().server_url)
 
     launch_kicad(marker_dir)
     return marker_dir
-
-
-def _stamp(directory: str, project_id: str, server: str) -> None:
-    """Write the identity marker into a fresh clone.
-
-    Mirrors the server's project_identity_service.write. Kept to a local write rather
-    than a commit: committing on the user's behalf, to a repo they have not looked at
-    yet, is not ours to do.
-    """
-    import json
-
-    marker = Path(directory) / ".prism.json"
-    data: dict = {}
-    if marker.exists():
-        try:
-            loaded = json.loads(marker.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                data = loaded
-        except (OSError, ValueError):
-            return  # unparseable: leave it alone rather than clobber it
-
-    block = {"id": project_id}
-    if server:
-        block["server"] = server
-    data["project"] = block
-    try:
-        marker.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    except OSError as exc:
-        log.warning("Couldn't stamp the identity into %s: %s", marker, exc)
 
 
 def _safe_dirname(name: str) -> str:

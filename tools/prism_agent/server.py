@@ -36,6 +36,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from . import (
+    adopt,
     autostart,
     discovery,
     identity,
@@ -259,6 +260,17 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, self._locate_payload(project_id))
             return
 
+        if route.path == "/publish":
+            # What publishing this folder WOULD involve. Read-only, so the UI can say
+            # the right thing (and show what a first commit would sweep up) before the
+            # user agrees to anything.
+            path = (query.get("path") or [""])[0]
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            self._send(200, adopt.status(path))
+            return
+
         self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
@@ -305,6 +317,25 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(exc)})
                 return
             self._send(200, {"ok": True, **result})
+            return
+
+        if route.path == "/publish":
+            # Publish a project this machine has, into a repo Prism hosts.
+            #
+            # The server cannot do this itself: it cannot read a folder on somebody
+            # else's laptop. We can, so we init/commit if needed, ask the server to
+            # reserve an origin, push into it, and tell the server the push landed.
+            path = body.get("path") or ""
+            name = (body.get("name") or "").strip()
+            if not path or not name:
+                self._send(400, {"error": "path and name are required"})
+                return
+            try:
+                self._send(
+                    200, self._publish(path, name, body.get("description") or "")
+                )
+            except adopt.AdoptError as exc:
+                self._send(400, {"error": str(exc)})
             return
 
         if route.path == "/quit":
@@ -468,6 +499,55 @@ class _Handler(BaseHTTPRequestHandler):
             "project": project.to_dict(),
             "prism": prism,
         }
+
+    def _publish(self, path: str, name: str, description: str) -> dict:
+        """init (if needed) -> reserve -> push -> tell the server it landed.
+
+        Ordered so a failure never leaves a project registered with an empty repo. The
+        server registers nothing until the push has actually arrived.
+        """
+        state = adopt.status(path)
+
+        if state["has_origin"]:
+            raise adopt.AdoptError(
+                f"This folder already pushes to {state['origin']}. "
+                "Adopting would replace it."
+            )
+
+        if not state["is_repo"] or not state["has_commits"]:
+            adopt.initialise(path)
+
+        reserved = self.state.prism.reserve_project(name, description)
+        if not reserved:
+            raise adopt.AdoptError(
+                "The server would not reserve a repository. Check that Prism is "
+                "reachable and that you are signed in."
+            )
+
+        origin = reserved.get("origin_url") or ""
+        if not origin:
+            raise adopt.AdoptError("The server gave no URL to push to.")
+
+        adopt.publish(path, origin)
+
+        registered = self.state.prism.adopt_pushed(reserved["id"], name, description)
+        if not registered:
+            # The push succeeded, so their work is safe on the server even though the
+            # project did not register. Say exactly that rather than implying data loss.
+            raise adopt.AdoptError(
+                "Pushed, but the server did not register the project. Your work is "
+                "safe in the repository; try again from Prism."
+            )
+
+        # Stamp the marker so the agent can find this checkout by id from now on,
+        # exactly as it would for one that was cloned.
+        identity.write(
+            path,
+            registered.get("id") or reserved["id"],
+            settings_store.load().server_url,
+        )
+
+        return {"ok": True, **registered}
 
     def _locate_payload(self, project_id: str) -> dict:
         """Where this machine keeps a given Prism project, if anywhere.

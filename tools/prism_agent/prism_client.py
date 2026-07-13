@@ -168,6 +168,30 @@ class PrismClient:
                 return row
         return None
 
+    def reserve_project(self, name: str, description: str = "") -> dict | None:
+        """Ask the server for an empty hosted repo to push an existing project into.
+
+        The server cannot adopt a folder on this machine (it cannot read it), so instead
+        it hands back a URL and we push. Nothing is registered until the push lands.
+        """
+        result = self._request(
+            "POST",
+            "/api/projects/reserve",
+            {"name": name, "description": description},
+        )
+        return result if isinstance(result, dict) else None
+
+    def adopt_pushed(
+        self, project_id: str, name: str, description: str = ""
+    ) -> dict | None:
+        """Tell the server our push landed, so it can clone and render the board."""
+        result = self._request(
+            "POST",
+            "/api/projects/adopt-pushed",
+            {"id": project_id, "name": name, "description": description},
+        )
+        return result if isinstance(result, dict) else None
+
     def project_url(self, project_id: str) -> str:
         """Deep link into the web app for this project.
 

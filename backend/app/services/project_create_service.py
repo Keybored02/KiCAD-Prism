@@ -135,6 +135,70 @@ def adopt(
     return _register(project_id, name, description, folder_id, clone_path=str(tree))
 
 
+def reserve(name: str, description: str = "", folder_id: str | None = None) -> dict:
+    """Create an empty hosted repo and hand back its URL, for a client to push into.
+
+    This is adoption when the server is NOT on the user's machine, which is the case the
+    whole storage rework exists to support. The server cannot read a folder on somebody
+    else's laptop, so it cannot adopt it. What it CAN do is offer an empty origin and
+    let the client push.
+
+    The flow, driven from the plugin (which is on the machine that has the files):
+
+        1. plugin: git init, .gitignore, first commit   (if the folder is not a repo yet)
+        2. server: reserve()  -> a bare repo and a URL
+        3. plugin: git remote add origin <url>, git push
+        4. server: adopt_pushed() -> clone what landed, so it can render the board
+
+    Nothing is registered as a project until the push actually arrives. A project whose
+    repo is empty would render as a broken card, and a failed push would leave one
+    behind forever.
+    """
+    name = (name or "").strip()
+    if not name:
+        raise CreateError("A project name is required.")
+
+    project_id = _new_id("prj_")
+    try:
+        git_host_service.create(project_id)
+    except GitHostError as exc:
+        raise CreateError(str(exc)) from exc
+
+    origin = git_host_service.origin_url(project_id)
+    if not origin:
+        git_host_service.delete(project_id)
+        raise CreateError(
+            "This server has no public URL set (PRISM_SERVER_URL), so there is no "
+            "address for you to push to."
+        )
+
+    return {
+        "id": project_id,
+        "name": name,
+        "description": description,
+        "folder_id": folder_id,
+        "origin_url": origin,
+        "origin_owner": "prism",
+    }
+
+
+def adopt_pushed(
+    project_id: str, name: str, description: str = "", folder_id: str | None = None
+) -> dict:
+    """Finish an adoption: the client has pushed, so take our own clone and register it.
+
+    Called after the plugin's push lands. Refuses an empty repo, which is what a failed
+    or skipped push looks like: registering one would put a project in the workspace
+    with no board to show.
+    """
+    if not git_host_service.exists(project_id):
+        raise CreateError("No repository was reserved for this project.")
+    if git_host_service.is_empty(project_id):
+        raise CreateError("Nothing was pushed, so there is nothing to adopt.")
+
+    return _register(project_id, name, description, folder_id)
+
+
 def _register(
     project_id: str,
     name: str,
