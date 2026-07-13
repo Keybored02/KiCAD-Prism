@@ -183,6 +183,51 @@ class Button(wx.Panel):
         gc.DrawText(self.label, (w - tw) / 2, (h - tht) / 2)
 
 
+class StatusIcon(wx.Panel):
+    """An icon whose colour carries its state, with a tooltip that says it in words.
+
+    Colour alone is not a status: it means nothing to someone who can't see it, and
+    nothing to someone who doesn't know the convention. So the tooltip is not optional,
+    it is the actual message, and the colour is the shortcut.
+    """
+
+    SIZE = 18
+
+    def __init__(self, parent, kind, pal, tone="muted_fg", tooltip=""):
+        super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
+        self.kind = kind  # server | project
+        self.pal = pal
+        self.tone = tone
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.SetMinSize(wx.Size(self.SIZE + 8, self.SIZE + 8))
+        self.SetToolTip(tooltip)
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+
+    def set(self, tone: str, tooltip: str) -> None:
+        self.tone = tone
+        self.SetToolTip(tooltip)
+        self.Refresh()
+
+    def _on_paint(self, _e):
+        dc = wx.AutoBufferedPaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+        if not gc:
+            return
+        dc.SetBackground(wx.Brush(_surface_of(self, self.pal)))
+        dc.Clear()
+
+        w, h = self.GetSize()
+        colour = _c(self.pal.get(self.tone, self.pal["muted_fg"]))
+        draw_kind_icon(
+            gc,
+            self.kind,
+            (w - self.SIZE) / 2,
+            (h - self.SIZE) / 2,
+            colour,
+            size=self.SIZE,
+        )
+
+
 class Badge(wx.Panel):
     """A status pill, like the chips in the web app."""
 
@@ -320,6 +365,36 @@ def draw_kind_icon(
             pins.MoveToPoint(*px(20, a))  # right
             pins.AddLineToPoint(*px(22, a))
         gc.StrokePath(pins)
+        return
+
+    if kind == "server":
+        # lucide "server": two stacked racks, each with an LED.
+        for top in (2, 14):
+            rack = gc.CreatePath()
+            rack.AddRoundedRectangle(*px(2, top), 20 * s, 8 * s, 2 * s)
+            gc.StrokePath(rack)
+
+            led = gc.CreatePath()
+            led.MoveToPoint(*px(6, top + 4))
+            led.AddLineToPoint(*px(6.01, top + 4))
+            gc.StrokePath(led)
+        return
+
+    if kind == "project":
+        # lucide "folder": the tab-and-body outline.
+        folder = gc.CreatePath()
+        folder.MoveToPoint(*px(4, 20))
+        folder.AddLineToPoint(*px(2, 18))
+        folder.AddLineToPoint(*px(2, 5))
+        folder.AddLineToPoint(*px(4, 3))
+        folder.AddLineToPoint(*px(9, 3))
+        folder.AddLineToPoint(*px(11, 6))  # the tab
+        folder.AddLineToPoint(*px(20, 6))
+        folder.AddLineToPoint(*px(22, 8))
+        folder.AddLineToPoint(*px(22, 18))
+        folder.AddLineToPoint(*px(20, 20))
+        folder.CloseSubpath()
+        gc.StrokePath(folder)
         return
 
     # anything else, a plain document outline

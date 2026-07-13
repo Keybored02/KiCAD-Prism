@@ -17,7 +17,7 @@ from . import prism_theme as th
 from . import version
 from .agent_client import AgentClient, AgentUnavailable
 from .settings_dialog import SettingsDialog
-from .widgets import Button, Card, ChangeRow, Disclosure, ScrollThumb
+from .widgets import Button, Card, ChangeRow, Disclosure, ScrollThumb, StatusIcon
 
 try:
     from . import crossprobe
@@ -69,6 +69,9 @@ class PrismDialog(wx.Dialog):
     def _build(self):
         root = wx.BoxSizer(wx.VERTICAL)
 
+        # The header carries what you'd otherwise need three rows to say: which project,
+        # where it is, and whether the server and this project are in good standing.
+        # The two icons replace the Project card's "In Prism" row entirely.
         header = wx.BoxSizer(wx.HORIZONTAL)
         if os.path.isfile(LOGO):
             img = wx.Image(LOGO, wx.BITMAP_TYPE_PNG).Scale(
@@ -81,14 +84,24 @@ class PrismDialog(wx.Dialog):
                 th.SP_SM,
             )
 
-        title = wx.StaticText(self, label="Prism")
-        title.SetForegroundColour(_c(self.pal["foreground"]))
-        tf = title.GetFont()
+        self.title = wx.StaticText(self, label="Prism")
+        self.title.SetForegroundColour(_c(self.pal["foreground"]))
+        tf = self.title.GetFont()
         tf.SetPointSize(th.FONT_TITLE)
         tf.SetWeight(wx.FONTWEIGHT_BOLD)
-        title.SetFont(tf)
-        header.Add(title, 0, wx.ALIGN_CENTER_VERTICAL)
-        root.Add(header, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
+        self.title.SetFont(tf)
+        header.Add(self.title, 1, wx.ALIGN_CENTER_VERTICAL)
+
+        self.server_icon = StatusIcon(
+            self, "server", self.pal, tooltip="Contacting the agent"
+        )
+        header.Add(self.server_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        self.project_icon = StatusIcon(
+            self, "project", self.pal, tooltip="No project yet"
+        )
+        header.Add(self.project_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+
+        root.Add(header, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
 
         self.status = wx.StaticText(self, label="Contacting agent...")
         self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
@@ -172,6 +185,11 @@ class PrismDialog(wx.Dialog):
             # here, or the plugin talks to it, gets a 404 from a route that didn't
             # exist yet, and fails like a bug in the new code.
             health = client.health() or {}
+
+            # The agent answered, so the only question left is whether IT can reach the
+            # backend. The icon says which, and stays out of the way otherwise.
+            self._set_server_icon(bool(health.get("backend_reachable")))
+
             running = health.get("version", "")
             if version.agent_too_old(running):
                 self.data = None
@@ -197,6 +215,10 @@ class PrismDialog(wx.Dialog):
         except AgentUnavailable as exc:
             self.data = None
             self.changes = None
+            # No agent means we know nothing about either. Grey, not amber: amber says
+            # "reachable but unhappy", and we cannot even claim that much.
+            self.server_icon.set("muted_fg", "The Prism agent isn't running")
+            self.project_icon.set("muted_fg", "Unknown")
             self._render_unavailable(str(exc))
             self._relayout()
             return
@@ -219,6 +241,18 @@ class PrismDialog(wx.Dialog):
         self.content.Clear(delete_windows=True)
         self._render()
         self._relayout()
+
+    def _set_server_icon(self, reachable: bool) -> None:
+        """Green when Prism is reachable, amber when it is not.
+
+        Never red: an unreachable server is a normal, temporary state (laptop offline,
+        backend restarting), and the plugin's local features keep working. Red would be
+        crying wolf.
+        """
+        if reachable:
+            self.server_icon.set("success", "Connected to Prism")
+        else:
+            self.server_icon.set("warning", "Can't reach the Prism server")
 
     def _render_outdated_plugin(self):
         """This plugin is older than the server can serve. Nothing else will work.
@@ -441,23 +475,22 @@ class PrismDialog(wx.Dialog):
             self._render_update_available()
 
         if not project:
+            self.title.SetLabel("Prism")
             self.status.SetLabel("This board isn't inside a recognised KiCad project")
             self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
+            self.project_icon.set("muted_fg", "No KiCad project here")
             self.open_btn.Enable(False)
             return
 
+        # The project's name IS the title. Its path is the subtitle. That's what the
+        # Project card used to spend two rows saying.
+        self.title.SetLabel(project["name"])
         self.status.SetLabel(project["path"])
         self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
-
-        card = Card(self.scroll, "Project", self.pal)
-        card.row("Name", project["name"])
-        card.row(
-            "In Prism",
-            "Registered" if prism else "Not registered",
-            badge=True,
-            tone="success" if prism else "warning",
+        self.project_icon.set(
+            "success" if prism else "muted_fg",
+            "Registered in Prism" if prism else "Not registered in Prism",
         )
-        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
         g = Card(self.scroll, "Git", self.pal)
         if git and git.get("branch"):
