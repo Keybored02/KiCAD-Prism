@@ -241,6 +241,9 @@ class Badge(wx.Panel):
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
 
         self._resize()
+        # Bound ONCE, here. It used to live in _resize(), which set_label() calls, so
+        # every relabel stacked another paint handler on the widget.
+        self.Bind(wx.EVT_PAINT, self._on_paint)
 
     def set_label(self, label: str, tone: str | None = None) -> None:
         """Relabel and resize. A badge built empty and filled in later (a branch name we
@@ -252,15 +255,32 @@ class Badge(wx.Panel):
         self.Refresh()
 
     def _resize(self) -> None:
-        dc = wx.ClientDC(self)
+        # Set the font on the window, then measure with it, so the size we reserve and
+        # the size we paint agree. Falls back to a single character for an empty label
+        # (the branch tag before the agent has answered) so the pill keeps a sane height.
         f = self.GetFont()
         f.SetPointSize(th.FONT_SMALL)
         f.SetWeight(wx.FONTWEIGHT_BOLD)
-        dc.SetFont(f)
-        w, h = dc.GetTextExtent(self.label)
+        self.SetFont(f)
+        w, h = self.GetTextExtent(self.label or "x")
         self.SetMinSize(wx.Size(w + 16, h + 6))
 
-        self.Bind(wx.EVT_PAINT, self._on_paint)
+    def _colours(self) -> tuple[str, str, float]:
+        """(fill, text, how strongly to tint the fill).
+
+        `muted` is a BACKGROUND colour (#F1F5F9 on light). Drawing text in it puts
+        near-white on a white card, which is why the branch and SHA tags vanished. So a
+        neutral badge fills with `muted` and takes its text from `muted_fg`, and fills
+        fully, since that colour was chosen to sit behind text.
+
+        The coloured tones are the opposite: the accent IS the text, and the fill is a
+        faint wash of it (the web's `bg-x/10 text-x`). Tinting those as strongly as the
+        neutral one drags the contrast under 2:1 and makes them unreadable.
+        """
+        if self.tone == "muted":
+            return self.pal["muted"], self.pal["muted_fg"], 1.0
+        accent = self.pal.get(self.tone, self.pal["muted_fg"])
+        return accent, accent, 0.18
 
     def _on_paint(self, _e):
         dc = wx.AutoBufferedPaintDC(self)
@@ -271,13 +291,13 @@ class Badge(wx.Panel):
         dc.Clear()
 
         w, h = self.GetSize()
-        accent = self.pal.get(self.tone, self.pal["muted_fg"])
-        # Tinted background + solid text, like the web's bg-x/10 text-x badges.
-        # Tint against the surface we're actually on (a card), not the page, on a
-        # dark card, blending toward the page colour would wash the pill out.
+        fill, text, strength = self._colours()
+
+        # Tint against the surface we're actually on (a card), not the page: on a dark
+        # card, blending toward the page colour would wash the pill out.
         surface = _surface_of(self, self.pal)
         gc.SetBrush(
-            wx.Brush(_mix(surface.GetAsString(wx.C2S_HTML_SYNTAX), accent, 0.18))
+            wx.Brush(_mix(surface.GetAsString(wx.C2S_HTML_SYNTAX), fill, strength))
         )
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.DrawRoundedRectangle(0, 0, w, h, self.RADIUS)
@@ -285,7 +305,7 @@ class Badge(wx.Panel):
         f = self.GetFont()
         f.SetPointSize(th.FONT_SMALL)
         f.SetWeight(wx.FONTWEIGHT_BOLD)
-        gc.SetFont(f, _c(accent))
+        gc.SetFont(f, _c(text))
         tw, tht = gc.GetTextExtent(self.label)[:2]
         gc.DrawText(self.label, (w - tw) / 2, (h - tht) / 2)
 

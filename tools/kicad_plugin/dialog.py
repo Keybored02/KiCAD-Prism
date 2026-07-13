@@ -294,22 +294,25 @@ class PrismDialog(wx.Dialog):
         and impossible to notice, so the tooltip always shows both.
         """
         user = (self.data or {}).get("user") or {}
-        name = user.get("email") or user.get("name") or ""
+        prism_name = user.get("email") or user.get("name") or ""
 
         git_name = (git or {}).get("user_name") or ""
         git_email = (git or {}).get("user_email") or ""
+        git_who = ""
+        if git_name and git_email:
+            git_who = "%s <%s>" % (git_name, git_email)
+        elif git_name or git_email:
+            git_who = git_name or git_email
 
-        if name:
-            self.user.SetLabel(name)
-        else:
-            # No account is a normal state: auth is off by default on the backend.
-            self.user.SetLabel("Guest")
+        # Show whoever we actually know about. Falling back to the git identity rather
+        # than "Guest" means the label says something true even when the backend has
+        # auth switched off, which is its default.
+        self.user.SetLabel(prism_name or git_name or "Guest")
 
-        lines = ["Prism: %s" % (name or "not signed in")]
-        if git_name or git_email:
-            lines.append("git:   %s <%s>" % (git_name or "?", git_email or "?"))
-        else:
-            lines.append("git:   no user.name configured")
+        lines = [
+            "Prism: %s" % (prism_name or "guest (this server has auth disabled)"),
+            "Git:   %s" % (git_who or "no user.name set"),
+        ]
         self.user.SetToolTip("\n".join(lines))
 
     def _set_git_icon(self, git, prism) -> None:
