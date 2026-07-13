@@ -15,6 +15,7 @@ from app.api.catalog_admin import router as catalog_admin_router
 from app.api.comments import router as comments_router
 from app.api.diff import router as diff_router
 from app.api.folders import router as folders_router
+from app.api.git_http import router as git_http_router
 from app.api.oauth import router as oauth_router
 from app.api.plugin import router as plugin_router
 from app.api.projects import router as projects_router
@@ -257,6 +258,10 @@ app.add_middleware(
 
 # Include Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+# Git Smart HTTP, for repos Prism hosts itself. Mounted at /git, not /api/git: this is
+# git's own protocol talking to a git client, not part of Prism's JSON API, and the URL
+# is one people paste into `git clone`.
+app.include_router(git_http_router, prefix="/git", tags=["git"])
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
 app.include_router(comments_router, prefix="/api/projects", tags=["comments"])
 app.include_router(diff_router, prefix="/api/projects", tags=["diff"])

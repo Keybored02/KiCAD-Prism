@@ -23,11 +23,17 @@ from app.api._helpers import (
     resolve_path_within_root,
 )
 from app.core.config import settings
-from app.core.security import AuthenticatedUser, require_designer, require_viewer
+from app.core.security import (
+    AuthenticatedUser,
+    require_admin,
+    require_designer,
+    require_viewer,
+)
 from app.services import (
     file_service,
     path_config_service,
     pcb_diff_service,
+    project_create_service,
     project_import_service,
     project_properties_service,
     project_service,
@@ -711,6 +717,66 @@ async def import_project(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+class CreateProjectRequest(BaseModel):
+    name: str
+    description: str = ""
+    folder_id: str | None = None
+
+
+class AdoptProjectRequest(BaseModel):
+    path: str
+    name: str = ""
+    description: str = ""
+    folder_id: str | None = None
+
+
+@router.post("/create")
+async def create_project(
+    request: CreateProjectRequest,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Create a new project that Prism hosts the git for (model B).
+
+    Mints the id, creates a bare repo, seeds it with a KiCad skeleton and a .gitignore,
+    and registers it. The result carries an `origin_url` the user can clone.
+    """
+    try:
+        return await asyncio.to_thread(
+            project_create_service.create,
+            request.name,
+            request.description,
+            request.folder_id,
+        )
+    except project_create_service.CreateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/adopt")
+async def adopt_project(
+    request: AdoptProjectRequest,
+    user: AuthenticatedUser = Depends(require_admin),
+):
+    """Take a git repo the server can already see, and make Prism its origin.
+
+    Admin only, and constrained to the same allow-list as a local import: this reads a
+    server-side path the caller names, so an unconstrained version would let anyone with
+    designer rights point Prism at any folder on the box.
+
+    The working tree is not moved and not converted. It gains a remote.
+    """
+    _check_local_import_permission(request.path, user)
+    try:
+        return await asyncio.to_thread(
+            project_create_service.adopt,
+            request.path,
+            request.name,
+            request.description,
+            request.folder_id,
+        )
+    except project_create_service.CreateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/jobs/{job_id}")

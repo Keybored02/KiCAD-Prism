@@ -244,6 +244,48 @@ Two rules a URL handler has to obey, since a web page can invoke it:
 **Phase 5: Prism as origin (model B).** Bare repo hosting, `origin_owner = "prism"`, and a
 create-project flow that produces one. Additive: model A keeps working untouched.
 
+**Transport: Smart HTTP, on the port Prism already listens on.**
+
+```
+git clone https://prism.example.com/git/prj_abc.git
+```
+
+Served by shelling out to `git http-backend`, git's own CGI program. We are not
+reimplementing the pack protocol; we are speaking CGI to the thing that already
+implements it correctly. Chosen over SSH because reaching a repo then goes through the
+*same* auth as everything else in Prism. A parallel SSH key system is one nobody
+remembers to revoke, and it would put access control somewhere Prism cannot see.
+
+Two things git clients do that shape the endpoint:
+
+* They authenticate with **HTTP Basic**, not Bearer. A Prism API token arrives as the
+  Basic *password*, and we bridge it to the normal bearer path.
+* They need a **401 with `WWW-Authenticate`** to know to prompt. A 403 makes git give up
+  silently, which the user reads as "the repo doesn't exist".
+
+Reading needs `viewer`; pushing needs `designer`.
+
+**Two ways to get a hosted project:**
+
+* `POST /api/projects/create` from nothing. Seeded with a `.kicad_pro` and a KiCad
+  `.gitignore`, not left empty: an empty origin is a worse starting point than it looks
+  (clone warns, no branch to track, and the user's first act would be creating the very
+  files we know they need).
+* `POST /api/projects/adopt` from a tree the user already has. **The tree is not moved
+  and not converted.** A new bare repo is created, the history is pushed into it, and it
+  is set as `origin`. Admin-only and allow-listed, like a local import, because it reads
+  a server-side path the caller names.
+
+Adoption refuses a folder that is not a git repo, or that has no commits, or that already
+has an origin. Turning a pile of files into a repository is deliberately a separate,
+explicit act: deciding what belongs in the first commit is the user's call, and a
+`git add -A` on someone's project folder is how you commit 3 GB of build output and a
+private key.
+
+**One id, everywhere.** The bare repo is `prj_abc.git`, the workspace row is `prj_abc`,
+and the committed marker says `prj_abc`. If those diverge every lookup by id misses, and
+it fails in the worst way: silently, looking like it worked.
+
 **Phase 6: retire "reference in place."** Once A and B are both real, this has no reason to
 exist. Migrate, then delete the code.
 

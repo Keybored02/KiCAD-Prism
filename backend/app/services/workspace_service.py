@@ -442,8 +442,12 @@ class WorkspaceService:
         has_ibom: bool = False,
         prism_json_hash: str | None = None,
         kicad_version: str | None = None,
+        project_id: str | None = None,
     ) -> str:
-        project_id = _new_id("prj_")
+        # A caller can supply the id. Prism-hosted projects need to: the bare repo is
+        # named after it (prj_abc.git), so minting a second id here would leave the
+        # repo and the row pointing at different things.
+        project_id = project_id or _new_id("prj_")
         now = _utc_now_iso()
         with self._connect() as conn:
             conn.execute(
