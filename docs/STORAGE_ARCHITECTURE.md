@@ -286,8 +286,34 @@ private key.
 and the committed marker says `prj_abc`. If those diverge every lookup by id misses, and
 it fails in the worst way: silently, looking like it worked.
 
-**Phase 6: retire "reference in place."** Once A and B are both real, this has no reason to
-exist. Migrate, then delete the code.
+**Phase 6: retire "reference in place."** Done, but *not* the way this originally said.
+
+"Migrate, then delete" turned out to be wrong once the live data was inspected: **three of
+four projects were reference-mode**, and one of them (CIAA_ACC) has no git at all, so
+there was nothing to migrate it *to*. Deleting the feature outright would have stranded
+it.
+
+So: **close the door, keep the room.**
+
+* New reference imports are refused. Local imports are always copied into the server's
+  workspace, and the mode argument is gone from the API and the import dialog.
+* **The dangerous default is gone.** `start_import_job` did `local_path_mode or
+  "reference"`, so any caller who simply *omitted* the argument silently got the mode
+  where the server writes into the user's own working tree. A dangerous default is worse
+  than a missing feature.
+* Existing reference-mode projects keep working, untouched. They die out naturally as
+  they are re-imported or adopted.
+
+**And a loaded gun was removed.** `project_service.delete_project` `rmtree`'d the project
+directory, and the *only* thing between that and a user's KiCad folder was a
+`local_path_mode == "reference"` check. For a reference project, that directory **is** the
+user's folder. It had **zero callers** (the API deletes through `workspace.delete_project`,
+which drops the row and touches no files), so it was dead code, but dead code with an
+`rmtree` in it is one careless import away from being live code with an `rmtree` in it.
+Deleted.
+
+The rule it violated, now pinned by a test: **registering a folder with Prism is not a
+claim of ownership over it.** Unregistering must never delete it.
 
 Phases 1 to 4 are the ones that matter. 5 is a feature. 6 is cleanup.
 

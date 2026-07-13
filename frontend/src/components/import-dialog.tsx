@@ -16,7 +16,6 @@ import { Loader2, Check, AlertCircle, Globe, FolderOpen } from "lucide-react";
 import { isDialogSubmitShortcut } from "@/lib/dialog-shortcuts";
 
 type SourceType = "remote" | "local";
-type LocalPathMode = "reference" | "copy";
 
 interface DiscoveredProject {
   name: string;
@@ -80,7 +79,6 @@ export function ImportDialog({
   const [state, setState] = useState<ImportState>({ step: "input" });
   const [url, setUrl] = useState("");
   const [sourceType, setSourceType] = useState<SourceType>("remote");
-  const [localPathMode, setLocalPathMode] = useState<LocalPathMode>("reference");
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const pollTimeoutRef = useRef<number | null>(null);
   const pollControllerRef = useRef<AbortController | null>(null);
@@ -119,7 +117,6 @@ export function ImportDialog({
     setState({ step: "input" });
     setUrl("");
     setSourceType("remote");
-    setLocalPathMode("reference");
     setSelectedPaths(new Set());
   };
 
@@ -238,14 +235,13 @@ export function ImportDialog({
 
     try {
       stopPolling();
+      // No local_path_mode: local imports are always copied now, so there is nothing
+      // to tell the server.
       const body: Record<string, unknown> = {
         url,
         import_type: analysis.import_type,
         selected_paths: pathsToImport,
       };
-      if (analysis.is_local) {
-        body.local_path_mode = localPathMode;
-      }
       const res = await fetch("/api/projects/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -541,45 +537,15 @@ export function ImportDialog({
               </DialogDescription>
             </DialogHeader>
 
+            {/* There is no mode to choose any more. Prism used to offer "reference
+                in-place", where it operated on the same folder you edit in KiCad. It
+                now always takes its own clone. */}
             {state.analysis.is_local && (
-              <div className="rounded-md border p-3 space-y-2">
-                <p className="text-sm font-medium">How should Prism handle this local repo?</p>
-                <div className="flex flex-col gap-2">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="localPathMode"
-                      value="reference"
-                      checked={localPathMode === "reference"}
-                      onChange={() => setLocalPathMode("reference")}
-                      className="mt-0.5"
-                    />
-                    <div>
-                      <p className="text-sm font-medium">Reference in-place</p>
-                      <p className="text-xs text-muted-foreground">
-                        Prism points to the folder directly. No files are copied. If the path
-                        moves or goes offline, the project will be unavailable.
-                      </p>
-                    </div>
-                  </label>
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="localPathMode"
-                      value="copy"
-                      checked={localPathMode === "copy"}
-                      onChange={() => setLocalPathMode("copy")}
-                      className="mt-0.5"
-                    />
-                    <div>
-                      <p className="text-sm font-medium">Copy locally</p>
-                      <p className="text-xs text-muted-foreground">
-                        Prism clones the repo into its data folder. The copy is independent of
-                        the original until you sync.
-                      </p>
-                    </div>
-                  </label>
-                </div>
+              <div className="rounded-md border p-3">
+                <p className="text-sm font-medium">Prism will clone this repo into its own folder.</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Your folder is not modified. Prism's copy stays independent until you sync.
+                </p>
               </div>
             )}
 

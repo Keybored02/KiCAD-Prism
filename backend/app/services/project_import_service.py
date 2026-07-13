@@ -236,11 +236,19 @@ def _run_import_local_job(
     local_path: str,
     import_type: str,
     selected_paths: list[str] | None,
-    local_path_mode: str,
+    local_path_mode: str = "copy",
 ):
     """
-    Background job: import a local git repo.
-    local_path_mode: "reference" — register in-place, "copy" — git clone into data/projects.
+    Background job: import a local git repo by CLONING it into the server's workspace.
+
+    There used to be a second mode, "reference", which registered the user's folder in
+    place and let the server operate directly on the tree they were editing in KiCad.
+    That is gone. It only ever worked because the server and the client were the same
+    machine, and it meant Prism could write to a directory the user had open.
+
+    The server always gets its own clone. If someone wants Prism to be the origin for a
+    folder they already have, that is `adopt`, which pushes their history into a bare
+    repo and leaves their tree exactly where it is.
     """
     job = jobs[job_id]
     target_path = None
@@ -260,44 +268,40 @@ def _run_import_local_job(
             )
             return
 
-        if local_path_mode == "copy":
-            # Clone the local repo into data/projects just like a remote import
-            if import_type == "type1":
-                base_path = Path(project_service.PROJECTS_ROOT) / "type1"
-            else:
-                base_path = Path(project_service.PROJECTS_ROOT) / "type2"
-
-            # Defense-in-depth: assert the destination stays inside PROJECTS_ROOT.
-            target_path = Path(
-                _ensure_within(base_path, base_path / repo_name, what="copy target")
-            )
-            if target_path.exists():
-                registry = project_service._load_project_registry()
-                existing = [
-                    p
-                    for p in registry.values()
-                    if p.get("parent_repo") == repo_name
-                    or project_service._normalize_path(p.get("path", ""))
-                    == str(target_path.resolve())
-                ]
-                if existing:
-                    job["status"] = "failed"
-                    job["error"] = f"Repository '{repo_name}' already exists"
-                    return
-                shutil.rmtree(target_path)
-
-            base_path.mkdir(parents=True, exist_ok=True)
-            job["logs"].append(f"Cloning {local_path} → {target_path}...")
-            Repo.clone_from(
-                str(source), str(target_path), progress=CloneProgress(job_id)
-            )
-            job["logs"].append("Clone complete.")
-            effective_path = target_path
-            effective_url = local_path  # keep original path as repo_url
+        # Clone the local repo into data/projects, just like a remote import.
+        if import_type == "type1":
+            base_path = Path(project_service.PROJECTS_ROOT) / "type1"
         else:
-            # Reference mode — use the path directly
-            effective_path = source
-            effective_url = local_path
+            base_path = Path(project_service.PROJECTS_ROOT) / "type2"
+
+        # Defense-in-depth: assert the destination stays inside PROJECTS_ROOT. The
+        # rmtree below relies on this, and it is the only reason that rmtree is safe.
+        target_path = Path(
+            _ensure_within(base_path, base_path / repo_name, what="copy target")
+        )
+        if target_path.exists():
+            registry = project_service._load_project_registry()
+            existing = [
+                p
+                for p in registry.values()
+                if p.get("parent_repo") == repo_name
+                or project_service._normalize_path(p.get("path", ""))
+                == str(target_path.resolve())
+            ]
+            if existing:
+                job["status"] = "failed"
+                job["error"] = f"Repository '{repo_name}' already exists"
+                return
+            shutil.rmtree(target_path)
+
+        base_path.mkdir(parents=True, exist_ok=True)
+        job["logs"].append(f"Cloning {local_path} → {target_path}...")
+        Repo.clone_from(str(source), str(target_path), progress=CloneProgress(job_id))
+        job["logs"].append("Clone complete.")
+        effective_path = target_path
+        # Keep the original path as repo_url. It is where the project came from, and
+        # register_repository derives the real origin by asking git anyway.
+        effective_url = local_path
 
         job["logs"].append("Registering projects...")
         ws_import_type = "single" if import_type == "type1" else "multi"
@@ -809,7 +813,7 @@ def start_import_job(
 ) -> str:
     """
     Start an asynchronous import job.
-    For local paths, local_path_mode must be "reference" or "copy".
+    Local paths are always copied into the server's workspace.
     Returns job ID for polling.
     """
     job_id = str(uuid.uuid4())
@@ -828,10 +832,17 @@ def start_import_job(
     }
 
     if is_local_path(repo_url):
-        mode = local_path_mode or "reference"
+        # Always copy. This used to default to "reference", which meant any caller who
+        # simply omitted the argument got the server operating directly on the user's
+        # own working tree. A dangerous default is worse than a missing feature.
+        if local_path_mode and local_path_mode != "copy":
+            raise ValueError(
+                "Local imports are copied into the workspace. "
+                "Reference imports are no longer supported."
+            )
         thread = threading.Thread(
             target=_run_import_local_job,
-            args=(job_id, repo_url, import_type, selected_paths, mode),
+            args=(job_id, repo_url, import_type, selected_paths, "copy"),
         )
     else:
         thread = threading.Thread(

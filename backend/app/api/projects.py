@@ -629,7 +629,9 @@ class ImportRequest(BaseModel):
     url: str
     import_type: str  # "type1" or "type2"
     selected_paths: list[str] | None = None
-    local_path_mode: str | None = None  # "reference" or "copy" for local imports
+    # "copy" only. "reference" (the server operating directly on a folder the user is
+    # also editing in KiCad) is no longer accepted: see _reject_reference_mode.
+    local_path_mode: str | None = None
 
 
 def _check_local_import_permission(url: str, user: AuthenticatedUser) -> None:
@@ -694,23 +696,28 @@ async def import_project(
     Start an async project import job.
     For Type-1: imports single project at root.
     For Type-2: imports selected subprojects.
-    For local paths: admin-only; local_path_mode must be "reference" or "copy".
+    For local paths: admin-only, and always copied into the server's workspace.
     """
     _check_local_import_permission(request.url, user)
-    if (
-        project_import_service.is_local_path(request.url)
-        and not request.local_path_mode
-    ):
+
+    if request.local_path_mode == "reference":
         raise HTTPException(
             status_code=400,
-            detail="local_path_mode ('reference' or 'copy') is required for local path imports",
+            detail=(
+                "Reference imports are no longer supported. The server would be "
+                "operating on the same folder you edit in KiCad. Use 'copy', or "
+                "adopt the folder with POST /api/projects/adopt to give it an origin."
+            ),
         )
+
     try:
         job_id = project_import_service.start_import_job(
             repo_url=request.url,
             import_type=request.import_type,
             selected_paths=request.selected_paths,
-            local_path_mode=request.local_path_mode,
+            # Local imports are copied, always. There is no second mode to choose
+            # between any more, so there is nothing to ask the caller for.
+            local_path_mode="copy",
         )
         return {"job_id": job_id, "status": "started"}
     except ValueError as e:

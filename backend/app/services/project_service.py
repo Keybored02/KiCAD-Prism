@@ -886,64 +886,19 @@ def find_ibom_file(project_path: str) -> str | None:
     return None
 
 
-def delete_project(project_id: str) -> bool:
-    """
-    Delete a project from the registry and optionally remove its files.
-    Returns True if project was found and deleted, False otherwise.
-    """
-    project = get_project_by_id(project_id)
-    if not project:
-        return False
-
-    registry = _load_project_registry()
-    if project_id not in registry:
-        return False
-
-    project_path = project.path
-    parent_repo = project.parent_repo
-    import_type = project.import_type
-    local_path_mode = project.local_path_mode
-
-    # Remove from registry
-    del registry[project_id]
-    _save_project_registry(registry)
-
-    # Never delete files for reference-mode local imports
-    if local_path_mode == "reference":
-        return True
-
-    if import_type == "type2_subproject" and parent_repo:
-        # Check if there are any remaining subprojects for this parent repo
-        remaining_subprojects = [
-            p
-            for p in registry.values()
-            if p.get("parent_repo") == parent_repo
-            and p.get("import_type") == "type2_subproject"
-        ]
-
-        # If no remaining subprojects, delete the parent repo directory
-        if not remaining_subprojects and project_path:
-            parent_repo_path = project.parent_repo_path or os.path.dirname(project_path)
-            if os.path.exists(parent_repo_path):
-                try:
-                    shutil.rmtree(parent_repo_path)
-                    logger.info("Deleted Type-2 parent repo: %s", parent_repo_path)
-                except Exception as err:
-                    logger.warning(
-                        "Failed to delete parent repo directory %s: %s",
-                        parent_repo_path,
-                        err,
-                    )
-    elif not parent_repo and project_path and os.path.exists(project_path):
-        # For Type-1 projects (standalone), delete the directory
-        try:
-            shutil.rmtree(project_path)
-        except Exception as err:
-            logger.warning(
-                "Failed to delete project directory %s: %s", project_path, err
-            )
-
-    return True
+# delete_project() used to live here, and it was a loaded gun.
+#
+# It rmtree'd the project directory, and the ONLY thing standing between that and a
+# user's own KiCad folder was a `local_path_mode == "reference"` check. A
+# reference-mode project's "directory" IS the folder the user works in.
+#
+# It also had zero callers: the API deletes through workspace.delete_project, which
+# removes the database row and touches no files at all. That is the correct behaviour
+# and the only one we want. Prism registering a folder is not a claim of ownership over
+# it, so unregistering it must never delete it.
+#
+# Deleted rather than left dead, because dead code with an rmtree in it is one careless
+# import away from being live code with an rmtree in it.
 
 
 def update_project_folder_id(project_id: str, folder_id: str | None) -> bool:
