@@ -3,13 +3,21 @@ export interface Project {
     name: string;
     display_name?: string;
     description: string;
-    path: string;
+    // No `path`. It used to be here, but it named a directory on the SERVER's disk,
+    // which means nothing to a browser and nothing to a client on another machine.
+    // Nothing ever read it. Projects are identified by `id`; git lives at `origin_url`.
     last_modified: string;
     registered_at?: string;
     thumbnail_url?: string;
     sub_path?: string;
     parent_repo?: string;
     repo_url?: string;
+    // Where git actually lives, and who owns it:
+    //   external  a remote we do not host (GitHub, GitLab, a NAS share, SSH)
+    //   prism     a bare repo Prism hosts
+    //   none      not backed by git yet
+    origin_url?: string;
+    origin_owner?: "external" | "prism" | "none";
     folder_id?: string | null;
     kicad_version?: string;
 }

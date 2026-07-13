@@ -12,12 +12,11 @@ we ever want the plugin to talk to Prism directly.
 from __future__ import annotations
 
 import json
-import os
+import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from pathlib import Path
 
 from . import identity
 
@@ -120,18 +119,18 @@ class PrismClient:
     def find_project(self, path: str) -> dict | None:
         """Which Prism project is this local directory?
 
-        Two ways, in order:
+        Two ways, in order, and neither compares filesystem paths any more. The server
+        no longer sends its own `path` (it was meaningless off-machine), so the old
+        string match is gone.
 
-        1. **The marker.** The checkout's `.prism.json` carries the project id, so we
-           just look it up. This is the one that works when the server is on another
-           machine, which is the entire point.
-        2. **The path**, as a fallback. Only correct when the server and the client
-           are the same machine, which is the assumption this whole exercise exists
-           to remove. It stays because markers are still spreading: a project imported
-           before phase 1 and not yet reopened has no marker, and regressing it to
-           "Not registered" would be a real bug for no gain.
+        1. **The marker.** The checkout's `.prism.json` carries the project id. Direct
+           lookup, works from anywhere.
+        2. **The git origin.** For a checkout that predates the marker, ask git for its
+           `origin` and match that against the project's `origin_url`. Also machine
+           independent: two clones of the same repo agree on their remote no matter
+           where they sit on disk.
 
-        The fallback goes away in phase 3, when the server stops sending `path` at all.
+        Both are identities. Neither is a guess about co-location.
         """
         rows = self._request("GET", "/api/projects")
         if not isinstance(rows, list):
@@ -143,21 +142,29 @@ class PrismClient:
                 if isinstance(row, dict) and row.get("id") == marker_id:
                     return row
             # The checkout names a project this server does not have. Say nothing
-            # rather than fall back to a path match: a path collision would report
-            # the *wrong* project, and a wrong answer is worse than no answer.
+            # rather than fall back: a loose match could report the *wrong* project,
+            # and a wrong answer about which board you are looking at is worse than
+            # no answer.
             return None
 
-        return self._find_by_path(rows, path)
+        return self._find_by_origin(rows, path)
 
-    def _find_by_path(self, rows: list, path: str) -> dict | None:
-        """Legacy lookup: compare the local path against the server's own path.
+    def _find_by_origin(self, rows: list, path: str) -> dict | None:
+        """Match a checkout to a project by the git remote they share.
 
-        Same-machine only. See find_project.
+        For projects imported before the marker existed. A project with no origin at
+        all (`origin_owner == "none"`) can never match this way, which is correct:
+        there is nothing to match on, and guessing would be worse than saying no.
         """
-        target = _normalise(path)
+        origin = _git_origin(path)
+        if not origin:
+            return None
+        target = _normalise_url(origin)
         for row in rows:
-            p = row.get("path") if isinstance(row, dict) else None
-            if p and _normalise(p) == target:
+            if not isinstance(row, dict):
+                continue
+            candidate = row.get("origin_url")
+            if candidate and _normalise_url(candidate) == target:
                 return row
         return None
 
@@ -172,25 +179,42 @@ class PrismClient:
         return f"{self.config.base_url.rstrip('/')}/project/{project_id}"
 
 
-def _normalise(path: str) -> str:
-    """Canonical form of a path, for comparing two spellings of the same folder.
-
-    Resolving matters, not just lowercasing: Prism stores the path it was imported
-    with, which is often *relative to its own workspace* and full of `..`, e.g.
-
-        C:\\...\\KiCAD-Prism\\data\\projects\\..\\..\\..\\test board
-
-    That names the same folder as C:\\Users\\...\\Projects\\test board, but compared
-    as a string it doesn't match, so the plugin reported a registered project as
-    "Not registered". Collapse the traversal (and follow symlinks, so a project
-    reached through a link still matches) before comparing.
-    """
+def _git_origin(tree: str) -> str:
+    """The `origin` remote of a local checkout, or "" if it has none."""
     try:
-        # resolve() collapses `..` and follows symlinks. strict=False so a path
-        # that no longer exists still normalises rather than raising.
-        resolved = str(Path(path).expanduser().resolve())
-    except (OSError, ValueError):
-        resolved = os.path.normpath(os.path.expanduser(path))
-    # normcase folds case *and* separators on Windows; a no-op on POSIX, where
-    # paths really are case-sensitive.
-    return os.path.normcase(resolved).replace("\\", "/").rstrip("/")
+        result = subprocess.run(
+            ["git", "-C", tree, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            # Windows: stop a console window flashing up when KiCad's Python calls us.
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _normalise_url(url: str) -> str:
+    """Canonical form of a git remote, for comparing two spellings of the same one.
+
+    The same NAS share really does show up as both `\\\\HOST\\share\\x` and
+    `//HOST/share/x` depending on who wrote it, and a trailing `.git` is optional
+    everywhere. Compared raw, those name the same remote and fail to match.
+
+    Deliberately conservative: fold separators, a trailing slash, a trailing `.git`,
+    and case. It does not try to equate ssh:// with https:// forms of the same host,
+    because those are genuinely different remotes to git and pretending otherwise
+    would be a guess.
+    """
+    u = url.strip().replace("\\", "/").rstrip("/")
+    if u.lower().endswith(".git"):
+        u = u[:-4]
+    return u.casefold()
+
+
+# _normalise(path) used to live here: it canonicalised a filesystem path so the
+# agent could compare its own against the one the server reported. The server no
+# longer reports one, so there is nothing left to compare and the function is gone.
+# Identity now travels in the repo (the marker) or in git (the origin).

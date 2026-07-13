@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import quote
 
 from git import RemoteProgress, Repo
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.services import path_config_service
 
@@ -23,15 +23,33 @@ class Project(BaseModel):
     name: str
     display_name: str | None = None  # Custom name from .prism.json
     description: str
-    path: str
+    # Where THIS SERVER keeps the project on its own disk.
+    #
+    # Private. `exclude=True` keeps it out of every API response, because it is
+    # meaningless to a client: it names a directory on the server's filesystem, and
+    # a client that compares it against its own paths is only ever right by accident
+    # of being the same machine. That accident is the bug this whole migration
+    # exists to remove. Server-side code still reads it freely (thumbnails, diffs,
+    # path config all need a real directory); it simply never leaves the process.
+    #
+    # Clients identify a project by `id` (the committed .prism.json marker) and find
+    # git via `origin_url`.
+    path: str = Field(exclude=True)
     last_modified: str
     registered_at: str | None = None
     thumbnail_url: str | None = None
     sub_path: str | None = None  # Relative path within parent repo
     parent_repo: str | None = None  # Parent monorepo name
     repo_url: str | None = None  # Original Git URL
+    # Where git actually lives, and who owns it. This is what a client clones.
+    #   external  a remote we do not host (GitHub, GitLab, a NAS share, SSH)
+    #   prism     a bare repo Prism hosts (phase 5)
+    #   none      not backed by git yet; Prism knows the project, git does not
+    origin_url: str | None = None
+    origin_owner: str | None = None
     import_type: str | None = None  # "type1" or "type2_subproject"
-    parent_repo_path: str | None = None  # Path to parent repo for Type-2
+    # Also private, and for the same reason: it is the server's clone directory.
+    parent_repo_path: str | None = Field(default=None, exclude=True)
     folder_id: str | None = (
         None  # Optional folder assignment for workspace organization
     )

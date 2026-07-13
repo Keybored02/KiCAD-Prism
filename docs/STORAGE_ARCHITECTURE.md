@@ -37,9 +37,18 @@ once:
 | satnogs | `data/projects/type1/satnogs...` | `https://gitlab.com/...` | server-owned clone of an upstream |
 | test board | `data/projects/../../../test board` | `C:\...\test board` | server operating **directly on the user's working tree** |
 | C100.03 | `D:\Documents\...` | same as path | referenced in place, off-workspace |
+| CIAA_ACC | `data/projects/../../../../../../Desktop/CIAA_ACC` | `C:\...\Desktop\CIAA_ACC` | referenced in place, and **not a git repo at all** |
 
-Two of those are a relative escape out of the server's workspace. They work by accident of
-co-location, and a Prism server deployed anywhere else silently breaks for them.
+Three of those are a relative escape out of the server's workspace. They work by accident
+of co-location, and a Prism server deployed anywhere else silently breaks for them.
+
+Note what `repo_url` holds for the bottom three: a **filesystem path, not a git remote**.
+The column means two different things depending on how the project was imported, and a
+client cannot tell which. That is the ambiguity phase 3 removes.
+
+The migration resolved these by asking git. `test board` and `C100.03` turned out to have
+real remotes after all (a NAS share), so both became `external`. CIAA_ACC has no `.git` at
+all and became `none`.
 
 **This is the thing to migrate away from.** Not because the models are wrong, but because
 the *identity* is wrong: a path is not an identity.
@@ -188,10 +197,30 @@ not have, the answer is **no project**, not a path match. Falling back there cou
 the *wrong* project, and a wrong answer about which board you are looking at is worse than
 no answer.
 
-**Phase 3: the server stops leaking its workspace.** Split `path` into private
-`workspace_path` and public `origin_url` + `origin_owner`. Stop sending `path` to clients.
-Migrate the existing rows: a relative-escape path becomes `origin_owner = "external"` with
-`origin_url` = the tree's actual git remote.
+**Phase 3: the server stops leaking its workspace.** `path` stays on the internal model
+(thumbnails, diffs and path config all need a real directory) but is **excluded from
+serialisation**, so it never leaves the process. Clients get `origin_url` + `origin_owner`
+instead. The origin is derived by **asking git**, not by trusting the stored `url`: for a
+cloned repo they agree, but for a local import `url` is the folder the user picked, which
+is not a remote at all. That ambiguity was the bug.
+
+The agent's path fallback dies with it, replaced by an **origin match**: ask git for the
+checkout's `origin` and compare it to the project's `origin_url`. Also machine
+independent, so it works for pre-marker projects without reintroducing co-location.
+
+`origin_owner` has three values, not two:
+
+| value | meaning |
+|---|---|
+| `external` | a remote we do not host: GitHub, GitLab, an SSH host, a NAS share |
+| `prism` | a bare repo Prism hosts (phase 5) |
+| `none` | **not backed by git at all.** Prism knows the project; git does not |
+
+`none` is not a failure state, it is an honest one. A project can be registered and simply
+not be in git yet. It keeps working exactly as before, and *adopting* it (git init, first
+commit, give it an origin) is an explicit thing the user does, never something a startup
+migration does behind their back.
+
 *This is where the current model actually dies.*
 
 **Phase 4: `prism://open/<id>`.** Now trivial: look up the marker, open KiCad; if absent,

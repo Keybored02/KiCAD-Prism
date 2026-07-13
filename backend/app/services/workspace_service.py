@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import sqlite3
+import subprocess
 import threading
 import uuid
 from collections.abc import Iterator
@@ -45,6 +46,29 @@ def _hash_file(path: Path) -> str | None:
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
         return None
+
+
+def _git_origin(tree: str) -> str:
+    """The `origin` remote of a working tree, or "" if it has none.
+
+    Asks git rather than trusting the stored `url`, which for a local import is a
+    filesystem path the user picked, not a remote. Returns "" for a directory that
+    is not a git repo at all, which is a legitimate state, not an error.
+    """
+    if not tree or not os.path.isdir(tree):
+        return ""
+    try:
+        result = subprocess.run(
+            ["git", "-C", tree, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as err:
+        logger.warning("Could not read the git origin of %s: %s", tree, err)
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 class WorkspaceService:
@@ -177,6 +201,11 @@ class WorkspaceService:
         # Incremental migrations for columns added after initial schema
         for stmt in [
             "ALTER TABLE ws_projects ADD COLUMN kicad_version TEXT",
+            # Where git actually lives, and who owns it. `url` used to carry both a
+            # real remote and (for local imports) a filesystem path, which is why
+            # clients could not tell the two apart. These separate them.
+            "ALTER TABLE ws_repositories ADD COLUMN origin_url TEXT",
+            "ALTER TABLE ws_repositories ADD COLUMN origin_owner TEXT",
         ]:
             try:
                 conn.execute(stmt)
@@ -184,6 +213,47 @@ class WorkspaceService:
                 pass
         conn.commit()
         self._backfill_kicad_version(conn)
+        self._backfill_origin(conn)
+
+    def _backfill_origin(self, conn: sqlite3.Connection) -> None:
+        """Work out where each repository's git origin really is.
+
+        `url` is not trustworthy for this. For a cloned repo it holds a real remote,
+        but for a local import it holds the *filesystem path the user picked*, and
+        the two are indistinguishable to a client. That ambiguity is the bug.
+
+        So ask git, which is the only thing that actually knows:
+
+          origin_owner = "external"  a real remote exists (including a NAS or SSH path)
+          origin_owner = "none"      the tree is not a git repo, or has no remote
+
+        "none" is deliberate rather than a failure. A project can be registered with
+        Prism and simply not be backed by git yet; saying so is honest, and it keeps
+        working exactly as before. Adopting it (git init, first commit, give it an
+        origin) is a separate, explicit action the user takes, not something a
+        startup migration should do behind their back.
+        """
+        rows = conn.execute(
+            "SELECT id, clone_path FROM ws_repositories WHERE origin_owner IS NULL"
+        ).fetchall()
+        if not rows:
+            return
+
+        for row in rows:
+            clone = self._abs_clone_path(row["clone_path"] or "")
+            origin = _git_origin(clone)
+            owner = "external" if origin else "none"
+            conn.execute(
+                "UPDATE ws_repositories SET origin_url=?, origin_owner=? WHERE id=?",
+                (origin, owner, row["id"]),
+            )
+            logger.info(
+                "Repository %s: origin_owner=%s origin_url=%s",
+                row["id"],
+                owner,
+                origin or "(none)",
+            )
+        conn.commit()
 
     def _backfill_kicad_version(self, conn: sqlite3.Connection) -> None:
         """Populate kicad_version for existing projects that have a NULL value."""
@@ -273,17 +343,42 @@ class WorkspaceService:
         url: str,
         clone_path_abs: str,
         import_type: str = "single",
+        origin_url: str | None = None,
+        origin_owner: str | None = None,
     ) -> str:
         repo_id = _new_id("repo_")
         now = _utc_now_iso()
         rel = self._rel_clone_path(clone_path_abs)
+
+        # Ask git where the origin is rather than assuming `url` is one. For a repo
+        # we cloned they agree; for a local import `url` is the folder the user
+        # picked, which is not a remote at all. A caller that already knows (phase 5,
+        # where Prism itself is the origin) can say so and skip the guess.
+        if origin_owner is None:
+            found = _git_origin(clone_path_abs)
+            origin_url = found
+            origin_owner = "external" if found else "none"
+
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO ws_repositories (id,name,url,clone_path,import_type,cloned_at) VALUES (?,?,?,?,?,?)",
-                (repo_id, name, url, rel, import_type, now),
+                "INSERT INTO ws_repositories "
+                "(id,name,url,clone_path,import_type,cloned_at,origin_url,origin_owner) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    repo_id,
+                    name,
+                    url,
+                    rel,
+                    import_type,
+                    now,
+                    origin_url or "",
+                    origin_owner,
+                ),
             )
             conn.commit()
-        logger.info("Registered repository %s (%s)", name, repo_id)
+        logger.info(
+            "Registered repository %s (%s) origin_owner=%s", name, repo_id, origin_owner
+        )
         return repo_id
 
     def get_repository_by_url(self, url: str) -> dict[str, Any] | None:
@@ -448,6 +543,7 @@ class WorkspaceService:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
+                          r.origin_url, r.origin_owner,
                           r.name AS parent_repo, r.import_type,
                           r.last_synced_at AS repo_last_synced,
                           f.visibility_mode, f.allowed_roles
@@ -468,6 +564,7 @@ class WorkspaceService:
         with self._connect() as conn:
             row = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
+                          r.origin_url, r.origin_owner,
                           r.name AS parent_repo, r.import_type
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
@@ -480,6 +577,7 @@ class WorkspaceService:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
+                          r.origin_url, r.origin_owner,
                           r.name AS parent_repo, r.import_type
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
@@ -536,6 +634,7 @@ class WorkspaceService:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
+                          r.origin_url, r.origin_owner,
                           r.name AS parent_repo, r.import_type,
                           f.visibility_mode, f.allowed_roles
                    FROM ws_projects p
@@ -817,6 +916,7 @@ class WorkspaceService:
             ).fetchall()
             projects = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
+                          r.origin_url, r.origin_owner,
                           r.name AS parent_repo, r.import_type
                    FROM ws_projects p JOIN ws_repositories r ON r.id=p.repo_id
                    WHERE p.folder_id IS ? ORDER BY p.name""",
