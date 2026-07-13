@@ -257,10 +257,12 @@ class SettingsDialog(wx.Dialog):
                 0,
             )
         else:
+            # Not reachable today: all three platforms can register. Kept as a graceful
+            # fallback rather than a crash if one ever cannot.
             self.handler = None
             links.body.Add(
                 links.label(
-                    "Not available on macOS: requires an .app bundle.",
+                    "Not available on this platform.",
                     tone="muted_fg",
                     small=True,
                 ),

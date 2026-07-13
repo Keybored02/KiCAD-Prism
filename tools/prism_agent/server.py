@@ -29,7 +29,6 @@ from __future__ import annotations
 import json
 import logging
 import secrets
-import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -341,10 +340,9 @@ class _Handler(BaseHTTPRequestHandler):
             "identity": self.state.prism.identity(),
             "protocol": {
                 "registered": protocol.is_registered(),
-                # macOS can't register a scheme from a plain script (it needs an
-                # .app bundle), so tell the UI rather than offering a toggle that
-                # would always fail.
-                "supported": sys.platform != "darwin",
+                # All three platforms now. macOS needs an .app bundle to claim a
+                # scheme, but we build one at opt-in time rather than shipping it.
+                "supported": True,
             },
             "autostart": {"enabled": autostart.is_enabled(), "supported": True},
         }

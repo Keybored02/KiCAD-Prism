@@ -207,11 +207,11 @@ class FirstRunDialog(wx.Dialog):
                 th.SP_MD,
             )
         else:
+            # Not reachable today: all three platforms can register.
             self.handler = None
             card.body.Add(
                 card.label(
-                    "prism:// links need the agent packaged as a .app on macOS,\n"
-                    "so that isn't available here yet.",
+                    "Not available on this platform.",
                     tone="muted_fg",
                     small=True,
                 ),

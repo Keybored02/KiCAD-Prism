@@ -7,16 +7,19 @@ Two separable halves:
     every platform does it differently, and one of them can't do it at all from a
     plain script.
 
-Registration, honestly:
+Registration, per platform. All three are per-user, and all three work:
 
-  Windows   a per-user registry key under HKCU\\Software\\Classes\\prism. No admin
-            needed, and it's undoable. Works.
+  Windows   a registry key under HKCU\\Software\\Classes\\prism. No admin needed.
   Linux     a .desktop file declaring MimeType=x-scheme-handler/prism, then
-            update-desktop-database. Works.
-  macOS     the scheme must be declared in an app bundle's Info.plist
-            (CFBundleURLTypes). A bare `python -m prism_agent` has no bundle, so
-            it CANNOT register, this needs the agent shipped as a real .app.
-            register() says so rather than pretending it worked.
+            update-desktop-database.
+  macOS     an .app bundle in ~/Applications whose Info.plist declares
+            CFBundleURLTypes. LaunchServices genuinely will not read the scheme from
+            anywhere else, so a bare `python -m prism_agent` cannot claim it.
+
+            But an .app is just a DIRECTORY with a plist and an executable. Nothing
+            about it is privileged: no Apple account, no signing, no notarisation.
+            So we build one at opt-in time, containing a shell script that hands the
+            URL back to the agent. No .app needs to be shipped.
 
 Nothing here runs unless the user opts in (settings.protocol_handler). Claiming a
 URL scheme behind someone's back is exactly the sort of thing people resent.
@@ -110,7 +113,7 @@ def is_registered() -> bool:
         except OSError:
             return False
     if sys.platform == "darwin":
-        return False  # needs an .app bundle; see the module docstring
+        return _mac_app_bundle().is_dir()
     return _linux_desktop_file().is_file()
 
 
@@ -119,12 +122,7 @@ def register() -> None:
     if sys.platform == "win32":
         _register_windows()
     elif sys.platform == "darwin":
-        raise RegistrationError(
-            "On macOS a URL scheme can only be claimed by an application bundle "
-            "(via CFBundleURLTypes in its Info.plist), and the agent currently runs "
-            "as a plain Python module. prism:// links need the agent packaged as a "
-            ".app, until then, this can't be enabled here."
-        )
+        _register_macos()
     else:
         _register_linux()
 
@@ -133,7 +131,7 @@ def unregister() -> None:
     if sys.platform == "win32":
         _unregister_windows()
     elif sys.platform == "darwin":
-        return  # nothing was ever registered
+        _unregister_macos()
     else:
         _unregister_linux()
 
@@ -179,6 +177,97 @@ def _unregister_windows() -> None:
             winreg.DeleteKey(winreg.HKEY_CURRENT_USER, sub)
         except OSError:
             pass  # already gone, or never there
+
+
+# -- macOS ----------------------------------------------------------------
+#
+# LaunchServices only reads CFBundleURLTypes from an app bundle's Info.plist, so a bare
+# `python -m prism_agent` genuinely cannot claim a scheme. That is a real OS rule.
+#
+# But an .app is just a DIRECTORY with a plist and an executable in it. Nothing about it
+# is privileged: no Apple account, no signing, no notarisation, no App Store. So we build
+# one, in the user's own ~/Applications, at the moment they opt in. It is a shim: a shell
+# script that hands the URL back to the agent.
+#
+# (This is separate from Gatekeeper. Gatekeeper only inspects files carrying
+# com.apple.quarantine, which is set by the app that DOWNLOADS a file. Nothing here is
+# downloaded, we write it locally, so the flag is never set and never checked.)
+
+
+def _mac_app_bundle() -> Path:
+    return Path.home() / "Applications" / "KiCad-Prism Agent.app"
+
+
+def _register_macos() -> None:
+    bundle = _mac_app_bundle()
+    macos_dir = bundle / "Contents" / "MacOS"
+    launcher = macos_dir / "prism-url-handler"
+
+    # The shim. LaunchServices passes the URL as an argument, and we hand it straight
+    # to the agent, whatever the agent happens to be (a frozen binary or a checkout).
+    command = " ".join('"%s"' % part for part in _launch_command())
+
+    try:
+        macos_dir.mkdir(parents=True, exist_ok=True)
+        launcher.write_text(
+            '#!/bin/sh\nexec %s "$@"\n' % command,
+            encoding="utf-8",
+        )
+        launcher.chmod(0o755)
+
+        (bundle / "Contents" / "Info.plist").write_text(
+            _MAC_INFO_PLIST.format(scheme=SCHEME, executable=launcher.name),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise RegistrationError("Couldn't write %s: %s" % (bundle, exc)) from exc
+
+    # Tell LaunchServices the bundle exists. Without this it may not notice until the
+    # next login, which would make the opt-in look like it silently failed.
+    for tool in (
+        "/System/Library/Frameworks/CoreServices.framework/Frameworks"
+        "/LaunchServices.framework/Support/lsregister",
+    ):
+        try:
+            subprocess.run(
+                [tool, "-f", str(bundle)], capture_output=True, timeout=20, check=False
+            )
+        except (OSError, subprocess.SubprocessError):
+            log.debug("lsregister unavailable while registering the scheme")
+
+
+def _unregister_macos() -> None:
+    import shutil
+
+    try:
+        shutil.rmtree(_mac_app_bundle())
+    except OSError:
+        pass
+
+
+_MAC_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>              <string>KiCad-Prism Agent</string>
+  <key>CFBundleIdentifier</key>        <string>com.kicad-prism.agent</string>
+  <key>CFBundleVersion</key>           <string>1.0</string>
+  <key>CFBundlePackageType</key>       <string>APPL</string>
+  <key>CFBundleExecutable</key>        <string>{executable}</string>
+  <!-- A handler, not something to show in the Dock. -->
+  <key>LSBackgroundOnly</key>          <true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>       <string>Prism</string>
+      <key>CFBundleURLSchemes</key>
+      <array><string>{scheme}</string></array>
+    </dict>
+  </array>
+</dict>
+</plist>
+"""
 
 
 # -- Linux ----------------------------------------------------------------
