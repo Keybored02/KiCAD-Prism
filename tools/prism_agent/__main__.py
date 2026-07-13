@@ -188,6 +188,12 @@ def _handle_url(url: str) -> int:
         webbrowser.open(target)
         return 0
 
+    if link.action == "ping":
+        # End-to-end check of the registration itself: the browser hands the OS a
+        # prism:// URL, the OS launches us, we say so. No project, no KiCad.
+        _show_dialog("Prism", "prism:// links are working.")
+        return 0
+
     if link.action == "auth":
         # The OIDC redirect will land here. Handing the code to the running agent
         # is the next piece of work; for now say so plainly rather than silently
@@ -200,6 +206,47 @@ def _handle_url(url: str) -> int:
 
     print(f"Don't know how to handle prism://{link.action}", file=sys.stderr)
     return 2
+
+
+def _show_dialog(title: str, message: str) -> None:
+    """A message box, from a process with no GUI toolkit loaded.
+
+    This runs as a short-lived process the OS spawned for the URL, so there's no wx
+    and no tray to talk to. Each platform's own dialog is the cheapest way to put
+    something on screen, and falls back to stdout if that fails.
+    """
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(None, message, title, 0x40)  # MB_ICONINFO
+            return
+        if sys.platform == "darwin":
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    f'display dialog "{message}" with title "{title}" '
+                    'buttons {"OK"} default button "OK"',
+                ],
+                check=False,
+                timeout=60,
+            )
+            return
+        for cmd in (
+            ["zenity", "--info", f"--title={title}", f"--text={message}"],
+            ["kdialog", "--title", title, "--msgbox", message],
+            ["notify-send", title, message],
+        ):
+            try:
+                subprocess.run(cmd, check=True, timeout=60)
+                return
+            except (OSError, subprocess.SubprocessError):
+                continue
+    except Exception:
+        pass  # no GUI available; fall through to stdout
+
+    print(f"{title}: {message}")
 
 
 def self_command(*args: str) -> list[str]:

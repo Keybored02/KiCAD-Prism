@@ -1,7 +1,7 @@
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Suspense, lazy, useEffect, useState, type ComponentType } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, Image } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, Image, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -333,6 +333,19 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     <h1 className="text-xl font-bold truncate max-w-[200px] md:max-w-none">{project ? getDisplayName(project) : ''}</h1>
                     <p className="text-sm text-muted-foreground hidden md:block">{project?.description}</p>
                 </div>
+
+                {/* Open in KiCad. Fires a prism:// link, which the local Prism agent
+                    handles. Nothing happens if the agent isn't installed: the browser
+                    silently ignores an unregistered scheme, so we can't detect it and
+                    shouldn't pretend to. */}
+                <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => { window.location.href = 'prism://ping'; }}
+                    title="Open in KiCad (requires the Prism agent)"
+                >
+                    <ExternalLink className="h-4 w-4" />
+                </Button>
 
                 {/* Sync Button */}
                 {canMutateProject && (
