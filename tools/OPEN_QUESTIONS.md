@@ -42,7 +42,7 @@ silently keep running the old agent forever.
   shut down and deregister autostart. Self-healing, needs no hook, but the agent
   polls its own path — slightly odd, and racy during an update (the file vanishes
   and reappears).
-* **Version handshake forces a restart** (see §3). The new plugin sees an old agent,
+* **Version handshake forces a restart** (shipped). The new plugin sees an old agent,
   tells it to quit, and starts the new one. Solves *update* cleanly; does nothing for
   *uninstall*.
 * **Both.** Probably right: the handshake handles updates (the common case), and the
