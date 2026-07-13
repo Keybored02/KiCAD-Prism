@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar, GitCompare, ChevronDown, ChevronRight, ChevronLeft, FileText, Plus, Minus, RefreshCw, Loader2, X, CircuitBoard, Cpu, List, Settings, FileCode, LayoutList } from "lucide-react";
+import { GitCommit, Tag, Eye, Check, Copy, User, Clock, Calendar, GitCompare, ChevronDown, ChevronRight, ChevronLeft, ExternalLink, FileText, Plus, Minus, RefreshCw, Loader2, X, CircuitBoard, Cpu, List, Settings, FileCode, LayoutList } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -452,6 +452,23 @@ function CommitItem({
                                 title="View this version's changes"
                             >
                                 <Eye className="h-3 w-3" />
+                            </Button>
+                            {/* Open THIS revision in KiCad, not just whatever happens to
+                                be checked out. The agent finds the project by its marker,
+                                clones it if this machine does not have it, and moves the
+                                working tree to this commit, refusing if that would
+                                destroy uncommitted work. */}
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                onClick={() => {
+                                    window.location.href =
+                                        `prism://open/${projectId}?commit=${commit.full_hash}`;
+                                }}
+                                title="Open this version in KiCad (requires the Prism agent)"
+                            >
+                                <ExternalLink className="h-3 w-3" />
                             </Button>
                         </div>
                     </div>

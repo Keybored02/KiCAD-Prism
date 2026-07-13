@@ -188,7 +188,11 @@ def _handle_url(url: str) -> int:
         # A project link opens the project ON THIS MACHINE, in KiCad. That is the
         # point of having a desktop agent at all; if the user wanted the web app they
         # would have clicked a web link.
-        return _open_project_locally(link.project_id, saved)
+        #
+        # ?commit=<sha> (or ?ref=) opens a PRECISE revision, which is what makes a link
+        # from a diff or a release actually land somewhere useful.
+        ref = link.params.get("commit") or link.params.get("ref") or ""
+        return _open_project_locally(link.project_id, saved, ref)
 
     if link.action == "web":
         # The escape hatch: prism://web/<id> forces the browser. Go through
@@ -228,17 +232,17 @@ def _handle_url(url: str) -> int:
     return 2
 
 
-def _open_project_locally(project_id: str, saved) -> int:
+def _open_project_locally(project_id: str, saved, ref: str = "") -> int:
     """prism://open/<id>: open the project in KiCad, cloning it first if needed.
 
-    Runs in the short-lived process the OS spawned for the URL, so there is no tray
-    and no wx here. Anything the user needs to see or answer goes through the native
-    dialogs in _show_dialog / _ask.
+    `ref` opens a precise revision. Runs in the short-lived process the OS spawned for
+    the URL, so there is no tray and no wx here. Anything the user needs to see or
+    answer goes through the native dialogs in _show_dialog / _ask.
     """
     from . import open_project
 
     try:
-        opened = open_project.open_project(project_id, confirm=_ask)
+        opened = open_project.open_project(project_id, confirm=_ask, ref=ref)
     except open_project.OpenError as exc:
         msg = str(exc)
         if msg == "Cancelled.":

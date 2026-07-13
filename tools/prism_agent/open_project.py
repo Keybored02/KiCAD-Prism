@@ -21,7 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import identity
+from . import checkout, identity
 from . import settings as settings_store
 from .prism_client import PrismClient
 
@@ -155,19 +155,26 @@ def _config(saved):
     return PrismConfig(base_url=saved.server_url, token=saved.api_token)
 
 
-def open_project(project_id: str, confirm=None) -> str:
+def open_project(project_id: str, confirm=None, ref: str = "") -> str:
     """Open a Prism project, cloning it first if this machine does not have it.
+
+    `ref`, when given, is a commit/branch/tag to move the working tree to first. That is
+    what makes a link to a *specific revision* mean something on the desktop rather than
+    just opening whatever the user happens to have checked out.
 
     `confirm(question) -> bool` is asked before anything is written to disk. Cloning a
     repo the user did not ask for, into a folder they did not choose, is exactly the
     kind of thing a URL handler must not do silently: a link in a browser is not
-    consent to write to the filesystem.
+    consent to write to the filesystem. The same applies to a checkout, which moves
+    every file under a KiCad that may have them open.
 
     Returns the directory the project was opened from.
     """
     state = resolve(project_id)
 
     if state["found"]:
+        if ref:
+            _checkout_ref(state["found"], ref, confirm)
         launch_kicad(state["found"])
         return state["found"]
 
@@ -207,8 +214,40 @@ def open_project(project_id: str, confirm=None) -> str:
     if not identity.project_id(marker_dir):
         identity.write(marker_dir, project_id, settings_store.load().server_url)
 
+    if ref:
+        # A fresh clone is clean by definition, so this cannot destroy anything and
+        # needs no second confirmation: the user already agreed to the clone.
+        _checkout_ref(marker_dir, ref, confirm=None)
+
     launch_kicad(marker_dir)
     return marker_dir
+
+
+def _checkout_ref(project_dir: str, ref: str, confirm) -> None:
+    """Move a checkout to a specific revision, refusing to destroy uncommitted work.
+
+    The guards live in checkout.py; this is the part that decides whether to ASK. A
+    checkout replaces every file in the tree under a KiCad that may have them open, so
+    it is not something a link should do silently to a project the user is working in.
+    """
+    state = checkout.status(project_dir, ref)
+
+    if state.get("reason") == "already_here":
+        return  # nothing to do, and nothing worth saying
+
+    if not state["can"]:
+        raise OpenError(state["message"])
+
+    if confirm is not None and not confirm(
+        "Switch this project to %s?\n\n%s\n\nKiCad will show the files as they were at "
+        "that revision." % (ref, state["target"].get("subject") or "")
+    ):
+        raise OpenError("Cancelled.")
+
+    try:
+        checkout.checkout(project_dir, ref)
+    except checkout.CheckoutError as exc:
+        raise OpenError(str(exc)) from exc
 
 
 def _safe_dirname(name: str) -> str:

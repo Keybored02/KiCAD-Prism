@@ -347,17 +347,20 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                 </div>
 
                 {/* Open in KiCad. Fires a prism:// link, which the local Prism agent
-                    handles. Nothing happens if the agent isn't installed: the browser
-                    silently ignores an unregistered scheme, so we can't detect it and
-                    shouldn't pretend to. */}
-                <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => { window.location.href = 'prism://ping'; }}
-                    title="Open in KiCad (requires the Prism agent)"
-                >
-                    <ExternalLink className="h-4 w-4" />
-                </Button>
+                    handles: it finds the project by its marker, clones it if this
+                    machine does not have it, and opens it. Nothing happens if the agent
+                    isn't installed: the browser silently ignores an unregistered scheme,
+                    so we can't detect it and shouldn't pretend to. */}
+                {project && (
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => { window.location.href = `prism://open/${project.id}`; }}
+                        title="Open in KiCad (requires the Prism agent)"
+                    >
+                        <ExternalLink className="h-4 w-4" />
+                    </Button>
+                )}
 
                 {/* Sync Button */}
                 {canMutateProject && (

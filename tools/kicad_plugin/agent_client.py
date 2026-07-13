@@ -217,6 +217,33 @@ class AgentClient:
             timeout=DIFF_TIMEOUT,
         )
 
+    # -- moving around the history -----------------------------------------
+
+    def checkout_status(self, path, ref=""):
+        """Could we check `ref` out, and if not, why not? Read-only.
+
+        Ask this BEFORE offering a button, so a refusal is explained in advance rather
+        than after the user has committed to the action.
+        """
+        url = "/checkout?path=" + urllib.parse.quote(path)
+        if ref:
+            url += "&ref=" + urllib.parse.quote(ref)
+        return self._call("GET", url)
+
+    def checkout(self, path, ref):
+        """Move the working tree to a commit, branch or tag.
+
+        Refuses anything that would destroy uncommitted work. The agent re-checks that
+        immediately before acting, so a stale "it was clean" from a moment ago cannot
+        lose a board the user just saved.
+        """
+        return self._call("POST", "/checkout", {"path": path, "ref": ref})
+
+    def pull(self, path):
+        """Fetch and fast-forward. Never a merge: a KiCad board cannot be merged
+        textually, and git would happily produce one neither author drew."""
+        return self._call("POST", "/pull", {"path": path}, timeout=DIFF_TIMEOUT)
+
     # -- settings ----------------------------------------------------------
 
     def settings(self):

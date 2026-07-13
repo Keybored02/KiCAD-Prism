@@ -822,7 +822,88 @@ class PrismDialog(wx.Dialog):
         if commit_hash:
             self._add_commit_row(card, commit_hash, git.get("last_commit") or "", prism)
 
+        self._add_pull_row(card, git)
+
         self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
+    def _add_pull_row(self, card, git):
+        """Offer to pull, but only when it would actually work.
+
+        Every reason it would not is said out loud instead. A Pull button that fails
+        when pressed teaches people to distrust the whole dialog, and the failures here
+        are ones the user can fix (commit your work, get back on a branch).
+        """
+        behind = git.get("behind") or 0
+        ahead = git.get("ahead") or 0
+
+        if git.get("dirty"):
+            # A pull that touches a file you have edited either refuses or overwrites.
+            # Say so before offering anything.
+            card.body.Add(
+                card.label(
+                    "Commit or stash your changes before pulling.",
+                    tone="muted_fg",
+                    small=True,
+                ),
+                0,
+                wx.TOP,
+                th.SP_XS,
+            )
+            return
+
+        if ahead and behind:
+            # Diverged. A KiCad board cannot be merged textually, so this is not
+            # something a button should attempt.
+            card.body.Add(
+                card.label(
+                    "This branch and the remote have both moved on. A board cannot be "
+                    "merged automatically; one version has to be chosen.",
+                    tone="warning",
+                    small=True,
+                ),
+                0,
+                wx.TOP,
+                th.SP_XS,
+            )
+            return
+
+        if not behind:
+            return  # nothing to pull; no button, no noise
+
+        card.body.Add(
+            Button(
+                card,
+                "Pull %d commit%s" % (behind, "" if behind == 1 else "s"),
+                self.pal,
+                variant="secondary",
+                on_click=self._pull,
+            ),
+            0,
+            wx.TOP,
+            th.SP_XS,
+        )
+
+    def _pull(self):
+        """Fast-forward the working tree. The agent refuses anything riskier."""
+        project = (self.data or {}).get("project")
+        if not project:
+            return
+        try:
+            with wx.BusyCursor():
+                result = AgentClient().pull(project["path"])
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        # The board on disk has changed under KiCad, which will not know. Saying so is
+        # the difference between a confusing stale view and an understood one.
+        wx.MessageBox(
+            "%s\n\nReopen the board in KiCad to see the updated version."
+            % result.get("message", "Done."),
+            "Prism",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+        self._load()
 
     def _add_commit_row(self, card, commit_hash, subject, prism):
         """The last commit: SHA in a tag, subject beside it, the pair a link into Prism.

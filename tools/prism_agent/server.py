@@ -38,6 +38,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from . import (
     adopt,
     autostart,
+    checkout,
     discovery,
     identity,
     protocol,
@@ -271,6 +272,19 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, adopt.status(path))
             return
 
+        if route.path == "/checkout":
+            # Could we check this ref out, and if not, why not? Read-only, so a refusal
+            # is explained BEFORE the user commits to the action rather than after.
+            path = (query.get("path") or [""])[0]
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            try:
+                self._send(200, checkout.status(path, (query.get("ref") or [""])[0]))
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
         self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
@@ -335,6 +349,35 @@ class _Handler(BaseHTTPRequestHandler):
                     200, self._publish(path, name, body.get("description") or "")
                 )
             except adopt.AdoptError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/checkout":
+            # Move the working tree to a commit, branch or tag. The guards are
+            # re-checked inside, immediately before acting: the user may have saved a
+            # board in KiCad since the UI last looked, and a stale "it was clean" is
+            # exactly how uncommitted work gets destroyed.
+            path = body.get("path") or ""
+            ref = body.get("ref") or ""
+            if not path or not ref:
+                self._send(400, {"error": "path and ref are required"})
+                return
+            try:
+                self._send(200, checkout.checkout(path, ref))
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/pull":
+            # Fetch and fast-forward. NEVER a merge: a .kicad_pcb cannot be merged
+            # textually, and git would happily produce a board neither author drew.
+            path = body.get("path") or ""
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            try:
+                self._send(200, checkout.pull(path))
+            except checkout.CheckoutError as exc:
                 self._send(400, {"error": str(exc)})
             return
 
