@@ -380,7 +380,57 @@ class WorkspaceService:
             )
             conn.commit()
         logger.info("Registered project %s (%s)", name, project_id)
+        self._stamp_identity(project_id, repo_id, relative_path)
         return project_id
+
+    def _project_dir(self, repo_id: str, relative_path: str) -> str | None:
+        """Absolute path of a project's directory on this server's disk."""
+        repo = self.get_repository(repo_id)
+        if not repo:
+            return None
+        clone = self._abs_clone_path(repo.get("clone_path") or "")
+        rel = relative_path or "."
+        return os.path.join(clone, rel) if rel != "." else clone
+
+    def _stamp_identity(
+        self, project_id: str, repo_id: str, relative_path: str
+    ) -> None:
+        """Write the id into the checkout's `.prism.json`, so the repo can identify
+        itself without asking the server. See project_identity_service.
+
+        Best effort. A project that cannot be stamped still imports.
+        """
+        from app.core.config import settings
+        from app.services import project_identity_service
+
+        project_dir = self._project_dir(repo_id, relative_path)
+        if not project_dir or not os.path.isdir(project_dir):
+            return
+        project_identity_service.write(
+            project_dir, project_id, settings.PRISM_SERVER_URL
+        )
+
+    def backfill_identity(self) -> int:
+        """Stamp every registered project that has no identity yet.
+
+        Existing projects predate the marker, and waiting for them to be re-imported
+        is not a plan. Idempotent: a project already carrying its id is not rewritten,
+        so this does not dirty working trees on every boot.
+        """
+        from app.core.config import settings
+        from app.services import project_identity_service
+
+        stamped = 0
+        for project in self.get_all_projects():
+            path = project.get("path")
+            pid = project.get("id")
+            if not path or not pid or not os.path.isdir(path):
+                continue
+            if project_identity_service.write(path, pid, settings.PRISM_SERVER_URL):
+                stamped += 1
+        if stamped:
+            logger.info("Backfilled identity into %d project(s)", stamped)
+        return stamped
 
     def _project_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         d = self._row_to_dict(row)

@@ -195,6 +195,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    # The URL clients reach this server on. Written into a project's `.prism.json`
+    # so a checkout knows where it came from. Left empty by default: a wrong URL
+    # stamped into a committed file is worse than no URL, and the id alone is
+    # enough to identify a project. Set it in any deployment clients talk to.
+    PRISM_SERVER_URL: str = Field(
+        default="",
+        description="Public URL of this Prism server, recorded in a project's .prism.json.",
+    )
+
     REMOTE_PROVIDER_LIBRARY_PREFIX: str = Field(
         default="remote",
         description="Library prefix assumed by the Prism remote-symbol provider when rewriting footprint links.",

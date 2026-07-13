@@ -223,6 +223,13 @@ async def lifespan(app: FastAPI):
     initialize_comments_store()
     catalog_service.initialize()
     workspace.initialize()
+    # Projects imported before identity existed carry no id. Stamp them once, so
+    # phase 2 can look a project up by its marker rather than by comparing paths.
+    # Idempotent, so this is a no-op on every boot after the first.
+    try:
+        workspace.backfill_identity()
+    except Exception:
+        logger.exception("Identity backfill failed; projects keep working without it")
     try:
         yield
     finally:

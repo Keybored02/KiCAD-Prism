@@ -120,6 +120,13 @@ Prism hosts a **bare** repo and is the origin. The client clones from Prism.
 
 `prism://open/<id>`: identical code path. `origin_url` simply points at Prism.
 
+**Only the server side is ever bare.** A client checkout is a normal working-tree
+clone, always, in both models. KiCad opens files off the disk, so a bare clone would
+be useless to it. Nothing is ever *converted* to bare either: when Prism adopts an
+existing repo (see "Adopt a local project" below) it **creates a new bare repo and
+pushes into it**. The user's working tree is left exactly as it was, and simply gains
+a remote.
+
 **The client does not need to know which model it is in.** It clones `origin_url`. That is
 the whole point of unifying them.
 
@@ -185,6 +192,71 @@ create-project flow that produces one. Additive: model A keeps working untouched
 exist. Migrate, then delete the code.
 
 Phases 1 to 4 are the ones that matter. 5 is a feature. 6 is cleanup.
+
+---
+
+## Backlog: what this unlocks
+
+Three features that all become straightforward once the mechanism above exists, and
+all of which are awkward or impossible before it. Ordered by dependency, not priority.
+
+### Create a project from the web UI
+
+Today a project only exists because something on disk already existed. The web UI can
+only *register* what is already there.
+
+Once model B is real (phase 5), "New project" is: mint an id, create the bare repo,
+seed it (an empty commit, or a KiCad project skeleton), done. The user then clones it,
+by hand or via `prism://open/<id>`, which is exactly the flow that already works for
+every other model-B project.
+
+Needs: phase 5.
+
+### Adopt a local project (git or not)
+
+The common real case: someone has a KiCad project in a folder, and either it is not a
+git repo at all, or it is one with no remote. Right now Prism has nothing useful to
+say to them.
+
+The flow, from the plugin, on a project Prism does not know:
+
+1. `git init` if needed, and write a KiCad-appropriate `.gitignore`.
+2. Commit what is there, so the history starts from something rather than nothing.
+3. Ask where the origin should live:
+   * **Prism** (model B): server mints a bare repo, client pushes into it, sets it as
+     `origin`. The working tree never moves and is never converted.
+   * **Somewhere else** (model A): the user supplies a URL they already control.
+4. Write the `.prism.json` marker and register with the server.
+
+This is the on-ramp. Without it, Prism only serves people who have already solved
+hosting themselves, which is the smaller half of the audience.
+
+Needs: phases 1 to 3, and phase 5 for the Prism-hosted branch of step 3.
+
+### Commits, PRs, merges
+
+The collaboration layer. The constraint that shapes all of it: **ECAD is all-or-nothing.**
+A `.kicad_pcb` cannot be textually three-way merged, so a "merge" here is a choice of
+one side's file, not a blend of both. Anything that pretends otherwise will silently
+corrupt boards.
+
+So the model is:
+
+* **Commit** from the plugin: stage, message, push. Prism already computes the diff, so
+  it can show what is about to be committed, visually, before it is.
+* **Propose** (the PR): a branch plus a *rendered* diff. The review surface is the board
+  and schematic viewers Prism already has, not a text hunk list. This is the part Prism
+  is uniquely placed to do well and the reason the feature is worth building.
+* **Merge**: fast-forward when possible. When not, it is a **conflict**, and the only
+  honest resolution for a binary-ish ECAD file is to **take one side whole**. Present it
+  that way: side-by-side render, pick a side, per file. Never offer a "merge" that
+  produces a file neither author drew.
+
+Text files in the repo (netlists, BOM scripts, docs) can merge normally. Only the ECAD
+artefacts are all-or-nothing, and the merge UI should draw that line explicitly rather
+than treating every file the same.
+
+Needs: phases 1 to 3. Model-agnostic, this works whoever owns the origin.
 
 ---
 
