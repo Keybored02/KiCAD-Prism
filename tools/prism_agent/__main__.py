@@ -18,6 +18,8 @@ Run:  python -m prism_agent
 from __future__ import annotations
 
 import argparse
+import logging
+import shutil
 import signal
 import subprocess
 import sys
@@ -30,6 +32,8 @@ from . import discovery, protocol
 from . import settings as settings_store
 from .prism_client import PrismClient, PrismConfig
 from .server import VERSION, serve
+
+log = logging.getLogger(__name__)
 
 
 def _assets_dir() -> Path:
@@ -176,9 +180,23 @@ def _handle_url(url: str) -> int:
     if link.action == "open":
         import webbrowser
 
-        # Go through PrismClient rather than hand-rolling the path: it's the one
-        # place that knows the web app's route, and building it here is how this
-        # drifted to the wrong (pluralised) URL in the first place.
+        if not link.project_id:
+            # No project named: just the web app.
+            webbrowser.open(saved.server_url.rstrip("/"))
+            return 0
+
+        # A project link opens the project ON THIS MACHINE, in KiCad. That is the
+        # point of having a desktop agent at all; if the user wanted the web app they
+        # would have clicked a web link.
+        return _open_project_locally(link.project_id, saved)
+
+    if link.action == "web":
+        # The escape hatch: prism://web/<id> forces the browser. Go through
+        # PrismClient rather than hand-rolling the path, it's the one place that
+        # knows the web app's route, and building it here is how this drifted to the
+        # wrong (pluralised) URL before.
+        import webbrowser
+
         client = PrismClient(
             PrismConfig(base_url=saved.server_url, token=saved.api_token)
         )
@@ -208,6 +226,74 @@ def _handle_url(url: str) -> int:
 
     print(f"Don't know how to handle prism://{link.action}", file=sys.stderr)
     return 2
+
+
+def _open_project_locally(project_id: str, saved) -> int:
+    """prism://open/<id>: open the project in KiCad, cloning it first if needed.
+
+    Runs in the short-lived process the OS spawned for the URL, so there is no tray
+    and no wx here. Anything the user needs to see or answer goes through the native
+    dialogs in _show_dialog / _ask.
+    """
+    from . import open_project
+
+    try:
+        opened = open_project.open_project(project_id, confirm=_ask)
+    except open_project.OpenError as exc:
+        msg = str(exc)
+        if msg == "Cancelled.":
+            return 0  # the user said no; that is an outcome, not an error
+        _show_dialog("Prism", msg)
+        return 1
+
+    log.info("Opened %s from %s", project_id, opened)
+    return 0
+
+
+def _ask(question: str) -> bool:
+    """A yes/no the user can actually refuse.
+
+    Cloning a repo they did not ask for, into a folder they did not choose, is not
+    something a link in a browser should authorise. So we ask, and a failure to ask
+    (no dialog available) is a NO, never a silent yes.
+    """
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            MB_YESNO, MB_ICONQUESTION, IDYES = 0x4, 0x20, 6
+            answer = ctypes.windll.user32.MessageBoxW(
+                None, question, "Prism", MB_YESNO | MB_ICONQUESTION
+            )
+            return answer == IDYES
+
+        if sys.platform == "darwin":
+            script = (
+                'display dialog %s with title "Prism" '
+                'buttons {"Cancel", "Clone"} default button "Clone"'
+                % _osa_quote(question)
+            )
+            result = subprocess.run(
+                ["osascript", "-e", script], capture_output=True, timeout=300
+            )
+            return result.returncode == 0
+
+        for tool, args in (
+            ("zenity", ["--question", "--title=Prism", f"--text={question}"]),
+            ("kdialog", ["--title", "Prism", "--yesno", question]),
+        ):
+            if shutil.which(tool):
+                result = subprocess.run([tool, *args], capture_output=True, timeout=300)
+                return result.returncode == 0
+    except (OSError, subprocess.SubprocessError, AttributeError) as exc:
+        log.warning("Couldn't ask the user: %s", exc)
+
+    return False
+
+
+def _osa_quote(text: str) -> str:
+    """Quote a string for AppleScript."""
+    return '"%s"' % text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
 def _show_dialog(title: str, message: str) -> None:

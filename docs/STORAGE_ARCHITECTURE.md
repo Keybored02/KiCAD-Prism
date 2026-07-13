@@ -223,8 +223,23 @@ migration does behind their back.
 
 *This is where the current model actually dies.*
 
-**Phase 4: `prism://open/<id>`.** Now trivial: look up the marker, open KiCad; if absent,
-confirm and clone `origin_url`. Both models, one path.
+**Phase 4: `prism://open/<id>`.** As promised, it falls out: look up the marker, open
+KiCad; if absent, confirm and clone `origin_url`. Both models, one code path, because the
+client never learns which model it is in. It just clones what the server told it to.
+
+`open` means **open it on this machine**, in KiCad. That is the point of a desktop agent;
+if you wanted the web app you would have followed a web link. `prism://web/<id>` is the
+escape hatch that still opens the browser.
+
+Two rules a URL handler has to obey, since a web page can invoke it:
+
+* **Never write to disk without asking.** A link in a browser is not consent to clone a
+  repository into someone's filesystem. The confirmation names the exact destination, and
+  a failure to ask (no dialog available) is a NO, never a silent yes.
+* **A project name can never steer the clone.** Names come from the server and can contain
+  anything; `..` or a separator in one must not put a clone outside the projects root.
+
+`origin_owner = "none"` has nothing to clone. It says so, rather than inventing an origin.
 
 **Phase 5: Prism as origin (model B).** Bare repo hosting, `origin_owner = "prism"`, and a
 create-project flow that produces one. Additive: model A keeps working untouched.

@@ -26,8 +26,14 @@ URL scheme behind someone's back is exactly the sort of thing people resent.
 
 The URL grammar:
 
-    prism://open/<project_id>            open a project in the web app
+    prism://open/<project_id>            open a project HERE, in KiCad, cloning it
+                                         first if this machine doesn't have it
+    prism://web/<project_id>             open a project in the web app instead
+    prism://ping                         prove the scheme is registered
     prism://auth/callback?code=...       OIDC redirect lands back here
+
+`open` means "open it on this machine". That is the point of a desktop agent: if you
+wanted the web app you would have followed a web link. `web` is the escape hatch.
 """
 
 from __future__ import annotations
