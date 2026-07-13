@@ -301,7 +301,6 @@ class SettingsDialog(wx.Dialog):
 
         linked = state.get("linked")
         stale = state.get("stale")
-        running = state.get("kicad_running")
 
         if linked:
             label, tone = "Linked", "success"
@@ -315,8 +314,8 @@ class SettingsDialog(wx.Dialog):
         if stale:
             card.body.Add(
                 card.label(
-                    "KiCad points at a different Prism server:\n    %s"
-                    % state.get("linked_url", ""),
+                    "KiCad points at a different Prism server:\n    %s\n"
+                    "Re-link, then restart KiCad." % state.get("linked_url", ""),
                     tone="muted_fg",
                     small=True,
                 ),
@@ -327,7 +326,8 @@ class SettingsDialog(wx.Dialog):
         elif not linked:
             card.body.Add(
                 card.label(
-                    "Prism's parts won't appear in KiCad's Symbol Chooser.",
+                    "Prism's parts won't appear in KiCad's Symbol Chooser.\n"
+                    "Link it, then restart KiCad.",
                     tone="muted_fg",
                     small=True,
                 ),
@@ -336,42 +336,27 @@ class SettingsDialog(wx.Dialog):
                 th.SP_XS,
             )
 
-        if running:
-            # The write would be thrown away, so don't offer a button that lies. KiCad
-            # loads eeschema.json at startup and writes its own copy back on exit.
-            card.body.Add(
-                card.label(
-                    "Quit KiCad to change this — it overwrites its own settings\n"
-                    "when it exits, so the change wouldn't survive.",
-                    tone="muted_fg",
-                    small=True,
-                ),
-                0,
-                wx.TOP,
-                th.SP_XS,
-            )
-        else:
-            card.body.Add(
-                Button(
-                    card,
-                    "Re-link" if (linked or stale) else "Link Prism",
-                    self.pal,
-                    variant="ghost" if linked else "primary",
-                    on_click=self._link_library,
-                ),
-                0,
-                wx.TOP,
-                th.SP_XS,
-            )
+        card.body.Add(
+            Button(
+                card,
+                "Re-link" if (linked or stale) else "Link Prism",
+                self.pal,
+                variant="ghost" if linked else "primary",
+                on_click=self._link_library,
+            ),
+            0,
+            wx.TOP,
+            th.SP_XS,
+        )
 
         self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
     def _link_library(self):
         """Register Prism as KiCad's symbol provider.
 
-        The agent does the write: KiCad must be closed for it to stick, and this plugin
-        is by definition running inside a live KiCad. (The agent refuses and says so if
-        KiCad is up, rather than writing something that gets discarded.)
+        The agent does the write. It works with KiCad open — KiCad only rewrites the
+        parts of eeschema.json it touched, and the provider list isn't one of them — but
+        KiCad reads the providers at startup, so it needs a restart to pick this up.
         """
         try:
             with wx.BusyCursor():
@@ -385,7 +370,8 @@ class SettingsDialog(wx.Dialog):
         else:
             wx.MessageBox(
                 "Prism is linked into KiCad %s.\n\n"
-                "Its parts are in the Symbol Chooser."
+                "Restart KiCad to pick it up — it reads its symbol providers when it "
+                "starts. After that, Prism's parts are in the Symbol Chooser."
                 % (result.get("kicad_version") or ""),
                 "Prism",
                 wx.OK | wx.ICON_INFORMATION,

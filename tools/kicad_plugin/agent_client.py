@@ -169,18 +169,18 @@ class AgentClient:
     def library(self):
         """Is Prism registered as KiCad's remote symbol provider?
 
-        Returns {configured, kicad_version, linked, stale, linked_url, server_url,
-        kicad_running}. `stale` means a Prism provider IS registered, but for a
-        different server than the one we're configured for.
+        Returns {configured, kicad_version, linked, stale, linked_url, server_url}.
+        `stale` means a Prism provider IS registered, but for a different server than
+        the one we're configured for.
         """
         return self._call("GET", "/library")
 
     def link_library(self, remove=False):
         """Register (or remove) Prism as KiCad's remote symbol provider.
 
-        Fails with a 400 if KiCad is running: KiCad writes its own eeschema.json on
-        exit, so the change would be discarded. The agent does the write, since the
-        plugin is by definition inside a live KiCad.
+        Works with KiCad open — it only rewrites the parts of eeschema.json it touched,
+        and the provider list isn't one of them. KiCad does need a restart to pick the
+        change up, though.
         """
         return self._call("POST", "/library", {"remove": remove})
 

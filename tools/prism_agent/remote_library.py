@@ -18,23 +18,19 @@ KiCad keeps the registration in **eeschema.json**, under `remote_symbols`:
 `metadata_url` is the Prism server. If it's missing, or it names a *different* server
 than the agent is configured for, the link is stale and the user should re-link.
 
-WHY THE AGENT AND NOT THE PLUGIN
---------------------------------
-An external write to eeschema.json sticks — verified across repeated KiCad restarts —
-but only if KiCad **isn't running** when you write. KiCad loads the file at startup and
-writes its own copy back on exit, so a write made while it's open is overwritten.
+Writing this works whether or not KiCad is running. KiCad does rewrite eeschema.json when
+it exits, but only the sections it actually touched — and it doesn't touch
+`remote_symbols.providers` unless the user opens the Remote Symbol dialog. So an external
+write survives. (Verified the hard way: written with KiCad open, survived a full restart.)
 
-The plugin runs *inside* KiCad, so it can never satisfy that. The agent outlives KiCad
-and can. Hence: the plugin asks, the agent answers and (later) writes.
-
-This module only READS. Writing is a separate step and needs KiCad closed.
+KiCad reads the providers at startup, so the user has to restart KiCad to *see* a change.
+That's the only caveat, and it's the one the UI should state.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -87,38 +83,6 @@ def _providers(cfg: Path) -> list[dict]:
     return [p for p in providers if isinstance(p, dict)]
 
 
-def kicad_is_running() -> bool:
-    """Writing eeschema.json while KiCad is open is pointless — it overwrites the file
-    from memory on exit. So the UI needs to know whether a re-link can be applied now."""
-    try:
-        if sys.platform == "win32":
-            out = subprocess.run(
-                ["tasklist", "/fo", "csv", "/nh"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            ).stdout
-            names = [
-                line.split(",")[0].strip('"').lower()
-                for line in out.splitlines()
-                if line.strip()
-            ]
-        else:
-            out = subprocess.run(
-                ["ps", "-Ao", "comm="], capture_output=True, text=True, timeout=15
-            ).stdout
-            names = [
-                Path(line.strip()).name.lower()
-                for line in out.splitlines()
-                if line.strip()
-            ]
-    except Exception:
-        return True  # can't tell — assume yes rather than claim a write will stick
-
-    return any("kicad" in n or n.startswith("eeschema") for n in names)
-
-
 def status(server_url: str) -> dict:
     """Is Prism linked, and does it point at the server we're configured for?
 
@@ -136,7 +100,6 @@ def status(server_url: str) -> dict:
             "stale": False,
             "linked_url": "",
             "server_url": server_url,
-            "kicad_running": False,
         }
 
     providers = _providers(cfg)
@@ -164,7 +127,6 @@ def status(server_url: str) -> dict:
         "stale": ours is None and other is not None,
         "linked_url": (other or {}).get("metadata_url", ""),
         "server_url": server_url,
-        "kicad_running": kicad_is_running(),
     }
 
 
@@ -175,21 +137,16 @@ class RemoteLibraryError(Exception):
 def link(server_url: str) -> dict:
     """Register Prism as KiCad's remote symbol provider.
 
-    KiCad MUST be closed. It loads eeschema.json at startup and writes its own copy back
-    on exit, so a write made while it's running is overwritten and the user is told a
-    lie. (An external write with KiCad closed does stick — verified across repeated
-    restarts.)
+    Works whether or not KiCad is running. KiCad rewrites eeschema.json on exit, but
+    only the sections it actually touched — `remote_symbols.providers` isn't one of them
+    unless the user opened the Remote Symbol dialog, so an external write survives.
+    (Verified: written with KiCad open, survived a full restart.)
+
+    KiCad reads the providers at startup, so it does need a restart to *see* the change.
 
     Read-modify-write: this is the user's own eeschema config, and every other setting in
     it has to survive.
     """
-    if kicad_is_running():
-        raise RemoteLibraryError(
-            "Close KiCad first.\n\n"
-            "KiCad overwrites its own settings when it exits, so this change would be "
-            "discarded."
-        )
-
     cfg = kicad_config_dir()
     if cfg is None:
         raise RemoteLibraryError(
@@ -240,13 +197,6 @@ def link(server_url: str) -> dict:
 
 def unlink(server_url: str) -> dict:
     """Remove Prism from KiCad's providers. Leaves every other provider untouched."""
-    if kicad_is_running():
-        raise RemoteLibraryError(
-            "Close KiCad first.\n\n"
-            "KiCad overwrites its own settings when it exits, so this change would be "
-            "discarded."
-        )
-
     cfg = kicad_config_dir()
     if cfg is None:
         return {"kicad_version": "", "removed": False}
