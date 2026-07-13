@@ -217,6 +217,29 @@ def test_a_project_with_no_git_says_so_rather_than_pretending(roots, monkeypatch
         open_project.open_project("prj_a", confirm=lambda _: True)
 
 
+def test_a_prism_hosted_project_with_no_url_names_the_real_cause(roots, monkeypatch):
+    """Found in the wild. origin_owner is "prism", so Prism IS hosting the git, but the
+    server has no PRISM_SERVER_URL and so cannot say where. The old code lumped this in
+    with "not backed by git", which told the user their repository did not exist when it
+    did. A wrong diagnosis is worse than none: it sends them to fix the wrong thing."""
+    stub_server(
+        monkeypatch,
+        [{"id": "prj_a", "name": "widget", "origin_url": "", "origin_owner": "prism"}],
+    )
+    with pytest.raises(OpenError, match="PRISM_SERVER_URL"):
+        open_project.open_project("prj_a", confirm=lambda _: True)
+
+
+def test_a_prism_hosted_project_with_no_url_is_not_called_ungitted(roots, monkeypatch):
+    stub_server(
+        monkeypatch,
+        [{"id": "prj_a", "name": "widget", "origin_url": "", "origin_owner": "prism"}],
+    )
+    with pytest.raises(OpenError) as exc:
+        open_project.open_project("prj_a", confirm=lambda _: True)
+    assert "not backed by git" not in str(exc.value)
+
+
 def test_an_unknown_project_says_the_server_does_not_have_it(roots, monkeypatch):
     stub_server(monkeypatch, [])
     with pytest.raises(OpenError, match="no project"):

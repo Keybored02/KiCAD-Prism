@@ -186,10 +186,28 @@ def open_project(project_id: str, confirm=None, ref: str = "") -> str:
             "may point at a different Prism server." % project_id
         )
 
-    if state["owner"] == "none" or not state["origin"]:
+    if state["owner"] == "none":
         raise OpenError(
             "%s is not backed by git, so there is nothing to clone. Open it on the "
             "machine that holds it." % state["name"]
+        )
+
+    if not state["origin"]:
+        # The project HAS git (owner is "prism" or "external"), but the server gave no
+        # URL to reach it at.
+        #
+        # Do NOT fall through to "not backed by git". That is a different problem with a
+        # different fix, and telling someone their repository does not exist when it does
+        # is worse than saying nothing at all. Name the real cause.
+        if state["owner"] == "prism":
+            raise OpenError(
+                "%s has no clone URL.\n\n"
+                "Prism is hosting its git, but the server has no public URL configured "
+                "(PRISM_SERVER_URL), so it cannot say where to clone from."
+                % state["name"]
+            )
+        raise OpenError(
+            "%s has no clone URL, so there is nowhere to clone it from." % state["name"]
         )
 
     roots = state["roots"]
