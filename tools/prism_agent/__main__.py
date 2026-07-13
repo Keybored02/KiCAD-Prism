@@ -22,6 +22,8 @@ import signal
 import subprocess
 import sys
 import threading
+import time
+import urllib.request
 from pathlib import Path
 
 from . import discovery, protocol
@@ -249,6 +251,133 @@ def _show_dialog(title: str, message: str) -> None:
     print(f"{title}: {message}")
 
 
+def _watch_for_uninstall(stop: threading.Event) -> None:
+    """Notice that we've been uninstalled, and tidy up after ourselves.
+
+    PCM has no uninstall hook, and the agent is a detached process that outlives KiCad.
+    So uninstalling the plugin deletes our binary from under a still-running agent,
+    which then keeps serving, keeps its autostart entry, and keeps owning the prism://
+    scheme, all pointing at a file that no longer exists.
+
+    Nobody else can clean that up, so we watch for our own binary disappearing. Only
+    meaningful when frozen; from a source checkout there's no single file to miss, and
+    a developer deleting one is not an uninstall.
+    """
+    exe = Path(sys.executable) if getattr(sys, "frozen", False) else None
+    if exe is None:
+        return
+
+    while not stop.wait(30):
+        if exe.exists():
+            continue
+        # Give a slow or retrying installer a moment; a brief gap during a file
+        # replace is an update, not an uninstall.
+        time.sleep(5)
+        if exe.exists():
+            continue
+
+        print(
+            f"{exe} is gone; the plugin was uninstalled. Cleaning up.", file=sys.stderr
+        )
+        _cleanup_os_integration()
+        stop.set()
+        return
+
+
+def _cleanup_os_integration() -> None:
+    """Undo everything we registered with the OS. Best effort: a failure here must not
+    stop the agent exiting, or an uninstall leaves a process running."""
+    from . import autostart
+
+    try:
+        autostart.disable()
+    except Exception:
+        print("Couldn't remove the autostart entry.", file=sys.stderr)
+    try:
+        protocol.unregister()
+    except Exception:
+        print("Couldn't unregister the prism:// handler.", file=sys.stderr)
+
+
+def _claim_singleton() -> bool:
+    """Become the one agent, retiring an older one if it holds the post.
+
+    This is what makes an UPDATE work. The agent is detached and outlives KiCad, and
+    autostart brings it back at login, so installing a new version routinely lands a
+    new binary beside an OLD agent that is still running. The old code then serves
+    forever: the newcomer used to see it, say "already running", and exit.
+
+    So: if the incumbent is older than us, ask it to quit and take over. If it's the
+    same version or newer, defer to it, there's nothing to gain by churning. If we
+    can't tell (an agent from before this field existed), retire it anyway: an unknown
+    version is by definition not newer than ours.
+
+    Returns True if we should go on to serve.
+    """
+    existing = discovery.running_agent()
+    if not existing:
+        return True
+
+    theirs = existing.get("version", "")
+    if theirs and not _older_than(theirs, VERSION):
+        print(
+            f"The Prism agent is already running on 127.0.0.1:{existing['port']} "
+            f"(pid {existing.get('pid')}, version {theirs}).",
+            file=sys.stderr,
+        )
+        return False
+
+    print(
+        f"Retiring agent {theirs or 'of unknown version'} "
+        f"(pid {existing.get('pid')}) in favour of {VERSION}.",
+        file=sys.stderr,
+    )
+    if not _retire(existing):
+        print("Couldn't stop the running agent; leaving it in place.", file=sys.stderr)
+        return False
+    return True
+
+
+def _older_than(a: str, b: str) -> bool:
+    """Is version a older than version b? Unparseable sorts as oldest."""
+
+    def parts(v: str) -> tuple:
+        try:
+            return tuple(int(x) for x in v.strip().split("."))
+        except ValueError:
+            return ()
+
+    return parts(a) < parts(b)
+
+
+def _retire(existing: dict) -> bool:
+    """Ask a running agent to quit, and wait for it to actually go.
+
+    Uses its own /quit route, so it shuts down cleanly and clears its discovery file
+    rather than being killed and leaving a stale one behind.
+    """
+    port, token = existing.get("port"), existing.get("token")
+    if not port or not token:
+        return False
+
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/quit", data=b"{}", method="POST"
+    )
+    request.add_header("Authorization", f"Bearer {token}")
+    try:
+        urllib.request.urlopen(request, timeout=10)
+    except (OSError, ValueError):
+        return False
+
+    # It answers before it stops (shutting down from inside a handler would deadlock),
+    # so wait for the port to actually go quiet rather than racing it for the bind.
+    for _ in range(50):
+        if discovery.running_agent() is None:
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def self_command(*args: str) -> list[str]:
     """How to invoke *this* agent again, frozen or not.
 
@@ -422,15 +551,8 @@ def main() -> int:
     # One agent per machine. A second would bind a different port, overwrite the
     # discovery file, and leave two processes racing, with whichever exits last
     # deleting the file and orphaning the other, so the plugin can find neither.
-    # The plugin's "Start agent" button makes double-starting easy, so refuse here.
-    existing = discovery.running_agent()
-    if existing:
-        print(
-            f"The Prism agent is already running on 127.0.0.1:{existing['port']} "
-            f"(pid {existing.get('pid')}).",
-            file=sys.stderr,
-        )
-        return 0  # not an error: the desired state already holds
+    if not _claim_singleton():
+        return 0  # an equal-or-newer agent already holds the post
 
     config = _prism_config()
     server, _thread, state = serve(config)
@@ -450,6 +572,15 @@ def main() -> int:
         stop.set()
 
     state.request_restart = request_restart
+
+    # Uninstalling the plugin deletes our binary from under us. Nobody else can notice
+    # that (PCM has no uninstall hook, and we're detached from KiCad), so we do.
+    threading.Thread(
+        target=_watch_for_uninstall,
+        args=(stop,),
+        name="prism-uninstall-watch",
+        daemon=True,
+    ).start()
 
     try:
         if args.no_tray:

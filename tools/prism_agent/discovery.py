@@ -55,17 +55,39 @@ def endpoint_path() -> Path:
     return config_dir() / ENDPOINT_FILE
 
 
-def write_endpoint(port: int, token: str) -> Path:
-    """Publish where we're listening. Called by the agent on startup."""
+def write_endpoint(port: int, token: str, version: str = "") -> Path:
+    """Publish where we're listening. Called by the agent on startup.
+
+    `version` and `exe` are what let a NEWER agent take over from an older one. An
+    update installs a new binary beside an old agent that is still running and
+    detached; without knowing what version the incumbent is, the newcomer can only
+    defer to it, and the old code serves forever.
+    """
     path = endpoint_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"port": port, "token": token, "pid": os.getpid()}
+    payload = {
+        "port": port,
+        "token": token,
+        "pid": os.getpid(),
+        "version": version,
+        "exe": _own_exe(),
+    }
     # Write-then-replace so a reader never sees a half-written file.
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload), encoding="utf-8")
     tmp.replace(path)
     _restrict_permissions(path)
     return path
+
+
+def _own_exe() -> str:
+    """The binary this agent is running from, when frozen.
+
+    Empty from a source checkout, where there's no single file to point at. Used to
+    spot an agent whose binary has been deleted from under it, which is exactly what
+    an uninstall does to a detached process.
+    """
+    return sys.executable if getattr(sys, "frozen", False) else ""
 
 
 def read_endpoint() -> dict | None:

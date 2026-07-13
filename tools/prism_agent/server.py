@@ -433,7 +433,9 @@ def serve(
     """Start the API in a background thread and publish where to find it."""
     server, state = make_server(PrismClient(prism_config))
     port = server.server_address[1]
-    discovery.write_endpoint(port, state.token)
+    # The version goes in the discovery file so a NEWER agent starting up can tell it
+    # should retire us. Without it an update leaves the old agent serving forever.
+    discovery.write_endpoint(port, state.token, VERSION)
 
     thread = threading.Thread(
         target=server.serve_forever, name="prism-agent-http", daemon=True
