@@ -67,6 +67,15 @@ class PrismClient:
         """Is the backend reachable (and are we authenticated)?"""
         return self._request("GET", "/api/projects") is not None
 
+    def plugin_version(self) -> dict | None:
+        """The plugin version this server expects, and where to get it.
+
+        The plugin follows the server it talks to, rather than updating on its own
+        schedule. Unauthenticated on purpose: a plugin too old to authenticate is the
+        one that most needs telling.
+        """
+        return self._request("GET", "/api/plugin/version")
+
     def auth_config(self) -> dict | None:
         """Whether the server wants anyone to log in, and via which provider.
 

@@ -16,6 +16,7 @@ from app.api.comments import router as comments_router
 from app.api.diff import router as diff_router
 from app.api.folders import router as folders_router
 from app.api.oauth import router as oauth_router
+from app.api.plugin import router as plugin_router
 from app.api.projects import router as projects_router
 from app.api.provider_oauth import router as provider_oauth_router
 from app.api.remote_provider import router as remote_provider_router
@@ -253,6 +254,7 @@ app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
 app.include_router(comments_router, prefix="/api/projects", tags=["comments"])
 app.include_router(diff_router, prefix="/api/projects", tags=["diff"])
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
+app.include_router(plugin_router, prefix="/api/plugin", tags=["plugin"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])
 app.include_router(catalog_admin_router)

@@ -49,6 +49,8 @@ class PrismDialog(wx.Dialog):
         self.board_path = board_path
         self.data = None
         self.changes = None  # None = couldn't fetch; [] = genuinely nothing
+        self.verdict = "ok"  # this plugin vs the server: ok | update | required
+        self.download_url = ""
         # Which files the user has expanded, by path. Kept across a re-render so
         # toggling one file doesn't collapse the others.
         self.expanded = set()
@@ -169,11 +171,25 @@ class PrismDialog(wx.Dialog):
             # (it's detached, and autostart brings it back at login). Catch that
             # here, or the plugin talks to it, gets a 404 from a route that didn't
             # exist yet, and fails like a bug in the new code.
-            running = (client.health() or {}).get("version", "")
+            health = client.health() or {}
+            running = health.get("version", "")
             if version.agent_too_old(running):
                 self.data = None
                 self.changes = None
                 self._render_outdated_agent(running)
+                self._relayout()
+                return
+
+            # The plugin follows the server it talks to. "required" means this plugin
+            # is older than the server can serve, so there's no point rendering a UI
+            # whose calls will fail.
+            self.verdict, self.download_url = version.server_verdict(
+                health.get("server_plugin")
+            )
+            if self.verdict == "required":
+                self.data = None
+                self.changes = None
+                self._render_outdated_plugin()
                 self._relayout()
                 return
 
@@ -203,6 +219,74 @@ class PrismDialog(wx.Dialog):
         self.content.Clear(delete_windows=True)
         self._render()
         self._relayout()
+
+    def _render_outdated_plugin(self):
+        """This plugin is older than the server can serve. Nothing else will work.
+
+        Not recoverable in-app: the fix is a new plugin, which the user has to install
+        through KiCad's Plugin Manager. So say what to do and where, and stop.
+        """
+        self.status.SetLabel("This plugin is out of date")
+        self.status.SetForegroundColour(_c(self.pal["destructive"]))
+
+        card = Card(self.scroll, "Update required", self.pal)
+        card.row("Plugin", version.VERSION, tone="muted_fg")
+        card.body.Add(
+            card.label(
+                "The Prism server needs a newer plugin. Download it and install\n"
+                "it through KiCad's Plugin Manager.",
+                tone="muted_fg",
+            ),
+            0,
+            wx.BOTTOM,
+            th.SP_SM,
+        )
+        if self.download_url:
+            card.body.Add(
+                Button(
+                    card,
+                    "Download",
+                    self.pal,
+                    variant="primary",
+                    on_click=self._open_download,
+                ),
+                0,
+            )
+
+        self.content.Add(card, 0, wx.EXPAND)
+        self.open_btn.Enable(False)
+
+    def _render_update_available(self):
+        """A newer plugin exists, but this one still works. A note, not a wall."""
+        card = Card(self.scroll, "Update available", self.pal)
+        card.body.Add(
+            card.label(
+                "The Prism server ships a newer plugin than this one (%s)."
+                % version.VERSION,
+                tone="muted_fg",
+                small=True,
+            ),
+            0,
+            wx.BOTTOM,
+            th.SP_XS,
+        )
+        if self.download_url:
+            card.body.Add(
+                Button(
+                    card,
+                    "Download",
+                    self.pal,
+                    variant="ghost",
+                    on_click=self._open_download,
+                ),
+                0,
+            )
+        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
+    def _open_download(self):
+        import webbrowser
+
+        webbrowser.open(self.download_url)
 
     def _render_outdated_agent(self, running):
         """An old agent is still running. Offer to restart it into the new one.
@@ -352,6 +436,9 @@ class PrismDialog(wx.Dialog):
         project = (self.data or {}).get("project")
         git = (self.data or {}).get("git")
         prism = (self.data or {}).get("prism")
+
+        if self.verdict == "update":
+            self._render_update_available()
 
         if not project:
             self.status.SetLabel("This board isn't inside a recognised KiCad project")

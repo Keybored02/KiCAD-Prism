@@ -46,3 +46,35 @@ def parse(v: str) -> tuple:
 
 def agent_too_old(agent_version: str) -> bool:
     return parse(agent_version) < parse(AGENT_MIN)
+
+
+def server_verdict(server_plugin: dict | None) -> tuple[str, str]:
+    """How this plugin stands against the server it's talking to.
+
+    The plugin follows its server. There is no independent update channel, precisely so
+    the two can't drift: a plugin from six months ago against a moved-on API is exactly
+    the support burden worth designing out.
+
+    Returns (verdict, download_url):
+        "ok"        current, or ahead of a server that hasn't been updated yet
+        "update"    behind what the server expects, but still workable
+        "required"  older than the server can serve at all
+
+    Anything unknown (no server, an older server with no version endpoint) is "ok": the
+    plugin must keep working against a backend that can't answer.
+    """
+    if not isinstance(server_plugin, dict):
+        return "ok", ""
+
+    url = str(server_plugin.get("download_url") or "")
+    mine = parse(VERSION)
+
+    minimum = server_plugin.get("minimum")
+    if minimum and mine < parse(minimum):
+        return "required", url
+
+    expected = server_plugin.get("expected")
+    if expected and mine < parse(expected):
+        return "update", url
+
+    return "ok", url

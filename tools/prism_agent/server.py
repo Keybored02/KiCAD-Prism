@@ -71,6 +71,19 @@ class AgentState:
         # the files git says are dirty, so any edit invalidates it by itself.
         self._changes_cache: dict[tuple, list[dict]] = {}
         self._changes_lock = threading.Lock()
+        # What the backend expects of the plugin. Cached: /health runs on every plugin
+        # open, and a release doesn't change under a running agent.
+        self._server_plugin: dict | None = None
+
+    def server_plugin_version(self) -> dict | None:
+        """The plugin version the backend expects, or None if it can't say.
+
+        None covers both an unreachable backend and one too old to have the endpoint.
+        Either way the plugin should carry on rather than refuse to work.
+        """
+        if self._server_plugin is None:
+            self._server_plugin = self.prism.plugin_version()
+        return self._server_plugin
 
     def rebuild_client(self, saved) -> None:
         """Re-point at the backend after the URL or token changed.
@@ -82,7 +95,9 @@ class AgentState:
             PrismConfig(base_url=saved.server_url, token=saved.api_token)
         )
         # A different server means different projects, so the cached diff answers
-        # (which carry the Prism project row) are no longer trustworthy.
+        # (which carry the Prism project row) are no longer trustworthy. It may also
+        # expect a different plugin version.
+        self._server_plugin = None
         with self._changes_lock:
             self._changes_cache = {}
 
@@ -191,6 +206,9 @@ class _Handler(BaseHTTPRequestHandler):
                     # update, and a stale plugin can meet a new agent too.
                     "plugin_min": PLUGIN_MIN,
                     "backend_reachable": self.state.prism.health(),
+                    # What the SERVER expects of the plugin. The plugin follows the
+                    # server it talks to, so this is what stops the two drifting.
+                    "server_plugin": self.state.server_plugin_version(),
                 },
             )
             return
