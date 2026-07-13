@@ -107,15 +107,38 @@ def save(settings: Settings) -> Path:
 
 
 def update(**changes) -> Settings:
-    """Change some fields and persist. Unknown keys are ignored, not an error,
-    an older agent shouldn't choke on a setting a newer UI sent."""
+    """Change some fields and persist. See `apply` for why unknown keys are tolerated."""
+    saved, _ignored = apply(**changes)
+    return saved
+
+
+def apply(**changes) -> tuple[Settings, list[str]]:
+    """Change some fields and persist. Returns (settings, keys we could not store).
+
+    An older agent must not CRASH on a setting a newer plugin sends: the plugin is
+    reloaded by KiCad while the agent survives across restarts, so a new plugin meeting
+    an old agent is the normal state during an upgrade, not an exotic one.
+
+    But it must not silently swallow it either. That is what happened with
+    projects_roots: an agent that predated the field accepted the save, dropped the
+    value, and answered 200, so the plugin cheerfully reported success and the user's
+    folders vanished. Accepting something you cannot store and calling it success is
+    worse than refusing it.
+
+    So the caller gets the list of keys that went nowhere, and can say so.
+    """
     current = load()
     known = {f.name for f in fields(Settings)}
+    ignored = []
     for key, value in changes.items():
-        if key in known and value is not None:
-            setattr(current, key, value)
+        if value is None:
+            continue
+        if key not in known:
+            ignored.append(key)
+            continue
+        setattr(current, key, value)
     save(current)
-    return current
+    return current, ignored
 
 
 def _restrict(path: Path) -> None:

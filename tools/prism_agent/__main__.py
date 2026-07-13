@@ -644,6 +644,22 @@ def main() -> int:
     if not _claim_singleton():
         return 0  # an equal-or-newer agent already holds the post
 
+    # A prism:// registration embeds the interpreter, the source path and the profile,
+    # and any of those can drift under it: moving the checkout, switching venvs, or
+    # (the one that bit) a dev agent that registered a command carrying no profile, so
+    # the handler read a different settings file than the agent and reported "no
+    # projects folder is set" for folders the user could see in the plugin.
+    #
+    # is_registered() cannot catch that, the key is there and looks fine, so rewrite our
+    # own registration when its contents no longer match what we would write. Only when
+    # one already exists: this repairs, it never claims the scheme uninvited.
+    try:
+        if protocol.is_stale():
+            protocol.register()
+            log.info("Rewrote a stale prism:// registration")
+    except protocol.RegistrationError as exc:
+        log.warning("Couldn't refresh the prism:// registration: %s", exc)
+
     config = _prism_config()
     server, _thread, state = serve(config)
     port = server.server_address[1]

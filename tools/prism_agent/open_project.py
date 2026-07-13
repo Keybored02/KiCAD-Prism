@@ -194,9 +194,17 @@ def open_project(project_id: str, confirm=None, ref: str = "") -> str:
 
     roots = state["roots"]
     if not roots:
+        # Name the file we actually read. This handler runs as its own short-lived
+        # process, and if its profile does not match the agent's it reads a DIFFERENT
+        # settings file: the user then sees "no projects folder" for folders they can
+        # see in the plugin, with no way to tell why. Saying which config we loaded
+        # turns an impossible bug report into an obvious one.
+        from . import discovery
+
         raise OpenError(
-            "No projects folder is set, so there is nowhere to put %s. Add one in "
-            "Prism settings." % state["name"]
+            "No projects folder is set, so there is nowhere to put %s.\n\n"
+            "Add one in Prism settings, in KiCad.\n\n"
+            "(Read from %s)" % (state["name"], discovery.config_dir())
         )
 
     destination = Path(roots[0]) / _safe_dirname(state["name"])

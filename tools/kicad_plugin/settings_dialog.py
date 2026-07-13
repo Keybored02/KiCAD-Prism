@@ -213,6 +213,24 @@ class SettingsDialog(wx.Dialog):
         # Where to look for projects, by their .prism.json marker. A place to look,
         # not a place you are forced to put things: a checkout works wherever it is.
         projects = Card(self.scroll, "Projects", self.pal)
+
+        # An agent older than this setting drops it on save and answers 200, so the
+        # dialog would report success while the folders silently vanished. The tell is
+        # that the key is absent from its payload entirely. Say so, and do not offer a
+        # control that cannot work: a Save that lies is worse than a missing feature.
+        if "projects_roots" not in settings:
+            self.roots = None
+            projects.body.Add(
+                projects.label(
+                    "The running agent is too old for this setting.\n"
+                    "Restart it to pick up the new version.",
+                    tone="warning",
+                ),
+                0,
+            )
+            self.content.Add(projects, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+            return self._render_rest(auto, proto)
+
         projects.body.Add(
             projects.label(
                 "Folders to search for Prism projects.",
@@ -252,6 +270,14 @@ class SettingsDialog(wx.Dialog):
         projects.body.Add(root_buttons, 0)
         self.content.Add(projects, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
+        self._render_rest(auto, proto)
+
+    def _render_rest(self, auto, proto):
+        """Everything below the Projects card.
+
+        Split out because the Projects card has two shapes (usable, or "your agent is
+        too old"), and both need the cards that follow.
+        """
         # -- startup --------------------------------------------------------
         startup = Card(self.scroll, "Startup", self.pal)
         self.autostart = wx.CheckBox(startup, label="Start the Prism agent at login")
@@ -436,7 +462,8 @@ class SettingsDialog(wx.Dialog):
         if self.handler is not None:
             payload["protocol_handler"] = self.handler.GetValue()
         payload["autostart"] = self.autostart.GetValue()
-        payload["projects_roots"] = list(self.roots.GetStrings())
+        if self.roots is not None:
+            payload["projects_roots"] = list(self.roots.GetStrings())
 
         try:
             result = AgentClient().save_settings(payload)

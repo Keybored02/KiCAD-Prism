@@ -504,7 +504,19 @@ class _Handler(BaseHTTPRequestHandler):
                 changes.pop(key, None)
                 errors.append(str(exc))
 
-        saved = settings_store.update(**changes)
+        saved, ignored = settings_store.apply(**changes)
+
+        # A setting this agent is too old to know about. It was dropped, so saying
+        # nothing would report success while the user's value vanished, which is exactly
+        # what happened with projects_roots. Name the fix: the agent, not the plugin, is
+        # the stale half.
+        if ignored:
+            errors.append(
+                "This agent is too old to store: %s.\n\n"
+                "Restart the agent to pick up the new version."
+                % ", ".join(sorted(ignored))
+            )
+
         # Re-point the backend client, or the new URL/token wouldn't take effect
         # until the agent restarted.
         self.state.rebuild_client(saved)

@@ -94,13 +94,31 @@ def _launch_command() -> list[str]:
     directory, not ours, so `-m prism_agent` alone can't import. Bootstrap sys.path
     explicitly rather than relying on cwd or PYTHONPATH, neither of which we
     control at the moment the OS invokes us.
+
+    The PROFILE has to be baked in too, and forgetting it was a real bug. The OS
+    launches this handler as a fresh process with none of our environment, so a dev
+    agent (PRISM_PROFILE=dev) would register a command that runs with NO profile. The
+    handler then read a different settings file than the agent that registered it:
+    different server, no projects roots, and "no projects folder is set" for folders the
+    user had just added. The profile is part of *which agent this is*, so it belongs in
+    the command, not in an environment we do not control.
     """
+    # Read the environment, not discovery.PROFILE: that is captured at import time, and
+    # this has to reflect the profile of the process doing the registering.
+    profile = os.environ.get("PRISM_PROFILE", "").strip()
+
     if getattr(sys, "frozen", False):
-        return [sys.executable, "--open-url"]
+        cmd = [sys.executable, "--open-url"]
+        # A frozen build reads the profile from the environment, and we cannot set one
+        # in a registry command. In practice a frozen agent is the installed one, which
+        # has no profile, so this is the expected case rather than a gap.
+        return cmd
 
     root = Path(__file__).resolve().parent.parent  # tools/
     bootstrap = (
-        f"import sys; sys.path.insert(0, r'{root}'); "
+        "import sys, os; "
+        + (f"os.environ['PRISM_PROFILE'] = {profile!r}; " if profile else "")
+        + f"sys.path.insert(0, r'{root}'); "
         "from prism_agent.__main__ import main; sys.exit(main())"
     )
     return [sys.executable, "-c", bootstrap, "--open-url"]
@@ -121,6 +139,57 @@ def is_registered() -> bool:
     if sys.platform == "darwin":
         return _mac_app_bundle().is_dir()
     return _linux_desktop_file().is_file()
+
+
+def registered_command() -> str:
+    """The command the OS currently has for prism://, or "" if none.
+
+    Only implemented where it is cheap to read back. Elsewhere it returns "", which
+    `is_stale` treats as "cannot tell", so nothing is rewritten on a guess.
+    """
+    if sys.platform == "win32":
+        import winreg
+
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                rf"Software\Classes\{SCHEME}\shell\open\command",
+            ) as key:
+                return winreg.QueryValueEx(key, "")[0]
+        except OSError:
+            return ""
+    return ""
+
+
+def is_stale() -> bool:
+    """Is the registered command different from the one we would write now?
+
+    A registration is not just "present or absent". It embeds the interpreter, the
+    source path and the PROFILE, and any of those can change under it: the dev agent
+    registered a command with no profile, so the handler read a different settings file
+    than the agent, and the user got "no projects folder is set" for folders they could
+    see in the plugin.
+
+    is_registered() cannot catch that, because the key was there and looked fine. So the
+    agent checks the *contents* and rewrites its own registration when they drift, rather
+    than leaving the user with a handler that silently points at the wrong config.
+    """
+    if not is_registered():
+        return False  # not registered at all is not "stale", it is "off"
+
+    current = registered_command()
+    if not current:
+        return False  # cannot read it back on this platform: do not guess
+
+    want = " ".join(f'"{part}"' for part in _launch_command()) + ' "%1"'
+
+    # Compare case-insensitively on Windows. sys.executable reports a lower-case drive
+    # letter ("c:\...") while the registry holds whatever was written ("C:\..."), and a
+    # difference that means nothing would make the command look stale forever and
+    # rewrite the registry on every single boot.
+    if sys.platform == "win32":
+        return current.casefold() != want.casefold()
+    return current != want
 
 
 def register() -> None:
