@@ -1,7 +1,7 @@
 """KiCad-Prism plugin: registers the pcbnew toolbar action.
 
 KiCad imports this package from its plugin directory and calls register() on any
-ActionPlugin it finds. The plugin itself is a thin UI — all the real work (git,
+ActionPlugin it finds. The plugin itself is a thin UI, all the real work (git,
 project lookup, backend calls) lives in the tray agent, which runs whether or not
 KiCad is open. See tools/README.md.
 """
@@ -24,7 +24,7 @@ def is_dev_install() -> bool:
     This matters because a developer wants BOTH at once: a symlink to iterate on,
     and a real install to verify what users actually get. Without telling them
     apart, two identically-named plugins appear in the menu and you have no idea
-    which one you just clicked — and the symlinked one has no bundled binary, so it
+    which one you just clicked, and the symlinked one has no bundled binary, so it
     quietly exercises the source fallback instead of the thing under test.
     """
     tools = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -47,11 +47,11 @@ def _reload_for_dev() -> "_Modules":
 
     KiCad imports a plugin ONCE, when it starts, and keeps it in sys.modules for the
     rest of the session. So editing the source and clicking the toolbar button runs the
-    *old* code — and the failure is baffling, because the file on disk plainly says
+    *old* code, and the failure is baffling, because the file on disk plainly says
     otherwise. It bites hardest when the agent has moved on and the stale dialog reads a
     field the new agent no longer returns: a KeyError, and the dialog just won't open.
 
-    Reloading here means edit, click, see the change — no KiCad restart. Only in a dev
+    Reloading here means edit, click, see the change, no KiCad restart. Only in a dev
     checkout: an installed plugin's files don't change under it, so reloading would be
     pure overhead and one more thing to go wrong.
     """
@@ -79,7 +79,7 @@ def _reload_for_dev() -> "_Modules":
             try:
                 importlib.reload(module)
             except Exception:
-                # A syntax error mid-edit shouldn't wedge the plugin permanently —
+                # A syntax error mid-edit shouldn't wedge the plugin permanently,
                 # keep the last good module and let the user see the real error.
                 pass
 
@@ -93,7 +93,7 @@ class PrismPlugin(pcbnew.ActionPlugin):
         self.name = "Prism (dev)" if dev else "Prism"
         self.category = "Prism"
         self.description = "Project status and Prism integration" + (
-            " — development copy, running from source" if dev else ""
+            ", development copy, running from source" if dev else ""
         )
         self.show_toolbar_button = True
         # KiCad wants a PNG next to the plugin; absent, it falls back to a
@@ -106,7 +106,7 @@ class PrismPlugin(pcbnew.ActionPlugin):
 
         board = pcbnew.GetBoard()
         # The board's own filename is the most reliable way to locate the project
-        # on disk — more so than any notion of a "current project" in the API.
+        # on disk, more so than any notion of a "current project" in the API.
         board_path = board.GetFileName() if board else ""
 
         parent = wx.FindWindowByName("PcbFrame") or wx.GetActiveWindow()
@@ -115,7 +115,7 @@ class PrismPlugin(pcbnew.ActionPlugin):
         )
 
         # First time in: start the agent and offer the OS-level integrations, each
-        # declinable. Only once — the answer lives in the agent's settings, so it
+        # declinable. Only once, the answer lives in the agent's settings, so it
         # survives a plugin reinstall.
         if modules.first_run.needed():
             setup = modules.first_run.FirstRunDialog(parent, pal)

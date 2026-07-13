@@ -2,8 +2,8 @@
 
 Two separable halves:
 
-  * **Dispatch** — parsing a prism:// URL and acting on it. Portable, pure Python.
-  * **Registration** — telling the OS that *we* handle the scheme. NOT portable:
+  * **Dispatch**, parsing a prism:// URL and acting on it. Portable, pure Python.
+  * **Registration**, telling the OS that *we* handle the scheme. NOT portable:
     every platform does it differently, and one of them can't do it at all from a
     plain script.
 
@@ -15,7 +15,7 @@ Registration, honestly:
             update-desktop-database. Works.
   macOS     the scheme must be declared in an app bundle's Info.plist
             (CFBundleURLTypes). A bare `python -m prism_agent` has no bundle, so
-            it CANNOT register — this needs the agent shipped as a real .app.
+            it CANNOT register, this needs the agent shipped as a real .app.
             register() says so rather than pretending it worked.
 
 Nothing here runs unless the user opts in (settings.protocol_handler). Claiming a
@@ -78,7 +78,7 @@ def parse(url: str) -> Link | None:
 def _launch_command() -> list[str]:
     """How the OS should invoke us to handle a link.
 
-    Frozen, this is just the binary — the simple, robust case, and the reason we
+    Frozen, this is just the binary, the simple, robust case, and the reason we
     ship one.
 
     From a source checkout it's messier: the browser launches us from *its* working
@@ -123,7 +123,7 @@ def register() -> None:
             "On macOS a URL scheme can only be claimed by an application bundle "
             "(via CFBundleURLTypes in its Info.plist), and the agent currently runs "
             "as a plain Python module. prism:// links need the agent packaged as a "
-            ".app — until then, this can't be enabled here."
+            ".app, until then, this can't be enabled here."
         )
     else:
         _register_linux()

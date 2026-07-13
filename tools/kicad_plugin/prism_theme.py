@@ -23,7 +23,7 @@ LIGHT = {
     "success": "#16A34A",
     "warning": "#D97706",
     "border": "#E2E8F0",
-    # File kinds — same hues the web history list uses (blue schematic, emerald
+    # File kinds, same hues the web history list uses (blue schematic, emerald
     # PCB) so a file reads the same in both places.
     "sch": "#3B82F6",
     "pcb": "#10B981",

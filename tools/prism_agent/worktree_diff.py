@@ -1,4 +1,4 @@
-"""Diff the working tree against HEAD — the changes you haven't committed yet.
+"""Diff the working tree against HEAD, the changes you haven't committed yet.
 
 The web app can only ever show *committed* history, because that's all the backend
 can see. The interesting changes while you're actually working in KiCad are the
@@ -6,12 +6,12 @@ ones still on disk. This computes them locally: old side = the blob at HEAD, new
 side = the file as it currently sits on disk.
 
 The parse/diff itself reuses the backend's `pcb_diff_service` / `sch_diff_service`
-rather than reimplementing them. Those modules are pure-stdlib at their core — the
+rather than reimplementing them. Those modules are pure-stdlib at their core, the
 `diff_pcb(old, new)` / `diff_schematics(old, new)` entry points take plain strings.
 Their *module-level* imports pull in GitPython and the workspace DB, neither of
 which the agent wants, so we load them by path with those two names stubbed out.
 That's a bit of machinery, but the alternative is a second copy of ~2000 lines of
-diff logic that would silently drift from the one the web UI uses — and then the
+diff logic that would silently drift from the one the web UI uses, and then the
 plugin and the web app would disagree about the same board.
 """
 
@@ -45,14 +45,14 @@ def _backend_services_dir() -> Path:
 
     Two very different situations:
 
-    Frozen — the services are BUNDLED INTO the binary (build_agent.py copies them
+    Frozen, the services are BUNDLED INTO the binary (build_agent.py copies them
     in), because the user has a plugin zip and no repo. Resolving a path relative
     to the source tree there would find nothing, the import would fail, and the
     diff would silently degrade to file-level rows: a board full of edits reported
     as "1 changed file" and no detail. That's the failure this branch exists to
     prevent.
 
-    From a checkout — walk up to the repo and use the real backend source, so a dev
+    From a checkout, walk up to the repo and use the real backend source, so a dev
     editing pcb_diff_service sees the effect immediately without rebuilding.
     """
     base = getattr(sys, "_MEIPASS", None)
@@ -118,7 +118,7 @@ def _load_diff_services() -> tuple[types.ModuleType | None, types.ModuleType | N
         return sch, pcb
     except Exception:
         # A missing/renamed backend module must not take the agent down; the
-        # caller falls back to file-level changes. But log it — degrading to
+        # caller falls back to file-level changes. But log it, degrading to
         # "no item detail" without a word looks like the board simply has no
         # changes, which is worse than an error.
         log.warning("couldn't load the backend diff services", exc_info=True)
@@ -130,12 +130,12 @@ def _stub_kicad_monkey() -> None:
 
     pcb_diff_service imports it lazily to render text glyphs to polylines, purely
     to get an *exact* bounding box for text items. That box drives the web
-    viewer's highlight rectangles — the agent doesn't draw anything, it just needs
+    viewer's highlight rectangles, the agent doesn't draw anything, it just needs
     to know *which* items changed, and identity doesn't depend on the glyph
     outlines.
 
     kicad_monkey only lives in the backend's venv, so without this the agent
-    silently produces zero PCB groups on any Python that isn't the backend's — a
+    silently produces zero PCB groups on any Python that isn't the backend's, a
     board full of edits would report "no changes". Falling back to a coarse box is
     the right trade: the item list stays exactly right.
     """
@@ -204,10 +204,10 @@ class FileChange:
     status: str  # added | removed | modified
     kind: str  # pcb | sch | other
     groups: list[Group]
-    # KiCad's own droppings — backup archives, -bak files, autosaves, caches. Tagged
+    # KiCad's own droppings, backup archives, -bak files, autosaves, caches. Tagged
     # rather than dropped: the UI collapses them behind a count, so nothing vanishes
     # without a trace. A file that silently disappears from a change list is worse
-    # than one that's merely noisy — it's a lie about the state of the repo.
+    # than one that's merely noisy, it's a lie about the state of the repo.
     noise: bool = False
 
     def to_dict(self) -> dict:
@@ -263,7 +263,7 @@ def _read_disk(repo: Path, rel: str) -> str | None:
 def _changed_paths(repo: Path) -> list[tuple[str, str]]:
     """(status, repo-relative path) for everything not committed.
 
-    Uses `git status --porcelain`, which reports staged *and* unstaged changes —
+    Uses `git status --porcelain`, which reports staged *and* unstaged changes,
     both are "uncommitted" as far as the user is concerned. The format is column
     oriented (" M path"), so the output must not be stripped.
     """
@@ -313,7 +313,7 @@ def uncommitted_changes(
         try:
             scope_rel = Path(scope).resolve().relative_to(repo.resolve()).as_posix()
         except ValueError:
-            scope_rel = None  # scope outside the repo — don't filter
+            scope_rel = None  # scope outside the repo, don't filter
 
     sch_mod, pcb_mod = _load_diff_services()
     changes: list[FileChange] = []
@@ -330,7 +330,7 @@ def uncommitted_changes(
         noise = _is_noise(rel)
 
         # A backup archive holds a *copy* of the board, so diffing it would find
-        # hundreds of "changes" that are really just the old design — expensive to
+        # hundreds of "changes" that are really just the old design, expensive to
         # compute and actively misleading. Never diff noise.
         if noise:
             changes.append(FileChange(rel, name, status, "other", [], noise=True))
@@ -347,7 +347,7 @@ def uncommitted_changes(
         groups = _diff_one(repo, rel, status, mod, diff_fn) if mod else []
         changes.append(FileChange(rel, name, status, kind, groups))
 
-    # Boards and schematics first — they're what the user came to see. Noise last,
+    # Boards and schematics first, they're what the user came to see. Noise last,
     # regardless of type.
     rank = {"sch": 0, "pcb": 1, "other": 2}
     changes.sort(key=lambda c: (c.noise, rank[c.kind], c.path))
@@ -357,7 +357,7 @@ def uncommitted_changes(
 def _diff_one(
     repo: Path, rel: str, status: str, mod: types.ModuleType, diff_fn: str
 ) -> list[Group]:
-    """Item-level groups for one file. Never raises — a diff failure degrades to
+    """Item-level groups for one file. Never raises, a diff failure degrades to
     a bare file row rather than losing the whole listing."""
     try:
         old = None if status == "added" else _read_head(repo, rel)
@@ -381,7 +381,7 @@ def _diff_one(
 
         return group_file_diff(diff)
     except Exception:
-        # A diff failure on one file shouldn't lose the whole listing — the user
+        # A diff failure on one file shouldn't lose the whole listing, the user
         # still gets a file-level row. Log it, though: silently showing "no
         # changes" for a board the user just edited is a lie, and we want to know.
         log.warning("diff failed for %s", rel, exc_info=True)

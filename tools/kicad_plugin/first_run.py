@@ -1,12 +1,12 @@
 """First-run setup.
 
 The install story is "download a zip, install it in KiCad, everything else takes
-care of itself" — but two of the things that need doing touch the machine outside
+care of itself", but two of the things that need doing touch the machine outside
 KiCad: starting a background agent, and (optionally) registering an autostart entry
 and a URL scheme.
 
 So this asks. Each item is a checkbox the user can decline, and each says plainly
-what it will do — a registry key, a login item, a URL scheme. Doing any of that
+what it will do, a registry key, a login item, a URL scheme. Doing any of that
 silently is exactly the behaviour people rightly resent in desktop software.
 
 It runs once. After that a marker sits beside the settings file, and the plugin goes
@@ -31,7 +31,7 @@ def _c(hex_value):
 def needed() -> bool:
     """Has the user been through setup?
 
-    Kept in the agent's settings so it survives a plugin reinstall — being asked to
+    Kept in the agent's settings so it survives a plugin reinstall, being asked to
     set up again because you updated the plugin would be irritating and pointless.
     Falls back to "yes, ask" when the agent isn't reachable: the setup dialog is
     precisely what starts it.
@@ -72,7 +72,7 @@ class FirstRunDialog(wx.Dialog):
         title.SetFont(f)
         root.Add(title, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
 
-        self.status = wx.StaticText(self, label="Starting the Prism agent…")
+        self.status = wx.StaticText(self, label="Starting the Prism agent...")
         self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
         sf = self.status.GetFont()
         sf.SetPointSize(th.FONT_SMALL)
@@ -149,11 +149,9 @@ class FirstRunDialog(wx.Dialog):
                 continue
 
         if not self.agent_ok:
-            self.status.SetLabel("The agent was started but hasn't come up")
+            self.status.SetLabel("Agent not responding")
             self.status.SetForegroundColour(_c(self.pal["destructive"]))
-            card.body.Add(
-                card.label("Give it a moment, then reopen Prism.", tone="muted_fg"), 0
-            )
+            card.body.Add(card.label("Reopen Prism to retry.", tone="muted_fg"), 0)
             self.body.Add(card, 0, wx.EXPAND)
 
     # -- the options -------------------------------------------------------
@@ -234,7 +232,7 @@ class FirstRunDialog(wx.Dialog):
         import sys
 
         if sys.platform == "win32":
-            return "Adds a per-user entry under HKCU\\…\\CurrentVersion\\Run."
+            return "Adds a per-user entry under HKCU\\...\\CurrentVersion\\Run."
         if sys.platform == "darwin":
             return "Adds a LaunchAgent in ~/Library/LaunchAgents."
         return "Adds a .desktop file in ~/.config/autostart."
@@ -262,7 +260,7 @@ class FirstRunDialog(wx.Dialog):
             return
 
         # The agent reports an OS refusal rather than persisting a setting it
-        # couldn't honour — surface that instead of claiming success.
+        # couldn't honour, surface that instead of claiming success.
         if result.get("error"):
             wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
 

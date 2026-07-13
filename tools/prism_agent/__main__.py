@@ -1,13 +1,13 @@
 """KiCad-Prism agent.
 
-Runs independent of KiCad. It owns the machine-side work — knowing the local
-projects, running git, diffing the working tree, talking to the Prism backend —
+Runs independent of KiCad. It owns the machine-side work, knowing the local
+projects, running git, diffing the working tree, talking to the Prism backend,
 and exposes it on a loopback HTTP API (see server.py). The KiCad plugin is a thin
 UI client over that API, so the capabilities exist whether or not KiCad is open.
 
 The tray icon is the *convenience*, not the architecture. The agent's real control
 surface is its HTTP API, which works identically everywhere. So when no tray can
-be drawn — Wayland without an appindicator, a headless box, SSH — the agent says
+be drawn, Wayland without an appindicator, a headless box, SSH, the agent says
 so and keeps serving, rather than dying or (worse) running invisibly with no way
 to stop it. See _run_headless.
 
@@ -31,7 +31,7 @@ from .server import VERSION, serve
 
 
 def _assets_dir() -> Path:
-    """Where the icons live — which differs once we're a frozen binary.
+    """Where the icons live, which differs once we're a frozen binary.
 
     PyInstaller unpacks bundled data into a temp dir and points sys._MEIPASS at it,
     so the source-relative path is wrong there and the tray would silently fall
@@ -74,7 +74,7 @@ def _load_tray():
 
     pystray picks its backend at import: darwin on macOS, win32 on Windows, and on
     Linux it tries appindicator -> gtk -> xorg, raising ImportError if all three
-    fail. That makes the "no tray available" case detectable rather than silent —
+    fail. That makes the "no tray available" case detectable rather than silent,
     we don't have to know anything about individual distros.
     """
     try:
@@ -105,7 +105,7 @@ def _load_tray():
             "No system tray is available here (%s).\n"
             "On Linux the tray needs an AppIndicator backend:\n"
             "    sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi\n"
-            "The agent works fine without it — see below." % exc
+            "The agent works fine without it, see below." % exc
         )
 
     return (pystray, Image, ImageDraw), None
@@ -129,7 +129,7 @@ def _make_icon(Image, ImageDraw):
         icon = Image.open(ASSETS / "prism-256.png").convert("RGBA")
         return icon.resize((TRAY_ICON_PX, TRAY_ICON_PX), Image.LANCZOS)
     except OSError:
-        # A missing asset must never stop the agent — the icon is cosmetic, the
+        # A missing asset must never stop the agent, the icon is cosmetic, the
         # agent is not.
         icon = Image.new("RGBA", (TRAY_ICON_PX, TRAY_ICON_PX), (0, 0, 0, 0))
         ImageDraw.Draw(icon).rounded_rectangle(
@@ -161,7 +161,7 @@ def _handle_url(url: str) -> int:
 
     Runs as a short-lived process, separate from the agent: the browser launches a
     *new* copy of us with the URL, it isn't delivered to the one already running.
-    So do the work and exit — don't try to start a second agent (which the
+    So do the work and exit, don't try to start a second agent (which the
     single-instance guard would refuse anyway).
     """
     link = protocol.parse(url)
@@ -230,7 +230,7 @@ def _relaunch() -> None:
     """Start a fresh agent process, for /restart.
 
     Detached, and only *after* the current one has released its port and discovery
-    file — otherwise the new agent's single-instance guard would see us still alive
+    file, otherwise the new agent's single-instance guard would see us still alive
     and politely refuse to start.
     """
     cwd = None if is_frozen() else str(Path(__file__).resolve().parent.parent)
@@ -283,7 +283,7 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
             pystray.MenuItem(server_text, None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Open Prism", on_open_prism),
-            # Settings live in the plugin's dialog, which is a real UI toolkit —
+            # Settings live in the plugin's dialog, which is a real UI toolkit,
             # pystray menus can't host text fields, so pointing at it beats a
             # half-usable tray form.
             pystray.MenuItem("Restart agent", on_restart),
@@ -311,7 +311,7 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
 
 def _run_headless(server, stop: threading.Event, port, reason: str | None) -> int:
     """Serve with no tray. The API is the control surface, so nothing is lost but
-    the icon — as long as we say so loudly and explain how to stop it."""
+    the icon, as long as we say so loudly and explain how to stop it."""
     if reason:
         print(reason, file=sys.stderr)
         print(file=sys.stderr)
@@ -373,7 +373,7 @@ def main() -> int:
         return _handle_url(args.open_url)
 
     # One agent per machine. A second would bind a different port, overwrite the
-    # discovery file, and leave two processes racing — with whichever exits last
+    # discovery file, and leave two processes racing, with whichever exits last
     # deleting the file and orphaning the other, so the plugin can find neither.
     # The plugin's "Start agent" button makes double-starting easy, so refuse here.
     existing = discovery.running_agent()
@@ -416,7 +416,7 @@ def main() -> int:
 def _run_with_tray(server, stop, config, port) -> int:
     tray_mods, problem = _load_tray()
     if tray_mods is None:
-        # No tray available — but the agent is still perfectly useful, and exiting
+        # No tray available, but the agent is still perfectly useful, and exiting
         # here would take the plugin's only backend down with it.
         return _run_headless(server, stop, port, problem)
     return _run_tray(tray_mods, server, stop, config, port)

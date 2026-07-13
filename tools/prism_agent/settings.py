@@ -6,7 +6,7 @@ minted per run) and gets deleted on shutdown, whereas this is what the user chos
 and must outlive the process.
 
 Env vars still win over the file, so a dev pointing at a staging backend with
-PRISM_URL doesn't have their saved setting silently overridden — or silently
+PRISM_URL doesn't have their saved setting silently overridden, or silently
 overwrite it.
 """
 
@@ -34,7 +34,7 @@ class Settings:
     # which is the current default (see /api/auth/config -> auth_enabled).
     api_token: str = field(default="", repr=False)  # keep it out of logs
     # Whether the user has opted into this machine handling prism:// links. Never
-    # registered without an explicit yes — silently claiming a URL scheme is the
+    # registered without an explicit yes, silently claiming a URL scheme is the
     # kind of thing people rightly resent.
     protocol_handler: bool = False
     # Start the agent at login. Same principle: opt-in only. Without it the agent
@@ -42,7 +42,7 @@ class Settings:
     # running independently.
     autostart: bool = False
     # Has the user been through first-run setup? Lives here rather than beside the
-    # plugin so it survives a plugin reinstall — being asked to set up again just
+    # plugin so it survives a plugin reinstall, being asked to set up again just
     # because you updated the plugin would be irritating and pointless.
     first_run_done: bool = False
 
@@ -74,7 +74,7 @@ def load() -> Settings:
     try:
         data = json.loads(settings_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        pass  # no file yet, or corrupt — defaults are a fine answer
+        pass  # no file yet, or corrupt, defaults are a fine answer
 
     s = Settings.from_dict(data) if isinstance(data, dict) else Settings()
 
@@ -100,7 +100,7 @@ def save(settings: Settings) -> Path:
 
 
 def update(**changes) -> Settings:
-    """Change some fields and persist. Unknown keys are ignored, not an error —
+    """Change some fields and persist. Unknown keys are ignored, not an error,
     an older agent shouldn't choke on a setting a newer UI sent."""
     current = load()
     known = {f.name for f in fields(Settings)}

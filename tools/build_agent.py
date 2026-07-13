@@ -1,7 +1,7 @@
 """Build the agent into a self-contained executable.
 
 Why this exists: the KiCad plugin runs inside KiCad's embedded Python, which has
-no pystray/Pillow — and we cannot assume the user has *any* other Python. The old
+no pystray/Pillow, and we cannot assume the user has *any* other Python. The old
 approach (hunt the machine for an interpreter that happens to have the deps) fails
 for exactly the person we're building for: someone who installed a zip from KiCad's
 Plugin Manager and has never run pip.
@@ -12,7 +12,7 @@ dependencies, no install step.
     python tools/build_agent.py
 
 PyInstaller cannot cross-compile: a macOS binary must be built on macOS, a Linux
-one on Linux. Run this on each target (CI does exactly that) — see
+one on Linux. Run this on each target (CI does exactly that), see
 .github/workflows/build-plugin.yml.
 """
 
@@ -45,7 +45,7 @@ def build(clean: bool = True, console: bool = False) -> Path:
 
     # The agent loads the backend's real pcb/sch diff services (see worktree_diff:
     # importing them beats maintaining a second copy that would drift). A shipped
-    # binary has no repo to load them from, so they get bundled — otherwise the
+    # binary has no repo to load them from, so they get bundled, otherwise the
     # diff silently degrades to "N changed files" with no item-level detail.
     services = TOOLS.parent / "backend" / "app" / "services"
     bundled_services = (
@@ -75,7 +75,7 @@ def build(clean: bool = True, console: bool = False) -> Path:
         # sys._MEIPASS at runtime (see prism_agent/__main__.py).
         "--add-data",
         f"{assets}{_sep()}prism_agent/assets",
-        # Flattened to backend_services/ — worktree_diff looks for them there when
+        # Flattened to backend_services/, worktree_diff looks for them there when
         # frozen (sys._MEIPASS/backend_services).
         *[
             arg
@@ -98,7 +98,7 @@ def build(clean: bool = True, console: bool = False) -> Path:
     ]
 
     # A tray app must not flash a console. But --windowed on Windows also detaches
-    # stdout/stderr, so a crash vanishes silently — hence --console for debugging.
+    # stdout/stderr, so a crash vanishes silently, hence --console for debugging.
     if console:
         args.append("--console")
     else:
@@ -135,13 +135,13 @@ def build(clean: bool = True, console: bool = False) -> Path:
 def _adhoc_sign(binary: Path) -> None:
     """Ad-hoc sign the macOS binary.
 
-    Free, and needs no Apple Developer account — `codesign -s -` signs with no
+    Free, and needs no Apple Developer account, `codesign -s -` signs with no
     identity. It does NOT satisfy Gatekeeper for a quarantined file (that needs
     notarisation), but:
 
       * On Apple Silicon an arm64 binary must carry at least an ad-hoc signature to
         execute *at all*, so this isn't optional.
-      * In the normal install path the binary never gets quarantined anyway —
+      * In the normal install path the binary never gets quarantined anyway,
         Gatekeeper only inspects files carrying com.apple.quarantine, and that flag
         is applied by the *downloading* app. KiCad's Plugin Manager fetches and
         extracts the zip itself, so the flag is never set.

@@ -3,7 +3,7 @@
 The agent ships as a **self-contained binary** next to this plugin, so starting it
 is just running a file. That is the whole point: the plugin lives inside KiCad's
 embedded Python, which has no pystray/Pillow, and we cannot assume the user has any
-*other* Python — they installed a zip from the Plugin Manager and may never have run
+*other* Python, they installed a zip from the Plugin Manager and may never have run
 pip. Hunting the machine for a suitable interpreter is what this used to do, and it
 failed for exactly that person.
 
@@ -11,7 +11,7 @@ The Python path survives only as a **development fallback**, for running out of 
 source checkout before a binary has been built.
 
 Why launching it isn't a security escalation: the plugin already runs arbitrary
-Python inside KiCad with the user's full rights — anything it could do by spawning
+Python inside KiCad with the user's full rights, anything it could do by spawning
 the agent, it could do inline. What *would* be a concern is launching an arbitrary
 path from config, or auto-starting behind the user's back. So this only ever runs
 our own binary, resolved relative to this file, and only when the user asks.
@@ -30,7 +30,7 @@ class LaunchError(Exception):
 
 
 def agent_root() -> Path:
-    """The `tools/` dir — the parent of the prism_agent package (dev checkouts)."""
+    """The `tools/` dir, the parent of the prism_agent package (dev checkouts)."""
     return Path(__file__).resolve().parent.parent
 
 
@@ -60,7 +60,7 @@ def find_binary() -> Path | None:
 def _prefer_source() -> bool:
     """Should we run the agent from source rather than the built binary?
 
-    Yes in a dev checkout — and this matters more than it sounds. The dev profile exists
+    Yes in a dev checkout, and this matters more than it sounds. The dev profile exists
     so you can edit the agent, restart it, and see the change. But a stale
     tools/dist/prism-agent.exe left over from an earlier `build_agent.py` would be found
     first and launched instead, freezing your "dev" agent at whatever you last built.
@@ -159,7 +159,7 @@ def _no_window() -> dict:
 
 
 def _detached() -> dict:
-    """The agent must OUTLIVE KiCad — that's the whole premise. A plain child would
+    """The agent must OUTLIVE KiCad, that's the whole premise. A plain child would
     be killed (or orphaned) when KiCad exits."""
     if sys.platform == "win32":
         return {
@@ -174,7 +174,7 @@ def _clear_quarantine(binary: Path) -> None:
     """Let macOS run our own binary.
 
     Gatekeeper only inspects files carrying com.apple.quarantine, and that flag is
-    set by the *downloading* app — KiCad's Plugin Manager fetches and extracts the
+    set by the *downloading* app, KiCad's Plugin Manager fetches and extracts the
     zip itself, so in the normal path the binary arrives without it. But a user who
     downloads the zip in a browser and extracts it with Finder would get a flagged
     file and a "cannot be opened" dialog.
@@ -232,7 +232,7 @@ def start_agent() -> str:
     """Launch the agent, detached. Returns what was started.
 
     An install runs the binary. A dev checkout runs from SOURCE, even when a binary
-    happens to exist — otherwise a stale tools/dist build silently shadows the code you
+    happens to exist, otherwise a stale tools/dist build silently shadows the code you
     are editing (see _prefer_source).
     """
     binary = find_binary()
@@ -246,7 +246,7 @@ def start_agent() -> str:
     exe = find_python(report=tried)
 
     if not exe and binary is not None:
-        # Dev, but no usable interpreter. A stale binary beats no agent at all — just
+        # Dev, but no usable interpreter. A stale binary beats no agent at all, just
         # don't pretend it's running your latest code.
         return _start_binary(binary)
 
@@ -264,7 +264,7 @@ def start_agent() -> str:
         ]
         if tried:
             lines += ["", "Tried:"] + [
-                "    %s — %s" % (exe, why) for exe, why in tried[:6]
+                "    %s, %s" % (exe, why) for exe, why in tried[:6]
             ]
         raise LaunchError("\n".join(lines))
 

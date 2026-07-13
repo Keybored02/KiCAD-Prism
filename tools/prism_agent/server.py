@@ -1,4 +1,4 @@
-"""The agent's local HTTP API — what the KiCad plugin (or curl) talks to.
+"""The agent's local HTTP API, what the KiCad plugin (or curl) talks to.
 
 Binds an ephemeral port on 127.0.0.1 only. Every route except /health requires the
 shared token (see discovery.py for why that matters on loopback).
@@ -15,7 +15,7 @@ Endpoints
     POST /quit                       -> stops the agent
     POST /restart                    -> stops, then relaunches the agent
 
-/quit exists so the API — not the tray icon — is the agent's control surface. On a
+/quit exists so the API, not the tray icon, is the agent's control surface. On a
 desktop with no usable tray (Wayland without an appindicator, SSH, headless) there
 would otherwise be no way to stop it, which is exactly the situation that turns a
 missing icon into an orphaned process.
@@ -45,7 +45,7 @@ VERSION = "0.4.0"
 
 # The oldest plugin this agent can serve.
 #
-# Only bump this when a change here genuinely BREAKS an older plugin — not merely
+# Only bump this when a change here genuinely BREAKS an older plugin, not merely
 # when the agent gains something. Every route so far has been additive, so an older
 # plugin still works fine against a newer agent; declaring otherwise would break
 # working setups for no reason. The compatibility that actually bites runs the other
@@ -154,7 +154,7 @@ class _Handler(BaseHTTPRequestHandler):
         """Never let a bug in one route take the agent down.
 
         socketserver logs the traceback and closes the socket, so the client sees
-        `RemoteDisconnected: remote end closed connection without response` — a
+        `RemoteDisconnected: remote end closed connection without response`, a
         baffling error that says nothing about the actual fault. Worse, the agent
         can end up dead with its discovery file still on disk, so the plugin
         cheerfully connects to a port nobody is listening on.
@@ -188,7 +188,7 @@ class _Handler(BaseHTTPRequestHandler):
                     # version against ITS minimum; this is the other direction, so a
                     # mismatch is caught whichever side is the stale one. Autostart
                     # means an old agent routinely meets a new plugin after an
-                    # update — and a stale plugin can meet a new agent too.
+                    # update, and a stale plugin can meet a new agent too.
                     "plugin_min": PLUGIN_MIN,
                     "backend_reachable": self.state.prism.health(),
                 },
@@ -341,7 +341,7 @@ class _Handler(BaseHTTPRequestHandler):
         if body.get("clear_token"):
             changes["api_token"] = ""
 
-        # These two don't merely get stored — they register something with the OS.
+        # These two don't merely get stored, they register something with the OS.
         # If the OS refuses, don't persist the setting: a saved `true` with nothing
         # actually installed would leave the UI confidently reporting a handler
         # that isn't there.

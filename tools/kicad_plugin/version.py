@@ -2,7 +2,7 @@
 
 The plugin and the agent are shipped together in one zip, but they do NOT
 necessarily run together. The agent is a detached process that outlives KiCad, and
-autostart means it's already running at login — so after an update, a **new plugin
+autostart means it's already running at login, so after an update, a **new plugin
 routinely meets an old agent**. That's not an edge case; with automatic updates it's
 the normal path.
 

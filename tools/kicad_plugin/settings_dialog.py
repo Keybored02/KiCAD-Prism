@@ -2,8 +2,8 @@
 
 The agent owns the settings (it's the thing that uses them, and it outlives KiCad);
 this is just an editor for them over the loopback API. It lives here rather than in
-the tray because a tray menu can't host text fields — pystray menus are labels and
-checkmarks — and a half-usable tray form would be worse than none.
+the tray because a tray menu can't host text fields, pystray menus are labels and
+checkmarks, and a half-usable tray form would be worse than none.
 """
 
 from __future__ import annotations
@@ -135,7 +135,7 @@ class SettingsDialog(wx.Dialog):
         if not identity.get("reachable"):
             account.body.Add(
                 account.label(
-                    "Can't reach the server, so there's nothing to sign in to yet.",
+                    "Server unreachable.",
                     tone="muted_fg",
                 ),
                 0,
@@ -163,8 +163,7 @@ class SettingsDialog(wx.Dialog):
             else:
                 account.body.Add(
                     account.label(
-                        "Prism signs in through your identity provider in a browser.\n"
-                        "Paste an API token below, or use Sign in once it's wired up.",
+                        "Not signed in. Paste an API token below.",
                         tone="muted_fg",
                     ),
                     0,
@@ -177,7 +176,7 @@ class SettingsDialog(wx.Dialog):
         )
         account.body.Add(
             account.label(
-                "Stored on this machine only; never shown again once saved.",
+                "Stored on this machine. Not shown again once saved.",
                 tone="muted_fg",
                 small=True,
             ),
@@ -219,8 +218,7 @@ class SettingsDialog(wx.Dialog):
         startup.body.Add(self.autostart, 0, wx.BOTTOM, th.SP_XS)
         startup.body.Add(
             startup.label(
-                "Without this the agent only runs once you've opened KiCad, which\n"
-                "defeats the point of it working when KiCad is closed.",
+                "Required for Prism to work while KiCad is closed.",
                 tone="muted_fg",
                 small=True,
             ),
@@ -252,8 +250,7 @@ class SettingsDialog(wx.Dialog):
             links.body.Add(self.handler, 0, wx.BOTTOM, th.SP_XS)
             links.body.Add(
                 links.label(
-                    "Registers the scheme for your user account only. Nothing is\n"
-                    "written until you tick this and press Save.",
+                    "Registered for your user account only, on Save.",
                     tone="muted_fg",
                     small=True,
                 ),
@@ -263,8 +260,7 @@ class SettingsDialog(wx.Dialog):
             self.handler = None
             links.body.Add(
                 links.label(
-                    "On macOS a URL scheme can only be claimed by an application\n"
-                    "bundle, so this needs the agent packaged as a .app first.",
+                    "Not available on macOS: requires an .app bundle.",
                     tone="muted_fg",
                     small=True,
                 ),
@@ -309,13 +305,13 @@ class SettingsDialog(wx.Dialog):
         else:
             label, tone = "Not linked", "warning"
         card.row("Prism", label, badge=True, tone=tone)
-        card.row("KiCad", state.get("kicad_version") or "—", tone="muted_fg")
+        card.row("KiCad", state.get("kicad_version") or ", ", tone="muted_fg")
 
         if stale:
             card.body.Add(
                 card.label(
-                    "KiCad points at a different Prism server:\n    %s\n"
-                    "Re-link, then restart KiCad." % state.get("linked_url", ""),
+                    "Currently linked to %s.\nRe-link, then restart KiCad."
+                    % state.get("linked_url", ""),
                     tone="muted_fg",
                     small=True,
                 ),
@@ -326,8 +322,8 @@ class SettingsDialog(wx.Dialog):
         elif not linked:
             card.body.Add(
                 card.label(
-                    "Prism's parts won't appear in KiCad's Symbol Chooser.\n"
-                    "Link it, then restart KiCad.",
+                    "Prism's parts won't appear in the Symbol Chooser.\n"
+                    "Link, then restart KiCad.",
                     tone="muted_fg",
                     small=True,
                 ),
@@ -354,8 +350,8 @@ class SettingsDialog(wx.Dialog):
     def _link_library(self):
         """Register Prism as KiCad's symbol provider.
 
-        The agent does the write. It works with KiCad open — KiCad only rewrites the
-        parts of eeschema.json it touched, and the provider list isn't one of them — but
+        The agent does the write. It works with KiCad open, KiCad only rewrites the
+        parts of eeschema.json it touched, and the provider list isn't one of them, but
         KiCad reads the providers at startup, so it needs a restart to pick this up.
         """
         try:
@@ -369,9 +365,7 @@ class SettingsDialog(wx.Dialog):
             wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
         else:
             wx.MessageBox(
-                "Prism is linked into KiCad %s.\n\n"
-                "Restart KiCad to pick it up — it reads its symbol providers when it "
-                "starts. After that, Prism's parts are in the Symbol Chooser."
+                "Linked to KiCad %s. Restart KiCad to load it."
                 % (result.get("kicad_version") or ""),
                 "Prism",
                 wx.OK | wx.ICON_INFORMATION,
@@ -457,7 +451,7 @@ class SettingsDialog(wx.Dialog):
     def _stop(self):
         if (
             wx.MessageBox(
-                "Stop the Prism agent? The plugin won't work until it's started again.",
+                "Stop the Prism agent? The plugin needs it to run.",
                 "Prism",
                 wx.YES_NO | wx.ICON_QUESTION,
             )

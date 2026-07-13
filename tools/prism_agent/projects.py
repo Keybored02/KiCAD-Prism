@@ -19,7 +19,7 @@ PROJECT_GLOBS = ("*.kicad_pro", "*.kicad_pcb", "*.kicad_sch")
 def _run_git(repo: Path, *args: str, strip: bool = True) -> str:
     """Run git in `repo` and return stdout. Raises on failure.
 
-    `strip=False` for output whose leading whitespace is significant — porcelain
+    `strip=False` for output whose leading whitespace is significant, porcelain
     status is column-oriented (" M file" means modified-but-unstaged), so
     stripping it shifts every field and eats the first character of the path.
     """
@@ -116,7 +116,7 @@ def git_status(repo_root: str | Path) -> GitStatus:
     try:
         st.branch = _run_git(repo, "rev-parse", "--abbrev-ref", "HEAD")
     except Exception:
-        return st  # not a repo / no commits yet — an empty status is the truth
+        return st  # not a repo / no commits yet, an empty status is the truth
 
     # Porcelain v1 is stable and trivial to parse: XY <path>. It is *column*
     # oriented, so the output must not be stripped (see _run_git).

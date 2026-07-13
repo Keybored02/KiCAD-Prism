@@ -1,6 +1,6 @@
 """Run the agent at login.
 
-The agent's whole premise is that it works whether or not KiCad is open — but
+The agent's whole premise is that it works whether or not KiCad is open, but
 without this it only exists once you've opened KiCad at least once since logging
 in, because the plugin is what starts it.
 
@@ -12,7 +12,7 @@ and it is never enabled unless the user asks:
   macOS     a LaunchAgent plist in ~/Library/LaunchAgents. launchd starts it at
             login and (with KeepAlive) restarts it if it dies.
   Linux     an XDG autostart .desktop in ~/.config/autostart. Honoured by GNOME,
-            KDE, XFCE — i.e. the desktops that have a tray in the first place.
+            KDE, XFCE, i.e. the desktops that have a tray in the first place.
 
 Only Windows is verified by the author; the other two are written to spec and want
 a real test on their platform.
@@ -43,11 +43,11 @@ def _agent_command() -> list[str]:
     """How the OS should launch the agent at login.
 
     Frozen, that's just the binary. From a checkout it needs the interpreter and
-    the module — and an absolute path, since login has no useful working directory.
+    the module, and an absolute path, since login has no useful working directory.
 
     The profile is passed as an ARGUMENT, not left to the environment: a login
     process gets a fresh environment, so PRISM_PROFILE would be lost, and a dev agent
-    set to autostart would come back as the *default* agent — colliding with the
+    set to autostart would come back as the *default* agent, colliding with the
     installed one it was carefully kept separate from.
     """
     from .discovery import PROFILE

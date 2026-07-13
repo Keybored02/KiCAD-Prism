@@ -1,7 +1,7 @@
 """Link (or copy) the KiCad plugin into KiCad's plugin directory.
 
 Prefers a SYMLINK so the repo stays the single source of truth: you edit the
-plugin here, KiCad picks it up on its next "Refresh Plugins" — no copy step to
+plugin here, KiCad picks it up on its next "Refresh Plugins", no copy step to
 forget, and no risk of editing the installed copy and losing it.
 
 Falls back to copying if the OS won't allow symlinks (Windows needs Developer

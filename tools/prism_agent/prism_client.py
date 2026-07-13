@@ -70,7 +70,7 @@ class PrismClient:
     def auth_config(self) -> dict | None:
         """Whether the server wants anyone to log in, and via which provider.
 
-        Prism authenticates with OIDC authorization-code — you sign in at an
+        Prism authenticates with OIDC authorization-code, you sign in at an
         identity provider in a *browser*, which redirects back with a code. There
         is no username/password endpoint to call, so a desktop client can't collect
         credentials itself; it has to hand off to the browser. When `auth_enabled`
@@ -96,7 +96,7 @@ class PrismClient:
                 "user": None,
                 "provider": "",
                 # Say why there's nothing to sign into, so the UI isn't just blank.
-                "note": "This server has authentication disabled — every request is a guest.",
+                "note": "This server has authentication disabled, every request is a guest.",
             }
 
         return {
@@ -125,7 +125,7 @@ class PrismClient:
     def project_url(self, project_id: str) -> str:
         """Deep link into the web app for this project.
 
-        The route is `/project/<id>` — singular. Pluralising it (the natural typo,
+        The route is `/project/<id>`, singular. Pluralising it (the natural typo,
         and what this used to do) matches no route, so the app's catch-all bounces
         you to the home page: "Open in Prism" appeared to work but just opened the
         web UI. Keep this in step with the Route in frontend/src/App.tsx.
@@ -137,7 +137,7 @@ def _normalise(path: str) -> str:
     """Canonical form of a path, for comparing two spellings of the same folder.
 
     Resolving matters, not just lowercasing: Prism stores the path it was imported
-    with, which is often *relative to its own workspace* and full of `..` — e.g.
+    with, which is often *relative to its own workspace* and full of `..`, e.g.
 
         C:\\...\\KiCAD-Prism\\data\\projects\\..\\..\\..\\test board
 

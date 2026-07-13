@@ -1,4 +1,4 @@
-"""Diff grouping — a faithful port of frontend/src/lib/diff-grouping.ts.
+"""Diff grouping, a faithful port of frontend/src/lib/diff-grouping.ts.
 
 The web UI groups diff items into domain categories (Components / Nets / Zones /
 Graphics for PCB; Symbols / Nets / Sheets / Text for schematics) and reconciles
@@ -7,7 +7,7 @@ rather than a misleading green+red pair. The plugin has to show *the same rows*,
 so this is a direct translation rather than a fresh implementation.
 
 Keep it in step with the TypeScript. If you change grouping or labels there,
-change them here — the whole point is that both surfaces say the same thing about
+change them here, the whole point is that both surfaces say the same thing about
 the same board.
 """
 
@@ -134,7 +134,7 @@ def _sub_group_key(category: str, policy: str, item: dict, index: int) -> str:
         return str(item.get("layer") or "(no layer)")
     # per-item: every item is its own bucket. Raw diff items key on `uuid` (the
     # backend renames it to `id` for the web UI), so accept either. Fall back to
-    # the index rather than a random key so grouping is deterministic — the TS
+    # the index rather than a random key so grouping is deterministic, the TS
     # uses Math.random() here, which is fine there but would make our output
     # differ between identical calls.
     return str(item.get("id") or item.get("uuid") or f"{category}-{index}")
@@ -182,11 +182,11 @@ def _label_for(group: Group) -> str:
             parts.append(_plural(buses, "bus", "buses"))
         if jncs:
             parts.append(_plural(jncs, "junction", "junctions"))
-        return f"{net_label} — {', '.join(parts)}" if parts else net_label
+        return f"{net_label}, {', '.join(parts)}" if parts else net_label
 
     if cat == "graphics":
         layer = first.get("layer") or "No layer"
-        return f"{layer} — {_plural(len(members), 'item', 'items')}"
+        return f"{layer}, {_plural(len(members), 'item', 'items')}"
 
     if cat in ("components", "symbols"):
         ref = first.get("reference") or first.get("lib_id") or "?"
@@ -205,7 +205,7 @@ def _label_for(group: Group) -> str:
     if cat == "text":
         t = str(first.get("text") or "")
         if len(t) > 32:
-            return t[:29] + "…"
+            return t[:29] + "..."
         return t or "Text"
 
     return str(first.get("name") or first.get("text") or first.get("type") or "")

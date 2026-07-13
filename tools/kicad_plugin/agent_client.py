@@ -1,6 +1,6 @@
 """Client for the local Prism tray agent.
 
-Runs inside KiCad's embedded Python, so this is strictly stdlib — no requests, no
+Runs inside KiCad's embedded Python, so this is strictly stdlib, no requests, no
 pip. It finds the agent via the discovery file the agent publishes (port + token)
 and calls its loopback API.
 
@@ -27,7 +27,7 @@ ENDPOINT_FILE = "agent.json"
 
 
 class AgentUnavailable(Exception):
-    """We couldn't get an answer out of the agent — it's down, or it refused."""
+    """We couldn't get an answer out of the agent, it's down, or it refused."""
 
 
 def _http_message(exc, route):
@@ -35,14 +35,14 @@ def _http_message(exc, route):
 
     A 404 from a *live* agent means the agent is older than the plugin: the route didn't
     exist when it started. During development that's the single most likely thing to go
-    wrong — you edit the agent, reload the plugin, and the still-running old process
+    wrong, you edit the agent, reload the plugin, and the still-running old process
     doesn't have the new endpoint. "Restart the agent" is the real fix, so say it,
     instead of a bare status code or (worse) claiming the agent isn't running at all.
     """
     if exc.code == 404:
         return (
             "This Prism agent doesn't know about %s.\n\n"
-            "It's running an older build than the plugin — restart the agent to pick "
+            "It's running an older build than the plugin, restart the agent to pick "
             "up the new version." % route
         )
     if exc.code == 401:
@@ -62,12 +62,12 @@ def _http_message(exc, route):
 
 
 def profile():
-    """Which agent are we talking to — the installed one, or a dev one?
+    """Which agent are we talking to, the installed one, or a dev one?
 
     A symlinked working copy and a real PCM install can both be loaded by KiCad at
     once (that's the point: iterate on one, verify the other). They must not share an
     agent, or the single-instance guard means only one starts and it silently serves
-    both — you edit agent code, restart, and see nothing change.
+    both, you edit agent code, restart, and see nothing change.
 
     So the dev copy uses its own profile. PRISM_PROFILE wins if it's set (for running
     the agent by hand); otherwise we detect it, the same way __init__ does: a dev
@@ -83,7 +83,7 @@ def profile():
 def _config_dir():
     # Duplicated from prism_agent.discovery rather than imported: the plugin is
     # installed into KiCad's plugin dir on its own and cannot import the agent
-    # package. Keep the two in sync — they're both tiny.
+    # package. Keep the two in sync, they're both tiny.
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or os.path.expanduser("~/AppData/Roaming")
     elif sys.platform == "darwin":
@@ -128,7 +128,7 @@ class AgentClient:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as exc:
-            # HTTPError subclasses URLError, so it MUST be caught first — otherwise an
+            # HTTPError subclasses URLError, so it MUST be caught first, otherwise an
             # agent answering "404" is reported as an agent that isn't running, and the
             # user goes off restarting a process that was working fine. An HTTP status
             # is proof it's alive.
@@ -178,7 +178,7 @@ class AgentClient:
     def link_library(self, remove=False):
         """Register (or remove) Prism as KiCad's remote symbol provider.
 
-        Works with KiCad open — it only rewrites the parts of eeschema.json it touched,
+        Works with KiCad open, it only rewrites the parts of eeschema.json it touched,
         and the provider list isn't one of them. KiCad does need a restart to pick the
         change up, though.
         """
@@ -194,7 +194,7 @@ class AgentClient:
         """Update settings. Returns the same shape as settings().
 
         The token is write-only: it's never sent back, so an empty api_token means
-        "leave it as it is" rather than "clear it" — pass clear_token to clear.
+        "leave it as it is" rather than "clear it", pass clear_token to clear.
         """
         return self._call("PUT", "/settings", changes)
 

@@ -19,7 +19,7 @@ KiCad keeps the registration in **eeschema.json**, under `remote_symbols`:
 than the agent is configured for, the link is stale and the user should re-link.
 
 Writing this works whether or not KiCad is running. KiCad does rewrite eeschema.json when
-it exits, but only the sections it actually touched — and it doesn't touch
+it exits, but only the sections it actually touched, and it doesn't touch
 `remote_symbols.providers` unless the user opens the Remote Symbol dialog. So an external
 write survives. (Verified the hard way: written with KiCad open, survived a full restart.)
 
@@ -39,7 +39,7 @@ PROVIDER_NAME = "Prism"
 
 
 def kicad_config_dir() -> Path | None:
-    """The current KiCad's config dir — the newest version installed.
+    """The current KiCad's config dir, the newest version installed.
 
     KiCad keeps one per major version, and an old 8.0 folder tends to linger long after
     the user has moved on. There's one KiCad they actually use.
@@ -63,7 +63,7 @@ def kicad_config_dir() -> Path | None:
         return None
 
     def key(path: Path) -> tuple:
-        # Numeric, so "10.0" beats "9.0" — a string sort gets that backwards.
+        # Numeric, so "10.0" beats "9.0", a string sort gets that backwards.
         return tuple(int(p) if p.isdigit() else 0 for p in path.name.split("."))
 
     return max(versions, key=key)
@@ -138,7 +138,7 @@ def link(server_url: str) -> dict:
     """Register Prism as KiCad's remote symbol provider.
 
     Works whether or not KiCad is running. KiCad rewrites eeschema.json on exit, but
-    only the sections it actually touched — `remote_symbols.providers` isn't one of them
+    only the sections it actually touched, `remote_symbols.providers` isn't one of them
     unless the user opened the Remote Symbol dialog, so an external write survives.
     (Verified: written with KiCad open, survived a full restart.)
 
@@ -163,7 +163,7 @@ def link(server_url: str) -> dict:
     remote = data.setdefault("remote_symbols", {})
     providers = remote.setdefault("providers", [])
 
-    # Drop any previous Prism entry — including one pointing at an old server, which is
+    # Drop any previous Prism entry, including one pointing at an old server, which is
     # exactly the stale case we're here to fix. Leave other people's providers alone.
     providers = [
         p

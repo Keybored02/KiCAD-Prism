@@ -1,7 +1,7 @@
 """The plugin's wx dialog, themed to match the Prism web app.
 
 wx has no stylesheet, so "theming" means setting colours/fonts explicitly and
-owner-drawing the widgets whose native versions can't be styled (see widgets.py —
+owner-drawing the widgets whose native versions can't be styled (see widgets.py,
 notably wx.Button ignores SetBackgroundColour on Windows, which is why the primary
 button has to be drawn by hand).
 """
@@ -88,7 +88,7 @@ class PrismDialog(wx.Dialog):
         header.Add(title, 0, wx.ALIGN_CENTER_VERTICAL)
         root.Add(header, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
 
-        self.status = wx.StaticText(self, label="Contacting agent…")
+        self.status = wx.StaticText(self, label="Contacting agent...")
         self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
         sf = self.status.GetFont()
         sf.SetPointSize(th.FONT_SMALL)
@@ -96,7 +96,7 @@ class PrismDialog(wx.Dialog):
         root.Add(self.status, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
         root.AddSpacer(th.SP_MD)
 
-        # Scrolled body — a board with many edits makes a long list. The native
+        # Scrolled body, a board with many edits makes a long list. The native
         # scrollbar can't be themed (wx offers no way to recolour it), so it's
         # hidden and ScrollThumb draws a slim one over the content instead.
         body = wx.BoxSizer(wx.HORIZONTAL)
@@ -198,7 +198,7 @@ class PrismDialog(wx.Dialog):
         self._relayout()
 
     def _rebuild(self):
-        """Re-render from data already in hand. No refetch — expanding a file is
+        """Re-render from data already in hand. No refetch, expanding a file is
         instant even when computing the diff was slow."""
         self.content.Clear(delete_windows=True)
         self._render()
@@ -217,10 +217,8 @@ class PrismDialog(wx.Dialog):
         card = Card(self.scroll, "Prism agent", self.pal)
         card.body.Add(
             card.label(
-                "A Prism agent from a previous version is still running (%s).\n"
-                "This plugin needs %s or newer.\n\n"
-                "The agent runs in the background and outlives KiCad, so updating\n"
-                "the plugin doesn't replace it. Restart it to pick up the new one."
+                "Agent %s is running. This plugin needs %s or newer.\n"
+                "Restart the agent to update it."
                 % (running or "unknown", version.AGENT_MIN),
                 tone="muted_fg",
             ),
@@ -245,7 +243,7 @@ class PrismDialog(wx.Dialog):
         """Stop the old agent, then start the one that shipped with THIS plugin.
 
         Deliberately not /restart: that makes the agent re-execute *itself*, from
-        the path it was launched from. That path belongs to the old install — after
+        the path it was launched from. That path belongs to the old install, after
         an update it may have been replaced (fine), but it may also be gone
         entirely, and then the agent quietly fails to come back. The plugin knows
         where its own binary is; use that.
@@ -291,9 +289,7 @@ class PrismDialog(wx.Dialog):
 
         card.body.Add(
             card.label(
-                "The Prism agent isn't running. It does the machine-side work —\n"
-                "git, project lookup, diffing your uncommitted changes — so the\n"
-                "plugin needs it.",
+                "The Prism agent isn't running. The plugin needs it.",
                 tone="muted_fg",
             ),
             0,
@@ -344,8 +340,7 @@ class PrismDialog(wx.Dialog):
                 continue
         else:
             wx.MessageBox(
-                "The agent was started but hasn't come up yet.\n"
-                "Give it a moment, then hit Refresh.",
+                "The agent started but isn't responding yet. Try Refresh.",
                 "Prism",
                 wx.OK | wx.ICON_INFORMATION,
             )
@@ -402,7 +397,7 @@ class PrismDialog(wx.Dialog):
 
         One collapsible "Uncommitted changes" section holding a compact row per
         board/schematic, each of which expands into its own item-level changes.
-        Same grouping the web UI applies to a commit — but these changes exist only
+        Same grouping the web UI applies to a commit, but these changes exist only
         on disk, so the web app cannot show them at all.
         """
         # Untitled card: the disclosure below *is* the heading, so a separate
@@ -422,8 +417,8 @@ class PrismDialog(wx.Dialog):
             return
 
         # KiCad's own droppings (backup archives, -bak files, autosaves, caches) are
-        # kept separate. They're not hidden — a file that silently vanishes from a
-        # change list is a lie about the state of your repo — but they don't get to
+        # kept separate. They're not hidden, a file that silently vanishes from a
+        # change list is a lie about the state of your repo, but they don't get to
         # drown the design work, and there can be dozens of them per real edit.
         design = [f for f in self.changes if not f.get("noise")]
         noise = [f for f in self.changes if f.get("noise")]
@@ -577,7 +572,7 @@ class PrismDialog(wx.Dialog):
         if path in self.expanded:
             # Only rows KiCad can actually jump to are clickable. A schematic row
             # gets no hand cursor and no hover, because clicking it could not do
-            # anything — better than a row that lies. See crossprobe.py.
+            # anything, better than a row that lies. See crossprobe.py.
             clickable = crossprobe is not None and (
                 kind == "pcb"
                 or (kind == "sch" and crossprobe.schematic_probe_available())
@@ -598,7 +593,7 @@ class PrismDialog(wx.Dialog):
             if count > MAX_ROWS_PER_FILE:
                 holder.Add(
                     card.label(
-                        "+ %d more…" % (count - MAX_ROWS_PER_FILE),
+                        "+ %d more..." % (count - MAX_ROWS_PER_FILE),
                         tone="muted_fg",
                         small=True,
                     ),
@@ -612,7 +607,7 @@ class PrismDialog(wx.Dialog):
     # -- actions -----------------------------------------------------------
 
     def _on_change_click(self, group):
-        """Jump to the changed item *inside KiCad* — select it and zoom to it.
+        """Jump to the changed item *inside KiCad*, select it and zoom to it.
 
         Not a link to the web app: you're already in the editor, so the useful
         thing is to land on the item here. See crossprobe.py for why the schematic
@@ -641,7 +636,7 @@ class PrismDialog(wx.Dialog):
         """
         label = group.get("label", "")
         if group.get("category") in ("components", "symbols") and label:
-            # Labels look like "J102 (Header)" — the reference is the leading token.
+            # Labels look like "J102 (Header)", the reference is the leading token.
             return label.split(" ", 1)[0]
         return ""
 

@@ -10,7 +10,7 @@ can run git and touch the filesystem, so it must not be drivable by anything tha
 merely guesses the port. The token is a shared secret readable only by the user
 who owns the file.
 
-This module is deliberately stdlib-only and importable from BOTH sides — the
+This module is deliberately stdlib-only and importable from BOTH sides, the
 plugin runs inside KiCad's embedded Python, where installing packages is painful.
 """
 
@@ -25,12 +25,12 @@ from pathlib import Path
 APP_NAME = "kicad-prism"
 ENDPOINT_FILE = "agent.json"
 
-# Namespace everything the agent owns — discovery file, settings, single-instance
+# Namespace everything the agent owns, discovery file, settings, single-instance
 # guard. Set PRISM_PROFILE to run a second, isolated agent.
 #
 # This exists for a specific and otherwise painful problem: a developer needs BOTH a
 # symlinked working copy (to iterate) and a real installed package (to verify what
-# users get) — but they'd share one discovery file and one settings file, so the
+# users get), but they'd share one discovery file and one settings file, so the
 # single-instance guard makes the second agent refuse to start, and whichever one IS
 # running silently serves both plugins. You then edit agent code, restart, and see
 # nothing change, because you're still talking to the installed binary.
@@ -85,7 +85,7 @@ def clear_endpoint() -> None:
 
     Only removes the file if it still describes *us*. Otherwise a second agent
     that has since taken over would have its endpoint deleted by our exit, leaving
-    it running but undiscoverable — see running_agent().
+    it running but undiscoverable, see running_agent().
     """
     try:
         data = read_endpoint()
@@ -100,7 +100,7 @@ def running_agent() -> dict | None:
     """The already-running agent, if there is one.
 
     A second agent would bind a different port, overwrite the discovery file, and
-    leave two processes racing — with whichever exits last deleting the file and
+    leave two processes racing, with whichever exits last deleting the file and
     orphaning the other. Since the plugin offers a "Start agent" button, hitting
     that is easy, so the agent checks for a live predecessor before starting.
 
@@ -155,7 +155,7 @@ def _restrict_permissions(path: Path) -> None:
 
     On POSIX this is chmod 600. On Windows the file already lands in the user's
     roaming profile, which other non-admin users cannot read, and setting an ACL
-    would need pywin32 — not worth a dependency for the same outcome.
+    would need pywin32, not worth a dependency for the same outcome.
     """
     if sys.platform != "win32":
         try:

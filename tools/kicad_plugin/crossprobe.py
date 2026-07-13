@@ -1,4 +1,4 @@
-"""Cross-probe a changed item into KiCad itself — select it and zoom to it.
+"""Cross-probe a changed item into KiCad itself, select it and zoom to it.
 
 Clicking a change row should take you to that item *in the editor you're already
 in*, not to a web page. Two different mechanisms are needed, because KiCad exposes
@@ -7,10 +7,10 @@ two very different APIs:
 PCB (all versions)
     pcbnew.FocusOnItem(item) selects the item and centres the canvas on it. We
     resolve our diff item back to a real BOARD_ITEM by uuid (KIID), falling back
-    to a footprint reference when the item has no usable uuid — segments, for
+    to a footprint reference when the item has no usable uuid, segments, for
     instance, are keyed by geometry in the diff, not by uuid.
 
-Schematic (not possible on any current KiCad — verified against 10.0.4)
+Schematic (not possible on any current KiCad, verified against 10.0.4)
     KiCad 8 has no schematic Python API at all; the plugin system is pcbnew-only.
 
     KiCad 9/10 added the IPC API, and it is tempting to conclude from kipy that
@@ -19,7 +19,7 @@ Schematic (not possible on any current KiCad — verified against 10.0.4)
     selection commands are *generic editor commands*
     (kiapi.common.commands.AddToSelection), they take an ItemHeader whose
     DocumentSpecifier explicitly supports schematics (DOCTYPE_SCHEMATIC,
-    sheet_path), and board.py's implementation does nothing board-specific — it
+    sheet_path), and board.py's implementation does nothing board-specific, it
     just points the header at its own document.
 
     The real blocker is one layer deeper, and only KiCad can answer it. Sending
@@ -32,7 +32,7 @@ Schematic (not possible on any current KiCad — verified against 10.0.4)
     protocol defines selection for any document, but *eeschema has not implemented
     the handlers*. There is nothing to call, and no way to route around it.
 
-    (Aside: kipy's Schematic wrapper doesn't even import on KiCad 10 — it targets
+    (Aside: kipy's Schematic wrapper doesn't even import on KiCad 10, it targets
     KiCad 11's protobufs and dies on `ImportError: BusEntryType`. Any future
     implementation here should talk the raw commands, not that wrapper.)
 
@@ -117,7 +117,7 @@ def probe_pcb(item_id: str, reference: str = "") -> None:
     if item is None:
         raise ProbeError(
             "Couldn't find that item on the current board.\n\n"
-            "It may have been changed or removed since the diff was computed — "
+            "It may have been changed or removed since the diff was computed, "
             "hit Refresh."
         )
 
@@ -137,13 +137,13 @@ def probe_pcb(item_id: str, reference: str = "") -> None:
 def schematic_probe_available() -> bool:
     """Can we select a symbol in eeschema?
 
-    No — not on any KiCad released so far, so this returns False everywhere. It's a
+    No, not on any KiCad released so far, so this returns False everywhere. It's a
     function rather than a constant so the dialog asks the question instead of
     hard-coding the answer, and so there is exactly one place to flip when eeschema
     ships the handlers.
 
     See the module docstring for the evidence. The short version: the selection
-    commands ARE generic and DO name schematic documents — but sending them at a
+    commands ARE generic and DO name schematic documents, but sending them at a
     live schematic on KiCad 10.0.4 returns "no handler available", while the same
     commands against the open PCB succeed. eeschema hasn't implemented them.
     """
@@ -151,7 +151,7 @@ def schematic_probe_available() -> bool:
 
 
 def probe_schematic(item_id: str, reference: str = "") -> None:
-    """Would select a symbol in eeschema — if any KiCad API allowed it."""
+    """Would select a symbol in eeschema, if any KiCad API allowed it."""
     version = ".".join(str(n) for n in kicad_version())
     if kicad_version() < (9,):
         raise ProbeError(
@@ -161,7 +161,7 @@ def probe_schematic(item_id: str, reference: str = "") -> None:
         )
     raise ProbeError(
         "KiCad %s's schematic editor doesn't answer the API's selection commands "
-        "yet — it replies 'no handler available', while the same commands work on "
+        "yet, it replies 'no handler available', while the same commands work on "
         "the board. So the plugin can't jump to a symbol.\n\n"
         "Board items still cross-probe normally." % version
     )

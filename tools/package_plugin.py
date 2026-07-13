@@ -53,9 +53,9 @@ def metadata(version: str, platform: str) -> dict:
         "name": "Prism",
         "description": "Project status, uncommitted changes, and cross-probe from Prism.",
         "description_full": (
-            "Shows what you have changed but not yet committed — grouped the way "
+            "Shows what you have changed but not yet committed, grouped the way "
             "Prism's web UI groups a commit, with components, nets, zones and "
-            "symbols — and lets you jump straight to a changed item on the board.\n"
+            "symbols, and lets you jump straight to a changed item on the board.\n"
             "\n"
             "Includes the Prism agent, which does the machine-side work (git, "
             "project detection, diffing) and keeps running whether or not KiCad is "
@@ -83,7 +83,7 @@ def metadata(version: str, platform: str) -> dict:
 
 
 def _copy_plugin(dest: Path) -> None:
-    """The plugin's own files, straight into plugins/ — PCM requires no extra nesting."""
+    """The plugin's own files, straight into plugins/, PCM requires no extra nesting."""
     dest.mkdir(parents=True, exist_ok=True)
     for item in sorted(PLUGIN_SRC.iterdir()):
         if item.name in EXCLUDE:
@@ -98,7 +98,7 @@ def _copy_plugin(dest: Path) -> None:
 
 def _find_binary(binaries: Path, artifact: str, name: str) -> Path:
     """Locate a CI artifact. download-artifact puts each under its own directory,
-    but a locally-built one may just be the file — accept both."""
+    but a locally-built one may just be the file, accept both."""
     candidates = [
         binaries / artifact / name,
         binaries / name,
@@ -122,7 +122,7 @@ def build_package(version: str, binaries: Path, out: Path, artifact: str) -> Pat
     plugins = staging / "plugins"
     _copy_plugin(plugins)
 
-    # The agent sits beside the plugin — which is exactly where agent_launcher's
+    # The agent sits beside the plugin, which is exactly where agent_launcher's
     # find_binary() looks first.
     shutil.copy2(binary, plugins / binary_name)
     if platform != "windows":
@@ -146,7 +146,7 @@ def build_package(version: str, binaries: Path, out: Path, artifact: str) -> Pat
         for path in sorted(staging.rglob("*")):
             if path.is_file():
                 arc = path.relative_to(staging)
-                # Preserve the executable bit — a zip that loses it gives the user a
+                # Preserve the executable bit, a zip that loses it gives the user a
                 # non-runnable agent and a baffling permission error.
                 info = zipfile.ZipInfo(str(arc).replace("\\", "/"))
                 info.compress_type = zipfile.ZIP_DEFLATED
@@ -179,7 +179,7 @@ def main() -> int:
             print(f"  skipping {artifact}: {exc}")
 
     if not built:
-        raise SystemExit("no packages were built — no agent binaries were found")
+        raise SystemExit("no packages were built, no agent binaries were found")
     print(f"\n{len(built)} package(s) in {args.out}")
     return 0
 

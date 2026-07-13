@@ -2,7 +2,7 @@
 
 Why these exist: on Windows, wx.Button is a native control that *ignores*
 SetBackgroundColour. Setting a light foreground on it therefore produces light
-text on the unchanged light native background — invisible. The only reliable way
+text on the unchanged light native background, invisible. The only reliable way
 to get the app's filled "primary" button is to own the drawing.
 
 These are owner-drawn on a wx.Panel: we control the fill, the radius, the hover
@@ -27,7 +27,7 @@ def _surface_of(window: wx.Window, pal: dict) -> wx.Colour:
     NOT GetParent().GetBackgroundColour(): a TRANSPARENT_WINDOW that never had its
     background set reports wx's default #F0F0F0 regardless of theme. Rows nested in
     a Card were therefore painting a near-white block and then drawing dark-theme
-    (near-white) text on it — the unreadable white-on-white list.
+    (near-white) text on it, the unreadable white-on-white list.
 
     So widgets carry the surface they sit on explicitly. Walk up to the nearest
     ancestor that declares one; fall back to the theme's page background.
@@ -42,7 +42,7 @@ def _surface_of(window: wx.Window, pal: dict) -> wx.Colour:
 
 
 def _mix(a: str, b: str, t: float) -> wx.Colour:
-    """Blend two hex colours — used for hover/press states, like the web UI's
+    """Blend two hex colours, used for hover/press states, like the web UI's
     hover:bg-primary/90."""
     ar, ag, ab = th.hex_to_rgb(a)
     br, bg, bb = th.hex_to_rgb(b)
@@ -216,7 +216,7 @@ class Badge(wx.Panel):
         w, h = self.GetSize()
         accent = self.pal.get(self.tone, self.pal["muted_fg"])
         # Tinted background + solid text, like the web's bg-x/10 text-x badges.
-        # Tint against the surface we're actually on (a card), not the page — on a
+        # Tint against the surface we're actually on (a card), not the page, on a
         # dark card, blending toward the page colour would wash the pill out.
         surface = _surface_of(self, self.pal)
         gc.SetBrush(
@@ -237,7 +237,7 @@ def _ellipsise(gc, text: str, max_width: float) -> str:
     """Trim text to fit, with an ellipsis.
 
     Measured rather than cut at a character count: the labels are proportional, so
-    a fixed length would clip "GND — 12 wires" and "J102 (Η1)" inconsistently.
+    a fixed length would clip "GND, 12 wires" and "J102 (Η1)" inconsistently.
     """
     if max_width <= 0 or not text:
         return ""
@@ -246,11 +246,11 @@ def _ellipsise(gc, text: str, max_width: float) -> str:
     lo, hi = 0, len(text)
     while lo < hi:
         mid = (lo + hi) // 2
-        if gc.GetTextExtent(text[:mid] + "…")[0] <= max_width:
+        if gc.GetTextExtent(text[:mid] + "...")[0] <= max_width:
             lo = mid + 1
         else:
             hi = mid
-    return text[: max(0, lo - 1)] + "…"
+    return text[: max(0, lo - 1)] + "..."
 
 
 def draw_kind_icon(
@@ -258,8 +258,8 @@ def draw_kind_icon(
 ):
     """The web UI's file-kind icons, redrawn for wx.
 
-    These are lucide's `CircuitBoard` (schematics) and `Cpu` (PCBs) — the very
-    icons frontend/src/components/history-viewer.tsx uses for the same job — so a
+    These are lucide's `CircuitBoard` (schematics) and `Cpu` (PCBs), the very
+    icons frontend/src/components/history-viewer.tsx uses for the same job, so a
     file reads the same in KiCad as it does in the browser. The geometry is
     transcribed from lucide's 24x24 grid and scaled, not approximated by eye, and
     drawn rather than bitmapped so it stays crisp at any DPI and picks up the theme
@@ -270,7 +270,7 @@ def draw_kind_icon(
     def px(a, b):
         return x + a * s, y + b * s
 
-    # wx.Pen's width is an INT — passing a float raises TypeError, and inside a
+    # wx.Pen's width is an INT, passing a float raises TypeError, and inside a
     # paint handler that aborts the rest of the render (which is exactly why the
     # filename and count pill were missing). CreatePen takes a float.
     gc.SetPen(gc.CreatePen(wx.GraphicsPenInfo(colour).Width(1.5)))
@@ -322,7 +322,7 @@ def draw_kind_icon(
         gc.StrokePath(pins)
         return
 
-    # anything else — a plain document outline
+    # anything else, a plain document outline
     doc = gc.CreatePath()
     doc.AddRectangle(*px(5, 2), 14 * s, 20 * s)
     gc.StrokePath(doc)
@@ -423,7 +423,7 @@ class Disclosure(wx.Panel):
             )
             x += icon + 7
 
-        # trailing count pill — drawn first so the label knows its budget
+        # trailing count pill, drawn first so the label knows its budget
         pill_w = 0.0
         if self.count is not None:
             small = wx.Font(font)
@@ -448,8 +448,8 @@ class Disclosure(wx.Panel):
 class ChangeRow(wx.Panel):
     """One grouped change: kind glyph, label, and its category.
 
-    Mirrors the web UI's change rows — same +/−/~ glyph, same colour per kind,
-    same trailing uppercase category — so a board reads the same in KiCad as in
+    Mirrors the web UI's change rows, same +/−/~ glyph, same colour per kind,
+    same trailing uppercase category, so a board reads the same in KiCad as in
     the browser.
     """
 
@@ -523,7 +523,7 @@ class ScrollThumb(wx.Panel):
     """A slim, themed scrollbar drawn over a ScrolledWindow.
 
     wx gives no way to recolour a native scrollbar: there's no SetScrollbarColour,
-    and SetBackgroundColour on a native wx.ScrollBar is ignored — the same trap as
+    and SetBackgroundColour on a native wx.ScrollBar is ignored, the same trap as
     wx.Button. So the native bar is hidden and this draws the overlay instead,
     which is also how the web app's thin scrollbars look.
 
@@ -647,14 +647,14 @@ class ScrollThumb(wx.Panel):
 
 
 class Card(wx.Panel):
-    """A bordered, rounded surface — the app's dominant layout primitive."""
+    """A bordered, rounded surface, the app's dominant layout primitive."""
 
     RADIUS = 8
 
     def __init__(self, parent, title, pal):
         super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
         self.pal = pal
-        # What our children sit on. Declared so nested widgets can find it — see
+        # What our children sit on. Declared so nested widgets can find it, see
         # _surface_of. Also set as the real background colour so native children
         # (StaticText, TextCtrl) inherit it instead of wx's default grey, which is
         # what made dark-theme labels unreadable.
