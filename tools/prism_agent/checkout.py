@@ -103,13 +103,34 @@ def in_progress(repo: Path) -> str:
     return ""
 
 
+def would_be_overwritten(repo: Path, sha: str, untracked: list[str]) -> list[str]:
+    """Untracked files that the target commit ALSO has, so a checkout would clobber them.
+
+    The hole in "untracked files always survive a checkout": they survive only if the
+    target does not contain a file of the same name. If it does, git refuses outright
+    ("The following untracked working tree files would be overwritten by checkout ...
+    Aborting"), because writing the committed version would destroy the local one.
+
+    Real, not hypothetical: a KiCad project routinely has `fp-info-cache` untracked in
+    one checkout and committed in another, and that alone is enough to abort every
+    attempt to open a commit.
+    """
+    if not sha or not untracked:
+        return []
+    listing = _git(repo, "ls-tree", "-r", "--name-only", sha, check=False)
+    in_target = set(listing.splitlines())
+    return sorted(set(untracked) & in_target)
+
+
 def dirty_files(repo: Path) -> dict:
     """Uncommitted work, split by how recoverable it is.
 
-    Untracked files are called out separately because a checkout does NOT destroy them
-    (git carries them across), so they must not block one. Treating them as blocking
-    would make the feature unusable: a KiCad project almost always has some untracked
-    output lying around.
+    Untracked files are called out separately because a checkout usually does NOT destroy
+    them (git carries them across), so they must not block one by default. Treating them
+    as blocking would make the feature unusable: a KiCad project almost always has some
+    untracked output lying around.
+
+    The exception is per-target, so it does not live here: see would_be_overwritten.
     """
     out = _git(repo, "status", "--porcelain")
     staged, modified, untracked, unmerged = [], [], [], []
@@ -259,43 +280,75 @@ def status(repo: str | Path, ref: str = "") -> dict:
         )
         return result
 
+    # An untracked file the TARGET also has. Git refuses these outright, and it is right
+    # to: writing the committed version would destroy the local one. We have to catch it
+    # ourselves, because otherwise git's own "Aborting" is all the user ever sees, and it
+    # names neither the file nor the way out.
+    clobbered = would_be_overwritten(path, target.get("sha", ""), dirt["untracked"])
+    if clobbered:
+        result["clobbered"] = clobbered
+        result.update(
+            can=False,
+            reason="untracked_collision",
+            message=(
+                f"{len(clobbered)} untracked file(s) would be overwritten: "
+                f"{', '.join(clobbered[:3])}"
+                + (f" and {len(clobbered) - 3} more" if len(clobbered) > 3 else "")
+                + ". Set them aside, or delete them."
+            ),
+        )
+        return result
+
+    result["clobbered"] = []
     return result
 
 
 # -- stashing --------------------------------------------------------------
 
 
-def stash(repo: str | Path, message: str = "") -> dict:
+def stash(repo: str | Path, message: str = "", also: list[str] | None = None) -> dict:
     """Put uncommitted work aside so the tree can move, without losing it.
 
     This is the way OUT of the dirty guard. Refusing to check out was correct but a dead
     end: the user is told to commit or stash, and then has to leave and do it by hand.
 
-    Two things make a stash safe rather than a hiding place:
+    `also` names untracked files to take as well. Only ever the ones that WOULD BE
+    OVERWRITTEN by the checkout, never every untracked file in the tree: sweeping up
+    someone's gerber exports and 3D renders because they happened to be lying around is
+    taking something we did not need to take, and they would find them gone with no
+    visible reason why. So the sweep is targeted, and the caller says what to sweep.
 
-      * The MESSAGE. A stash you cannot identify is a stash you will never restore. Git's
-        default ("WIP on main: a1b2c3d") says nothing about what is in it, and after two
-        of them nobody knows which board they were editing. So the caller supplies one,
-        and we prefix it so Prism's own stashes are recognisable in `git stash list`.
-
-      * `--include-untracked` is NOT used. Untracked files survive a checkout on their
-        own, so sweeping them into a stash would be taking something we did not need to
-        take, and the user would find their files gone with no obvious reason why.
+    The MESSAGE is what makes a stash safe rather than a hiding place. A stash you cannot
+    identify is one you will never restore. Git's default ("WIP on main: a1b2c3d") says
+    nothing about what is in it, and after two of them nobody knows which board they were
+    editing. So the caller supplies one, and we prefix it so Prism's own stashes are
+    recognisable in `git stash list`.
     """
     path = Path(repo)
+    also = also or []
 
     dirt = dirty_files(path)
-    if not dirt["blocking"]:
+    taking = sorted(set(dirt["blocking"]) | set(also))
+    if not taking:
         raise CheckoutError("There are no uncommitted changes to stash.")
 
     label = (message or "").strip() or "Uncommitted changes"
-    _git(path, "stash", "push", "-m", f"{STASH_PREFIX}{label}")
+
+    if also:
+        # `-u` alone would take EVERY untracked file. Scoped to named paths it takes only
+        # those, which is exactly what we want: the ones the checkout would clobber, and
+        # not the user's gerber exports and 3D renders that merely happen to be lying
+        # around. Without `-u`, git refuses a path that is not tracked ("Did you forget
+        # to 'git add'?"), so it is required here, not optional.
+        _git(path, "stash", "push", "-u", "-m", f"{STASH_PREFIX}{label}", "--", *taking)
+    else:
+        _git(path, "stash", "push", "-m", f"{STASH_PREFIX}{label}")
 
     return {
         "ok": True,
         "message": label,
-        "stashed": dirt["blocking"],
-        "count": len(dirt["blocking"]),
+        "stashed": taking,
+        "count": len(taking),
     }
 
 
@@ -385,11 +438,16 @@ def checkout(repo: str | Path, ref: str, stash_message: str | None = None) -> di
     state = status(path, ref)
 
     stashed = None
-    if not state["can"] and state["reason"] == "dirty" and stash_message is not None:
-        # Only "dirty" is stashable. A mid-rebase or an unresolved conflict is NOT: git
-        # would refuse anyway, and stashing on top of a half-finished operation is how
-        # you turn a recoverable mess into an unrecoverable one.
-        stashed = stash(path, stash_message)
+    stashable = ("dirty", "untracked_collision")
+    if not state["can"] and state["reason"] in stashable and stash_message is not None:
+        # Only these two are stashable. A mid-rebase or an unresolved conflict is NOT:
+        # git would refuse anyway, and stashing on top of a half-finished operation is
+        # how you turn a recoverable mess into an unrecoverable one.
+        #
+        # `clobbered` is the untracked files the TARGET also has. They go into the stash
+        # too, because git will not overwrite them and there is nowhere else to put them.
+        # Only those, though: every other untracked file stays where the user left it.
+        stashed = stash(path, stash_message, also=state.get("clobbered") or [])
         state = status(path, ref)
 
     if not state["can"]:
@@ -449,18 +507,6 @@ def pull(repo: str | Path, stash_message: str | None = None) -> dict:
             "Check out a branch first."
         )
 
-    stashed = None
-    dirt = dirty_files(path)
-    if dirt["blocking"]:
-        if stash_message is None:
-            # A pull that has to touch a file you have edited will either refuse or
-            # overwrite. Refuse first, on our terms, with a message that says what to do.
-            raise CheckoutError(
-                f"{len(dirt['blocking'])} file(s) have uncommitted changes. "
-                "Commit or stash them before pulling."
-            )
-        stashed = stash(path, stash_message)
-
     upstream = _git(
         path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", check=False
     )
@@ -469,7 +515,29 @@ def pull(repo: str | Path, stash_message: str | None = None) -> dict:
             f"'{branch}' is not tracking a remote branch, so there is nothing to pull."
         )
 
+    # Fetch BEFORE deciding what blocks us: an untracked file only collides if the
+    # incoming commit contains it, and we cannot know that until we have the commit.
     _git(path, "fetch", "--prune")
+
+    stashed = None
+    dirt = dirty_files(path)
+    # A fast-forward writes the upstream's files over ours, so the same untracked
+    # collision that aborts a checkout aborts a pull.
+    clobbered = would_be_overwritten(
+        path,
+        _git(path, "rev-parse", upstream, check=False),
+        dirt["untracked"],
+    )
+    if dirt["blocking"] or clobbered:
+        if stash_message is None:
+            # A pull that has to touch a file you have edited will either refuse or
+            # overwrite. Refuse first, on our terms, with a message that says what to do.
+            count = len(dirt["blocking"]) + len(clobbered)
+            raise CheckoutError(
+                f"{count} file(s) would be overwritten by the pull. "
+                "Commit or stash them first."
+            )
+        stashed = stash(path, stash_message, also=clobbered)
 
     behind_ahead = _git(
         path, "rev-list", "--left-right", "--count", f"{upstream}...HEAD", check=False

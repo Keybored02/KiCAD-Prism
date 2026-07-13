@@ -269,7 +269,8 @@ def _checkout_ref(project_dir: str, ref: str, confirm, ask_text=None) -> None:
     # than dead-ending the user, who followed a link and now has to go and use git by
     # hand to do the thing they just asked for.
     stash_message = None
-    if not state["can"] and state["reason"] == "dirty" and ask_text is not None:
+    stashable = ("dirty", "untracked_collision")
+    if not state["can"] and state["reason"] in stashable and ask_text is not None:
         stash_message = ask_text(
             "%s\n\nPrism can set them aside and you can bring them back afterwards.\n\n"
             "What were you working on?" % state["message"]

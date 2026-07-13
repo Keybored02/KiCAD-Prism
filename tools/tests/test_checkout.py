@@ -42,6 +42,7 @@ class Repo(type(Path())):
 
     first: str = ""
     second: str = ""
+    with_cache: str = ""
 
 
 @pytest.fixture
@@ -262,7 +263,7 @@ def test_pull_refuses_to_clobber_uncommitted_work(repo, clone):
     commit(repo, "board.kicad_pcb", "(kicad_pcb v3)", "third")
     (clone / "board.kicad_pcb").write_text("(kicad_pcb work in progress)")
 
-    with pytest.raises(CheckoutError, match="uncommitted"):
+    with pytest.raises(CheckoutError, match="would be overwritten"):
         checkout.pull(clone)
 
     assert (clone / "board.kicad_pcb").read_text() == "(kicad_pcb work in progress)"
@@ -293,6 +294,84 @@ def test_pull_mid_operation_is_refused(repo, clone):
 
     with pytest.raises(CheckoutError):
         checkout.pull(clone)
+
+
+# -- an untracked file the target ALSO has ---------------------------------
+#
+# The hole in "untracked files always survive a checkout": they survive only if the
+# target does not contain a file of the same name. If it does, git refuses outright and
+# prints "Aborting", which names neither the file nor the way out.
+#
+# Real, not hypothetical: a KiCad project routinely has fp-info-cache untracked in one
+# checkout and committed in another, and that alone aborts every attempt to open a commit.
+
+
+@pytest.fixture
+def collision(repo):
+    """A repo where `fp-info-cache` is committed on main but untracked in the tree."""
+    commit(repo, "fp-info-cache", "committed version", "add the cache")
+    # Remove it from tracking, but leave a local copy behind: exactly the state a KiCad
+    # project ends up in.
+    git("rm", "--cached", "fp-info-cache", cwd=repo)
+    git("commit", "-m", "stop tracking the cache", cwd=repo)
+    (repo / "fp-info-cache").write_text("my local cache")
+    repo.with_cache = git("rev-parse", "HEAD~1", cwd=repo).stdout.strip()
+    return repo
+
+
+def test_an_untracked_file_the_target_has_is_caught_before_git_aborts(collision):
+    """Git's own message is "Aborting", which is useless. Ours has to name the file and
+    the way out."""
+    state = checkout.status(collision, collision.with_cache)
+
+    assert state["can"] is False
+    assert state["reason"] == "untracked_collision"
+    assert state["clobbered"] == ["fp-info-cache"]
+    assert "fp-info-cache" in state["message"]
+
+
+def test_the_collision_does_not_abort_when_stashing(collision):
+    """The bug the user hit. The guard said "can proceed" (nothing is *modified*), then
+    git refused, and all they saw was "Aborting"."""
+    result = checkout.checkout(
+        collision, collision.with_cache, stash_message="my cache"
+    )
+
+    assert result["sha"] == collision.with_cache
+    assert "fp-info-cache" in result["stashed"]["stashed"]
+    # The committed version is now in the tree.
+    assert (collision / "fp-info-cache").read_text() == "committed version"
+
+
+def test_the_local_untracked_version_is_recoverable(collision):
+    checkout.checkout(collision, collision.with_cache, stash_message="my cache")
+    checkout.checkout(collision, "main")
+    checkout.restore(collision)
+
+    assert (collision / "fp-info-cache").read_text() == "my local cache"
+
+
+def test_only_the_colliding_untracked_files_are_swept_up(collision):
+    """NOT --include-untracked. Sweeping up someone's gerber exports and 3D renders
+    because they happened to be lying around is taking something we did not need to take,
+    and they would find them gone with no visible reason why."""
+    (collision / "gerbers.zip").write_text("my exports")
+    (collision / "render.png").write_text("my render")
+
+    checkout.checkout(collision, collision.with_cache, stash_message="my cache")
+
+    assert (collision / "gerbers.zip").read_text() == "my exports"
+    assert (collision / "render.png").read_text() == "my render"
+
+
+def test_an_untracked_file_the_target_does_NOT_have_still_never_blocks(repo):
+    """The common case must stay unblocked, or the feature is unusable: a KiCad project
+    almost always has some untracked output lying around."""
+    (repo / "gerbers.zip").write_text("output")
+
+    state = checkout.status(repo, repo.first)
+    assert state["can"] is True
+    assert state["clobbered"] == []
 
 
 # -- stashing: the way out of the dirty guard ------------------------------
