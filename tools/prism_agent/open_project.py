@@ -155,7 +155,7 @@ def _config(saved):
     return PrismConfig(base_url=saved.server_url, token=saved.api_token)
 
 
-def open_project(project_id: str, confirm=None, ref: str = "") -> str:
+def open_project(project_id: str, confirm=None, ref: str = "", ask_text=None) -> str:
     """Open a Prism project, cloning it first if this machine does not have it.
 
     `ref`, when given, is a commit/branch/tag to move the working tree to first. That is
@@ -168,13 +168,17 @@ def open_project(project_id: str, confirm=None, ref: str = "") -> str:
     consent to write to the filesystem. The same applies to a checkout, which moves
     every file under a KiCad that may have them open.
 
+    `ask_text(question) -> str | None` asks for a line of text, and is what lets us offer
+    to STASH uncommitted work rather than dead-ending on it. Without it, uncommitted
+    changes are still a refusal: a link is not consent to move somebody's unsaved board.
+
     Returns the directory the project was opened from.
     """
     state = resolve(project_id)
 
     if state["found"]:
         if ref:
-            _checkout_ref(state["found"], ref, confirm)
+            _checkout_ref(state["found"], ref, confirm, ask_text)
         launch_kicad(state["found"])
         return state["found"]
 
@@ -249,7 +253,7 @@ def open_project(project_id: str, confirm=None, ref: str = "") -> str:
     return marker_dir
 
 
-def _checkout_ref(project_dir: str, ref: str, confirm) -> None:
+def _checkout_ref(project_dir: str, ref: str, confirm, ask_text=None) -> None:
     """Move a checkout to a specific revision, refusing to destroy uncommitted work.
 
     The guards live in checkout.py; this is the part that decides whether to ASK. A
@@ -261,17 +265,31 @@ def _checkout_ref(project_dir: str, ref: str, confirm) -> None:
     if state.get("reason") == "already_here":
         return  # nothing to do, and nothing worth saying
 
-    if not state["can"]:
+    # Uncommitted work is the one refusal with a way out. Offer to set it aside rather
+    # than dead-ending the user, who followed a link and now has to go and use git by
+    # hand to do the thing they just asked for.
+    stash_message = None
+    if not state["can"] and state["reason"] == "dirty" and ask_text is not None:
+        stash_message = ask_text(
+            "%s\n\nPrism can set them aside and you can bring them back afterwards.\n\n"
+            "What were you working on?" % state["message"]
+        )
+        if stash_message is None:
+            raise OpenError("Cancelled.")
+    elif not state["can"]:
         raise OpenError(state["message"])
 
-    if confirm is not None and not confirm(
-        "Switch this project to %s?\n\n%s\n\nKiCad will show the files as they were at "
-        "that revision." % (ref, state["target"].get("subject") or "")
-    ):
-        raise OpenError("Cancelled.")
+    if stash_message is None and confirm is not None:
+        # Only ask twice when we have not already asked about the stash: a second
+        # "are you sure" straight after the first is just noise.
+        if not confirm(
+            "Switch this project to %s?\n\n%s\n\nKiCad will show the files as they "
+            "were at that revision." % (ref, state["target"].get("subject") or "")
+        ):
+            raise OpenError("Cancelled.")
 
     try:
-        checkout.checkout(project_dir, ref)
+        checkout.checkout(project_dir, ref, stash_message)
     except checkout.CheckoutError as exc:
         raise OpenError(str(exc)) from exc
 

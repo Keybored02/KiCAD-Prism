@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from prism_agent import open_project  # noqa: E402
+from prism_agent import checkout, open_project  # noqa: E402
 from prism_agent.open_project import OpenError  # noqa: E402
 
 
@@ -238,6 +238,113 @@ def test_a_prism_hosted_project_with_no_url_is_not_called_ungitted(roots, monkey
     with pytest.raises(OpenError) as exc:
         open_project.open_project("prj_a", confirm=lambda _: True)
     assert "not backed by git" not in str(exc.value)
+
+
+# -- opening a commit on a project with unsaved work -----------------------
+
+
+def board_repo(root: Path, project_id: str) -> Path:
+    """A checkout with a marker and two commits, as a real project would be."""
+    import subprocess
+
+    def git(*a):
+        subprocess.run(["git", *a], cwd=str(local), capture_output=True, check=True)
+
+    local = root / "widget"
+    local.mkdir(parents=True)
+    git("init", "-b", "main")
+    git("config", "user.email", "t@t.t")
+    git("config", "user.name", "T")
+    (local / "widget.kicad_pro").write_text("{}")
+    (local / "board.kicad_pcb").write_text("(kicad_pcb v1)")
+    (local / ".prism.json").write_text(json.dumps({"project": {"id": project_id}}))
+    git("add", "-A")
+    git("commit", "-m", "first")
+    first = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(local),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    (local / "board.kicad_pcb").write_text("(kicad_pcb v2)")
+    git("add", "-A")
+    git("commit", "-m", "second")
+    return local, first
+
+
+def test_opening_a_commit_offers_to_stash_uncommitted_work(roots, monkeypatch):
+    """The bug: prism://open?commit= dead-ended on "commit or stash them first". The
+    user followed a link and was told to go and use git by hand to do the thing they had
+    just asked for."""
+    local, first = board_repo(roots, "prj_a")
+    (local / "board.kicad_pcb").write_text("(kicad_pcb UNSAVED)")
+
+    stub_server(monkeypatch, [{"id": "prj_a", "name": "widget"}])
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: None)
+
+    asked = []
+
+    def ask_text(question):
+        asked.append(question)
+        return "rerouting the power rail"
+
+    open_project.open_project(
+        "prj_a", confirm=lambda _: True, ref=first, ask_text=ask_text
+    )
+
+    # It asked, and it named the problem in the question.
+    assert asked and "uncommitted" in asked[0]
+    # The tree really moved, and the work is safely stashed rather than destroyed.
+    assert (local / "board.kicad_pcb").read_text() == "(kicad_pcb v1)"
+    assert checkout.stashes(local)[0]["message"] == "rerouting the power rail"
+
+
+def test_declining_the_stash_leaves_everything_alone(roots, monkeypatch):
+    local, first = board_repo(roots, "prj_a")
+    (local / "board.kicad_pcb").write_text("(kicad_pcb UNSAVED)")
+
+    stub_server(monkeypatch, [{"id": "prj_a", "name": "widget"}])
+    monkeypatch.setattr(
+        open_project, "launch_kicad", lambda d: pytest.fail("must not open")
+    )
+
+    with pytest.raises(OpenError, match="Cancelled"):
+        open_project.open_project(
+            "prj_a", confirm=lambda _: True, ref=first, ask_text=lambda _: None
+        )
+
+    assert (local / "board.kicad_pcb").read_text() == "(kicad_pcb UNSAVED)"
+    assert checkout.stashes(local) == []
+
+
+def test_without_a_way_to_ask_uncommitted_work_is_still_a_refusal(roots, monkeypatch):
+    """No ask_text (an old caller, or a platform with no prompt) must not silently stash.
+    Moving someone's unsaved board needs an explicit yes."""
+    local, first = board_repo(roots, "prj_a")
+    (local / "board.kicad_pcb").write_text("(kicad_pcb UNSAVED)")
+
+    stub_server(monkeypatch, [{"id": "prj_a", "name": "widget"}])
+
+    with pytest.raises(OpenError, match="uncommitted"):
+        open_project.open_project("prj_a", confirm=lambda _: True, ref=first)
+
+    assert (local / "board.kicad_pcb").read_text() == "(kicad_pcb UNSAVED)"
+
+
+def test_a_clean_tree_is_not_asked_about_a_stash(roots, monkeypatch):
+    local, first = board_repo(roots, "prj_a")
+
+    stub_server(monkeypatch, [{"id": "prj_a", "name": "widget"}])
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: None)
+
+    def ask_text(_):
+        pytest.fail("nothing to stash, so nothing to ask about")
+
+    open_project.open_project(
+        "prj_a", confirm=lambda _: True, ref=first, ask_text=ask_text
+    )
+    assert (local / "board.kicad_pcb").read_text() == "(kicad_pcb v1)"
 
 
 def test_an_unknown_project_says_the_server_does_not_have_it(roots, monkeypatch):

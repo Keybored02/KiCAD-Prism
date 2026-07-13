@@ -237,12 +237,14 @@ def _open_project_locally(project_id: str, saved, ref: str = "") -> int:
 
     `ref` opens a precise revision. Runs in the short-lived process the OS spawned for
     the URL, so there is no tray and no wx here. Anything the user needs to see or
-    answer goes through the native dialogs in _show_dialog / _ask.
+    answer goes through the native dialogs in _show_dialog / _ask / _ask_text.
     """
     from . import open_project
 
     try:
-        opened = open_project.open_project(project_id, confirm=_ask, ref=ref)
+        opened = open_project.open_project(
+            project_id, confirm=_ask, ref=ref, ask_text=_ask_text
+        )
     except open_project.OpenError as exc:
         msg = str(exc)
         if msg == "Cancelled.":
@@ -293,6 +295,70 @@ def _ask(question: str) -> bool:
         log.warning("Couldn't ask the user: %s", exc)
 
     return False
+
+
+def _ask_text(question: str) -> str | None:
+    """Ask for a line of text. None if the user cancels.
+
+    This is what lets a prism:// link offer to STASH uncommitted work instead of
+    dead-ending on it, and the answer is the stash's name. Cancelling must be possible
+    and must mean no: we are about to move somebody's unsaved board.
+
+    Windows has no text prompt in user32 (MessageBox is buttons only), so tkinter does
+    it. That ships with Python, so it costs nothing, and this process has no GUI toolkit
+    loaded anyway. If even that is unavailable, we return None, which is a NO: failing
+    to ask must never become a silent yes.
+    """
+    try:
+        if sys.platform == "darwin":
+            script = (
+                'display dialog %s with title "Prism" default answer "" '
+                'buttons {"Cancel", "Set aside"} default button "Set aside"'
+                % _osa_quote(question)
+            )
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if result.returncode != 0:
+                return None  # cancelled
+            # osascript prints "button returned:Set aside, text returned:whatever"
+            _, _, answer = result.stdout.partition("text returned:")
+            return answer.strip()
+
+        if sys.platform not in ("win32", "darwin"):
+            for tool, args in (
+                ("zenity", ["--entry", "--title=Prism", f"--text={question}"]),
+                ("kdialog", ["--title", "Prism", "--inputbox", question]),
+            ):
+                if shutil.which(tool):
+                    result = subprocess.run(
+                        [tool, *args], capture_output=True, text=True, timeout=300
+                    )
+                    if result.returncode != 0:
+                        return None
+                    return result.stdout.strip()
+            return None
+
+        # Windows. tkinter, because user32 has no text prompt.
+        import tkinter
+        from tkinter import simpledialog
+
+        root = tkinter.Tk()
+        root.withdraw()
+        # Without this the dialog can open behind KiCad and look like nothing happened.
+        root.attributes("-topmost", True)
+        try:
+            return simpledialog.askstring("Prism", question, parent=root)
+        finally:
+            root.destroy()
+
+    except (OSError, subprocess.SubprocessError, ImportError, AttributeError) as exc:
+        log.warning("Couldn't ask the user for text: %s", exc)
+
+    return None
 
 
 def _osa_quote(text: str) -> str:
