@@ -70,7 +70,7 @@ jobs:
           pip install -r tools/prism_agent/requirements.txt
 
       - name: Build the agent
-        run: python tools/build_agent.py
+        run: python tools/build_agent.py --windowed
 
       # Prove the thing we just built actually runs. A binary that builds but
       # crashes on launch is worse than a build failure — it ships.

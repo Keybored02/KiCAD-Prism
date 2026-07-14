@@ -62,6 +62,13 @@ def _agent_command() -> list[str]:
         f"import sys; sys.path.insert(0, r'{root}'); "
         "from prism_agent.__main__ import main; sys.exit(main())"
     )
+
+    if sys.platform == "win32":
+        for name in ("pythonw.exe", "pyw.exe"):
+            pythonw = Path(sys.executable).with_name(name)
+            if pythonw.is_file():
+                return [str(pythonw), "-c", bootstrap, *args]
+
     return [sys.executable, "-c", bootstrap, *args]
 
 

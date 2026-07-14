@@ -178,7 +178,13 @@ def _png_to_ico(png: Path, ico: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--windowed",
+        action="store_true",
+        help="build the default no-console tray binary explicitly",
+    )
+    mode.add_argument(
         "--console",
         action="store_true",
         help="keep a console window (so a crash is visible; use when debugging)",

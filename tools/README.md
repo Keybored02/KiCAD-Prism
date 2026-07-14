@@ -272,8 +272,8 @@ real thing:
 
 ```bash
 pip install pyinstaller
-python tools/build_agent.py            # -> tools/dist/prism-agent[.exe]
-python tools/build_agent.py --console  # keep a console, so a crash is visible
+python tools/build_agent.py --windowed # -> tools/dist/prism-agent[.exe]
+python tools/build_agent.py --console  # debug only: keep a console so crashes stay visible
 ```
 
 `find_binary()` looks in `tools/dist/` too, so a local build is picked up

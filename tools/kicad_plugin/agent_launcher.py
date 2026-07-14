@@ -91,15 +91,19 @@ def _candidate_pythons() -> list[str]:
     repo = agent_root().parent
 
     if sys.platform == "win32":
-        names += ["py", "python", "python3"]
+        names += ["pyw", "pythonw", "pythonw3", "py", "python", "python3"]
         paths += [
+            str(repo / ".venv" / "Scripts" / "pythonw.exe"),
             str(repo / ".venv" / "Scripts" / "python.exe"),
+            str(repo / "venv" / "Scripts" / "pythonw.exe"),
             str(repo / "venv" / "Scripts" / "python.exe"),
         ]
         local = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python"
         if local.is_dir():
             paths += [
-                str(d / "python.exe") for d in sorted(local.iterdir(), reverse=True)
+                str(d / exe)
+                for d in sorted(local.iterdir(), reverse=True)
+                for exe in ("pythonw.exe", "python.exe")
             ]
     else:
         names += ["python3", "python"]
