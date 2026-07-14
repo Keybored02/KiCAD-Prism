@@ -1,0 +1,107 @@
+:root,
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #2563eb;
+  --md-primary-fg-color--light: #3b82f6;
+  --md-primary-fg-color--dark: #1d4ed8;
+  --md-accent-fg-color: #2563eb;
+  --kp-background: #ffffff;
+  --kp-foreground: #0f172a;
+  --kp-card: #ffffff;
+  --kp-card-foreground: #0f172a;
+  --kp-border: rgba(148, 163, 184, 0.28);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #3b82f6;
+  --md-primary-fg-color--light: #60a5fa;
+  --md-primary-fg-color--dark: #1d4ed8;
+  --md-accent-fg-color: #60a5fa;
+  --kp-background: #020617;
+  --kp-foreground: #f8fafc;
+  --kp-card: #0f172a;
+  --kp-card-foreground: #f8fafc;
+  --kp-border: rgba(148, 163, 184, 0.18);
+}
+
+html,
+body {
+  background: var(--kp-background) !important;
+  color: var(--kp-foreground) !important;
+}
+
+.md-header,
+.md-tabs {
+  background: var(--kp-background) !important;
+  border-bottom: 1px solid var(--kp-border);
+}
+
+.md-sidebar,
+.md-sidebar__inner,
+.md-sidebar__scrollwrap,
+.md-nav,
+.md-nav__title,
+.md-nav__list,
+.md-sidebar--secondary,
+.md-content,
+.md-content__inner {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.md-header__inner,
+.md-header__button,
+.md-header__topic,
+.md-header__title,
+.md-nav__title {
+  color: var(--kp-foreground) !important;
+}
+
+.md-header__button.md-logo {
+  color: var(--kp-foreground) !important;
+}
+
+.md-search__form {
+  background: color-mix(in srgb, var(--kp-card) 90%, transparent);
+  border: 1px solid var(--kp-border);
+  box-shadow: none;
+}
+
+.md-search__input,
+.md-search__icon,
+.md-search__button,
+.md-search__form label {
+  color: var(--kp-foreground) !important;
+}
+
+.md-typeset a {
+  color: var(--md-primary-fg-color);
+}
+
+.md-typeset a:hover {
+  color: var(--md-primary-fg-color--light);
+}
+
+.kp-hero {
+  margin: 1rem 0 1.5rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at top left, rgba(96, 165, 250, 0.22), transparent 42%),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9));
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.22);
+}
+
+.kp-hero__logo {
+  display: block;
+  width: min(100%, 760px);
+  height: auto;
+  margin: 0 auto;
+}
+
+@media (max-width: 959px) {
+}
+
+.md-content .kp-hero + p {
+  margin-top: 1rem;
+}

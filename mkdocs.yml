@@ -1,0 +1,72 @@
+site_name: KiCAD Prism Wiki
+site_description: Project documentation and wiki for KiCAD Prism
+theme:
+  name: material
+  logo: assets/branding/kicad-prism/kicad-prism-icon.svg
+  favicon: assets/branding/kicad-prism/kicad-prism-icon.svg
+  icon:
+    repo: fontawesome/brands/github
+  language: en
+  font:
+    text: Inter
+    code: JetBrains Mono
+  palette:
+    - scheme: slate
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - scheme: default
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+
+repo_url: https://github.com/krishna-swaroop/KiCAD-Prism
+repo_name: KiCAD-Prism
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Deployment: DEPLOYMENT.md
+  - Repository Layout: KICAD-PRJ-REPO-STRUCTURE.md
+  - Import Existing Libraries: IMPORT_EXISTING_KICAD_LIBRARIES.md
+  - Path Mapping: PATH-MAPPING.md
+  - Authentication: OIDC_OAUTH_INTEGRATION.md
+  - Storage: STORAGE_ARCHITECTURE.md
+  - Viewer Sync: ECAD_VIEWER_SYNC_NOTES.md
+  - Comments: COMMENTS-COLLAB-UPDATES.md
+  - Project Names: CUSTOM_PROJECT_NAMES.md
+  - Workspace UX: WORKSPACE_UX_IMPROVEMENTS.md
+  - Remote Symbols: REMOTE_SYMBOL_PROVIDER.md
+
+docs_dir: docs
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - footnotes
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+extra_css:
+  - stylesheets/brand.css

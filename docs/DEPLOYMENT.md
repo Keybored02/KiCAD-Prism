@@ -523,6 +523,6 @@ Check that `./data/projects` is mounted and writable on the host.
 
 ## Related Docs
 
-- [../README.md](../README.md)
+- [Wiki Home](index.md)
 - [./KICAD-PRJ-REPO-STRUCTURE.md](./KICAD-PRJ-REPO-STRUCTURE.md)
 - [./PATH-MAPPING.md](./PATH-MAPPING.md)
