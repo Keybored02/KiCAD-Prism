@@ -19,7 +19,7 @@ from app.services import semantic_visualizer_service
 
 SCHEMA = "prism.semantic_index_a0"
 GENERATOR_NAME = "kicad-prism-semantic-index"
-GENERATOR_VERSION = "0.1.0"
+GENERATOR_VERSION = "0.2.0"
 _GENERATOR_INPUTS = ("semantic-index", SCHEMA, GENERATOR_VERSION)
 GENERATOR_BUILD = hashlib.sha256(
     b"\0".join(
@@ -349,11 +349,119 @@ def _net_code(item: object) -> int | None:
     return int(ordinal) if isinstance(ordinal, int) else None
 
 
+def _bounds_from_points(points: list[list[float]]) -> list[float] | None:
+    if not points:
+        return None
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    return [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
+
+
+def _pcb_geometry_from_monkey(pcb: object) -> dict[str, dict[str, Any]]:
+    """Emit compare geometry sidecars from an already-hydrated monkey PCB."""
+    geometry: dict[str, dict[str, Any]] = {}
+
+    for footprint in getattr(pcb, "footprints", ()) or ():
+        source_id = _string(getattr(footprint, "uuid", ""))
+        if not source_id:
+            continue
+        x = float(getattr(footprint, "at_x", 0.0) or 0.0)
+        y = float(getattr(footprint, "at_y", 0.0) or 0.0)
+        geometry[source_id] = {
+            "kind": "footprint",
+            "lib_id": _string(getattr(footprint, "library_link", "")),
+            "layer": _string(getattr(footprint, "layer", "")),
+            "net": _net_name(pcb, footprint),
+            "x": x,
+            "y": y,
+            "bounds": [x - 5, y - 5, 10, 10],
+        }
+
+    for segment in getattr(pcb, "segments", ()) or ():
+        source_id = _string(getattr(segment, "uuid", ""))
+        if not source_id:
+            continue
+        start = [float(segment.start_x), float(segment.start_y)]
+        end = [float(segment.end_x), float(segment.end_y)]
+        geometry[source_id] = {
+            "kind": "track",
+            "layer": _string(getattr(segment, "layer", "")),
+            "net": _net_name(pcb, segment),
+            "width": float(getattr(segment, "width", 0.0) or 0.0),
+            "points": [start, end],
+            "bounds": _bounds_from_points([start, end]),
+        }
+
+    for arc in getattr(pcb, "arcs", ()) or ():
+        source_id = _string(getattr(arc, "uuid", ""))
+        if not source_id:
+            continue
+        points = [
+            [float(arc.start_x), float(arc.start_y)],
+            [float(arc.mid_x), float(arc.mid_y)],
+            [float(arc.end_x), float(arc.end_y)],
+        ]
+        geometry[source_id] = {
+            "kind": "arc",
+            "layer": _string(getattr(arc, "layer", "")),
+            "net": _net_name(pcb, arc),
+            "width": float(getattr(arc, "width", 0.0) or 0.0),
+            "points": points,
+            "bounds": _bounds_from_points(points),
+        }
+
+    for via in getattr(pcb, "vias", ()) or ():
+        source_id = _string(getattr(via, "uuid", ""))
+        if not source_id:
+            continue
+        x = float(getattr(via, "at_x", 0.0) or 0.0)
+        y = float(getattr(via, "at_y", 0.0) or 0.0)
+        size = float(getattr(via, "size", 0.6) or 0.6)
+        radius = size / 2
+        geometry[source_id] = {
+            "kind": "via",
+            "net": _net_name(pcb, via),
+            "x": x,
+            "y": y,
+            "radius": radius,
+            "bounds": [x - radius, y - radius, size, size],
+            "layers": list(getattr(via, "layers", ()) or ()),
+        }
+
+    for zone in getattr(pcb, "zones", ()) or ():
+        source_id = _string(getattr(zone, "uuid", ""))
+        if not source_id:
+            continue
+        points: list[list[float]] = []
+        for polygon in getattr(zone, "polygons", ()) or ():
+            for point in getattr(polygon, "points", ()) or ():
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    points.append([float(point[0]), float(point[1])])
+                else:
+                    points.append(
+                        [
+                            float(getattr(point, "x", 0.0) or 0.0),
+                            float(getattr(point, "y", 0.0) or 0.0),
+                        ]
+                    )
+        layers = list(getattr(zone, "layers", ()) or ())
+        geometry[source_id] = {
+            "kind": "zone",
+            "layer": layers[0] if layers else _string(getattr(zone, "layer", "")),
+            "net": _net_name(pcb, zone),
+            "points": points,
+            "bounds": _bounds_from_points(points),
+        }
+
+    return geometry
+
+
 def build_semantic_index(
     project_file: Path,
     *,
     source_revision_key: str,
     commit: str | None = None,
+    collect_pcb_geometry: bool = False,
 ) -> dict[str, Any]:
     _add_kicad_monkey_import_paths()
     try:
@@ -365,7 +473,13 @@ def build_semantic_index(
         ) from exc
 
     design = KiCadDesign.from_project_file(project_file)
-    design_payload = design.to_json(include_indexes=True)
+    # Prefer netlist JSON so we do not force unused PnP/PCB materialization up
+    # front. PCB UUID indexes still hydrate design.pcb once below.
+    to_netlist = getattr(design, "to_netlist_json", None)
+    if callable(to_netlist):
+        design_payload = to_netlist()
+    else:
+        design_payload = design.to_json(include_indexes=True)
     source_fields_by_uuid = _schematic_instance_fields(project_file)
 
     components: list[dict[str, Any]] = []
@@ -570,7 +684,9 @@ def build_semantic_index(
                 net_entry["pcbRefs"][0][target_key].append(source_uuid)
                 indexes["netByPcbUuid"][source_uuid] = net_index
 
-    return {
+    pcb_geometry = _pcb_geometry_from_monkey(pcb) if collect_pcb_geometry and pcb is not None else {}
+
+    result = {
         "schema": SCHEMA,
         "sourceRevisionKey": source_revision_key,
         "commit": commit,
@@ -587,3 +703,6 @@ def build_semantic_index(
         "terminals": terminals,
         "indexes": indexes,
     }
+    if collect_pcb_geometry:
+        result["pcbGeometry"] = pcb_geometry
+    return result

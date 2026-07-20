@@ -253,6 +253,10 @@ terminal-pad-link, pad-hole, and compiled-topology equality.
 
 ## kicad-monkey
 
+Pinned Prism runtime: **kicad-monkey 2026.7.17** (sexpr tokenizer rewrite,
+projection/net-lookup caching). Design-compare builds use that release plus the
+optimizations in [`docs/design-compare-performance.md`](design-compare-performance.md).
+
 The newer local kicad-monkey tree already contains `KiCadPcbProjection`. A
 fresh JTYU measurement showed two generic hot-path problems: net lookup maps
 were rebuilt for every net-bound object, and nested source locations rescanned

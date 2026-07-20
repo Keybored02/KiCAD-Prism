@@ -6,6 +6,7 @@ Replaces raster kicad-cli SVG overlays for History Design Comparison.
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import json
 import logging
@@ -14,7 +15,9 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -32,9 +35,12 @@ logger = logging.getLogger(__name__)
 design_compare_jobs: Dict[str, dict] = {}
 _CACHE_ROOT = Path(os.environ.get("PRISM_DESIGN_COMPARE_CACHE", "/tmp/prism_design_compare_cache"))
 _JOB_ROOT = Path(os.environ.get("PRISM_DESIGN_COMPARE_JOBS", "/tmp/prism_design_compare"))
-_CACHE_SCHEMA = "prism.design_compare_revision_v3"
+_CACHE_SCHEMA = "prism.design_compare_revision_v4"
 _CACHE_LOCKS: Dict[str, threading.Lock] = {}
 _CACHE_LOCKS_GUARD = threading.Lock()
+_PARALLEL_ENABLED = os.environ.get("PRISM_DESIGN_COMPARE_PARALLEL", "1") != "0"
+_PARALLEL_HOST_LOCK = threading.Semaphore(1)
+_CHILD_TIMEOUT_SECONDS = int(os.environ.get("PRISM_DESIGN_COMPARE_CHILD_TIMEOUT", "900"))
 _GENERATED_PARTS = {
     ".cache",
     ".kicad-prism",
@@ -43,6 +49,10 @@ _GENERATED_PARTS = {
     "backup",
     "backups",
 }
+
+
+def _ms_since(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000.0, 1)
 
 
 def _persist_job(job_id: str) -> None:
@@ -176,6 +186,91 @@ def _read_revision_cache(marker: Path) -> Optional[Dict[str, Any]]:
     return payload
 
 
+def _try_reuse_visualizer_semantic(project_id: str, commit: str) -> Optional[Dict[str, Any]]:
+    """Reuse a commit-keyed visualizer semantic-index artifact when present."""
+    try:
+        artifact = semantic_index_service.artifact_path(project_id, commit)
+        if not artifact.is_file():
+            return None
+        payload = json.loads(artifact.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+    if payload.get("schema") != semantic_index_service.SCHEMA:
+        return None
+    if not isinstance(payload.get("indexes"), dict):
+        return None
+    return payload
+
+
+def _enrich_pcb_geometry(
+    raw: Dict[str, Dict[str, Any]],
+    semantic_index: Dict[str, Any],
+) -> Dict[str, Any]:
+    enriched: Dict[str, Any] = {}
+    for source_id, entry in raw.items():
+        enriched[source_id] = _enrich_geometry(
+            dict(entry),
+            source_id=source_id,
+            semantic_index=semantic_index,
+            context="pcb",
+        )
+    return enriched
+
+
+def _extract_schematic_geometry(snap: Path, semantic_index: Dict[str, Any]) -> Dict[str, Any]:
+    """Schematic geometry via sexpr (monkey netlist path does not hydrate SCH paint)."""
+    sch_geom: Dict[str, Any] = {}
+    for sch in snap.rglob("*.kicad_sch"):
+        if _is_generated_kicad_path(sch, snap):
+            continue
+        page = sch.relative_to(snap).as_posix()
+        text = sch.read_text(encoding="utf-8", errors="replace")
+        for block in _iter_sexpr_blocks(text, "symbol"):
+            if "(lib_id " not in block:
+                continue
+            source_id = _source_id(block)
+            at = _point(block, "at")
+            if not source_id or not at:
+                continue
+            sch_geom[source_id] = _enrich_geometry(
+                {
+                    "kind": "symbol",
+                    "page": page,
+                    "x": at[0],
+                    "y": at[1],
+                    "bounds": [at[0] - 2.54, at[1] - 2.54, 5.08, 5.08],
+                },
+                source_id=source_id,
+                semantic_index=semantic_index,
+                context="schematic",
+            )
+        for kind in ("wire", "bus", "polyline", "arc", "circle", "text", "text_box"):
+            for block in _iter_sexpr_blocks(text, kind):
+                source_id = _source_id(block)
+                if not source_id:
+                    continue
+                points = _points(block)
+                at = _point(block, "at")
+                entry: Dict[str, Any] = {
+                    "kind": "wire" if kind in {"wire", "bus"} else "graphic",
+                    "page": page,
+                }
+                if points:
+                    entry["points"] = points
+                    entry["bounds"] = _bounds(points)
+                    entry["x"] = sum(point[0] for point in points) / len(points)
+                    entry["y"] = sum(point[1] for point in points) / len(points)
+                elif at:
+                    entry.update({"x": at[0], "y": at[1], "bounds": [at[0] - 1, at[1] - 1, 2, 2]})
+                sch_geom[source_id] = _enrich_geometry(
+                    entry,
+                    source_id=source_id,
+                    semantic_index=semantic_index,
+                    context="schematic",
+                )
+    return sch_geom
+
+
 def _load_or_build_revision(
     project_id: str,
     repo_path: Path,
@@ -184,11 +279,12 @@ def _load_or_build_revision(
     logs: List[str],
     on_progress: Optional[Any] = None,
 ) -> Dict[str, Any]:
+    revision_started = time.perf_counter()
     cache = _cache_dir(project_id, commit)
     marker = cache / "revision.json"
     cached = _read_revision_cache(marker) if marker.exists() else None
     if cached is not None:
-        logs.append(f"Cache hit for {commit[:7]}")
+        logs.append(f"Cache hit for {commit[:7]} revision_total_ms={_ms_since(revision_started)}")
         if on_progress:
             on_progress(f"Cache hit {commit[:7]}")
         return cached
@@ -196,16 +292,22 @@ def _load_or_build_revision(
     with _cache_lock(project_id, commit):
         cached = _read_revision_cache(marker) if marker.exists() else None
         if cached is not None:
-            logs.append(f"Cache hit for {commit[:7]} after wait")
+            logs.append(
+                f"Cache hit for {commit[:7]} after wait "
+                f"revision_total_ms={_ms_since(revision_started)}"
+            )
             if on_progress:
                 on_progress(f"Cache hit {commit[:7]}")
             return cached
 
+        logs.append(f"Cache miss for {commit[:7]}")
         snap = cache / "snapshot"
         logs.append(f"Snapshotting {commit[:7]}…")
         if on_progress:
             on_progress(f"Snapshotting {commit[:7]}…")
+        snap_started = time.perf_counter()
         _snapshot_commit(repo_path, commit, snap, relative_path)
+        logs.append(f"snapshot_ms={_ms_since(snap_started)} commit={commit[:7]}")
 
         pro = _find_pro(snap)
         semantic_index: Dict[str, Any] = {
@@ -218,17 +320,38 @@ def _load_or_build_revision(
         geometry: Dict[str, Any] = {"schematic": {}, "pcb": {}}
         stackup: Dict[str, Any] = {"present": False, "layers": []}
         bom_csv = ""
+        bom_logs: List[str] = []
+        bom_future: Optional[concurrent.futures.Future] = None
+        bom_executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
+        monkey_pcb_geometry: Dict[str, Any] = {}
 
         if pro:
+            bom_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            bom_future = bom_executor.submit(_export_bom_csv, snap, bom_logs)
+
             try:
                 if on_progress:
                     on_progress(f"Building semantic index for {commit[:7]}…")
-                semantic_index = semantic_index_service.build_semantic_index(
-                    pro,
-                    source_revision_key=commit,
-                    commit=commit,
-                )
-                logs.append(f"Built semantic index for {commit[:7]}")
+                semantic_started = time.perf_counter()
+                reused = _try_reuse_visualizer_semantic(project_id, commit)
+                if reused is not None:
+                    semantic_index = reused
+                    logs.append(
+                        f"Reused visualizer semantic-index for {commit[:7]} "
+                        f"semantic_ms={_ms_since(semantic_started)}"
+                    )
+                else:
+                    semantic_index = semantic_index_service.build_semantic_index(
+                        pro,
+                        source_revision_key=commit,
+                        commit=commit,
+                        collect_pcb_geometry=True,
+                    )
+                    monkey_pcb_geometry = dict(semantic_index.pop("pcbGeometry", {}) or {})
+                    logs.append(
+                        f"Built semantic index for {commit[:7]} "
+                        f"semantic_ms={_ms_since(semantic_started)}"
+                    )
             except Exception as exc:
                 logs.append(f"Semantic index failed for {commit[:7]}: {exc}")
                 semantic_index = {
@@ -238,20 +361,36 @@ def _load_or_build_revision(
                     "terminals": [],
                     "indexes": {},
                 }
+                monkey_pcb_geometry = {}
 
             try:
+                stack_started = time.perf_counter()
                 stackup = _extract_stackup(snap)
+                logs.append(f"stackup_ms={_ms_since(stack_started)} commit={commit[:7]}")
             except Exception as exc:
                 logs.append(f"Stackup extract failed: {exc}")
 
             try:
                 if on_progress:
                     on_progress(f"Extracting geometry for {commit[:7]}…")
-                geometry = _extract_geometry(snap, semantic_index)
+                geom_started = time.perf_counter()
+                sch_geom = _extract_schematic_geometry(snap, semantic_index)
+                if monkey_pcb_geometry:
+                    pcb_geom = _enrich_pcb_geometry(monkey_pcb_geometry, semantic_index)
+                    logs.append(
+                        f"PCB geometry from monkey ({len(pcb_geom)} items) for {commit[:7]}"
+                    )
+                else:
+                    full = _extract_geometry(snap, semantic_index)
+                    pcb_geom = full.get("pcb") or {}
+                    if not sch_geom:
+                        sch_geom = full.get("schematic") or {}
+                geometry = {"schematic": sch_geom, "pcb": pcb_geom}
                 logs.append(
                     f"Geometry {commit[:7]}: "
                     f"sch={len(geometry.get('schematic') or {})} "
-                    f"pcb={len(geometry.get('pcb') or {})}"
+                    f"pcb={len(geometry.get('pcb') or {})} "
+                    f"geometry_ms={_ms_since(geom_started)}"
                 )
             except Exception as exc:
                 logs.append(f"Geometry extract failed: {exc}")
@@ -259,9 +398,16 @@ def _load_or_build_revision(
             try:
                 if on_progress:
                     on_progress(f"Exporting BOM for {commit[:7]}…")
-                bom_csv = _export_bom_csv(snap, logs)
+                bom_started = time.perf_counter()
+                assert bom_future is not None
+                bom_csv = bom_future.result()
+                logs.extend(bom_logs)
+                logs.append(f"bom_ms={_ms_since(bom_started)} commit={commit[:7]}")
             except Exception as exc:
                 logs.append(f"BOM export failed: {exc}")
+            finally:
+                if bom_executor is not None:
+                    bom_executor.shutdown(wait=False, cancel_futures=False)
 
         payload = {
             "schema": _CACHE_SCHEMA,
@@ -279,9 +425,154 @@ def _load_or_build_revision(
         temporary = marker.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
         temporary.replace(marker)
+        logs.append(
+            f"Revision {commit[:7]} ready "
+            f"revision_total_ms={_ms_since(revision_started)}"
+        )
         if on_progress:
             on_progress(f"Revision {commit[:7]} ready")
         return payload
+
+
+def _build_revision_worker(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Picklable ProcessPool entrypoint for a single revision cold build."""
+    logs: List[str] = []
+    payload = _load_or_build_revision(
+        args["project_id"],
+        Path(args["repo_path"]),
+        args.get("relative_path"),
+        args["commit"],
+        logs,
+    )
+    return {"commit": args["commit"], "payload": payload, "logs": logs}
+
+
+def _probe_revision_cache(
+    project_id: str,
+    commit: str,
+) -> Optional[Dict[str, Any]]:
+    marker = _cache_dir(project_id, commit) / "revision.json"
+    if not marker.exists():
+        return None
+    return _read_revision_cache(marker)
+
+
+def _load_revisions_for_job(
+    project_id: str,
+    repo_path: Path,
+    relative_path: Optional[str],
+    base: str,
+    head: str,
+    logs: List[str],
+    heartbeat: Any,
+) -> Dict[str, Dict[str, Any]]:
+    """Load base/head from cache or build, optionally in parallel subprocesses."""
+    revisions: Dict[str, Dict[str, Any]] = {}
+    pending: List[str] = []
+    for commit, label, pct in (
+        (base, "old", 15),
+        (head, "new", 35),
+    ):
+        cached = _probe_revision_cache(project_id, commit)
+        if cached is not None:
+            logs.append(f"Cache hit for {commit[:7]} (parent)")
+            heartbeat(f"Cache hit {label} revision ({commit[:7]})…", pct)
+            revisions[commit] = cached
+        else:
+            pending.append(commit)
+
+    if not pending:
+        return revisions
+
+    use_parallel = _PARALLEL_ENABLED and len(pending) > 1
+    if not use_parallel:
+        for commit in pending:
+            label = "old" if commit == base else "new"
+            pct = 15 if commit == base else 35
+            heartbeat(f"Building {label} revision ({commit[:7]})…", pct)
+            stage_started = time.perf_counter()
+            revisions[commit] = _load_or_build_revision(
+                project_id,
+                repo_path,
+                relative_path,
+                commit,
+                logs,
+                on_progress=lambda msg, p=pct: heartbeat(msg, p),
+            )
+            logs.append(f"{label}_ms={_ms_since(stage_started)} commit={commit[:7]}")
+        return revisions
+
+    heartbeat(
+        f"Building {len(pending)} revisions in parallel subprocesses…",
+        20,
+    )
+    acquired = _PARALLEL_HOST_LOCK.acquire(blocking=True)
+    parallel_started = time.perf_counter()
+    work_dir = _JOB_ROOT / f"parallel-{uuid.uuid4().hex}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        procs: List[Tuple[str, subprocess.Popen, Path]] = []
+        backend_root = Path(__file__).resolve().parents[2]
+        child_env = os.environ.copy()
+        existing = child_env.get("PYTHONPATH", "")
+        child_env["PYTHONPATH"] = (
+            f"{backend_root}{os.pathsep}{existing}" if existing else str(backend_root)
+        )
+        for commit in pending:
+            request = {
+                "project_id": project_id,
+                "repo_path": str(repo_path),
+                "relative_path": relative_path,
+                "commit": commit,
+            }
+            request_path = work_dir / f"{commit}.request.json"
+            result_path = work_dir / f"{commit}.result.json"
+            request_path.write_text(json.dumps(request), encoding="utf-8")
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "app.services.design_compare_revision_worker",
+                    str(request_path),
+                    str(result_path),
+                ],
+                cwd=str(backend_root),
+                env=child_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            procs.append((commit, proc, result_path))
+
+        for commit, proc, result_path in procs:
+            label = "old" if commit == base else "new"
+            try:
+                stdout, stderr = proc.communicate(timeout=_CHILD_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired as exc:
+                proc.kill()
+                raise RuntimeError(
+                    f"Parallel revision build timed out for {commit[:7]}"
+                ) from exc
+            if proc.returncode != 0 or not result_path.exists():
+                detail = (stderr or stdout or "").strip()[:500]
+                raise RuntimeError(
+                    f"Parallel revision build failed for {commit[:7]} "
+                    f"(exit={proc.returncode}): {detail}"
+                )
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            logs.extend(result.get("logs") or [])
+            revisions[commit] = result["payload"]
+            heartbeat(f"{label} revision ready ({commit[:7]})…", 40)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        if acquired:
+            _PARALLEL_HOST_LOCK.release()
+    logs.append(
+        f"parallel_revisions_ms={_ms_since(parallel_started)} "
+        f"commits={','.join(c[:7] for c in pending)}"
+    )
+    return revisions
+
 
 
 def _list_kicad_sources(root: Path) -> List[Dict[str, str]]:
@@ -1154,35 +1445,35 @@ def _run_job(
 ) -> None:
     job = design_compare_jobs[job_id]
     logs: List[str] = job.setdefault("logs", [])
+    job_started = time.perf_counter()
 
     def heartbeat(message: str, percent: Optional[float] = None) -> None:
         job["message"] = message
         if percent is not None:
             job["percent"] = percent
-        job["logs"] = logs[-40:]
+        job["logs"] = logs[-80:]
         _persist_job(job_id)
 
     try:
         repo_path, relative_path, _checkout = _repo_paths(project_id)
         heartbeat("Building revisions…", 10)
+        logs.append(
+            f"parallel={'on' if _PARALLEL_ENABLED else 'off'} "
+            f"schema={_CACHE_SCHEMA}"
+        )
 
-        revisions: Dict[str, Dict[str, Any]] = {}
-        # Sequential builds: parallel monkey+geometry on large boards OOMs uvicorn workers
-        # and orphans the in-memory job thread (status stuck at 10%).
-        for idx, commit in enumerate((base, head)):
-            label = "old" if idx == 0 else "new"
-            pct = 15 + idx * 20
-            heartbeat(f"Building {label} revision ({commit[:7]})…", pct)
-            revisions[commit] = _load_or_build_revision(
-                project_id,
-                repo_path,
-                relative_path,
-                commit,
-                logs,
-                on_progress=lambda msg, p=pct: heartbeat(msg, p),
-            )
+        revisions = _load_revisions_for_job(
+            project_id,
+            repo_path,
+            relative_path,
+            base,
+            head,
+            logs,
+            heartbeat,
+        )
 
         heartbeat("Diffing designs…", 55)
+        diff_started = time.perf_counter()
 
         base_rev = revisions[base]
         head_rev = revisions[head]
@@ -1256,6 +1547,8 @@ def _run_job(
                 "head": head_rev.get("geometry") or {},
             },
         )
+        logs.append(f"diff_ms={_ms_since(diff_started)}")
+        logs.append(f"job_total_ms={_ms_since(job_started)}")
 
         result = {
             "schema": "prism.semantic_comparison_v2",
@@ -1283,23 +1576,32 @@ def _run_job(
                 "base": base_rev.get("geometry") or {},
                 "head": head_rev.get("geometry") or {},
             },
+            "timings": {
+                "job_total_ms": _ms_since(job_started),
+                "diff_ms": _ms_since(diff_started),
+                "parallel": _PARALLEL_ENABLED,
+            },
         }
 
-        out = _JOB_ROOT / job_id
-        out.mkdir(parents=True, exist_ok=True)
-        (out / "result.json").write_text(json.dumps(result), encoding="utf-8")
-
+        # Persist result for polling
+        job_dir = _JOB_ROOT / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        (job_dir / "result.json").write_text(
+            json.dumps(result, separators=(",", ":")),
+            encoding="utf-8",
+        )
         job["status"] = "completed"
-        job["message"] = "Design comparison ready"
         job["percent"] = 100
+        job["message"] = "Design comparison ready"
         job["result"] = result
-        job["logs"] = logs
+        job["logs"] = logs[-80:]
         _persist_job(job_id)
     except Exception as exc:
         logger.exception("design-compare failed")
         job["status"] = "failed"
         job["message"] = str(exc)
-        job["logs"] = logs + [str(exc)]
+        job["logs"] = logs[-80:] + [str(exc)]
+        logs.append(f"job_total_ms={_ms_since(job_started)} (failed)")
         _persist_job(job_id)
 
 

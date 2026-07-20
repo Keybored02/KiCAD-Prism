@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+import json
 import subprocess
 
 from app.services import bom_diff_service, design_compare_service
@@ -398,6 +399,186 @@ class DesignCompareServiceTests(unittest.TestCase):
             self.assertRegex(resolved, r"^[0-9a-f]{40}$")
             with self.assertRaises(ValueError):
                 design_compare_service._resolve_revision(root, "../not-a-revision")
+
+    def test_cache_schema_is_v4(self) -> None:
+        self.assertEqual(
+            design_compare_service._CACHE_SCHEMA,
+            "prism.design_compare_revision_v4",
+        )
+
+    def test_probe_revision_cache_rejects_stale_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = design_compare_service._CACHE_ROOT
+            design_compare_service._CACHE_ROOT = root
+            try:
+                project_id = "prj_test"
+                commit = "a" * 40
+                cache = design_compare_service._cache_dir(project_id, commit)
+                cache.mkdir(parents=True)
+                (cache / "revision.json").write_text(
+                    json.dumps(
+                        {"schema": "prism.design_compare_revision_v3", "commit": commit}
+                    ),
+                    encoding="utf-8",
+                )
+                self.assertIsNone(
+                    design_compare_service._probe_revision_cache(project_id, commit)
+                )
+                (cache / "revision.json").write_text(
+                    json.dumps(
+                        {
+                            "schema": design_compare_service._CACHE_SCHEMA,
+                            "commit": commit,
+                            "semantic": {},
+                            "geometry": {"schematic": {}, "pcb": {}},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                hit = design_compare_service._probe_revision_cache(project_id, commit)
+                self.assertIsNotNone(hit)
+                self.assertEqual(hit["commit"], commit)
+            finally:
+                design_compare_service._CACHE_ROOT = previous
+
+    def test_load_revisions_uses_cache_hits_without_pending_builds(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = design_compare_service._CACHE_ROOT
+            design_compare_service._CACHE_ROOT = root
+            try:
+                project_id = "prj_cache"
+                base = "b" * 40
+                head = "c" * 40
+                for commit in (base, head):
+                    cache = design_compare_service._cache_dir(project_id, commit)
+                    cache.mkdir(parents=True)
+                    (cache / "revision.json").write_text(
+                        json.dumps(
+                            {
+                                "schema": design_compare_service._CACHE_SCHEMA,
+                                "commit": commit,
+                                "semantic": {"components": []},
+                                "geometry": {"schematic": {}, "pcb": {}},
+                                "bom_csv": "",
+                                "sources": [],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                logs: list[str] = []
+                heartbeats: list[str] = []
+
+                def heartbeat(message: str, percent=None) -> None:
+                    heartbeats.append(message)
+
+                revisions = design_compare_service._load_revisions_for_job(
+                    project_id,
+                    Path("/tmp"),
+                    None,
+                    base,
+                    head,
+                    logs,
+                    heartbeat,
+                )
+                self.assertEqual(set(revisions), {base, head})
+                self.assertTrue(any("Cache hit" in line for line in logs))
+                self.assertTrue(all("Building" not in msg for msg in heartbeats))
+            finally:
+                design_compare_service._CACHE_ROOT = previous
+
+    def test_parallel_kill_switch_forces_sequential_path(self) -> None:
+        previous_parallel = design_compare_service._PARALLEL_ENABLED
+        previous_cache = design_compare_service._CACHE_ROOT
+        design_compare_service._PARALLEL_ENABLED = False
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                design_compare_service._CACHE_ROOT = Path(temporary)
+                project_id = "prj_seq"
+                base = "d" * 40
+                head = "e" * 40
+                built: list[str] = []
+
+                def fake_build(
+                    project_id,
+                    repo_path,
+                    relative_path,
+                    commit,
+                    logs,
+                    on_progress=None,
+                ):
+                    built.append(commit)
+                    logs.append(f"built {commit[:7]}")
+                    return {
+                        "schema": design_compare_service._CACHE_SCHEMA,
+                        "commit": commit,
+                        "semantic": {},
+                        "geometry": {"schematic": {}, "pcb": {}},
+                        "bom_csv": "",
+                        "sources": [],
+                    }
+
+                original = design_compare_service._load_or_build_revision
+                design_compare_service._load_or_build_revision = fake_build  # type: ignore[assignment]
+                try:
+                    logs: list[str] = []
+                    revisions = design_compare_service._load_revisions_for_job(
+                        project_id,
+                        Path("/tmp"),
+                        None,
+                        base,
+                        head,
+                        logs,
+                        lambda message, percent=None: None,
+                    )
+                    self.assertEqual(built, [base, head])
+                    self.assertEqual(set(revisions), {base, head})
+                    self.assertTrue(any(line.startswith("old_ms=") for line in logs))
+                    self.assertTrue(any(line.startswith("new_ms=") for line in logs))
+                finally:
+                    design_compare_service._load_or_build_revision = original  # type: ignore[assignment]
+        finally:
+            design_compare_service._PARALLEL_ENABLED = previous_parallel
+            design_compare_service._CACHE_ROOT = previous_cache
+
+    def test_pcb_geometry_from_monkey_emits_track_and_footprint(self) -> None:
+        from types import SimpleNamespace
+
+        from app.services import semantic_index_service
+
+        segment = SimpleNamespace(
+            uuid="seg-1",
+            start_x=0.0,
+            start_y=0.0,
+            end_x=3.0,
+            end_y=4.0,
+            width=0.25,
+            layer="F.Cu",
+            net=SimpleNamespace(name="VCC", ordinal=1),
+        )
+        footprint = SimpleNamespace(
+            uuid="fp-1",
+            at_x=10.0,
+            at_y=20.0,
+            library_link="Package:QFN",
+            layer="F.Cu",
+            net=SimpleNamespace(name="", ordinal=None),
+            properties=[],
+        )
+        pcb = SimpleNamespace(
+            footprints=[footprint],
+            segments=[segment],
+            arcs=[],
+            vias=[],
+            zones=[],
+            resolve_net_name=lambda net: getattr(net, "name", "") if net else "",
+        )
+        geometry = semantic_index_service._pcb_geometry_from_monkey(pcb)
+        self.assertEqual(geometry["seg-1"]["kind"], "track")
+        self.assertEqual(geometry["seg-1"]["points"], [[0.0, 0.0], [3.0, 4.0]])
+        self.assertEqual(geometry["fp-1"]["kind"], "footprint")
+        self.assertEqual(geometry["fp-1"]["x"], 10.0)
 
 
 if __name__ == "__main__":
