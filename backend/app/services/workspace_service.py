@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import subprocess
 import threading
 import uuid
 from contextlib import contextmanager
@@ -35,6 +36,29 @@ def _hash_file(path: Path) -> Optional[str]:
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
         return None
+
+
+def _git_origin(tree: str) -> str:
+    """The `origin` remote of a working tree, or "" if it has none.
+
+    Asks git rather than trusting the stored `url`, which for a local import is a
+    filesystem path the user picked, not a remote. Returns "" for a directory that
+    is not a git repo at all, which is a legitimate state, not an error.
+    """
+    if not tree or not os.path.isdir(tree):
+        return ""
+    try:
+        result = subprocess.run(
+            ["git", "-C", tree, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as err:
+        logger.warning("Could not read the git origin of %s: %s", tree, err)
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 class WorkspaceService:
