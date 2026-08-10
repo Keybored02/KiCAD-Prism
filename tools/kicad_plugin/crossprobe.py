@@ -85,8 +85,15 @@ def _find_board_item(board, item_id: str, reference: str = ""):
                 found = board.GetItem(kiid)
             except AttributeError:
                 found = None  # older SWIG bindings lack BOARD.GetItem
-            if found is not None and found.GetTypeDesc():
-                return found
+            # GetTypeDesc() distinguishes a real item from the null/placeholder
+            # BOARD.GetItem returns for an unknown kiid, but it can itself throw on
+            # some SWIG wrappers; treat any failure as "not found" rather than
+            # letting it escape and crash the plugin.
+            try:
+                if found is not None and found.GetTypeDesc():
+                    return found
+            except Exception:
+                pass
 
             # No BOARD.GetItem (KiCad 8): scan. A board has thousands of items,
             # not millions, and this only runs on an explicit click.
@@ -127,8 +134,17 @@ def probe_pcb(item_id: str, reference: str = "") -> None:
         pcbnew.FocusOnItem(None)
     except Exception:
         pass
-    pcbnew.FocusOnItem(item)
-    pcbnew.Refresh()
+    try:
+        pcbnew.FocusOnItem(item)
+        pcbnew.Refresh()
+    except Exception as exc:
+        # FocusOnItem can reject an item type it doesn't handle, or a stale SWIG
+        # wrapper, with a raw error. Surface it as a ProbeError so the dialog
+        # shows a message instead of crashing.
+        raise ProbeError(
+            "KiCad couldn't focus that item. It may be a kind KiCad can't "
+            "select from a plugin, or the board has changed, hit Refresh."
+        ) from exc
 
 
 # -- Schematic ------------------------------------------------------------
