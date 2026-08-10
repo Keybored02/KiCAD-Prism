@@ -564,24 +564,31 @@ def main() -> int:
         metavar="URL",
         help="handle a prism:// link and exit (this is how the OS invokes us)",
     )
+    from .profiles import PROFILES, is_known
+
     ap.add_argument(
         "--profile",
         metavar="NAME",
+        choices=sorted(PROFILES),
         help=(
-            "run an isolated agent (own discovery file, settings, and "
-            "single-instance guard). Lets a dev copy and an installed one coexist."
+            "run as this profile (own discovery file, settings, port, and "
+            "single-instance guard), one of: "
+            + ", ".join(sorted(PROFILES))
+            + ". Lets a dev copy and an installed one coexist. Defaults to "
+            "auto-detection (a source checkout is 'dev')."
         ),
     )
     args = ap.parse_args()
 
     if args.profile:
-        # Must be set before anything reads it. discovery.PROFILE is captured at
-        # import, so update both the environment (for child processes we spawn) and
-        # the already-imported module.
+        # Set the env var before anything resolves the profile: discovery,
+        # server, and any child process we spawn all read PRISM_PROFILE through
+        # the registry, so this one assignment steers them all. discovery.PROFILE
+        # (captured at import) is refreshed too for callers that read it directly.
         import os
 
         os.environ["PRISM_PROFILE"] = args.profile
-        discovery.PROFILE = args.profile
+        discovery.PROFILE = args.profile if is_known(args.profile) else discovery.PROFILE
 
     if args.open_url:
         return _handle_url(args.open_url)

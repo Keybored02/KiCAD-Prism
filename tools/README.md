@@ -217,16 +217,23 @@ curl -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/project?path=/pat
 
 ## Developing
 
-For a working copy, symlink the plugin into KiCad rather than reinstalling a zip
-each time:
+`tools/dev.py` is the one entry point for the dev workflow: run either agent,
+install either plugin, and see what's running.
 
 ```bash
-python tools/install_plugin.py               # symlink into KiCad's plugin dir
-python tools/install_plugin.py --uninstall
-python tools/install_plugin.py --dir <path>  # pick the KiCad version yourself
+python tools/dev.py plugin install --profile dev      # symlink the dev plugin
+python tools/dev.py agent --profile dev               # run the dev agent
+python tools/dev.py status                            # what's running, per profile
+
+python tools/dev.py plugin install --profile release  # copy the release plugin
+python tools/dev.py plugin uninstall --profile dev
 ```
 
-### The dev copy and a real install coexist
+The underlying scripts still work directly if you prefer
+(`python tools/install_plugin.py --profile dev`, `python -m prism_agent
+--profile dev`); `dev.py` just wraps them and adds `status`.
+
+### Profiles: the dev copy and a real install coexist
 
 You need both: a symlink to iterate on, and a real PCM install to verify what users
 actually get. Left alone these collide — two identically named plugins in the menu,
@@ -235,18 +242,32 @@ settings file, so the single-instance guard means only one agent starts and it
 silently serves both. You edit agent code, restart, and see nothing change, because
 you're still talking to the installed binary.
 
-So the plugin detects how it was installed and namespaces itself. **Nothing to
-configure:**
+So the agent and plugin run as one of two **profiles**, defined once in
+`prism_agent/profiles.py` (and mirrored in `kicad_plugin/profiles.py`, since the
+installed plugin can't import the agent package; a test keeps them in sync):
 
-| | Menu entry | Agent state lives in |
-|---|---|---|
-| Symlinked working copy | **Prism (dev)** | `…/kicad-prism-dev/` |
-| Installed package | **Prism** | `…/kicad-prism/` |
+| Profile | Menu entry | Preferred port | Installs as | State in |
+|---|---|---|---|---|
+| `dev` | **Prism (dev)** | 48731 | `prism_dev` | `…/kicad-prism-dev/` |
+| `release` | **Prism** | 48730 | `prism` | `…/kicad-prism/` |
 
-Separate agents, separate settings, separate single-instance guards. Install both
-and they stay out of each other's way.
+Separate agents, ports, settings, and single-instance guards, so both stay out of
+each other's way. **Nothing to configure by default:** a source checkout auto-detects
+`dev`, an install auto-detects `release`. Pass `--profile` (or set `PRISM_PROFILE`)
+to be explicit.
 
-To run an isolated agent by hand:
+The port is *preferred*, not reserved: if it's taken (a stale agent, or a second
+instance of the same profile), the agent binds an ephemeral port instead and logs
+it. `dev.py status` shows the port each agent actually got, plus its pid, version,
+and whether the process is still alive:
+
+```
+PROFILE   PORT    PID     ALIVE  VERSION     LABEL
+dev       48731   29568   yes    0.4.0       Prism (dev)
+release   -       -       -      -           Prism
+```
+
+To run an agent by hand without `dev.py`:
 
 ```bash
 python -m prism_agent --profile dev     # or set PRISM_PROFILE=dev

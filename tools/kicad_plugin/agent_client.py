@@ -62,36 +62,36 @@ def _http_message(exc, route):
 
 
 def profile():
-    """Which agent are we talking to, the installed one, or a dev one?
+    """The name of the profile whose agent we talk to ("dev" or "release").
 
     A symlinked working copy and a real PCM install can both be loaded by KiCad at
     once (that's the point: iterate on one, verify the other). They must not share an
     agent, or the single-instance guard means only one starts and it silently serves
     both, you edit agent code, restart, and see nothing change.
 
-    So the dev copy uses its own profile. PRISM_PROFILE wins if it's set (for running
-    the agent by hand); otherwise we detect it, the same way __init__ does: a dev
-    checkout has the repo's build script as a sibling, an install doesn't.
+    Resolution (explicit env, then detection) lives in the shared profile
+    registry so the agent and plugin never disagree on which environment they're
+    in. PRISM_PROFILE still wins for running the agent by hand.
     """
-    env = os.environ.get("PRISM_PROFILE", "").strip()
-    if env:
-        return env
-    tools = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-    return "dev" if os.path.isfile(os.path.join(tools, "build_agent.py")) else ""
+    from .profiles import resolve
+    return resolve().name
 
 
 def _config_dir():
-    # Duplicated from prism_agent.discovery rather than imported: the plugin is
-    # installed into KiCad's plugin dir on its own and cannot import the agent
-    # package. Keep the two in sync, they're both tiny.
+    # The config dir MUST match what prism_agent.discovery computes, or the
+    # plugin looks for the agent's discovery file in the wrong place. The plugin
+    # is installed standalone and cannot import the agent package, so the profile
+    # registry is mirrored here (kicad_plugin/profiles.py); the suffix comes from
+    # it so both sides derive the same path.
+    from .profiles import resolve
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or os.path.expanduser("~/AppData/Roaming")
     elif sys.platform == "darwin":
         base = os.path.expanduser("~/Library/Application Support")
     else:
         base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    p = profile()
-    return os.path.join(base, f"{APP_NAME}-{p}" if p else APP_NAME)
+    suffix = resolve().config_suffix
+    return os.path.join(base, f"{APP_NAME}-{suffix}" if suffix else APP_NAME)
 
 
 def _endpoint():
