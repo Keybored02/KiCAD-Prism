@@ -1,6 +1,7 @@
 import logging
 import hashlib
 import os
+import re
 from pathlib import PurePosixPath
 from fastapi import HTTPException
 from git import Repo
@@ -623,6 +624,302 @@ def _diff_line_stats_map(
     return stats
 
 
+_MAX_ELEMENT_BLOB_BYTES = 40 * 1024 * 1024  # 40MB cap; boards can run ~9MB+.
+
+_NATURAL_SORT_RE = re.compile(r"(\d+)")
+
+_NET_LINE_RE = re.compile(r'\(net\s+(?:\d+\s+)?"((?:[^"\\]|\\.)*)"')
+_LABEL_RE = re.compile(
+    r'\((?:label|global_label|hierarchical_label)\s+"((?:[^"\\]|\\.)*)"'
+)
+_REFERENCE_PROPERTY_RE = re.compile(
+    r'\(property\s+"Reference"\s+"((?:[^"\\]|\\.)*)"'
+)
+_NET_NAME_RE = re.compile(r'\(net_name\s+"((?:[^"\\]|\\.)*)"')
+_ZONE_LAYER_RE = re.compile(r'\(layer\s+"((?:[^"\\]|\\.)*)"')
+_ZONE_LAYERS_RE = re.compile(r'\(layers\b((?:\s+"(?:[^"\\]|\\.)*")+)')
+_QUOTED_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def _natural_sort_key(text: str):
+    """Split digits from non-digits so R2 sorts before R10."""
+    parts = _NATURAL_SORT_RE.split(text)
+    return [int(p) if p.isdigit() else p for p in parts]
+
+
+def _read_blob_text(blob) -> str | None:
+    """Decode a git blob as UTF-8 text, skipping binaries and oversized blobs."""
+    if blob is None:
+        return None
+    try:
+        if blob.size > _MAX_ELEMENT_BLOB_BYTES:
+            logger.debug(
+                "Skipping element extraction for %s: blob too large (%d bytes)",
+                getattr(blob, "path", "<unknown>"),
+                blob.size,
+            )
+            return None
+        raw = blob.data_stream.read()
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    except Exception as error:  # pragma: no cover - defensive
+        logger.debug("Could not read blob for element extraction: %s", error)
+        return None
+
+
+def _iter_top_level_blocks(text: str, tags: tuple[str, ...]):
+    """
+    Yield ``(tag, block_text)`` for every top-level S-expression block whose
+    tag is in ``tags``.
+
+    "Top level" means direct children of the document root, e.g. the
+    ``(footprint ...)``/``(zone ...)`` forms living straight inside
+    ``(kicad_pcb ...)``. The document root itself opens at depth 0 -> 1, so
+    its direct children open at depth 1 -> 2; matching there means nested
+    occurrences (e.g. lib_symbols definitions nested under a
+    ``(lib_symbols ...)`` wrapper, which sits one level deeper) are skipped
+    by construction. The walker tracks paren depth and respects quoted
+    strings, since KiCad string values (descriptions, etc.) can contain
+    unbalanced parens.
+
+    Single pass, O(n) in the length of the text, regardless of how many tags
+    are requested -- callers that need several top-level block kinds (e.g.
+    segment/arc/via/zone/footprint) should request them together in one
+    call rather than re-scanning the whole file per tag.
+    """
+    needles = tuple((tag, "(" + tag) for tag in tags)
+    length = len(text)
+    i = 0
+    depth = 0
+    in_string = False
+    block_start = -1
+    block_depth = -1
+    block_tag = ""
+
+    while i < length:
+        ch = text[i]
+        if in_string:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+            i += 1
+            continue
+
+        if ch == '"':
+            in_string = True
+            i += 1
+            continue
+
+        if ch == "(":
+            # Only treat this as a candidate block start when it opens a
+            # direct child of the document root (depth 1 -> 2) matching one
+            # of the requested tags.
+            if block_start == -1 and depth == 1:
+                for tag, needle in needles:
+                    if text.startswith(needle, i) and (
+                        i + len(needle) == length
+                        or not _is_symbol_char(text[i + len(needle)])
+                    ):
+                        block_start = i
+                        block_depth = depth
+                        block_tag = tag
+                        break
+            depth += 1
+            i += 1
+            continue
+
+        if ch == ")":
+            depth -= 1
+            if block_start != -1 and depth == block_depth:
+                yield block_tag, text[block_start : i + 1]
+                block_start = -1
+                block_depth = -1
+                block_tag = ""
+            i += 1
+            continue
+
+        i += 1
+
+
+def _is_symbol_char(ch: str) -> bool:
+    return ch.isalnum() or ch in "_-"
+
+
+def _looks_like_real_reference(reference: str) -> bool:
+    """Exclude power/flag pseudo-parts: refs starting with '#' or without a digit."""
+    if not reference or reference.startswith("#"):
+        return False
+    return any(c.isdigit() for c in reference)
+
+
+_TRACK_TAGS = ("segment", "arc", "via")
+
+
+def _zone_key(block: str) -> tuple[str, str] | None:
+    """Key a zone block by (net name, layer). Supports net/net_name and layer/layers."""
+    net_match = _NET_NAME_RE.search(block) or _NET_LINE_RE.search(block)
+    if not net_match:
+        return None
+    net_name = net_match.group(1)
+
+    layers_match = _ZONE_LAYERS_RE.search(block)
+    if layers_match:
+        layer = "+".join(_QUOTED_RE.findall(layers_match.group(1)))
+    else:
+        layer_match = _ZONE_LAYER_RE.search(block)
+        layer = layer_match.group(1) if layer_match else ""
+
+    return (net_name, layer)
+
+
+class _FileIndex:
+    """
+    Single-pass index of the top-level blocks/nets in one side (old or new)
+    of a kicad_sch/kicad_pcb blob.
+
+    Building this costs one O(n) walk over the text regardless of how many
+    element categories are requested, which matters on multi-megabyte board
+    files where a naive per-category re-scan is the dominant cost.
+    """
+
+    __slots__ = ("components", "zones", "tracks_by_net", "net_names")
+
+    def __init__(self) -> None:
+        self.components: dict[str, str] = {}
+        self.zones: dict[tuple[str, str], str] = {}
+        self.tracks_by_net: dict[str, list[str]] = {}
+        self.net_names: set[str] = set()
+
+    @classmethod
+    def build(cls, text: str | None, is_pcb: bool) -> "_FileIndex":
+        index = cls()
+        if not text:
+            return index
+
+        component_tag = "footprint" if is_pcb else "symbol"
+        block_tags = (component_tag, "zone", *_TRACK_TAGS) if is_pcb else (component_tag,)
+
+        for tag, block in _iter_top_level_blocks(text, block_tags):
+            if tag == component_tag:
+                match = _REFERENCE_PROPERTY_RE.search(block)
+                if match:
+                    reference = match.group(1)
+                    if _looks_like_real_reference(reference):
+                        # Last write wins if a reference oddly repeats.
+                        index.components[reference] = block
+                continue
+
+            if tag == "zone":
+                key = _zone_key(block)
+                if key is not None:
+                    index.zones[key] = block
+                continue
+
+            # segment / arc / via
+            match = _NET_LINE_RE.search(block)
+            if match and match.group(1):
+                index.tracks_by_net.setdefault(match.group(1), []).append(block)
+
+        # Net names: PCB nets come from any (net ...) occurrence anywhere in
+        # the file (pads, tracks, zones); schematic nets come from labels.
+        pattern = _NET_LINE_RE if is_pcb else _LABEL_RE
+        for match in pattern.finditer(text):
+            name = match.group(1)
+            if name:
+                index.net_names.add(name)
+
+        return index
+
+
+def _diff_by_key(
+    old_items: dict, new_items: dict, build_entry
+) -> list[dict[str, Any]]:
+    """Shared added/removed/changed diff over two key->block-text(s) maps."""
+    entries: list[dict[str, Any]] = []
+    for key in old_items.keys() | new_items.keys():
+        in_old = key in old_items
+        in_new = key in new_items
+        if in_old and not in_new:
+            kind = "removed"
+        elif in_new and not in_old:
+            kind = "added"
+        elif old_items[key] != new_items[key]:
+            kind = "changed"
+        else:
+            continue
+        entries.append(build_entry(key, kind))
+    return entries
+
+
+def _extract_kicad_elements(
+    old_text: str | None, new_text: str | None, filename: str
+) -> dict[str, Any]:
+    """Extract components/nets/zones/tracks for a single changed kicad file."""
+    extras: dict[str, Any] = {}
+    lower = filename.lower()
+    is_sch = lower.endswith(".kicad_sch")
+    is_pcb = lower.endswith(".kicad_pcb")
+    if not (is_sch or is_pcb):
+        return extras
+
+    old_index = _FileIndex.build(old_text, is_pcb)
+    new_index = _FileIndex.build(new_text, is_pcb)
+
+    components = _diff_by_key(
+        old_index.components,
+        new_index.components,
+        lambda reference, kind: {"reference": reference, "kind": kind},
+    )
+    components.sort(key=lambda entry: _natural_sort_key(entry["reference"]))
+    if components:
+        extras["components"] = components
+
+    nets: list[dict[str, Any]] = []
+    for name in old_index.net_names - new_index.net_names:
+        nets.append({"netName": name, "kind": "removed"})
+    for name in new_index.net_names - old_index.net_names:
+        nets.append({"netName": name, "kind": "added"})
+    nets.sort(key=lambda entry: _natural_sort_key(entry["netName"]))
+    if nets:
+        extras["nets"] = nets
+
+    if is_pcb:
+        zones = _diff_by_key(
+            old_index.zones,
+            new_index.zones,
+            lambda key, kind: {"netName": key[0], "layer": key[1], "kind": kind},
+        )
+        zones.sort(key=lambda entry: (_natural_sort_key(entry["netName"]), entry["layer"]))
+        if zones:
+            extras["zones"] = zones
+
+        # Coarse per-net track diff: tracks/vias/arcs have no stable
+        # per-item id, so report whether a net's routing block-set changed
+        # at all rather than enumerating every segment.
+        track_keys = old_index.tracks_by_net.keys() | new_index.tracks_by_net.keys()
+        tracks: list[dict[str, Any]] = []
+        for net_name in track_keys:
+            old_blocks = old_index.tracks_by_net.get(net_name)
+            new_blocks = new_index.tracks_by_net.get(net_name)
+            if old_blocks and not new_blocks:
+                kind = "removed"
+            elif new_blocks and not old_blocks:
+                kind = "added"
+            elif sorted(old_blocks) != sorted(new_blocks):
+                kind = "changed"
+            else:
+                continue
+            tracks.append({"netName": net_name, "kind": kind})
+        tracks.sort(key=lambda entry: _natural_sort_key(entry["netName"]))
+        if tracks:
+            extras["tracks"] = tracks
+
+    return extras
+
+
 def get_commit_file_summary(
     repo_path: str, commit_hash: str, relative_path: str = None
 ) -> dict[str, Any]:
@@ -632,6 +929,14 @@ def get_commit_file_summary(
     Merge commits intentionally compare against their first parent, matching
     the file list and GitHub's default commit view. Root commits compare with
     Git's empty tree.
+
+    For ``.kicad_sch``/``.kicad_pcb`` files, each entry also gets optional
+    ``components``, ``nets``, ``zones`` (PCB only), and ``tracks`` (PCB only)
+    lists describing which schematic/PCB elements the change touched. Each
+    element carries a ``kind`` of ``added``/``removed``/``changed``. These
+    keys are omitted entirely when there is nothing to report, and are
+    computed by diffing the old/new git blobs with a lightweight S-expression
+    block walker (not a full KiCad parser).
     """
     try:
         repo = _open_repo(repo_path)
@@ -673,6 +978,16 @@ def get_commit_file_summary(
                 "additions": additions,
                 "deletions": deletions,
             }
+
+            lower_filename = filename.lower()
+            if lower_filename.endswith(".kicad_sch") or lower_filename.endswith(
+                ".kicad_pcb"
+            ):
+                old_text = _read_blob_text(d.a_blob)
+                new_text = _read_blob_text(d.b_blob)
+                entry.update(
+                    _extract_kicad_elements(old_text, new_text, filename)
+                )
 
             result.append(entry)
 
