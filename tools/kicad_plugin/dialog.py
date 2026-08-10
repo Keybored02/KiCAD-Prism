@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 
 import wx
 import wx.adv
@@ -40,6 +41,11 @@ LOGO = os.path.join(os.path.dirname(__file__), "assets", "prism-64.png")
 # A real board can produce hundreds of changed items. Cap what we draw so the
 # dialog stays responsive, and say so rather than silently truncating.
 MAX_ROWS_PER_FILE = 60
+
+# Distinguishes "the diff is still computing in the background" from None
+# ("couldn't read") and [] ("nothing to commit"), so the changes card can show a
+# transient loading state while the rest of the dialog is already up.
+_CHANGES_LOADING = object()
 
 
 def _c(hex_value):
@@ -289,16 +295,46 @@ class PrismDialog(wx.Dialog):
             return
 
         # The diff parses every changed board, so it can take a second or two on
-        # a big one. Show a wait cursor rather than appearing to freeze.
-        self.changes = None
-        try:
-            with wx.BusyCursor():
-                self.changes = client.changes(self.board_path).get("changes", [])
-        except AgentUnavailable:
-            pass  # project/git still render; the changes card explains itself
-
+        # a big one. Don't block the dialog on it: render everything else now with
+        # the changes card in a "Computing…" state, and fetch the diff in a
+        # background thread. When it lands we marshal back to the UI thread and
+        # re-render from data already in hand.
+        self.changes = _CHANGES_LOADING
         self._render()
         self._relayout()
+        self._start_changes_fetch(client)
+
+    def _start_changes_fetch(self, client):
+        """Fetch the uncommitted-changes diff off the UI thread, then rebuild.
+
+        A generation counter guards against a stale result: if the user hits
+        Refresh (which calls _load again) before an in-flight fetch returns, the
+        old thread's result is dropped rather than overwriting newer state.
+        """
+        self._changes_gen = getattr(self, "_changes_gen", 0) + 1
+        generation = self._changes_gen
+        board_path = self.board_path
+
+        def worker():
+            try:
+                result = client.changes(board_path).get("changes", [])
+            except AgentUnavailable:
+                result = None  # the changes card explains itself
+            except Exception:
+                result = None
+            wx.CallAfter(self._apply_changes, generation, result)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_changes(self, generation, result):
+        # Ignore a result from a fetch the user has already superseded, and one
+        # that arrives after the dialog is gone.
+        if generation != getattr(self, "_changes_gen", 0):
+            return
+        if not self:
+            return
+        self.changes = result
+        self._rebuild()
 
     def _rebuild(self):
         """Re-render from data already in hand. No refetch, expanding a file is
@@ -1353,6 +1389,13 @@ class PrismDialog(wx.Dialog):
         # "UNCOMMITTED CHANGES" caption above it would just say it twice.
         card = Card(self.scroll, "", self.pal)
 
+        if self.changes is _CHANGES_LOADING:
+            # The diff is still being computed in the background; the rest of the
+            # dialog is already up. Say so rather than looking empty or broken.
+            card.row("Uncommitted changes", "Computing…", tone="muted_fg")
+            self.content.Add(card, 0, wx.EXPAND)
+            return
+
         if self.changes is None:
             card.row("Uncommitted changes", "Couldn't read", tone="muted_fg")
             self.content.Add(card, 0, wx.EXPAND)
@@ -1570,6 +1613,16 @@ class PrismDialog(wx.Dialog):
             )
         except crossprobe.ProbeError as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_INFORMATION)
+            return
+        except Exception as exc:
+            # A raw pcbnew/SWIG error here would otherwise crash the plugin and
+            # can take KiCad down with it. Cross-probe is a convenience; a failed
+            # jump must never be fatal. Report it and stay open.
+            wx.MessageBox(
+                "Couldn't jump to that item in KiCad.\n\n%s" % exc,
+                "Prism",
+                wx.OK | wx.ICON_INFORMATION,
+            )
             return
 
         # The item is selected behind the dialog; get out of the way so it can be
