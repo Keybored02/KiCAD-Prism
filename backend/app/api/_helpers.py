@@ -39,6 +39,8 @@ def _row_to_project(row: dict) -> project_service.Project:
         project_file=row.get("project_file_rel") or None,
         parent_repo=row.get("parent_repo"),
         repo_url=row.get("repo_url"),
+        origin_url=row.get("origin_url"),
+        origin_owner=row.get("origin_owner"),
         import_type=row.get("import_type"),
         parent_repo_path=row.get("parent_repo_path"),
         folder_id=row.get("folder_id"),

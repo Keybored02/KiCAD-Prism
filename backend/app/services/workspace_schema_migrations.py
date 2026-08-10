@@ -1727,6 +1727,25 @@ def _project_metadata_repository(conn: Any) -> None:
     )
 
 
+def _repository_origin(conn: Any) -> None:
+    """Record where each repository's git actually lives, and who owns it.
+
+    ``clone_path``/``url`` used to carry both a real remote and, for a local
+    import, a filesystem path the user picked, which a client cannot tell apart.
+    origin_url is the true remote (asked of git) and origin_owner classifies it:
+    "external" (a real remote like GitLab), "prism" (Prism hosts the git), or
+    "none" (no remote yet). The agent's Open-in-KiCad needs this to know what, if
+    anything, it can clone from. Backfilled by WorkspaceService after migration.
+    """
+    conn.execute(
+        """
+        ALTER TABLE ws_repositories
+            ADD COLUMN IF NOT EXISTS origin_url TEXT,
+            ADD COLUMN IF NOT EXISTS origin_owner TEXT
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
     (2, "workspace_read_versions", _workspace_read_versions),
@@ -1746,6 +1765,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (20, "project_file_anchor", _project_file_anchor),
     (21, "project_metadata", _project_metadata),
     (22, "project_metadata_repository", _project_metadata_repository),
+    (23, "repository_origin", _repository_origin),
 )
 
 

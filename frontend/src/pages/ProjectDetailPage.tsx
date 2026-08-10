@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from
 import { Button } from "@/components/ui/button";
 import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, ExternalLink } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -492,6 +492,22 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         ))}
                     </select>
                 </div>
+
+                {/* Open in KiCad. Fires a prism:// link the local Prism agent
+                    handles: it finds the project by its marker, clones it if this
+                    machine doesn't have it, and opens it. Nothing happens if the
+                    agent isn't installed, the browser silently ignores an
+                    unregistered scheme, so we can't detect it and shouldn't pretend to. */}
+                {project && (
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => { window.location.href = `prism://open/${project.id}`; }}
+                        title="Open in KiCad (requires the Prism agent)"
+                    >
+                        <ExternalLink className="h-4 w-4" />
+                    </Button>
+                )}
 
                 {/* Sync Button */}
                 {canMutateProject && (

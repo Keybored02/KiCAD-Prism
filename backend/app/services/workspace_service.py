@@ -105,9 +105,45 @@ class WorkspaceService:
                 conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
                 self._create_schema(conn)
                 apply_workspace_migrations(conn)
+                self._backfill_origin(conn)
                 conn.commit()
             self._initialized = True
             logger.info("Workspace service initialized in PostgreSQL schema workspace")
+
+    def _backfill_origin(self, conn: Any) -> None:
+        """Fill origin_url/origin_owner for repositories that lack them.
+
+        clone_path/url is not trustworthy for this: a cloned repo holds a real
+        remote there, but a local import holds the filesystem path the user
+        picked, and the two are indistinguishable to a client. So ask git, the
+        only thing that actually knows:
+
+          origin_owner = "external"  a real remote exists (a GitLab URL, an SSH
+                                     path, a NAS share)
+          origin_owner = "none"      the tree is not a git repo, or has no remote
+
+        "none" is honest, not a failure: a project can be registered with Prism
+        and simply not be backed by a remote yet. Runs once per repository (only
+        rows where origin_owner is still NULL), so a settled workspace pays
+        nothing on later startups.
+        """
+        rows = conn.execute(
+            "SELECT id, clone_path FROM ws_repositories WHERE origin_owner IS NULL"
+        ).fetchall()
+        for row in rows:
+            clone = self._abs_clone_path(row["clone_path"] or "")
+            origin = _git_origin(clone)
+            owner = "external" if origin else "none"
+            conn.execute(
+                "UPDATE ws_repositories SET origin_url=%s, origin_owner=%s WHERE id=%s",
+                (origin, owner, row["id"]),
+            )
+            logger.info(
+                "Repository %s: origin_owner=%s origin_url=%s",
+                row["id"],
+                owner,
+                origin or "(none)",
+            )
 
     # ------------------------------------------------------------------
     # Connection
@@ -366,6 +402,7 @@ class WorkspaceService:
             rows = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
                           r.name AS parent_repo, r.import_type,
+                          r.origin_url, r.origin_owner,
                           r.last_synced_at AS repo_last_synced,
                           f.visibility_mode, f.allowed_roles
                    FROM ws_projects p
@@ -385,7 +422,8 @@ class WorkspaceService:
         with self._connect() as conn:
             row = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                          r.name AS parent_repo, r.import_type
+                          r.name AS parent_repo, r.import_type,
+                          r.origin_url, r.origin_owner
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
                    WHERE p.id=%s""",
@@ -405,7 +443,8 @@ class WorkspaceService:
             row = conn.execute(
                 """
                 SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                       r.name AS parent_repo, r.import_type
+                       r.name AS parent_repo, r.import_type,
+                       r.origin_url, r.origin_owner
                 FROM ws_projects p
                 JOIN ws_repositories r ON r.id = p.repo_id
                 LEFT JOIN ws_folders f ON f.id = p.folder_id

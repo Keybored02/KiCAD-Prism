@@ -21,6 +21,7 @@ import {
     Settings,
     FileCode,
     ArrowLeftRight,
+    ExternalLink,
     X,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -316,6 +317,28 @@ function CommitItem({
                                     </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>Open this commit in the visualizer</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => {
+                                            // Fires a prism:// link the local agent handles: it
+                                            // finds the project, clones it if missing, and moves
+                                            // the working tree to this commit, refusing if that
+                                            // would destroy uncommitted work. Silently ignored if
+                                            // the agent isn't installed.
+                                            window.location.href =
+                                                `prism://open/${projectId}?commit=${commit.full_hash}`;
+                                        }}
+                                        aria-label={`Open commit ${commit.hash} in KiCad`}
+                                    >
+                                        <ExternalLink className="h-3 w-3" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Open this version in KiCad (requires the Prism agent)</TooltipContent>
                             </Tooltip>
                             <Tooltip>
                                 <TooltipTrigger asChild>
