@@ -526,6 +526,48 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         }
     }, [commit, projectId]);
 
+    // Apply a `focus=component:<ref>` / `focus=net:<name>` URL param (set when
+    // opening the visualizer from a commit-summary element list) once the
+    // semantic index has loaded. Must use crossProbe, not select: select only
+    // updates the inspector, while crossProbe is what actually paints a ready
+    // viewer. sourceContext is set to the context OPPOSITE the active tab so
+    // the visible viewer is treated as the cross-probe target (registerClient's
+    // dispatch skips the viewer matching sourceContext, i.e. the "source").
+    // Guarded by a ref so it fires once per focus value, not on every render.
+    const appliedFocusRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!semanticIndex) return;
+        const focusParam = searchParams.get("focus");
+        if (!focusParam || appliedFocusRef.current === focusParam) return;
+
+        const separatorIndex = focusParam.indexOf(":");
+        if (separatorIndex === -1) return;
+        const kind = focusParam.slice(0, separatorIndex);
+        const value = focusParam.slice(separatorIndex + 1);
+        if (!value) return;
+
+        const sourceContext = activeTab === "pcb" ? "SCH" : "PCB";
+        const revisionKey = semanticIndex?.sourceRevisionKey ?? commit ?? undefined;
+
+        if (kind === "component") {
+            appliedFocusRef.current = focusParam;
+            crossProbeGlobal({
+                kind: "component",
+                reference: value,
+                sourceContext,
+                sourceRevisionKey: revisionKey,
+            });
+        } else if (kind === "net") {
+            appliedFocusRef.current = focusParam;
+            crossProbeGlobal({
+                kind: "net",
+                netName: value,
+                sourceContext,
+                sourceRevisionKey: revisionKey,
+            });
+        }
+    }, [activeTab, commit, crossProbeGlobal, searchParams, semanticIndex]);
+
     // Lazy load schematic content when schematic tab is first accessed
     useEffect(() => {
         if (activeTab === "sch" && !schematicContentLoaded) {
