@@ -35,6 +35,13 @@ class Project(BaseModel):
     sub_path: Optional[str] = None  # Relative path within parent repo
     parent_repo: Optional[str] = None  # Parent monorepo name
     repo_url: Optional[str] = None  # Original Git URL
+    # The repository's real git origin, asked of git rather than trusting `url`
+    # (which for a local import is a filesystem path). origin_owner is
+    # "external" (a real remote like GitLab), "prism" (Prism hosts it), or
+    # "none". The desktop agent's Open-in-KiCad needs these to know what it can
+    # clone from.
+    origin_url: Optional[str] = None
+    origin_owner: Optional[str] = None
     import_type: Optional[str] = None  # "type1" or "type2_subproject"
     parent_repo_path: Optional[str] = None  # Path to parent repo for Type-2
     folder_id: Optional[str] = None  # Optional folder assignment for workspace organization
