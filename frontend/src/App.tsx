@@ -285,6 +285,15 @@ function App() {
                         </Suspense>
                     }
                 />
+                {/* Dev-only: the merge UI rendered from a fixture, no agent needed. */}
+                <Route
+                    path="/merge-preview"
+                    element={
+                        <Suspense fallback={<RouteFallback />}>
+                            <MergePage />
+                        </Suspense>
+                    }
+                />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
         </BrowserRouter>
