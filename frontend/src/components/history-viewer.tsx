@@ -271,6 +271,46 @@ function ElementRow({
     );
 }
 
+interface ElementCategoryRow {
+    key: string;
+    label: string;
+    kind: ElementChangeKind;
+    onClick: () => void;
+}
+
+const ELEMENT_CATEGORY_LIMIT = 5;
+
+/**
+ * One titled group of changed elements (Components, Nets, ...). Shows at most
+ * ELEMENT_CATEGORY_LIMIT rows, with a "Show all" toggle when there are more, so
+ * a file that touches dozens of parts stays scannable until you ask for the rest.
+ */
+function ElementCategory({ title, rows }: { title: string; rows: ElementCategoryRow[] }) {
+    const [showAll, setShowAll] = useState(false);
+    if (rows.length === 0) return null;
+
+    const visible = showAll ? rows : rows.slice(0, ELEMENT_CATEGORY_LIMIT);
+    const hidden = rows.length - visible.length;
+
+    return (
+        <div className="space-y-0.5">
+            <p className="px-1 text-[9px] uppercase tracking-wide text-muted-foreground">{title}</p>
+            {visible.map((row) => (
+                <ElementRow key={row.key} label={row.label} kind={row.kind} onClick={row.onClick} />
+            ))}
+            {(hidden > 0 || showAll) && rows.length > ELEMENT_CATEGORY_LIMIT && (
+                <button
+                    type="button"
+                    className="px-1 py-0.5 text-[10px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                    onClick={() => setShowAll((current) => !current)}
+                >
+                    {showAll ? "Show less" : `Show all ${rows.length}`}
+                </button>
+            )}
+        </div>
+    );
+}
+
 /**
  * Collapsible components/nets/zones/tracks lists for one changed file.
  * Collapsed by default so a file touching many parts stays scannable; the
@@ -307,58 +347,42 @@ function FileElementList({
             </button>
             {open && (
                 <div className="space-y-1.5 pb-1 pt-0.5">
-                    {file.components && file.components.length > 0 && (
-                        <div className="space-y-0.5">
-                            <p className="px-1 text-[9px] uppercase tracking-wide text-muted-foreground">Components</p>
-                            {file.components.map((component) => (
-                                <ElementRow
-                                    key={`cmp-${component.reference}`}
-                                    label={component.reference}
-                                    kind={component.kind}
-                                    onClick={() => onFocus({ kind: "component", reference: component.reference })}
-                                />
-                            ))}
-                        </div>
-                    )}
-                    {file.nets && file.nets.length > 0 && (
-                        <div className="space-y-0.5">
-                            <p className="px-1 text-[9px] uppercase tracking-wide text-muted-foreground">Nets</p>
-                            {file.nets.map((net) => (
-                                <ElementRow
-                                    key={`net-${net.netName}`}
-                                    label={net.netName}
-                                    kind={net.kind}
-                                    onClick={() => onFocus({ kind: "net", netName: net.netName })}
-                                />
-                            ))}
-                        </div>
-                    )}
-                    {file.zones && file.zones.length > 0 && (
-                        <div className="space-y-0.5">
-                            <p className="px-1 text-[9px] uppercase tracking-wide text-muted-foreground">Zones</p>
-                            {file.zones.map((zone) => (
-                                <ElementRow
-                                    key={`zone-${zone.netName}-${zone.layer}`}
-                                    label={`${zone.netName} · ${zone.layer}`}
-                                    kind={zone.kind}
-                                    onClick={() => onFocus({ kind: "net", netName: zone.netName })}
-                                />
-                            ))}
-                        </div>
-                    )}
-                    {file.tracks && file.tracks.length > 0 && (
-                        <div className="space-y-0.5">
-                            <p className="px-1 text-[9px] uppercase tracking-wide text-muted-foreground">Tracks</p>
-                            {file.tracks.map((track) => (
-                                <ElementRow
-                                    key={`track-${track.netName}`}
-                                    label={track.netName}
-                                    kind={track.kind}
-                                    onClick={() => onFocus({ kind: "net", netName: track.netName })}
-                                />
-                            ))}
-                        </div>
-                    )}
+                    <ElementCategory
+                        title="Components"
+                        rows={(file.components ?? []).map((c) => ({
+                            key: `cmp-${c.reference}`,
+                            label: c.reference,
+                            kind: c.kind,
+                            onClick: () => onFocus({ kind: "component", reference: c.reference }),
+                        }))}
+                    />
+                    <ElementCategory
+                        title="Nets"
+                        rows={(file.nets ?? []).map((n) => ({
+                            key: `net-${n.netName}`,
+                            label: n.netName,
+                            kind: n.kind,
+                            onClick: () => onFocus({ kind: "net", netName: n.netName }),
+                        }))}
+                    />
+                    <ElementCategory
+                        title="Zones"
+                        rows={(file.zones ?? []).map((z) => ({
+                            key: `zone-${z.netName}-${z.layer}`,
+                            label: `${z.netName} · ${z.layer}`,
+                            kind: z.kind,
+                            onClick: () => onFocus({ kind: "net", netName: z.netName }),
+                        }))}
+                    />
+                    <ElementCategory
+                        title="Tracks"
+                        rows={(file.tracks ?? []).map((t) => ({
+                            key: `track-${t.netName}`,
+                            label: t.netName,
+                            kind: t.kind,
+                            onClick: () => onFocus({ kind: "net", netName: t.netName }),
+                        }))}
+                    />
                 </div>
             )}
         </div>
