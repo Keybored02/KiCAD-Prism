@@ -36,22 +36,30 @@ import {
 type Resolutions = Record<string, string>;
 
 /** What each classification means to someone who did not write the diff engine. */
-const CLASSIFICATION_LABEL: Record<string, string> = {
-    only_ours: "Only you changed this",
-    only_theirs: "Only they changed this",
-    both_same: "You both made the same change",
-    both_fields: "You changed different things",
-    conflict: "You both changed the same thing",
-    key_collision: "Two different things in the same place",
-    undescribable: "Changed in a way Prism can't show",
-};
-
 const RESOLUTION_LABEL: Record<string, string> = {
     ours: "Keep mine",
     theirs: "Take theirs",
     both: "Keep both",
     remove: "Remove",
+    drop: "Drop",
 };
+
+/** The order to show a decision's resolution buttons in.
+ *
+ * For a one-sided change (only one branch touched the item) the honest default
+ * is to keep the change, so the keep/take action reads more naturally on the
+ * right as the affirmative choice and Drop sits first as the exception. */
+function orderResolutions(decision: MergeDecision): string[] {
+    const oneSided =
+        decision.classification === "only_ours"
+        || decision.classification === "only_theirs";
+    if (!oneSided) return decision.resolutions;
+    return [...decision.resolutions].sort((a, b) => {
+        if (a === "drop") return -1;
+        if (b === "drop") return 1;
+        return 0;
+    });
+}
 
 export default function MergePage() {
     const [session, setSession] = useState<MergeSession | null>(null);
@@ -83,6 +91,32 @@ export default function MergePage() {
     // re-run would fail even though nothing is wrong.
     useEffect(() => {
         let cancelled = false;
+
+        // Preview mode: render the whole UI from a fixture, no agent, no session.
+        // This is how the merge page is worked on without KiCad running a merge;
+        // reachable at /merge-preview or /merge?preview=1. See lib/merge-fixture.
+        const isPreview =
+            window.location.pathname === "/merge-preview"
+            || new URLSearchParams(window.location.search).get("preview") === "1";
+        if (isPreview) {
+            void (async () => {
+                const { FIXTURE_PLAN, FIXTURE_SESSION, FIXTURE_TEXT_CONFLICTS } =
+                    await import("@/lib/merge-fixture");
+                if (cancelled) return;
+                setSession(FIXTURE_SESSION);
+                setPlan(FIXTURE_PLAN);
+                setTextConflicts(FIXTURE_TEXT_CONFLICTS);
+                const initial: Resolutions = {};
+                for (const file of FIXTURE_PLAN.files) {
+                    for (const dec of file.decisions) {
+                        initial[`${file.path}::${dec.key}`] = dec.default;
+                    }
+                }
+                setResolutions(initial);
+                setLoading(false);
+            })();
+            return () => { cancelled = true; };
+        }
 
         (async () => {
             let params: ReturnType<typeof readSessionFromUrl>;
@@ -202,6 +236,14 @@ export default function MergePage() {
     useEffect(() => {
         if (!session || !viewed) return;
         let cancelled = false;
+
+        // Preview mode has no agent to read files from; give the panes empty
+        // content so they render their "nothing to draw" state rather than
+        // trying to reach port 0.
+        if (session.id === "preview") {
+            setSides({ base: "", ours: "", theirs: "" });
+            return () => { cancelled = true; };
+        }
 
         setSides({});
         for (const side of ["base", "ours", "theirs"] as const) {
@@ -585,7 +627,7 @@ function FileSection({
                 disabled={!file.semantic || !onSelectFile}
                 className="flex w-full items-center justify-between gap-3 border-b px-4 py-2.5 text-left disabled:cursor-default"
             >
-                <h2 className="truncate font-mono text-sm font-medium">{file.path}</h2>
+                <h2 className="truncate text-sm font-medium">{file.path}</h2>
                 <span className="shrink-0 text-xs text-muted-foreground">{file.detail}</span>
             </button>
 
@@ -787,14 +829,6 @@ function DecisionRow({
             >
                 <p className="flex items-center gap-1.5 truncate text-sm">
                     {name}
-                    {decision.inferred_identity && (
-                        <span
-                            className="shrink-0 rounded border border-sky-500/40 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-sky-500"
-                            title="Prism matched these by similarity, not by id. Check it."
-                        >
-                            matched
-                        </span>
-                    )}
                     {followedFrom && group?.follows_reference && (
                         <span
                             className="shrink-0 rounded border border-emerald-500/40 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-emerald-500"
@@ -804,14 +838,11 @@ function DecisionRow({
                         </span>
                     )}
                 </p>
-                <p className="truncate text-xs text-muted-foreground">
-                    {decision.detail || CLASSIFICATION_LABEL[decision.classification] || ""}
-                </p>
             </button>
 
             {decision.resolutions.length > 1 ? (
                 <div className="flex shrink-0 gap-1">
-                    {decision.resolutions.map(option => (
+                    {orderResolutions(decision).map(option => (
                         <Button
                             key={option}
                             size="sm"
