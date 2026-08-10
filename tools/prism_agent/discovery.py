@@ -26,28 +26,36 @@ APP_NAME = "kicad-prism"
 ENDPOINT_FILE = "agent.json"
 
 # Namespace everything the agent owns, discovery file, settings, single-instance
-# guard. Set PRISM_PROFILE to run a second, isolated agent.
+# guard, per run profile. This exists for a specific and otherwise painful
+# problem: a developer needs BOTH a symlinked working copy (to iterate) and a
+# real installed package (to verify what users get), but they'd share one
+# discovery file and one settings file, so the single-instance guard makes the
+# second agent refuse to start, and whichever one IS running silently serves
+# both plugins. You then edit agent code, restart, and see nothing change,
+# because you're still talking to the installed binary.
 #
-# This exists for a specific and otherwise painful problem: a developer needs BOTH a
-# symlinked working copy (to iterate) and a real installed package (to verify what
-# users get), but they'd share one discovery file and one settings file, so the
-# single-instance guard makes the second agent refuse to start, and whichever one IS
-# running silently serves both plugins. You then edit agent code, restart, and see
-# nothing change, because you're still talking to the installed binary.
-#
-#     PRISM_PROFILE=dev python -m prism_agent
-PROFILE = os.environ.get("PRISM_PROFILE", "").strip()
+# The profile registry (profiles.py) is the source of truth for names, ports,
+# and config suffixes; select one with --profile or PRISM_PROFILE. The suffix is
+# what keeps the config dirs apart (release is unsuffixed, preserving the
+# historical path so an existing install keeps its settings).
+from .profiles import resolve as _resolve_profile
+
+# The active profile's name, resolved once at import (env/detection are stable
+# for the process). Kept as a module constant for callers that logged or keyed
+# on the old PROFILE string.
+PROFILE = _resolve_profile().name
 
 
 def config_dir() -> Path:
-    """Per-user config dir, following each OS's convention."""
+    """Per-user config dir, following each OS's convention, per profile."""
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming")
     elif sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
     else:
         base = os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
-    name = f"{APP_NAME}-{PROFILE}" if PROFILE else APP_NAME
+    suffix = _resolve_profile().config_suffix
+    name = f"{APP_NAME}-{suffix}" if suffix else APP_NAME
     return Path(base) / name
 
 

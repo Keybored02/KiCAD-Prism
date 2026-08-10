@@ -20,8 +20,9 @@ import shutil
 import sys
 from pathlib import Path
 
-PLUGIN_DIRNAME = "kicad_plugin"
-INSTALL_NAME = "prism"  # what it's called inside KiCad's plugin dir
+from prism_agent.profiles import PROFILES, resolve
+
+PLUGIN_DIRNAME = "kicad_plugin"  # the single source folder in the repo
 
 
 def _installed_kicad_versions() -> set[str]:
@@ -73,11 +74,11 @@ def kicad_plugin_dirs() -> list[Path]:
     return [c[2] for c in candidates]
 
 
-def install(source: Path, target_dir: Path, force_copy: bool) -> None:
-    target = target_dir / INSTALL_NAME
+def install(source: Path, target_dir: Path, install_name: str, force_copy: bool) -> None:
+    target = target_dir / install_name
 
     if target.is_symlink() or target.exists():
-        uninstall(target_dir)
+        uninstall(target_dir, install_name)
 
     if not force_copy:
         try:
@@ -95,14 +96,14 @@ def install(source: Path, target_dir: Path, force_copy: bool) -> None:
     print("NOTE: this is a COPY. Re-run this script after every change to the plugin.")
 
 
-def uninstall(target_dir: Path) -> None:
+def uninstall(target_dir: Path, install_name: str) -> None:
     if not target_dir.is_dir():
         # Say so. An uninstaller that silently does nothing when handed a bad path
         # is worse than one that fails: you walk away believing it worked.
         print(f"Not a directory: {target_dir}", file=sys.stderr)
         return
 
-    target = target_dir / INSTALL_NAME
+    target = target_dir / install_name
     if target.is_symlink():
         target.unlink()
         print(f"Removed link {target}")
@@ -118,7 +119,19 @@ def main() -> int:
     ap.add_argument("--uninstall", action="store_true")
     ap.add_argument("--copy", action="store_true", help="copy instead of symlinking")
     ap.add_argument("--dir", help="KiCad plugin dir (default: autodetect)")
+    ap.add_argument(
+        "--profile",
+        metavar="NAME",
+        choices=sorted(PROFILES),
+        help=(
+            "install under this profile's name so dev and release coexist as "
+            "separate KiCad plugins, one of: " + ", ".join(sorted(PROFILES))
+            + ". Defaults to auto-detection (a source checkout is 'dev')."
+        ),
+    )
     args = ap.parse_args()
+
+    install_name = resolve(args.profile).install_name
 
     source = (Path(__file__).parent / PLUGIN_DIRNAME).resolve()
     if not source.is_dir():
@@ -141,9 +154,9 @@ def main() -> int:
 
     for target_dir in targets:
         if args.uninstall:
-            uninstall(target_dir)
+            uninstall(target_dir, install_name)
         else:
-            install(source, target_dir, force_copy=args.copy)
+            install(source, target_dir, install_name, force_copy=args.copy)
     return 0
 
 

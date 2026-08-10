@@ -955,11 +955,29 @@ def _clean_roots(raw) -> list[str]:
 
 
 def make_server(prism: PrismClient) -> tuple[ThreadingHTTPServer, AgentState]:
-    """Bind 127.0.0.1 on an ephemeral port. Caller runs serve_forever()."""
+    """Bind 127.0.0.1 on the active profile's port, or an ephemeral one.
+
+    The profile's preferred port makes the agent land somewhere predictable, so
+    a developer running dev and release side by side knows which is which. It is
+    only a preference: if that port is taken (a stale agent, or a second instance
+    of the same profile) the OS picks a free one instead and we log it, rather
+    than refusing to start. Discovery publishes whichever port we actually got,
+    so the plugin connects either way.
+    """
+    from .profiles import resolve
+
     state = AgentState(prism)
     handler = type("Handler", (_Handler,), {"state": state})
-    # Port 0 = let the OS pick a free one; we publish it via discovery.
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    preferred = resolve().preferred_port
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", preferred), handler)
+    except OSError:
+        # Port 0 = let the OS pick a free one; we publish it via discovery.
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        log.warning(
+            "Preferred port %d is in use; bound an ephemeral port instead.",
+            preferred,
+        )
     # Hang the state off the server too, so callers holding only the server (the
     # tray menu) can reach request_stop/request_restart without extra plumbing.
     server.state = state
