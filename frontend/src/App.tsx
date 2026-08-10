@@ -27,6 +27,7 @@ const Workspace = lazy(() =>
 const ProjectDetailPage = lazy(() =>
     import('./pages/ProjectDetailPage').then((module) => ({ default: module.ProjectDetailPage }))
 );
+const MergePage = lazy(() => import('./pages/MergePage'));
 
 function RouteFallback() {
     return (
@@ -322,6 +323,14 @@ function App() {
                     element={
                         <Suspense fallback={<RouteFallback />}>
                             <ProjectDetailPage user={user} />
+                        </Suspense>
+                    }
+                />
+                <Route
+                    path="/merge"
+                    element={
+                        <Suspense fallback={<RouteFallback />}>
+                            <MergePage />
                         </Suspense>
                     }
                 />
