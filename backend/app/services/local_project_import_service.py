@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import stat
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -39,6 +40,23 @@ logger = logging.getLogger(__name__)
 # keeps the import reproducible and makes it obvious in the log that Prism, not
 # the user, created this commit.
 _INIT_ACTOR = Actor("Prism", "prism@localhost")
+
+
+def _force_rmtree(path: Path) -> None:
+    """Remove a tree that may contain a git dir.
+
+    git marks pack files read-only, and on Windows shutil.rmtree cannot delete a
+    read-only file; the handler clears the bit and retries so a .git directory
+    comes away cleanly instead of leaving a half-deleted orphan.
+    """
+    def _on_error(func, target, _exc):
+        try:
+            os.chmod(target, stat.S_IWRITE)
+            func(target)
+        except OSError:
+            pass
+
+    shutil.rmtree(path, onerror=_on_error)
 
 
 def _staging_root() -> Path:
@@ -152,7 +170,11 @@ def _initialise_repo(path: Path) -> None:
 
 
 def cleanup_session(session_id: str) -> None:
-    shutil.rmtree(_session_dir(session_id), ignore_errors=True)
+    # The staging tree can hold an uploaded .git, so use the read-only-aware
+    # remover rather than plain rmtree.
+    session = _session_dir(session_id)
+    if session.exists():
+        _force_rmtree(session)
 
 
 def import_session(
@@ -220,9 +242,28 @@ def _clone_and_register(
     # Clone from the local staging path. git handles a filesystem source, so the
     # workspace copy is a normal clone with its own history, exactly like a
     # remote import; the local folder's own git origin (if any) is preserved.
-    Repo.clone_from(str(content), str(target_path))
-
-    imported_ids = _register(target_path, repo_name, import_type, discovered)
+    #
+    # Clone and register are one unit: a failure after the clone must not leave an
+    # orphaned directory behind, or the next attempt fails with "already exists"
+    # about a repo the database never knew. On any error, remove the clone (and
+    # unwind any rows registered so far) before re-raising.
+    cloned = Repo.clone_from(str(content), str(target_path))
+    # Release the clone's git handles up front: GitPython holds them open, and on
+    # Windows that keeps .git locked so a rollback rmtree would silently fail.
+    cloned.close()
+    repo_id = ""
+    try:
+        repo_id, imported_ids = _register(target_path, repo_name, import_type, discovered)
+    except Exception:
+        # delete_repository cascades to its projects, so it unwinds whatever
+        # _register managed to write before it failed.
+        if repo_id:
+            try:
+                workspace.delete_repository(repo_id)
+            except Exception:
+                logger.warning("Could not unwind repository %s after a failed import", repo_id)
+        _force_rmtree(target_path)
+        raise
 
     cleanup_session(session_id)
     return {
@@ -238,7 +279,12 @@ def _register(
     repo_name: str,
     import_type: str,
     discovered: list,
-) -> list[str]:
+) -> tuple[str, list[str]]:
+    """Register the repo and its projects; returns (repo_id, project_ids).
+
+    Returning the repo_id lets the caller unwind a partial registration by
+    deleting the repository (which cascades to any projects already written).
+    """
     repo_id = workspace.register_repository(
         name=repo_name,
         url=str(target_path),
@@ -275,7 +321,7 @@ def _register(
                     **cached,
                 )
             )
-    return imported_ids
+    return repo_id, imported_ids
 
 
 def _folder_name(content: Path) -> str:

@@ -256,7 +256,7 @@ export function ImportDialog({
     onImportComplete();
   };
 
-  const handleLocalFolderPicked = async (files: FileList) => {
+  const handleLocalFolderPicked = async (files: File[]) => {
     if (files.length === 0) return;
     // webkitRelativePath is "<folder>/sub/file"; the first segment is the folder.
     const first = files[0] as File & { webkitRelativePath?: string };
@@ -703,9 +703,14 @@ export function ImportDialog({
                     directory=""
                     multiple
                     onChange={(e) => {
-                      const files = e.currentTarget.files;
+                      // Copy the FileList into a stable array before resetting the
+                      // input: clearing value can empty the live FileList in some
+                      // browsers, and it's what lets the same folder be re-picked.
+                      const picked = e.currentTarget.files
+                        ? Array.from(e.currentTarget.files)
+                        : [];
                       e.currentTarget.value = "";
-                      if (files && files.length > 0) void handleLocalFolderPicked(files);
+                      if (picked.length > 0) void handleLocalFolderPicked(picked);
                     }}
                   />
                   <button
