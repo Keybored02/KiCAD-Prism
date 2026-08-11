@@ -137,6 +137,32 @@ def _is_git_repo(path: Path) -> bool:
         return False
 
 
+def _origin_url(repo: Repo) -> str:
+    """The repo's ``origin`` remote URL, or "" if it has none."""
+    try:
+        return next(iter(repo.remote("origin").urls), "")
+    except Exception:
+        return ""
+
+
+def _set_origin(repo: Repo, url: str) -> None:
+    """Make ``origin`` be ``url``, or remove it when ``url`` is empty.
+
+    A clone from a local path points origin at that path; this replaces it with
+    the folder's true remote, or drops it, so the workspace repo matches what a
+    remote import would have (a real origin) or an honestly local one (none).
+    """
+    try:
+        if repo.remotes:
+            for remote in list(repo.remotes):
+                if remote.name == "origin":
+                    repo.delete_remote(remote)
+        if url:
+            repo.create_remote("origin", url)
+    except Exception as error:
+        logger.warning("Could not set origin on the imported repo: %s", error)
+
+
 def inspect_session(session_id: str) -> dict[str, Any]:
     """Report whether the staged folder is a git repo, without changing it."""
     session = _session_dir(session_id)
@@ -220,6 +246,10 @@ def _clone_and_register(
     # nothing to import, and saying so before writing anything is kinder than
     # registering an empty repository.
     staged_repo = Repo(str(content))
+    # The folder's own origin, if it had one, is the true provenance. A clone from
+    # a local path would otherwise point origin at the staging dir we are about to
+    # delete, leaving a dead remote; capture the real one to restore below.
+    source_origin = _origin_url(staged_repo)
     discovered = project_import_service.discover_projects_from_repo(staged_repo)
     if not discovered:
         raise ValueError(
@@ -241,19 +271,27 @@ def _clone_and_register(
 
     # Clone from the local staging path. git handles a filesystem source, so the
     # workspace copy is a normal clone with its own history, exactly like a
-    # remote import; the local folder's own git origin (if any) is preserved.
+    # remote import.
     #
     # Clone and register are one unit: a failure after the clone must not leave an
     # orphaned directory behind, or the next attempt fails with "already exists"
     # about a repo the database never knew. On any error, remove the clone (and
     # unwind any rows registered so far) before re-raising.
     cloned = Repo.clone_from(str(content), str(target_path))
+    # A clone from a local path sets origin to that path, which we are about to
+    # delete. Converge with a remote import instead: point origin at the folder's
+    # real remote when it had one, or drop origin entirely when it did not, so the
+    # workspace repo never carries a dead remote. This is the ONLY thing that
+    # differs by provenance; everything else about the repo is identical.
+    _set_origin(cloned, source_origin)
     # Release the clone's git handles up front: GitPython holds them open, and on
     # Windows that keeps .git locked so a rollback rmtree would silently fail.
     cloned.close()
     repo_id = ""
     try:
-        repo_id, imported_ids = _register(target_path, repo_name, import_type, discovered)
+        repo_id, imported_ids = _register(
+            target_path, repo_name, import_type, discovered, origin_url=source_origin
+        )
     except Exception:
         # delete_repository cascades to its projects, so it unwinds whatever
         # _register managed to write before it failed.
@@ -279,15 +317,20 @@ def _register(
     repo_name: str,
     import_type: str,
     discovered: list,
+    *,
+    origin_url: str = "",
 ) -> tuple[str, list[str]]:
     """Register the repo and its projects; returns (repo_id, project_ids).
 
     Returning the repo_id lets the caller unwind a partial registration by
     deleting the repository (which cascades to any projects already written).
+    ``origin_url`` is the folder's real remote, stored as the repo url so a local
+    import with a remote records the same provenance a remote import would; a
+    folder with no remote records an empty url.
     """
     repo_id = workspace.register_repository(
         name=repo_name,
-        url=str(target_path),
+        url=origin_url,
         clone_path_abs=str(target_path),
         import_type="single" if import_type == "type1" else "multi",
     )
