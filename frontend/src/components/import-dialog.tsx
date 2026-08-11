@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Check, AlertCircle } from "lucide-react";
+import { Loader2, Check, AlertCircle, FolderOpen } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { isDialogSubmitShortcut } from "@/lib/dialog-shortcuts";
 
 interface DiscoveredProject {
@@ -109,10 +110,14 @@ interface ImportDialogProps {
 
 type ImportState =
   | { step: "input" }
-  | { step: "input" }
   | { step: "analyzing"; url: string; jobId?: string; status?: JobStatus }
   | { step: "review"; url: string; analysis: AnalysisResult }
   | { step: "importing"; url: string; jobId: string; status: JobStatus }
+  // Local folder import: uploading the picked folder, then deciding what to do
+  // with it. "confirm-init" is shown only when the folder is not a git repo.
+  | { step: "local-uploading"; folderName: string; done: number; total: number }
+  | { step: "local-importing"; folderName: string }
+  | { step: "local-confirm-init"; folderName: string; sessionId: string }
   | {
       step: "complete";
       success: boolean;
@@ -124,13 +129,17 @@ type ImportState =
       retryUrl?: string;
     };
 
+type SourceMode = "remote" | "local";
+
 export function ImportDialog({
   open,
   onOpenChange,
   onImportComplete,
 }: ImportDialogProps) {
   const [state, setState] = useState<ImportState>({ step: "input" });
+  const [sourceMode, setSourceMode] = useState<SourceMode>("remote");
   const [url, setUrl] = useState("");
+  const localInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   // Empty means "whatever the remote's HEAD points at".
   const [ref, setRef] = useState("");
@@ -169,6 +178,7 @@ export function ImportDialog({
   const reset = () => {
     stopPolling();
     setState({ step: "input" });
+    setSourceMode("remote");
     setUrl("");
     setSelectedPaths(new Set());
     setRef("");
@@ -212,6 +222,79 @@ export function ImportDialog({
         success: false,
         message: error.message || "Failed to start analysis",
       });
+    }
+  };
+
+  // --- Local folder import ---
+  //
+  // The browser can't hand the backend a path, so the picked folder is uploaded
+  // file by file into a staging session (webkitdirectory, the same pattern the
+  // library import uses), then the backend detects git / clones / init s it.
+
+  const runLocalImport = async (sessionId: string, folderName: string, confirmInit: boolean) => {
+    const res = await fetch("/api/projects/local-import/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, confirm_init: confirmInit }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.detail || "Import failed");
+    }
+    const result = await res.json();
+    if (result.status === "needs_init") {
+      // Not a git repo: ask before creating one, since git init writes to disk.
+      setState({ step: "local-confirm-init", folderName, sessionId });
+      return;
+    }
+    const count = (result.project_ids || []).length;
+    setState({
+      step: "complete",
+      success: true,
+      message: `Imported ${count} project${count === 1 ? "" : "s"} from ${folderName}.`,
+    });
+    onImportComplete();
+  };
+
+  const handleLocalFolderPicked = async (files: FileList) => {
+    if (files.length === 0) return;
+    // webkitRelativePath is "<folder>/sub/file"; the first segment is the folder.
+    const first = files[0] as File & { webkitRelativePath?: string };
+    const folderName = (first.webkitRelativePath || first.name).split("/")[0] || "folder";
+
+    stopPolling();
+    setState({ step: "local-uploading", folderName, done: 0, total: files.length });
+
+    let sessionId = "";
+    try {
+      const sessionRes = await fetch("/api/projects/local-import/session", { method: "POST" });
+      if (!sessionRes.ok) throw new Error("Couldn't start the local import");
+      sessionId = (await sessionRes.json()).session_id;
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i] as File & { webkitRelativePath?: string };
+        const relative = file.webkitRelativePath || file.name;
+        const form = new FormData();
+        form.append("relative_path", relative);
+        form.append("file", file);
+        const up = await fetch(`/api/projects/local-import/session/${sessionId}/files`, {
+          method: "POST",
+          body: form,
+        });
+        if (!up.ok) {
+          const error = await up.json().catch(() => ({}));
+          throw new Error(error.detail || `Failed to upload ${relative}`);
+        }
+        setState({ step: "local-uploading", folderName, done: i + 1, total: files.length });
+      }
+
+      setState({ step: "local-importing", folderName });
+      await runLocalImport(sessionId, folderName, false);
+    } catch (error: any) {
+      if (sessionId) {
+        void fetch(`/api/projects/local-import/session/${sessionId}`, { method: "DELETE" });
+      }
+      setState({ step: "complete", success: false, message: error.message || "Local import failed" });
     }
   };
 
@@ -545,35 +628,163 @@ export function ImportDialog({
             <DialogHeader>
               <DialogTitle>Import Project</DialogTitle>
               <DialogDescription>
-                Enter the URL of a Git repository containing KiCad projects. GitHub, GitLab and self-hosted remotes are all supported.
+                {sourceMode === "remote"
+                  ? "Enter the URL of a Git repository containing KiCad projects. GitHub, GitLab and self-hosted remotes are all supported."
+                  : "Pick a folder on this machine. Prism imports its git history if it is a repository, or offers to start one if it is not."}
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="url" className="text-right">
-                  Repository
-                </Label>
-                <Input
-                  id="url"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://github.com/org/repo.git or git@host:org/repo.git"
-                  className="col-span-3"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && url.trim()) {
-                      e.preventDefault();
-                      void analyzeRepo();
-                    }
-                  }}
-                />
-              </div>
+
+            {/* Source toggle: a remote git URL, or a local folder on disk. */}
+            <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+              <button
+                type="button"
+                onClick={() => setSourceMode("remote")}
+                className={cn(
+                  "rounded px-3 py-1.5 text-sm font-medium transition-colors",
+                  sourceMode === "remote" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Remote URL
+              </button>
+              <button
+                type="button"
+                onClick={() => setSourceMode("local")}
+                className={cn(
+                  "rounded px-3 py-1.5 text-sm font-medium transition-colors",
+                  sourceMode === "local" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Local folder
+              </button>
             </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={handleClose}>
+
+            {sourceMode === "remote" ? (
+              <>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="url" className="text-right">
+                      Repository
+                    </Label>
+                    <Input
+                      id="url"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      placeholder="https://github.com/org/repo.git or git@host:org/repo.git"
+                      className="col-span-3"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && url.trim()) {
+                          e.preventDefault();
+                          void analyzeRepo();
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={handleClose}>
+                    Cancel
+                  </Button>
+                  <Button onClick={() => void analyzeRepo()} disabled={!url.trim()}>
+                    Analyze
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="py-4">
+                  {/* webkitdirectory opens the native folder picker; its files
+                      (including any .git) are uploaded to the backend. */}
+                  <input
+                    ref={localInputRef}
+                    type="file"
+                    className="hidden"
+                    // @ts-expect-error non-standard but widely supported directory picker attrs
+                    webkitdirectory=""
+                    directory=""
+                    multiple
+                    onChange={(e) => {
+                      const files = e.currentTarget.files;
+                      e.currentTarget.value = "";
+                      if (files && files.length > 0) void handleLocalFolderPicked(files);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => localInputRef.current?.click()}
+                    className="flex w-full flex-col items-center gap-2 rounded-md border border-dashed p-6 text-sm text-muted-foreground hover:border-primary/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <FolderOpen className="h-6 w-6" />
+                    Choose a project folder
+                  </button>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={handleClose}>
+                    Cancel
+                  </Button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {state.step === "local-uploading" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Uploading folder</DialogTitle>
+              <DialogDescription>
+                Copying {state.folderName} to Prism ({state.done} of {state.total} files).
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex items-center gap-3 py-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Uploading…
+            </div>
+          </>
+        )}
+
+        {state.step === "local-importing" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Importing {state.folderName}</DialogTitle>
+              <DialogDescription>Reading the folder and registering its KiCad projects.</DialogDescription>
+            </DialogHeader>
+            <div className="flex items-center gap-3 py-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Importing…
+            </div>
+          </>
+        )}
+
+        {state.step === "local-confirm-init" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Not a git repository</DialogTitle>
+              <DialogDescription>
+                {state.folderName} is not version controlled. Prism can start a git
+                repository for it with an initial commit, then import it. The original
+                folder on your disk is not changed.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  void fetch(`/api/projects/local-import/session/${state.sessionId}`, { method: "DELETE" });
+                  setState({ step: "input" });
+                }}
+              >
                 Cancel
               </Button>
-              <Button onClick={() => void analyzeRepo()} disabled={!url.trim()}>
-                Analyze
+              <Button
+                onClick={() => {
+                  const { folderName, sessionId } = state;
+                  setState({ step: "local-importing", folderName });
+                  void runLocalImport(sessionId, folderName, true).catch((error: any) =>
+                    setState({ step: "complete", success: false, message: error.message || "Import failed" }),
+                  );
+                }}
+              >
+                Start a repository and import
               </Button>
             </div>
           </>
