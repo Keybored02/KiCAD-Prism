@@ -111,7 +111,11 @@ interface ImportDialogProps {
 type ImportState =
   | { step: "input" }
   | { step: "analyzing"; url: string; jobId?: string; status?: JobStatus }
-  | { step: "review"; url: string; analysis: AnalysisResult }
+  // `sessionId` is set for a local-folder review: the same selection UI, but
+  // confirming imports the staged session rather than cloning a remote url.
+  // `willInitRepo` is true when the folder is not a git repo, so the review can
+  // tell the user that confirming will create one.
+  | { step: "review"; url: string; analysis: AnalysisResult; sessionId?: string; willInitRepo?: boolean }
   | { step: "importing"; url: string; jobId: string; status: JobStatus }
   // Local folder import: uploading the picked folder, then deciding what to do
   // with it. "confirm-init" is shown only when the folder is not a git repo.
@@ -231,11 +235,20 @@ export function ImportDialog({
   // file by file into a staging session (webkitdirectory, the same pattern the
   // library import uses), then the backend detects git / clones / init s it.
 
-  const runLocalImport = async (sessionId: string, folderName: string, confirmInit: boolean) => {
+  const runLocalImport = async (
+    sessionId: string,
+    folderName: string,
+    confirmInit: boolean,
+    selectedPathsList?: string[],
+  ) => {
     const res = await fetch("/api/projects/local-import/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, confirm_init: confirmInit }),
+      body: JSON.stringify({
+        session_id: sessionId,
+        confirm_init: confirmInit,
+        selected_paths: selectedPathsList,
+      }),
     });
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
@@ -288,8 +301,27 @@ export function ImportDialog({
         setState({ step: "local-uploading", folderName, done: i + 1, total: files.length });
       }
 
-      setState({ step: "local-importing", folderName });
-      await runLocalImport(sessionId, folderName, false);
+      // Analyse the staged folder and show the SAME review a remote import does:
+      // the projects it holds, to pick from. inspect_session discovers them (and
+      // inits a non-git folder's scratch copy so discovery can run).
+      const inspectRes = await fetch(`/api/projects/local-import/session/${sessionId}`);
+      if (!inspectRes.ok) throw new Error("Couldn't read the folder's projects");
+      const inspection = await inspectRes.json();
+      const analysis: AnalysisResult = {
+        repo_name: inspection.repo_name || folderName,
+        repo_url: "",
+        import_type: inspection.import_type,
+        projects: inspection.projects || [],
+        empty_reason: inspection.empty_reason || undefined,
+      };
+      // Type-1 is one project; preselect it. Type-2 starts empty so the user
+      // picks the boards they want, exactly like a remote import.
+      if (analysis.import_type === "type1" && analysis.projects.length === 1) {
+        setSelectedPaths(new Set([analysis.projects[0].relative_path]));
+      } else {
+        setSelectedPaths(new Set());
+      }
+      setState({ step: "review", url: "", analysis, sessionId, willInitRepo: !inspection.was_git });
     } catch (error: any) {
       if (sessionId) {
         void fetch(`/api/projects/local-import/session/${sessionId}`, { method: "DELETE" });
@@ -385,11 +417,25 @@ export function ImportDialog({
   const startImport = async () => {
     if (state.step !== "review") return;
 
-    const { url, analysis } = state;
+    const { url, analysis, sessionId } = state;
     const pathsToImport =
       analysis.import_type === "type1"
         ? undefined
         : Array.from(selectedPaths);
+
+    // A local review carries a session id: import the staged folder rather than
+    // cloning a remote url, but with the same selection the user just made.
+    if (sessionId) {
+      const folderName = analysis.repo_name;
+      setState({ step: "local-importing", folderName });
+      try {
+        await runLocalImport(sessionId, folderName, true, pathsToImport);
+      } catch (error: any) {
+        void fetch(`/api/projects/local-import/session/${sessionId}`, { method: "DELETE" });
+        setState({ step: "complete", success: false, message: error.message || "Local import failed" });
+      }
+      return;
+    }
 
     try {
       stopPolling();
@@ -846,6 +892,14 @@ export function ImportDialog({
                     : `Found ${state.analysis.projects.length} KiCad projects in ${state.analysis.repo_name}. Select which to import.`}
               </DialogDescription>
             </DialogHeader>
+
+            {/* This folder is not a git repository. Importing creates one, so
+                say so plainly: confirming below is the consent for it. */}
+            {state.willInitRepo && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                This folder isn't a git repository yet. Importing will start one for it.
+              </div>
+            )}
 
             {/* Shown even for a single branch, so the user can always see which
                 one the listed projects came from. */}

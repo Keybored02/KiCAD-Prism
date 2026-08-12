@@ -164,13 +164,55 @@ def _set_origin(repo: Repo, url: str) -> None:
 
 
 def inspect_session(session_id: str) -> dict[str, Any]:
-    """Report whether the staged folder is a git repo, without changing it."""
+    """Analyse the staged folder and return the same review a remote import does.
+
+    Discovery is git-based (it reads the tree at HEAD), so a folder that is not a
+    git repo yet is initialised *in the scratch staging copy* first, purely so the
+    one shared discovery function can run. That init is on throwaway staging, not
+    the user's original folder, and is what would happen at import anyway; doing it
+    here lets local and remote share a single discovery and review path.
+
+    Returns a payload shaped like ``project_analyze``'s result: ``projects`` (each
+    with name/relative_path/has_*), ``import_type``, ``repo_name``. ``was_git`` and
+    ``was_initialised`` tell the dialog whether it needs to confirm creating a repo.
+    """
     session = _session_dir(session_id)
     if not session.is_dir():
         raise ValueError("Unknown import session")
+    content = _content_root(session)
+
+    was_git = _is_git_repo(content)
+    if not was_git:
+        _initialise_repo(content)
+
+    staged_repo = Repo(str(content))
+    try:
+        discovered = project_import_service.discover_projects_from_repo(staged_repo)
+        import_type = project_import_service.classify_import_type(discovered) if discovered else "type1"
+    finally:
+        staged_repo.close()
+
     return {
         "session_id": session_id,
-        "is_git_repo": _is_git_repo(_content_root(session)),
+        "was_git": was_git,
+        "was_initialised": not was_git,
+        "repo_name": _folder_name(content),
+        "import_type": import_type,
+        "projects": [
+            {
+                "name": project.name,
+                "relative_path": project.relative_path,
+                "has_schematic": project.has_schematic,
+                "has_pcb": project.has_pcb,
+                "has_project_file": project.has_project_file,
+            }
+            for project in discovered
+        ],
+        "empty_reason": (
+            "No KiCad design files were found in this folder. Prism looks for "
+            "directories containing a .kicad_pro, .kicad_pcb or .kicad_sch file."
+            if not discovered else None
+        ),
     }
 
 
@@ -206,26 +248,35 @@ def cleanup_session(session_id: str) -> None:
 def import_session(
     session_id: str,
     *,
+    selected_paths: Optional[list[str]] = None,
     confirm_init: bool = False,
     requested_by: str = "local-import",
 ) -> dict[str, Any]:
-    """Clone (or init then clone) the staged folder into the workspace.
+    """Clone the staged folder into the workspace and register the chosen projects.
 
-    Returns either an ``imported`` payload with the project ids, or a
-    ``needs_init`` payload when the folder is not a git repo and the caller has
-    not yet confirmed initialising one.
+    ``selected_paths`` are the project relative paths the user picked in the
+    review (as with a remote import); None or empty means every discovered
+    project. inspect_session has already initialised a non-git folder's staging
+    copy, so import just clones and registers.
     """
     session = _session_dir(session_id)
     if not session.is_dir():
         raise ValueError("Unknown import session")
     content = _content_root(session)
 
+    # A folder reaching import without git means inspect was skipped; initialise
+    # so the clone has a HEAD, matching what inspect would have done.
     if not _is_git_repo(content):
         if not confirm_init:
             return {"status": "needs_init", "session_id": session_id}
         _initialise_repo(content)
 
-    return _clone_and_register(content, requested_by=requested_by, session_id=session_id)
+    return _clone_and_register(
+        content,
+        requested_by=requested_by,
+        session_id=session_id,
+        selected_paths=selected_paths,
+    )
 
 
 def _clone_and_register(
@@ -233,12 +284,15 @@ def _clone_and_register(
     *,
     requested_by: str,
     session_id: str,
+    selected_paths: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Clone the staged repo into the workspace and register its projects.
 
     Mirrors run_project_import_job_v3's second half, but the source is a local
     path git clones directly, so there is no remote parsing or access handling.
     ``content`` is the real repo root inside the session (see _content_root).
+    ``selected_paths`` filters to the projects the user picked, like a remote
+    import; None or empty imports all.
     """
     repo_name = _folder_name(content)
 
@@ -256,7 +310,16 @@ def _clone_and_register(
             f"No KiCad projects found in '{repo_name}'. Prism looks for "
             "directories containing a .kicad_pro, .kicad_pcb or .kicad_sch file."
         )
+
+    # Keep only the projects the user selected in the review. A Type-1 repo is a
+    # single project, so selection does not apply there.
     import_type = project_import_service.classify_import_type(discovered)
+    if selected_paths and import_type != "type1":
+        wanted = set(selected_paths)
+        discovered = [p for p in discovered if p.relative_path in wanted]
+        if not discovered:
+            raise ValueError("None of the selected projects were found in the folder.")
+        import_type = project_import_service.classify_import_type(discovered)
 
     base_path = Path(project_service.PROJECTS_ROOT) / (
         "type1" if import_type == "type1" else "type2"

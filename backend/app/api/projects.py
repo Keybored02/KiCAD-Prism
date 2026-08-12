@@ -648,6 +648,7 @@ async def import_project(
 class LocalImportRequest(BaseModel):
     session_id: str
     confirm_init: bool = False
+    selected_paths: Optional[List[str]] = None
 
 
 @router.post("/local-import/session")
@@ -710,6 +711,7 @@ async def import_local_folder(
         return await asyncio.to_thread(
             local_project_import_service.import_session,
             request.session_id,
+            selected_paths=request.selected_paths,
             confirm_init=request.confirm_init,
             requested_by=user.email,
         )
