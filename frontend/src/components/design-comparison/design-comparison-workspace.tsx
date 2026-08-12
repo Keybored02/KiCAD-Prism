@@ -680,6 +680,7 @@ export function DesignComparisonWorkspace({
                     key={`${shellDomain}:${base}:${head}`}
                     projectId={projectId}
                     domain={shellDomain}
+                    isActive={isActive}
                     base={base}
                     compare={head}
                     presentationMode={presentationMode}

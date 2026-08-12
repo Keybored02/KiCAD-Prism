@@ -73,6 +73,14 @@ import { buildDiffResolutionReport } from "./diff-resolution-report";
 type ComparisonPresentationShellProps = {
     projectId: string;
     domain: ComparisonDomain;
+    /**
+     * Whether this shell's domain is the one on screen. Both shells stay
+     * mounted with the inactive one hidden (display:none), where its WebGL
+     * canvas has no size and cannot paint. Threading visibility down lets the
+     * viewer host re-activate and resize the canvas when the tab is shown, so
+     * the board repaints instead of staying grey.
+     */
+    isActive: boolean;
     base: string;
     compare: string;
     presentationMode: ComparisonPresentationMode;
@@ -227,6 +235,7 @@ function MissingRevisionPane({
 export function ComparisonPresentationShell({
     projectId,
     domain,
+    isActive,
     base,
     compare,
     presentationMode,
@@ -1229,11 +1238,15 @@ export function ComparisonPresentationShell({
         );
     }
 
+    // Gate on isActive so a hidden shell's viewers are inactive, and become
+    // active (which resizes and repaints the canvas) the moment the tab is
+    // shown. Without this the canvas stays grey after a switch.
     const primaryActive =
-        presentationMode !== "side-by-side"
-        || baseHasDocument;
+        isActive
+        && (presentationMode !== "side-by-side" || baseHasDocument);
     const secondaryActive =
-        presentationMode === "side-by-side"
+        isActive
+        && presentationMode === "side-by-side"
         && compareHasDocument;
     const primaryPane = panes[0] ?? null;
     const primaryInset =
