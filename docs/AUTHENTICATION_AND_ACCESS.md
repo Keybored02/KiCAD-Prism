@@ -39,6 +39,55 @@ Register:
 `localhost` and `127.0.0.1` are different redirect origins. Register the exact
 origin used during local testing.
 
+## Local password login
+
+For teams without an SSO provider, Prism can authenticate with an email and
+password. It coexists with OIDC: a deployment can enable either, or both.
+
+```env
+AUTH_ENABLED=true
+PASSWORD_AUTH_ENABLED=true
+PASSWORD_MIN_LENGTH=12          # default; the bcrypt limit of 72 bytes is enforced
+SESSION_REMEMBER_ME_DAYS=30    # lifetime of a "remember me" session
+SESSION_SECRET=<random-value>
+BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
+```
+
+When `AUTH_ENABLED=true`, at least one method must be configured: OIDC (all three
+of issuer, client id, secret) or `PASSWORD_AUTH_ENABLED=true`. A half-configured
+OIDC still fails closed. Password and OIDC share the same role model
+(`ALLOWED_USERS_STR`, `ALLOWED_DOMAINS_STR`, role assignments) and the same
+session machinery.
+
+Accounts are provisioned by administrators, not self-registered. In Settings →
+Access, an admin assigns a role and sets a password. Admin-set passwords must be
+changed by the user on next sign-in and are stored only as bcrypt hashes.
+Resetting or removing a role revokes the user's sessions.
+
+### First login on a password-only deployment
+
+Without OIDC there is no external identity to seed the first admin, so
+`BOOTSTRAP_ADMIN_USERS` alone grants the admin role but leaves no way to sign
+in. Set a one-time bootstrap password to break that cycle:
+
+```env
+PASSWORD_AUTH_ENABLED=true
+BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
+BOOTSTRAP_ADMIN_PASSWORD=<a strong one-time value>
+```
+
+On first startup Prism seeds this password for each bootstrap admin that has no
+credential yet, always flagged must-change. The admin signs in, is forced to set
+a real password, and then provisions everyone else. It never overwrites an
+existing password, so a restart cannot reset a changed one. Remove
+`BOOTSTRAP_ADMIN_PASSWORD` from the environment afterwards; the backend warns at
+startup while it is still set.
+
+Users can change their own password (which revokes their other sessions), and
+tick "Remember me" to extend their session to `SESSION_REMEMBER_ME_DAYS`. A
+failed sign-in returns a single generic error and is rate limited, so responses
+never reveal whether an email has an account.
+
 ## Sessions
 
 Prism stores session records in PostgreSQL and sends an opaque signed identifier
@@ -70,6 +119,28 @@ Use `BOOTSTRAP_ADMIN_USERS_STR` only to establish initial administrators. After
 first login, manage ordinary assignments in Settings. `DEFAULT_VIEWER_DOMAINS_STR`
 can grant implicit viewer access to trusted domains; leave it empty when every
 user must be explicitly approved.
+
+## Restricting who can sign in
+
+Two settings gate which addresses are allowed to authenticate at all. They apply
+to both OIDC and password login on identical terms, so setting them once covers
+every method.
+
+```env
+ALLOWED_DOMAINS_STR=example.com,example.org   # only these email domains may sign in
+ALLOWED_USERS_STR=alice@example.com           # only these exact addresses may sign in
+```
+
+Each is empty by default, meaning no restriction. When set, an address must be in
+`ALLOWED_USERS_STR` if that list is non-empty, and its domain must be in
+`ALLOWED_DOMAINS_STR` if that list is non-empty; both apply together. A login that
+fails either check is rejected before any role is considered.
+
+This is a gate, not a grant. Passing it only lets the login proceed; the account
+still needs a role (an explicit assignment, or an implicit viewer role from
+`DEFAULT_VIEWER_DOMAINS_STR`) or access is denied. To let anyone from a trusted
+domain in as a viewer automatically, use `DEFAULT_VIEWER_DOMAINS_STR`; to allow a
+domain to sign in but still require an explicit role, use `ALLOWED_DOMAINS_STR`.
 
 ## Guest mode
 
