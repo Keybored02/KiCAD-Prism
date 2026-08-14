@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,7 @@ from app.services import (
     derived_assets,
     file_service,
     git_access_service,
+    local_project_import_service,
     path_config_service,
     project_import_service,
     project_properties_service,
@@ -636,6 +637,98 @@ async def import_project(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- Local folder import ---------------------------------------------------
+#
+# A browser cannot give the backend a filesystem path, so the folder the user
+# picks is uploaded file by file into a staging session, then imported. See
+# local_project_import_service for the git-detect / clone / init logic.
+
+
+class LocalImportRequest(BaseModel):
+    session_id: str
+    confirm_init: bool = False
+    selected_paths: Optional[List[str]] = None
+
+
+@router.post("/local-import/session")
+async def create_local_import_session(user: AuthenticatedUser = Depends(require_designer)):
+    """Open a staging session to receive an uploaded folder."""
+    _ = user
+    session_id = await asyncio.to_thread(local_project_import_service.create_session)
+    return {"session_id": session_id}
+
+
+@router.post("/local-import/session/{session_id}/files")
+async def upload_local_import_file(
+    session_id: str,
+    relative_path: str = Form(...),
+    file: UploadFile = File(...),
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Receive one file of the picked folder, keyed by its path within it."""
+    _ = user
+    try:
+        await asyncio.to_thread(
+            local_project_import_service.save_uploaded_file,
+            session_id,
+            relative_path,
+            file.file,
+        )
+        return {"relative_path": relative_path}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    finally:
+        await file.close()
+
+
+@router.get("/local-import/session/{session_id}")
+async def inspect_local_import_session(
+    session_id: str,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Report whether the uploaded folder is already a git repository."""
+    _ = user
+    try:
+        return await asyncio.to_thread(
+            local_project_import_service.inspect_session, session_id
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+
+
+@router.post("/local-import/import")
+async def import_local_folder(
+    request: LocalImportRequest,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Import the staged folder.
+
+    Returns ``needs_init`` when the folder is not a git repo and the caller has
+    not confirmed initialising one; call again with ``confirm_init`` to proceed.
+    """
+    try:
+        return await asyncio.to_thread(
+            local_project_import_service.import_session,
+            request.session_id,
+            selected_paths=request.selected_paths,
+            confirm_init=request.confirm_init,
+            requested_by=user.email,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+@router.delete("/local-import/session/{session_id}")
+async def cancel_local_import_session(
+    session_id: str,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Abandon a staging session and remove its scratch files."""
+    _ = user
+    await asyncio.to_thread(local_project_import_service.cleanup_session, session_id)
+    return {"status": "cancelled"}
+
 
 @router.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
