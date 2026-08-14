@@ -316,6 +316,7 @@ function visibleLayers(instance: number): string[] {
 const shellProps = {
     projectId: "project",
     domain: "schematic" as const,
+    isActive: true,
     base: "base-revision",
     compare: "compare-revision",
     documentDiff,
