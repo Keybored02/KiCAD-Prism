@@ -86,13 +86,45 @@ const COMMITS_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
 const DEFAULT_COMMITS_PAGE_SIZE = 50;
 const RELEASES_PAGE_SIZE = 9;
 
+type ElementChangeKind = "added" | "removed" | "changed";
+
+interface CommitFileComponent {
+    reference: string;
+    kind: ElementChangeKind;
+}
+
+interface CommitFileNet {
+    netName: string;
+    kind: ElementChangeKind;
+}
+
+interface CommitFileZone {
+    netName: string;
+    layer: string;
+    kind: ElementChangeKind;
+}
+
+interface CommitFileTrack {
+    netName: string;
+    kind: ElementChangeKind;
+}
+
 interface CommitFile {
     path: string;
     filename: string;
     status: "added" | "removed" | "modified" | "renamed";
     additions: number | null;
     deletions: number | null;
+    components?: CommitFileComponent[];
+    nets?: CommitFileNet[];
+    zones?: CommitFileZone[];
+    tracks?: CommitFileTrack[];
 }
+
+/** A single element a history row's expanded list can focus in the visualizer. */
+export type CommitElementFocus =
+    | { kind: "component"; reference: string }
+    | { kind: "net"; netName: string };
 
 interface CommitSummary {
     files: CommitFile[];
@@ -106,7 +138,7 @@ interface HistoryViewerProps {
     projectId: string;
     branchRef?: string | null;
     onViewCommit: (commitHash: string) => void;
-    onOpenVisualizer: (commitHash: string, tab?: string) => void;
+    onOpenVisualizer: (commitHash: string, tab?: string, focus?: CommitElementFocus) => void;
     canCompareDiffs: boolean;
     canComment: boolean;
     active?: boolean;
@@ -194,12 +226,167 @@ interface CommitItemProps {
     commit: Commit;
     projectId: string;
     onViewCommit: (hash: string) => void;
-    onOpenVisualizer: (hash: string, tab?: string) => void;
+    onOpenVisualizer: (hash: string, tab?: string, focus?: CommitElementFocus) => void;
     isBase: boolean;
     isCompare: boolean;
     onSetBase: () => void;
     onSetCompare: () => void;
     selectable: boolean;
+}
+
+const ELEMENT_KIND_COLOR: Record<ElementChangeKind, string> = {
+    added: "text-success",
+    removed: "text-destructive",
+    changed: "text-warning",
+};
+
+const ELEMENT_KIND_SYMBOL: Record<ElementChangeKind, string> = {
+    added: "+",
+    removed: "−",
+    changed: "~",
+};
+
+/** One added/removed/changed marker + label, used inside an expanded file's element list. */
+function ElementRow({
+    label,
+    kind,
+    onClick,
+}: {
+    label: string;
+    kind: ElementChangeKind;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-[11px] hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onClick}
+            title={`Open ${label} at this commit`}
+        >
+            <span className={`w-3 shrink-0 text-center font-mono font-semibold ${ELEMENT_KIND_COLOR[kind]}`}>
+                {ELEMENT_KIND_SYMBOL[kind]}
+            </span>
+            <span className="truncate font-mono text-muted-foreground">{label}</span>
+        </button>
+    );
+}
+
+interface ElementCategoryRow {
+    key: string;
+    label: string;
+    kind: ElementChangeKind;
+    onClick: () => void;
+}
+
+const ELEMENT_CATEGORY_LIMIT = 5;
+
+/**
+ * One titled group of changed elements (Components, Nets, ...). Shows at most
+ * ELEMENT_CATEGORY_LIMIT rows, with a "Show all" toggle when there are more, so
+ * a file that touches dozens of parts stays scannable until you ask for the rest.
+ */
+function ElementCategory({ title, rows }: { title: string; rows: ElementCategoryRow[] }) {
+    const [showAll, setShowAll] = useState(false);
+    if (rows.length === 0) return null;
+
+    const visible = showAll ? rows : rows.slice(0, ELEMENT_CATEGORY_LIMIT);
+    const hidden = rows.length - visible.length;
+
+    return (
+        <div className="space-y-0.5">
+            <p className="px-1 text-[9px] uppercase tracking-wide text-muted-foreground">{title}</p>
+            {visible.map((row) => (
+                <ElementRow key={row.key} label={row.label} kind={row.kind} onClick={row.onClick} />
+            ))}
+            {(hidden > 0 || showAll) && rows.length > ELEMENT_CATEGORY_LIMIT && (
+                <button
+                    type="button"
+                    className="px-1 py-0.5 text-[10px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                    onClick={() => setShowAll((current) => !current)}
+                >
+                    {showAll ? "Show less" : `Show all ${rows.length}`}
+                </button>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Collapsible components/nets/zones/tracks lists for one changed file.
+ * Collapsed by default so a file touching many parts stays scannable; the
+ * chevron toggle only appears when there is at least one element to show.
+ */
+function FileElementList({
+    file,
+    onFocus,
+}: {
+    file: CommitFile;
+    onFocus: (focus: CommitElementFocus) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const totalCount =
+        (file.components?.length ?? 0)
+        + (file.nets?.length ?? 0)
+        + (file.zones?.length ?? 0)
+        + (file.tracks?.length ?? 0);
+
+    if (totalCount === 0) return null;
+
+    return (
+        <div className="ml-1 pl-4 border-l">
+            <button
+                type="button"
+                className="flex items-center gap-1 py-0.5 text-[10px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                onClick={() => setOpen((current) => !current)}
+                aria-expanded={open}
+            >
+                {open
+                    ? <ChevronDown className="h-3 w-3 shrink-0" />
+                    : <ChevronRight className="h-3 w-3 shrink-0" />}
+                {totalCount} element{totalCount > 1 ? "s" : ""} changed
+            </button>
+            {open && (
+                <div className="space-y-1.5 pb-1 pt-0.5">
+                    <ElementCategory
+                        title="Components"
+                        rows={(file.components ?? []).map((c) => ({
+                            key: `cmp-${c.reference}`,
+                            label: c.reference,
+                            kind: c.kind,
+                            onClick: () => onFocus({ kind: "component", reference: c.reference }),
+                        }))}
+                    />
+                    <ElementCategory
+                        title="Nets"
+                        rows={(file.nets ?? []).map((n) => ({
+                            key: `net-${n.netName}`,
+                            label: n.netName,
+                            kind: n.kind,
+                            onClick: () => onFocus({ kind: "net", netName: n.netName }),
+                        }))}
+                    />
+                    <ElementCategory
+                        title="Zones"
+                        rows={(file.zones ?? []).map((z) => ({
+                            key: `zone-${z.netName}-${z.layer}`,
+                            label: `${z.netName} · ${z.layer}`,
+                            kind: z.kind,
+                            onClick: () => onFocus({ kind: "net", netName: z.netName }),
+                        }))}
+                    />
+                    <ElementCategory
+                        title="Tracks"
+                        rows={(file.tracks ?? []).map((t) => ({
+                            key: `track-${t.netName}`,
+                            label: t.netName,
+                            kind: t.kind,
+                            onClick: () => onFocus({ kind: "net", netName: t.netName }),
+                        }))}
+                    />
+                </div>
+            )}
+        </div>
+    );
 }
 
 function CommitItem({
@@ -415,36 +602,39 @@ function CommitItem({
                         .sort((a, b) => fileSortRank(a.filename) - fileSortRank(b.filename))
                         .map((file) => {
                             const { Icon: TypeIcon, color: typeColor } = fileTypeIcon(file.filename);
+                            const tab = visualizerTabForFile(file.filename);
                             return (
-                                <button
-                                    key={file.path}
-                                    type="button"
-                                    className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                    onClick={() => onOpenVisualizer(
-                                        commit.full_hash,
-                                        visualizerTabForFile(file.filename),
-                                    )}
-                                    title={`Open ${file.filename} at this commit`}
-                                >
-                                    <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
-                                        {STATUS_ICON[file.status]}
-                                    </span>
-                                    <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
-                                    <span className="font-medium truncate">{file.filename}</span>
-                                    <span className="text-muted-foreground truncate hidden sm:block">
-                                        {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
-                                    </span>
-                                    {(file.additions !== null || file.deletions !== null) && (
-                                        <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
-                                            {file.additions !== null && file.additions > 0 && (
-                                                <span className="text-success">+{file.additions}</span>
-                                            )}
-                                            {file.deletions !== null && file.deletions > 0 && (
-                                                <span className="text-destructive">-{file.deletions}</span>
-                                            )}
+                                <div key={file.path}>
+                                    <button
+                                        type="button"
+                                        className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                        onClick={() => onOpenVisualizer(commit.full_hash, tab)}
+                                        title={`Open ${file.filename} at this commit`}
+                                    >
+                                        <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
+                                            {STATUS_ICON[file.status]}
                                         </span>
-                                    )}
-                                </button>
+                                        <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
+                                        <span className="font-medium truncate">{file.filename}</span>
+                                        <span className="text-muted-foreground truncate hidden sm:block">
+                                            {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
+                                        </span>
+                                        {(file.additions !== null || file.deletions !== null) && (
+                                            <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
+                                                {file.additions !== null && file.additions > 0 && (
+                                                    <span className="text-success">+{file.additions}</span>
+                                                )}
+                                                {file.deletions !== null && file.deletions > 0 && (
+                                                    <span className="text-destructive">-{file.deletions}</span>
+                                                )}
+                                            </span>
+                                        )}
+                                    </button>
+                                    <FileElementList
+                                        file={file}
+                                        onFocus={(focus) => onOpenVisualizer(commit.full_hash, tab, focus)}
+                                    />
+                                </div>
                             );
                         })}
                 </div>

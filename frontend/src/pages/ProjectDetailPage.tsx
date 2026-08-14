@@ -17,6 +17,7 @@ import {
     useVisitedProjectSections,
     type ProjectSection,
 } from "./project-section-cache";
+import type { CommitElementFocus } from "@/components/history-viewer";
 
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -151,13 +152,25 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
     // Open the design at a commit directly in the visualizer, read-only. Distinct
     // from handleViewCommit, which keeps you in the history section. An optional
-    // tab opens straight onto a specific view (e.g. a changed .kicad_pcb).
-    const handleOpenCommitVisualizer = (commitHash: string, tab?: string) => {
+    // tab opens straight onto a specific view (e.g. a changed .kicad_pcb), and an
+    // optional focus target (e.g. a component/net from a commit-summary element
+    // list) is applied via cross-probe once the visualizer's semantic index loads.
+    const handleOpenCommitVisualizer = (commitHash: string, tab?: string, focus?: CommitElementFocus) => {
         const next = new URLSearchParams(searchParams);
         next.set("section", "visualizers");
         next.set("commit", commitHash);
         if (tab) next.set("tab", tab);
         else next.delete("tab");
+        if (focus) {
+            next.set(
+                "focus",
+                focus.kind === "component"
+                    ? `component:${focus.reference}`
+                    : `net:${focus.netName}`,
+            );
+        } else {
+            next.delete("focus");
+        }
         setSearchParams(next);
     };
 
