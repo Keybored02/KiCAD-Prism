@@ -279,6 +279,9 @@ function EcadViewerHost({
 export function Visualizer({ projectId, user, commit, active: viewerActive = true }: VisualizerProps) {
     const [schematicViewerElement, setSchematicViewerElement] = useState<ECadViewerElement | null>(null);
     const [pcbViewerElement, setPcbViewerElement] = useState<ECadViewerElement | null>(null);
+    // Layer name -> swatch color, read from the PCB viewer so the inspector can
+    // show a layer's color the same way the layer menu does.
+    const [layerColors, setLayerColors] = useState<Record<string, string>>({});
     const schematicViewerRef = useRef<ECadViewerElement | null>(null);
     const pcbViewerRef = useRef<ECadViewerElement | null>(null);
 
@@ -358,6 +361,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
     const {
         selection: globalSelection,
+        isProbing: selectionIsProbing,
         select: selectGlobal,
         crossProbe: crossProbeGlobal,
         clear: clearGlobalSelection,
@@ -844,16 +848,55 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         };
     }, [commit, pcbViewerElement, projectId, registerClient, schematicViewerElement, semanticIndex]);
 
+    // The active CAD view, or null on non-CAD tabs (3D, stackup, ...).
+    const activeViewContext: "SCH" | "PCB" | null =
+        activeTab === "pcb" ? "PCB" : activeTab === "sch" ? "SCH" : null;
+
+    // Whether the selection card belongs on the active view. A cross-probe
+    // (double-click focus) mirrors the item into both viewers, so its card
+    // follows whichever view is on screen. A plain single-view selection stays
+    // with its own view: switching away does not carry the card over.
+    const selectionVisibleInActiveView = Boolean(
+        globalSelection
+        && (
+            selectionIsProbing
+            || activeViewContext === null
+            || globalSelection.sourceContext === activeViewContext
+        ),
+    );
+
     useEffect(() => {
-        if (globalSelection) {
+        if (globalSelection && selectionVisibleInActiveView) {
             setRightRailTab("selection");
         } else {
-            // Selection cleared (deselect / click-away): close the selection panel
-            // so the side menu does not linger with nothing selected. Leave other
-            // rail tabs (comments) alone.
+            // No selection for this view (cleared, or a single-view selection
+            // that belongs to the other view): close the selection panel so it
+            // does not linger. Leave other rail tabs (comments) alone.
             setRightRailTab((tab) => (tab === "selection" ? null : tab));
         }
-    }, [globalSelection]);
+    }, [globalSelection, selectionVisibleInActiveView]);
+
+    // Refresh the layer color map when a selection carries a layer, so the
+    // inspector can show a swatch matching the layer menu. Read lazily from the
+    // PCB viewer; layer colors are stable for a board.
+    useEffect(() => {
+        if (!globalSelection?.anchor?.layer || !pcbViewerElement) return;
+        void customElements.whenDefined("ecad-viewer").then(() => {
+            const layers = pcbViewerElement.getPcbViewState?.()?.layers;
+            if (!layers?.length) return;
+            setLayerColors((previous) => {
+                const next: Record<string, string> = { ...previous };
+                let changed = false;
+                for (const layer of layers) {
+                    if (next[layer.name] !== layer.color) {
+                        next[layer.name] = layer.color;
+                        changed = true;
+                    }
+                }
+                return changed ? next : previous;
+            });
+        });
+    }, [globalSelection, pcbViewerElement]);
 
     useEffect(() => {
         const selection = globalSelection;
@@ -1167,7 +1210,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     });
                     setShowCommentForm(true);
                 } else {
-                    setCommentMode(true);
+                    // No selection: C toggles commenting mode, so pressing it
+                    // again turns it back off.
+                    setCommentMode((enabled) => !enabled);
                 }
                 event.preventDefault();
                 return;
@@ -1435,11 +1480,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 highlightedId={selectedCommentId}
                                 embedded
                             />
-                        ) : globalSelection ? (
+                        ) : globalSelection && selectionVisibleInActiveView ? (
                             <SelectionInspector
                                 open
                                 selection={globalSelection}
                                 semanticIndex={semanticIndex}
+                                layerColors={layerColors}
+                                viewContext={selectionIsProbing ? (activeViewContext ?? undefined) : undefined}
                                 onOpenChange={(open) => {
                                     if (!open) setRightRailTab(null);
                                 }}

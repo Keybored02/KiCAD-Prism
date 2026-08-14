@@ -2492,6 +2492,94 @@ class ComponentCatalogDomainService:
                 resolved[asset_type] = asset
         return resolved
 
+    def library_asset_presence(
+        self,
+        *,
+        asset_type: str,
+        target_library: str = "",
+        target_name: str = "",
+    ) -> dict[str, Any]:
+        """Report whether an asset with this identity already exists in the library.
+
+        Name-based for now: a footprint EasyEDA:CAP-SMD matches an asset whose
+        target_library/target_name are those, falling back to the asset name when
+        the library qualifier is absent. It answers "is something by this name in
+        the library"; a content-hash upgrade would answer "is this exact file in
+        the library". Returns the matching assets so the caller can show which.
+        """
+        self.initialize()
+        normalized_type = str(asset_type or "").strip().lower()
+        if normalized_type not in {"symbol", "footprint", "3dmodel", "spice"}:
+            raise ValueError("Unsupported asset type")
+
+        library = str(target_library or "").strip().lower()
+        name = str(target_name or "").strip().lower()
+        if not name:
+            return {"assetType": normalized_type, "inLibrary": False, "matches": []}
+
+        # A 3D model is referenced by file name, and the same model exists in
+        # different formats (a project's .wrl vs a catalog .step). Match on the
+        # name without its extension so those line up. Other asset types keep
+        # their exact library:name identity.
+        if normalized_type == "3dmodel":
+            stem = re.sub(r"\.(wrl|step|stp|stpz|igs|iges|x3d)$", "", name)
+            like = f"{stem}.%"
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT a.id, a.name, a.target_library, a.target_name, a.sha256
+                    FROM assets a
+                    WHERE a.asset_type = '3dmodel'
+                      AND (
+                        lower(a.target_name) = %s OR lower(a.name) = %s
+                        OR lower(a.target_name) LIKE %s OR lower(a.name) LIKE %s
+                      )
+                    LIMIT 10
+                    """,
+                    (stem, stem, like, like),
+                ).fetchall()
+        elif library:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT a.id, a.name, a.target_library, a.target_name, a.sha256
+                    FROM assets a
+                    WHERE a.asset_type = %s
+                      AND lower(a.target_library) = %s
+                      AND (lower(a.target_name) = %s OR lower(a.name) = %s)
+                    LIMIT 10
+                    """,
+                    (normalized_type, library, name, name),
+                ).fetchall()
+        else:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT a.id, a.name, a.target_library, a.target_name, a.sha256
+                    FROM assets a
+                    WHERE a.asset_type = %s
+                      AND (lower(a.target_name) = %s OR lower(a.name) = %s)
+                    LIMIT 10
+                    """,
+                    (normalized_type, name, name),
+                ).fetchall()
+
+        matches = [
+            {
+                "id": str(row["id"]),
+                "name": str(row["name"]),
+                "target_library": str(row["target_library"] or ""),
+                "target_name": str(row["target_name"] or ""),
+                "sha256": str(row["sha256"]),
+            }
+            for row in rows
+        ]
+        return {
+            "assetType": normalized_type,
+            "inLibrary": bool(matches),
+            "matches": matches,
+        }
+
     def search_assets(
         self,
         *,
