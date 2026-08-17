@@ -102,7 +102,7 @@ _JOB_ROOT = Path(
     os.environ.get("PRISM_DESIGN_COMPARE_JOBS")
     or Path(tempfile.gettempdir()) / "prism_design_compare"
 )
-_CACHE_SCHEMA = "prism.design_compare_revision_v13"
+_CACHE_SCHEMA = "prism.design_compare_revision_v14"
 _INITIAL_CACHE_SCHEMA = "prism.design_compare_revision_initial_v3"
 _CACHE_LOCKS: Dict[str, threading.Lock] = {}
 _CACHE_LOCKS_GUARD = threading.Lock()
