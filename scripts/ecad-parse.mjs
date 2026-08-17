@@ -1396,15 +1396,38 @@ function index_board(text, documentPath, timings) {
     }
 
     for (const zone of board.zones ?? []) {
+        const at = centroid_of((zone.polygons ?? []).flatMap((poly) => poly.pts ?? []));
+        const layer = layer_name_of(zone.layer);
+        const net = zone.net_name || net_name_of(zone, netsByCode);
+        // KiCad omits a uuid on auto-generated teardrop zones, so `push` would
+        // fold them into `anonymous` and a priority/fill edit on one would be
+        // invisible. Give an id-less zone a stable content-anchored identity and
+        // mark it reviewOnly: the diff can then see the authored change even
+        // though the zone is not an independently selectable target in the
+        // viewer. The identity spans the outline points (not just the centroid)
+        // so two teardrop zones sharing a net, layer and centroid stay distinct,
+        // while a priority-only edit leaves the outline -- and the id -- stable.
+        const synthetic = !(zone.uuid || zone.tstamp);
         push(
-            zone,
+            synthetic
+                ? {
+                    ...zone,
+                    uuid: `zone:${content_hash([
+                        documentPath,
+                        net ?? "",
+                        layer ?? "",
+                        (zone.polygons ?? []).map((poly) => poly.pts ?? []),
+                    ])}`,
+                }
+                : zone,
             "zone",
             entry({
-                at: centroid_of((zone.polygons ?? []).flatMap((poly) => poly.pts ?? [])),
-                layer: layer_name_of(zone.layer),
-                net: zone.net_name || net_name_of(zone, netsByCode),
+                at,
+                layer,
+                net,
                 name: zone.name,
                 reviewFields: zone_review_fields(zone),
+                ...(synthetic ? { reviewOnly: true } : {}),
             }),
         );
     }

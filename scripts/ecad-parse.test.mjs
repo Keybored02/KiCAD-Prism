@@ -408,6 +408,53 @@ test("a regenerated zone fill is not an authored change", () => {
     assert.notEqual(base.hash, reshaped.byUuid.get(zone).hash);
 });
 
+// KiCad omits a uuid on auto-generated teardrop zones. A real edit to one
+// (priority, fill, thickness) must still be reviewable even though the zone is
+// not an independently selectable object.
+const ZONELESS_ID_BOARD = `
+(kicad_pcb
+  (net 0 "")
+  (net 1 "GND")
+  (zone (net 1) (net_name "GND") (layer "F.Cu")
+    (hatch none 0.1)
+    (priority 30000)
+    (attr (teardrop (type padvia)))
+    (polygon (pts (xy 0 0) (xy 2 0) (xy 2 2)))
+    (filled_polygon (layer "F.Cu") (pts (xy 0 0) (xy 1 0) (xy 1 1)))))
+`;
+
+test("a zone with no uuid is indexed under a stable synthetic identity", () => {
+    const board = index_document(ZONELESS_ID_BOARD, "board.kicad_pcb");
+    const zones = [...board.byUuid.values()].filter((item) => item.kind === "zone");
+    assert.equal(board.anonymous.zone ?? 0, 0);
+    assert.equal(zones.length, 1);
+    assert.equal(zones[0].reviewOnly, true);
+    assert.match(zones[0].uuid, /^zone:/);
+    // The identity is content-anchored, so it is the same across a re-parse.
+    const again = index_document(ZONELESS_ID_BOARD, "board.kicad_pcb");
+    const zonesAgain = [...again.byUuid.values()].filter((item) => item.kind === "zone");
+    assert.equal(zones[0].uuid, zonesAgain[0].uuid);
+});
+
+test("a priority edit on a uuid-less zone changes its hash", () => {
+    // Without the synthetic identity the zone would be dropped as anonymous and
+    // this edit would be invisible to the diff. Its centroid, net, and layer are
+    // unchanged, so the identity holds and the hash difference is the whole
+    // signal that it was modified.
+    const base = index_document(ZONELESS_ID_BOARD, "board.kicad_pcb");
+    const edited = index_document(
+        ZONELESS_ID_BOARD.replace("(priority 30000)", "(priority 30026)"),
+        "board.kicad_pcb",
+    );
+    const zoneOf = (index) =>
+        [...index.byUuid.values()].find((item) => item.kind === "zone");
+    const before = zoneOf(base);
+    const after = zoneOf(edited);
+    assert.equal(before.uuid, after.uuid);
+    assert.notEqual(before.hash, after.hash);
+    assert.equal(after.reviewFields.Priority, 30026);
+});
+
 test("net names are resolved from codes", () => {
     // Tracks carry a numeric net code; position_delta groups by net name, so
     // an unresolved code would silently split one net into many.

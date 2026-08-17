@@ -84,6 +84,33 @@ test("derived index fields can change even when the parser hash does not", () =>
     });
 });
 
+test("a priority edit on a uuid-less teardrop zone is reported as modified", () => {
+    // KiCad writes no uuid on teardrop zones, so the parser gives them a stable
+    // synthetic identity; a real edit (here priority) must survive to the diff
+    // as a modification rather than vanishing as an anonymous object.
+    const board = (priority) => `
+(kicad_pcb
+  (net 0 "")
+  (net 1 "GND")
+  (zone (net 1) (net_name "GND") (layer "F.Cu")
+    (hatch none 0.1)
+    (priority ${priority})
+    (attr (teardrop (type padvia)))
+    (polygon (pts (xy 0 0) (xy 2 0) (xy 2 2)))))
+`;
+    const base = index_document(board(30000), "board.kicad_pcb");
+    const head = index_document(board(30026), "board.kicad_pcb");
+
+    const result = diff_indexes(base.objects, head.objects);
+    const zoneChanges = result.changes.filter((change) => change.kind === "zone");
+    assert.equal(zoneChanges.length, 1);
+    assert.equal(zoneChanges[0].status, "modified");
+    assert.deepEqual(
+        (zoneChanges[0].properties ?? []).map((delta) => [delta.name, delta.from, delta.to]),
+        [["Priority", 30000, 30026]],
+    );
+});
+
 test("document path is part of identity", () => {
     const before = object({ documentPath: "old.kicad_sch" });
     const after = object({ documentPath: "new.kicad_sch" });
