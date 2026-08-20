@@ -180,32 +180,46 @@ not a code change. It remains the largest single cost and is the next target.
     scripts/ecad-parse.mjs                                           | 115 +-
     scripts/ecad-parse.test.mjs                                      | 63 +-
 
-## Viewer prepare, measured
+## Viewer prepare, profiled
 
-The viewer already has its own parse and model timing, enabled with
-`?ecadPerfLog=1` (it prints to the console and is present in the shipped
-bundle). Captured through the browser harness on the satnogs PCB, the roughly
-6 to 7 second prepare splits like this:
+The viewer already has its own parse timing, enabled with `?ecadPerfLog=1` (it
+prints to the console and is present in the shipped bundle). To see where the
+rest of the prepare time went, the comparison load in the fork was
+instrumented with sub-stage marks (this instrumentation is temporary and not
+committed) and the bundle rebuilt. Captured through the browser harness on the
+satnogs PCB, the prepare splits like this:
 
-- About 2.6 s parsing the two boards. Both boards already parse in parallel on
-  a shared worker pool, so this is not a serial-parse problem. Of the roughly
-  1.3 s per board, only about 0.7 s is the actual parse; the rest is encoding
-  the 8.6 MB file into a transferable buffer and handing it to the worker.
-- About 4.6 s building the diff targets (700 changes, 1248 painted bounds) and
-  drawing the WebGL scene. This is the largest part.
+- Parsing the two boards: 1.3 to 2.8 s, and variable.
+- Painting the WebGL scene: 0.5 to 1.3 s.
+- Everything else (building the diff document, side scenes, revealing the
+  shell, resolving painted bounds): under 100 ms combined, negligible.
 
-So parsing is not the place to spend effort here; it is already parallel and
-already fast. The cost is in preparing and painting the comparison. Whether that
-4.6 s has a structural win (parallelism, deferring work, doing less on the first
-paint) or is irreducible is the open question, and needs profiling within that
-stage before any change.
+This corrected an earlier guess. The cost is not in building diff targets or
+overlays; it is parse and paint, nothing else.
+
+The interesting finding is that the two-board parse is inconsistent. Both boards
+are dispatched together to a shared six-worker pool, so they should overlap. In
+good runs they do: two roughly one-second parses finish in about 1.3 s of wall
+time. In bad runs one finishes in 0.7 s and the other takes 2.8 s, so the pair
+takes 2.8 s. The pool itself is fine; the serialization is the parser handing a
+9 MB board's parsed object graph back across the worker boundary by structured
+clone, which blocks the main thread and makes the two returns queue behind each
+other.
+
+So the realistic win here is making that parallelism consistent (worst case 2.8 s
+down toward the good-case 1.3 s), not a large structural change. The best-case
+viewer prepare is already about 2.5 s, so the floor is close. Achieving the
+consistent case means changing how the worker returns the parsed board (a
+transferable buffer instead of a structured clone), which is deeper viewer work
+for a bounded, roughly one-second best-case gain.
 
 ## Still open
 
-- The viewer's diff-target build and scene paint (about 4.6 s of the prepare
-  step) is the largest single cost from click to pixels. It lives in the
-  vendored ecad-viewer, which is ours to change. Needs profiling within that
-  stage to tell a structural win from irreducible work.
+- The viewer's two-board parse does not always run in parallel; worst case is
+  about twice the best case. Making it consistent is a bounded win (roughly one
+  second) and needs a change to how the parser worker returns its result.
+  Weighed against the risk of touching the vendored parser transport, this is a
+  maybe, not a clear yes.
 - The board download is one full file per side. With compression in place the
   transfer is smaller, but there may be room to avoid fetching the same content
   twice or to stream it.
