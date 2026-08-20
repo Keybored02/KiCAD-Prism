@@ -3,11 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.comments import router as comments_router
-from app.api.diff import router as diff_router
 from app.api.design_compare import router as design_compare_router
 from app.api.release_studio import router as release_studio_router
 from app.api.folders import router as folders_router
 from app.api.settings import router as settings_router
+from app.api.manufacturing import router as manufacturing_router
 from app.api.workspace import router as workspace_router
 from app.api.remote_provider import router as remote_provider_router
 from app.api.provider_oauth import router as provider_oauth_router
@@ -16,7 +16,7 @@ from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
 from app.api.health import router as health_router
-from app.services import rate_limit_service, session_store_service
+from app.services import password_credential_service, rate_limit_service, session_store_service
 from app.services.comments_store_service import initialize_comments_store
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
@@ -168,10 +168,32 @@ async def lifespan(app: FastAPI):
     catalog_service.initialize()
     workspace.initialize()
     jobs.initialize()
+    # Create and refresh the built-in manufacturers (JLCPCB, PCBWay) and their spec
+    # templates. Runs every startup; refreshes only templates the user has not
+    # edited. Best-effort: never block startup on it.
+    try:
+        from app.services import manufacturing_service
+
+        changes = manufacturing_service.seed_builtin_manufacturers()
+        if changes:
+            logger.info("Built-in spec templates: %s", ", ".join(changes))
+    except Exception:
+        logger.exception("Failed to sync built-in manufacturers")
     if settings.AUTH_ENABLED:
         session_store_service.initialize_session_store()
         session_store_service.prune_expired_sessions()
         rate_limit_service.initialize_rate_limit_store()
+        try:
+            seeded = password_credential_service.seed_bootstrap_admins()
+            if seeded:
+                logger.warning(
+                    "Seeded a one-time bootstrap password for: %s. They must "
+                    "change it on first sign-in; clear BOOTSTRAP_ADMIN_PASSWORD "
+                    "afterwards.",
+                    ", ".join(seeded),
+                )
+        except Exception:
+            logger.exception("Failed to seed bootstrap admin password")
     try:
         yield
     finally:
@@ -197,10 +219,10 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
 app.include_router(comments_router, prefix="/api/projects", tags=["comments"])
-app.include_router(diff_router, prefix="/api/projects", tags=["diff"])
 app.include_router(design_compare_router, prefix="/api/projects", tags=["design-compare"])
 app.include_router(release_studio_router, prefix="/api/projects", tags=["release-studio"])
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
+app.include_router(manufacturing_router, prefix="/api/manufacturing", tags=["manufacturing"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["jobs"])

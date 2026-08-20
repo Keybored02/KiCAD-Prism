@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from
 import { Button } from "@/components/ui/button";
 import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, Factory } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -19,6 +19,7 @@ import {
     type ProjectSection,
 } from "./project-section-cache";
 
+import { VISUALIZER_DESIGN_SEARCH_SLOT_ID } from "@/lib/design-search";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 const AssetsPortal = lazy(() =>
@@ -38,6 +39,9 @@ const Visualizer = lazy(() =>
 );
 const MarkdownContent = lazy(() =>
     import("@/components/markdown-content").then((module) => ({ default: module.MarkdownContent }))
+);
+const ProjectManufacturing = lazy(() =>
+    import("@/components/manufacturing/project-manufacturing").then((module) => ({ default: module.ProjectManufacturing }))
 );
 
 interface Project {
@@ -85,6 +89,7 @@ function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection 
         || section === "documentation"
         || section === "workflows"
         || section === "release-studio"
+        || section === "manufacturing"
     ) {
         return section;
     }
@@ -353,6 +358,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
         { id: "workflows" as ProjectSection, label: "Workflows", icon: PlayCircle },
         { id: "release-studio" as ProjectSection, label: "Release Studio", icon: ShieldCheck },
+        { id: "manufacturing" as ProjectSection, label: "Manufacturing", icon: Factory },
         { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
         { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
     ];
@@ -417,10 +423,26 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     <ArrowLeft className="h-4 w-4 mr-2" />
                     Back
                 </Button>
-                <div className="flex-1">
-                    <h1 className="text-xl font-bold truncate max-w-[200px] md:max-w-none">{project ? getDisplayName(project) : ''}</h1>
-                    <p className="text-sm text-muted-foreground hidden md:block">{project?.description}</p>
+                <div className={cn("min-w-0", activeSection === "visualizers" ? "shrink-0" : "flex-1")}>
+                    <h1 className={cn(
+                        "text-xl font-bold truncate",
+                        activeSection === "visualizers" ? "max-w-[140px] md:max-w-[220px]" : "max-w-[200px] md:max-w-none",
+                    )}>
+                        {project ? getDisplayName(project) : ""}
+                    </h1>
+                    <p className={cn(
+                        "text-sm text-muted-foreground",
+                        activeSection === "visualizers" ? "hidden" : "hidden md:block",
+                    )}>
+                        {project?.description}
+                    </p>
                 </div>
+                {activeSection === "visualizers" ? (
+                    <div
+                        id={VISUALIZER_DESIGN_SEARCH_SLOT_ID}
+                        className="flex min-w-0 flex-1 justify-center px-2"
+                    />
+                ) : null}
 
                 <div className="hidden min-w-0 items-center gap-2 md:flex">
                     <GitBranch className="h-4 w-4 text-muted-foreground" />
@@ -637,6 +659,27 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                     </Suspense>
                                 )}
                             </ErrorBoundary>
+                        </ProjectSectionPanel>
+                    )}
+
+                    {visitedSections.has("manufacturing") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:manufacturing`}
+                            active={activeSection === "manufacturing"}
+                        >
+                            <h2 className="mb-6 text-2xl font-bold">Manufacturing</h2>
+                            {projectId && (
+                                <ErrorBoundary label="the manufacturing panel" resetKeys={[projectId, refreshKey]}>
+                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading manufacturing...</div>}>
+                                        <ProjectManufacturing
+                                            projectId={projectId}
+                                            canEdit={canMutateProject}
+                                            onNewRun={() => navigate("/?section=manufacturing")}
+                                            onOpenRun={() => navigate("/?section=manufacturing")}
+                                        />
+                                    </Suspense>
+                                </ErrorBoundary>
+                            )}
                         </ProjectSectionPanel>
                     )}
 
