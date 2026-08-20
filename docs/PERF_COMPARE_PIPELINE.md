@@ -141,9 +141,24 @@ Backend comparison job on satnogs (`ba85605`..`d848b0c`):
 | Cold | ~17 s  | ~10.5 s |
 | Warm | ~3.5 s | ~1.6 s  |
 
-The poll and compression changes further reduce the time before the viewer
-starts. The viewer's own render time (~10 s for PCB, ~2 s for schematic) is
-unchanged by this work and is the next target.
+Full click-to-pixels on the same board (PCB tab), measured in the browser with
+all four changes live:
+
+| Stage | Before (warm) | After (warm) |
+| ----- | ------------- | ------------ |
+| Click to viewer starts | ~5.5 s | ~6.6 s* |
+| Viewer prepare (parse and paint) | ~10 s | ~6 s** |
+| Full wall (click to painted) | ~19 s | ~16.4 s |
+
+\* The board download is now about 1.1 s per side (1.9 MB gzipped) instead of
+about 4 s per side (9 MB uncompressed). The rest of the pre-viewer time is the
+backend job (about 0.4 s warm), sidecar fetches (about 0.2 s), and the viewer
+element mounting and settling.
+
+\*\* The viewer prepare time varies with machine load; the stable warm figure is
+about 6 s for the PCB and about 2 s for a schematic. This work did not change
+the viewer, so the drop from the first ~10 s reading reflects a quieter machine,
+not a code change. It remains the largest single cost and is the next target.
 
 ## Correctness
 
