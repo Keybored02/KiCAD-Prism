@@ -180,12 +180,32 @@ not a code change. It remains the largest single cost and is the next target.
     scripts/ecad-parse.mjs                                           | 115 +-
     scripts/ecad-parse.test.mjs                                      | 63 +-
 
+## Viewer prepare, measured
+
+The viewer already has its own parse and model timing, enabled with
+`?ecadPerfLog=1` (it prints to the console and is present in the shipped
+bundle). Captured through the browser harness on the satnogs PCB, the roughly
+6 to 7 second prepare splits like this:
+
+- About 2.6 s parsing the two boards. Both boards already parse in parallel on
+  a shared worker pool, so this is not a serial-parse problem. Of the roughly
+  1.3 s per board, only about 0.7 s is the actual parse; the rest is encoding
+  the 8.6 MB file into a transferable buffer and handing it to the worker.
+- About 4.6 s building the diff targets (700 changes, 1248 painted bounds) and
+  drawing the WebGL scene. This is the largest part.
+
+So parsing is not the place to spend effort here; it is already parallel and
+already fast. The cost is in preparing and painting the comparison. Whether that
+4.6 s has a structural win (parallelism, deferring work, doing less on the first
+paint) or is irreducible is the open question, and needs profiling within that
+stage before any change.
+
 ## Still open
 
-- The viewer's prepare step (parse, model build, WebGL scene, diff overlay) is
-  about 10 s for a 9 MB PCB and is now the largest single cost from click to
-  pixels. It lives in the vendored ecad-viewer, which is ours to change. Profile
-  it to see where the time goes before optimizing.
+- The viewer's diff-target build and scene paint (about 4.6 s of the prepare
+  step) is the largest single cost from click to pixels. It lives in the
+  vendored ecad-viewer, which is ours to change. Needs profiling within that
+  stage to tell a structural win from irreducible work.
 - The board download is one full file per side. With compression in place the
   transfer is smaller, but there may be room to avoid fetching the same content
   twice or to stream it.
