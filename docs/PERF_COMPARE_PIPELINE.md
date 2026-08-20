@@ -213,13 +213,33 @@ consistent case means changing how the worker returns the parsed board (a
 transferable buffer instead of a structured clone), which is deeper viewer work
 for a bounded, roughly one-second best-case gain.
 
+## Worker transport rewrite: tried, then dropped
+
+The two-board parse looked like it serialized (one board finishing in about
+0.7 s while the other took nearly 3 s), and the suspected cause was the parser
+returning a 9 MB object graph by structured clone across the worker boundary. A
+rewrite was implemented that had the worker serialize to JSON and return it as a
+transferable buffer, with the caller doing a single parse. It type-checked, all
+74 viewer tests passed, and the parsed data was verified to survive the JSON
+round-trip byte-identical.
+
+It did not help, and was dropped. Measuring the baseline more carefully showed
+the two-board parse is already parallel in most runs (about one second for the
+pair); the near-3 s case is an intermittent stall from garbage collection or
+machine load, not a structural serialization. The rewrite added a second large
+main-thread JSON parse per board without fixing the intermittent stall, so it
+was a slight negative. The real structured-clone return is only about 350 ms.
+
+The lesson recorded here: the "3 s" reading was noise, and the baseline variance
+should have been measured before attributing it to the transport. The parse is
+close to its floor.
+
 ## Still open
 
-- The viewer's two-board parse does not always run in parallel; worst case is
-  about twice the best case. Making it consistent is a bounded win (roughly one
-  second) and needs a change to how the parser worker returns its result.
-  Weighed against the risk of touching the vendored parser transport, this is a
-  maybe, not a clear yes.
+- The viewer's prepare time is parse (about one second for both boards in a good
+  run) plus paint (0.5 to 1.3 s). Both are close to their floor. The occasional
+  parse stall is garbage collection or machine load, not something a code change
+  here removes cleanly.
 - The board download is one full file per side. With compression in place the
   transfer is smaller, but there may be room to avoid fetching the same content
   twice or to stream it.
