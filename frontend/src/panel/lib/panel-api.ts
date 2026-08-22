@@ -6,6 +6,7 @@ export interface PanelComponent {
   id: string;
   slug: string;
   name: string;
+  identity_kind: "mpn" | "provisional_ipn";
   manufacturer: string;
   mpn: string;
   description: string;
@@ -20,14 +21,55 @@ export interface PanelComponent {
   availability_state: "metadata_only" | "files_partial" | "place_ready";
   missing_assets: string[];
   place_enabled: boolean;
-  stock_quantity: number;
-  stock_uom: string;
-  inventory_status: string;
+  supply?: PanelSupply;
+  representations: PanelRepresentation[];
+  default_representation_id: string;
+  effective_representation_id: string;
   preview_status: Record<string, { status: string; error: string }>;
   symbol_preview_url: string;
   footprint_preview_url: string;
   manifest_url: string;
   inline_url: string;
+}
+
+export interface PanelSupplySource {
+  kind: "vendor" | "local";
+  id: string;
+  display_name: string;
+  /** Vendor sources carry pricing; local sources carry quantity + uom. */
+  stock: number;
+  uom: string;
+  stock_status: string;
+  fetch_status: string;
+  fetched_at: string;
+  unit_price?: number;
+  currency?: string;
+  price_break_qty?: number;
+  price_breaks?: { qty: number; price: number }[];
+  product_url?: string;
+}
+
+export interface PanelSupply {
+  sources: PanelSupplySource[];
+}
+
+/** Local inventory row for badges; vendor rows are ignored for on-shelf counts. */
+export function primaryLocalSource(component: PanelComponent): PanelSupplySource | null {
+  const sources = component.supply?.sources ?? [];
+  return (
+    sources.find((source) => source.kind === "local") ??
+    null
+  );
+}
+
+export interface PanelRepresentation {
+  id: string;
+  label: string;
+  symbol: (PanelAsset & { preview_id?: string; preview_url?: string }) | null;
+  footprint: (PanelAsset & { preview_id?: string; preview_url?: string }) | null;
+  is_default: boolean;
+  display_order: number;
+  source_internal_part_number: string;
 }
 
 export interface PanelAsset {
@@ -142,26 +184,34 @@ export async function getComponentsByCategory(
 
 export async function getComponent(
   componentId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  representationId = ""
 ): Promise<PanelComponent> {
+  const params = new URLSearchParams();
+  if (representationId) params.set("representation", representationId);
+  const query = params.toString();
   return panelFetch<PanelComponent>(
-    `/api/remote-provider/components/${componentId}`,
+    `/api/remote-provider/components/${componentId}${query ? `?${query}` : ""}`,
     signal
   );
 }
 
 export async function getPartManifest(
-  partId: string
+  partId: string,
+  representationId = ""
 ): Promise<Record<string, unknown>> {
+  const query = representationId ? `?representation=${encodeURIComponent(representationId)}` : "";
   return panelFetch<Record<string, unknown>>(
-    `/api/remote-provider/parts/${partId}`
+    `/api/remote-provider/parts/${partId}${query}`
   );
 }
 
 export async function getInlineBundle(
-  componentId: string
+  componentId: string,
+  representationId = ""
 ): Promise<Record<string, unknown>> {
+  const query = representationId ? `?representation=${encodeURIComponent(representationId)}` : "";
   return panelFetch<Record<string, unknown>>(
-    `/api/remote-provider/components/${componentId}/inline`
+    `/api/remote-provider/components/${componentId}/inline${query}`
   );
 }

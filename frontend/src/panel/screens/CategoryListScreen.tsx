@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { PanelComponent } from "@/panel/lib/panel-api";
-import { getComponentsByCategory, isAuthError } from "@/panel/lib/panel-api";
+import { getComponentsByCategory, isAuthError, primaryLocalSource } from "@/panel/lib/panel-api";
 
 interface CategoryListScreenProps {
   category: string;
@@ -97,7 +97,7 @@ export function CategoryListScreen({
                   {comp.manufacturer || "Unknown"} · {comp.package_name || "—"}
                 </span>
               </span>
-              <StockBadge quantity={comp.stock_quantity} />
+              <StockBadge quantity={primaryLocalSource(comp)?.stock ?? 0} known={primaryLocalSource(comp) !== null} />
               <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
             </button>
           ))}
@@ -107,14 +107,14 @@ export function CategoryListScreen({
   );
 }
 
-function StockBadge({ quantity }: { quantity: number }) {
+function StockBadge({ quantity, known }: { quantity: number; known: boolean }) {
   const inStock = quantity > 0;
   return (
     <Badge
-      variant={inStock ? "default" : "destructive"}
+      variant={!known ? "secondary" : inStock ? "default" : "destructive"}
       className={`text-[9px] ${inStock ? "bg-emerald-600/90 text-white" : ""}`}
     >
-      {inStock ? quantity : "0"}
+      {!known ? "?" : inStock ? quantity : "0"}
     </Badge>
   );
 }
