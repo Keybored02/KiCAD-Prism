@@ -491,6 +491,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(*self._sign_in(body))
             return
 
+        if route.path == "/signin/cancel":
+            # The plugin calls this when the user gives up (closed the tab, pressed
+            # Cancel), so the pending /signin stops waiting instead of holding the
+            # loopback listener until it times out.
+            cancelled = signin.cancel_pending_sign_in()
+            self._send(200, {"ok": True, "cancelled": cancelled})
+            return
+
         if route.path == "/signout":
             self._send(200, self._sign_out())
             return
@@ -750,6 +758,12 @@ class _Handler(BaseHTTPRequestHandler):
         status, result = apply_sign_in(self.state, label=(body.get("label") or ""))
         if status != 200:
             return status, result
+        if result.get("cancelled"):
+            # Nothing changed; hand back the settings view unmarked so the UI just
+            # returns to where it was.
+            payload = self._settings_payload()
+            payload["cancelled"] = True
+            return 200, payload
         payload = self._settings_payload()
         payload["ok"] = True
         return 200, payload
@@ -1010,6 +1024,10 @@ def apply_sign_in(state: AgentState, *, label: str = "") -> tuple[int, dict]:
 
     try:
         result = signin.sign_in(server_url, label=label)
+    except signin.SignInCancelled:
+        # The user abandoned the flow. Not an error to shout about; the caller
+        # already knows (it cancelled), so answer plainly.
+        return 200, {"ok": False, "cancelled": True}
     except signin.SignInError as exc:
         return 400, {"error": str(exc)}
 

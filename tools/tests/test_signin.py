@@ -177,6 +177,42 @@ def test_a_browser_that_never_returns_times_out(prism):
     assert "timed out" in str(exc.value).lower()
 
 
+def test_cancelling_a_pending_sign_in_unwinds_it_promptly():
+    # The user closed the browser without approving. cancel_pending_sign_in must
+    # wake the waiter so it stops holding the listener, rather than blocking until
+    # the timeout, which is what froze KiCad.
+    import threading
+    import time
+
+    outcome = {}
+
+    def run():
+        try:
+            signin.sign_in(
+                "http://127.0.0.1:1", open_browser=lambda _u: None, timeout=60
+            )
+        except signin.SignInCancelled:
+            outcome["cancelled"] = True
+        except Exception as exc:  # noqa: BLE001 - record anything unexpected
+            outcome["other"] = repr(exc)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    # Give it a moment to register the pending flow before cancelling.
+    for _ in range(50):
+        if signin._pending_done is not None:
+            break
+        time.sleep(0.02)
+
+    assert signin.cancel_pending_sign_in() is True
+    thread.join(timeout=5)
+    assert outcome == {"cancelled": True}
+
+
+def test_cancelling_with_nothing_pending_is_false():
+    assert signin.cancel_pending_sign_in() is False
+
+
 def test_token_jti_reads_the_payload():
     payload = {"jti": "abc123", "type": "agent"}
     b = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()

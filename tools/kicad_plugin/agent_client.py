@@ -330,6 +330,15 @@ class AgentClient:
         body = {"label": label} if label else {}
         return self._call("POST", "/signin", body, timeout=SIGNIN_TIMEOUT)
 
+    def cancel_sign_in(self):
+        """Abandon a sign-in that is waiting on the browser.
+
+        Called when the user closes the tab or cancels, so the agent's /signin
+        stops waiting and returns, rather than holding the loopback listener open
+        until it times out. Best-effort and quick.
+        """
+        return self._call("POST", "/signin/cancel", {}, timeout=TIMEOUT)
+
     def sign_out(self):
         """Sign out: clear the local token and best-effort revoke it at Prism.
 

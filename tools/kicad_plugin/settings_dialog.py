@@ -19,14 +19,32 @@ def _c(hex_value):
     return wx.Colour(*th.hex_to_rgb(hex_value))
 
 
+def _swallow(fn):
+    """Run a best-effort background call, ignoring any failure.
+
+    Used for the sign-in cancel: telling the agent to stop is a courtesy, and if
+    it cannot be reached the flow still ends on its own timeout. Nothing the user
+    needs to see, so a failure here must not raise on the worker thread.
+    """
+    try:
+        fn()
+    except Exception:
+        pass
+
+
 class SettingsDialog(wx.Dialog):
     def __init__(self, parent, pal):
         super().__init__(
             parent,
             title="Prism settings",
-            size=wx.Size(520, 560),
+            # Wider than it was (520): several cards carry explanatory lines and a
+            # full email, which clipped on the right at the old width because the
+            # scroll window only scrolls vertically. A minimum size below keeps it
+            # from being dragged back into that state.
+            size=wx.Size(620, 620),
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
         )
+        self.SetMinSize(wx.Size(560, 480))
         self.pal = pal
         self.data = None
         self.SetBackgroundColour(_c(pal["background"]))
@@ -95,7 +113,7 @@ class SettingsDialog(wx.Dialog):
         except AgentUnavailable as exc:
             self.data = None
             card = Card(self.scroll, "Agent", self.pal)
-            card.body.Add(card.label(str(exc), tone="muted_fg"), 0)
+            card.body.Add(card.label(str(exc), tone="muted_fg", wrap=True), 0)
             self.content.Add(card, 0, wx.EXPAND)
             self._relayout()
             return
@@ -147,6 +165,7 @@ class SettingsDialog(wx.Dialog):
                 account.label(
                     identity.get("note") or "This server has authentication disabled.",
                     tone="muted_fg",
+                    wrap=True,
                 ),
                 0,
                 wx.BOTTOM,
@@ -183,6 +202,7 @@ class SettingsDialog(wx.Dialog):
                         "Not signed in. Sign in through your browser, the usual "
                         "way you log in to Prism.",
                         tone="muted_fg",
+                        wrap=True,
                     ),
                     0,
                     wx.BOTTOM,
@@ -216,6 +236,7 @@ class SettingsDialog(wx.Dialog):
                 "not shown again once saved.",
                 tone="muted_fg",
                 small=True,
+                wrap=True,
             ),
             0,
             wx.BOTTOM,
@@ -393,7 +414,7 @@ class SettingsDialog(wx.Dialog):
         except AgentUnavailable as exc:
             card.row("Status", "Unavailable", badge=True, tone="warning")
             card.body.Add(
-                card.label(str(exc), tone="muted_fg", small=True), 0, wx.TOP, th.SP_XS
+                card.label(str(exc), tone="muted_fg", small=True, wrap=True), 0, wx.TOP, th.SP_XS
             )
             self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
@@ -552,10 +573,14 @@ class SettingsDialog(wx.Dialog):
     def _sign_in(self):
         """Sign in through the browser, then redisplay the account state.
 
+        The agent opens the browser and waits for the user to approve, which can
+        take a while, or forever if they close the tab. So the blocking call runs
+        on a background thread while a cancellable progress dialog keeps KiCad's UI
+        alive. Doing it inline froze the main thread until the agent's timeout,
+        which read as KiCad hanging and got it force-killed.
+
         Saves the server URL first: the user may have typed a new one without
         pressing Save, and signing in to the old server would be quietly wrong.
-        The agent opens the browser and waits, so this can take a while, a busy
-        cursor says so rather than the dialog appearing to hang.
         """
         url = self.url.GetValue().strip()
         if not url:
@@ -565,12 +590,21 @@ class SettingsDialog(wx.Dialog):
             return
         try:
             AgentClient().save_settings({"server_url": url})
-            with wx.BusyCursor():
-                result = AgentClient().sign_in()
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
 
+        result = self._run_cancellable(
+            lambda: AgentClient().sign_in(),
+            message="Waiting for you to sign in in the browser…\n\n"
+            "Approve there, or press Cancel to stop.",
+            on_cancel=lambda: AgentClient().cancel_sign_in(),
+        )
+        if result is None:
+            return  # cancelled, unreachable, or errored, already surfaced
+
+        if result.get("cancelled"):
+            return
         if result.get("error"):
             wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
 
@@ -578,6 +612,62 @@ class SettingsDialog(wx.Dialog):
         self.content.Clear(delete_windows=True)
         self._render()
         self._relayout()
+
+    def _run_cancellable(self, work, *, message, on_cancel=None):
+        """Run a blocking agent call off the UI thread, with a Cancel button.
+
+        `work` runs on a daemon thread; meanwhile we pump the event loop behind a
+        pulsing progress dialog so KiCad stays responsive. Returns the call's
+        result, or None if the user cancelled or the call raised (which is shown).
+        `on_cancel` is invoked (best-effort) when the user cancels, so the agent
+        can be told to stop waiting rather than holding its listener open.
+        """
+        import threading
+
+        outcome = {}
+
+        def run():
+            try:
+                outcome["result"] = work()
+            except AgentUnavailable as exc:
+                outcome["error"] = str(exc)
+            except Exception as exc:  # never let the worker die silently
+                outcome["error"] = str(exc)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+
+        dlg = wx.ProgressDialog(
+            "Prism",
+            message,
+            maximum=100,
+            parent=self,
+            style=wx.PD_APP_MODAL | wx.PD_CAN_ABORT,
+        )
+        cancelled = False
+        try:
+            while thread.is_alive():
+                keep_going, _ = dlg.Pulse()
+                if not keep_going:
+                    cancelled = True
+                    break
+                wx.MilliSleep(100)
+        finally:
+            dlg.Destroy()
+
+        if cancelled:
+            # Tell the agent to abandon the flow, then let the worker unwind. Do
+            # not block the UI on it, best-effort, in the background.
+            if on_cancel is not None:
+                threading.Thread(
+                    target=lambda: _swallow(on_cancel), daemon=True
+                ).start()
+            return None
+
+        if "error" in outcome:
+            wx.MessageBox(outcome["error"], "Prism", wx.OK | wx.ICON_WARNING)
+            return None
+        return outcome.get("result")
 
     def _sign_out(self):
         if (
@@ -590,11 +680,13 @@ class SettingsDialog(wx.Dialog):
             != wx.YES
         ):
             return
-        try:
-            with wx.BusyCursor():
-                result = AgentClient().sign_out()
-        except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+        # Off the UI thread too: the server-side revoke can stall if Prism is
+        # unreachable, and a frozen KiCad is exactly the bug we are fixing.
+        result = self._run_cancellable(
+            lambda: AgentClient().sign_out(),
+            message="Signing out…",
+        )
+        if result is None:
             return
 
         # Signed out locally regardless; the warning only means Prism could not be

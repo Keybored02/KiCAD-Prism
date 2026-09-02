@@ -38,17 +38,47 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # How long to wait for the user to finish in the browser before giving up. Long
-# enough to type a password and approve, short enough that a forgotten flow does
-# not hold a listener open forever.
-LISTEN_TIMEOUT = 300
+# enough to type a password and approve, short enough that a forgotten flow (the
+# user closed the tab without approving) does not hold a listener open for ages.
+# The caller can cancel sooner, which is the common case, this is the backstop.
+LISTEN_TIMEOUT = 180
 
 # The redirect path the loopback listener answers on. Any path works; a fixed one
 # keeps the consent screen's "redirecting to 127.0.0.1/cb" legible.
 CALLBACK_PATH = "/cb"
 
+# The event a pending sign-in is waiting on, so a concurrent cancel can wake it.
+# There is only ever one interactive sign-in at a time (the user drives it), so a
+# single slot is enough; a fresh flow replaces any stale one. A cancelled flow is
+# distinguished from a completed one by _CANCELLED, set alongside.
+_pending_lock = threading.Lock()
+_pending_done: threading.Event | None = None
+_CANCELLED = "__cancelled__"
+
+
+def cancel_pending_sign_in() -> bool:
+    """Abandon a sign-in that is currently waiting on the browser.
+
+    Called when the user gives up (closed the tab, pressed Cancel). Wakes the
+    waiter so it stops holding the loopback listener open, rather than blocking
+    until LISTEN_TIMEOUT. Returns whether there was one to cancel.
+    """
+    with _pending_lock:
+        event = _pending_done
+    if event is None or event.is_set():
+        return False
+    # Mark the wake as a cancellation, then release the waiter.
+    setattr(event, _CANCELLED, True)
+    event.set()
+    return True
+
 
 class SignInError(Exception):
     """Sign-in could not complete, with a reason to show the user."""
+
+
+class SignInCancelled(SignInError):
+    """The user abandoned the flow before approving."""
 
 
 @dataclass
@@ -137,6 +167,12 @@ def sign_in(
     server = _CallbackServer()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+
+    # Publish this flow's event so cancel_pending_sign_in() can wake it. Replaces
+    # any stale slot; only one interactive sign-in runs at a time.
+    with _pending_lock:
+        global _pending_done
+        _pending_done = server.done
     try:
         params = {
             "response_type": "code",
@@ -163,6 +199,9 @@ def sign_in(
             raise SignInError(
                 "Timed out waiting for the browser to finish signing in."
             )
+        if getattr(server.done, _CANCELLED, False):
+            # Woken by cancel_pending_sign_in(), not by the browser.
+            raise SignInCancelled("Sign-in was cancelled.")
 
         query = server.query
         if query.get("error"):
@@ -177,6 +216,9 @@ def sign_in(
 
         return _exchange(base, code=code, redirect_uri=server.redirect_uri, verifier=verifier)
     finally:
+        with _pending_lock:
+            if _pending_done is server.done:
+                _pending_done = None
         server.shutdown()
         server.server_close()
 

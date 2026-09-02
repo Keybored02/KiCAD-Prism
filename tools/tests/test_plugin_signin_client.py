@@ -122,6 +122,13 @@ def test_sign_out_posts_to_signout(agent):
     assert call["path"] == "/signout"
 
 
+def test_cancel_sign_in_posts_to_signin_cancel(agent):
+    agent_client.AgentClient().cancel_sign_in()
+    call = agent.calls[-1]
+    assert call["method"] == "POST"
+    assert call["path"] == "/signin/cancel"
+
+
 def test_a_signin_error_from_the_agent_surfaces(agent):
     # The agent answers 400 with an error the plugin must show, not swallow.
     agent.reply = {"error": "Set the Prism server URL before signing in."}

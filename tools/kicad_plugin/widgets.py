@@ -819,6 +819,13 @@ class Card(wx.Panel):
         self.SetBackgroundColour(_c(pal["card"]))
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.Bind(wx.EVT_PAINT, self._on_paint)
+        # Labels asked to wrap, and the unwrapped text to re-flow from. StaticText
+        # wraps to a fixed pixel width, but the card's width is not known until it
+        # is laid out and changes when the dialog is resized, so we re-wrap on
+        # EVT_SIZE rather than guessing once at creation.
+        self._wrapping: list[tuple] = []
+        self._wrapping_in_progress = False
+        self.Bind(wx.EVT_SIZE, self._on_size)
 
         outer = wx.BoxSizer(wx.VERTICAL)
         inner = wx.BoxSizer(wx.VERTICAL)
@@ -833,12 +840,16 @@ class Card(wx.Panel):
         outer.Add(inner, 1, wx.EXPAND | wx.ALL, th.SP_MD)
         self.SetSizer(outer)
 
-    def label(self, text, tone="foreground", bold=False, small=False, mono=False):
+    def label(self, text, tone="foreground", bold=False, small=False, mono=False, wrap=False):
         """A StaticText that actually respects the theme.
 
         wx paints a StaticText's own background; left alone it uses the system
         default, so on a dark card you get theme-coloured text on a light block.
         Every label in a card must go through here.
+
+        `wrap=True` reflows long text to the card's width instead of letting it
+        run off the right edge (the settings dialog scrolls only vertically, so an
+        over-wide label clips). Wrapped labels re-flow when the dialog is resized.
         """
         st = wx.StaticText(self, label=str(text))
         st.SetBackgroundColour(_c(self.pal["card"]))
@@ -850,7 +861,35 @@ class Card(wx.Panel):
         if mono:
             f.SetFaceName(th.FONT_MONO_FAMILY)
         st.SetFont(f)
+        if wrap:
+            self._wrapping.append((st, str(text)))
+            self._wrap_one(st, str(text))
         return st
+
+    def _on_size(self, event):
+        # Wrap() re-lays the label, which can bounce back as another size event;
+        # guard against re-entering while we are already re-flowing.
+        if not self._wrapping_in_progress:
+            self._wrapping_in_progress = True
+            try:
+                for st, text in self._wrapping:
+                    self._wrap_one(st, text)
+            finally:
+                self._wrapping_in_progress = False
+        event.Skip()
+
+    def _wrap_one(self, st, text):
+        """Reflow one label to the card's current inner width.
+
+        Wrap() is destructive (it inserts line breaks), so we reset to the
+        original text first, or successive resizes would wrap already-wrapped
+        lines ever narrower.
+        """
+        width = self.GetClientSize().width - 2 * th.SP_MD
+        if width <= 0:
+            return
+        st.SetLabel(text)
+        st.Wrap(width)
 
     def _on_paint(self, _e):
         dc = wx.AutoBufferedPaintDC(self)
