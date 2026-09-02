@@ -258,6 +258,27 @@ class AgentClient:
             body["stash_message"] = stash_message
         return self._call("POST", "/pull", body, timeout=DIFF_TIMEOUT)
 
+    def commit(self, path, message, paths=None, allow_detached=False):
+        """Stage and commit. `paths` None commits everything; a list commits only those.
+
+        Refuses an empty message and a detached HEAD (unless `allow_detached`), so a
+        commit the user would lose on the next checkout is never made silently.
+        """
+        body = {"path": path, "message": message}
+        if paths is not None:
+            body["paths"] = paths
+        if allow_detached:
+            body["allow_detached"] = True
+        return self._call("POST", "/commit", body)
+
+    def create_branch(self, path, name, switch=True):
+        """Create a branch at HEAD, switching to it by default.
+
+        The remedy for commits stranded on a detached HEAD, and the everyday "start a
+        new branch here".
+        """
+        return self._call("POST", "/branch", {"path": path, "name": name, "switch": switch})
+
     def merge_plan(self, path, ref):
         """What merging `ref` would involve. Read-only: nothing moves."""
         return self._call(

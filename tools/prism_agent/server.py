@@ -23,6 +23,10 @@ Endpoints
                                      -> move the working tree to a commit/branch/tag
     POST /pull {path, stash_message?}
                                      -> fetch and FAST-FORWARD (never merge; see checkout)
+    POST /commit {path, message, paths?, allow_detached?}
+                                     -> stage and commit; refuses empty msg / detached HEAD
+    POST /branch {path, name, switch?}
+                                     -> create a branch at HEAD (the detached-HEAD remedy)
     POST /stash {path, message}      -> set uncommitted work aside
     POST /stash {path, restore:true} -> bring it back
     POST /quit                       -> stops the agent
@@ -564,6 +568,48 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             try:
                 self._send(200, checkout.pull(path, body.get("stash_message")))
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/commit":
+            # Stage and commit. Refuses an empty message, and refuses a detached HEAD
+            # unless the caller has offered "create a branch here" and set the flag, so a
+            # commit the user would lose on the next checkout is never made silently.
+            path = body.get("path") or ""
+            message = body.get("message") or ""
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            try:
+                self._send(
+                    200,
+                    checkout.commit(
+                        path,
+                        message,
+                        paths=body.get("paths"),
+                        allow_detached=bool(body.get("allow_detached")),
+                    ),
+                )
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/branch":
+            # Create a branch at HEAD (and switch to it by default). This is the remedy
+            # for commits stranded on a detached HEAD, and the everyday "start a branch".
+            path = body.get("path") or ""
+            name = body.get("name") or ""
+            if not path or not name:
+                self._send(400, {"error": "path and name are required"})
+                return
+            try:
+                self._send(
+                    200,
+                    checkout.create_branch(
+                        path, name, switch=body.get("switch", True)
+                    ),
+                )
             except checkout.CheckoutError as exc:
                 self._send(400, {"error": str(exc)})
             return

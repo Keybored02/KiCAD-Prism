@@ -696,6 +696,117 @@ def checkout(
     }
 
 
+def commit(
+    repo: str | Path,
+    message: str,
+    paths: list[str] | None = None,
+    allow_detached: bool = False,
+) -> dict:
+    """Stage and commit, refusing anything that would surprise the user.
+
+    `paths` names what to commit; None means everything tracked-and-modified plus what
+    is already staged (the "commit all" a Commit button offers). Naming paths is the
+    per-file case: only those are staged, the rest stays in the working tree.
+
+    Two guards that are not git's:
+
+      * **A message is required.** Git will open an editor; the agent has no editor and a
+        commit with no message is not one the user meant. Refuse with a reason.
+      * **A detached HEAD needs `allow_detached`.** Committing while detached puts the
+        commit on no branch, where the next checkout orphans it. That is exactly the
+        n10 trap, so the caller must have offered "create a branch here" and passed the
+        flag, rather than us silently making a commit the user will lose.
+
+    Returns the new sha and subject so the caller can show what landed. Does NOT push:
+    that is a separate, explicit act (see `push`).
+    """
+    path = Path(repo)
+    if not (path / ".git").exists():
+        raise CheckoutError("Not a git repository.")
+
+    subject = (message or "").strip()
+    if not subject:
+        raise CheckoutError("A commit needs a message.")
+
+    busy = in_progress(path)
+    if busy:
+        raise CheckoutError(f"There is {busy} in progress. Finish or abort it first.")
+
+    current = _git(path, "rev-parse", "--abbrev-ref", "HEAD", check=False)
+    if current == "HEAD" and not allow_detached:
+        raise CheckoutError(
+            "You are not on a branch (detached HEAD). A commit here would not be on any "
+            "branch and would be lost on the next checkout. Create a branch first."
+        )
+
+    # Stage. `--` so a path that looks like a flag or a ref cannot be reinterpreted.
+    if paths:
+        _git(path, "add", "--", *paths)
+    else:
+        # Everything modified/deleted that is tracked, plus new files. `-A` matches what
+        # the user sees as "my changes" in the panel. .gitignore keeps KiCad's churn out.
+        _git(path, "add", "-A")
+
+    dirt = dirty_files(path)
+    if not dirt["staged"]:
+        raise CheckoutError("There is nothing staged to commit.")
+
+    # --no-verify: the agent is not a place to run arbitrary commit hooks, and a hook
+    # that blocks (a linter prompt) would hang a headless commit. Same choice the merge
+    # commit path already makes.
+    _git(path, "commit", "--no-verify", "-m", subject)
+
+    sha = _git(path, "rev-parse", "HEAD", check=False)
+    return {
+        "ok": True,
+        "sha": sha,
+        "short": _git(path, "rev-parse", "--short", "HEAD", check=False),
+        "subject": subject,
+        "branch": "" if current == "HEAD" else current,
+        "committed": dirt["staged"],
+        "count": len(dirt["staged"]),
+    }
+
+
+def create_branch(repo: str | Path, name: str, switch: bool = True) -> dict:
+    """Create a branch at HEAD, optionally switching to it.
+
+    This is git's own remedy for "I have commits on a detached HEAD": name a branch at
+    the current commit and the work is no longer orphaned. Also the everyday "start a new
+    branch here". Switching (the default) attaches HEAD so subsequent commits land on it.
+
+    Refuses a name git would reject or one that already exists, with git's own reason,
+    rather than letting `git branch` fail opaquely.
+    """
+    path = Path(repo)
+    if not (path / ".git").exists():
+        raise CheckoutError("Not a git repository.")
+
+    branch = (name or "").strip()
+    if not branch:
+        raise CheckoutError("A branch needs a name.")
+    if _ok(path, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"):
+        raise CheckoutError(f"A branch named '{branch}' already exists.")
+
+    # `switch -c` creates and moves onto it; `branch` creates without moving. `--` is not
+    # accepted by these, so validate the name via check-ref-format instead of relying on
+    # positional safety.
+    if not _ok(path, "check-ref-format", "--branch", branch):
+        raise CheckoutError(f"'{branch}' is not a valid branch name.")
+
+    if switch:
+        _git(path, "switch", "-c", branch)
+    else:
+        _git(path, "branch", branch)
+
+    return {
+        "ok": True,
+        "branch": branch,
+        "switched": switch,
+        "sha": _git(path, "rev-parse", "HEAD", check=False),
+    }
+
+
 def pull(repo: str | Path, stash_message: str | None = None) -> dict:
     """Fetch and fast-forward the current branch.
 

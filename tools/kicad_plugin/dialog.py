@@ -1454,7 +1454,84 @@ class PrismDialog(wx.Dialog):
         if noise:
             self._add_noise(card, noise)
 
+        # A commit box, when there is design work to commit. KiCad's churn alone is not
+        # worth a commit prompt, that is what the .gitignore card is for.
+        if design:
+            self._add_commit_box(card)
+
         self.content.Add(card, 0, wx.EXPAND)
+
+    def _add_commit_box(self, card):
+        """A message field and a Commit button beneath the uncommitted changes.
+
+        Commits everything git sees as changed (the same set the list shows), which is the
+        common case; per-file staging can come later. A detached HEAD is handled by the
+        agent, which refuses and tells the user to make a branch first, surfaced here as a
+        prompt to create one.
+        """
+        card.body.Add(
+            card.label("Commit message", tone="muted_fg", small=True),
+            0,
+            wx.LEFT | wx.TOP,
+            th.SP_SM,
+        )
+        self.commit_message = wx.TextCtrl(card, value="", size=wx.Size(-1, 28))
+        self.commit_message.SetBackgroundColour(_c(self.pal["muted"]))
+        self.commit_message.SetForegroundColour(_c(self.pal["foreground"]))
+        card.body.Add(self.commit_message, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, th.SP_SM)
+        card.body.Add(
+            Button(card, "Commit", self.pal, variant="primary", on_click=self._commit),
+            0,
+            wx.LEFT | wx.TOP | wx.BOTTOM,
+            th.SP_SM,
+        )
+
+    def _commit(self):
+        """Commit the working changes. Handle the detached-HEAD case by offering a branch.
+
+        The agent refuses a detached commit; rather than dead-end the user, we offer to
+        create a branch here (git's own remedy) and then commit onto it.
+        """
+        project = (self.data or {}).get("project")
+        if not project or not project.get("repo_root"):
+            return
+        message = self.commit_message.GetValue().strip()
+        if not message:
+            wx.MessageBox("A commit needs a message.", "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        repo = project["repo_root"]
+        try:
+            with wx.BusyCursor():
+                AgentClient().commit(repo, message)
+        except AgentUnavailable as exc:
+            text = str(exc)
+            if "detached" in text.lower():
+                self._commit_on_new_branch(repo, message)
+                return
+            wx.MessageBox(text, "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        self._load()
+
+    def _commit_on_new_branch(self, repo, message):
+        """Offer to name a branch for a commit that would otherwise be detached."""
+        name = wx.GetTextFromUser(
+            "You're on a detached commit, so this would not be on any branch.\n\n"
+            "Name a branch to keep it on:",
+            "Create a branch",
+            "",
+        )
+        if not name.strip():
+            return
+        try:
+            with wx.BusyCursor():
+                AgentClient().create_branch(repo, name.strip())
+                AgentClient().commit(repo, message)
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+        self._load()
 
     def _add_noise(self, card, noise):
         """KiCad's generated files, folded away behind a count.

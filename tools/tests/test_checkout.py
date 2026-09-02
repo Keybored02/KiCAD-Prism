@@ -905,5 +905,99 @@ def test_a_stash_is_put_back_when_the_pull_is_refused_for_divergence(repo, clone
     assert checkout.stashes(clone) == []
 
 
+# -- committing ------------------------------------------------------------
+
+
+def test_commit_stages_all_and_records_the_message(repo):
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb v3)")
+    (repo / "notes.md").write_text("new file")
+
+    result = checkout.commit(repo, "reroute the power rail")
+
+    assert result["subject"] == "reroute the power rail"
+    assert result["branch"] == "main"
+    assert "board.kicad_pcb" in result["committed"]
+    assert "notes.md" in result["committed"]
+    # The tree is clean afterwards.
+    assert checkout.status(repo)["blocking"] == []
+
+
+def test_commit_only_named_paths_leaves_the_rest(repo):
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb v3)")
+    (repo / "notes.md").write_text("not this one")
+
+    checkout.commit(repo, "just the board", paths=["board.kicad_pcb"])
+
+    # notes.md is still uncommitted.
+    dirt = checkout.dirty_files(repo)
+    assert "notes.md" in dirt["untracked"]
+
+
+def test_commit_refuses_an_empty_message(repo):
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb v3)")
+    with pytest.raises(CheckoutError, match="needs a message"):
+        checkout.commit(repo, "   ")
+
+
+def test_commit_refuses_when_there_is_nothing_staged(repo):
+    with pytest.raises(CheckoutError, match="nothing staged"):
+        checkout.commit(repo, "empty")
+
+
+def test_commit_refuses_on_a_detached_head_by_default(repo):
+    checkout.checkout(repo, repo.first)  # detaches
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb detached edit)")
+    with pytest.raises(CheckoutError, match="detached"):
+        checkout.commit(repo, "on a detached head")
+
+
+def test_commit_allows_detached_when_explicitly_permitted(repo):
+    checkout.checkout(repo, repo.first)
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb detached edit)")
+    result = checkout.commit(repo, "deliberate detached commit", allow_detached=True)
+    assert result["branch"] == ""  # still no branch, as warned
+    assert result["sha"]
+
+
+# -- creating branches -----------------------------------------------------
+
+
+def test_create_branch_switches_onto_it(repo):
+    result = checkout.create_branch(repo, "feature/new-rail")
+    assert result["branch"] == "feature/new-rail"
+    assert result["switched"] is True
+    assert checkout.status(repo)["current_branch"] == "feature/new-rail"
+
+
+def test_create_branch_here_rescues_a_detached_commit(repo):
+    """The n10 remedy: commits made on a detached HEAD are orphaned; naming a branch at
+    that point keeps them."""
+    checkout.checkout(repo, repo.first)
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb work)")
+    checkout.commit(repo, "detached work", allow_detached=True)
+
+    checkout.create_branch(repo, "rescue")
+
+    # Now on a real branch, with the detached commit as its tip.
+    st = checkout.status(repo)
+    assert st["current_branch"] == "rescue"
+    assert st["detached"] is False
+
+
+def test_create_branch_refuses_a_duplicate_name(repo):
+    with pytest.raises(CheckoutError, match="already exists"):
+        checkout.create_branch(repo, "main")
+
+
+def test_create_branch_refuses_an_empty_name(repo):
+    with pytest.raises(CheckoutError, match="needs a name"):
+        checkout.create_branch(repo, "  ")
+
+
+def test_create_branch_refuses_an_invalid_name(repo):
+    with pytest.raises(CheckoutError, match="valid branch name"):
+        checkout.create_branch(repo, "bad..name")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
