@@ -112,6 +112,10 @@ class SwitchScheduler:
 
     def _watch(self, pending: PendingSwitch, cancel: threading.Event) -> None:
         """Wait for KiCad to close, then do the switch. Runs on its own thread."""
+        log.info(
+            "Switch scheduled: %s -> %s, watching KiCad pid %s",
+            pending.repo, pending.ref, pending.kicad_pid,
+        )
         deadline = pending.created + MAX_WAIT_SECONDS
         while not cancel.is_set():
             if not discovery._pid_alive(pending.kicad_pid):
@@ -131,6 +135,7 @@ class SwitchScheduler:
             return
 
         # KiCad is gone. Let the OS settle before touching the tree.
+        log.info("KiCad pid %s exited; performing switch to %s", pending.kicad_pid, pending.ref)
         time.sleep(SETTLE_SECONDS)
         self._clear_if_current(pending)
         self._perform(pending)
@@ -150,10 +155,15 @@ class SwitchScheduler:
         try:
             state = checkout.status(repo, pending.ref)
         except checkout.CheckoutError as exc:
+            log.warning("Switch to %s aborted: status failed: %s", pending.ref, exc)
             self._notify("Prism", "Couldn't switch to %s: %s" % (pending.ref, exc))
             return
 
         if not state["can"]:
+            log.warning(
+                "Switch to %s refused after close: reason=%s message=%s",
+                pending.ref, state.get("reason"), state.get("message"),
+            )
             # Dirty again, or the ref vanished. Do not stash or discard without asking;
             # tell the user and leave the tree as it is.
             self._notify(

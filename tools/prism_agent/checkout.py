@@ -191,17 +191,36 @@ def dirty_files(repo: Path) -> dict:
     }
 
 
+def _default_branch_name(repo: Path) -> str:
+    """The repo's default branch (main/master), or "" if it can't be told.
+
+    origin/HEAD is authoritative; a repo with no remote falls back to a local main or
+    master. Mirrors projects._default_branch, kept here so checkout has no import cycle
+    back to the status module.
+    """
+    ref = _git(
+        repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD", check=False
+    )
+    if ref:
+        return ref.split("/", 1)[1] if "/" in ref else ref
+    for name in ("main", "master"):
+        if _ok(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{name}"):
+            return name
+    return ""
+
+
 def list_branches(repo: str | Path) -> dict:
     """Local and remote-tracking branches, for a switch picker. Read-only.
 
-    Returns ``{current, local, remote}``. `current` is the checked-out branch (empty on a
-    detached HEAD). Remote branches are the ``origin/…`` refs that have no local branch of
-    the same name yet, so the picker can offer "check out a branch someone else pushed"
-    without listing every remote twice.
+    Returns ``{current, default, local, remote}``. `current` is the checked-out branch
+    (empty on a detached HEAD); `default` is the repo's default branch (main/master), so
+    the picker can mark it. Remote branches are the ``origin/…`` refs that have no local
+    branch of the same name yet, so the picker can offer "check out a branch someone else
+    pushed" without listing every remote twice.
     """
     path = Path(repo)
     if not (path / ".git").exists():
-        return {"current": "", "local": [], "remote": []}
+        return {"current": "", "default": "", "local": [], "remote": []}
 
     current = _git(path, "rev-parse", "--abbrev-ref", "HEAD", check=False)
     if current == "HEAD":
@@ -229,7 +248,12 @@ def list_branches(repo: str | Path) -> dict:
         if short not in local_set:
             remote.append(ref)
 
-    return {"current": current, "local": local, "remote": remote}
+    return {
+        "current": current,
+        "default": _default_branch_name(path),
+        "local": local,
+        "remote": remote,
+    }
 
 
 def resolve(repo: Path, ref: str) -> dict:
@@ -341,13 +365,21 @@ def status(repo: str | Path, ref: str = "") -> dict:
         )
         return result
 
+    # Same commit as HEAD. That is only "already here" when it would not move HEAD's ref:
+    # switching to a DIFFERENT branch that happens to point at the same commit (freshly
+    # branched, no divergence yet) still changes which branch you are on, and refusing it
+    # is exactly the "I picked a branch and nothing happened" bug. So allow a branch whose
+    # name differs from the current one; refuse only a same-commit no-op (the current
+    # branch itself, or a bare commit at HEAD).
     if ref and target.get("sha") == head:
-        result.update(
-            can=False,
-            reason="already_here",
-            message="The working tree is already at this commit.",
-        )
-        return result
+        moves_ref = target.get("kind") == "branch" and target.get("ref") != current
+        if not moves_ref:
+            result.update(
+                can=False,
+                reason="already_here",
+                message="The working tree is already at this commit.",
+            )
+            return result
 
     # An untracked file the TARGET also has. Git refuses these outright, and it is right
     # to: writing the committed version would destroy the local one. We have to catch it

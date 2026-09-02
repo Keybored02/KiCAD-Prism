@@ -147,6 +147,29 @@ def test_being_already_on_the_commit_is_reported_not_done_twice(repo):
     assert state["reason"] == "already_here"
 
 
+def test_switching_to_another_branch_at_the_same_commit_is_allowed(repo):
+    """A branch freshly cut from HEAD points at the same commit, but switching to it
+    still moves HEAD's ref. Refusing it as 'already here' is the 'I picked a branch and
+    nothing happened' bug: the branch must be switchable even at the same commit."""
+    git("branch", "side", cwd=repo)  # side == main == HEAD
+
+    state = checkout.status(repo, "side")
+    assert state["can"] is True
+    assert state["reason"] == ""
+
+    result = checkout.checkout(repo, "side")
+    assert result["branch"] == "side"
+    assert result["detached"] is False
+
+
+def test_re_selecting_the_current_branch_is_still_a_no_op(repo):
+    """The same-commit allowance is only for a DIFFERENT branch. Picking the branch you
+    are already on changes nothing, so it stays 'already here'."""
+    state = checkout.status(repo, "main")  # already on main
+    assert state["can"] is False
+    assert state["reason"] == "already_here"
+
+
 def test_a_folder_that_is_not_a_repo_is_refused(tmp_path):
     plain = tmp_path / "plain"
     plain.mkdir()
@@ -672,6 +695,25 @@ def test_being_on_a_branch_is_not_reported_as_detached(repo):
     assert st.on_branches == []
 
 
+def test_git_status_marks_the_default_branch(repo):
+    """On main (the default), the UI should be told so it can say 'default'."""
+    from prism_agent.projects import git_status
+
+    st = git_status(repo)
+    assert st.default_branch == "main"
+    assert st.on_default is True
+
+
+def test_git_status_does_not_mark_a_feature_branch_as_default(repo):
+    from prism_agent.projects import git_status
+
+    checkout.create_branch(repo, "feature/x", switch=True)
+    st = git_status(repo)
+    assert st.branch == "feature/x"
+    assert st.default_branch == "main"
+    assert st.on_default is False
+
+
 def test_a_detached_head_reports_the_branch_tip_to_compare_against(repo):
     """Current commit and Latest commit, side by side. Two rows that differ say "you are
     behind" on their own; a paragraph explaining it says the same thing twice."""
@@ -1102,6 +1144,14 @@ def test_list_branches_names_the_current_one(repo):
 def test_list_branches_current_is_empty_when_detached(repo):
     checkout.checkout(repo, repo.first)
     assert checkout.list_branches(repo)["current"] == ""
+
+
+def test_list_branches_names_the_default_branch(repo):
+    """With no remote, the default falls back to a local main/master so the picker can
+    still mark it."""
+    checkout.create_branch(repo, "feature/x", switch=False)
+    data = checkout.list_branches(repo)
+    assert data["default"] == "main"
 
 
 def test_list_branches_surfaces_remote_only_branches(bare_and_clone, tmp_path):

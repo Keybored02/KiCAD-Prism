@@ -51,6 +51,12 @@ class GitStatus:
     # commit: two rows that differ say "you are behind" without a paragraph saying it.
     tip_commit: str = ""
     tip_commit_hash: str = ""
+    # The repo's default branch (what origin/HEAD points at, e.g. "main" or "master"),
+    # empty if it can't be determined. Lets the UI say "you are on the default branch"
+    # rather than leaving the user to know by heart which of main/master this repo uses.
+    default_branch: str = ""
+    # Is the checked-out branch the default one? Only meaningful when attached.
+    on_default: bool = False
     ahead: int = 0
     behind: int = 0
     staged: list[str] = field(default_factory=list)
@@ -147,6 +153,29 @@ def identify_project(path: str | Path) -> Project | None:
     )
 
 
+def _default_branch(repo: Path) -> str:
+    """The repo's default branch name, or "" if it can't be told.
+
+    origin/HEAD is the authoritative answer, it is the symref the remote reports as its
+    default. When there is no remote (a repo not yet pushed), fall back to a local main
+    or master so a fresh local repo still gets marked. Never guesses beyond those two:
+    marking the wrong branch as "default" is worse than marking none.
+    """
+    try:
+        ref = _run_git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+        # "origin/main" -> "main"
+        return ref.split("/", 1)[1] if "/" in ref else ref
+    except Exception:
+        pass
+    for name in ("main", "master"):
+        try:
+            if _run_git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}"):
+                return name
+        except Exception:
+            continue
+    return ""
+
+
 def git_status(repo_root: str | Path) -> GitStatus:
     """Branch, divergence and working-tree state for a repo."""
     repo = Path(repo_root)
@@ -158,6 +187,10 @@ def git_status(repo_root: str | Path) -> GitStatus:
         st.branch = _run_git(repo, "rev-parse", "--abbrev-ref", "HEAD")
     except Exception:
         return st  # not a repo / no commits yet, an empty status is the truth
+
+    # The default branch, so the UI can mark it. Prefer what origin/HEAD points at; fall
+    # back to a local main/master. Empty is fine, it just means "don't mark one".
+    st.default_branch = _default_branch(repo)
 
     if st.branch == "HEAD":
         # Detached: rev-parse returns the literal string "HEAD", which is not a branch
@@ -174,6 +207,12 @@ def git_status(repo_root: str | Path) -> GitStatus:
                 repo, "branch", "--contains", "HEAD", "--format=%(refname:short)"
             )
             st.on_branches = [b for b in containing.splitlines() if b and "(" not in b]
+            # If the default branch contains this commit, name it first: "an older commit
+            # on main" is the answer the user expects, not an arbitrary other branch that
+            # also happens to contain it.
+            if st.default_branch in st.on_branches:
+                st.on_branches.remove(st.default_branch)
+                st.on_branches.insert(0, st.default_branch)
         except Exception:
             pass
 
@@ -190,6 +229,8 @@ def git_status(repo_root: str | Path) -> GitStatus:
                 )
             except Exception:
                 pass
+    else:
+        st.on_default = bool(st.default_branch) and st.branch == st.default_branch
 
     # Porcelain v1, NUL-separated: XY <path>\0.
     #

@@ -719,35 +719,51 @@ class PrismDialog(wx.Dialog):
     def _render_branch_tag(self, git):
         """The branch tag beside the project name.
 
-        Opening a commit detaches HEAD, and the tag used to vanish: the project appeared
-        to belong to no branch at all, which is alarming and false. You are still on the
-        same branch's history, you are just parked at an older point on it.
+        Always names the actual branch, never a bare "HEAD". Three things the user wants
+        to read at a glance, so all three are here:
 
-        So when detached we keep showing the branch, marked as not-current. Which branch:
-        the one containing this commit, preferring the one you were on.
+          - the real branch name (e.g. "feat/panelize"), not the ref git happens to
+            report;
+          - whether that is the repo's default branch (main/master), shown as a
+            "default" suffix so the user need not remember which name this repo uses;
+          - whether HEAD is actually at the tip of it. Detached means "no", and it is
+            marked in warning tone with a tooltip that says so.
         """
         git = git or {}
         branch = git.get("branch") or ""
+        default = git.get("default_branch") or ""
 
         if branch:
-            self.branch.set_label(branch, tone="muted")
-            self.branch.SetToolTip("Current git branch")
+            # On a branch, at its tip. Name it, and mark the default one so "am I on
+            # main?" is answered without knowing this repo uses main over master.
+            if git.get("on_default") or (default and branch == default):
+                self.branch.set_label("%s  default" % branch, tone="muted")
+                self.branch.SetToolTip("On the default branch (%s)." % branch)
+            else:
+                self.branch.set_label(branch, tone="muted")
+                self.branch.SetToolTip("On branch %s." % branch)
             self.branch.Show()
             return
 
         if git.get("detached"):
             on = git.get("on_branches") or []
-            # Marked, not hidden. The tag still answers "which board history am I in?",
-            # and the tone plus the tooltip answer "and am I at the tip of it?".
+            # Detached: not at the tip of anything. Still name the branch this commit
+            # lives on (the default is listed first when it qualifies), and mark it
+            # warning so the tag itself says "you are behind the tip".
             if on:
-                self.branch.set_label(on[0], tone="warning")
+                name = on[0]
+                suffix = "  default" if name == default else ""
+                self.branch.set_label("%s%s" % (name, suffix), tone="warning")
                 self.branch.SetToolTip(
-                    "Viewing an older commit on %s. You are not at the tip of the "
-                    "branch." % on[0]
+                    "Viewing an older commit on %s. You are behind the tip of the "
+                    "branch." % name
                 )
             else:
-                self.branch.set_label("no branch", tone="warning")
-                self.branch.SetToolTip("Not on a branch (detached HEAD).")
+                self.branch.set_label("detached", tone="warning")
+                self.branch.SetToolTip(
+                    "Not on any branch (detached HEAD). Create a branch to keep work "
+                    "here."
+                )
             self.branch.Show()
             return
 
@@ -1043,20 +1059,23 @@ class PrismDialog(wx.Dialog):
             return
 
         current = data.get("current") or ""
+        default = data.get("default") or ""
         local = [b for b in (data.get("local") or []) if b != current]
         remote = data.get("remote") or []
 
         # Build labelled choices, and a map from each label back to the ref to check out.
         # A remote branch (origin/feature) is checked out by its SHORT name (feature) so
-        # git creates a local tracking branch instead of detaching HEAD.
+        # git creates a local tracking branch instead of detaching HEAD. The default
+        # branch is marked so the user does not have to recall which of main/master it is.
         ref_for = {}
         choices = []
         for b in local:
-            choices.append(b)
-            ref_for[b] = b
+            label = "%s  (default)" % b if b == default else b
+            choices.append(label)
+            ref_for[label] = b
         for r in remote:
             short = r.split("/", 1)[1] if "/" in r else r
-            label = "%s  (remote)" % short
+            label = "%s  (remote, default)" % short if short == default else "%s  (remote)" % short
             choices.append(label)
             ref_for[label] = short
 

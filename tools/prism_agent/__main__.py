@@ -35,6 +35,36 @@ from .server import VERSION, serve
 log = logging.getLogger(__name__)
 
 
+def _setup_logging() -> None:
+    """Log to a rotating file in the config dir, so the detached agent leaves a trail.
+
+    The agent has no console, so a bare `logging` call vanishes. That is fine until
+    something fails where the user cannot see it, a scheduled branch switch that quietly
+    does nothing being the case that prompted this. A small rotating file costs nothing
+    and turns "it just didn't switch" into a line we can read.
+
+    Best-effort: if the file can't be opened (a read-only dir, a locked file), fall back
+    to stderr and carry on. Logging must never be the thing that stops the agent.
+    """
+    root = logging.getLogger()
+    if root.handlers:
+        return  # a --notify/--open-url child may have set this up already
+    root.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    try:
+        from logging.handlers import RotatingFileHandler
+
+        path = discovery.config_dir() / "agent.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler: logging.Handler = RotatingFileHandler(
+            path, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        )
+    except Exception:
+        handler = logging.StreamHandler()
+    handler.setFormatter(fmt)
+    root.addHandler(handler)
+
+
 def _assets_dir() -> Path:
     """Where the icons live, which differs once we're a frozen binary.
 
@@ -790,6 +820,8 @@ def main() -> int:
 
         os.environ["PRISM_PROFILE"] = args.profile
         discovery.PROFILE = args.profile if is_known(args.profile) else discovery.PROFILE
+
+    _setup_logging()
 
     if args.open_url:
         return _handle_url(args.open_url)
