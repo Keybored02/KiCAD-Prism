@@ -15,6 +15,8 @@ Endpoints
     GET  /checkout?path=&ref=        -> could we check this ref out, and if not, why not
     GET  /stash?path=<path>          -> what the user has set aside
     PUT  /settings {..}              -> updates and re-points the backend client
+    POST /signin {label?}            -> browser loopback sign-in; saves the token
+    POST /signout                    -> clears the token, revokes it server-side
     POST /open-in-prism {project_id} -> opens the web app in the browser
     POST /publish {path, name}       -> commit if needed, reserve a repo, push, register
     POST /checkout {path, ref, stash_message?}
@@ -65,6 +67,7 @@ from . import (
     protocol,
     remote_library,
     settings as settings_store,
+    signin,
 )
 from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
@@ -484,6 +487,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True})
             return
 
+        if route.path == "/signin":
+            self._send(*self._sign_in(body))
+            return
+
+        if route.path == "/signout":
+            self._send(200, self._sign_out())
+            return
+
         if route.path == "/library":
             server = settings_store.load().server_url
             try:
@@ -726,6 +737,60 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         self._send(404, {"error": "not found"})
+
+    # -- sign in / out -----------------------------------------------------
+
+    def _sign_in(self, body: dict) -> tuple[int, dict]:
+        """Run the browser loopback flow, save the token, re-point the client.
+
+        Returns (status, payload) so the caller can surface a 400 with the real
+        reason. On success the payload is the fresh settings view, so the UI can
+        re-render "signed in as ..." from one round trip.
+        """
+        server_url = settings_store.load().server_url
+        if not server_url:
+            return 400, {"error": "Set the Prism server URL before signing in."}
+
+        # A label the user recognises in their token list. The machine's hostname
+        # is the least surprising default, "my-laptop" beats an opaque id when it
+        # comes time to revoke.
+        import socket as _socket
+
+        label = (body.get("label") or "").strip() or _socket.gethostname()
+
+        try:
+            result = signin.sign_in(server_url, label=label)
+        except signin.SignInError as exc:
+            return 400, {"error": str(exc)}
+
+        saved = settings_store.update(api_token=result.token)
+        self.state.rebuild_client(saved)
+        payload = self._settings_payload()
+        payload["ok"] = True
+        return 200, payload
+
+    def _sign_out(self) -> dict:
+        """Clear the local token, and best-effort revoke it server-side.
+
+        Clearing locally is what signs this agent out; the server revoke also
+        kills a copy of the token elsewhere but must not trap the user signed in
+        when the server is unreachable, so its failure is reported, not fatal.
+        """
+        current = settings_store.load()
+        revoked = signin.sign_out(current.server_url, current.api_token)
+        # Store an empty token directly. `apply()` writes "" through (only None is
+        # "leave alone"), so this removes it; the "empty means leave alone" rule is
+        # a /settings route convention, not a settings-store one.
+        saved = settings_store.update(api_token="")
+        self.state.rebuild_client(saved)
+        payload = self._settings_payload()
+        payload["ok"] = True
+        if not revoked and current.api_token:
+            payload["warning"] = (
+                "Signed out on this machine, but Prism could not be reached to "
+                "revoke the token. Revoke it from the web console if needed."
+            )
+        return payload
 
     # -- settings ----------------------------------------------------------
 

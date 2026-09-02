@@ -93,11 +93,27 @@ class PrismClient:
         """Who the backend thinks we are, or None if we're not authenticated."""
         return self._request("GET", "/api/auth/me")
 
+    def agent_config(self) -> dict | None:
+        """Whether this server wants the agent to sign in.
+
+        Returns ``{"sign_in_required": bool}`` from ``/api/agent/config``. None
+        when the server is unreachable or too old to have the endpoint, in which
+        case the caller falls back to the general auth config: an old server has
+        no agent sign-in to offer anyway.
+        """
+        return self._request("GET", "/api/agent/config")
+
     def identity(self) -> dict:
         """A summary the settings UI can render without knowing about OIDC."""
         cfg = self.auth_config()
         if cfg is None:
-            return {"reachable": False, "auth_enabled": False, "user": None}
+            return {
+                "reachable": False,
+                "auth_enabled": False,
+                "user": None,
+                "sign_in_required": False,
+                "signed_in": False,
+            }
 
         if not cfg.get("auth_enabled"):
             return {
@@ -105,15 +121,32 @@ class PrismClient:
                 "auth_enabled": False,
                 "user": None,
                 "provider": "",
+                "sign_in_required": False,
+                "signed_in": False,
                 # Say why there's nothing to sign into, so the UI isn't just blank.
                 "note": "This server has authentication disabled, every request is a guest.",
             }
 
+        # Whether the agent needs its own token here. The dedicated endpoint is
+        # authoritative; a server too old to have it still authenticates over the
+        # general auth config, so auth_enabled is the fallback answer.
+        agent_cfg = self.agent_config()
+        sign_in_required = (
+            bool(agent_cfg.get("sign_in_required"))
+            if isinstance(agent_cfg, dict)
+            else True
+        )
+        user = self.me()
         return {
             "reachable": True,
             "auth_enabled": True,
             "provider": cfg.get("oidc_provider_name", ""),
-            "user": self.me(),
+            "user": user,
+            # The agent has a working token exactly when the server both wants one
+            # and accepts the one we sent (me() is None when the token is missing,
+            # wrong, expired, or revoked).
+            "sign_in_required": sign_in_required,
+            "signed_in": bool(user),
         }
 
     def find_project(self, path: str) -> dict | None:
