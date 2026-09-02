@@ -128,6 +128,13 @@ def test_a_signin_error_from_the_agent_surfaces(agent):
 
     class Erroring(_FakeAgent):
         def _handle(self):  # noqa: D401
+            # Drain the request body before replying. Answering 400 while the
+            # client is still writing its POST body closes the socket mid-write,
+            # which surfaces as a connection error instead of the 400 detail and
+            # makes the test flaky. Reading it first makes the 400 reliable.
+            n = int(self.headers.get("Content-Length") or 0)
+            if n:
+                self.rfile.read(n)
             out = json.dumps({"error": "boom"}).encode()
             self.send_response(400)
             self.send_header("Content-Type", "application/json")
