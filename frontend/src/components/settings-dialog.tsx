@@ -11,7 +11,7 @@ import { User, UserRole } from "@/types/auth";
 import { fetchApi, readApiError } from "@/lib/api";
 import { changeOwnPassword, fetchAuthConfig } from "@/lib/auth";
 import { ROLE_OPTIONS, roleLabel } from "@/lib/roles";
-import { AgentTokensSettings } from "@/components/agent-tokens";
+import { AgentTokensForUser, useAgentTokens } from "@/components/agent-tokens";
 
 interface SettingsDialogProps {
     open: boolean;
@@ -19,7 +19,7 @@ interface SettingsDialogProps {
     user: User | null;
 }
 
-type SettingsTab = "git" | "access" | "agents" | "general";
+type SettingsTab = "git" | "access" | "general";
 
 interface RoleAssignment {
     email: string;
@@ -64,15 +64,6 @@ export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps
                     </Button>
 
                     <Button
-                        variant={activeTab === "agents" ? "secondary" : "ghost"}
-                        className="justify-start"
-                        onClick={() => setActiveTab("agents")}
-                    >
-                        <Cpu className="mr-2 h-4 w-4" />
-                        Agent tokens
-                    </Button>
-
-                    <Button
                         variant={activeTab === "general" ? "secondary" : "ghost"}
                         className="justify-start"
                         onClick={() => setActiveTab("general")}
@@ -84,8 +75,7 @@ export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps
 
                 <div className="flex-1 overflow-y-auto p-6">
                     {activeTab === "git" && <GitSettings user={user} />}
-                    {activeTab === "access" && <AccessControlSettings isAdmin={isAdmin} />}
-                    {activeTab === "agents" && <AgentTokensSettings isAdmin={isAdmin} />}
+                    {activeTab === "access" && <AccessControlSettings isAdmin={isAdmin} currentUser={user} />}
                     {activeTab === "general" && <PasswordSettings />}
                 </div>
             </DialogContent>
@@ -608,14 +598,24 @@ function GitSettings({ user }: { user: User | null }) {
     );
 }
 
-function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
+function AccessControlSettings({
+    isAdmin,
+    currentUser,
+}: {
+    isAdmin: boolean;
+    currentUser: User | null;
+}) {
     const [loading, setLoading] = useState(false);
     const [assignments, setAssignments] = useState<RoleAssignment[]>([]);
     const [newEmail, setNewEmail] = useState("");
     const [newRole, setNewRole] = useState<UserRole>("viewer");
     const [passwordAuthEnabled, setPasswordAuthEnabled] = useState(false);
+    // Which user's agent tokens are expanded, by email. Only one at a time keeps
+    // the list short.
+    const [expandedTokens, setExpandedTokens] = useState<string | null>(null);
     // The dialog names the person, so it holds the email rather than a boolean.
     const removalTarget = useConfirmTarget<string>();
+    const agentTokens = useAgentTokens(isAdmin);
 
     const loadAssignments = useCallback(async () => {
         if (!isAdmin) {
@@ -630,14 +630,24 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
                 throw new Error(await readApiError(response, "Failed to load role assignments"));
             }
             const data = (await response.json()) as RoleAssignment[];
-            setAssignments(data);
+            // The signed-in admin may hold their role from OIDC without a stored
+            // assignment or a bootstrap entry, so the listing would omit their own
+            // account. Merge it in, marked as the live session, so an admin always
+            // sees themselves, including their own agent tokens.
+            const merged = [...data];
+            const email = currentUser?.email?.trim().toLowerCase();
+            if (email && !merged.some((row) => row.email.trim().toLowerCase() === email)) {
+                merged.push({ email, role: currentUser!.role, source: "session" });
+                merged.sort((a, b) => a.email.localeCompare(b.email));
+            }
+            setAssignments(merged);
         } catch (error) {
             const message = error instanceof Error ? error.message : "Failed to load role assignments";
             toast.error(message);
         } finally {
             setLoading(false);
         }
-    }, [isAdmin]);
+    }, [isAdmin, currentUser]);
 
     useEffect(() => {
         void loadAssignments();
@@ -793,59 +803,83 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
                 ) : (
                     assignments.map((assignment) => {
                         const isBootstrap = assignment.source === "bootstrap";
+                        const emailKey = assignment.email.trim().toLowerCase();
+                        const tokens = agentTokens.byEmail[emailKey] ?? [];
+                        const expanded = expandedTokens === emailKey;
                         return (
-                            <div
-                                key={assignment.email}
-                                className="grid grid-cols-[2fr_1fr_1fr_auto] items-center border-b px-4 py-2 gap-2"
-                            >
-                                <div className="truncate text-sm">{assignment.email}</div>
-                                <select
-                                    aria-label={`Role for ${assignment.email}`}
-                                    className="h-8 rounded-md border bg-background px-2 text-sm"
-                                    value={assignment.role}
-                                    disabled={isBootstrap}
-                                    onChange={(event) =>
-                                        void upsertRole(assignment.email, event.target.value as UserRole)
-                                    }
-                                >
-                                    {ROLE_OPTIONS.map((role) => (
-                                        <option key={role} value={role}>{roleLabel(role)}</option>
-                                    ))}
-                                </select>
-                                <div className="text-sm text-muted-foreground">{assignment.source}</div>
-                                <div className="flex justify-end gap-1">
-                                    {passwordAuthEnabled && (
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => { setPasswordEmail(assignment.email); setPasswordValue(""); }}
-                                            aria-label={`Set password for ${assignment.email}`}
-                                            title={assignment.has_password ? "Reset password" : "Set password"}
-                                        >
-                                            <KeyRound className={`h-4 w-4 ${assignment.has_password ? "text-primary" : ""}`} />
-                                        </Button>
-                                    )}
-                                    {passwordAuthEnabled && assignment.has_password && (
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => void removePassword(assignment.email)}
-                                            aria-label={`Remove local password for ${assignment.email}`}
-                                            title="Remove local password"
-                                        >
-                                            <Trash2 className="h-4 w-4 text-muted-foreground" />
-                                        </Button>
-                                    )}
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
+                            <div key={assignment.email} className="border-b">
+                                <div className="grid grid-cols-[2fr_1fr_1fr_auto] items-center px-4 py-2 gap-2">
+                                    <div className="truncate text-sm">{assignment.email}</div>
+                                    <select
+                                        aria-label={`Role for ${assignment.email}`}
+                                        className="h-8 rounded-md border bg-background px-2 text-sm"
+                                        value={assignment.role}
                                         disabled={isBootstrap}
-                                        onClick={() => removalTarget.request(assignment.email)}
-                                        aria-label={`Remove role assignment for ${assignment.email}`}
+                                        onChange={(event) =>
+                                            void upsertRole(assignment.email, event.target.value as UserRole)
+                                        }
                                     >
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
+                                        {ROLE_OPTIONS.map((role) => (
+                                            <option key={role} value={role}>{roleLabel(role)}</option>
+                                        ))}
+                                    </select>
+                                    <div className="text-sm text-muted-foreground">{assignment.source}</div>
+                                    <div className="flex justify-end items-center gap-1">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setExpandedTokens(expanded ? null : emailKey)}
+                                            aria-expanded={expanded}
+                                            aria-label={`${expanded ? "Hide" : "Show"} agent tokens for ${assignment.email}`}
+                                            title="Agent tokens"
+                                        >
+                                            <Cpu className="h-4 w-4" />
+                                            {tokens.length > 0 ? tokens.length : ""}
+                                        </Button>
+                                        {passwordAuthEnabled && (
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => { setPasswordEmail(assignment.email); setPasswordValue(""); }}
+                                                aria-label={`Set password for ${assignment.email}`}
+                                                title={assignment.has_password ? "Reset password" : "Set password"}
+                                            >
+                                                <KeyRound className={`h-4 w-4 ${assignment.has_password ? "text-primary" : ""}`} />
+                                            </Button>
+                                        )}
+                                        {passwordAuthEnabled && assignment.has_password && (
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => void removePassword(assignment.email)}
+                                                aria-label={`Remove local password for ${assignment.email}`}
+                                                title="Remove local password"
+                                            >
+                                                <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                            </Button>
+                                        )}
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            disabled={isBootstrap}
+                                            onClick={() => removalTarget.request(assignment.email)}
+                                            aria-label={`Remove role assignment for ${assignment.email}`}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
                                 </div>
+                                {expanded && (
+                                    <div className="px-4 pb-3 pt-1 bg-muted/20">
+                                        {agentTokens.loading ? (
+                                            <p className="text-xs text-muted-foreground px-3 py-2">
+                                                Loading tokens…
+                                            </p>
+                                        ) : (
+                                            <AgentTokensForUser tokens={tokens} onRevoke={agentTokens.revoke} />
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         );
                     })

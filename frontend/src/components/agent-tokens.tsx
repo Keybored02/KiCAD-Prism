@@ -1,21 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
 import { fetchApi, readApiError } from "@/lib/api";
 
 /**
  * Agent tokens: the tokens a KiCad desktop agent holds to act on Prism as a
- * user. Every user sees and revokes their own; an admin can switch to every
- * user's and revoke any of them. The one backend endpoint honours `all_users`
- * only for admins, so a non-admin who somehow set the flag still sees just their
- * own, this UI just does not offer it to them.
+ * user. These are managed inside the admin Access Control page, per user, rather
+ * than on their own tab, an admin sees every account and can revoke any of its
+ * agent tokens from the same place they manage its role.
+ *
+ * Access Control is admin-only, so loading every user's tokens (all_users=true,
+ * which the backend honours for admins) is always in scope here.
  */
 
-interface AgentToken {
+export interface AgentToken {
     jti: string;
     email: string;
     label: string;
@@ -26,144 +25,122 @@ interface AgentToken {
 }
 
 function formatIso(value: string | null): string {
-    if (!value) return "Never";
+    if (!value) return "never";
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? "unknown" : date.toLocaleString();
 }
 
 function formatEpoch(seconds: number): string {
-    if (!seconds) return "Unknown";
+    if (!seconds) return "unknown";
     const date = new Date(seconds * 1000);
-    return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? "unknown" : date.toLocaleString();
 }
 
-export function AgentTokensSettings({ isAdmin }: { isAdmin: boolean }) {
-    const [tokens, setTokens] = useState<AgentToken[]>([]);
+/**
+ * Loads every user's agent tokens once and groups them by email, so each user
+ * row in Access Control can show its own without a request per row. `enabled`
+ * gates the fetch (it only makes sense for an admin viewing the page).
+ */
+export function useAgentTokens(enabled: boolean) {
+    const [byEmail, setByEmail] = useState<Record<string, AgentToken[]>>({});
     const [loading, setLoading] = useState(false);
-    const [allUsers, setAllUsers] = useState(false);
-    // Holds the whole token so the confirm dialog can name it.
-    const revokeTarget = useConfirmTarget<AgentToken>();
 
-    const loadTokens = useCallback(async () => {
+    const reload = useCallback(async () => {
+        if (!enabled) {
+            setByEmail({});
+            return;
+        }
         setLoading(true);
         try {
-            // Only ask for everyone's when an admin has chosen to. The server
-            // ignores the flag for non-admins, but not sending it keeps intent honest.
-            const query = isAdmin && allUsers ? "?all_users=true" : "";
-            const response = await fetchApi(`/api/agent/tokens${query}`);
+            const response = await fetchApi("/api/agent/tokens?all_users=true");
             if (!response.ok) {
                 throw new Error(await readApiError(response, "Failed to load agent tokens"));
             }
-            setTokens((await response.json()) as AgentToken[]);
+            const tokens = (await response.json()) as AgentToken[];
+            const grouped: Record<string, AgentToken[]> = {};
+            for (const token of tokens) {
+                const key = token.email.trim().toLowerCase();
+                (grouped[key] ??= []).push(token);
+            }
+            setByEmail(grouped);
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to load agent tokens");
         } finally {
             setLoading(false);
         }
-    }, [isAdmin, allUsers]);
+    }, [enabled]);
 
     useEffect(() => {
-        void loadTokens();
-    }, [loadTokens]);
+        void reload();
+    }, [reload]);
 
-    const revokeToken = async (token: AgentToken) => {
-        revokeTarget.clear();
-        try {
-            const response = await fetchApi(`/api/agent/tokens/${encodeURIComponent(token.jti)}`, {
-                method: "DELETE",
-            });
-            if (!response.ok) {
-                throw new Error(await readApiError(response, "Failed to revoke token"));
+    const revoke = useCallback(
+        async (jti: string) => {
+            try {
+                const response = await fetchApi(`/api/agent/tokens/${encodeURIComponent(jti)}`, {
+                    method: "DELETE",
+                });
+                if (!response.ok) {
+                    throw new Error(await readApiError(response, "Failed to revoke token"));
+                }
+                toast.success("Agent token revoked");
+                await reload();
+            } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Failed to revoke token");
             }
-            toast.success("Agent token revoked");
-            await loadTokens();
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : "Failed to revoke token");
-        }
-    };
+        },
+        [reload],
+    );
 
-    // Admins see whose token each row is when viewing everyone's.
-    const showEmail = isAdmin && allUsers;
+    return { byEmail, loading, reload, revoke };
+}
+
+/**
+ * One user's agent tokens, with a Revoke button per token. Rendered inside that
+ * user's Access Control row when it is expanded.
+ */
+export function AgentTokensForUser({
+    tokens,
+    onRevoke,
+}: {
+    tokens: AgentToken[];
+    onRevoke: (jti: string) => void | Promise<void>;
+}) {
+    const revokeTarget = useConfirmTarget<AgentToken>();
+
+    if (tokens.length === 0) {
+        return (
+            <p className="text-xs text-muted-foreground italic px-3 py-2">
+                No agent tokens. This user signs in from the KiCad agent to create one.
+            </p>
+        );
+    }
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h3 className="text-lg font-medium">Agent tokens</h3>
-                <p className="text-sm text-muted-foreground">
-                    Tokens a KiCad agent uses to act on Prism as you. Revoking one signs that
-                    machine out immediately.
-                </p>
-            </div>
-
-            <div className="space-y-3 border rounded-lg p-4 bg-card">
-                <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-0.5">
-                        <Label className="text-base">Your agent tokens</Label>
-                        <p className="text-sm text-muted-foreground">
-                            Sign in from the KiCad agent to create one.
+        <div className="divide-y rounded-md border bg-background">
+            {tokens.map((token) => (
+                <div key={token.jti} className="flex items-start justify-between gap-3 p-3">
+                    <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{token.label || "Unnamed agent"}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                            {token.scopes.join(", ")}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                            Last used {formatIso(token.last_used_at)} · Expires{" "}
+                            {formatEpoch(token.expires_at)}
                         </p>
                     </div>
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void loadTokens()}
-                        disabled={loading}
+                        className="shrink-0"
+                        onClick={() => revokeTarget.request(token)}
+                        aria-label={`Revoke token ${token.label || token.jti}`}
                     >
-                        <RefreshCw className="h-4 w-4" />
-                        Refresh
+                        Revoke
                     </Button>
                 </div>
-
-                {isAdmin && (
-                    <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Checkbox
-                            checked={allUsers}
-                            onCheckedChange={(checked) => setAllUsers(checked === true)}
-                            aria-label="Show tokens for all users"
-                        />
-                        Show tokens for all users
-                    </label>
-                )}
-
-                {loading ? (
-                    <div className="h-16 bg-muted animate-pulse rounded-md" />
-                ) : tokens.length === 0 ? (
-                    <p className="text-sm text-muted-foreground italic">
-                        No agent tokens yet.
-                    </p>
-                ) : (
-                    <div className="divide-y rounded-md border">
-                        {tokens.map((token) => (
-                            <div key={token.jti} className="p-3">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <p className="font-medium truncate">
-                                            {token.label || "Unnamed agent"}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground truncate">
-                                            {showEmail ? `${token.email} · ` : ""}
-                                            {token.scopes.join(", ")}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                            Last used {formatIso(token.last_used_at)} · Expires{" "}
-                                            {formatEpoch(token.expires_at)}
-                                        </p>
-                                    </div>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="shrink-0"
-                                        onClick={() => revokeTarget.request(token)}
-                                        aria-label={`Revoke token ${token.label || token.jti}`}
-                                    >
-                                        Revoke
-                                    </Button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
+            ))}
 
             <ConfirmDialog
                 open={revokeTarget.open}
@@ -179,7 +156,9 @@ export function AgentTokensSettings({ isAdmin }: { isAdmin: boolean }) {
                 confirmLabel="Hold to revoke"
                 requireHold
                 onConfirm={() => {
-                    if (revokeTarget.target) void revokeToken(revokeTarget.target);
+                    const target = revokeTarget.target;
+                    revokeTarget.clear();
+                    if (target) void onRevoke(target.jti);
                 }}
             />
         </div>
