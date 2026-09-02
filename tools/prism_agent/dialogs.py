@@ -291,6 +291,56 @@ def ask_text(message: str, title: str = "Prism", confirm: str = "OK") -> str | N
     return text if result is True else None
 
 
+def ask_clone_or_cancel(message: str, title: str = "Prism") -> bool:
+    """Offer to clone a project we do not have, or cancel. True = clone.
+
+    The first gate of the clone flow: a link is not consent to write to disk, so
+    the user says yes here before we go anywhere near a folder picker.
+    """
+    result, _ = _run(
+        title, message, [("Clone", True, "primary"), ("Cancel", False, "ghost")]
+    )
+    return result is True
+
+
+def pick_clone_folder(message: str, title: str = "Prism") -> str | None:
+    """Explain the folder choice, then open a native directory picker.
+
+    Two steps in one call so the explanation and the picker feel like one action:
+    a dialog with "Select folder" / "Cancel", and choosing "Select folder" opens
+    the OS directory chooser. Returns the chosen parent directory, or None if the
+    user cancelled at either step or no picker could be shown.
+
+    The picked folder is a PARENT: the clone lands in ``<parent>/<name>``, the way
+    ``git clone <url>`` names the directory itself, so an existing folder is never
+    clobbered.
+    """
+    result, _ = _run(
+        title,
+        message,
+        [("Select folder", True, "primary"), ("Cancel", False, "ghost")],
+    )
+    if result is not True:
+        return None
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        chosen = filedialog.askdirectory(
+            title="Choose a folder to clone into", mustexist=True
+        )
+        root.destroy()
+    except Exception:
+        log.warning("couldn't show a folder picker", exc_info=True)
+        return None
+
+    return chosen or None
+
+
 def ask_stash_or_discard(message: str, title: str = "Prism") -> tuple[str, str]:
     """The three-way choice for uncommitted work: set aside, discard, or cancel.
 

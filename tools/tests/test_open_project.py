@@ -72,6 +72,60 @@ def test_a_hostile_project_name_cannot_steer_the_clone_out_of_the_root(name):
     assert safe not in ("", ".")
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://github.com/acme/widget.git",
+        "http://gitlab.local/acme/widget",
+        "ssh://git@host/acme/widget.git",
+        "git://host/acme/widget",
+        "git@github.com:acme/widget.git",
+        "gitlab.example.com:acme/widget.git",
+    ],
+)
+def test_remote_origins_are_clonable(origin):
+    assert open_project._is_remote_url(origin) is True
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "",
+        "/data/repos/widget.git",  # a path on Prism's disk
+        "file:///data/repos/widget.git",
+        "C:\\repos\\widget",
+        "./widget",
+        "../widget",
+        "widget",
+    ],
+)
+def test_local_or_disk_origins_are_refused(origin):
+    """Prism must never clone from its own storage: a local path or file:// URL is not
+    a remote and is not clonable here."""
+    assert open_project._is_remote_url(origin) is False
+
+
+def test_a_local_disk_origin_is_not_cloned(roots, monkeypatch):
+    """End to end: the server hands back a filesystem origin (its own disk). The agent
+    refuses to clone it and points the user at the machine that holds it."""
+    stub_server(
+        monkeypatch,
+        [
+            {
+                "id": "prj_a",
+                "name": "widget",
+                "origin_url": "/srv/prism/repos/widget.git",
+                "origin_owner": "prism",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        open_project, "clone", lambda *a: pytest.fail("must not clone from disk")
+    )
+    with pytest.raises(OpenError, match="doesn't clone from its own storage"):
+        open_project.open_project("prj_a", clone_flow=lambda name, origin: "/tmp/x")
+
+
 def test_an_ordinary_name_survives_intact():
     assert open_project._safe_dirname("SatNOGS Comms v2.1") == "SatNOGS Comms v2.1"
 
@@ -83,65 +137,66 @@ def test_a_name_of_pure_punctuation_still_yields_a_directory():
 # -- nothing is written without a yes --------------------------------------
 
 
+def _external(pid="prj_a", name="widget"):
+    return [
+        {
+            "id": pid,
+            "name": name,
+            "origin_url": "https://h/x",
+            "origin_owner": "external",
+        }
+    ]
+
+
 def test_declining_the_clone_writes_nothing(roots, monkeypatch):
-    stub_server(
-        monkeypatch,
-        [
-            {
-                "id": "prj_a",
-                "name": "widget",
-                "origin_url": "https://h/x",
-                "origin_owner": "external",
-            }
-        ],
-    )
+    """The user cancels the clone flow. Nothing is written, and it is not an error."""
+    stub_server(monkeypatch, _external())
     cloned = []
     monkeypatch.setattr(open_project, "clone", lambda *a: cloned.append(a))
 
     with pytest.raises(OpenError, match="Cancelled"):
-        open_project.open_project("prj_a", confirm=lambda _: False)
+        # clone_flow returning None is the user cancelling at any step.
+        open_project.open_project("prj_a", clone_flow=lambda name, origin: None)
 
     assert cloned == []
     assert list(roots.iterdir()) == []
 
 
-def test_the_confirmation_names_the_destination(roots, monkeypatch):
-    """The user has to be able to see WHERE it is about to be written before agreeing."""
-    stub_server(
-        monkeypatch,
-        [
-            {
-                "id": "prj_a",
-                "name": "widget",
-                "origin_url": "https://h/x",
-                "origin_owner": "external",
-            }
-        ],
+def test_without_a_clone_flow_it_declines_with_manual_help(roots, monkeypatch):
+    """No way to ask (a headless invocation) must not clone silently. It names the
+    manual git command and the settings step instead."""
+    stub_server(monkeypatch, _external())
+    monkeypatch.setattr(
+        open_project, "clone", lambda *a: pytest.fail("must not clone with no flow")
     )
-    asked = []
-
-    def confirm(question):
-        asked.append(question)
-        return False
-
-    with pytest.raises(OpenError):
-        open_project.open_project("prj_a", confirm=confirm)
-
-    assert str(roots / "widget") in asked[0]
+    with pytest.raises(OpenError) as exc:
+        open_project.open_project("prj_a")
+    assert "git clone https://h/x" in str(exc.value)
 
 
-def test_accepting_clones_then_opens(roots, monkeypatch):
-    stub_server(
-        monkeypatch,
-        [
-            {
-                "id": "prj_a",
-                "name": "widget",
-                "origin_url": "https://h/x",
-                "origin_owner": "external",
-            }
-        ],
-    )
+def test_the_clone_flow_receives_the_name_and_prism_origin(roots, monkeypatch):
+    """Prism only ever clones the project's own Prism-known origin, never an arbitrary
+    URL. The flow is handed exactly that."""
+    stub_server(monkeypatch, _external())
+    seen = {}
+
+    def flow(name, origin):
+        seen["name"] = name
+        seen["origin"] = origin
+        return None  # cancel; we only care what it was offered
+
+    with pytest.raises(OpenError, match="Cancelled"):
+        open_project.open_project("prj_a", clone_flow=flow)
+    assert seen == {"name": "widget", "origin": "https://h/x"}
+
+
+def test_accepting_clones_into_the_chosen_parent_then_opens(roots, tmp_path, monkeypatch):
+    stub_server(monkeypatch, _external())
+    # Stub the roots-update: these tests are about the clone/open, not the settings
+    # write, and the fixture's fake settings is not a real dataclass to save.
+    monkeypatch.setattr(open_project.settings_store, "update", lambda **kw: None)
+    parent = tmp_path / "chosen"
+    parent.mkdir()
 
     def fake_clone(origin, dest):
         Path(dest).mkdir(parents=True)
@@ -151,36 +206,101 @@ def test_accepting_clones_then_opens(roots, monkeypatch):
     monkeypatch.setattr(open_project, "clone", fake_clone)
     monkeypatch.setattr(open_project, "launch_kicad", lambda d: opened.append(str(d)))
 
-    result = open_project.open_project("prj_a", confirm=lambda _: True)
-
-    assert result == str(roots / "widget")
-    assert opened == [str(roots / "widget")]
-
-
-def test_a_fresh_clone_gets_a_marker(roots, monkeypatch):
-    """Without this we would fail to find it next time and clone it all over again."""
-    stub_server(
-        monkeypatch,
-        [
-            {
-                "id": "prj_a",
-                "name": "widget",
-                "origin_url": "https://h/x",
-                "origin_owner": "external",
-            }
-        ],
+    result = open_project.open_project(
+        "prj_a", clone_flow=lambda name, origin: str(parent)
     )
+
+    assert result == str(parent / "widget")
+    assert opened == [str(parent / "widget")]
+
+
+def test_a_fresh_clone_gets_a_marker(roots, tmp_path, monkeypatch):
+    """Without this we would fail to find it next time and clone it all over again."""
+    stub_server(monkeypatch, _external())
+    monkeypatch.setattr(open_project.settings_store, "update", lambda **kw: None)
+    parent = tmp_path / "chosen"
+    parent.mkdir()
     monkeypatch.setattr(
-        open_project,
-        "clone",
-        lambda origin, dest: Path(dest).mkdir(parents=True),
+        open_project, "clone", lambda origin, dest: Path(dest).mkdir(parents=True)
     )
     monkeypatch.setattr(open_project, "launch_kicad", lambda d: None)
 
-    open_project.open_project("prj_a", confirm=lambda _: True)
+    open_project.open_project("prj_a", clone_flow=lambda name, origin: str(parent))
 
-    marker = json.loads((roots / "widget" / ".prism.json").read_text())
+    marker = json.loads((parent / "widget" / ".prism.json").read_text())
     assert marker["project"]["id"] == "prj_a"
+
+
+def test_a_clone_outside_the_roots_is_added_to_the_project_list(roots, tmp_path, monkeypatch):
+    """The chosen folder is not under any configured root, so the agent adds the cloned
+    folder to the project list and tells the user."""
+    stub_server(monkeypatch, _external())
+    parent = tmp_path / "elsewhere"
+    parent.mkdir()
+    monkeypatch.setattr(
+        open_project, "clone", lambda origin, dest: Path(dest).mkdir(parents=True)
+    )
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: None)
+
+    saved_roots = []
+    monkeypatch.setattr(
+        open_project.settings_store,
+        "update",
+        lambda **kw: saved_roots.append(kw.get("projects_roots")),
+    )
+    told = []
+
+    open_project.open_project(
+        "prj_a",
+        clone_flow=lambda name, origin: str(parent),
+        on_root_added=lambda d: told.append(d),
+    )
+
+    cloned = str((parent / "widget").resolve())
+    assert saved_roots and cloned in saved_roots[-1]
+    assert told == [str(parent / "widget")]
+
+
+def test_a_clone_inside_an_existing_root_is_not_re_added(roots, monkeypatch):
+    """The chosen parent is already a configured root, so its child is covered and the
+    project list is left untouched, no note either."""
+    stub_server(monkeypatch, _external())
+    monkeypatch.setattr(
+        open_project, "clone", lambda origin, dest: Path(dest).mkdir(parents=True)
+    )
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: None)
+    monkeypatch.setattr(
+        open_project.settings_store,
+        "update",
+        lambda **kw: pytest.fail("must not touch roots when already covered"),
+    )
+    told = []
+
+    open_project.open_project(
+        "prj_a",
+        clone_flow=lambda name, origin: str(roots),
+        on_root_added=lambda d: told.append(d),
+    )
+    assert told == []
+
+
+def test_a_clone_failure_reports_the_manual_path(roots, tmp_path, monkeypatch):
+    """Prism clones with the user's own git, so a failure is theirs to fix. Report git's
+    reason, then the exact manual command and the settings step."""
+    stub_server(monkeypatch, _external())
+    parent = tmp_path / "chosen"
+    parent.mkdir()
+
+    def failing_clone(origin, dest):
+        raise OpenError("Permission denied (publickey).")
+
+    monkeypatch.setattr(open_project, "clone", failing_clone)
+
+    with pytest.raises(OpenError) as exc:
+        open_project.open_project("prj_a", clone_flow=lambda name, origin: str(parent))
+    message = str(exc.value)
+    assert "Permission denied (publickey)." in message
+    assert "git clone https://h/x" in message
 
 
 # -- we already have it ----------------------------------------------------
@@ -415,13 +535,22 @@ def test_an_unknown_project_says_the_server_does_not_have_it(roots, monkeypatch)
         open_project.open_project("prj_gone", confirm=lambda _: True)
 
 
-def test_no_configured_root_means_nowhere_to_put_it(tmp_path, monkeypatch):
+def test_no_configured_root_is_fine_because_the_user_picks_one(tmp_path, monkeypatch):
+    """No pre-configured root is no longer a dead end: the user picks a folder, and the
+    agent adds the cloned folder to the (previously empty) project list."""
+    saved = {"projects_roots": []}
+
     class NoRoots:
         projects_roots = []
         server_url = "https://prism.example.com"
         api_token = ""
 
     monkeypatch.setattr(open_project.settings_store, "load", lambda: NoRoots())
+    monkeypatch.setattr(
+        open_project.settings_store,
+        "update",
+        lambda **kw: saved.update(kw),
+    )
     stub_server(
         monkeypatch,
         [
@@ -433,8 +562,18 @@ def test_no_configured_root_means_nowhere_to_put_it(tmp_path, monkeypatch):
             }
         ],
     )
-    with pytest.raises(OpenError, match="No projects folder"):
-        open_project.open_project("prj_a", confirm=lambda _: True)
+    parent = tmp_path / "chosen"
+    parent.mkdir()
+    monkeypatch.setattr(
+        open_project, "clone", lambda origin, dest: Path(dest).mkdir(parents=True)
+    )
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: None)
+
+    result = open_project.open_project(
+        "prj_a", clone_flow=lambda name, origin: str(parent)
+    )
+    assert result == str(parent / "widget")
+    assert str((parent / "widget").resolve()) in saved["projects_roots"]
 
 
 def test_a_server_that_is_down_does_not_silently_clone(roots, monkeypatch):

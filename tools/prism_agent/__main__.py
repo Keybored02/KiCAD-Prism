@@ -244,7 +244,12 @@ def _open_project_locally(project_id: str, saved, ref: str = "") -> int:
 
     try:
         opened = open_project.open_project(
-            project_id, confirm=_ask, ref=ref, ask_choice=_ask_uncommitted
+            project_id,
+            confirm=_ask,
+            ref=ref,
+            ask_choice=_ask_uncommitted,
+            clone_flow=_clone_flow,
+            on_root_added=_root_added,
         )
     except open_project.OpenError as exc:
         msg = str(exc)
@@ -255,6 +260,53 @@ def _open_project_locally(project_id: str, saved, ref: str = "") -> int:
 
     log.info("Opened %s from %s", project_id, opened)
     return 0
+
+
+def _clone_flow(name: str, origin: str) -> str | None:
+    """Ask to clone, let the user pick a parent folder, then confirm. Returns the
+    parent directory, or None to cancel.
+
+    Prism only ever clones the project's own Prism-known origin, with the user's local
+    git. This is the consent path for that: a plain link is not permission to write to
+    disk, so nothing happens until the user says Clone, chooses where, and confirms.
+    """
+    from . import dialogs
+    from .open_project import _safe_dirname
+
+    if not dialogs.ask_clone_or_cancel(
+        "Prism doesn't have %s on this machine.\n\n"
+        "Clone it from Prism's repository, or cancel?" % name,
+        title="Open in KiCad",
+    ):
+        return None
+
+    parent = dialogs.pick_clone_folder(
+        "Pick a folder to clone %s into.\n\n"
+        "It will be cloned into a new sub-folder there, and that folder is added to "
+        "your project list in the plugin if it isn't already." % name,
+        title="Choose a folder",
+    )
+    if not parent:
+        return None
+
+    destination = "%s/%s" % (parent.rstrip("/\\"), _safe_dirname(name))
+    if not dialogs.ask_clone_or_cancel(
+        "Clone %s into:\n%s\n\n"
+        "This uses your own git access (the same credentials you use for git)."
+        % (name, destination),
+        title="Clone",
+    ):
+        return None
+    return parent
+
+
+def _root_added(cloned_dir: str) -> None:
+    """Tell the user the cloned folder was added to their project list."""
+    _show_dialog(
+        "Project list updated",
+        "Added this folder to your Prism project list so it's found next time:\n\n%s"
+        % cloned_dir,
+    )
 
 
 def _ask(question: str) -> bool:

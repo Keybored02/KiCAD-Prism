@@ -3,14 +3,19 @@
 Everything phases 1 to 3 built exists to make this one function honest:
 
     have it?  -> open it in KiCad
-    not?      -> offer to clone `origin_url`, then open it
+    not?      -> ask to clone; the user picks where; then open it
     no git?   -> say so; do not pretend
 
 The client never asks where the *server* keeps its copy, and never compares paths. It
-looks for a `.prism.json` marker under the user's projects roots, and clones the URL
-the server told it to. That is identical code for both origin models, which was the
-whole point of unifying them: an external origin and a Prism-hosted one differ only in
-what `origin_url` happens to say.
+looks for a `.prism.json` marker under the user's projects roots.
+
+When it does not have the project, it offers to clone -- but only the project's own
+Prism-known `origin_url`, and only if that is a genuine remote (https/ssh/git). Prism is
+a reader here, not a repo host: it never clones an arbitrary URL and never clones from
+its own disk. The clone is a standard `git clone` that uses the user's local git
+credentials; the user chooses the folder, and a folder outside the configured roots is
+added to the project list (and the user is told). If anything fails, the error names
+git's reason and the manual way to finish.
 """
 
 from __future__ import annotations
@@ -155,7 +160,14 @@ def _config(saved):
     return PrismConfig(base_url=saved.server_url, token=saved.api_token)
 
 
-def open_project(project_id: str, confirm=None, ref: str = "", ask_choice=None) -> str:
+def open_project(
+    project_id: str,
+    confirm=None,
+    ref: str = "",
+    ask_choice=None,
+    clone_flow=None,
+    on_root_added=None,
+) -> str:
     """Open a Prism project, cloning it first if this machine does not have it.
 
     `ref`, when given, is a commit/branch/tag to move the working tree to first. That is
@@ -171,6 +183,14 @@ def open_project(project_id: str, confirm=None, ref: str = "", ask_choice=None) 
     `ask_choice(question) -> (action, message)` offers the three ways out of uncommitted
     work: "stash", "discard", or "cancel". Without it, uncommitted changes are still a
     refusal: a link is not consent to move, let alone destroy, somebody's unsaved board.
+
+    `clone_flow(name, origin) -> parent_dir | None` drives the "not on disk" case: it
+    asks whether to clone, lets the user pick a parent folder, and confirms. It returns
+    the chosen parent directory (the clone lands in ``<parent>/<name>``) or None to
+    cancel. Prism only ever clones a project's own Prism-known ``origin_url`` -- never an
+    arbitrary URL, never from the server's disk -- and the clone is a standard git clone
+    that uses the user's own local git credentials. Prism is a reader here, not a repo
+    host or credential manager.
 
     Returns the directory the project was opened from.
     """
@@ -214,33 +234,50 @@ def open_project(project_id: str, confirm=None, ref: str = "", ask_choice=None) 
             "%s has no clone URL, so there is nowhere to clone it from." % state["name"]
         )
 
-    roots = state["roots"]
-    if not roots:
-        # Name the file we actually read. This handler runs as its own short-lived
-        # process, and if its profile does not match the agent's it reads a DIFFERENT
-        # settings file: the user then sees "no projects folder" for folders they can
-        # see in the plugin, with no way to tell why. Saying which config we loaded
-        # turns an impossible bug report into an obvious one.
-        from . import discovery
-
+    if not _is_remote_url(state["origin"]):
+        # Prism is a reader, not a repo host: it must never hand us a local path or a
+        # file:// URL that would clone from the server's own disk. Only a genuine remote
+        # (https/ssh/git) is clonable here; anything else is opened on the machine that
+        # holds it, not pulled off Prism.
         raise OpenError(
-            "No projects folder is set, so there is nowhere to put %s.\n\n"
-            "Add one in Prism settings, in KiCad.\n\n"
-            "(Read from %s)" % (state["name"], discovery.config_dir())
+            "%s can only be opened on the machine that has it.\n\n"
+            "Prism doesn't clone from its own storage; it points you at a remote "
+            "repository, and this project's origin isn't one (%s)."
+            % (state["name"], state["origin"])
         )
 
-    destination = Path(roots[0]) / _safe_dirname(state["name"])
-    if confirm is not None and not confirm(
-        "Prism doesn't have %s on this machine.\n\nClone it into:\n%s"
-        % (state["name"], destination)
-    ):
+    # The user picks where to clone. We never impose a folder or require one to be
+    # pre-configured: the flow asks, opens a picker, and (on success) adds the folder
+    # to the project list for them. Prism clones the project's own Prism-known origin
+    # with the user's local git; it is not a repo host.
+    if clone_flow is None:
+        # No way to ask (e.g. a headless invocation). Cloning silently is exactly what
+        # a link must not do, so decline with the manual path spelled out.
+        raise OpenError(_manual_clone_help(state))
+
+    parent = clone_flow(state["name"], state["origin"])
+    if not parent:
         raise OpenError("Cancelled.")
 
-    clone(state["origin"], destination)
+    destination = Path(parent) / _safe_dirname(state["name"])
+
+    try:
+        clone(state["origin"], destination)
+    except OpenError as exc:
+        # Any clone failure (auth, network, non-empty folder, git missing) ends here.
+        # Report the real reason and tell the user how to finish by hand, since the
+        # automated path could not.
+        raise OpenError(_clone_failed_help(state, destination, str(exc))) from exc
+
+    marker_dir = str(destination)
+
+    # Add the freshly cloned folder to the project roots so the agent can find it next
+    # time, UNLESS it or its parent is already covered. Telling the user keeps the
+    # settings change from being a silent surprise; the caller shows the note.
+    added = _register_root(marker_dir)
 
     # The clone has no marker if the project predates phase 1, and without one we
     # would fail to find it next time and clone it all over again. Stamp it.
-    marker_dir = str(destination)
     if not identity.project_id(marker_dir):
         identity.write(marker_dir, project_id, settings_store.load().server_url)
 
@@ -250,6 +287,8 @@ def open_project(project_id: str, confirm=None, ref: str = "", ask_choice=None) 
         _checkout_ref(marker_dir, ref, confirm=None)
 
     launch_kicad(marker_dir)
+    if added and on_root_added is not None:
+        on_root_added(marker_dir)
     return marker_dir
 
 
@@ -328,6 +367,85 @@ def _uncommitted_question(project_dir: str, state: dict) -> str:
     return (
         "%s\n\nSet them aside to bring back later, or discard them for good.\n\n"
         "What were you working on?" % lead
+    )
+
+
+def _is_remote_url(origin: str) -> bool:
+    """Is this origin a real remote we should clone over the network?
+
+    Accepts the transports git uses for a remote: https/http, ssh, git, and the
+    scp-style ``git@host:path`` (and ``ssh://``). Rejects a local filesystem path or a
+    ``file://`` URL, which would clone from Prism's own disk, the one thing this must
+    never do. Conservative on purpose: when in doubt it declines, and the user opens the
+    project on the machine that actually holds it.
+    """
+    value = (origin or "").strip()
+    if not value:
+        return False
+    lowered = value.lower()
+    if lowered.startswith(("https://", "http://", "ssh://", "git://")):
+        return True
+    # scp-style: user@host:path, with a colon before any slash and no leading drive
+    # letter (C:\...). A Windows path like C:\repo has its colon at index 1.
+    if "://" not in value and ":" in value:
+        host = value.split(":", 1)[0]
+        if "@" in host or ("/" not in host and "\\" not in host and len(host) > 1):
+            return True
+    return False
+
+
+def _register_root(cloned_dir: str) -> bool:
+    """Add the cloned folder to the project roots, unless it is already covered.
+
+    Adds the folder itself (not its parent): narrow by design, Prism is a reader and
+    should not start scanning a whole parent tree the user did not choose. Skips the
+    add when the folder OR its parent is already a root, so re-cloning a sibling into an
+    existing root does not pile up redundant entries. Returns whether it added one.
+    """
+    saved = settings_store.load()
+    target = Path(cloned_dir).resolve()
+    parent = target.parent
+
+    for root in saved.projects_roots:
+        try:
+            existing = Path(root).resolve()
+        except (OSError, ValueError):
+            continue
+        # Already listed if the folder itself, its parent, or any ancestor root
+        # already covers it.
+        if existing == target or existing == parent or existing in target.parents:
+            return False
+
+    updated = [*saved.projects_roots, str(target)]
+    settings_store.update(projects_roots=updated)
+    return True
+
+
+def _manual_clone_help(state: dict) -> str:
+    """What to tell the user when we cannot run the clone flow ourselves."""
+    return (
+        "Prism doesn't have %s on this machine, and it can't open a dialog here to "
+        "clone it.\n\n"
+        "Clone it yourself with your usual git access:\n"
+        "    git clone %s\n\n"
+        "then add that folder in Prism settings, in KiCad."
+        % (state["name"], state["origin"])
+    )
+
+
+def _clone_failed_help(state: dict, destination, detail: str) -> str:
+    """A clone failed. Report git's reason, then the manual way to finish.
+
+    Prism uses the user's own local git for the clone, so a failure is almost always
+    something only they can fix (credentials, network, an SSH key). Say what happened,
+    then hand them the exact command and the settings step so they are not stuck.
+    """
+    return (
+        "Couldn't clone %s.\n\n%s\n\n"
+        "You can finish this by hand with your usual git access:\n"
+        "    git clone %s %s\n\n"
+        "then add that folder in Prism settings, in KiCad."
+        % (state["name"], detail, state["origin"], destination)
     )
 
 

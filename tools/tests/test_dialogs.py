@@ -55,6 +55,17 @@ def test_telling_the_user_something_never_raises(no_display):
     dialogs.tell("Something happened.")
 
 
+def test_clone_or_cancel_declines_when_it_cannot_ask(no_display):
+    """Same rule as any clone consent: no dialog means no clone."""
+    assert dialogs.ask_clone_or_cancel("Clone widget?") is False
+
+
+def test_pick_clone_folder_returns_none_when_it_cannot_ask(no_display):
+    """If the explanation dialog cannot open, the picker is never reached and the
+    whole flow cancels."""
+    assert dialogs.pick_clone_folder("Pick a folder") is None
+
+
 # -- the three-way choice --------------------------------------------------
 
 
