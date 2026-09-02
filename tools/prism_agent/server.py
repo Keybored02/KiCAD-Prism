@@ -30,6 +30,10 @@ Endpoints
     POST /unstage {path, paths?|all} -> unstage files, back to the working tree
     POST /branch {path, name, switch?}
                                      -> create a branch at HEAD (the detached-HEAD remedy)
+    POST /switch/schedule {path, ref, project_dir, kicad_pid}
+                                     -> after KiCad closes, check out ref and reopen
+    POST /switch/cancel              -> drop a pending scheduled switch
+    GET  /switch?path=<path>         -> the pending scheduled switch, if any
     POST /fetch {path}               -> update tracking refs; report ahead/behind
     POST /push {path, set_upstream?} -> push current branch; NEVER forces (refuse+explain)
     POST /stash {path, message}      -> set uncommitted work aside
@@ -106,6 +110,13 @@ class AgentState:
         # Merge sessions, each scoped to one repository and one branch. Separate from
         # `self.token` on purpose: the browser gets one of these, never the agent's key.
         self.merges = merge_tokens.Sessions()
+        # Deferred branch switches: wait for KiCad to close, then check out and reopen.
+        # The notify callback spawns a short-lived helper for any dialog, so this
+        # background work never touches a GUI toolkit on a watcher thread.
+        from . import switch_scheduler
+        from .__main__ import spawn_notify
+
+        self.switch = switch_scheduler.SwitchScheduler(notify=spawn_notify)
         # Set by the entry point. Lets /quit stop the agent, so the tray icon is a
         # convenience rather than the only way out.
         self.request_stop = None
@@ -397,6 +408,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, checkout.list_branches(path))
             return
 
+        if route.path == "/switch":
+            # The pending scheduled switch, if any (so the panel can show/cancel it).
+            self._send(200, {"pending": self.state.switch.pending()})
+            return
+
         if route.path == "/checkout":
             # Could we check this ref out, and if not, why not? Read-only, so a refusal
             # is explained BEFORE the user commits to the action rather than after.
@@ -642,6 +658,38 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(exc)})
             return
 
+        if route.path == "/switch/schedule":
+            # Defer a branch switch until KiCad closes, then check out and reopen.
+            # The plugin can't close KiCad, and a checkout under an open board would be
+            # overwritten on KiCad's next save, so the agent waits it out.
+            path = body.get("path") or ""
+            ref = body.get("ref") or ""
+            project_dir = body.get("project_dir") or ""
+            kicad_pid = body.get("kicad_pid")
+            if not path or not ref or not project_dir or not kicad_pid:
+                self._send(
+                    400,
+                    {"error": "path, ref, project_dir and kicad_pid are required"},
+                )
+                return
+            try:
+                self._send(
+                    200,
+                    self.state.switch.schedule(
+                        repo=path,
+                        ref=ref,
+                        project_dir=project_dir,
+                        kicad_pid=int(kicad_pid),
+                    ),
+                )
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/switch/cancel":
+            self._send(200, self.state.switch.cancel())
+            return
+
         if route.path == "/branch":
             # Create a branch at HEAD (and switch to it by default). This is the remedy
             # for commits stranded on a detached HEAD, and the everyday "start a branch".
@@ -720,7 +768,14 @@ class _Handler(BaseHTTPRequestHandler):
                 elif action == "apply":
                     result = checkout.restore(path, body.get("ref") or "stash@{0}")
                 elif action == "stash":
-                    result = checkout.stash(path, body.get("message") or "")
+                    # Tag the stash with the current branch (unless the caller names
+                    # another), so it can be offered back on return to that branch.
+                    origin = body.get("origin")
+                    if origin is None:
+                        origin = checkout.status(path).get("current_branch") or ""
+                    result = checkout.stash(
+                        path, body.get("message") or "", origin=origin
+                    )
                 else:
                     self._send(400, {"error": f"Unknown stash action: {action}"})
                     return

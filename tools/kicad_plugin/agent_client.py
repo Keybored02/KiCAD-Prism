@@ -227,6 +227,27 @@ class AgentClient:
         """Local and remote branches, for a switch picker. Read-only."""
         return self._call("GET", "/branches?path=" + urllib.parse.quote(path))
 
+    def schedule_switch(self, path, ref, project_dir, kicad_pid):
+        """Defer a branch switch until KiCad closes, then check out and reopen.
+
+        The plugin can't close KiCad, and a checkout under an open board would be
+        overwritten on the next save, so the agent waits for `kicad_pid` to exit.
+        """
+        return self._call(
+            "POST",
+            "/switch/schedule",
+            {
+                "path": path,
+                "ref": ref,
+                "project_dir": project_dir,
+                "kicad_pid": kicad_pid,
+            },
+        )
+
+    def cancel_switch(self):
+        """Drop a pending scheduled switch."""
+        return self._call("POST", "/switch/cancel", {})
+
     def checkout_status(self, path, ref=""):
         """Could we check `ref` out, and if not, why not? Read-only.
 
@@ -341,6 +362,12 @@ class AgentClient:
     def stashes(self, path):
         """What is currently stashed, newest first."""
         return self._call("GET", "/stash?path=" + urllib.parse.quote(path))
+
+    def stash(self, path, message=""):
+        """Set uncommitted work aside, tagged with the current branch for later return."""
+        return self._call(
+            "POST", "/stash", {"path": path, "action": "stash", "message": message}
+        )
 
     def apply_stash(self, path, ref="stash@{0}"):
         """Put a stash back into the working tree."""

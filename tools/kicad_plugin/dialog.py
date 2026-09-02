@@ -950,25 +950,13 @@ class PrismDialog(wx.Dialog):
         self._load()
 
     def _return_to_branch(self, branch):
-        """Switch back to the branch we detached from, then offer its set-aside work.
-
-        The checkout carries the same guards as any other: if the tree is dirty, the agent
-        refuses and the user is told to commit or set aside first. On a clean return, if a
-        stash was set aside from this branch, offer to bring it back, never auto-applied.
-        """
+        """Return to the branch we detached from. Goes through the same scheduled switch
+        as any other, so the files are never swapped under the open board. The stash that
+        branch owns is offered back automatically when the agent reopens on it."""
         project = (self.data or {}).get("project")
         if not project or not project.get("repo_root"):
             return
-        repo = project["repo_root"]
-        try:
-            with wx.BusyCursor():
-                AgentClient().checkout(repo, branch)
-        except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
-            return
-
-        self._offer_branch_stash(repo, branch)
-        self._load()
+        self._do_switch(project["repo_root"], branch)
 
     def _offer_branch_stash(self, repo, branch):
         """If a stash was set aside from `branch`, offer to reapply it. Never automatic."""
@@ -1110,44 +1098,87 @@ class PrismDialog(wx.Dialog):
         self._do_switch(repo, ref_for[picked])
 
     def _do_switch(self, repo, ref):
-        """Check out `ref`, offering the stash/discard way out if the tree is dirty."""
-        try:
-            with wx.BusyCursor():
-                AgentClient().checkout(repo, ref)
-        except AgentUnavailable as exc:
-            text = str(exc)
-            if "uncommitted" in text.lower() or "stash" in text.lower():
-                self._switch_with_dirty_tree(repo, ref, text)
-                return
-            wx.MessageBox(text, "Prism", wx.OK | wx.ICON_WARNING)
-            return
+        """Switch to `ref` safely: resolve any uncommitted work, then defer the actual
+        checkout until KiCad closes.
 
-        # Landed on a branch: offer its set-aside work, same as a return.
-        self._offer_branch_stash(repo, ref)
-        self._load()
-
-    def _switch_with_dirty_tree(self, repo, ref, why):
-        """The tree is dirty, so the switch was refused. Offer set-aside or cancel."""
-        choice = wx.MessageBox(
-            "%s\n\nSet your changes aside first, then switch?" % why,
-            "Uncommitted changes",
-            wx.YES_NO | wx.ICON_QUESTION,
-        )
-        if choice != wx.YES:
-            return
-        message = wx.GetTextFromUser(
-            "A short note, so you can find this work later:",
-            "Set aside",
-            "",
-        )
+        The checkout is NOT done here. KiCad has the board open, and swapping the files
+        under it would be overwritten on KiCad's next save, real data loss. So the agent
+        does the checkout and reopen after KiCad exits; this method only gets the tree
+        into a switchable state (clean or stashed) and schedules it.
+        """
+        # Dry run: can we switch, or is the tree dirty? checkout_status is read-only.
         try:
-            with wx.BusyCursor():
-                AgentClient().checkout(repo, ref, stash_message=message.strip())
+            state = AgentClient().checkout_status(repo, ref) or {}
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
-        self._offer_branch_stash(repo, ref)
-        self._load()
+
+        if not state.get("can"):
+            reason = state.get("reason")
+            if reason in ("dirty", "untracked_collision"):
+                if not self._resolve_before_switch(repo, state.get("message", "")):
+                    return  # user cancelled or it failed
+            else:
+                wx.MessageBox(
+                    state.get("message", "Can't switch."), "Prism", wx.OK | wx.ICON_WARNING
+                )
+                return
+
+        self._schedule_switch(repo, ref)
+
+    def _resolve_before_switch(self, repo, why):
+        """Clear the tree so a switch can proceed: set aside, or cancel.
+
+        Only stash is offered here (discard is destructive and belongs to an explicit
+        gesture, not a switch). Stashing now, while KiCad is open, is safe: it does not
+        reopen a different board, it just sets the current work aside. Returns whether
+        the tree is now switchable.
+        """
+        if (
+            wx.MessageBox(
+                "%s\n\nSet your changes aside so Prism can switch?" % why,
+                "Uncommitted changes",
+                wx.YES_NO | wx.ICON_QUESTION,
+            )
+            != wx.YES
+        ):
+            return False
+        message = wx.GetTextFromUser(
+            "A short note, so you can find this work later:", "Set aside", ""
+        )
+        try:
+            with wx.BusyCursor():
+                AgentClient().stash(repo, message.strip())
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return False
+        return True
+
+    def _schedule_switch(self, repo, ref):
+        """Hand the checkout+reopen to the agent, to run after KiCad closes."""
+        import os
+
+        project = (self.data or {}).get("project") or {}
+        project_dir = project.get("path") or ""
+        try:
+            with wx.BusyCursor():
+                AgentClient().schedule_switch(
+                    repo, ref, project_dir, os.getpid()
+                )
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        wx.MessageBox(
+            "Ready to switch to %s.\n\n"
+            "Close KiCad now. Prism will switch the branch and reopen the project for "
+            "you once KiCad has closed." % ref,
+            "Close KiCad to switch",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+        # Nothing else to do here; the agent takes over. Close our dialog so the user
+        # can get to KiCad's window to close it.
+        self.EndModal(wx.ID_OK)
 
     def _add_sync_row(self, card, git):
         """Fetch and push. Push shows only when there is something to push and it is safe.

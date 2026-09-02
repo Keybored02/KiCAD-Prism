@@ -363,6 +363,28 @@ def _show_dialog(title: str, message: str) -> None:
     dialogs.tell(message, title=title)
 
 
+def spawn_notify(title: str, message: str) -> None:
+    """Show a message from the agent WITHOUT touching a GUI toolkit on this thread.
+
+    The long-lived agent may own a tray/tk loop, and tkinter is not thread-safe, so a
+    background watcher must not call it directly. Instead spawn a short-lived copy of the
+    agent in --notify mode, exactly as the OS spawns one to handle a prism:// link.
+    Best-effort: a message that cannot be shown is not worth crashing a background thread.
+    """
+    try:
+        cwd = None if is_frozen() else str(Path(__file__).resolve().parent.parent)
+        subprocess.Popen(
+            self_command("--notify", title, message),
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            **_detached(),
+        )
+    except Exception:  # noqa: BLE001 - never let a notification take a thread down
+        log.warning("couldn't spawn a notification", exc_info=True)
+
+
 def _watch_for_uninstall(stop: threading.Event) -> None:
     """Notice that we've been uninstalled, and tidy up after ourselves.
 
@@ -736,6 +758,13 @@ def main() -> int:
         metavar="URL",
         help="handle a prism:// link and exit (this is how the OS invokes us)",
     )
+    ap.add_argument(
+        "--notify",
+        nargs=2,
+        metavar=("TITLE", "MESSAGE"),
+        help="show one themed message and exit (the agent spawns us for this so a "
+        "background thread never touches a GUI toolkit directly)",
+    )
     from .profiles import PROFILES, is_known
 
     ap.add_argument(
@@ -764,6 +793,13 @@ def main() -> int:
 
     if args.open_url:
         return _handle_url(args.open_url)
+
+    if args.notify:
+        # A one-shot themed dialog, run as its own short-lived process. The agent uses
+        # this instead of calling tkinter from a background thread while the tray owns
+        # its own event loop, which is not safe.
+        _show_dialog(args.notify[0], args.notify[1])
+        return 0
 
     # One agent per machine. A second would bind a different port, overwrite the
     # discovery file, and leave two processes racing, with whichever exits last
