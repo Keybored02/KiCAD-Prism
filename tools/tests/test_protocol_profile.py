@@ -55,10 +55,39 @@ def test_the_handler_resolves_the_registering_agents_config(profile, monkeypatch
         capture_output=True,
         text=True,
         check=True,
-        env={"PATH": "", "SYSTEMROOT": "C:\\Windows", "APPDATA": TOOLS},
+        env=_scrubbed_env(),
     )
-    expected = f"kicad-prism-{profile}" if profile else "kicad-prism"
-    assert result.stdout.strip() == expected
+    # The expectation is not "empty profile means release": an unprofiled command
+    # carries no PRISM_PROFILE, so the handler falls to auto-detection, and from a
+    # source checkout that is 'dev' (build_agent.py is a sibling). The point of the
+    # test is that the handler lands on the SAME config the registering agent would,
+    # so compute the expectation the same way the agent resolves it, rather than
+    # hard-coding release and failing in every checkout (CI included).
+    from prism_agent import profiles
+
+    expected = profiles.resolve(profile or None).config_suffix
+    expected_dir = f"kicad-prism-{expected}" if expected else "kicad-prism"
+    assert result.stdout.strip() == expected_dir
+
+
+def _scrubbed_env() -> dict:
+    """The bare environment the OS hands a URL handler, per platform.
+
+    Windows needs SYSTEMROOT for the interpreter to start at all; POSIX does not,
+    and pinning a C:\\Windows path there would break the subprocess on Linux CI.
+    APPDATA points config_dir() somewhere harmless and writable on Windows; on
+    POSIX config_dir() reads HOME/XDG, so it is simply left out.
+    """
+    import os
+
+    env = {"PATH": "", "APPDATA": TOOLS}
+    if sys.platform == "win32":
+        env["SYSTEMROOT"] = os.environ.get("SYSTEMROOT", "C:\\Windows")
+    else:
+        # config_dir() falls back to ~/.config when XDG_CONFIG_HOME is unset, so a
+        # HOME must exist for the probe to resolve a path.
+        env["HOME"] = os.environ.get("HOME", TOOLS)
+    return env
 
 
 def test_the_bootstrap_sets_the_profile_before_importing_us(monkeypatch):
