@@ -218,11 +218,13 @@ def _handle_url(url: str) -> int:
         return 0
 
     if link.action == "auth":
-        # The OIDC redirect will land here. Handing the code to the running agent
-        # is the next piece of work; for now say so plainly rather than silently
-        # dropping a login the user just completed.
+        # Sign-in does NOT use this scheme. The agent signs in through a loopback
+        # listener (see signin.py), the browser redirects back to 127.0.0.1
+        # directly, so a prism://auth callback should never occur. If one does,
+        # say so plainly rather than appear to accept a login we did nothing with.
         print(
-            "Received a prism://auth callback, but sign-in isn't wired up yet.",
+            "Received a prism://auth callback, but the agent signs in over a "
+            "loopback listener, not this scheme. Nothing to do.",
             file=sys.stderr,
         )
         return 1
@@ -481,6 +483,44 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
         # the agent started, and opening the old one would be quietly wrong.
         webbrowser.open(settings_store.load().server_url)
 
+    def _identity() -> dict:
+        # Cheap enough to read on each menu open: it is a couple of loopback-ish
+        # calls to the backend, and it keeps the Sign in/out items honest (a token
+        # can expire or be revoked under a running agent).
+        try:
+            return server.state.prism.identity()
+        except Exception:
+            return {}
+
+    def sign_in_visible(_item) -> bool:
+        ident = _identity()
+        return bool(ident.get("sign_in_required")) and not ident.get("signed_in")
+
+    def sign_out_visible(_item) -> bool:
+        return bool(_identity().get("signed_in"))
+
+    def on_sign_in(_icon, _item):
+        from .server import apply_sign_in
+
+        # Off the tray thread: the browser wait can take minutes, and blocking the
+        # tray loop would freeze the icon and its menu.
+        def run():
+            status, result = apply_sign_in(server.state)
+            if status != 200:
+                _show_dialog("Prism sign-in", result.get("error", "Sign-in failed."))
+
+        threading.Thread(target=run, name="prism-signin", daemon=True).start()
+
+    def on_sign_out(_icon, _item):
+        from .server import apply_sign_out
+
+        def run():
+            warning = apply_sign_out(server.state)
+            if warning:
+                _show_dialog("Prism sign-out", warning)
+
+        threading.Thread(target=run, name="prism-signout", daemon=True).start()
+
     def status_text(_item) -> str:
         # pystray re-evaluates this each time the menu opens, so it stays live.
         return f"Agent running on 127.0.0.1:{port}"
@@ -497,6 +537,12 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
             pystray.MenuItem(server_text, None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Open Prism", on_open_prism),
+            # Sign in / out show only when they apply: sign in when the server
+            # wants a token and we have none, sign out when we are signed in. On a
+            # no-auth server neither appears. pystray re-checks visible() each time
+            # the menu opens, so the pair stays in step with the real state.
+            pystray.MenuItem("Sign in", on_sign_in, visible=sign_in_visible),
+            pystray.MenuItem("Sign out", on_sign_out, visible=sign_out_visible),
             # Settings live in the plugin's dialog, which is a real UI toolkit,
             # pystray menus can't host text fields, so pointing at it beats a
             # half-usable tray form.

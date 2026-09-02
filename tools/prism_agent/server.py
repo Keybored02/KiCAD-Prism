@@ -747,49 +747,20 @@ class _Handler(BaseHTTPRequestHandler):
         reason. On success the payload is the fresh settings view, so the UI can
         re-render "signed in as ..." from one round trip.
         """
-        server_url = settings_store.load().server_url
-        if not server_url:
-            return 400, {"error": "Set the Prism server URL before signing in."}
-
-        # A label the user recognises in their token list. The machine's hostname
-        # is the least surprising default, "my-laptop" beats an opaque id when it
-        # comes time to revoke.
-        import socket as _socket
-
-        label = (body.get("label") or "").strip() or _socket.gethostname()
-
-        try:
-            result = signin.sign_in(server_url, label=label)
-        except signin.SignInError as exc:
-            return 400, {"error": str(exc)}
-
-        saved = settings_store.update(api_token=result.token)
-        self.state.rebuild_client(saved)
+        status, result = apply_sign_in(self.state, label=(body.get("label") or ""))
+        if status != 200:
+            return status, result
         payload = self._settings_payload()
         payload["ok"] = True
         return 200, payload
 
     def _sign_out(self) -> dict:
-        """Clear the local token, and best-effort revoke it server-side.
-
-        Clearing locally is what signs this agent out; the server revoke also
-        kills a copy of the token elsewhere but must not trap the user signed in
-        when the server is unreachable, so its failure is reported, not fatal.
-        """
-        current = settings_store.load()
-        revoked = signin.sign_out(current.server_url, current.api_token)
-        # Store an empty token directly. `apply()` writes "" through (only None is
-        # "leave alone"), so this removes it; the "empty means leave alone" rule is
-        # a /settings route convention, not a settings-store one.
-        saved = settings_store.update(api_token="")
-        self.state.rebuild_client(saved)
+        """Clear the local token, and best-effort revoke it server-side."""
+        warning = apply_sign_out(self.state)
         payload = self._settings_payload()
         payload["ok"] = True
-        if not revoked and current.api_token:
-            payload["warning"] = (
-                "Signed out on this machine, but Prism could not be reached to "
-                "revoke the token. Revoke it from the web console if needed."
-            )
+        if warning:
+            payload["warning"] = warning
         return payload
 
     # -- settings ----------------------------------------------------------
@@ -1017,6 +988,58 @@ def _clean_roots(raw) -> list[str]:
         seen.add(key)
         cleaned.append(resolved)
     return cleaned
+
+
+def apply_sign_in(state: AgentState, *, label: str = "") -> tuple[int, dict]:
+    """The shared sign-in: browser loopback flow, save token, re-point the client.
+
+    Used by both the /signin route and the tray menu, so they cannot drift. The
+    browser wait happens here and can take a while; callers that own a UI thread
+    (the tray) must run this off it. Returns (status, payload) where payload holds
+    an ``error`` on failure.
+    """
+    import socket as _socket
+
+    server_url = settings_store.load().server_url
+    if not server_url:
+        return 400, {"error": "Set the Prism server URL before signing in."}
+
+    # A label the user recognises in their token list. The machine's hostname is
+    # the least surprising default: "my-laptop" beats an opaque id at revoke time.
+    label = label.strip() or _socket.gethostname()
+
+    try:
+        result = signin.sign_in(server_url, label=label)
+    except signin.SignInError as exc:
+        return 400, {"error": str(exc)}
+
+    saved = settings_store.update(api_token=result.token)
+    state.rebuild_client(saved)
+    return 200, {"ok": True}
+
+
+def apply_sign_out(state: AgentState) -> str:
+    """The shared sign-out: clear the local token, best-effort revoke it server-side.
+
+    Clearing locally is what signs this agent out; the server revoke also kills a
+    copy of the token elsewhere but must not trap the user signed in when the
+    server is down. Returns a warning string when the revoke could not be done,
+    else "".
+    """
+    current = settings_store.load()
+    revoked = signin.sign_out(current.server_url, current.api_token)
+    had_token = bool(current.api_token)
+    # Store an empty token directly. `apply()` writes "" through (only None is
+    # "leave alone"), so this removes it; the "empty means leave alone" rule is a
+    # /settings route convention, not a settings-store one.
+    saved = settings_store.update(api_token="")
+    state.rebuild_client(saved)
+    if had_token and not revoked:
+        return (
+            "Signed out on this machine, but Prism could not be reached to revoke "
+            "the token. Revoke it from the web console if needed."
+        )
+    return ""
 
 
 def make_server(prism: PrismClient) -> tuple[ThreadingHTTPServer, AgentState]:
