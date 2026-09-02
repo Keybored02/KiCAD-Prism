@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { GitBranch, Copy, FileCode, Shield, Plus, Trash2, KeyRound, Cpu } from "lucide-react";
+import { GitBranch, Copy, FileCode, Shield, Plus, KeyRound, Cpu, UserX, ShieldOff } from "lucide-react";
 import { User, UserRole } from "@/types/auth";
 import { fetchApi, readApiError } from "@/lib/api";
 import { changeOwnPassword, fetchAuthConfig } from "@/lib/auth";
@@ -34,7 +34,7 @@ export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl p-0 overflow-hidden flex h-[600px]">
+            <DialogContent className="max-w-5xl w-[90vw] p-0 overflow-hidden flex h-[85vh] max-h-[720px]">
                 <DialogTitle className="sr-only">Workspace Settings</DialogTitle>
                 <DialogDescription className="sr-only">
                     Manage Git, SSH, access control, and password settings for this workspace.
@@ -73,7 +73,7 @@ export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps
                     </Button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex-1 min-w-0 overflow-y-auto p-6 pr-4">
                     {activeTab === "git" && <GitSettings user={user} />}
                     {activeTab === "access" && <AccessControlSettings isAdmin={isAdmin} currentUser={user} />}
                     {activeTab === "general" && <PasswordSettings />}
@@ -790,11 +790,11 @@ function AccessControlSettings({
             </div>
 
             <div className="rounded-lg border overflow-hidden">
-                <div className="grid grid-cols-[2fr_1fr_1fr_auto] border-b bg-muted/30 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="grid grid-cols-[minmax(0,2fr)_7rem_5rem_auto] gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <div>Email</div>
                     <div>Role</div>
                     <div>Source</div>
-                    <div />
+                    <div className="text-right normal-case font-normal tracking-normal">Tokens · Password · Access</div>
                 </div>
                 {loading ? (
                     <div className="p-4 text-sm text-muted-foreground">Loading assignments...</div>
@@ -807,9 +807,11 @@ function AccessControlSettings({
                         const tokens = agentTokens.byEmail[emailKey] ?? [];
                         const expanded = expandedTokens === emailKey;
                         return (
-                            <div key={assignment.email} className="border-b">
-                                <div className="grid grid-cols-[2fr_1fr_1fr_auto] items-center px-4 py-2 gap-2">
-                                    <div className="truncate text-sm">{assignment.email}</div>
+                            <div key={assignment.email} className="border-b last:border-b-0">
+                                <div className="grid grid-cols-[minmax(0,2fr)_7rem_5rem_auto] items-center px-4 py-2 gap-3">
+                                    <div className="truncate text-sm" title={assignment.email}>
+                                        {assignment.email}
+                                    </div>
                                     <select
                                         aria-label={`Role for ${assignment.email}`}
                                         className="h-8 rounded-md border bg-background px-2 text-sm"
@@ -823,26 +825,27 @@ function AccessControlSettings({
                                             <option key={role} value={role}>{roleLabel(role)}</option>
                                         ))}
                                     </select>
-                                    <div className="text-sm text-muted-foreground">{assignment.source}</div>
-                                    <div className="flex justify-end items-center gap-1">
+                                    <div className="text-xs text-muted-foreground truncate">{assignment.source}</div>
+                                    <div className="flex justify-end items-center gap-0.5">
                                         <Button
-                                            variant="ghost"
+                                            variant={expanded ? "secondary" : "ghost"}
                                             size="sm"
+                                            className="px-2 gap-1"
                                             onClick={() => setExpandedTokens(expanded ? null : emailKey)}
                                             aria-expanded={expanded}
                                             aria-label={`${expanded ? "Hide" : "Show"} agent tokens for ${assignment.email}`}
                                             title="Agent tokens"
                                         >
                                             <Cpu className="h-4 w-4" />
-                                            {tokens.length > 0 ? tokens.length : ""}
+                                            <span className="tabular-nums text-xs">{tokens.length}</span>
                                         </Button>
                                         {passwordAuthEnabled && (
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
                                                 onClick={() => { setPasswordEmail(assignment.email); setPasswordValue(""); }}
-                                                aria-label={`Set password for ${assignment.email}`}
-                                                title={assignment.has_password ? "Reset password" : "Set password"}
+                                                aria-label={`${assignment.has_password ? "Reset" : "Set"} password for ${assignment.email}`}
+                                                title={assignment.has_password ? "Reset local password" : "Set local password"}
                                             >
                                                 <KeyRound className={`h-4 w-4 ${assignment.has_password ? "text-primary" : ""}`} />
                                             </Button>
@@ -855,7 +858,7 @@ function AccessControlSettings({
                                                 aria-label={`Remove local password for ${assignment.email}`}
                                                 title="Remove local password"
                                             >
-                                                <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                                <ShieldOff className="h-4 w-4 text-muted-foreground" />
                                             </Button>
                                         )}
                                         <Button
@@ -864,8 +867,9 @@ function AccessControlSettings({
                                             disabled={isBootstrap}
                                             onClick={() => removalTarget.request(assignment.email)}
                                             aria-label={`Remove role assignment for ${assignment.email}`}
+                                            title="Remove access"
                                         >
-                                            <Trash2 className="h-4 w-4" />
+                                            <UserX className="h-4 w-4 text-destructive" />
                                         </Button>
                                     </div>
                                 </div>
