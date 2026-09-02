@@ -711,6 +711,7 @@ class PrismDialog(wx.Dialog):
             # not to make the user go and find the web UI.
             self._render_publish(project)
 
+        self._render_detached_banner(git)
         self._render_git(git, prism)
         self._render_changes()
         self.open_btn.Enable(bool(prism))
@@ -875,6 +876,127 @@ class PrismDialog(wx.Dialog):
             return
 
         self._load()  # it is in Prism now; the whole dialog says something different
+
+    def _render_detached_banner(self, git):
+        """When HEAD is detached, a persistent banner with the two ways forward.
+
+        Detached HEAD is the normal state after opening a commit, and it is where work
+        gets lost: a commit made here is on no branch, and the next checkout orphans it.
+        So while detached the panel always shows the situation and the remedies, rather
+        than waiting for the user to hit the trap. No "on close" needed, the banner is
+        just there whenever the panel is open.
+        """
+        git = git or {}
+        if not git.get("detached"):
+            return
+        on = git.get("on_branches") or []
+        origin = on[0] if on else ""
+
+        card = Card(self.scroll, "Detached commit", self.pal)
+        commit = (git.get("last_commit_hash") or "")[:8]
+        if origin:
+            text = (
+                "You're viewing commit %s, not on a branch. %s is unchanged.\n"
+                "Anything you commit here won't be on a branch until you make one."
+                % (commit or "this one", origin)
+            )
+        else:
+            text = (
+                "You're viewing commit %s, not on a branch.\n"
+                "Anything you commit here won't be on a branch until you make one."
+                % (commit or "this one")
+            )
+        card.body.Add(card.label(text, tone="muted_fg", small=True, wrap=True), 0, wx.BOTTOM, th.SP_SM)
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(
+            Button(card, "Create branch here", self.pal, variant="secondary", on_click=self._create_branch_here),
+            0,
+            wx.RIGHT,
+            th.SP_SM,
+        )
+        if origin:
+            row.Add(
+                Button(
+                    card,
+                    "Return to %s" % origin,
+                    self.pal,
+                    variant="primary",
+                    on_click=lambda: self._return_to_branch(origin),
+                ),
+                0,
+            )
+        card.body.Add(row, 0)
+        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
+    def _create_branch_here(self):
+        """Name a branch at the current detached commit, keeping any work on it."""
+        project = (self.data or {}).get("project")
+        if not project or not project.get("repo_root"):
+            return
+        name = wx.GetTextFromUser(
+            "Name a branch to keep this commit (and any work on it):",
+            "Create a branch",
+            "",
+        )
+        if not name.strip():
+            return
+        try:
+            with wx.BusyCursor():
+                AgentClient().create_branch(project["repo_root"], name.strip())
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+        self._load()
+
+    def _return_to_branch(self, branch):
+        """Switch back to the branch we detached from, then offer its set-aside work.
+
+        The checkout carries the same guards as any other: if the tree is dirty, the agent
+        refuses and the user is told to commit or set aside first. On a clean return, if a
+        stash was set aside from this branch, offer to bring it back, never auto-applied.
+        """
+        project = (self.data or {}).get("project")
+        if not project or not project.get("repo_root"):
+            return
+        repo = project["repo_root"]
+        try:
+            with wx.BusyCursor():
+                AgentClient().checkout(repo, branch)
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        self._offer_branch_stash(repo, branch)
+        self._load()
+
+    def _offer_branch_stash(self, repo, branch):
+        """If a stash was set aside from `branch`, offer to reapply it. Never automatic."""
+        try:
+            entries = (AgentClient().stashes(repo) or {}).get("stashes") or []
+        except AgentUnavailable:
+            return
+        match = next(
+            (e for e in entries if e.get("ours") and e.get("origin_branch") == branch),
+            None,
+        )
+        if not match:
+            return
+        if (
+            wx.MessageBox(
+                "You set aside work on %s:\n\n    %s\n\nBring it back now?"
+                % (branch, match.get("message") or "your changes"),
+                "Set-aside work",
+                wx.YES_NO | wx.ICON_QUESTION,
+            )
+            != wx.YES
+        ):
+            return
+        try:
+            with wx.BusyCursor():
+                AgentClient().apply_stash(repo, match["ref"])
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
 
     def _render_git(self, git, prism):
         """What's left of the Git card once the branch moved to the header.
