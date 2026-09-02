@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import threading
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
@@ -231,12 +232,6 @@ def validate_agent_token(token: str) -> dict[str, object]:
     return payload
 
 
-def revoke_agent_token(token: str) -> None:
-    """Revoke by token value (the agent signing itself out)."""
-    payload = provider_auth_service._decode_payload(token)
-    _revoke_jti(str(payload.get("jti") or ""), int(payload.get("exp", 0)))
-
-
 def revoke_agent_token_by_jti(jti: str) -> bool:
     """Revoke by registry id (a user or admin revoking from the web console).
 
@@ -260,8 +255,47 @@ def _revoke_jti(jti: str, exp: int) -> None:
     _db().mark_agent_token_revoked(jti, _iso(now))
 
 
+# How stale the "last used" timestamp is allowed to get before a validation refreshes
+# it. A write on every request would put a database round-trip in the hot path of every
+# agent call; once every few minutes keeps the column meaningful without that cost.
+_TOUCH_THROTTLE_SECONDS = 300
+# The in-process throttle memory. Bounded so a long-lived server that sees many tokens
+# does not grow this without limit; when it fills, entries older than the throttle
+# window (which no longer suppress anything) are dropped first. Guarded by a lock
+# because the app serves requests concurrently.
+_TOUCH_CACHE_MAX = 4096
+_last_touched: dict[str, int] = {}
+_touch_lock = threading.Lock()
+
+
 def touch_agent_token(payload: dict[str, object]) -> None:
-    """Record that a token was just used, for the ``last used`` column."""
+    """Record that a token was just used, for the "last used" column.
+
+    Throttled per jti (see _TOUCH_THROTTLE_SECONDS): the timestamp only needs to be
+    roughly right, and a DB write on every request would tax the whole agent API. Best
+    effort, a failed touch must never break a request that had already authenticated.
+    """
     jti = str(payload.get("jti") or "")
-    if jti:
-        _db().touch_agent_token(jti, _iso(_now()))
+    if not jti:
+        return
+    now = _now()
+    with _touch_lock:
+        if now - _last_touched.get(jti, 0) < _TOUCH_THROTTLE_SECONDS:
+            return
+        if len(_last_touched) >= _TOUCH_CACHE_MAX:
+            # Drop entries whose throttle window has lapsed; they no longer suppress a
+            # write, so forgetting them only costs one extra DB touch if that token
+            # returns. If none have lapsed, clear the lot rather than grow unbounded.
+            stale = [
+                k for k, t in _last_touched.items()
+                if now - t >= _TOUCH_THROTTLE_SECONDS
+            ]
+            for k in stale:
+                del _last_touched[k]
+            if not stale:
+                _last_touched.clear()
+        _last_touched[jti] = now
+    try:
+        _db().touch_agent_token(jti, _iso(now))
+    except Exception:  # noqa: BLE001 - a bookkeeping write must not fail a request
+        pass

@@ -232,42 +232,6 @@ def list_branches(repo: str | Path) -> dict:
     return {"current": current, "local": local, "remote": remote}
 
 
-def recent_commits(repo: str | Path, limit: int = 20) -> list[dict]:
-    """The last few commits on HEAD, newest first, for an "open a commit" picker.
-
-    Read-only. Each entry is ``{sha, short, subject, when, author}`` -- enough to
-    recognise a commit without opening the web history. Capped, because a picker that
-    lists ten thousand commits is one nobody scrolls.
-    """
-    path = Path(repo)
-    if not (path / ".git").exists():
-        return []
-
-    out = _git(
-        path,
-        "log",
-        f"-{max(1, min(limit, 100))}",
-        "--format=%H%x00%h%x00%s%x00%cr%x00%an",
-        check=False,
-        strip=False,
-    )
-    result = []
-    for line in out.splitlines():
-        parts = line.split("\0")
-        if len(parts) < 5:
-            continue
-        result.append(
-            {
-                "sha": parts[0],
-                "short": parts[1],
-                "subject": parts[2],
-                "when": parts[3],
-                "author": parts[4],
-            }
-        )
-    return result
-
-
 def resolve(repo: Path, ref: str) -> dict:
     """What is this ref, if anything?
 

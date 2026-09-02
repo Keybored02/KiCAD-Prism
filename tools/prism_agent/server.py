@@ -13,7 +13,6 @@ Endpoints
     GET  /locate?id=<id>             -> where this machine keeps a project, by marker
     GET  /publish?path=<path>        -> what publishing this folder would involve
     GET  /branches?path=<path>       -> local + remote branches, for a switch picker
-    GET  /commits?path=<path>        -> recent commits on HEAD, for an open-commit picker
     GET  /checkout?path=&ref=        -> could we check this ref out, and if not, why not
     GET  /stash?path=<path>          -> what the user has set aside
     PUT  /settings {..}              -> updates and re-points the backend client
@@ -394,15 +393,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "path is required"})
                 return
             self._send(200, checkout.list_branches(path))
-            return
-
-        if route.path == "/commits":
-            # Recent commits on HEAD for an "open a commit" picker. Read-only.
-            path = (query.get("path") or [""])[0]
-            if not path:
-                self._send(400, {"error": "path is required"})
-                return
-            self._send(200, {"commits": checkout.recent_commits(path)})
             return
 
         if route.path == "/checkout":

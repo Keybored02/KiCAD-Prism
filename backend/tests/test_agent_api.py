@@ -48,8 +48,11 @@ class AgentApiTests(unittest.TestCase):
         # Auth on for the whole class: the sign-in routes require it, session
         # cookies need the secret, and the app reads both live. Patch before the
         # session store initialises so it sees the enabled posture.
+        #
+        # AUTH_ENABLED is a property over AUTH_ENABLED_OVERRIDE; patch the real field,
+        # not the property (which cannot be cleanly unpatched on teardown).
         cls._patchers = [
-            patch.object(settings, "AUTH_ENABLED", True),
+            patch.object(settings, "AUTH_ENABLED_OVERRIDE", True),
             patch.object(settings, "SESSION_SECRET", TEST_SECRET),
         ]
         for patcher in cls._patchers:

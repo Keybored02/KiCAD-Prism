@@ -28,7 +28,6 @@ import base64
 import hashlib
 import json
 import secrets
-import socket
 import threading
 import urllib.error
 import urllib.parse
@@ -320,16 +319,6 @@ def _token_jti(token: str) -> str:
     except (ValueError, OSError):
         return ""
     return str(payload.get("jti") or "")
-
-
-def is_free_port() -> bool:
-    """Whether we can still bind a loopback listener (a sanity check for callers)."""
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind(("127.0.0.1", 0))
-        return True
-    except OSError:
-        return False
 
 
 # Shared styling for the browser end pages, matching Prism's web UI: Inter, the

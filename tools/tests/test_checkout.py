@@ -1128,18 +1128,5 @@ def test_list_branches_does_not_double_list_a_tracked_branch(bare_and_clone):
     assert not any(r.endswith("/main") for r in data["remote"])
 
 
-def test_recent_commits_returns_newest_first(repo):
-    commits = checkout.recent_commits(repo)
-    assert commits[0]["subject"] == "second"
-    assert commits[1]["subject"] == "first"
-    assert commits[0]["sha"] and commits[0]["short"]
-
-
-def test_recent_commits_is_capped(repo):
-    for n in range(5):
-        commit(repo, "board.kicad_pcb", "(kicad_pcb %d)" % n, "commit %d" % n)
-    assert len(checkout.recent_commits(repo, limit=3)) == 3
-
-
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

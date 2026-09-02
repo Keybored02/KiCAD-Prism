@@ -57,7 +57,14 @@ class AgentAuthServiceTests(unittest.TestCase):
         # Turn auth on for the duration of each test. The service reads these
         # live (agent_auth_enabled(), the signing secret), so patching them makes
         # the flow real without depending on the process-wide environment.
-        for attr, value in (("AUTH_ENABLED", True), ("SESSION_SECRET", TEST_SECRET)):
+        #
+        # AUTH_ENABLED is a read-only property that returns AUTH_ENABLED_OVERRIDE, so
+        # the real field is what gets patched; patching the property itself fails on
+        # teardown (you cannot delattr a property off the instance).
+        for attr, value in (
+            ("AUTH_ENABLED_OVERRIDE", True),
+            ("SESSION_SECRET", TEST_SECRET),
+        ):
             patcher = patch.object(settings, attr, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -153,6 +160,50 @@ class AgentAuthServiceTests(unittest.TestCase):
 
     def test_revoking_an_unknown_jti_returns_false(self) -> None:
         self.assertFalse(agent_auth_service.revoke_agent_token_by_jti("no-such-jti"))
+
+    def test_touch_records_last_used(self) -> None:
+        """The 'last used' column must actually update; it was dead code before."""
+        code, verifier = self._issue(label="touch-agent")
+        token = agent_auth_service.exchange_authorization_code(
+            code=code, redirect_uri=self.REDIRECT, code_verifier=verifier
+        )["access_token"]
+        payload = agent_auth_service.validate_agent_token(token)
+        jti = str(payload["jti"])
+
+        # Freshly issued: no use recorded yet.
+        row = self.catalog.get_agent_token(jti)
+        self.assertIsNone(row.get("last_used_at"))
+
+        # Clear the in-process throttle so the touch is not suppressed, then touch.
+        agent_auth_service._last_touched.pop(jti, None)
+        agent_auth_service.touch_agent_token(payload)
+
+        row = self.catalog.get_agent_token(jti)
+        self.assertIsNotNone(row.get("last_used_at"))
+
+    def test_touch_is_throttled(self) -> None:
+        """A second touch inside the window must not hit the database again."""
+        code, verifier = self._issue(label="throttle-agent")
+        token = agent_auth_service.exchange_authorization_code(
+            code=code, redirect_uri=self.REDIRECT, code_verifier=verifier
+        )["access_token"]
+        payload = agent_auth_service.validate_agent_token(token)
+        jti = str(payload["jti"])
+
+        calls = []
+        original = agent_auth_service._db().touch_agent_token
+
+        def counting(j, when):
+            calls.append(j)
+            return original(j, when)
+
+        agent_auth_service._last_touched.pop(jti, None)
+        with patch.object(
+            agent_auth_service._db(), "touch_agent_token", side_effect=counting
+        ):
+            agent_auth_service.touch_agent_token(payload)
+            agent_auth_service.touch_agent_token(payload)  # within the window
+        self.assertEqual(calls, [jti])  # only the first wrote
 
 
 if __name__ == "__main__":

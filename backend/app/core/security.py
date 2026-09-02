@@ -91,6 +91,9 @@ def _resolve_bearer_user(token: str) -> AuthenticatedUser:
     if token.startswith("v1."):
         try:
             payload = agent_auth_service.validate_agent_token(token)
+            # Best-effort, throttled: keep the registry's "last used" column honest
+            # without a DB write on every request. Never fails the request.
+            agent_auth_service.touch_agent_token(payload)
             return AuthenticatedUser(
                 email=str(payload["email"]),
                 name=str(payload["name"]),
