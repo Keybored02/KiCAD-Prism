@@ -27,6 +27,8 @@ Endpoints
                                      -> stage and commit; refuses empty msg / detached HEAD
     POST /branch {path, name, switch?}
                                      -> create a branch at HEAD (the detached-HEAD remedy)
+    POST /fetch {path}               -> update tracking refs; report ahead/behind
+    POST /push {path, set_upstream?} -> push current branch; NEVER forces (refuse+explain)
     POST /stash {path, message}      -> set uncommitted work aside
     POST /stash {path, restore:true} -> bring it back
     POST /quit                       -> stops the agent
@@ -609,6 +611,34 @@ class _Handler(BaseHTTPRequestHandler):
                     checkout.create_branch(
                         path, name, switch=body.get("switch", True)
                     ),
+                )
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/fetch":
+            # Update remote-tracking refs and report ahead/behind. Read-only against the
+            # working tree, so always safe, even mid-edit.
+            path = body.get("path") or ""
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            try:
+                self._send(200, checkout.fetch(path))
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/push":
+            # Push the current branch. NEVER forces: a non-fast-forward rejection is
+            # reported with the fix, not pushed past. Auth is the user's local git.
+            path = body.get("path") or ""
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            try:
+                self._send(
+                    200, checkout.push(path, set_upstream=bool(body.get("set_upstream")))
                 )
             except checkout.CheckoutError as exc:
                 self._send(400, {"error": str(exc)})

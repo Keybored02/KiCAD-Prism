@@ -923,3 +923,128 @@ def pull(repo: str | Path, stash_message: str | None = None) -> dict:
         "stashed": stashed,
         "message": f"Fast-forwarded {behind} commit(s).",
     }
+
+
+# A remote op (push/fetch of a board repo with 3D models) can be slow; give it the same
+# room a clone gets rather than timing out mid-transfer.
+CLONE_TIMEOUT = 900
+
+
+def _remote_git(repo: Path, *args: str) -> subprocess.CompletedProcess:
+    """Run a git command that talks to a remote, without hanging on a prompt.
+
+    ``GIT_TERMINAL_PROMPT=0`` makes a missing credential fail fast instead of blocking
+    forever on a password prompt that has nowhere to appear (the agent is detached from
+    any terminal). Authentication is the user's own local git config, exactly like the
+    clone flow, Prism stores no credentials.
+    """
+    import os
+
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            timeout=CLONE_TIMEOUT if args and args[0] in ("push", "fetch") else TIMEOUT,
+            check=False,
+            env=env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise CheckoutError(f"Couldn't run git: {exc}") from exc
+
+
+def fetch(repo: str | Path) -> dict:
+    """Fetch from the remote and report how the branch now stands against it.
+
+    Read-only against the working tree: it updates the remote-tracking refs and nothing
+    else, so it is always safe to run, even mid-edit. The ahead/behind counts it returns
+    are what the panel shows without the user having to pull.
+    """
+    path = Path(repo)
+    if not (path / ".git").exists():
+        raise CheckoutError("Not a git repository.")
+
+    result = _remote_git(path, "fetch", "--prune")
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip().splitlines()
+        raise CheckoutError(detail[-1] if detail else "The fetch failed.")
+
+    branch = _git(path, "rev-parse", "--abbrev-ref", "HEAD", check=False)
+    upstream = _git(
+        path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", check=False
+    )
+    ahead = behind = 0
+    if upstream:
+        counts = _git(
+            path, "rev-list", "--left-right", "--count", f"{upstream}...HEAD", check=False
+        )
+        try:
+            behind, ahead = (int(n) for n in counts.split())
+        except ValueError:
+            behind, ahead = 0, 0
+
+    return {
+        "ok": True,
+        "branch": "" if branch == "HEAD" else branch,
+        "upstream": upstream,
+        "ahead": ahead,
+        "behind": behind,
+    }
+
+
+def push(repo: str | Path, set_upstream: bool = False) -> dict:
+    """Push the current branch to its remote, refusing anything that would rewrite it.
+
+    **Never force.** A push that is rejected as non-fast-forward means the remote has
+    commits you do not, and overwriting them is exactly the data loss this whole module
+    refuses elsewhere. So a rejection is reported with the fix (pull/merge first), not
+    pushed past.
+
+    `set_upstream` publishes a brand-new branch that has no remote yet (``push -u``). A
+    branch that already tracks a remote pushes to it normally.
+
+    Authentication is the user's own local git (SSH keys, credential helper). Prism
+    stores nothing and prompts for nothing.
+    """
+    path = Path(repo)
+    if not (path / ".git").exists():
+        raise CheckoutError("Not a git repository.")
+
+    branch = _git(path, "rev-parse", "--abbrev-ref", "HEAD", check=False)
+    if branch == "HEAD":
+        raise CheckoutError(
+            "You are not on a branch (detached HEAD), so there is nothing to push. "
+            "Create a branch first."
+        )
+
+    upstream = _git(
+        path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", check=False
+    )
+    if not upstream and not set_upstream:
+        # A new branch with no remote yet. Say so rather than letting git's "has no
+        # upstream branch" error surface raw; the caller can offer to publish it.
+        raise CheckoutError(
+            f"'{branch}' isn't tracking a remote yet. Publish it to create the remote "
+            "branch."
+        )
+
+    if set_upstream and not upstream:
+        result = _remote_git(path, "push", "-u", "origin", branch)
+    else:
+        result = _remote_git(path, "push")
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        lowered = detail.lower()
+        if "non-fast-forward" in lowered or "fetch first" in lowered or "rejected" in lowered:
+            raise CheckoutError(
+                "The remote has commits you don't. Pull (fast-forward) or resolve the "
+                "divergence first, then push. Prism won't force-push over them."
+            )
+        last = detail.splitlines()
+        raise CheckoutError(last[-1] if last else "The push failed.")
+
+    return {"ok": True, "branch": branch, "published": bool(set_upstream and not upstream)}

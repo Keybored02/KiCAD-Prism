@@ -279,6 +279,21 @@ class AgentClient:
         """
         return self._call("POST", "/branch", {"path": path, "name": name, "switch": switch})
 
+    def fetch(self, path):
+        """Update tracking refs and report ahead/behind. Read-only, always safe."""
+        return self._call("POST", "/fetch", {"path": path}, timeout=DIFF_TIMEOUT)
+
+    def push(self, path, set_upstream=False):
+        """Push the current branch. Never forces; a rejection is reported, not overridden.
+
+        `set_upstream` publishes a new branch that has no remote yet. Slow over a board
+        repo, so it gets the same room a diff does.
+        """
+        body = {"path": path}
+        if set_upstream:
+            body["set_upstream"] = True
+        return self._call("POST", "/push", body, timeout=DIFF_TIMEOUT)
+
     def merge_plan(self, path, ref):
         """What merging `ref` would involve. Read-only: nothing moves."""
         return self._call(

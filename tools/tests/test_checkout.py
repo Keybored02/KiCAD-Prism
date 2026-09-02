@@ -999,5 +999,91 @@ def test_create_branch_refuses_an_invalid_name(repo):
         checkout.create_branch(repo, "bad..name")
 
 
+# -- fetch and push --------------------------------------------------------
+
+
+@pytest.fixture
+def bare_and_clone(tmp_path):
+    """A bare remote and a working clone tracking it, so push has somewhere to go.
+
+    A non-bare repo refuses a push to its checked-out branch, so the remote here is bare,
+    which is what a real hosted origin is anyway.
+    """
+    bare = tmp_path / "origin.git"
+    git("init", "--bare", "-b", "main", str(bare), cwd=tmp_path)
+
+    work = Repo(tmp_path / "work")
+    git("clone", str(bare), str(work), cwd=tmp_path)
+    git("config", "user.email", "w@w.w", cwd=work)
+    git("config", "user.name", "W", cwd=work)
+    work.first = commit(work, "board.kicad_pcb", "(kicad_pcb v1)", "first")
+    git("push", "-u", "origin", "main", cwd=work)
+    return bare, work
+
+
+def test_push_sends_commits_to_the_remote(bare_and_clone):
+    bare, work = bare_and_clone
+    commit(work, "board.kicad_pcb", "(kicad_pcb v2)", "second")
+
+    result = checkout.push(work)
+    assert result["ok"] is True
+    assert result["branch"] == "main"
+
+    # The bare remote now has the second commit.
+    log = git("log", "--format=%s", "main", cwd=bare).stdout
+    assert "second" in log
+
+
+def test_push_refuses_to_force_over_a_diverged_remote(bare_and_clone, tmp_path):
+    bare, work = bare_and_clone
+    # A second clone pushes a commit the first doesn't have.
+    other = tmp_path / "other"
+    git("clone", str(bare), str(other), cwd=tmp_path)
+    git("config", "user.email", "o@o.o", cwd=other)
+    git("config", "user.name", "O", cwd=other)
+    commit(other, "board.kicad_pcb", "(kicad_pcb theirs)", "theirs")
+    git("push", cwd=other)
+
+    # The first clone commits locally, now behind and ahead → non-fast-forward.
+    commit(work, "board.kicad_pcb", "(kicad_pcb mine)", "mine")
+
+    with pytest.raises(CheckoutError, match="won't force-push"):
+        checkout.push(work)
+
+
+def test_push_refuses_from_a_detached_head(bare_and_clone):
+    bare, work = bare_and_clone
+    commit(work, "board.kicad_pcb", "(kicad_pcb v2)", "second")  # so first != HEAD
+    checkout.checkout(work, work.first)  # detach onto the earlier commit
+    with pytest.raises(CheckoutError, match="detached"):
+        checkout.push(work)
+
+
+def test_push_of_an_untracked_branch_asks_to_publish(bare_and_clone):
+    bare, work = bare_and_clone
+    checkout.create_branch(work, "feature/x")  # no upstream yet
+    with pytest.raises(CheckoutError, match="isn't tracking a remote"):
+        checkout.push(work)
+    # With set_upstream it publishes.
+    result = checkout.push(work, set_upstream=True)
+    assert result["published"] is True
+
+
+def test_fetch_reports_ahead_and_behind(bare_and_clone, tmp_path):
+    bare, work = bare_and_clone
+    other = tmp_path / "other"
+    git("clone", str(bare), str(other), cwd=tmp_path)
+    git("config", "user.email", "o@o.o", cwd=other)
+    git("config", "user.name", "O", cwd=other)
+    commit(other, "board.kicad_pcb", "(kicad_pcb theirs)", "theirs")
+    git("push", cwd=other)
+
+    result = checkout.fetch(work)
+    assert result["behind"] == 1
+    assert result["ahead"] == 0
+    # Fetch touched no working-tree files.
+    assert (work / "board.kicad_pcb").read_text() == "(kicad_pcb v1)"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

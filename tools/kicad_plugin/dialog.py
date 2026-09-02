@@ -1045,11 +1045,71 @@ class PrismDialog(wx.Dialog):
             )
 
         self._add_pull_row(card, git)
+        self._add_sync_row(card, git)
 
         self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
         self._render_gitignore()
         self._render_stashes()
+
+    def _add_sync_row(self, card, git):
+        """Fetch and push. Push shows only when there is something to push and it is safe.
+
+        Push is hidden when the branch has diverged: the pull row already routes that to
+        the merge, and offering Push there would invite a force the agent refuses anyway.
+        Fetch is always safe (it touches no files), so it is always offered on a branch
+        with an upstream.
+        """
+        git = git or {}
+        if git.get("detached"):
+            return  # nothing to push from a detached HEAD; fetch alone isn't worth a row
+        ahead = git.get("ahead") or 0
+        behind = git.get("behind") or 0
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(
+            Button(card, "Fetch", self.pal, variant="ghost", on_click=self._fetch),
+            0,
+            wx.RIGHT,
+            th.SP_SM,
+        )
+        # Push only when ahead and NOT diverged (diverged is the merge's job).
+        if ahead and not behind:
+            row.Add(
+                Button(
+                    card,
+                    "Push %d commit%s" % (ahead, "" if ahead == 1 else "s"),
+                    self.pal,
+                    variant="primary",
+                    on_click=self._push,
+                ),
+                0,
+            )
+        card.body.Add(row, 0, wx.TOP, th.SP_XS)
+
+    def _fetch(self):
+        project = (self.data or {}).get("project")
+        if not project or not project.get("repo_root"):
+            return
+        try:
+            with wx.BusyCursor():
+                AgentClient().fetch(project["repo_root"])
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+        self._load()
+
+    def _push(self):
+        project = (self.data or {}).get("project")
+        if not project or not project.get("repo_root"):
+            return
+        try:
+            with wx.BusyCursor():
+                AgentClient().push(project["repo_root"])
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+        self._load()
 
     def _render_gitignore(self):
         """Offer a KiCad .gitignore to a project that has not got one.
