@@ -6,11 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { GitBranch, Copy, FileCode, Shield, Plus, Trash2, KeyRound } from "lucide-react";
+import { GitBranch, Copy, FileCode, Shield, Plus, Trash2, KeyRound, Cpu } from "lucide-react";
 import { User, UserRole } from "@/types/auth";
 import { fetchApi, readApiError } from "@/lib/api";
 import { changeOwnPassword, fetchAuthConfig } from "@/lib/auth";
 import { ROLE_OPTIONS, roleLabel } from "@/lib/roles";
+import { AgentTokensSettings } from "@/components/agent-tokens";
 
 interface SettingsDialogProps {
     open: boolean;
@@ -18,7 +19,7 @@ interface SettingsDialogProps {
     user: User | null;
 }
 
-type SettingsTab = "git" | "access" | "general";
+type SettingsTab = "git" | "access" | "agents" | "general";
 
 interface RoleAssignment {
     email: string;
@@ -63,6 +64,15 @@ export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps
                     </Button>
 
                     <Button
+                        variant={activeTab === "agents" ? "secondary" : "ghost"}
+                        className="justify-start"
+                        onClick={() => setActiveTab("agents")}
+                    >
+                        <Cpu className="mr-2 h-4 w-4" />
+                        Agent tokens
+                    </Button>
+
+                    <Button
                         variant={activeTab === "general" ? "secondary" : "ghost"}
                         className="justify-start"
                         onClick={() => setActiveTab("general")}
@@ -75,6 +85,7 @@ export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps
                 <div className="flex-1 overflow-y-auto p-6">
                     {activeTab === "git" && <GitSettings user={user} />}
                     {activeTab === "access" && <AccessControlSettings isAdmin={isAdmin} />}
+                    {activeTab === "agents" && <AgentTokensSettings isAdmin={isAdmin} />}
                     {activeTab === "general" && <PasswordSettings />}
                 </div>
             </DialogContent>
