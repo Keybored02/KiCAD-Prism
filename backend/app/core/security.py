@@ -13,6 +13,7 @@ from app.core.roles import (
 from app.core.session import SESSION_COOKIE_NAME, decode_session_token
 from app.services import (
     access_service,
+    agent_auth_service,
     auth_service,
     provider_auth_service,
     service_client_service,
@@ -88,6 +89,23 @@ async def get_current_user(request: Request) -> AuthenticatedUser:
 def _resolve_bearer_user(token: str) -> AuthenticatedUser:
     provider_error: HTTPException | None = None
     if token.startswith("v1."):
+        try:
+            payload = agent_auth_service.validate_agent_token(token)
+            return AuthenticatedUser(
+                email=str(payload["email"]),
+                name=str(payload["name"]),
+                picture=str(payload.get("picture") or ""),
+                role=normalize_role(str(payload["role"])) or "viewer",
+                auth_type="agent",
+                client_id=str(payload.get("client_id") or ""),
+                scopes=str(payload.get("scope") or "").split(),
+            )
+        except HTTPException as exc:
+            if exc.status_code >= 500:
+                raise
+            # Not an agent token (or an invalid one); fall through to the other
+            # bearer kinds, which use the same v1. envelope.
+
         try:
             payload = provider_auth_service.validate_access_token(token)
             scopes = str(payload.get("scope") or "").split()
