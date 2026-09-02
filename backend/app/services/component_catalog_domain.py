@@ -103,6 +103,7 @@ from app.services.catalog.project_import_sessions import CatalogProjectImportSes
 from app.services.catalog.project_import_matching import CatalogProjectImportMatching
 from app.services.catalog.project_import_assets import CatalogProjectImportAssets
 from app.services.catalog.provider_tokens import CatalogProviderTokens
+from app.services.catalog.agent_tokens import CatalogAgentTokens
 from app.services.catalog.project_import_acceptance import CatalogProjectImportAcceptance
 from app.services.catalog.placement import CatalogPlacement
 from app.services.catalog.placement_payloads import (
@@ -224,6 +225,7 @@ class ComponentCatalogDomainService:
     _placement: CatalogPlacement = CatalogPlacement(_revision_kernel, _component_read_models)
     _dbl_export: CatalogDblExport = CatalogDblExport(_placement)
     _provider_tokens: CatalogProviderTokens = CatalogProviderTokens()
+    _agent_tokens: CatalogAgentTokens = CatalogAgentTokens()
     _remote_heads: CatalogRemoteHeads = CatalogRemoteHeads()
     _project_import_sessions: CatalogProjectImportSessions = CatalogProjectImportSessions()
     _project_import_matching: CatalogProjectImportMatching = CatalogProjectImportMatching()
@@ -331,6 +333,7 @@ class ComponentCatalogDomainService:
         self._placement = CatalogPlacement(self._revision_kernel, self._component_read_models)
         self._dbl_export = CatalogDblExport(self._placement)
         self._provider_tokens = CatalogProviderTokens()
+        self._agent_tokens = CatalogAgentTokens()
         self._remote_heads = CatalogRemoteHeads()
         self._project_import_acceptance = CatalogProjectImportAcceptance(
             self._catalog_locks,
@@ -2094,6 +2097,46 @@ class ComponentCatalogDomainService:
             revoked = self._provider_tokens.is_token_revoked(conn, jti, now=int(time.time()))
             conn.commit()
         return revoked
+
+    def record_agent_token(
+        self, *, jti: str, email: str, label: str, scopes: list[str], created_at: str, expires_at: int
+    ) -> None:
+        self.initialize()
+        with self._connect() as conn:
+            self._agent_tokens.record(
+                conn,
+                jti=jti,
+                email=email,
+                label=label,
+                scopes=scopes,
+                created_at=created_at,
+                expires_at=expires_at,
+            )
+            conn.commit()
+
+    def touch_agent_token(self, jti: str, when: str) -> None:
+        self.initialize()
+        with self._connect() as conn:
+            self._agent_tokens.touch(conn, jti=jti, when=when)
+            conn.commit()
+
+    def get_agent_token(self, jti: str) -> dict[str, Any] | None:
+        self.initialize()
+        with self._connect() as conn:
+            return self._agent_tokens.get(conn, jti=jti)
+
+    def list_agent_tokens(self, *, email: str | None) -> list[dict[str, Any]]:
+        self.initialize()
+        with self._connect() as conn:
+            tokens = self._agent_tokens.list_for(conn, email=email, now=int(time.time()))
+            conn.commit()
+        return tokens
+
+    def mark_agent_token_revoked(self, jti: str, when: str) -> None:
+        self.initialize()
+        with self._connect() as conn:
+            self._agent_tokens.mark_revoked(conn, jti=jti, when=when)
+            conn.commit()
 
     def _released_place_ready_components(self) -> list[dict[str, Any]]:
         return [

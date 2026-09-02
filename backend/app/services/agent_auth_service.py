@@ -163,6 +163,7 @@ def exchange_authorization_code(
         picture=str(grant.get("picture") or ""),
         role=str(grant["role"]),
         scope=str(grant.get("scope") or _AGENT_SCOPE_STRING),
+        label=str(grant.get("agent_label") or ""),
     )
     return {
         "access_token": token,
@@ -179,11 +180,14 @@ def _issue_agent_token(
     picture: str,
     role: Role | str,
     scope: str,
+    label: str = "",
 ) -> str:
     normalized_role = normalize_role(str(role))
     if not normalized_role:
         raise HTTPException(status_code=500, detail="Unable to resolve user role")
     now = _now()
+    jti = secrets.token_urlsafe(12)
+    exp = now + settings.AGENT_TOKEN_TTL_SECONDS
     payload = {
         "type": _TOKEN_TYPE,
         "email": email.strip().lower(),
@@ -192,11 +196,27 @@ def _issue_agent_token(
         "role": normalized_role,
         "scope": scope,
         "client_id": AGENT_CLIENT_ID,
-        "jti": secrets.token_urlsafe(12),
+        "jti": jti,
         "iat": now,
-        "exp": now + settings.AGENT_TOKEN_TTL_SECONDS,
+        "exp": exp,
     }
+    # Record the token in the registry so the user (or an admin) can see and
+    # revoke it later. The token value itself is never stored.
+    _db().record_agent_token(
+        jti=jti,
+        email=email,
+        label=label,
+        scopes=scope.split(),
+        created_at=_iso(now),
+        expires_at=exp,
+    )
     return provider_auth_service._encode_payload(payload)
+
+
+def _iso(epoch: int) -> str:
+    import datetime
+
+    return datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).isoformat()
 
 
 def validate_agent_token(token: str) -> dict[str, object]:
@@ -212,9 +232,36 @@ def validate_agent_token(token: str) -> dict[str, object]:
 
 
 def revoke_agent_token(token: str) -> None:
-    """Add the token's ``jti`` to the shared revocation list until it expires."""
+    """Revoke by token value (the agent signing itself out)."""
     payload = provider_auth_service._decode_payload(token)
-    jti = str(payload.get("jti") or "")
-    exp = int(payload.get("exp", 0))
-    if jti and exp > _now():
+    _revoke_jti(str(payload.get("jti") or ""), int(payload.get("exp", 0)))
+
+
+def revoke_agent_token_by_jti(jti: str) -> bool:
+    """Revoke by registry id (a user or admin revoking from the web console).
+
+    Returns False if no active token with that jti belongs to the registry, so
+    the caller can 404. The revocation list needs an expiry; the registry row
+    carries it.
+    """
+    row = _db().get_agent_token(jti)
+    if not row or not jti:
+        return False
+    _revoke_jti(jti, int(row.get("expires_at") or 0))
+    return True
+
+
+def _revoke_jti(jti: str, exp: int) -> None:
+    if not jti:
+        return
+    now = _now()
+    if exp > now:
         _db().add_revoked_token(jti, exp)
+    _db().mark_agent_token_revoked(jti, _iso(now))
+
+
+def touch_agent_token(payload: dict[str, object]) -> None:
+    """Record that a token was just used, for the ``last used`` column."""
+    jti = str(payload.get("jti") or "")
+    if jti:
+        _db().touch_agent_token(jti, _iso(_now()))
