@@ -160,23 +160,57 @@ class SettingsDialog(wx.Dialog):
                 account.row(
                     "Role", str(user.get("role", "")), badge=True, tone="primary"
                 )
+                # Signed in: the one action that matters is signing out. It clears
+                # the token here and revokes it at Prism.
+                account.body.Add(
+                    Button(
+                        account,
+                        "Sign out",
+                        self.pal,
+                        variant="ghost",
+                        on_click=self._sign_out,
+                    ),
+                    0,
+                    wx.TOP,
+                    th.SP_SM,
+                )
             else:
                 account.body.Add(
                     account.label(
-                        "Not signed in. Paste an API token below.",
+                        "Not signed in. Sign in through your browser, the usual "
+                        "way you log in to Prism.",
                         tone="muted_fg",
                     ),
                     0,
                     wx.BOTTOM,
                     th.SP_SM,
                 )
+                account.body.Add(
+                    Button(
+                        account,
+                        "Sign in",
+                        self.pal,
+                        variant="primary",
+                        on_click=self._sign_in,
+                    ),
+                    0,
+                    wx.BOTTOM,
+                    th.SP_SM,
+                )
 
+        # The manual token field stays as a fallback: a headless box with no
+        # browser, or a service token an admin handed out, still needs a way in.
+        # It is secondary to the browser flow now, so it is labelled as such.
         account.body.Add(
-            account.label("API token", tone="muted_fg", small=True), 0, wx.TOP, th.SP_SM
+            account.label("API token (advanced)", tone="muted_fg", small=True),
+            0,
+            wx.TOP,
+            th.SP_SM,
         )
         account.body.Add(
             account.label(
-                "Stored on this machine. Not shown again once saved.",
+                "Paste a token instead of signing in. Stored on this machine, "
+                "not shown again once saved.",
                 tone="muted_fg",
                 small=True,
             ),
@@ -511,6 +545,54 @@ class SettingsDialog(wx.Dialog):
         finally:
             dlg.Destroy()
         self._load()  # the toggles it applied are ours to redisplay
+
+    def _sign_in(self):
+        """Sign in through the browser, then redisplay the account state.
+
+        Saves the server URL first: the user may have typed a new one without
+        pressing Save, and signing in to the old server would be quietly wrong.
+        The agent opens the browser and waits, so this can take a while, a busy
+        cursor says so rather than the dialog appearing to hang.
+        """
+        url = self.url.GetValue().strip()
+        if not url:
+            wx.MessageBox(
+                "Set the Prism server URL first.", "Prism", wx.OK | wx.ICON_WARNING
+            )
+            return
+        try:
+            AgentClient().save_settings({"server_url": url})
+            with wx.BusyCursor():
+                result = AgentClient().sign_in()
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        if result.get("error"):
+            wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
+
+        self.data = result
+        self.content.Clear(delete_windows=True)
+        self._render()
+        self._relayout()
+
+    def _sign_out(self):
+        try:
+            with wx.BusyCursor():
+                result = AgentClient().sign_out()
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        # Signed out locally regardless; the warning only means Prism could not be
+        # reached to revoke the token, which the user may want to do by hand.
+        if result.get("warning"):
+            wx.MessageBox(result["warning"], "Prism", wx.OK | wx.ICON_INFORMATION)
+
+        self.data = result
+        self.content.Clear(delete_windows=True)
+        self._render()
+        self._relayout()
 
     def _clear_token(self):
         try:
