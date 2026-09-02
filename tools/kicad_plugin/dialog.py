@@ -1046,11 +1046,108 @@ class PrismDialog(wx.Dialog):
 
         self._add_pull_row(card, git)
         self._add_sync_row(card, git)
+        self._add_switch_row(card)
 
         self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
         self._render_gitignore()
         self._render_stashes()
+
+    def _add_switch_row(self, card):
+        """A button to switch to another branch, chosen from a list.
+
+        Read-heavy on open (a picker fetches branches), so it is a button, not always-on:
+        the panel stays light and only asks the agent for the branch list when the user
+        actually wants to switch. The switch itself carries the same guards as any other
+        checkout, a dirty tree is refused with a way out, not silently moved.
+        """
+        card.body.Add(
+            Button(
+                card, "Switch branch…", self.pal, variant="ghost", on_click=self._switch_branch
+            ),
+            0,
+            wx.TOP,
+            th.SP_XS,
+        )
+
+    def _switch_branch(self):
+        """Pick a branch and check it out, respecting the uncommitted-work guard."""
+        project = (self.data or {}).get("project")
+        if not project or not project.get("repo_root"):
+            return
+        repo = project["repo_root"]
+        try:
+            data = AgentClient().branches(repo)
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        current = data.get("current") or ""
+        local = [b for b in (data.get("local") or []) if b != current]
+        remote = data.get("remote") or []
+
+        # Build labelled choices, and a map from each label back to the ref to check out.
+        # A remote branch (origin/feature) is checked out by its SHORT name (feature) so
+        # git creates a local tracking branch instead of detaching HEAD.
+        ref_for = {}
+        choices = []
+        for b in local:
+            choices.append(b)
+            ref_for[b] = b
+        for r in remote:
+            short = r.split("/", 1)[1] if "/" in r else r
+            label = "%s  (remote)" % short
+            choices.append(label)
+            ref_for[label] = short
+
+        if not choices:
+            wx.MessageBox("No other branches to switch to.", "Prism", wx.OK | wx.ICON_INFORMATION)
+            return
+
+        picked = wx.GetSingleChoice("Switch to which branch?", "Switch branch", choices)
+        if not picked:
+            return
+        self._do_switch(repo, ref_for[picked])
+
+    def _do_switch(self, repo, ref):
+        """Check out `ref`, offering the stash/discard way out if the tree is dirty."""
+        try:
+            with wx.BusyCursor():
+                AgentClient().checkout(repo, ref)
+        except AgentUnavailable as exc:
+            text = str(exc)
+            if "uncommitted" in text.lower() or "stash" in text.lower():
+                self._switch_with_dirty_tree(repo, ref, text)
+                return
+            wx.MessageBox(text, "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        # Landed on a branch: offer its set-aside work, same as a return.
+        self._offer_branch_stash(repo, ref)
+        self._load()
+
+    def _switch_with_dirty_tree(self, repo, ref, why):
+        """The tree is dirty, so the switch was refused. Offer set-aside or cancel."""
+        choice = wx.MessageBox(
+            "%s\n\nSet your changes aside first, then switch?" % why,
+            "Uncommitted changes",
+            wx.YES_NO | wx.ICON_QUESTION,
+        )
+        if choice != wx.YES:
+            return
+        message = wx.GetTextFromUser(
+            "A short note, so you can find this work later:",
+            "Set aside",
+            "",
+        )
+        try:
+            with wx.BusyCursor():
+                AgentClient().checkout(repo, ref, stash_message=message.strip())
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+        self._offer_branch_stash(repo, ref)
+        self._load()
 
     def _add_sync_row(self, card, git):
         """Fetch and push. Push shows only when there is something to push and it is safe.

@@ -1085,5 +1085,61 @@ def test_fetch_reports_ahead_and_behind(bare_and_clone, tmp_path):
     assert (work / "board.kicad_pcb").read_text() == "(kicad_pcb v1)"
 
 
+# -- listing branches and commits ------------------------------------------
+
+
+def test_list_branches_names_the_current_one(repo):
+    checkout.create_branch(repo, "feature/x", switch=False)
+    data = checkout.list_branches(repo)
+    assert data["current"] == "main"
+    assert "main" in data["local"]
+    assert "feature/x" in data["local"]
+
+
+def test_list_branches_current_is_empty_when_detached(repo):
+    checkout.checkout(repo, repo.first)
+    assert checkout.list_branches(repo)["current"] == ""
+
+
+def test_list_branches_surfaces_remote_only_branches(bare_and_clone, tmp_path):
+    """A branch someone else pushed, that we have no local copy of, is offered so the
+    user can check it out."""
+    bare, work = bare_and_clone
+    other = tmp_path / "other"
+    git("clone", str(bare), str(other), cwd=tmp_path)
+    git("config", "user.email", "o@o.o", cwd=other)
+    git("config", "user.name", "O", cwd=other)
+    git("switch", "-c", "their-feature", cwd=other)
+    commit(other, "x.txt", "x", "on their feature")
+    git("push", "-u", "origin", "their-feature", cwd=other)
+
+    checkout.fetch(work)
+    data = checkout.list_branches(work)
+    # Not local here, so it shows under remote as origin/their-feature.
+    assert any(r.endswith("their-feature") for r in data["remote"])
+    assert "their-feature" not in data["local"]
+
+
+def test_list_branches_does_not_double_list_a_tracked_branch(bare_and_clone):
+    bare, work = bare_and_clone
+    # main is both local and origin/main; it should appear once, under local.
+    data = checkout.list_branches(work)
+    assert "main" in data["local"]
+    assert not any(r.endswith("/main") for r in data["remote"])
+
+
+def test_recent_commits_returns_newest_first(repo):
+    commits = checkout.recent_commits(repo)
+    assert commits[0]["subject"] == "second"
+    assert commits[1]["subject"] == "first"
+    assert commits[0]["sha"] and commits[0]["short"]
+
+
+def test_recent_commits_is_capped(repo):
+    for n in range(5):
+        commit(repo, "board.kicad_pcb", "(kicad_pcb %d)" % n, "commit %d" % n)
+    assert len(checkout.recent_commits(repo, limit=3)) == 3
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

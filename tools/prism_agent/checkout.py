@@ -191,6 +191,83 @@ def dirty_files(repo: Path) -> dict:
     }
 
 
+def list_branches(repo: str | Path) -> dict:
+    """Local and remote-tracking branches, for a switch picker. Read-only.
+
+    Returns ``{current, local, remote}``. `current` is the checked-out branch (empty on a
+    detached HEAD). Remote branches are the ``origin/…`` refs that have no local branch of
+    the same name yet, so the picker can offer "check out a branch someone else pushed"
+    without listing every remote twice.
+    """
+    path = Path(repo)
+    if not (path / ".git").exists():
+        return {"current": "", "local": [], "remote": []}
+
+    current = _git(path, "rev-parse", "--abbrev-ref", "HEAD", check=False)
+    if current == "HEAD":
+        current = ""
+
+    local = [
+        b.strip()
+        for b in _git(
+            path, "for-each-ref", "--format=%(refname:short)", "refs/heads", check=False
+        ).splitlines()
+        if b.strip()
+    ]
+    local_set = set(local)
+
+    remote = []
+    for ref in _git(
+        path, "for-each-ref", "--format=%(refname:short)", "refs/remotes", check=False
+    ).splitlines():
+        ref = ref.strip()
+        if not ref or ref.endswith("/HEAD"):
+            continue  # origin/HEAD is a symref, not a branch to check out
+        # origin/feature -> feature; skip it if a local branch already tracks it, the
+        # user picks the local one.
+        short = ref.split("/", 1)[1] if "/" in ref else ref
+        if short not in local_set:
+            remote.append(ref)
+
+    return {"current": current, "local": local, "remote": remote}
+
+
+def recent_commits(repo: str | Path, limit: int = 20) -> list[dict]:
+    """The last few commits on HEAD, newest first, for an "open a commit" picker.
+
+    Read-only. Each entry is ``{sha, short, subject, when, author}`` -- enough to
+    recognise a commit without opening the web history. Capped, because a picker that
+    lists ten thousand commits is one nobody scrolls.
+    """
+    path = Path(repo)
+    if not (path / ".git").exists():
+        return []
+
+    out = _git(
+        path,
+        "log",
+        f"-{max(1, min(limit, 100))}",
+        "--format=%H%x00%h%x00%s%x00%cr%x00%an",
+        check=False,
+        strip=False,
+    )
+    result = []
+    for line in out.splitlines():
+        parts = line.split("\0")
+        if len(parts) < 5:
+            continue
+        result.append(
+            {
+                "sha": parts[0],
+                "short": parts[1],
+                "subject": parts[2],
+                "when": parts[3],
+                "author": parts[4],
+            }
+        )
+    return result
+
+
 def resolve(repo: Path, ref: str) -> dict:
     """What is this ref, if anything?
 

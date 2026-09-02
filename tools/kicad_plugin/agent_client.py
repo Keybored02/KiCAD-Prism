@@ -223,6 +223,14 @@ class AgentClient:
 
     # -- moving around the history -----------------------------------------
 
+    def branches(self, path):
+        """Local and remote branches, for a switch picker. Read-only."""
+        return self._call("GET", "/branches?path=" + urllib.parse.quote(path))
+
+    def commits(self, path):
+        """Recent commits on HEAD, for an open-commit picker. Read-only."""
+        return self._call("GET", "/commits?path=" + urllib.parse.quote(path))
+
     def checkout_status(self, path, ref=""):
         """Could we check `ref` out, and if not, why not? Read-only.
 
