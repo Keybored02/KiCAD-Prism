@@ -22,6 +22,10 @@ TIMEOUT = 15
 # Diffing the working tree means parsing every changed board; a big one takes a
 # couple of seconds cold (the agent caches on mtime, so it's ~instant after that).
 DIFF_TIMEOUT = 120
+# Signing in waits for the user to log in and approve in a browser. The agent
+# itself gives up after five minutes, so allow a little longer than that here, or
+# the plugin would time out on a flow the agent is still legitimately serving.
+SIGNIN_TIMEOUT = 330
 APP_NAME = "kicad-prism"
 ENDPOINT_FILE = "agent.json"
 
@@ -314,6 +318,25 @@ class AgentClient:
         "leave it as it is" rather than "clear it", pass clear_token to clear.
         """
         return self._call("PUT", "/settings", changes)
+
+    def sign_in(self, label=""):
+        """Sign in to Prism through the browser, and save the resulting token.
+
+        Blocks while the agent opens the browser and waits for the user to log in
+        and approve, so it needs a long timeout. The agent does the whole loopback
+        flow; the plugin only kicks it off and shows the result. Returns the same
+        shape as settings(), plus an "error" on failure.
+        """
+        body = {"label": label} if label else {}
+        return self._call("POST", "/signin", body, timeout=SIGNIN_TIMEOUT)
+
+    def sign_out(self):
+        """Sign out: clear the local token and best-effort revoke it at Prism.
+
+        Returns the settings() shape, with a "warning" when the token was cleared
+        locally but Prism could not be reached to revoke it.
+        """
+        return self._call("POST", "/signout", {})
 
     def restart(self):
         return self._call("POST", "/restart", {})
