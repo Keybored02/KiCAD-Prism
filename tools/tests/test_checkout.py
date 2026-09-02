@@ -912,13 +912,14 @@ def test_commit_stages_all_and_records_the_message(repo):
     (repo / "board.kicad_pcb").write_text("(kicad_pcb v3)")
     (repo / "notes.md").write_text("new file")
 
-    result = checkout.commit(repo, "reroute the power rail")
+    # stage_all_design is the explicit "commit all my work" mode.
+    result = checkout.commit(repo, "reroute the power rail", stage_all_design=True)
 
     assert result["subject"] == "reroute the power rail"
     assert result["branch"] == "main"
     assert "board.kicad_pcb" in result["committed"]
     assert "notes.md" in result["committed"]
-    # The tree is clean afterwards.
+    # The tree is clean of design work afterwards.
     assert checkout.status(repo)["blocking"] == []
 
 
@@ -948,13 +949,15 @@ def test_commit_refuses_on_a_detached_head_by_default(repo):
     checkout.checkout(repo, repo.first)  # detaches
     (repo / "board.kicad_pcb").write_text("(kicad_pcb detached edit)")
     with pytest.raises(CheckoutError, match="detached"):
-        checkout.commit(repo, "on a detached head")
+        checkout.commit(repo, "on a detached head", stage_all_design=True)
 
 
 def test_commit_allows_detached_when_explicitly_permitted(repo):
     checkout.checkout(repo, repo.first)
     (repo / "board.kicad_pcb").write_text("(kicad_pcb detached edit)")
-    result = checkout.commit(repo, "deliberate detached commit", allow_detached=True)
+    result = checkout.commit(
+        repo, "deliberate detached commit", allow_detached=True, stage_all_design=True
+    )
     assert result["branch"] == ""  # still no branch, as warned
     assert result["sha"]
 
@@ -974,7 +977,7 @@ def test_create_branch_here_rescues_a_detached_commit(repo):
     that point keeps them."""
     checkout.checkout(repo, repo.first)
     (repo / "board.kicad_pcb").write_text("(kicad_pcb work)")
-    checkout.commit(repo, "detached work", allow_detached=True)
+    checkout.commit(repo, "detached work", allow_detached=True, stage_all_design=True)
 
     checkout.create_branch(repo, "rescue")
 
@@ -1126,6 +1129,111 @@ def test_list_branches_does_not_double_list_a_tracked_branch(bare_and_clone):
     data = checkout.list_branches(work)
     assert "main" in data["local"]
     assert not any(r.endswith("/main") for r in data["remote"])
+
+
+# -- staging ---------------------------------------------------------------
+
+
+def test_stage_and_unstage_a_single_file(repo):
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb v3)")
+    (repo / "notes.md").write_text("new")
+
+    checkout.stage(repo, ["board.kicad_pcb"])
+    dirt = checkout.dirty_files(repo)
+    assert "board.kicad_pcb" in dirt["staged"]
+    assert "notes.md" in dirt["untracked"]  # untouched
+
+    checkout.unstage(repo, ["board.kicad_pcb"])
+    dirt = checkout.dirty_files(repo)
+    assert "board.kicad_pcb" not in dirt["staged"]
+    assert "board.kicad_pcb" in dirt["modified"]  # back to modified, not lost
+
+
+def test_unstage_returns_a_new_file_to_untracked(repo):
+    """Unstaging must handle a newly-added file (back to untracked), not just a
+    modified one (back to modified)."""
+    (repo / "fresh.txt").write_text("brand new")
+    checkout.stage(repo, ["fresh.txt"])
+    assert "fresh.txt" in checkout.dirty_files(repo)["staged"]
+
+    checkout.unstage(repo, ["fresh.txt"])
+    dirt = checkout.dirty_files(repo)
+    assert "fresh.txt" in dirt["untracked"]
+    assert "fresh.txt" not in dirt["staged"]
+
+
+def test_stage_all_stages_design_but_not_churn(repo):
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb v3)")   # design
+    (repo / "fp-info-cache").write_text("cache")              # noise
+    (repo / "board.kicad_pcb-bak").write_text("backup")       # noise
+
+    checkout.stage_all(repo)
+    dirt = checkout.dirty_files(repo)
+    assert "board.kicad_pcb" in dirt["staged"]
+    # The churn stayed out of the index.
+    assert "fp-info-cache" not in dirt["staged"]
+    assert "board.kicad_pcb-bak" not in dirt["staged"]
+    assert "fp-info-cache" in dirt["untracked"]
+
+
+def test_stage_all_refuses_when_only_churn_changed(repo):
+    (repo / "fp-info-cache").write_text("cache")
+    with pytest.raises(CheckoutError, match="no design changes"):
+        checkout.stage_all(repo)
+
+
+def test_a_noise_file_can_still_be_staged_by_name(repo):
+    """The churn is excluded by default, but the user can commit it deliberately."""
+    (repo / "fp-info-cache").write_text("cache")
+    checkout.stage(repo, ["fp-info-cache"])
+    assert "fp-info-cache" in checkout.dirty_files(repo)["staged"]
+
+
+def test_unstage_all_clears_the_index_without_touching_files(repo):
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb v3)")
+    (repo / "notes.md").write_text("new")
+    checkout.stage_all(repo)
+    checkout.stage(repo, ["notes.md"])
+    assert checkout.dirty_files(repo)["staged"]
+
+    checkout.unstage_all(repo)
+    dirt = checkout.dirty_files(repo)
+    assert dirt["staged"] == []
+    # The edits are still there, just unstaged.
+    assert (repo / "board.kicad_pcb").read_text() == "(kicad_pcb v3)"
+    assert "board.kicad_pcb" in dirt["modified"]
+
+
+def test_commit_honours_the_staged_set(repo):
+    """The Commit button must commit what is staged, not re-stage the whole tree."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb v3)")
+    (repo / "notes.md").write_text("keep me unstaged")
+
+    checkout.stage(repo, ["board.kicad_pcb"])
+    result = checkout.commit(repo, "just the board")  # no paths, no stage_all
+
+    assert result["committed"] == ["board.kicad_pcb"]
+    # notes.md was never staged, so it is still uncommitted.
+    assert "notes.md" in checkout.dirty_files(repo)["untracked"]
+
+
+def test_commit_with_stage_all_design_excludes_churn(repo):
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb v3)")
+    (repo / "fp-info-cache").write_text("cache")
+
+    result = checkout.commit(repo, "all my work", stage_all_design=True)
+    assert "board.kicad_pcb" in result["committed"]
+    assert "fp-info-cache" not in result["committed"]
+    # The churn is still sitting in the working tree, uncommitted.
+    assert "fp-info-cache" in checkout.dirty_files(repo)["untracked"]
+
+
+def test_commit_with_dirty_but_unstaged_tree_is_refused(repo):
+    """Distinct from the clean-tree case: files ARE changed, but none are staged, so the
+    staging-UI commit has nothing to do and says so rather than committing everything."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb v3)")  # dirty but nothing staged
+    with pytest.raises(CheckoutError, match="nothing staged"):
+        checkout.commit(repo, "unstaged")
 
 
 if __name__ == "__main__":

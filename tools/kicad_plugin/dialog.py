@@ -1733,20 +1733,96 @@ class PrismDialog(wx.Dialog):
         if noise:
             self._add_noise(card, noise)
 
-        # A commit box, when there is design work to commit. KiCad's churn alone is not
-        # worth a commit prompt, that is what the .gitignore card is for.
-        if design:
+        # Staging controls, then a commit box, when there is design work to commit.
+        # KiCad's churn alone is not worth a commit prompt, that is what the .gitignore
+        # card is for.
+        if design or self._staged_paths():
+            self._add_staging(card)
             self._add_commit_box(card)
 
         self.content.Add(card, 0, wx.EXPAND)
 
-    def _add_commit_box(self, card):
-        """A message field and a Commit button beneath the uncommitted changes.
+    def _staged_paths(self):
+        """Files currently staged, from the git status the dialog already fetched."""
+        return list(((self.data or {}).get("git") or {}).get("staged") or [])
 
-        Commits everything git sees as changed (the same set the list shows), which is the
-        common case; per-file staging can come later. A detached HEAD is handled by the
-        agent, which refuses and tells the user to make a branch first, surfaced here as a
-        prompt to create one.
+    def _add_staging(self, card):
+        """Stage / unstage controls: what goes into the next commit.
+
+        Shows the staged count and the two bulk actions. "Stage all" means all DESIGN
+        changes, never KiCad's churn, that is the whole point. Per-file staging lives on
+        each file row (via _add_file); this is the summary and the bulk controls.
+        """
+        staged = self._staged_paths()
+        card.body.Add(
+            card.label(
+                "%d file%s staged for commit"
+                % (len(staged), "" if len(staged) == 1 else "s"),
+                tone="muted_fg",
+                small=True,
+            ),
+            0,
+            wx.LEFT | wx.TOP,
+            th.SP_SM,
+        )
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(
+            Button(card, "Stage all", self.pal, variant="ghost", on_click=self._stage_all),
+            0,
+            wx.RIGHT,
+            th.SP_XS,
+        )
+        if staged:
+            row.Add(
+                Button(card, "Unstage all", self.pal, variant="ghost", on_click=self._unstage_all),
+                0,
+            )
+        card.body.Add(row, 0, wx.LEFT, th.SP_SM)
+
+    def _stage_all(self):
+        self._staging_action(lambda repo: AgentClient().stage(repo, all=True))
+
+    def _unstage_all(self):
+        self._staging_action(lambda repo: AgentClient().unstage(repo, all=True))
+
+    def _stage_paths(self, paths):
+        self._staging_action(lambda repo: AgentClient().stage(repo, paths=paths))
+
+    def _unstage_paths(self, paths):
+        self._staging_action(lambda repo: AgentClient().unstage(repo, paths=paths))
+
+    def _file_stage_button(self, card, path):
+        """A per-file stage/unstage toggle, reflecting whether the path is staged now."""
+        if path in set(self._staged_paths()):
+            return Button(
+                card, "unstage", self.pal, variant="ghost",
+                on_click=lambda p=path: self._unstage_paths([p]),
+            )
+        return Button(
+            card, "stage", self.pal, variant="ghost",
+            on_click=lambda p=path: self._stage_paths([p]),
+        )
+
+    def _staging_action(self, fn):
+        """Run a stage/unstage call against the repo, then refresh. Errors are shown."""
+        project = (self.data or {}).get("project")
+        if not project or not project.get("repo_root"):
+            return
+        try:
+            with wx.BusyCursor():
+                fn(project["repo_root"])
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+        self._load()
+
+    def _add_commit_box(self, card):
+        """A message field and the commit buttons beneath the uncommitted changes.
+
+        Two buttons, because there are two intents. "Commit staged" honours exactly what
+        the user ticked, and only shows when something is staged. "Commit all" stages
+        every design change first (never churn) and commits, the quick path. A detached
+        HEAD is handled by the agent, which refuses and prompts to make a branch first.
         """
         card.body.Add(
             card.label("Commit message", tone="muted_fg", small=True),
@@ -1758,15 +1834,30 @@ class PrismDialog(wx.Dialog):
         self.commit_message.SetBackgroundColour(_c(self.pal["muted"]))
         self.commit_message.SetForegroundColour(_c(self.pal["foreground"]))
         card.body.Add(self.commit_message, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, th.SP_SM)
-        card.body.Add(
-            Button(card, "Commit", self.pal, variant="primary", on_click=self._commit),
-            0,
-            wx.LEFT | wx.TOP | wx.BOTTOM,
-            th.SP_SM,
-        )
 
-    def _commit(self):
-        """Commit the working changes. Handle the detached-HEAD case by offering a branch.
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        if self._staged_paths():
+            row.Add(
+                Button(
+                    card, "Commit staged", self.pal, variant="primary",
+                    on_click=lambda: self._commit(staged_only=True),
+                ),
+                0,
+                wx.RIGHT,
+                th.SP_SM,
+            )
+        row.Add(
+            Button(
+                card, "Commit all", self.pal,
+                variant="ghost" if self._staged_paths() else "primary",
+                on_click=lambda: self._commit(staged_only=False),
+            ),
+            0,
+        )
+        card.body.Add(row, 0, wx.LEFT | wx.TOP | wx.BOTTOM, th.SP_SM)
+
+    def _commit(self, staged_only=False):
+        """Commit. `staged_only` commits exactly what is staged; otherwise all design work.
 
         The agent refuses a detached commit; rather than dead-end the user, we offer to
         create a branch here (git's own remedy) and then commit onto it.
@@ -1782,18 +1873,20 @@ class PrismDialog(wx.Dialog):
         repo = project["repo_root"]
         try:
             with wx.BusyCursor():
-                AgentClient().commit(repo, message)
+                AgentClient().commit(
+                    repo, message, stage_all_design=not staged_only
+                )
         except AgentUnavailable as exc:
             text = str(exc)
             if "detached" in text.lower():
-                self._commit_on_new_branch(repo, message)
+                self._commit_on_new_branch(repo, message, staged_only=staged_only)
                 return
             wx.MessageBox(text, "Prism", wx.OK | wx.ICON_WARNING)
             return
 
         self._load()
 
-    def _commit_on_new_branch(self, repo, message):
+    def _commit_on_new_branch(self, repo, message, staged_only=False):
         """Offer to name a branch for a commit that would otherwise be detached."""
         name = wx.GetTextFromUser(
             "You're on a detached commit, so this would not be on any branch.\n\n"
@@ -1806,7 +1899,9 @@ class PrismDialog(wx.Dialog):
         try:
             with wx.BusyCursor():
                 AgentClient().create_branch(repo, name.strip())
-                AgentClient().commit(repo, message)
+                AgentClient().commit(
+                    repo, message, stage_all_design=not staged_only
+                )
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
@@ -1840,22 +1935,45 @@ class PrismDialog(wx.Dialog):
         if not self.noise_open:
             return
 
+        staged = set(self._staged_paths())
         for f in noise:
             status = f.get("status", "modified")
-            card.body.Add(
+            path = f["path"]
+            line = wx.BoxSizer(wx.HORIZONTAL)
+            line.Add(
                 ChangeRow(
                     card,
                     self.pal,
                     {
                         "kind": status if status in ("added", "removed") else "changed",
-                        "label": f["path"],  # full path: shows WHERE the noise is
+                        "label": path,  # full path: shows WHERE the noise is
                         "category_label": status,
                     },
                 ),
-                0,
-                wx.EXPAND | wx.LEFT,
-                th.SP_MD,
+                1,
+                wx.ALIGN_CENTER_VERTICAL,
             )
+            # These are excluded by default; let the user commit one deliberately, or
+            # take it back out of the commit if they already staged it.
+            if path in staged:
+                line.Add(
+                    Button(
+                        card, "unstage", self.pal, variant="ghost",
+                        on_click=lambda p=path: self._unstage_paths([p]),
+                    ),
+                    0,
+                    wx.ALIGN_CENTER_VERTICAL,
+                )
+            else:
+                line.Add(
+                    Button(
+                        card, "stage anyway", self.pal, variant="ghost",
+                        on_click=lambda p=path: self._stage_paths([p]),
+                    ),
+                    0,
+                    wx.ALIGN_CENTER_VERTICAL,
+                )
+            card.body.Add(line, 0, wx.EXPAND | wx.LEFT, th.SP_MD)
 
         card.body.Add(
             card.label(
@@ -1877,7 +1995,8 @@ class PrismDialog(wx.Dialog):
         if not groups:
             # No item-level detail to show (a .kicad_pro, an asset, an untracked
             # folder). A plain row beats a disclosure arrow that opens nothing.
-            card.body.Add(
+            line = wx.BoxSizer(wx.HORIZONTAL)
+            line.Add(
                 ChangeRow(
                     card,
                     self.pal,
@@ -1887,10 +2006,11 @@ class PrismDialog(wx.Dialog):
                         "category_label": status,
                     },
                 ),
-                0,
-                wx.EXPAND | wx.LEFT | wx.BOTTOM,
-                th.SP_MD,
+                1,
+                wx.ALIGN_CENTER_VERTICAL,
             )
+            line.Add(self._file_stage_button(card, path), 0, wx.ALIGN_CENTER_VERTICAL)
+            card.body.Add(line, 0, wx.EXPAND | wx.LEFT | wx.BOTTOM, th.SP_MD)
             return
 
         holder = wx.BoxSizer(wx.VERTICAL)
@@ -1915,7 +2035,13 @@ class PrismDialog(wx.Dialog):
             accent=self.pal.get(kind),
             count=count,
         )
-        holder.Add(head, 0, wx.EXPAND | wx.LEFT, th.SP_MD)
+        # The disclosure shows WHAT changed; the button beside it stages the whole file.
+        head_row = wx.BoxSizer(wx.HORIZONTAL)
+        head_row.Add(head, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_MD)
+        head_row.Add(
+            self._file_stage_button(card, path), 0, wx.ALIGN_CENTER_VERTICAL
+        )
+        holder.Add(head_row, 0, wx.EXPAND)
 
         if path in self.expanded:
             # Only rows KiCad can actually jump to are clickable. A schematic row

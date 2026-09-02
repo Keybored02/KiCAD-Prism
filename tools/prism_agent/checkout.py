@@ -372,6 +372,95 @@ def status(repo: str | Path, ref: str = "") -> dict:
     return result
 
 
+# -- staging ---------------------------------------------------------------
+
+
+def _is_noise(path: str) -> bool:
+    """Is this a KiCad backup or generated file, not the user's design work?
+
+    Loaded lazily from worktree_diff (which pulls the backend's classifier the same
+    way the diff services do), so the classification the panel shows and the one
+    staging uses are the same. Falls back to "not noise" if it cannot be loaded,
+    the safe default: a design file wrongly hidden is worse than one shown.
+    """
+    try:
+        from .worktree_diff import _is_noise as classify
+    except Exception:
+        return False
+    try:
+        return bool(classify(path))
+    except Exception:
+        return False
+
+
+def stage(repo: str | Path, paths: list[str]) -> dict:
+    """Stage the named paths. Works for modified and untracked files alike.
+
+    A rename is two paths to git (the delete of the old name and the add of the new);
+    the caller passes both, and `git add` on each does the right thing. `--` keeps a
+    path that looks like a flag or a ref from being reinterpreted as one.
+    """
+    path = Path(repo)
+    cleaned = [p for p in (paths or []) if p]
+    if not cleaned:
+        raise CheckoutError("No files given to stage.")
+    _git(path, "add", "--", *cleaned)
+    return {"ok": True, "staged": cleaned}
+
+
+def unstage(repo: str | Path, paths: list[str]) -> dict:
+    """Unstage the named paths, back to the working tree.
+
+    `reset HEAD -- <paths>` is used rather than `restore --staged` because it does the
+    right thing for BOTH a newly-added file (returns it to untracked) and a modified one
+    (returns it to modified), where the two restore variants differ. On a repo with no
+    commits yet there is no HEAD to reset against, so fall back to removing from the
+    index.
+    """
+    path = Path(repo)
+    cleaned = [p for p in (paths or []) if p]
+    if not cleaned:
+        raise CheckoutError("No files given to unstage.")
+    if _ok(path, "rev-parse", "--verify", "--quiet", "HEAD"):
+        _git(path, "reset", "-q", "HEAD", "--", *cleaned)
+    else:
+        # No commit yet: everything staged is a fresh add, so drop it from the index.
+        _git(path, "rm", "--cached", "-q", "--", *cleaned)
+    return {"ok": True, "unstaged": cleaned}
+
+
+def stage_all(repo: str | Path) -> dict:
+    """Stage every changed DESIGN file, deliberately excluding KiCad's churn.
+
+    This is the "Stage all" button, and it must not be `git add -A`: the whole point of
+    the feature is to keep backups, caches and generated files out of a commit unless the
+    user picks them one by one. So it stages only the non-noise modified/untracked files.
+    """
+    path = Path(repo)
+    dirt = dirty_files(path)
+    candidates = [
+        p for p in (*dirt["modified"], *dirt["untracked"]) if not _is_noise(p)
+    ]
+    # De-duplicate while keeping it a stable set to stage.
+    to_stage = sorted(set(candidates))
+    if not to_stage:
+        raise CheckoutError("There are no design changes to stage.")
+    _git(path, "add", "--", *to_stage)
+    return {"ok": True, "staged": to_stage}
+
+
+def unstage_all(repo: str | Path) -> dict:
+    """Unstage everything, back to the working tree. Leaves the files untouched."""
+    path = Path(repo)
+    if not dirty_files(path)["staged"]:
+        raise CheckoutError("Nothing is staged.")
+    if _ok(path, "rev-parse", "--verify", "--quiet", "HEAD"):
+        _git(path, "reset", "-q", "HEAD")
+    else:
+        _git(path, "rm", "--cached", "-rq", ".")
+    return {"ok": True}
+
+
 # -- discarding ------------------------------------------------------------
 
 
@@ -742,12 +831,18 @@ def commit(
     message: str,
     paths: list[str] | None = None,
     allow_detached: bool = False,
+    stage_all_design: bool = False,
 ) -> dict:
-    """Stage and commit, refusing anything that would surprise the user.
+    """Commit, refusing anything that would surprise the user.
 
-    `paths` names what to commit; None means everything tracked-and-modified plus what
-    is already staged (the "commit all" a Commit button offers). Naming paths is the
-    per-file case: only those are staged, the rest stays in the working tree.
+    Three ways to choose WHAT is committed, in order of precedence:
+
+      * `paths` names files to stage-then-commit (the per-file / "commit these" case).
+      * `stage_all_design` stages every non-noise design change first, then commits (a
+        "commit all my work" convenience that still leaves KiCad's churn out).
+      * neither: commit **what is already staged**. This is the staging-UI path, where
+        the user has ticked exactly what they want and the Commit button must honour it,
+        not re-stage the tree behind their back.
 
     Two guards that are not git's:
 
@@ -780,13 +875,13 @@ def commit(
             "branch and would be lost on the next checkout. Create a branch first."
         )
 
-    # Stage. `--` so a path that looks like a flag or a ref cannot be reinterpreted.
+    # Choose what to stage. `--` so a path that looks like a flag or a ref cannot be
+    # reinterpreted. When neither paths nor stage_all_design is given, stage nothing and
+    # commit whatever the user already staged.
     if paths:
-        _git(path, "add", "--", *paths)
-    else:
-        # Everything modified/deleted that is tracked, plus new files. `-A` matches what
-        # the user sees as "my changes" in the panel. .gitignore keeps KiCad's churn out.
-        _git(path, "add", "-A")
+        _git(path, "add", "--", *[p for p in paths if p])
+    elif stage_all_design:
+        stage_all(path)
 
     dirt = dirty_files(path)
     if not dirt["staged"]:

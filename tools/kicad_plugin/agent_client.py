@@ -262,18 +262,39 @@ class AgentClient:
             body["stash_message"] = stash_message
         return self._call("POST", "/pull", body, timeout=DIFF_TIMEOUT)
 
-    def commit(self, path, message, paths=None, allow_detached=False):
-        """Stage and commit. `paths` None commits everything; a list commits only those.
+    def commit(self, path, message, paths=None, allow_detached=False, stage_all_design=False):
+        """Commit. Chooses what by precedence: `paths` > `stage_all_design` > staged set.
 
-        Refuses an empty message and a detached HEAD (unless `allow_detached`), so a
-        commit the user would lose on the next checkout is never made silently.
+        With neither `paths` nor `stage_all_design`, commits exactly what is already
+        staged, so the staging checkboxes are honoured. Refuses an empty message and a
+        detached HEAD (unless `allow_detached`).
         """
         body = {"path": path, "message": message}
         if paths is not None:
             body["paths"] = paths
         if allow_detached:
             body["allow_detached"] = True
+        if stage_all_design:
+            body["stage_all_design"] = True
         return self._call("POST", "/commit", body)
+
+    def stage(self, path, paths=None, all=False):
+        """Stage files. `all` stages every design change (never KiCad's churn)."""
+        body = {"path": path}
+        if all:
+            body["all"] = True
+        else:
+            body["paths"] = paths or []
+        return self._call("POST", "/stage", body)
+
+    def unstage(self, path, paths=None, all=False):
+        """Unstage files, back to the working tree. `all` unstages everything."""
+        body = {"path": path}
+        if all:
+            body["all"] = True
+        else:
+            body["paths"] = paths or []
+        return self._call("POST", "/unstage", body)
 
     def create_branch(self, path, name, switch=True):
         """Create a branch at HEAD, switching to it by default.

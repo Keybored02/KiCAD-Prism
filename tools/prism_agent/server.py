@@ -24,8 +24,10 @@ Endpoints
                                      -> move the working tree to a commit/branch/tag
     POST /pull {path, stash_message?}
                                      -> fetch and FAST-FORWARD (never merge; see checkout)
-    POST /commit {path, message, paths?, allow_detached?}
-                                     -> stage and commit; refuses empty msg / detached HEAD
+    POST /commit {path, message, paths?, allow_detached?, stage_all_design?}
+                                     -> commit staged (or paths / all-design); guards as above
+    POST /stage {path, paths?|all}   -> stage files (all = design only, never churn)
+    POST /unstage {path, paths?|all} -> unstage files, back to the working tree
     POST /branch {path, name, switch?}
                                      -> create a branch at HEAD (the detached-HEAD remedy)
     POST /fetch {path}               -> update tracking refs; report ahead/behind
@@ -601,8 +603,41 @@ class _Handler(BaseHTTPRequestHandler):
                         message,
                         paths=body.get("paths"),
                         allow_detached=bool(body.get("allow_detached")),
+                        stage_all_design=bool(body.get("stage_all_design")),
                     ),
                 )
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/stage":
+            # Stage files for commit. `all` stages every non-noise design change (never
+            # KiCad's churn); otherwise `paths` names exactly what to stage.
+            path = body.get("path") or ""
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            try:
+                if body.get("all"):
+                    self._send(200, checkout.stage_all(path))
+                else:
+                    self._send(200, checkout.stage(path, body.get("paths") or []))
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/unstage":
+            # Unstage files, back to the working tree, untouched. `all` unstages
+            # everything; otherwise `paths` names what to unstage.
+            path = body.get("path") or ""
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            try:
+                if body.get("all"):
+                    self._send(200, checkout.unstage_all(path))
+                else:
+                    self._send(200, checkout.unstage(path, body.get("paths") or []))
             except checkout.CheckoutError as exc:
                 self._send(400, {"error": str(exc)})
             return
