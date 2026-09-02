@@ -529,6 +529,63 @@ def test_a_clean_tree_is_not_asked_about_uncommitted_work(roots, monkeypatch):
     assert (local / "board.kicad_pcb").read_text() == "(kicad_pcb v1)"
 
 
+def test_returning_to_the_branch_offers_to_bring_set_aside_work_back(roots, monkeypatch):
+    """The round-trip that motivates the whole stash-origin change: set work aside to open
+    a commit, then come back to the branch and be offered it back, rather than having to
+    remember it is in the stash list."""
+    local, first = board_repo(roots, "prj_a")
+    (local / "board.kicad_pcb").write_text("(kicad_pcb UNSAVED WORK)")
+
+    stub_server(monkeypatch, [{"id": "prj_a", "name": "widget"}])
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: None)
+
+    # Open the earlier commit: dirty tree, so it stashes (origin = main).
+    open_project.open_project(
+        "prj_a",
+        confirm=lambda _: True,
+        ref=first,
+        ask_choice=lambda _q: ("stash", "unsaved work"),
+    )
+    assert (local / "board.kicad_pcb").read_text() == "(kicad_pcb v1)"
+
+    # Now return to main. The tree is clean, so no stash prompt, but a matching stash
+    # exists, so re-apply is offered, and accepted here.
+    offered = []
+
+    def offer_reapply(entry):
+        offered.append(entry["message"])
+        return True
+
+    open_project.open_project(
+        "prj_a", confirm=lambda _: True, ref="main", offer_reapply=offer_reapply
+    )
+
+    assert offered == ["unsaved work"]
+    # The work is back in the tree, and the stash is gone (pop, not apply).
+    assert (local / "board.kicad_pcb").read_text() == "(kicad_pcb UNSAVED WORK)"
+    assert checkout.stashes(local) == []
+
+
+def test_declining_the_reapply_leaves_the_stash_in_place(roots, monkeypatch):
+    """Never auto-apply: "Not now" keeps the work safely stashed for later."""
+    local, first = board_repo(roots, "prj_a")
+    (local / "board.kicad_pcb").write_text("(kicad_pcb UNSAVED)")
+
+    stub_server(monkeypatch, [{"id": "prj_a", "name": "widget"}])
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: None)
+
+    open_project.open_project(
+        "prj_a", confirm=lambda _: True, ref=first, ask_choice=lambda _q: ("stash", "x")
+    )
+    open_project.open_project(
+        "prj_a", confirm=lambda _: True, ref="main", offer_reapply=lambda _e: False
+    )
+
+    # Declined: tree stays at the committed version and the stash is still there.
+    assert (local / "board.kicad_pcb").read_text() == "(kicad_pcb v2)"
+    assert len(checkout.stashes(local)) == 1
+
+
 def test_an_unknown_project_says_the_server_does_not_have_it(roots, monkeypatch):
     stub_server(monkeypatch, [])
     with pytest.raises(OpenError, match="no project"):

@@ -511,6 +511,55 @@ def test_the_message_is_what_makes_a_stash_findable(repo):
     assert entries[0]["ours"] is True
 
 
+def test_a_stash_records_the_branch_it_came_from(repo):
+    """git stashes are a global stack, not per-branch. Recording the origin is what lets
+    the agent offer to bring the work back on return, instead of leaving it forgotten."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb work in progress)")
+    checkout.checkout(repo, repo.first, stash_message="power rail")
+
+    entry = checkout.stashes(repo)[0]
+    # The user's message is clean; the origin is parsed back out separately.
+    assert entry["message"] == "power rail"
+    assert entry["origin_branch"] == "main"
+    assert entry["origin_sha"]  # the short sha of where it was taken from
+
+
+def test_find_returnable_stash_matches_the_origin_branch(repo):
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb work in progress)")
+    checkout.checkout(repo, repo.first, stash_message="power rail")
+
+    # Detached on a commit now; the work belongs to main.
+    match = checkout.find_returnable_stash(repo, "main")
+    assert match is not None
+    assert match["message"] == "power rail"
+    # No stash claims a branch we never set one aside from.
+    assert checkout.find_returnable_stash(repo, "some-other-branch") is None
+
+
+def test_the_origin_round_trip_survives_special_characters(repo):
+    """The user's message can contain the very brackets we use to encode the origin. The
+    decoder must not mistake their text for the origin tag."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb wip)")
+    checkout.checkout(
+        repo, repo.first, stash_message="fix [regulator] and [caps]"
+    )
+    entry = checkout.stashes(repo)[0]
+    assert entry["message"] == "fix [regulator] and [caps]"
+    assert entry["origin_branch"] == "main"
+
+
+def test_an_old_stash_without_an_origin_still_parses(repo):
+    """A stash made before origins existed, or by hand, has no origin fields, not a
+    crash. `stashes()` must tolerate it."""
+    (repo / "board.kicad_pcb").write_text("(kicad_pcb wip)")
+    # A bare Prism-prefixed stash with no origin suffix, as an older agent wrote.
+    git("stash", "push", "-m", "prism: legacy work", cwd=repo)
+    entry = checkout.stashes(repo)[0]
+    assert entry["message"] == "legacy work"
+    assert entry["origin_branch"] == ""
+    assert entry["origin_sha"] == ""
+
+
 def test_an_empty_message_still_gets_something_identifiable(repo):
     (repo / "board.kicad_pcb").write_text("(kicad_pcb wip)")
     checkout.checkout(repo, repo.first, stash_message="")

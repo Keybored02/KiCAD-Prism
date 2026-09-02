@@ -189,6 +189,7 @@ def open_project(
     ask_choice=None,
     clone_flow=None,
     on_root_added=None,
+    offer_reapply=None,
 ) -> str:
     """Open a Prism project, cloning it first if this machine does not have it.
 
@@ -220,7 +221,9 @@ def open_project(
 
     if state["found"]:
         if ref:
-            _checkout_ref(state["found"], ref, confirm, ask_choice)
+            _checkout_ref(
+                state["found"], ref, confirm, ask_choice, offer_reapply=offer_reapply
+            )
         launch_kicad(state["found"])
         return state["found"]
 
@@ -314,17 +317,23 @@ def open_project(
     return marker_dir
 
 
-def _checkout_ref(project_dir: str, ref: str, confirm, ask_choice=None) -> None:
+def _checkout_ref(project_dir: str, ref: str, confirm, ask_choice=None, offer_reapply=None) -> None:
     """Move a checkout to a specific revision, refusing to destroy uncommitted work.
 
     The guards live in checkout.py; this is the part that decides whether to ASK. A
     checkout replaces every file in the tree under a KiCad that may have them open, so
     it is not something a link should do silently to a project the user is working in.
+
+    `offer_reapply(stash_entry) -> bool` is asked after a successful checkout when we land
+    on a BRANCH that has a Prism stash set aside from it: work the user put away last time
+    they switched off this branch. Returning True brings it back. Never applied without
+    that yes: a restore can conflict, and the user may not want it back yet.
     """
     state = checkout.status(project_dir, ref)
 
     if state.get("reason") == "already_here":
-        return  # nothing to do, and nothing worth saying
+        _maybe_offer_reapply(project_dir, offer_reapply)
+        return  # nothing to move, but there may still be set-aside work to bring back
 
     # Uncommitted work is the one refusal with a way out. Offer both ways rather than
     # dead-ending the user, who followed a link and now has to go and use git by hand to
@@ -351,9 +360,35 @@ def _checkout_ref(project_dir: str, ref: str, confirm, ask_choice=None) -> None:
             raise OpenError("Cancelled.")
 
     try:
-        checkout.checkout(project_dir, ref, stash_message, discard_changes)
+        result = checkout.checkout(project_dir, ref, stash_message, discard_changes)
     except checkout.CheckoutError as exc:
         raise OpenError(str(exc)) from exc
+
+    # Landed on a branch. If work was set aside from it before, offer to bring it back
+    # (only when we did not just stash onto it this very checkout).
+    if not result.get("detached") and not result.get("stashed"):
+        _maybe_offer_reapply(project_dir, offer_reapply)
+
+
+def _maybe_offer_reapply(project_dir: str, offer_reapply) -> None:
+    """Offer to restore work set aside from the branch we are now on, if any.
+
+    Read-only until the user says yes. A restore can conflict with the current tree, in
+    which case git keeps the stash and we say nothing was lost.
+    """
+    if offer_reapply is None:
+        return
+    branch = checkout.status(project_dir).get("current_branch") or ""
+    if not branch:
+        return
+    entry = checkout.find_returnable_stash(project_dir, branch)
+    if not entry:
+        return
+    if offer_reapply(entry):
+        try:
+            checkout.restore(project_dir, entry["ref"])
+        except checkout.CheckoutError as exc:
+            raise OpenError(str(exc)) from exc
 
 
 def _uncommitted_question(project_dir: str, state: dict) -> str:

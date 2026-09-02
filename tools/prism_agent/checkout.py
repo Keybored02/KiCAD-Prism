@@ -37,6 +37,15 @@ TIMEOUT = 120
 # terminal, not just in our own UI. The user's own message follows it.
 STASH_PREFIX = "prism: "
 
+# A stash records where it was taken from, so the agent can offer to bring it back when
+# the user returns to that branch. git stashes are a global stack, not per-branch, and
+# nothing re-applies them: without an origin, a stash made switching away from `main` is
+# just work the user has to remember is there. Encoded at the END of the message so the
+# user's own text stays readable, and parsed back out by `stashes()`. Shape:
+#   prism: <message> [prism-origin: <branch>@<short-sha>]
+_ORIGIN_OPEN = " [prism-origin: "
+_ORIGIN_CLOSE = "]"
+
 
 class CheckoutError(Exception):
     """Refused, with a reason the user can act on."""
@@ -373,7 +382,12 @@ def discard(repo: str | Path, also: list[str] | None = None) -> dict:
 # -- stashing --------------------------------------------------------------
 
 
-def stash(repo: str | Path, message: str = "", also: list[str] | None = None) -> dict:
+def stash(
+    repo: str | Path,
+    message: str = "",
+    also: list[str] | None = None,
+    origin: str = "",
+) -> dict:
     """Put uncommitted work aside so the tree can move, without losing it.
 
     This is the way OUT of the dirty guard. Refusing to check out was correct but a dead
@@ -384,6 +398,10 @@ def stash(repo: str | Path, message: str = "", also: list[str] | None = None) ->
     someone's gerber exports and 3D renders because they happened to be lying around is
     taking something we did not need to take, and they would find them gone with no
     visible reason why. So the sweep is targeted, and the caller says what to sweep.
+
+    `origin`, when given, is the branch this work is being set aside FROM, recorded in the
+    message so the agent can offer to bring it back on return. Left blank when there is no
+    meaningful branch (a detached HEAD) or the caller does not care.
 
     The MESSAGE is what makes a stash safe rather than a hiding place. A stash you cannot
     identify is one you will never restore. Git's default ("WIP on main: a1b2c3d") says
@@ -400,6 +418,7 @@ def stash(repo: str | Path, message: str = "", also: list[str] | None = None) ->
         raise CheckoutError("There are no uncommitted changes to stash.")
 
     label = (message or "").strip() or "Uncommitted changes"
+    encoded = _encode_origin(label, origin, path)
 
     if also:
         # `-u` alone would take EVERY untracked file. Scoped to named paths it takes only
@@ -407,16 +426,46 @@ def stash(repo: str | Path, message: str = "", also: list[str] | None = None) ->
         # not the user's gerber exports and 3D renders that merely happen to be lying
         # around. Without `-u`, git refuses a path that is not tracked ("Did you forget
         # to 'git add'?"), so it is required here, not optional.
-        _git(path, "stash", "push", "-u", "-m", f"{STASH_PREFIX}{label}", "--", *taking)
+        _git(path, "stash", "push", "-u", "-m", f"{STASH_PREFIX}{encoded}", "--", *taking)
     else:
-        _git(path, "stash", "push", "-m", f"{STASH_PREFIX}{label}")
+        _git(path, "stash", "push", "-m", f"{STASH_PREFIX}{encoded}")
 
     return {
         "ok": True,
         "message": label,
+        "origin": origin,
         "stashed": taking,
         "count": len(taking),
     }
+
+
+def _encode_origin(label: str, origin: str, repo: Path) -> str:
+    """Append the origin branch and short sha to a stash label, if there is one.
+
+    The short sha pins the exact point the work was taken from, so "bring it back on
+    return to main" can be honest about whether main has since moved.
+    """
+    branch = (origin or "").strip()
+    if not branch or branch == "HEAD":
+        return label
+    short = _git(repo, "rev-parse", "--short", "HEAD", check=False)
+    tag = f"{branch}@{short}" if short else branch
+    return f"{label}{_ORIGIN_OPEN}{tag}{_ORIGIN_CLOSE}"
+
+
+def _decode_origin(subject: str) -> tuple[str, str, str]:
+    """Split a stash subject into (message, origin_branch, origin_sha).
+
+    Origin fields are "" when the stash carries no origin (an older one, or one made
+    from a detached HEAD).
+    """
+    start = subject.rfind(_ORIGIN_OPEN)
+    if start == -1 or not subject.rstrip().endswith(_ORIGIN_CLOSE):
+        return subject, "", ""
+    message = subject[:start]
+    tag = subject[start + len(_ORIGIN_OPEN) : subject.rstrip().rfind(_ORIGIN_CLOSE)]
+    branch, _, sha = tag.partition("@")
+    return message, branch.strip(), sha.strip()
 
 
 def stashes(repo: str | Path) -> list[dict]:
@@ -453,8 +502,39 @@ def stashes(repo: str | Path) -> list[dict]:
         if ours:
             subject = subject[len(STASH_PREFIX) :]
 
-        result.append({"ref": ref, "message": subject, "when": when, "ours": ours})
+        # Pull the origin back out of our own stashes, so callers can offer to bring the
+        # work back on return to the branch it came from. Only ours carry it.
+        origin_branch, origin_sha = "", ""
+        if ours:
+            subject, origin_branch, origin_sha = _decode_origin(subject)
+
+        result.append(
+            {
+                "ref": ref,
+                "message": subject,
+                "when": when,
+                "ours": ours,
+                "origin_branch": origin_branch,
+                "origin_sha": origin_sha,
+            }
+        )
     return result
+
+
+def find_returnable_stash(repo: str | Path, branch: str) -> dict | None:
+    """The newest Prism stash set aside from `branch`, if any.
+
+    Read-only. This is what lets the agent offer to bring work back when the user returns
+    to the branch it came from, rather than leaving it in the stash list to be forgotten.
+    Matches on the branch name only: the sha is informational (main may have moved), and
+    the user makes the final call to apply, so a slightly stale match is safe to offer.
+    """
+    if not branch or branch == "HEAD":
+        return None
+    for entry in stashes(repo):
+        if entry.get("ours") and entry.get("origin_branch") == branch:
+            return entry
+    return None
 
 
 def restore(repo: str | Path, ref: str = "stash@{0}") -> dict:
@@ -560,6 +640,11 @@ def checkout(
     path = Path(repo)
     state = status(path, ref)
 
+    # Where we are BEFORE moving. A stash made on the way out records this, so the agent
+    # can offer to bring the work back when the user returns here; the caller also gets it
+    # so a detached-commit view can offer "Return to <branch>".
+    origin_branch = state.get("current_branch") or ""
+
     # Only these two are clearable. A mid-rebase or an unresolved conflict is NOT: git
     # would refuse anyway, and stashing (or discarding) on top of a half-finished
     # operation is how you turn a recoverable mess into an unrecoverable one.
@@ -575,7 +660,9 @@ def checkout(
         discarded = discard(path, also=state.get("clobbered") or [])
         state = status(path, ref)
     elif blocked and stash_message is not None:
-        stashed = stash(path, stash_message, also=state.get("clobbered") or [])
+        stashed = stash(
+            path, stash_message, also=state.get("clobbered") or [], origin=origin_branch
+        )
         state = status(path, ref)
 
     if not state["can"]:
@@ -597,6 +684,9 @@ def checkout(
         "kind": target["kind"],
         "detached": now == "HEAD",
         "branch": "" if now == "HEAD" else now,
+        # The branch we left. A detached-commit view uses this to offer "Return to
+        # <branch>"; empty when the user was already detached.
+        "origin_branch": origin_branch,
         # So the caller can tell the user their work was put aside, and where it went.
         # A stash the user does not know about is a stash they will never restore.
         "stashed": stashed,

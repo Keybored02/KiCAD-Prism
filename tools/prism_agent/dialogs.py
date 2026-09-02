@@ -45,10 +45,6 @@ _FALLBACK = {
 @lru_cache(maxsize=1)
 def _theme():
     """The plugin's palette, loaded by path.
-
-    Loaded rather than imported: `kicad_plugin/__init__.py` imports pcbnew, which only
-    exists inside KiCad, so `from kicad_plugin import prism_theme` explodes in this
-    process. The module itself is pure data and says so.
     """
     base = getattr(sys, "_MEIPASS", None)
     if base:
@@ -73,9 +69,6 @@ def _theme():
 
 def palette() -> dict:
     """Prism's colours, in the OS's light/dark mode.
-
-    Follows the system, like the plugin does: a light popup over a dark desktop looks
-    broken, and this dialog has no parent window to inherit from.
     """
     theme = _theme()
     if theme is None:
@@ -289,6 +282,20 @@ def ask_text(message: str, title: str = "Prism", confirm: str = "OK") -> str | N
         entry=True,
     )
     return text if result is True else None
+
+
+def ask_reapply(message: str, title: str = "Prism") -> bool:
+    """Offer to bring set-aside work back. True = apply, default is to leave it.
+
+    Leaving it is the safe default: a restore can conflict, and the stash stays in the
+    list either way, so "Not now" loses nothing.
+    """
+    result, _ = _run(
+        title,
+        message,
+        [("Bring it back", True, "primary"), ("Not now", False, "ghost")],
+    )
+    return result is True
 
 
 def ask_clone_or_cancel(message: str, title: str = "Prism") -> bool:

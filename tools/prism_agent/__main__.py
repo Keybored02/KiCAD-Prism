@@ -250,6 +250,7 @@ def _open_project_locally(project_id: str, saved, ref: str = "") -> int:
             ask_choice=_ask_uncommitted,
             clone_flow=_clone_flow,
             on_root_added=_root_added,
+            offer_reapply=_offer_reapply,
         )
     except open_project.OpenError as exc:
         msg = str(exc)
@@ -283,7 +284,7 @@ def _clone_flow(name: str, origin: str) -> str | None:
     parent = dialogs.pick_clone_folder(
         "Pick a folder to clone %s into.\n\n"
         "That folder is added to "
-        "your project list in the plugin if it isn't already." % name,
+        "your project list in the plugin." % name,
         title="Choose a folder",
     )
     if not parent:
@@ -304,8 +305,27 @@ def _root_added(cloned_dir: str) -> None:
     """Tell the user the cloned folder was added to their project list."""
     _show_dialog(
         "Project list updated",
-        "Added this folder to your Prism project list so it's found next time:\n\n%s"
+        "Added this folder to your Prism project list:\n\n%s"
         % cloned_dir,
+    )
+
+
+def _offer_reapply(entry: dict) -> bool:
+    """Offer to bring back work set aside from the branch we just landed on.
+
+    git stashes are a global stack, not per-branch, so without this the work the user set
+    aside last time they switched off this branch just sits in the list. Offering (never
+    auto-applying) closes that loop: applying can conflict, so it stays the user's yes.
+    """
+    from . import dialogs
+
+    message = entry.get("message") or "your uncommitted changes"
+    when = entry.get("when") or ""
+    return dialogs.ask_reapply(
+        "You set aside work on this branch%s:\n\n    %s\n\n"
+        "Bring it back into the working tree now?"
+        % (f" {when}" if when else "", message),
+        title="Set-aside work",
     )
 
 
