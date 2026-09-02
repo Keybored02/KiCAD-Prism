@@ -884,3 +884,32 @@ class Card(wx.Panel):
             )
 
         self.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
+
+    def compact_row(self, label, value, tone=None, badge=False):
+        """A tighter label/value line that never overflows on the right.
+
+        `row()` right-aligns the value with a stretch spacer, so a long value (a
+        full email as "Signed in as") is pushed hard against the card's right
+        padding and clips past the dialog edge, wx StaticText does not ellipsize.
+        This keeps the value next to its label, left to right, and lets a text
+        value wrap within the card instead. Used for the signed-in identity.
+        """
+        line = wx.BoxSizer(wx.HORIZONTAL)
+        line.Add(
+            self.label(label, tone="muted_fg"),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+            th.SP_XS,
+        )
+        if badge:
+            line.Add(
+                Badge(self, str(value), self.pal, tone or "muted"),
+                0,
+                wx.ALIGN_CENTER_VERTICAL,
+            )
+        else:
+            # proportion 1 + EXPAND so the value takes the remaining width and
+            # wraps into it rather than forcing the card wider than the dialog.
+            text = self.label(value, tone=tone or "foreground")
+            line.Add(text, 1, wx.ALIGN_CENTER_VERTICAL)
+        self.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS)

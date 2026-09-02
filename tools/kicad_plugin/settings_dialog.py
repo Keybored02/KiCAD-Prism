@@ -156,8 +156,11 @@ class SettingsDialog(wx.Dialog):
         else:
             user = identity.get("user")
             if user:
-                account.row("Signed in as", user.get("email", "?"))
-                account.row(
+                # compact_row, not row: a full email pushed to the right edge by
+                # row()'s stretch spacer clips past the dialog. This keeps it left
+                # and lets it wrap.
+                account.compact_row("Signed in as", user.get("email", "?"))
+                account.compact_row(
                     "Role", str(user.get("role", "")), badge=True, tone="primary"
                 )
                 # Signed in: the one action that matters is signing out. It clears
@@ -577,6 +580,16 @@ class SettingsDialog(wx.Dialog):
         self._relayout()
 
     def _sign_out(self):
+        if (
+            wx.MessageBox(
+                "Sign out of Prism on this machine? The KiCad agent's token is "
+                "revoked, and you sign in again through the browser to reconnect.",
+                "Prism",
+                wx.YES_NO | wx.ICON_QUESTION,
+            )
+            != wx.YES
+        ):
+            return
         try:
             with wx.BusyCursor():
                 result = AgentClient().sign_out()
