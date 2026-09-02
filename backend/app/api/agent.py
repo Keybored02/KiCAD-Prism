@@ -222,24 +222,62 @@ _CONSENT_TEMPLATE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Authorize the KiCad agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root {{ color-scheme: light dark; }}
-  body {{ font: 15px/1.5 system-ui, sans-serif; margin: 0; display: grid;
-    place-items: center; min-height: 100vh; background: #f5f6f8; color: #14161b; }}
-  @media (prefers-color-scheme: dark) {{ body {{ background: #101216; color: #e7e9ee; }} }}
-  .card {{ background: Canvas; border: 1px solid rgba(128,128,128,.3);
-    border-radius: 12px; padding: 28px 30px; max-width: 420px; width: calc(100% - 32px);
-    box-shadow: 0 8px 30px rgba(0,0,0,.08); }}
-  h1 {{ font-size: 19px; margin: 0 0 6px; }}
-  p {{ margin: 0 0 14px; color: #464b56; }}
-  @media (prefers-color-scheme: dark) {{ p {{ color: #b2b8c4; }} }}
-  .who {{ font-weight: 600; color: inherit; }}
-  .scopes {{ font: 12px ui-monospace, monospace; background: rgba(128,128,128,.12);
-    border-radius: 6px; padding: 8px 10px; margin: 0 0 18px; }}
-  button {{ font: inherit; font-weight: 600; border: 0; border-radius: 8px;
-    padding: 10px 16px; cursor: pointer; }}
-  .go {{ background: #3b5bdb; color: #fff; }}
+  /* Prism's own tokens (frontend/src/index.css), so this matches the web app.
+     Dark is the app's default; light follows the OS preference. */
+  :root {{
+    color-scheme: light dark;
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --border: 214.3 31.8% 91.4%;
+  }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{
+      --background: 222.2 84% 4.9%;
+      --foreground: 210 40% 98%;
+      --card: 222.2 84% 4.9%;
+      --muted-foreground: 215 20.2% 65.1%;
+      --primary: 217.2 91.2% 59.8%;
+      --primary-foreground: 222.2 47.4% 11.2%;
+      --secondary: 217.2 32.6% 17.5%;
+      --secondary-foreground: 210 40% 98%;
+      --muted: 217.2 32.6% 17.5%;
+      --border: 217.2 32.6% 17.5%;
+    }}
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{ font-family: 'Inter', system-ui, sans-serif; font-size: 14px; line-height: 1.5;
+    margin: 0; display: grid; place-items: center; min-height: 100vh;
+    background: hsl(var(--background)); color: hsl(var(--foreground)); }}
+  /* Square, bordered card, matching the app's surfaces (radius 0.5rem there,
+     but the app's buttons and many panels read square; keep the card lightly
+     rounded to 6px like the app's cards). */
+  .card {{ background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+    border-radius: 6px; padding: 28px 30px; max-width: 420px; width: calc(100% - 32px); }}
+  h1 {{ font-size: 18px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }}
+  p {{ margin: 0 0 14px; color: hsl(var(--muted-foreground)); }}
+  .who {{ font-weight: 600; color: hsl(var(--foreground)); }}
+  .scopes {{ font: 12px ui-monospace, 'SF Mono', Menlo, monospace;
+    background: hsl(var(--muted)); color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border)); border-radius: 4px;
+    padding: 8px 10px; margin: 0 0 18px; }}
   .row {{ display: flex; gap: 10px; }}
+  /* Square buttons, like the web app's (rounded-none), text-xs font-medium. */
+  button {{ font-family: inherit; font-size: 13px; font-weight: 500; border-radius: 0;
+    padding: 9px 16px; cursor: pointer; border: 1px solid transparent;
+    transition: background-color .15s; }}
+  .go {{ background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }}
+  .go:hover {{ background: hsl(var(--primary) / 0.85); }}
 </style></head>
 <body><div class="card">
   <h1>Authorize {device}?</h1>

@@ -332,25 +332,43 @@ def is_free_port() -> bool:
         return False
 
 
-_DONE_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<title>Signed in to Prism</title>
-<style>body{font:15px/1.5 system-ui,sans-serif;display:grid;place-items:center;
-min-height:100vh;margin:0;background:#f5f6f8;color:#14161b}
-.card{background:#fff;border-radius:12px;padding:32px 36px;max-width:360px;
-text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.08)}
-@media(prefers-color-scheme:dark){body{background:#101216;color:#e7e9ee}
-.card{background:#1a1d23}}</style></head>
-<body><div class="card"><h1>Signed in</h1>
-<p>The KiCad agent is connected. You can close this tab and return to KiCad.</p>
-</div></body></html>"""
+# Shared styling for the browser end pages, matching Prism's web UI: Inter, the
+# app's HSL tokens (dark by default, light following the OS), a square-cornered
+# bordered card rather than a floating rounded one.
+_PAGE_HEAD = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:light dark;
+  --background:0 0% 100%;--foreground:222.2 84% 4.9%;--card:0 0% 100%;
+  --muted-foreground:215.4 16.3% 46.9%;--border:214.3 31.8% 91.4%;}
+@media(prefers-color-scheme:dark){:root{
+  --background:222.2 84% 4.9%;--foreground:210 40% 98%;--card:222.2 84% 4.9%;
+  --muted-foreground:215 20.2% 65.1%;--border:217.2 32.6% 17.5%;}}
+body{font-family:'Inter',system-ui,sans-serif;font-size:14px;line-height:1.5;
+  display:grid;place-items:center;min-height:100vh;margin:0;
+  background:hsl(var(--background));color:hsl(var(--foreground))}
+.card{background:hsl(var(--card));border:1px solid hsl(var(--border));
+  border-radius:6px;padding:28px 32px;max-width:360px;text-align:center}
+h1{font-size:18px;font-weight:600;margin:0 0 8px;letter-spacing:-0.01em}
+p{margin:0;color:hsl(var(--muted-foreground))}
+</style></head><body><div class="card">"""
 
-_FAIL_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<title>Sign-in failed</title>
-<style>body{font:15px/1.5 system-ui,sans-serif;display:grid;place-items:center;
-min-height:100vh;margin:0;background:#f5f6f8;color:#14161b}
-.card{background:#fff;border-radius:12px;padding:32px 36px;max-width:360px;
-text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.08)}
-@media(prefers-color-scheme:dark){body{background:#101216;color:#e7e9ee}
-.card{background:#1a1d23}}</style></head>
-<body><div class="card"><h1>Sign-in didn't finish</h1>
-<p>Return to KiCad and try again.</p></div></body></html>"""
+_PAGE_TAIL = "</div></body></html>"
+
+_DONE_PAGE = (
+    _PAGE_HEAD.replace("__TITLE__", "Signed in to Prism")
+    + "<h1>Signed in</h1>"
+    + "<p>The KiCad agent is connected. You can close this tab and return to KiCad.</p>"
+    + _PAGE_TAIL
+)
+
+_FAIL_PAGE = (
+    _PAGE_HEAD.replace("__TITLE__", "Sign-in failed")
+    + "<h1>Sign-in didn't finish</h1>"
+    + "<p>Return to KiCad and try again.</p>"
+    + _PAGE_TAIL
+)
