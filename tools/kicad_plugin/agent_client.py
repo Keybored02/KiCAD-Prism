@@ -364,10 +364,14 @@ class AgentClient:
         return self._call("GET", "/stash?path=" + urllib.parse.quote(path))
 
     def stash(self, path, message=""):
-        """Set uncommitted work aside, tagged with the current branch for later return."""
+        """Stash uncommitted changes, tagged with the current branch for later restore."""
         return self._call(
             "POST", "/stash", {"path": path, "action": "stash", "message": message}
         )
+
+    def discard(self, path):
+        """Discard uncommitted changes, back to HEAD. Unrecoverable; confirm first."""
+        return self._call("POST", "/discard", {"path": path})
 
     def apply_stash(self, path, ref="stash@{0}"):
         """Put a stash back into the working tree."""

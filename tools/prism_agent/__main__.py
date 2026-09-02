@@ -322,10 +322,10 @@ def _offer_reapply(entry: dict) -> bool:
     message = entry.get("message") or "your uncommitted changes"
     when = entry.get("when") or ""
     return dialogs.ask_reapply(
-        "You set aside work on this branch%s:\n\n    %s\n\n"
-        "Bring it back into the working tree now?"
+        "This branch has a stash%s:\n\n    %s\n\n"
+        "Apply it to the working tree now?"
         % (f" {when}" if when else "", message),
-        title="Set-aside work",
+        title="Stash",
     )
 
 

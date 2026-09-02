@@ -958,34 +958,6 @@ class PrismDialog(wx.Dialog):
             return
         self._do_switch(project["repo_root"], branch)
 
-    def _offer_branch_stash(self, repo, branch):
-        """If a stash was set aside from `branch`, offer to reapply it. Never automatic."""
-        try:
-            entries = (AgentClient().stashes(repo) or {}).get("stashes") or []
-        except AgentUnavailable:
-            return
-        match = next(
-            (e for e in entries if e.get("ours") and e.get("origin_branch") == branch),
-            None,
-        )
-        if not match:
-            return
-        if (
-            wx.MessageBox(
-                "You set aside work on %s:\n\n    %s\n\nBring it back now?"
-                % (branch, match.get("message") or "your changes"),
-                "Set-aside work",
-                wx.YES_NO | wx.ICON_QUESTION,
-            )
-            != wx.YES
-        ):
-            return
-        try:
-            with wx.BusyCursor():
-                AgentClient().apply_stash(repo, match["ref"])
-        except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
-
     def _render_git(self, git, prism):
         """What's left of the Git card once the branch moved to the header.
 
@@ -1127,30 +1099,66 @@ class PrismDialog(wx.Dialog):
         self._schedule_switch(repo, ref)
 
     def _resolve_before_switch(self, repo, why):
-        """Clear the tree so a switch can proceed: set aside, or cancel.
+        """Ask what to do with the uncommitted changes before switching.
 
-        Only stash is offered here (discard is destructive and belongs to an explicit
-        gesture, not a switch). Stashing now, while KiCad is open, is safe: it does not
-        reopen a different board, it just sets the current work aside. Returns whether
-        the tree is now switchable.
+        Commit, stash, or discard, in git's own terms, no euphemisms. Returns whether the
+        tree is now clean enough to switch (True), or the user cancelled / it failed
+        (False). Doing any of these now, while KiCad is open, is safe: none of them opens
+        a different board, they only settle the current changes. The branch checkout
+        itself is what waits for KiCad to close.
         """
-        if (
-            wx.MessageBox(
-                "%s\n\nSet your changes aside so Prism can switch?" % why,
-                "Uncommitted changes",
-                wx.YES_NO | wx.ICON_QUESTION,
-            )
-            != wx.YES
-        ):
-            return False
-        message = wx.GetTextFromUser(
-            "A short note, so you can find this work later:", "Set aside", ""
+        choices = ["Commit", "Stash", "Discard"]
+        picked = wx.GetSingleChoice(
+            "%s\n\nWhat do you want to do with them before switching?" % why,
+            "Uncommitted changes",
+            choices,
         )
+        if not picked:
+            return False  # Cancel
+
         try:
-            with wx.BusyCursor():
-                AgentClient().stash(repo, message.strip())
+            if picked == "Commit":
+                return self._commit_before_switch(repo)
+            if picked == "Stash":
+                with wx.BusyCursor():
+                    message = wx.GetTextFromUser("Stash message:", "Stash", "")
+                    AgentClient().stash(repo, message.strip())
+                return True
+            if picked == "Discard":
+                if (
+                    wx.MessageBox(
+                        "Discard all uncommitted changes? This cannot be undone.",
+                        "Discard",
+                        wx.YES_NO | wx.ICON_WARNING,
+                    )
+                    != wx.YES
+                ):
+                    return False
+                with wx.BusyCursor():
+                    AgentClient().discard(repo)
+                return True
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return False
+        return False
+
+    def _commit_before_switch(self, repo):
+        """Commit all design work with a message, so the switch can proceed."""
+        message = wx.GetTextFromUser("Commit message:", "Commit", "")
+        if not message.strip():
+            return False
+        try:
+            with wx.BusyCursor():
+                AgentClient().commit(repo, message.strip(), stage_all_design=True)
+        except AgentUnavailable as exc:
+            text = str(exc)
+            if "detached" in text.lower():
+                self._commit_on_new_branch(repo, message.strip())
+                # After creating a branch and committing, the tree is clean, but we are
+                # now on a different branch than the switch target, so re-checking is the
+                # honest thing. Treat as resolved; the caller re-runs the dry run.
+                return True
+            wx.MessageBox(text, "Prism", wx.OK | wx.ICON_WARNING)
             return False
         return True
 
@@ -1340,9 +1348,9 @@ class PrismDialog(wx.Dialog):
         self._load()
 
     def _render_stashes(self):
-        """Work the user set aside, and a way to get it back.
+        """The repo's stashes, with apply and drop.
 
-        Only shown when there is some. A stash the user cannot see is a stash they will
+        Only shown when there is one. A stash the user cannot see is a stash they will
         never restore, and "where did my changes go" is the worst thing this feature
         could leave them asking.
         """
@@ -1360,7 +1368,7 @@ class PrismDialog(wx.Dialog):
         if not entries:
             return
 
-        card = Card(self.scroll, "Set aside", self.pal)
+        card = Card(self.scroll, "Stashes", self.pal)
         for entry in entries[:5]:
             row = wx.BoxSizer(wx.HORIZONTAL)
             label = card.label(entry["message"] or "(no message)")
@@ -1382,12 +1390,12 @@ class PrismDialog(wx.Dialog):
                 0,
                 wx.ALIGN_CENTER_VERTICAL,
             )
-            # Discard is the only thing in this dialog that destroys work, so it is
-            # marked as such rather than sitting there looking like Restore's twin.
+            # Drop destroys the stash, so it is marked destructive rather than sitting
+            # there looking like Apply's twin.
             row.Add(
                 Button(
                     card,
-                    "Discard",
+                    "Drop",
                     self.pal,
                     variant="destructive-ghost",
                     on_click=lambda e=entry: self._drop_stash(e),
@@ -1583,7 +1591,7 @@ class PrismDialog(wx.Dialog):
             )
             stash_message = self._ask_stash_message(
                 "%s The pull can't run until they're out of the way.\n\n"
-                "Prism can set them aside and bring them back afterwards." % what
+                "Prism can stash them and restore them after the pull." % what
             )
             if stash_message is None:
                 return  # they said no
@@ -1601,8 +1609,8 @@ class PrismDialog(wx.Dialog):
             # Tell them where their work went, and that getting it back is one click.
             # Work that vanishes with no explanation is work the user thinks they lost.
             note += (
-                "\n\nYour changes are stashed as “%s”. Use Apply to "
-                "bring them back." % stashed["message"]
+                "\n\nYour changes are stashed as “%s”. Apply the stash to "
+                "restore them." % stashed["message"]
             )
 
         # The board on disk has changed under KiCad, which will not know. Saying so is

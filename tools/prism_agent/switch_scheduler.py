@@ -207,7 +207,7 @@ class SwitchScheduler:
         if match:
             self._notify(
                 "Prism",
-                "Reopened on %s. You have work set aside from this branch (\"%s\"); "
-                "bring it back from the Prism panel when you're ready."
+                "Reopened on %s. This branch has a stash (\"%s\"); apply it from the "
+                "Prism panel when you're ready."
                 % (current, match.get("message") or "your changes"),
             )

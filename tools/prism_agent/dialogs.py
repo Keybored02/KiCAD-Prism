@@ -285,7 +285,7 @@ def ask_text(message: str, title: str = "Prism", confirm: str = "OK") -> str | N
 
 
 def ask_reapply(message: str, title: str = "Prism") -> bool:
-    """Offer to bring set-aside work back. True = apply, default is to leave it.
+    """Offer to apply a stash. True = apply, default is to leave it.
 
     Leaving it is the safe default: a restore can conflict, and the stash stays in the
     list either way, so "Not now" loses nothing.
@@ -293,7 +293,7 @@ def ask_reapply(message: str, title: str = "Prism") -> bool:
     result, _ = _run(
         title,
         message,
-        [("Bring it back", True, "primary"), ("Not now", False, "ghost")],
+        [("Apply stash", True, "primary"), ("Not now", False, "ghost")],
     )
     return result is True
 
@@ -349,20 +349,19 @@ def pick_clone_folder(message: str, title: str = "Prism") -> str | None:
 
 
 def ask_stash_or_discard(message: str, title: str = "Prism") -> tuple[str, str]:
-    """The three-way choice for uncommitted work: set aside, discard, or cancel.
+    """The three-way choice for uncommitted work: stash, discard, or cancel.
 
     Returns (action, message) where action is "stash" | "discard" | "cancel".
 
-    Discard is NOT a lookalike of Set aside. A stash can still be recovered with
-    `git stash apply` for a while; discarding uncommitted changes is `git checkout -- .`
-    and is gone immediately. So it is styled destructive, it is not the default, and
-    Escape means cancel.
+    Discard is NOT a lookalike of Stash. A stash can still be recovered with
+    `git stash apply` for a while; discarding uncommitted changes is gone immediately. So
+    it is styled destructive, it is not the default, and Escape means cancel.
     """
     result, text = _run(
         title,
         message,
         [
-            ("Set aside", "stash", "primary"),
+            ("Stash", "stash", "primary"),
             ("Discard", "discard", "destructive"),
             ("Cancel", "cancel", "ghost"),
         ],

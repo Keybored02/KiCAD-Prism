@@ -36,8 +36,9 @@ Endpoints
     GET  /switch?path=<path>         -> the pending scheduled switch, if any
     POST /fetch {path}               -> update tracking refs; report ahead/behind
     POST /push {path, set_upstream?} -> push current branch; NEVER forces (refuse+explain)
-    POST /stash {path, message}      -> set uncommitted work aside
-    POST /stash {path, restore:true} -> bring it back
+    POST /stash {path, message}      -> stash uncommitted changes
+    POST /stash {path, restore:true} -> restore a stash
+    POST /discard {path}             -> discard uncommitted changes (unrecoverable)
     POST /quit                       -> stops the agent
     POST /restart                    -> stops, then relaunches the agent
 
@@ -780,6 +781,19 @@ class _Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": f"Unknown stash action: {action}"})
                     return
                 self._send(200, result)
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
+        if route.path == "/discard":
+            # Throw away uncommitted changes. Unrecoverable: the CALLER confirms (this
+            # route does not ask). Discards the user's tracked edits back to HEAD.
+            path = body.get("path") or ""
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            try:
+                self._send(200, checkout.discard(path))
             except checkout.CheckoutError as exc:
                 self._send(400, {"error": str(exc)})
             return
