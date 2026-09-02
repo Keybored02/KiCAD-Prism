@@ -1,0 +1,220 @@
+"""Sign-in for the KiCad desktop agent: loopback OAuth with PKCE.
+
+A new user on an auth-enabled server has no way to give the agent a bearer
+token today. This issues one through the browser the user already trusts: the
+agent opens a loopback listener, sends the user to Prism to log in normally, and
+receives a one-time authorization code on ``127.0.0.1`` that it exchanges -- with
+its PKCE verifier, over a back-channel POST -- for a scoped, revocable user
+token.
+
+Deliberately kept separate from ``provider_auth_service``: that flow is bound to
+one machine client (the remote-symbol provider) and one scope, and loosening it
+to also serve the agent would risk that path. This reuses the low-level token
+and authorization-code primitives but owns its own client identity, scopes, and
+token ``type`` so the two flows cannot interfere.
+
+The token is a signed ``v1.`` payload with ``type == "agent"``; it carries the
+logged-in user's identity and role, an API scope set, and a ``jti`` so it can be
+revoked. Validation runs through the shared revocation list, so revoking a token
+takes effect immediately.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import secrets
+from urllib.parse import urlparse
+
+from fastapi import HTTPException
+
+from app.core.config import settings
+from app.core.roles import Role, normalize_role
+from app.services import provider_auth_service
+from app.services.auth_service import ResolvedSessionUser
+
+# The agent identifies itself as its own OAuth client so its codes and tokens
+# never collide with the remote-provider client.
+AGENT_CLIENT_ID = "kicad-agent"
+
+# The agent only ever needs to read projects and submit merge decisions; it must
+# never receive a wildcard or a raw admin session. These mirror the scope
+# vocabulary the bearer-scope checks already understand.
+AGENT_SCOPES = ("api:read", "api:write")
+_AGENT_SCOPE_STRING = " ".join(AGENT_SCOPES)
+
+_TOKEN_TYPE = "agent"
+
+
+def agent_auth_enabled() -> bool:
+    """Whether sign-in is available. When auth is off the agent stays a guest."""
+    return settings.AUTH_ENABLED and bool(settings.SESSION_SECRET)
+
+
+def _now() -> int:
+    return provider_auth_service._now()
+
+
+def _db():
+    return provider_auth_service._db()
+
+
+def normalize_agent_scope(scope: str) -> str:
+    """Accept only the agent's fixed scope set; empty means the full set."""
+    requested = {value for value in scope.split() if value}
+    if not requested:
+        return _AGENT_SCOPE_STRING
+    if not requested.issubset(set(AGENT_SCOPES)):
+        raise HTTPException(status_code=400, detail="Unsupported agent scope")
+    return " ".join(sorted(requested))
+
+
+def validate_authorization_request(
+    *,
+    redirect_uri: str,
+    response_type: str,
+    state: str,
+    scope: str,
+    code_challenge: str,
+    code_challenge_method: str,
+) -> None:
+    """Reject anything that would let a code leak or a downgrade slip through.
+
+    The redirect must be loopback only -- accepting an arbitrary one would turn
+    this into an open redirector that hands the code to an attacker's host. PKCE
+    is required (never optional): without it any local process that can see the
+    loopback callback could redeem a stolen code.
+    """
+    if not agent_auth_enabled():
+        raise HTTPException(status_code=400, detail="Sign-in is not required on this server")
+    if response_type != "code":
+        raise HTTPException(status_code=400, detail="Unsupported response_type")
+
+    parsed = urlparse(redirect_uri)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "http" or host not in {"127.0.0.1", "::1"}:
+        raise HTTPException(status_code=400, detail="redirect_uri must be a loopback URL")
+    if not state.strip():
+        raise HTTPException(status_code=400, detail="Missing state")
+    normalize_agent_scope(scope)
+    if not code_challenge.strip():
+        raise HTTPException(status_code=400, detail="Missing code_challenge")
+    if code_challenge_method != "S256":
+        raise HTTPException(status_code=400, detail="Only S256 PKCE is supported")
+
+
+def issue_authorization_code(
+    user: ResolvedSessionUser,
+    *,
+    redirect_uri: str,
+    scope: str,
+    code_challenge: str,
+    agent_label: str = "",
+) -> str:
+    """Mint a short-lived, single-use code bound to this user and PKCE challenge."""
+    code = secrets.token_urlsafe(24)
+    exp = _now() + 300
+    grant = {
+        "flow": "agent",
+        "email": user.email,
+        "name": user.name,
+        "picture": user.picture,
+        "role": user.role,
+        "client_id": AGENT_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "scope": normalize_agent_scope(scope),
+        "code_challenge": code_challenge,
+        "agent_label": agent_label[:200],
+    }
+    _db().store_auth_code(code, grant, exp)
+    return code
+
+
+def _pkce_challenge(code_verifier: str) -> str:
+    digest = hashlib.sha256(code_verifier.encode("utf-8")).digest()
+    return provider_auth_service._b64_encode(digest)
+
+
+def exchange_authorization_code(
+    *,
+    code: str,
+    redirect_uri: str,
+    code_verifier: str,
+) -> dict[str, object]:
+    """Verify the code and PKCE, then return a scoped user token.
+
+    The grant is consumed on read (single-use). A mismatched client, redirect,
+    or PKCE verifier fails closed -- a stolen code without the verifier the
+    agent kept is worthless.
+    """
+    grant = _db().consume_auth_code(code)
+    if not grant or grant.get("flow") != "agent":
+        raise HTTPException(status_code=401, detail="Invalid or expired authorization code")
+    if grant.get("client_id") != AGENT_CLIENT_ID:
+        raise HTTPException(status_code=401, detail="client_id mismatch")
+    if grant.get("redirect_uri") != redirect_uri:
+        raise HTTPException(status_code=401, detail="redirect_uri mismatch")
+    if not hmac.compare_digest(_pkce_challenge(code_verifier), str(grant.get("code_challenge") or "")):
+        raise HTTPException(status_code=401, detail="PKCE verification failed")
+
+    token = _issue_agent_token(
+        email=str(grant["email"]),
+        name=str(grant["name"]),
+        picture=str(grant.get("picture") or ""),
+        role=str(grant["role"]),
+        scope=str(grant.get("scope") or _AGENT_SCOPE_STRING),
+    )
+    return {
+        "access_token": token,
+        "token_type": "Bearer",
+        "scope": str(grant.get("scope") or _AGENT_SCOPE_STRING),
+        "expires_in": settings.AGENT_TOKEN_TTL_SECONDS,
+    }
+
+
+def _issue_agent_token(
+    *,
+    email: str,
+    name: str,
+    picture: str,
+    role: Role | str,
+    scope: str,
+) -> str:
+    normalized_role = normalize_role(str(role))
+    if not normalized_role:
+        raise HTTPException(status_code=500, detail="Unable to resolve user role")
+    now = _now()
+    payload = {
+        "type": _TOKEN_TYPE,
+        "email": email.strip().lower(),
+        "name": name,
+        "picture": picture,
+        "role": normalized_role,
+        "scope": scope,
+        "client_id": AGENT_CLIENT_ID,
+        "jti": secrets.token_urlsafe(12),
+        "iat": now,
+        "exp": now + settings.AGENT_TOKEN_TTL_SECONDS,
+    }
+    return provider_auth_service._encode_payload(payload)
+
+
+def validate_agent_token(token: str) -> dict[str, object]:
+    """Decode and verify an agent token; raise 401 if it is not a valid one.
+
+    ``_decode_payload`` already checks the signature, expiry, and revocation, so
+    this only has to assert the token is ours.
+    """
+    payload = provider_auth_service._decode_payload(token)
+    if payload.get("type") != _TOKEN_TYPE or payload.get("client_id") != AGENT_CLIENT_ID:
+        raise HTTPException(status_code=401, detail="Invalid agent token")
+    return payload
+
+
+def revoke_agent_token(token: str) -> None:
+    """Add the token's ``jti`` to the shared revocation list until it expires."""
+    payload = provider_auth_service._decode_payload(token)
+    jti = str(payload.get("jti") or "")
+    exp = int(payload.get("exp", 0))
+    if jti and exp > _now():
+        _db().add_revoked_token(jti, exp)

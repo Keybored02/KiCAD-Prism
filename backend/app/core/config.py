@@ -333,6 +333,17 @@ class Settings(BaseSettings):
         description="Lifetime for KiCad remote provider refresh tokens."
     )
 
+    AGENT_TOKEN_TTL_SECONDS: int = Field(
+        default=2592000,
+        ge=3600,
+        le=7776000,
+        description=(
+            "Lifetime for a KiCad agent sign-in token. Long by default because a "
+            "desktop agent is signed in once and used for weeks; it is scoped and "
+            "revocable, so a leaked token can be killed from the web console."
+        ),
+    )
+
     # The MANUFACTURO_SQL_* settings were removed. Nothing under app/ ever read
     # them, so they were a set of credential fields that asked operators to put
     # a database password in .env for a feature that did not exist. Reintroduce
