@@ -166,6 +166,8 @@ class FirstRunDialog(wx.Dialog):
         except AgentUnavailable:
             return
 
+        self._render_signin(data.get("identity", {}))
+
         proto = data.get("protocol", {})
 
         card = Card(self, "Optional", self.pal)
@@ -221,6 +223,53 @@ class FirstRunDialog(wx.Dialog):
             )
 
         self.body.Add(card, 0, wx.EXPAND)
+
+    def _render_signin(self, identity: dict):
+        """Prompt a new user to sign in, but only when this server needs it.
+
+        A server with auth off has no account to use, and a user already signed in
+        has nothing to do here, so in both cases the card is skipped and setup is
+        just the two OS toggles. When it IS needed, this is where a brand-new user
+        first meets it, right after the agent comes up.
+        """
+        if not identity.get("sign_in_required") or identity.get("signed_in"):
+            return
+
+        card = Card(self, "Sign in to Prism", self.pal)
+        card.body.Add(
+            card.label(
+                "This Prism server requires you to sign in. It opens your browser,\n"
+                "the usual way you log in, and connects this machine when you approve.",
+                tone="muted_fg",
+                small=True,
+            ),
+            0,
+            wx.BOTTOM,
+            th.SP_SM,
+        )
+        card.body.Add(
+            Button(card, "Sign in", self.pal, variant="primary", on_click=self._sign_in),
+            0,
+        )
+        self.body.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
+    def _sign_in(self):
+        """Run the browser sign-in, then re-render so the prompt reflects the result."""
+        try:
+            with wx.BusyCursor():
+                result = AgentClient().sign_in()
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+        if result.get("error"):
+            wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
+        # Re-render the options so the sign-in card drops away once we're in.
+        self._render_options_again()
+
+    def _render_options_again(self):
+        self.body.Clear(delete_windows=True)
+        self._render_options()
+        self._relayout()
 
     def _style_check(self, ctrl):
         ctrl.SetForegroundColour(_c(self.pal["foreground"]))
