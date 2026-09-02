@@ -58,8 +58,8 @@ describe("AgentTokensSettings", () => {
         expect(
             screen.queryByLabelText("Show tokens for all users"),
         ).not.toBeInTheDocument();
-        // No user column for a self view.
-        expect(screen.queryByText("owner@example.com")).not.toBeInTheDocument();
+        // A self view never names the email; that is admins-only.
+        expect(screen.queryByText(/owner@example\.com/)).not.toBeInTheDocument();
     });
 
     it("shows an empty state when there are no tokens", async () => {
@@ -81,9 +81,9 @@ describe("AgentTokensSettings", () => {
         await waitFor(() =>
             expect(fetchApi).toHaveBeenCalledWith("/api/agent/tokens?all_users=true"),
         );
-        // Now the user column is present.
-        await screen.findByText("owner@example.com");
-        expect(screen.getByText("other@example.com")).toBeInTheDocument();
+        // Now each row names whose token it is (shown inline with the scopes).
+        await screen.findByText(/owner@example\.com/);
+        expect(screen.getByText(/other@example\.com/)).toBeInTheDocument();
     });
 
     it("opens a confirm dialog naming the token before revoking", async () => {

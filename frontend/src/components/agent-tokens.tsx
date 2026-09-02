@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
-import { Trash2, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { fetchApi, readApiError } from "@/lib/api";
 
 /**
@@ -80,95 +82,86 @@ export function AgentTokensSettings({ isAdmin }: { isAdmin: boolean }) {
         }
     };
 
-    // Admins get an email column when viewing everyone's; otherwise it is dead space.
+    // Admins see whose token each row is when viewing everyone's.
     const showEmail = isAdmin && allUsers;
-    const columns = showEmail
-        ? "grid-cols-[1.5fr_1.5fr_1fr_1fr_auto]"
-        : "grid-cols-[2fr_1fr_1fr_auto]";
 
     return (
         <div className="space-y-6">
-            <div className="flex items-start justify-between gap-4">
-                <div>
-                    <h3 className="text-lg font-medium">Agent tokens</h3>
-                    <p className="text-sm text-muted-foreground">
-                        Tokens a KiCad agent uses to act on Prism as you. Revoking one signs that
-                        machine out immediately.
-                    </p>
-                </div>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => void loadTokens()}
-                    aria-label="Refresh agent tokens"
-                    title="Refresh"
-                >
-                    <RefreshCw className="h-4 w-4" />
-                </Button>
+            <div>
+                <h3 className="text-lg font-medium">Agent tokens</h3>
+                <p className="text-sm text-muted-foreground">
+                    Tokens a KiCad agent uses to act on Prism as you. Revoking one signs that
+                    machine out immediately.
+                </p>
             </div>
 
-            {isAdmin && (
-                <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <input
-                        type="checkbox"
-                        checked={allUsers}
-                        onChange={(event) => setAllUsers(event.target.checked)}
-                        aria-label="Show tokens for all users"
-                    />
-                    Show tokens for all users
-                </label>
-            )}
-
-            <div className="rounded-lg border overflow-hidden">
-                <div
-                    className={`grid ${columns} border-b bg-muted/30 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground`}
-                >
-                    <div>Device</div>
-                    {showEmail && <div>User</div>}
-                    <div>Last used</div>
-                    <div>Expires</div>
-                    <div />
-                </div>
-                {loading ? (
-                    <div className="p-4 text-sm text-muted-foreground">Loading tokens…</div>
-                ) : tokens.length === 0 ? (
-                    <div className="p-4 text-sm text-muted-foreground">
-                        No agent tokens. Sign in from the KiCad agent to create one.
+            <div className="space-y-3 border rounded-lg p-4 bg-card">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-0.5">
+                        <Label className="text-base">Your agent tokens</Label>
+                        <p className="text-sm text-muted-foreground">
+                            Sign in from the KiCad agent to create one.
+                        </p>
                     </div>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void loadTokens()}
+                        disabled={loading}
+                    >
+                        <RefreshCw className="h-4 w-4" />
+                        Refresh
+                    </Button>
+                </div>
+
+                {isAdmin && (
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Checkbox
+                            checked={allUsers}
+                            onCheckedChange={(checked) => setAllUsers(checked === true)}
+                            aria-label="Show tokens for all users"
+                        />
+                        Show tokens for all users
+                    </label>
+                )}
+
+                {loading ? (
+                    <div className="h-16 bg-muted animate-pulse rounded-md" />
+                ) : tokens.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic">
+                        No agent tokens yet.
+                    </p>
                 ) : (
-                    tokens.map((token) => (
-                        <div
-                            key={token.jti}
-                            className={`grid ${columns} items-center border-b px-4 py-2 gap-2`}
-                        >
-                            <div className="min-w-0">
-                                <div className="truncate text-sm">{token.label || "Unnamed agent"}</div>
-                                <div className="truncate text-xs text-muted-foreground">
-                                    {token.scopes.join(", ")}
+                    <div className="divide-y rounded-md border">
+                        {tokens.map((token) => (
+                            <div key={token.jti} className="p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="font-medium truncate">
+                                            {token.label || "Unnamed agent"}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground truncate">
+                                            {showEmail ? `${token.email} · ` : ""}
+                                            {token.scopes.join(", ")}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Last used {formatIso(token.last_used_at)} · Expires{" "}
+                                            {formatEpoch(token.expires_at)}
+                                        </p>
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="shrink-0"
+                                        onClick={() => revokeTarget.request(token)}
+                                        aria-label={`Revoke token ${token.label || token.jti}`}
+                                    >
+                                        Revoke
+                                    </Button>
                                 </div>
                             </div>
-                            {showEmail && (
-                                <div className="truncate text-sm text-muted-foreground">{token.email}</div>
-                            )}
-                            <div className="text-sm text-muted-foreground">
-                                {formatIso(token.last_used_at)}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                                {formatEpoch(token.expires_at)}
-                            </div>
-                            <div className="flex justify-end">
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => revokeTarget.request(token)}
-                                    aria-label={`Revoke token ${token.label || token.jti}`}
-                                    title="Revoke token"
-                                >
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                            </div>
-                        </div>
-                    ))
+                        ))}
+                    </div>
                 )}
             </div>
 
