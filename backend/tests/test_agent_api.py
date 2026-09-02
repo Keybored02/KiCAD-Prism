@@ -17,13 +17,16 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from unittest.mock import patch  # noqa: E402
+
 DATABASE_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
-os.environ.setdefault("SESSION_SECRET", "test-secret-at-least-32-characters-long-x")
+# Patched onto settings in setUpClass rather than read from the environment, so
+# these run under CI's AUTH_ENABLED=false instead of silently skipping and going
+# green without exercising the sign-in routes.
+TEST_SECRET = "test-secret-at-least-32-characters-long-x"
 
 from app.core.config import settings  # noqa: E402
-
-_AUTH_ON = bool(settings.AUTH_ENABLED and settings.SESSION_SECRET)
 
 
 def _pkce() -> tuple[str, str]:
@@ -35,13 +38,22 @@ def _pkce() -> tuple[str, str]:
 
 
 @unittest.skipUnless(DATABASE_URL, "PRISM_DATABASE_URL is required for agent API tests")
-@unittest.skipUnless(_AUTH_ON, "agent sign-in requires AUTH_ENABLED with a SESSION_SECRET")
 class AgentApiTests(unittest.TestCase):
     REDIRECT = "http://127.0.0.1:53998/cb"
 
     @classmethod
     def setUpClass(cls) -> None:
         from starlette.testclient import TestClient
+
+        # Auth on for the whole class: the sign-in routes require it, session
+        # cookies need the secret, and the app reads both live. Patch before the
+        # session store initialises so it sees the enabled posture.
+        cls._patchers = [
+            patch.object(settings, "AUTH_ENABLED", True),
+            patch.object(settings, "SESSION_SECRET", TEST_SECRET),
+        ]
+        for patcher in cls._patchers:
+            patcher.start()
 
         import app.main as main
         from app.services import access_service, session_store_service
@@ -51,6 +63,11 @@ class AgentApiTests(unittest.TestCase):
         cls.access_service = access_service
         cls.session_store_service = session_store_service
         cls.TestClient = TestClient
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        for patcher in getattr(cls, "_patchers", []):
+            patcher.stop()
 
     def _client_for(self, email: str, role: str):
         from app.core.session import SESSION_COOKIE_NAME, create_session_token

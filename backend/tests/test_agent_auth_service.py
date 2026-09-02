@@ -17,18 +17,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from unittest.mock import patch  # noqa: E402
+
 DATABASE_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
-# Sign-in only exists with auth on and a session secret. setdefault does not
-# override a value the suite already set, so whether these run is decided by the
-# real setting below, not by forcing the env here.
-os.environ.setdefault("SESSION_SECRET", "test-secret-at-least-32-characters-long-x")
+# A secret the token machinery can sign with. Patched onto settings at setUp
+# rather than read from the environment, so these run under CI's AUTH_ENABLED=false
+# instead of silently skipping and reporting green while testing nothing. This is
+# the same technique the session-token tests use.
+TEST_SECRET = "test-secret-at-least-32-characters-long-x"
 
 from app.core.config import settings  # noqa: E402
 from app.services import agent_auth_service  # noqa: E402
 from app.services.auth_service import ResolvedSessionUser  # noqa: E402
-
-_AUTH_ON = bool(settings.AUTH_ENABLED and settings.SESSION_SECRET)
 
 
 def _pkce() -> tuple[str, str]:
@@ -44,7 +45,6 @@ def _user(email: str = "agent-test@example.com", role: str = "designer") -> Reso
 
 
 @unittest.skipUnless(DATABASE_URL, "PRISM_DATABASE_URL is required for agent auth tests")
-@unittest.skipUnless(_AUTH_ON, "agent sign-in requires AUTH_ENABLED with a SESSION_SECRET")
 class AgentAuthServiceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -52,6 +52,15 @@ class AgentAuthServiceTests(unittest.TestCase):
 
         catalog_service.initialize()
         cls.catalog = catalog_service
+
+    def setUp(self) -> None:
+        # Turn auth on for the duration of each test. The service reads these
+        # live (agent_auth_enabled(), the signing secret), so patching them makes
+        # the flow real without depending on the process-wide environment.
+        for attr, value in (("AUTH_ENABLED", True), ("SESSION_SECRET", TEST_SECRET)):
+            patcher = patch.object(settings, attr, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     REDIRECT = "http://127.0.0.1:53999/cb"
 
