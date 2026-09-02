@@ -432,11 +432,17 @@ def self_command(*args: str) -> list[str]:
 
 
 def _detached() -> dict:
-    """Popen flags for a process that must outlive its parent."""
+    """Popen flags for a process that must outlive its parent.
+
+    CREATE_NO_WINDOW keeps the relaunched agent from opening a console window on
+    restart, DETACHED_PROCESS alone frees it from the parent's console but does
+    not stop a console-subsystem python from creating its own."""
     if sys.platform == "win32":
         return {
             "creationflags": (
-                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NO_WINDOW
             )
         }
     return {"start_new_session": True}  # setsid

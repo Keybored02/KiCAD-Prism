@@ -164,11 +164,19 @@ def _no_window() -> dict:
 
 def _detached() -> dict:
     """The agent must OUTLIVE KiCad, that's the whole premise. A plain child would
-    be killed (or orphaned) when KiCad exits."""
+    be killed (or orphaned) when KiCad exits.
+
+    CREATE_NO_WINDOW is included so the detached agent runs with no console at all.
+    Without it, launching a console-subsystem python (the source path especially)
+    flashes or leaves a console window on every start/restart, which is exactly the
+    thing a background agent must not do. DETACHED_PROCESS alone frees it from
+    KiCad's console but does not stop it opening its own."""
     if sys.platform == "win32":
         return {
             "creationflags": (
-                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NO_WINDOW
             )
         }
     return {"start_new_session": True}  # setsid
