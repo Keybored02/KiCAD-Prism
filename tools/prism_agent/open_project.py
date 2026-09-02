@@ -63,17 +63,21 @@ def find_project_file(directory: str | Path) -> str:
 def launch_kicad(project_dir: str | Path) -> None:
     """Open a project directory in KiCad.
 
-    Hands the `.kicad_pro` to the OS rather than hunting for a KiCad binary. The user
-    already has KiCad associated with its own project files (they installed it), and
-    guessing at install paths across three platforms and a dozen versions is a
-    reliability problem we do not need to own.
+    By default hands the `.kicad_pro` to the OS, which opens it with whatever KiCad
+    the user has associated. When the user has pinned a specific KiCad (the
+    `kicad_command` setting, chosen from the tray), that exact executable is run
+    instead, so a machine with several versions opens the one they meant rather than
+    whichever won the file association.
     """
     pro = find_project_file(project_dir)
     if not pro:
         raise OpenError("No KiCad project file (.kicad_pro) in %s" % project_dir)
 
+    command = settings_store.load().kicad_command.strip()
     try:
-        if sys.platform == "win32":
+        if command:
+            _launch_with(command, pro)
+        elif sys.platform == "win32":
             os.startfile(pro)  # noqa: S606
         elif sys.platform == "darwin":
             subprocess.Popen(["open", pro])
@@ -81,6 +85,24 @@ def launch_kicad(project_dir: str | Path) -> None:
             subprocess.Popen(["xdg-open", pro])
     except OSError as exc:
         raise OpenError("Couldn't open %s: %s" % (pro, exc)) from exc
+
+
+def _launch_with(command: str, pro: str) -> None:
+    """Open `pro` with a specific KiCad the user chose.
+
+    Handles the three shapes discovery produces: a macOS `.app` bundle (opened with
+    `open -a`, which finds its executable), a Flatpak command line, and a plain
+    executable path (Windows/Linux). Detached and windowless, like everything else
+    the agent launches.
+    """
+    flags = {"creationflags": _no_window()} if sys.platform == "win32" else {}
+
+    if sys.platform == "darwin" and command.endswith(".app"):
+        subprocess.Popen(["open", "-a", command, pro], **flags)
+    elif command.startswith("flatpak "):
+        subprocess.Popen([*command.split(), pro], **flags)
+    else:
+        subprocess.Popen([command, pro], **flags)
 
 
 def clone(origin_url: str, destination: str | Path) -> None:

@@ -275,14 +275,14 @@ def _clone_flow(name: str, origin: str) -> str | None:
 
     if not dialogs.ask_clone_or_cancel(
         "Prism doesn't have %s on this machine.\n\n"
-        "Clone it from Prism's repository, or cancel?" % name,
+        "Clone it from remote repository?" % name,
         title="Open in KiCad",
     ):
         return None
 
     parent = dialogs.pick_clone_folder(
         "Pick a folder to clone %s into.\n\n"
-        "It will be cloned into a new sub-folder there, and that folder is added to "
+        "That folder is added to "
         "your project list in the plugin if it isn't already." % name,
         title="Choose a folder",
     )
@@ -586,6 +586,50 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
     def server_text(_item) -> str:
         return f"Server: {settings_store.load().server_url}"
 
+    def _kicad_menu():
+        """A radio submenu to choose which KiCad opens project files.
+
+        Rebuilt each time the tray menu is constructed (once per run); discovery is
+        cheap and the set of installed KiCads does not change under a running agent
+        often enough to warrant re-scanning on every menu open. "System default"
+        clears the pinned command, restoring the OS file association.
+        """
+        from . import kicad_versions
+
+        try:
+            installs = kicad_versions.discover()
+        except Exception:
+            installs = []
+
+        def choose(command):
+            return lambda _icon, _item: settings_store.update(kicad_command=command)
+
+        def is_current(command):
+            return lambda _item: settings_store.load().kicad_command.strip() == command
+
+        items = [
+            pystray.MenuItem(
+                "System default",
+                choose(""),
+                checked=is_current(""),
+                radio=True,
+            )
+        ]
+        for install in installs:
+            items.append(
+                pystray.MenuItem(
+                    install.label,
+                    choose(install.path),
+                    checked=is_current(install.path),
+                    radio=True,
+                )
+            )
+        if not installs:
+            items.append(
+                pystray.MenuItem("(no KiCad found)", None, enabled=False)
+            )
+        return pystray.Menu(*items)
+
     icon = pystray.Icon(
         "kicad-prism",
         _make_icon(Image, ImageDraw),
@@ -601,6 +645,10 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
             # the menu opens, so the pair stays in step with the real state.
             pystray.MenuItem("Sign in", on_sign_in, visible=sign_in_visible),
             pystray.MenuItem("Sign out", on_sign_out, visible=sign_out_visible),
+            pystray.Menu.SEPARATOR,
+            # Which KiCad opens project files, when several are installed.
+            pystray.MenuItem("Open files with", _kicad_menu()),
+            pystray.Menu.SEPARATOR,
             # Settings live in the plugin's dialog, which is a real UI toolkit,
             # pystray menus can't host text fields, so pointing at it beats a
             # half-usable tray form.

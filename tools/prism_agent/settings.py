@@ -52,6 +52,11 @@ class Settings:
     # three roots. This exists so "do I have prj_x?" is a bounded search rather than
     # a walk of the whole disk.
     projects_roots: list[str] = field(default_factory=list)
+    # Which KiCad to open projects with. Empty means the OS default handler for
+    # `.kicad_pro`, which is the historical behaviour. When several KiCad versions
+    # are installed the OS picks one, often the wrong one, so this pins the exact
+    # executable the user chose. See kicad_versions.py for discovery.
+    kicad_command: str = ""
 
     def to_dict(self, redact: bool = False) -> dict:
         d = asdict(self)
