@@ -113,14 +113,6 @@ class PrismDialog(wx.Dialog):
         self.title.SetFont(tf)
         header.Add(self.title, 0, wx.ALIGN_CENTER_VERTICAL)
 
-        # The branch sits with the project name, not with the path: it says WHICH
-        # version of this project you have open, which is a fact about the project, not
-        # about where it lives on disk.
-        self.branch = Badge(self, "", self.pal, tone="muted", size=th.FONT_BODY)
-        self.branch.SetToolTip("Current git branch")
-        self.branch.Hide()  # nothing to show until the agent tells us the branch
-        header.Add(self.branch, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_SM)
-
         header.AddStretchSpacer()
 
         # Who you are on the SERVER, over the three things whose state you would
@@ -319,7 +311,6 @@ class PrismDialog(wx.Dialog):
             self.git_icon.set("muted_fg", "Unknown")
             self.library_icon.set("muted_fg", "Unknown")
             self.user.SetLabel("")
-            self.branch.Hide()
             self._render_unavailable(error)
             self._relayout()
             return
@@ -684,7 +675,6 @@ class PrismDialog(wx.Dialog):
         self.git_icon.set("muted_fg", "Contacting the agent")
         self.library_icon.set("muted_fg", "Contacting the agent")
         self.user.SetLabel("")
-        self.branch.Hide()
         self.open_btn.Enable(False)
 
         card = Card(self.scroll, "", self.pal)
@@ -789,8 +779,6 @@ class PrismDialog(wx.Dialog):
         self.status.SetLabel(project["path"])
         self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
         self.status.SetToolTip("Open this folder")
-
-        self._render_branch_tag(git)
         self.Layout()
 
         if not prism:
@@ -803,58 +791,49 @@ class PrismDialog(wx.Dialog):
         self._render_changes()
         self.open_btn.Enable(bool(prism))
 
-    def _render_branch_tag(self, git):
-        """The branch tag beside the project name.
+    def _add_branch_row(self, card, git):
+        """The branch as a clickable pill in the Git card. Click it to switch branch.
 
-        Always names the actual branch, never a bare "HEAD". Three things the user wants
-        to read at a glance, so all three are here:
-
-          - the real branch name (e.g. "feat/panelize"), not the ref git happens to
-            report;
-          - whether that is the repo's default branch (main/master), shown as a
-            "default" suffix so the user need not remember which name this repo uses;
-          - whether HEAD is actually at the tip of it. Detached means "no", and it is
-            marked in warning tone with a tooltip that says so.
+        Names the actual branch, never a bare "HEAD". Attached at the tip is muted;
+        detached is warning-toned, with a tooltip saying you are behind. Clicking opens
+        the branch switcher, the tag IS the control, so there is no separate button.
         """
         git = git or {}
         branch = git.get("branch") or ""
-        default = git.get("default_branch") or ""
 
         if branch:
-            # On a branch, at its tip. Name it, and mark the default one so "am I on
-            # main?" is answered without knowing this repo uses main over master.
-            if git.get("on_default") or (default and branch == default):
-                self.branch.set_label("%s  default" % branch, tone="muted")
-                self.branch.SetToolTip("On the default branch (%s)." % branch)
-            else:
-                self.branch.set_label(branch, tone="muted")
-                self.branch.SetToolTip("On branch %s." % branch)
-            self.branch.Show()
-            return
-
-        if git.get("detached"):
+            label, tone = branch, "muted"
+            tip = "On branch %s. Click to switch branch." % branch
+        elif git.get("detached"):
             on = git.get("on_branches") or []
-            # Detached: not at the tip of anything. Still name the branch this commit
-            # lives on (the default is listed first when it qualifies), and mark it
-            # warning so the tag itself says "you are behind the tip".
             if on:
-                name = on[0]
-                suffix = "  default" if name == default else ""
-                self.branch.set_label("%s%s" % (name, suffix), tone="warning")
-                self.branch.SetToolTip(
+                label, tone = on[0], "warning"
+                tip = (
                     "Viewing an older commit on %s. You are behind the tip of the "
-                    "branch." % name
+                    "branch. Click to switch branch." % on[0]
                 )
             else:
-                self.branch.set_label("detached", tone="warning")
-                self.branch.SetToolTip(
+                label, tone = "detached", "warning"
+                tip = (
                     "Not on any branch (detached HEAD). Create a branch to keep work "
                     "here."
                 )
-            self.branch.Show()
-            return
+        else:
+            return  # no branch to show
 
-        self.branch.Hide()
+        line = wx.BoxSizer(wx.HORIZONTAL)
+        line.Add(
+            card.label("Branch", tone="muted_fg"), 0, wx.ALIGN_CENTER_VERTICAL
+        )
+        line.AddStretchSpacer()
+
+        badge = Badge(card, label, self.pal, tone=tone)
+        badge.SetToolTip(tip)
+        badge.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        badge.Bind(wx.EVT_LEFT_UP, lambda _e: self._switch_branch())
+        line.Add(badge, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        card.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
 
     # -- publishing ---------------------------------------------------------
 
@@ -1078,6 +1057,10 @@ class PrismDialog(wx.Dialog):
 
         card = Card(self.scroll, "Git", self.pal)
 
+        # The branch, first, as a clickable pill: it says which version you have open and
+        # is the way to switch. No separate "Switch branch" button, the tag is the control.
+        self._add_branch_row(card, git)
+
         if git.get("ahead") or git.get("behind"):
             card.row(
                 "Ahead / behind",
@@ -1109,29 +1092,11 @@ class PrismDialog(wx.Dialog):
 
         self._add_pull_row(card, git)
         self._add_sync_row(card, git)
-        self._add_switch_row(card)
 
         self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
         self._render_gitignore()
         self._render_stashes()
-
-    def _add_switch_row(self, card):
-        """A button to switch to another branch, chosen from a list.
-
-        Read-heavy on open (a picker fetches branches), so it is a button, not always-on:
-        the panel stays light and only asks the agent for the branch list when the user
-        actually wants to switch. The switch itself carries the same guards as any other
-        checkout, a dirty tree is refused with a way out, not silently moved.
-        """
-        card.body.Add(
-            Button(
-                card, "Switch branch…", self.pal, variant="ghost", on_click=self._switch_branch
-            ),
-            0,
-            wx.TOP,
-            th.SP_XS,
-        )
 
     def _switch_branch(self):
         """Pick a branch and check it out, respecting the uncommitted-work guard."""
