@@ -514,10 +514,12 @@ class _Handler(BaseHTTPRequestHandler):
             url = self.state.prism.project_url(project_id)
             commit = body.get("commit")
             if commit:
-                # ?history= opens the History page and jumps to the commit, the way
-                # clicking a release does. (?commit= is a different thing: it opens the
-                # board *viewer* at that commit.)
-                url += "?history=%s" % quote(str(commit))
+                # Select the commit in the History section, exactly as the web app's own
+                # "view commit" does (section=history + commit=<sha>). An earlier ?history=
+                # was neither param the page reads, so it silently landed on the default
+                # section instead of selecting the commit.
+                sha = quote(str(commit))
+                url += "?section=history&commit=%s" % sha
             webbrowser.open(url)
             self._send(200, {"ok": True})
             return
