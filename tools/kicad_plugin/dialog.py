@@ -79,6 +79,10 @@ class PrismDialog(wx.Dialog):
 
         self.SetBackgroundColour(_c(self.pal["background"]))
         self._build()
+        # Close is felt, not just seen: hide the window the instant it's requested so
+        # KiCad's canvas repaints at once, rather than staying obscured while wx tears
+        # down the owner-drawn widget tree. See _on_close.
+        self.Bind(wx.EVT_CLOSE, self._on_close)
         self._load()
 
     # -- layout ------------------------------------------------------------
@@ -224,6 +228,21 @@ class PrismDialog(wx.Dialog):
         )
         self.thumb.Refresh()
 
+    def _on_close(self, event):
+        """Dismiss the modal, hiding first so KiCad repaints without waiting on teardown.
+
+        Destroying this dialog's owner-drawn tree takes a beat, and while it runs the
+        modal window still covers KiCad's canvas, which reads as KiCad freezing. Hiding
+        up front hands the screen back immediately; the destroy then happens behind
+        nothing. A stale background fetch can't paint into a hidden window either (its
+        guard already checks `if not self`), so there's nothing to cancel.
+        """
+        self.Hide()
+        if self.IsModal():
+            self.EndModal(wx.ID_CANCEL)
+        else:
+            event.Skip()
+
     def _relayout(self):
         self.content.FitInside(self.scroll)
         self.scroll.Layout()
@@ -234,50 +253,61 @@ class PrismDialog(wx.Dialog):
     # -- data --------------------------------------------------------------
 
     def _load(self):
+        """Refresh everything, WITHOUT blocking the KiCad UI thread on the network.
+
+        The two calls the dialog opens with, /health and /project, are HTTP round-trips,
+        and /health makes the agent reach the backend, up to a ten-second wait when the
+        server is slow or gone. Doing them inline froze KiCad every time the panel opened.
+
+        So paint the shell now with everything in a "Contacting agent…" state, and fetch
+        health + project on a worker thread. When it lands we marshal back and render for
+        real. A generation counter drops a stale fetch if Refresh is hit again first.
+        """
         self.content.Clear(delete_windows=True)
-        try:
-            client = AgentClient()
+        self.data = None
+        self.changes = _CHANGES_LOADING
+        self._render_contacting()
+        self._relayout()
 
-            # An update installs a new plugin beside an ALREADY-RUNNING old agent
-            # (it's detached, and autostart brings it back at login). Catch that
-            # here, or the plugin talks to it, gets a 404 from a route that didn't
-            # exist yet, and fails like a bug in the new code.
-            health = client.health() or {}
+        self._load_gen = getattr(self, "_load_gen", 0) + 1
+        generation = self._load_gen
+        board_path = self.board_path
 
-            running = health.get("version", "")
+        def worker():
+            try:
+                client = AgentClient()
+                # An update installs a new plugin beside an ALREADY-RUNNING old agent
+                # (it's detached, and autostart brings it back at login). health() catches
+                # that, so the plugin doesn't talk to it and get a 404 from a route that
+                # didn't exist yet, failing like a bug in the new code.
+                health = client.health() or {}
+                project = None
+                # Only fetch the project when the versions are compatible; an outdated
+                # agent or plugin renders its own card instead of a project view.
+                running = health.get("version", "")
+                if not version.agent_too_old(running):
+                    verdict, _ = version.server_verdict(health.get("server_plugin"))
+                    if verdict != "required":
+                        project = client.project(board_path)
+                payload = {"health": health, "project": project}
+                error = None
+            except AgentUnavailable as exc:
+                payload = None
+                error = str(exc)
+            wx.CallAfter(self._apply_load, generation, payload, error)
 
-            # It answered, so it's alive. Its version is the useful thing to say about
-            # it: "is the agent running" is a yes/no, and the yes is worth qualifying.
-            self.agent_icon.set(
-                "success", "Prism agent %s is running" % (running or "?")
-            )
+        threading.Thread(target=worker, daemon=True, name="prism-load").start()
 
-            # The agent answered, so the only question left is whether IT can reach the
-            # backend. The icon says which, and stays out of the way otherwise.
-            self._set_server_icon(bool(health.get("backend_reachable")))
+    def _apply_load(self, generation, payload, error):
+        """Render the fetched health/project on the UI thread. Drops a stale result."""
+        if generation != getattr(self, "_load_gen", 0):
+            return
+        if not self:
+            return
 
-            if version.agent_too_old(running):
-                self.data = None
-                self.changes = None
-                self._render_outdated_agent(running)
-                self._relayout()
-                return
+        self.content.Clear(delete_windows=True)
 
-            # The plugin follows the server it talks to. "required" means this plugin
-            # is older than the server can serve, so there's no point rendering a UI
-            # whose calls will fail.
-            self.verdict, self.download_url = version.server_verdict(
-                health.get("server_plugin")
-            )
-            if self.verdict == "required":
-                self.data = None
-                self.changes = None
-                self._render_outdated_plugin()
-                self._relayout()
-                return
-
-            self.data = client.project(self.board_path)
-        except AgentUnavailable as exc:
+        if error is not None:
             self.data = None
             self.changes = None
             # The one thing here that IS an error. An unreachable backend is normal and
@@ -290,19 +320,49 @@ class PrismDialog(wx.Dialog):
             self.library_icon.set("muted_fg", "Unknown")
             self.user.SetLabel("")
             self.branch.Hide()
-            self._render_unavailable(str(exc))
+            self._render_unavailable(error)
             self._relayout()
             return
 
-        # The diff parses every changed board, so it can take a second or two on
-        # a big one. Don't block the dialog on it: render everything else now with
-        # the changes card in a "Computing…" state, and fetch the diff in a
-        # background thread. When it lands we marshal back to the UI thread and
-        # re-render from data already in hand.
+        health = payload["health"] or {}
+        running = health.get("version", "")
+
+        # It answered, so it's alive. Its version is the useful thing to say about it:
+        # "is the agent running" is a yes/no, and the yes is worth qualifying.
+        self.agent_icon.set("success", "Prism agent %s is running" % (running or "?"))
+        # The agent answered, so the only question left is whether IT can reach the
+        # backend. The icon says which, and stays out of the way otherwise.
+        self._set_server_icon(bool(health.get("backend_reachable")))
+
+        if version.agent_too_old(running):
+            self.data = None
+            self.changes = None
+            self._render_outdated_agent(running)
+            self._relayout()
+            return
+
+        # The plugin follows the server it talks to. "required" means this plugin is
+        # older than the server can serve, so there's no point rendering a UI whose calls
+        # will fail.
+        self.verdict, self.download_url = version.server_verdict(
+            health.get("server_plugin")
+        )
+        if self.verdict == "required":
+            self.data = None
+            self.changes = None
+            self._render_outdated_plugin()
+            self._relayout()
+            return
+
+        self.data = payload["project"]
+
+        # The diff parses every changed board, so it can take a second or two on a big
+        # one. Don't block on it either: render everything else now with the changes card
+        # in a "Computing…" state, and fetch the diff on its own thread.
         self.changes = _CHANGES_LOADING
         self._render()
         self._relayout()
-        self._start_changes_fetch(client)
+        self._start_changes_fetch(AgentClient())
 
     def _start_changes_fetch(self, client):
         """Fetch the uncommitted-changes diff off the UI thread, then rebuild.
@@ -608,6 +668,33 @@ class PrismDialog(wx.Dialog):
             except AgentUnavailable:
                 continue
         self._load()
+
+    def _render_contacting(self):
+        """The instant shell, shown while health/project load off-thread.
+
+        The point is that the window appears the moment KiCad calls it, rather than after
+        a network round-trip. So this touches only widgets that already exist (the header
+        icons and the path line) and adds one light placeholder card, no work that could
+        itself stall.
+        """
+        self.status.SetLabel("Contacting agent...")
+        self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
+        self.agent_icon.set("muted_fg", "Contacting the agent")
+        self.server_icon.set("muted_fg", "Contacting the agent")
+        self.git_icon.set("muted_fg", "Contacting the agent")
+        self.library_icon.set("muted_fg", "Contacting the agent")
+        self.user.SetLabel("")
+        self.branch.Hide()
+        self.open_btn.Enable(False)
+
+        card = Card(self.scroll, "", self.pal)
+        card.body.Add(
+            card.label("Loading project status...", tone="muted_fg", small=True),
+            0,
+            wx.ALL,
+            th.SP_SM,
+        )
+        self.content.Add(card, 0, wx.EXPAND)
 
     def _render_unavailable(self, message):
         """The agent isn't running. Offer to start it rather than just saying so."""
