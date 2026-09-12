@@ -194,6 +194,8 @@ interface CommitItemProps {
     onSetBase: () => void;
     onSetCompare: () => void;
     selectable: boolean;
+    // The commit named in the URL: ringed and scrolled into view on mount.
+    highlighted?: boolean;
 }
 
 function CommitItem({
@@ -206,7 +208,17 @@ function CommitItem({
     onSetBase,
     onSetCompare,
     selectable,
+    highlighted = false,
 }: CommitItemProps) {
+    const rowRef = useRef<HTMLDivElement | null>(null);
+    // Bring the URL-named commit into view once, when it first mounts as highlighted.
+    // Not tied to every render: re-scrolling as the user reads the list would fight them.
+    useEffect(() => {
+        if (highlighted) {
+            rowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     const [copied, setCopied] = useState(false);
     const [expanded, setExpanded] = useState(false);
     const [summary, setSummary] = useState<CommitSummary | null>(null);
@@ -266,9 +278,16 @@ function CommitItem({
     }, []);
 
     return (
-        <div className={`border rounded-lg transition-colors ${
-            isBase || isCompare ? "border-primary/50 bg-primary/5" : "hover:bg-muted/50"
-        }`}>
+        <div
+            ref={rowRef}
+            className={`border rounded-lg transition-colors ${
+                highlighted
+                    ? "border-primary ring-1 ring-primary bg-primary/5"
+                    : isBase || isCompare
+                        ? "border-primary/50 bg-primary/5"
+                        : "hover:bg-muted/50"
+            }`}
+        >
             <div className="flex items-start gap-3 p-4">
                 <div className="flex-shrink-0 mt-1 flex items-center justify-center">
                     <GitCommit className="h-4 w-4 text-muted-foreground" />
@@ -509,6 +528,10 @@ export function HistoryViewer({
         () => readComparisonUrlState(searchParams),
         [searchParams],
     );
+    // A commit named in the URL (?commit=<sha>) is the one to highlight and scroll to,
+    // e.g. when the KiCad plugin opens "the commit I'm on". Distinct from the comparison
+    // base/compare shas above, which drive the diff, not selection.
+    const highlightedCommit = searchParams.get("commit");
     const [releases, setReleases] = useState<Release[]>([]);
     const [commits, setCommits] = useState<Commit[]>([]);
     const [commitsHasMore, setCommitsHasMore] = useState(false);
@@ -907,6 +930,7 @@ export function HistoryViewer({
                                 onOpenVisualizer={onOpenVisualizer}
                                 isBase={baseRevision?.sha === commit.full_hash}
                                 isCompare={compareRevision?.sha === commit.full_hash}
+                                highlighted={highlightedCommit === commit.full_hash}
                                 onSetBase={() => setRevision("base", {
                                     sha: commit.full_hash,
                                     label: commit.message.split("\n")[0] || commit.hash,
