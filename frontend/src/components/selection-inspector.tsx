@@ -12,6 +12,7 @@ import {
     LibraryBig,
     LoaderCircle,
     Network,
+    Route,
     Waypoints,
     X,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { labelInstanceListLabel, type LabelInstanceRef } from "@/lib/label-instances";
 import { selectionLabel } from "@/lib/prism-selection";
+import type { EcadNetStatistics } from "@/types/ecad-viewer";
 import type {
     PrismSelection,
     PrismSelectionContext,
@@ -53,6 +55,12 @@ interface SelectionInspectorProps {
     embedded?: boolean;
     /** Layer name -> swatch color, so the Layer row can show the layer's color. */
     layerColors?: Record<string, string>;
+    /**
+     * Routing summary for the selected net (or the terminal's net), read from
+     * the loaded board. Shown only in the PCB view; null while the board is
+     * still loading or when the net has no copper.
+     */
+    netStatistics?: EcadNetStatistics | null;
     /**
      * The view currently on screen. When set, the card presents the (cross-
      * probed) selection as it belongs to this view, overriding the context the
@@ -210,6 +218,25 @@ const resolvedItemType = (
     return "Net geometry";
 };
 
+// One layer name with its swatch, for the Layer row and the routing layer list.
+function LayerValue({ name, color }: { name: string; color?: string }) {
+    return (
+        <span className="inline-flex items-center justify-end gap-1.5">
+            {color && (
+                <span
+                    className="size-3 shrink-0 border"
+                    style={{ backgroundColor: color }}
+                    aria-hidden
+                />
+            )}
+            <span>{name}</span>
+        </span>
+    );
+}
+
+// Millimetres to four places, KiCad's Net Inspector precision.
+const formatLength = (mm: number): string => `${mm.toFixed(4)} mm`;
+
 function IntegrationRow({ icon: Icon, title, description }: {
     icon: typeof LibraryBig;
     title: string;
@@ -307,6 +334,7 @@ export function SelectionInspector({
     navigatingLabelInstance = false,
     embedded = false,
     layerColors,
+    netStatistics,
     viewContext,
 }: SelectionInspectorProps) {
     if (!open || !selection) return null;
@@ -320,6 +348,9 @@ export function SelectionInspector({
         ? labelInstances.findIndex((instance) => instance.uuid === activeUuid)
         : -1;
     const showLabelNav = labelInstances.length >= 2 && Boolean(onNavigateLabelInstance);
+    // Routing numbers describe copper, so they belong to the PCB view only;
+    // the same net selected in the schematic shows connectivity instead.
+    const routing = selection.kind !== "component" && viewContext === "PCB" ? netStatistics ?? null : null;
     const labelOrdinal = labelIndex >= 0 ? labelIndex + 1 : 1;
     const currentInstance = labelInstances[labelIndex >= 0 ? labelIndex : 0];
     const currentInstanceLabel = currentInstance
@@ -442,16 +473,10 @@ export function SelectionInspector({
                             <PropertyRow
                                 label="Layer"
                                 value={selection.anchor?.layer && (
-                                    <span className="inline-flex items-center justify-end gap-1.5">
-                                        {layerColors?.[selection.anchor.layer] && (
-                                            <span
-                                                className="size-3 shrink-0 border"
-                                                style={{ backgroundColor: layerColors[selection.anchor.layer] }}
-                                                aria-hidden
-                                            />
-                                        )}
-                                        <span>{selection.anchor.layer}</span>
-                                    </span>
+                                    <LayerValue
+                                        name={selection.anchor.layer}
+                                        color={layerColors?.[selection.anchor.layer]}
+                                    />
                                 )}
                             />
                         </dl>
@@ -507,6 +532,29 @@ export function SelectionInspector({
                                     )}
                                     <IntegrationRow icon={Database} title="Component database" description="Lifecycle, alternates, approved vendors, and organization metadata." />
                                 </div>
+                            </CollapsibleSection>
+                        </>
+                    )}
+
+                    {routing && (
+                        <>
+                            <Separator />
+                            <CollapsibleSection title="Routing" icon={Route}>
+                                <dl data-testid="net-routing">
+                                    <PropertyRow label="Routed length" value={formatLength(routing.routedLength)} />
+                                    <PropertyRow
+                                        label="Layers used"
+                                        value={routing.layers.length > 0 ? (
+                                            <span className="flex flex-wrap justify-end gap-x-3 gap-y-1">
+                                                {routing.layers.map((layer) => (
+                                                    <LayerValue key={layer} name={layer} color={layerColors?.[layer]} />
+                                                ))}
+                                            </span>
+                                        ) : undefined}
+                                    />
+                                    <PropertyRow label="Tracks" value={routing.trackCount} />
+                                    <PropertyRow label="Vias" value={routing.viaCount} />
+                                </dl>
                             </CollapsibleSection>
                         </>
                     )}

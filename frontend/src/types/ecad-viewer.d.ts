@@ -114,6 +114,26 @@ export interface EcadPcbViewState {
     highlightTracks: boolean;
 }
 
+/**
+ * Routing summary for one board net, as `getNetStatistics` reports it.
+ * `routedLength` is millimetres along track centrelines (straight and arc
+ * tracks; pads and via barrels excluded); `layers` is every copper layer a
+ * track of the net sits on, in board stack order.
+ */
+export interface EcadNetStatistics {
+    net: string;
+    netCode: number;
+    routedLength: number;
+    layers: string[];
+    trackCount: number;
+    viaCount: number;
+}
+
+export interface EcadNetStatisticsRef {
+    name?: string;
+    netCode?: number;
+}
+
 export interface EcadViewportInsets {
     left?: number;
     right?: number;
@@ -339,6 +359,11 @@ export interface ECadViewerElement extends HTMLElement {
     setViewportInsets(insets: EcadViewportInsets | null): void;
     resize?(): void;
     clearSelection(): void;
+    /**
+     * Routing summary for a board net, resolved by name first and net code
+     * second. Null until the board has loaded or when the net is not on it.
+     */
+    getNetStatistics?(ref: EcadNetStatisticsRef): EcadNetStatistics | null;
     setCommentMode?(enabled: boolean): void;
     setCommentOverlays(request: EcadCommentOverlaySet): void;
     clearCommentOverlays(context?: EcadCommentContext): void;
