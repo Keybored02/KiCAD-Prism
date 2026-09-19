@@ -15,7 +15,7 @@ import { ViewerOverlayRail, SELECTION_INSPECTOR_RAIL_RESIZE } from "./viewer-ove
 import { fetchApi, readApiError } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { canWriteCatalog } from "@/lib/roles";
-import { crossProbeRequestForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
+import { crossProbeRequestForSelection, netStatisticsRefForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
 import { selectionFromDesignSearchHit, type DesignSearchHit } from "@/lib/design-search";
 import {
     commentIdFromOverlayHit,
@@ -978,11 +978,27 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         }
     }, [globalSelection, selectionVisibleInActiveView]);
 
-    // Refresh the layer color map when a selection carries a layer, so the
-    // inspector can show a swatch matching the layer menu. Read lazily from the
-    // PCB viewer; layer colors are stable for a board.
+    // Routed length / layers / counts for the selected net, read from the
+    // board the PCB viewer has loaded. Keyed on the ready generation so a
+    // selection made before the board finished parsing (SCH cross-probe, BOM)
+    // fills in once it has.
+    const netStatistics = useMemo(() => {
+        const ref = netStatisticsRefForSelection(globalSelection);
+        if (!ref || !pcbViewerElement || pcbReadyGeneration === 0) return null;
+        try {
+            return pcbViewerElement.getNetStatistics?.(ref) ?? null;
+        } catch {
+            return null;
+        }
+    }, [globalSelection, pcbReadyGeneration, pcbViewerElement]);
+
+    // Refresh the layer color map when a selection carries a layer or its net
+    // has routing layers, so the inspector can show swatches matching the
+    // layer menu. Read lazily from the PCB viewer; layer colors are stable for
+    // a board.
     useEffect(() => {
-        if (!globalSelection?.anchor?.layer || !pcbViewerElement) return;
+        if (!pcbViewerElement) return;
+        if (!globalSelection?.anchor?.layer && !netStatistics?.layers.length) return;
         void customElements.whenDefined("ecad-viewer").then(() => {
             const layers = pcbViewerElement.getPcbViewState?.()?.layers;
             if (!layers?.length) return;
@@ -998,7 +1014,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 return changed ? next : previous;
             });
         });
-    }, [globalSelection, pcbViewerElement]);
+    }, [globalSelection, netStatistics, pcbViewerElement]);
 
     useEffect(() => {
         const selection = globalSelection;
@@ -1595,6 +1611,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 semanticIndex={semanticIndex}
                                 components={effectiveComponents}
                                 layerColors={layerColors}
+                                netStatistics={netStatistics}
                                 viewContext={activeViewContext ?? undefined}
                                 onOpenChange={(open) => {
                                     if (!open) setRightRailTab(null);

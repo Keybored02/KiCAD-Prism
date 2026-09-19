@@ -10,6 +10,7 @@ import type {
 } from "@/types/prism-selection";
 import type {
     CrossProbeRequest,
+    EcadNetStatisticsRef,
     EcadSemanticSelectionDetail,
 } from "@/types/ecad-viewer";
 
@@ -176,6 +177,20 @@ export function enrichPrismSelection(
             netCode: net.netCode ?? revisionSelection.netCode,
         }
         : revisionSelection;
+}
+
+/**
+ * The board net a selection belongs to, for `getNetStatistics`: the net
+ * itself, or the net a terminal sits on. Components have no single net.
+ */
+export function netStatisticsRefForSelection(
+    selection: PrismSelection | null,
+): EcadNetStatisticsRef | null {
+    if (!selection || selection.kind === "component") return null;
+    const name = selection.netName || undefined;
+    const netCode = selection.netCode;
+    if (!name && netCode === undefined) return null;
+    return { name, netCode };
 }
 
 export function selectionLabel(selection: PrismSelection): string {
