@@ -494,7 +494,16 @@ class _Handler(BaseHTTPRequestHandler):
         # repository, or the claim exchange which is guarded by a single-use key in the
         # URL fragment. Everything else needs the agent token, which the browser is
         # never given.
-        browser_routes = ("/merge/claim", "/merge/commit", "/merge/abort")
+        # /kicad-signin is reachable from the Prism page as well. It is the one route
+        # that hands the agent's own token to a browser, so it is gated harder than the
+        # merge routes: see _kicad_signin for why the CORS origin check is load-bearing
+        # there rather than a convenience.
+        browser_routes = (
+            "/merge/claim",
+            "/merge/commit",
+            "/merge/abort",
+            "/kicad-signin",
+        )
         if route.path not in browser_routes and not self._authorised():
             self._send(401, {"error": "unauthorised"})
             return
@@ -839,6 +848,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "session": session.id})
             return
 
+        if route.path == "/kicad-signin":
+            self._send(*self._kicad_signin(body))
+            return
+
         if route.path == "/merge/claim":
             # Exchange the fragment key for a session token, once. The long-lived agent
             # token is never handed to a page.
@@ -942,6 +955,60 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
     # -- sign in / out -----------------------------------------------------
+
+    def _kicad_signin(self, body: dict) -> tuple[int, dict]:
+        """Let Prism's own login page sign the user in as whoever the agent is.
+
+        KiCad's Remote Symbols panel is an embedded browser with its own cookie jar, so
+        it meets Prism with no session and asks for a login the user has already done
+        in the plugin. That browser can reach this agent, so rather than the agent
+        pushing a session into a browser it does not control, the page pulls from here.
+
+        What this is NOT: a second way of authenticating. The agent token is a
+        credential the backend already accepts, the backend alone decides whether it is
+        still valid, and the session that results is issued by the same /oauth/bootstrap
+        the provider flow already uses. Revoking the agent's token revokes this too.
+
+        Three things guard it, and the first is doing real work:
+
+        * **Origin.** Only the configured Prism server's own pages may call this. The
+          agent can run git and touch the filesystem, so a route that hands out identity
+          must not be reachable from any tab the user happens to have open.
+        * **The token never reaches the page.** The agent exchanges it for a one-shot
+          URL itself, so a page that is allowed to ask still cannot walk away with a
+          credential it could reuse.
+        * **The backend validates.** A compromised agent claiming to be signed in gets
+          nowhere: it has to present a token the backend still accepts.
+
+        The honest limit: CORS is enforced by browsers, so a native program on this
+        machine could call this directly. That is already true of every agent route,
+        and such a program could read the discovery file anyway; it is not a new hole,
+        but it is the reason the exchange happens here rather than handing out tokens.
+        """
+        if not self._allowed_origin():
+            # No Origin, or not the Prism server's. Say nothing about whether an agent
+            # is signed in: that is itself information.
+            return 403, {"error": "forbidden"}
+
+        next_url = str(body.get("next_url") or "")
+        if not next_url:
+            return 400, {"error": "next_url is required"}
+
+        saved = settings_store.load()
+        if not saved.api_token:
+            return 409, {"error": "The Prism agent is not signed in."}
+
+        # The page asked "who are you?" rather than "sign me in".
+        if body.get("identity_only"):
+            who = self.state.prism.agent_identity(saved.api_token)
+            if not who:
+                return 409, {"error": "The agent's sign-in is no longer valid."}
+            return 200, who
+
+        nonce_url = self.state.prism.agent_handoff_url(saved.api_token, next_url)
+        if not nonce_url:
+            return 409, {"error": "The agent's sign-in is no longer valid."}
+        return 200, {"nonce_url": nonce_url}
 
     def _sign_in(self, body: dict) -> tuple[int, dict]:
         """Run the browser loopback flow, save the token, re-point the client.

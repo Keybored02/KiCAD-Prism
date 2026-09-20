@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
@@ -160,6 +161,54 @@ async def session_bootstrap(request: Request):
         raise HTTPException(status_code=400, detail="next_url must stay on the provider origin")
 
     nonce_url = provider_auth_service.build_bootstrap_nonce_url(base_url, access_token, next_url)
+    return JSONResponse({"nonce_url": nonce_url})
+
+
+@router.post("/oauth/session/agent-identity", include_in_schema=False)
+async def agent_identity(request: Request):
+    """Who an agent token belongs to, if it is currently valid.
+
+    The login page calls this before offering "Continue as <user>", so the name it
+    shows is the backend's answer rather than the agent's claim. Refuses a revoked,
+    expired or forged token exactly as any other route would.
+    """
+    _require_provider_auth()
+    body = await request.json()
+    identity = await asyncio.to_thread(
+        provider_auth_service.identity_from_agent_token,
+        str(body.get("agent_token") or ""),
+    )
+    return JSONResponse({"email": identity["email"], "name": identity["name"]})
+
+
+@router.post("/oauth/session/bootstrap-from-agent", include_in_schema=False)
+async def session_bootstrap_from_agent(request: Request):
+    """Sign the browser in as the user the KiCad agent is already signed in as.
+
+    A parallel source of CREDENTIALS, not a parallel way of authenticating: the
+    session it leads to is issued by the same /oauth/bootstrap the provider flow
+    already uses, with the user's own role, and revoking the agent's token revokes
+    this with it.
+
+    The agent token is the credential, validated by the service that issues and
+    revokes them. Nothing in the body is trusted for identity, and next_url is pinned
+    to this origin so the one-shot URL cannot be aimed elsewhere.
+    """
+    _require_provider_auth()
+    body = await request.json()
+    agent_token = str(body.get("agent_token") or "")
+    next_url = str(body.get("next_url") or "")
+    base_url = _base_url(request)
+
+    if not next_url.startswith(f"{base_url}/"):
+        raise HTTPException(status_code=400, detail="next_url must stay on the provider origin")
+
+    nonce_url = await asyncio.to_thread(
+        provider_auth_service.build_bootstrap_nonce_url_for_agent,
+        base_url,
+        agent_token,
+        next_url,
+    )
     return JSONResponse({"nonce_url": nonce_url})
 
 

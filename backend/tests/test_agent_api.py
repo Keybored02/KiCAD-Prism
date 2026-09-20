@@ -29,6 +29,12 @@ TEST_SECRET = "test-secret-at-least-32-characters-long-x"
 from app.core.config import settings  # noqa: E402
 
 
+def _path_of(url: str) -> str:
+    """The path+query of an absolute URL, for driving TestClient."""
+    parts = urlparse(url)
+    return f"{parts.path}?{parts.query}" if parts.query else parts.path
+
+
 def _pkce() -> tuple[str, str]:
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(
@@ -172,6 +178,116 @@ class AgentApiTests(unittest.TestCase):
     def test_revoking_an_unknown_token_is_404(self) -> None:
         client = self._client_for("api-owner5@example.com", "designer")
         self.assertEqual(client.delete("/api/agent/tokens/nope").status_code, 404)
+
+    # -- signing the KiCad panel in with the agent's existing sign-in -----
+    #
+    # The panel is an embedded browser with its own cookie jar, so it asks for a login
+    # the user already did in the plugin. These pin that the shortcut is a parallel
+    # source of CREDENTIALS and not a parallel way of authenticating: the same session
+    # machinery issues it, and the backend alone decides whether the agent's token is
+    # still good.
+
+    def _origin(self) -> str:
+        """Whatever this deployment calls itself.
+
+        Derived rather than hardcoded: PUBLIC_BASE_URL is commonly set (a reverse
+        proxy, or a dev server in front of the API), and the origin check compares
+        against that, not against the test client's host.
+        """
+        from app.core.config import settings
+
+        return (settings.PUBLIC_BASE_URL or "http://testserver").rstrip("/")
+
+    def _handoff(self, token: str, next_url: str | None = None):
+        return self.TestClient(self.main.app).post(
+            "/oauth/session/bootstrap-from-agent",
+            json={
+                "agent_token": token,
+                "next_url": next_url or f"{self._origin()}/panel",
+            },
+        )
+
+    def test_the_agents_sign_in_signs_the_panel_in_as_the_same_user(self) -> None:
+        email = "panel-user@example.com"
+        token = self._obtain_token(self._client_for(email, "designer"), email=email)
+
+        response = self._handoff(token)
+        self.assertEqual(response.status_code, 200)
+        nonce_url = response.json()["nonce_url"]
+
+        browser = self.TestClient(self.main.app)
+        # Absolute to the configured origin; drive it by path against the test app.
+        landed = browser.get(_path_of(nonce_url), follow_redirects=False)
+        self.assertEqual(landed.status_code, 302)
+        self.assertEqual(landed.headers["location"], f"{self._origin()}/panel")
+
+        from app.core.session import SESSION_COOKIE_NAME
+
+        self.assertIn(SESSION_COOKIE_NAME, landed.cookies)
+        browser.cookies.set(SESSION_COOKIE_NAME, landed.cookies[SESSION_COOKIE_NAME])
+        me = browser.get("/api/auth/me")
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.json()["email"], email)
+
+    def test_the_identity_probe_names_the_user_without_signing_anyone_in(self) -> None:
+        """What the "Continue as <user>" button is built from."""
+        email = "panel-named@example.com"
+        token = self._obtain_token(self._client_for(email, "designer"), email=email)
+
+        response = self.TestClient(self.main.app).post(
+            "/oauth/session/agent-identity", json={"agent_token": token}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["email"], email)
+        # It answers who, and nothing that could be replayed as a credential.
+        self.assertNotIn("nonce_url", response.json())
+
+    def test_the_handoff_is_single_use(self) -> None:
+        email = "panel-once@example.com"
+        token = self._obtain_token(self._client_for(email, "designer"), email=email)
+        nonce_url = self._handoff(token).json()["nonce_url"]
+
+        path = _path_of(nonce_url)
+        self.assertEqual(
+            self.TestClient(self.main.app).get(path, follow_redirects=False).status_code,
+            302,
+        )
+        self.assertNotEqual(
+            self.TestClient(self.main.app).get(path, follow_redirects=False).status_code,
+            302,
+        )
+
+    def test_revoking_the_agents_token_revokes_this_too(self) -> None:
+        """THE property that makes a second credential path safe to have."""
+        email = "panel-revoked@example.com"
+        client = self._client_for(email, "designer")
+        token = self._obtain_token(client, email=email)
+
+        jti = self.TestClient(self.main.app).get(
+            "/api/agent/tokens", headers={"Authorization": f"Bearer {token}"}
+        ).json()[0]["jti"]
+        self.assertEqual(client.delete(f"/api/agent/tokens/{jti}").status_code, 200)
+
+        self.assertNotEqual(self._handoff(token).status_code, 200)
+        self.assertNotEqual(
+            self.TestClient(self.main.app)
+            .post("/oauth/session/agent-identity", json={"agent_token": token})
+            .status_code,
+            200,
+        )
+
+    def test_a_forged_or_absent_token_buys_nothing(self) -> None:
+        self.assertNotEqual(self._handoff("v1.not.a.real.token").status_code, 200)
+        self.assertNotEqual(self._handoff("").status_code, 200)
+
+    def test_the_handoff_cannot_be_aimed_off_this_origin(self) -> None:
+        """Otherwise it is a redirector that hands out session cookies."""
+        email = "panel-offsite@example.com"
+        token = self._obtain_token(self._client_for(email, "designer"), email=email)
+        self.assertEqual(
+            self._handoff(token, next_url="https://evil.example.com/steal").status_code,
+            400,
+        )
 
 
 if __name__ == "__main__":

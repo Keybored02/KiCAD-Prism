@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { changeOwnPassword, consumeStashedLoginNext, loginWithPassword, stashLoginNext, startOidcLogin } from "@/lib/auth";
+import { changeOwnPassword, consumeStashedLoginNext, loginWithPassword, sameOriginNextPath, stashLoginNext, startOidcLogin } from "@/lib/auth";
+import { findAgentSignIn, startAgentSignIn, type AgentSignIn } from "@/lib/kicad-agent-signin";
 import type { AuthConfig, User } from "@/types/auth";
 
 interface LoginPageProps {
@@ -63,6 +64,38 @@ export function LoginPage({
 
   const showOidc = authConfig.oidc_enabled ?? !authConfig.password_auth_enabled;
   const showPassword = Boolean(authConfig.password_auth_enabled);
+
+  // The KiCad agent's sign-in, offered as a shortcut when there is one. Mostly there
+  // is not (no agent, or a browser on another machine), and then nothing is shown.
+  const [agentSignIn, setAgentSignIn] = useState<AgentSignIn | null>(null);
+  const [agentBusy, setAgentBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void findAgentSignIn().then((found) => {
+      if (!cancelled) setAgentSignIn(found);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAgentSignIn = async () => {
+    if (!agentSignIn) return;
+    setAgentBusy(true);
+    setError(null);
+    try {
+      // A full navigation, not a fetch: the point is to arrive at the handoff URL so
+      // the browser keeps the session cookie it sets.
+      window.location.href = await startAgentSignIn(
+        agentSignIn.port,
+        sameOriginNextPath() || "/",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't use the KiCad sign-in.");
+      setAgentBusy(false);
+    }
+  };
 
   useEffect(() => {
     setError(initialError);
@@ -246,6 +279,30 @@ export function LoginPage({
                 </form>
               ) : (
                 <>
+                  {/* The identity is named rather than assumed: the agent may be
+                      signed in as someone other than whoever is at the keyboard, and
+                      silently logging them in as that account would be worse than an
+                      extra click. */}
+                  {agentSignIn && (
+                    <>
+                      <Button
+                        className="w-full"
+                        onClick={() => void handleAgentSignIn()}
+                        disabled={agentBusy || isLoading || passwordSubmitting}
+                      >
+                        {agentBusy ? "Signing in…" : `Continue as ${agentSignIn.email}`}
+                      </Button>
+                      <p className="text-xs text-muted-foreground text-center">
+                        Signed in through the KiCad plugin on this computer.
+                      </p>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span className="h-px flex-1 bg-border" />
+                        <span>or</span>
+                        <span className="h-px flex-1 bg-border" />
+                      </div>
+                    </>
+                  )}
+
                   {showOidc && (
                     <Button className="w-full" onClick={() => void handleSignIn()} disabled={isLoading || passwordSubmitting}>
                       {isLoading
