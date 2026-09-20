@@ -15,8 +15,37 @@ from app.services.catalog.component_read_models import (
     VALIDATION_STATUS_PASSED,
     VALIDATION_STATUS_SKIPPED,
     VALIDATION_STATUS_WARNING,
+    inventory_payloads_from_source_rows,
 )
 from app.services.catalog.revision_kernel import WORKFLOW_STAGES, normalize_workflow_stage
+
+
+REPRESENTATION_ASSET_COLUMNS = {
+    "symbol": "symbol_asset_id",
+    "footprint": "footprint_asset_id",
+}
+
+# OFFSET pages need a total order when timestamps or ranks tie.
+COMPONENT_LIST_TIEBREAKER = "c.id"
+
+
+def default_representation_has_asset(revision_ref: str, asset_type: str, alias: str) -> str:
+    """SQL predicate: the default representation has a non-empty asset for ``asset_type``."""
+
+    column = REPRESENTATION_ASSET_COLUMNS[asset_type]
+    return (
+        f"EXISTS (SELECT 1 FROM revision_representations {alias} "
+        f"WHERE {alias}.revision_id = {revision_ref}.id "
+        f"AND {alias}.is_default = 1 "
+        f"AND COALESCE({alias}.{column}, '') <> '')"
+    )
+
+
+def default_rep_slot_present(asset_type: str) -> str:
+    """SQL predicate over the ``default_rep`` join used by the paged list query."""
+
+    column = REPRESENTATION_ASSET_COLUMNS[asset_type]
+    return f"COALESCE(default_rep.{column}, '') <> ''"
 
 
 @dataclass(frozen=True)
@@ -102,13 +131,11 @@ class CatalogComponentQueries:
             filters.append(f"{revision_ref}.release_status IN ({placeholders})")
             params.extend(requested_workflow_stages)
         if availability_state:
-            symbol_exists = (
-                f"EXISTS (SELECT 1 FROM revision_assets ra_symbol "
-                f"WHERE ra_symbol.revision_id = {revision_ref}.id AND ra_symbol.asset_type = 'symbol')"
+            symbol_exists = default_representation_has_asset(
+                revision_ref, "symbol", "rr_avail_symbol"
             )
-            footprint_exists = (
-                f"EXISTS (SELECT 1 FROM revision_assets ra_footprint "
-                f"WHERE ra_footprint.revision_id = {revision_ref}.id AND ra_footprint.asset_type = 'footprint')"
+            footprint_exists = default_representation_has_asset(
+                revision_ref, "footprint", "rr_avail_footprint"
             )
             if availability_state == STATE_PLACE_READY:
                 filters.append(f"{symbol_exists} AND {footprint_exists}")
@@ -209,18 +236,19 @@ class CatalogComponentQueries:
         sort_direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
         sort_column = sort_columns.get(sort_by)
         if sort_by == "availability_state":
-            symbol_exists = (
-                f"EXISTS (SELECT 1 FROM revision_assets ra_symbol_sort "
-                f"WHERE ra_symbol_sort.revision_id = {revision_ref}.id AND ra_symbol_sort.asset_type = 'symbol')"
+            # Paged SELECT already LEFT JOINs default_rep; COUNT has no ORDER BY.
+            symbol_present = default_rep_slot_present("symbol")
+            footprint_present = default_rep_slot_present("footprint")
+            sort_column = (
+                f"CASE WHEN {symbol_present} AND {footprint_present} THEN 0 "
+                f"WHEN ({symbol_present}) <> ({footprint_present}) THEN 1 ELSE 2 END"
             )
-            footprint_exists = (
-                f"EXISTS (SELECT 1 FROM revision_assets ra_footprint_sort "
-                f"WHERE ra_footprint_sort.revision_id = {revision_ref}.id AND ra_footprint_sort.asset_type = 'footprint')"
-            )
-            sort_column = f"CASE WHEN {symbol_exists} AND {footprint_exists} THEN 0 WHEN ({symbol_exists}) <> ({footprint_exists}) THEN 1 ELSE 2 END"
 
         if sort_column:
-            order_sql = f"ORDER BY {sort_column} {sort_direction}, {revision_ref}.updated_at DESC"
+            order_sql = (
+                f"ORDER BY {sort_column} {sort_direction}, "
+                f"{revision_ref}.updated_at DESC, {COMPONENT_LIST_TIEBREAKER}"
+            )
             order_params: list[Any] = []
         elif query_text:
             order_sql = (
@@ -228,11 +256,11 @@ class CatalogComponentQueries:
                 f"WHEN LOWER({revision_ref}.mpn) = LOWER(%s) THEN 0 "
                 f"WHEN LOWER({revision_ref}.mpn) LIKE LOWER(%s) THEN 1 "
                 f"WHEN LOWER({revision_ref}.name) LIKE LOWER(%s) THEN 2 "
-                f"ELSE 3 END, {revision_ref}.updated_at DESC"
+                f"ELSE 3 END, {revision_ref}.updated_at DESC, {COMPONENT_LIST_TIEBREAKER}"
             )
             order_params = [query_text, f"{query_text}%", f"{query_text}%"]
         else:
-            order_sql = f"ORDER BY {revision_ref}.updated_at DESC"
+            order_sql = f"ORDER BY {revision_ref}.updated_at DESC, {COMPONENT_LIST_TIEBREAKER}"
             order_params = []
 
         return CatalogComponentListPlan(
@@ -267,22 +295,30 @@ class CatalogComponentQueries:
         )
         rows = conn.execute(
             f"""
-            SELECT c.*, {plan.revision_ref}.id AS revision_id
+            SELECT c.*, {plan.revision_ref}.id AS revision_id,
+                   default_rep.symbol_asset_id AS default_symbol_asset_id,
+                   default_rep.footprint_asset_id AS default_footprint_asset_id
             FROM components c
             JOIN component_revisions {plan.revision_ref} ON {plan.revision_ref}.id = c.{plan.revision_join_column}
+            LEFT JOIN revision_representations default_rep
+              ON default_rep.revision_id = {plan.revision_ref}.id AND default_rep.is_default = 1
             {plan.where_sql}
             {plan.order_sql}
             LIMIT %s OFFSET %s
             """,
             plan.params + plan.order_params + (plan.page_size, plan.offset),
         ).fetchall()
-        row_pairs: list[tuple[dict[str, Any], str]] = []
+        row_pairs: list[tuple[dict[str, Any], str, str, str]] = []
         for row in rows:
             component_row = dict(row)
             revision_id = str(component_row.pop("revision_id"))
-            row_pairs.append((component_row, revision_id))
+            default_symbol_asset_id = str(component_row.pop("default_symbol_asset_id") or "")
+            default_footprint_asset_id = str(component_row.pop("default_footprint_asset_id") or "")
+            row_pairs.append(
+                (component_row, revision_id, default_symbol_asset_id, default_footprint_asset_id)
+            )
 
-        revision_ids = [revision_id for _, revision_id in row_pairs]
+        revision_ids = [revision_id for _, revision_id, _, _ in row_pairs]
         revisions_by_id: dict[str, dict[str, Any]] = {}
         if revision_ids:
             placeholders = ",".join("%s" for _ in revision_ids)
@@ -293,12 +329,19 @@ class CatalogComponentQueries:
             revisions_by_id = {str(revision["id"]): dict(revision) for revision in revision_rows}
 
         parsed_rows = []
-        for component_row, revision_id in row_pairs:
+        for component_row, revision_id, default_symbol_asset_id, default_footprint_asset_id in row_pairs:
             revision = revisions_by_id.get(revision_id)
             if revision:
-                parsed_rows.append((component_row, revision))
+                parsed_rows.append(
+                    (
+                        component_row,
+                        revision,
+                        default_symbol_asset_id,
+                        default_footprint_asset_id,
+                    )
+                )
 
-        revision_ids = [str(rev["id"]) for _, rev in parsed_rows]
+        revision_ids = [str(rev["id"]) for _, rev, _, _ in parsed_rows]
         assets_by_revision: dict[str, list[dict[str, Any]]] = {}
         all_asset_ids: list[str] = []
         if revision_ids:
@@ -366,8 +409,22 @@ class CatalogComponentQueries:
                 if asset_id not in revision_runs:
                     revision_runs[asset_id] = dict(inherited_row)
 
+        representations_by_revision: dict[str, list[dict[str, Any]]] = {}
+        inventory_by_component: dict[str, list[dict[str, Any]]] = {}
+        if not plan.lightweight and parsed_rows:
+            representations_by_revision = self._component_read_models.load_representations_for_revisions(
+                conn,
+                revision_ids,
+                assets_by_revision=assets_by_revision,
+                previews_by_revision=previews_by_revision,
+            )
+            inventory_by_component = self._component_read_models.load_inventory_for_components(
+                conn,
+                [str(component_row["id"]) for component_row, _, _, _ in parsed_rows],
+            )
+
         items = []
-        for component_row, revision_row in parsed_rows:
+        for component_row, revision_row, default_symbol_asset_id, default_footprint_asset_id in parsed_rows:
             rev_assets = assets_by_revision.get(str(revision_row["id"]), [])
             if plan.lightweight:
                 validation = self._component_read_models.component_validation_summary(
@@ -383,9 +440,14 @@ class CatalogComponentQueries:
                         rev_assets,
                         released_view=plan.released_only,
                         validation_summary=validation,
+                        default_symbol_asset_id=default_symbol_asset_id,
+                        default_footprint_asset_id=default_footprint_asset_id,
                     )
                 )
                 continue
+            local_inventory, supply_sources = inventory_payloads_from_source_rows(
+                inventory_by_component.get(str(component_row["id"]), [])
+            )
             rev_previews = previews_by_revision.get(str(revision_row["id"]), [])
             items.append(
                 self._component_read_models.component_payload(
@@ -396,6 +458,11 @@ class CatalogComponentQueries:
                     preloaded_assets=rev_assets,
                     preloaded_previews=rev_previews,
                     preloaded_validation_runs=validation_by_revision.get(str(revision_row["id"]), {}),
+                    preloaded_representations=representations_by_revision.get(
+                        str(revision_row["id"]), []
+                    ),
+                    preloaded_local_inventory=local_inventory,
+                    preloaded_supply_sources=supply_sources,
                 )
             )
 
@@ -449,26 +516,21 @@ class CatalogComponentQueries:
 
         The release workspace is server paginated, so its header metrics must be
         computed independently from the visible page. A blocker is either missing
-        required CAD or a failed validation run for the exact current revision.
+        required CAD on the default representation or a failed validation run for
+        the exact current revision.
         """
 
+        symbol_exists = default_representation_has_asset("cr", "symbol", "rr_queue_symbol")
+        footprint_exists = default_representation_has_asset("cr", "footprint", "rr_queue_footprint")
         row = conn.execute(
-            """
+            f"""
             SELECT
                 SUM(CASE WHEN cr.release_status = 'qa_review' THEN 1 ELSE 0 END) AS qa_review,
                 SUM(CASE WHEN cr.release_status = 'done' THEN 1 ELSE 0 END) AS done,
                 SUM(
                     CASE WHEN
-                        NOT EXISTS (
-                            SELECT 1 FROM revision_assets ra_symbol
-                            WHERE ra_symbol.revision_id = cr.id
-                              AND ra_symbol.asset_type = 'symbol'
-                        )
-                        OR NOT EXISTS (
-                            SELECT 1 FROM revision_assets ra_footprint
-                            WHERE ra_footprint.revision_id = cr.id
-                              AND ra_footprint.asset_type = 'footprint'
-                        )
+                        NOT {symbol_exists}
+                        OR NOT {footprint_exists}
                         OR EXISTS (
                             SELECT 1
                             FROM revision_assets ra_validation
@@ -501,4 +563,11 @@ class CatalogComponentQueries:
         }
 
 
-__all__ = ["CatalogComponentListPlan", "CatalogComponentQueries"]
+__all__ = [
+    "COMPONENT_LIST_TIEBREAKER",
+    "CatalogComponentListPlan",
+    "CatalogComponentQueries",
+    "REPRESENTATION_ASSET_COLUMNS",
+    "default_rep_slot_present",
+    "default_representation_has_asset",
+]

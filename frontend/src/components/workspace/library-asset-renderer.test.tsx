@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LibraryAssetRenderer } from "./library-asset-renderer";
@@ -39,6 +39,17 @@ vi.mock("@/lib/ecad-renderer", () => ({
 }));
 
 describe("LibraryAssetRenderer", () => {
+  it("retries a transient asset failure without reopening the detail screen", async () => {
+    renderer.renderSymbol.mockResolvedValue({ controller: controller(), dispose: vi.fn() });
+    const loadAsset = vi.fn().mockRejectedValueOnce(new Error("Network unavailable"))
+      .mockResolvedValueOnce("(kicad_symbol_lib)");
+    const view = render(<LibraryAssetRenderer assetId="retry" kind="symbol" label="Symbol" loadAsset={loadAsset} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry symbol preview" }));
+    await waitFor(() => expect(renderer.renderSymbol).toHaveBeenCalledTimes(1));
+    expect(loadAsset).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    view.unmount();
+  });
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -134,5 +145,25 @@ describe("LibraryAssetRenderer", () => {
     expect(
       handles.every((handle) => handle.dispose.mock.calls.length === 1),
     ).toBe(true);
+  });
+
+  it("loads preview bytes through the injected asset loader", async () => {
+    const handle: Handle = { controller: controller(), dispose: vi.fn() };
+    renderer.renderSymbol.mockResolvedValue(handle);
+    const loadAsset = vi.fn().mockResolvedValue("(kicad_symbol_lib)");
+
+    const view = render(
+      <LibraryAssetRenderer
+        assetId="symbol-injected"
+        kind="symbol"
+        label="Symbol"
+        loadAsset={loadAsset}
+      />,
+    );
+
+    await waitFor(() => expect(loadAsset).toHaveBeenCalledTimes(1));
+    expect(loadAsset).toHaveBeenCalledWith("/asset/symbol-injected");
+    await waitFor(() => expect(renderer.renderSymbol).toHaveBeenCalledTimes(1));
+    view.unmount();
   });
 });

@@ -5,28 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from app.services.catalog.asset_imports import CatalogAssetImports
-from app.services.catalog.asset_links import CatalogAssetLinks
-from app.services.catalog.component_history import CatalogComponentHistoryReads
-from app.services.catalog.component_read_models import CatalogComponentReadModels
-from app.services.catalog.component_queries import CatalogComponentQueries
-from app.services.catalog.component_writer import CatalogComponentWriter
-from app.services.catalog.metadata_batch_workflow import CatalogMetadataBatchWorkflow
-from app.services.catalog.metadata_csv_import import CatalogMetadataCsvImporter
-from app.services.catalog.metadata_schema import CatalogMetadataSchema
-from app.services.catalog.dbl_export import CatalogDblExport
-from app.services.catalog.health import CatalogHealth
-from app.services.catalog.klc_validation import CatalogKlcValidation
-from app.services.catalog.locking import CatalogLockOperations, PostgresCatalogLocks
-from app.services.catalog.placement import CatalogPlacement
-from app.services.catalog.preview_pipeline import CatalogPreviewPipeline
-from app.services.catalog.project_import_acceptance import CatalogProjectImportAcceptance
-from app.services.catalog.project_import_assets import CatalogProjectImportAssets
-from app.services.catalog.release_workflow import CatalogReleaseWorkflow
-from app.services.catalog.representations import CatalogRepresentations
-from app.services.catalog.revision_comparison import CatalogRevisionComparison
-from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
-from app.services.catalog.revision_kernel import CatalogRevisionKernel
+from app.services.catalog.locking import PostgresCatalogLocks
 from app.services.catalog.postgres_runtime import (
     CatalogPostgresConnection,
     PostgresCatalogRuntime,
@@ -34,14 +13,10 @@ from app.services.catalog.postgres_runtime import (
     _split_sql_script,
 )
 from app.services.catalog.postgres_integrity import (
-    POSTGRES_INTEGRITY_GUARDS_VERSION,
-    POSTGRES_SEARCH_VERSION,
     ensure_postgres_integrity_guards,
     ensure_postgres_search_indexes,
 )
 from app.services.catalog.postgres_projections import (
-    POSTGRES_HEAD_PROJECTION_VERSION,
-    POSTGRES_REMOTE_HEAD_PROJECTION_VERSION,
     ensure_component_heads_projection,
     ensure_remote_component_heads_projection,
 )
@@ -63,74 +38,13 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
     owns identities, revisions, workflow, usage, review, and audit state.
     """
 
-    _catalog_locks: CatalogLockOperations = PostgresCatalogLocks()
-    _revision_kernel: CatalogRevisionKernel = CatalogRevisionKernel(_catalog_locks)
-    _revision_comparison: CatalogRevisionComparison = CatalogRevisionComparison(_revision_kernel)
-    _component_history_reads: CatalogComponentHistoryReads = CatalogComponentHistoryReads(_revision_kernel)
-    _component_read_models: CatalogComponentReadModels = CatalogComponentReadModels(_revision_kernel)
-    _component_queries: CatalogComponentQueries = CatalogComponentQueries(_component_read_models)
-    _project_import_assets: CatalogProjectImportAssets = CatalogProjectImportAssets(_revision_kernel)
-    _preview_pipeline: CatalogPreviewPipeline = CatalogPreviewPipeline(
-        _catalog_locks, _revision_kernel, _component_read_models
-    )
-    _revision_finalizer: CatalogRevisionFinalizer = CatalogRevisionFinalizer(
-        _revision_kernel, _preview_pipeline
-    )
-    _asset_links: CatalogAssetLinks = CatalogAssetLinks(
-        _revision_kernel, _preview_pipeline, _revision_finalizer
-    )
-    _asset_imports: CatalogAssetImports = CatalogAssetImports(
-        _revision_kernel, _asset_links, _revision_finalizer
-    )
-    _representations: CatalogRepresentations = CatalogRepresentations(
-        _revision_kernel, _revision_finalizer
-    )
-    _component_writer: CatalogComponentWriter = CatalogComponentWriter(
-        _catalog_locks, _revision_kernel, _revision_finalizer, CatalogMetadataSchema()
-    )
-    _klc_validation: CatalogKlcValidation = CatalogKlcValidation(_revision_kernel, _component_read_models)
-    _release_workflow: CatalogReleaseWorkflow = CatalogReleaseWorkflow(
-        _catalog_locks, _revision_kernel, _component_read_models, _revision_finalizer, _klc_validation
-    )
-    _catalog_health: CatalogHealth = CatalogHealth(_component_queries, _klc_validation)
-    _placement: CatalogPlacement = CatalogPlacement(_revision_kernel, _component_read_models)
-    _dbl_export: CatalogDblExport = CatalogDblExport(_placement)
-    _project_import_acceptance: CatalogProjectImportAcceptance = CatalogProjectImportAcceptance(
-        _catalog_locks,
-        _revision_kernel,
-        _project_import_assets,
-        ComponentCatalogDomainService._project_import_matching,
-        ComponentCatalogDomainService._asset_files,
-        ComponentCatalogDomainService._asset_registry,
-        _asset_links,
-        _revision_finalizer,
-        _component_writer,
-    )
-    _metadata_batch_workflow: CatalogMetadataBatchWorkflow = CatalogMetadataBatchWorkflow(
-        _catalog_locks,
-        _revision_kernel,
-        _revision_finalizer,
-        _component_writer,
-        ComponentCatalogDomainService._metadata_fields,
-        ComponentCatalogDomainService._metadata_batches,
-        ComponentCatalogDomainService._metadata_batch_staging,
-        ComponentCatalogDomainService._metadata_batch_application,
-    )
-    _metadata_csv_importer: CatalogMetadataCsvImporter = CatalogMetadataCsvImporter(
-        _component_writer, _asset_imports, _asset_links, _revision_finalizer
-    )
-
     def __init__(self, store_root: Path | None = None, database_url: str | None = None) -> None:
         self._postgres_runtime = PostgresCatalogRuntime(database_url=database_url)
-        super().__init__(store_root=store_root, database_url="postgres")
-        self._catalog_locks = PostgresCatalogLocks()
-        self._revision_kernel = CatalogRevisionKernel(self._catalog_locks)
-        self._revision_comparison = CatalogRevisionComparison(self._revision_kernel)
-        self._component_history_reads = CatalogComponentHistoryReads(self._revision_kernel)
-        self._component_read_models = CatalogComponentReadModels(self._revision_kernel)
-        self._component_queries = CatalogComponentQueries(self._component_read_models)
-        self._project_import_assets = CatalogProjectImportAssets(self._revision_kernel)
-        self._compose_revision_writers()
+        super().__init__(
+            store_root=store_root,
+            database_url="postgres",
+            catalog_locks=PostgresCatalogLocks(),
+        )
 
     def _database_path(self, database_url: str | None) -> Path:
         # Retained only for the legacy service's diagnostic property. PostgreSQL does

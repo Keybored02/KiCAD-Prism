@@ -9,6 +9,7 @@ import { ApiHttpError, fetchApi } from '@/lib/api';
 import { fetchAuthConfig, fetchCurrentUser, isAuthCallbackPath, stashCurrentLocation } from '@/lib/auth';
 import { IS_APPLE_PLATFORM } from '@/lib/shortcuts';
 import { useHotkeys } from '@/hooks/use-hotkeys';
+import { clearWorkspaceDataCache } from '@/hooks/use-workspace-data';
 import { CommandPalette } from '@/components/command-palette';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import { RoleAuthorityPopover } from '@/components/role-authority-popover';
@@ -157,6 +158,7 @@ function App() {
 
     const handleLogout = () => {
         void fetchApi('/api/auth/logout', { method: 'POST' }).finally(() => {
+            clearWorkspaceDataCache();
             setUser(null);
             setAuthError(null);
             setSessionExpired(false);

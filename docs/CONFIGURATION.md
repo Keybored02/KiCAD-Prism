@@ -57,6 +57,7 @@ Database capacity must cover all API and worker pools, not only one process.
 | --- | --- |
 | `GITHUB_TOKEN` | optional private GitHub HTTPS credential for clone **and** Release publish (`contents:write`) |
 | `GITLAB_TOKEN` | optional private GitLab HTTPS credential for clone **and** Release publish (`api` scope) |
+| `PRISM_FORGE_HOSTS` | exact self-hosted GitLab registry; legacy `host=gitlab` pairs or structured JSON with per-host API roots and token environment-variable names; see [Forge host configuration](FORGE_HOSTS.md) |
 | `IMPORT_ALLOWED_HOSTS_STR` | comma-separated Git host allowlist |
 | `IMPORT_ALLOW_INSECURE_HTTP` | permits plaintext HTTP remotes when explicitly required |
 | `GIT_SCAN_KNOWN_HOSTS_ON_STARTUP` | optional host-key discovery during startup |

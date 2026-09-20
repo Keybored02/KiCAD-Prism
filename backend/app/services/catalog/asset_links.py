@@ -175,6 +175,7 @@ class CatalogAssetLinks:
         actor: str,
         change_summary: str,
         counterpart_asset_id: str = "",
+        expected_revision_id: str = "",
     ) -> dict[str, Any]:
         """Attach ``asset`` to the component's current draft, cloning when needed.
 
@@ -185,6 +186,7 @@ class CatalogAssetLinks:
         if not current:
             raise ValueError("Component not found")
         current_id = str(current["id"])
+        self._revision_kernel.assert_expected_revision(current_id, expected_revision_id)
         asset_type = str(asset["asset_type"])
         asset_id = str(asset["id"])
         existing = conn.execute(
@@ -221,6 +223,7 @@ class CatalogAssetLinks:
             actor=actor,
             change_kind="asset",
             change_summary=change_summary,
+            expected_revision_id=expected_revision_id,
         )
         self.link_asset_to_revision(
             conn,

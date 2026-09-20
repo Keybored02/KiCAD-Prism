@@ -8,6 +8,7 @@ generates all three, keeps them in a short-lived HttpOnly transaction cookie, an
 `/login` refuses any callback it cannot match against that cookie.
 """
 
+import asyncio
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -169,9 +170,12 @@ def _login_redirect_uri(request: Request) -> str:
     return f"{base}/auth/callback"
 
 
-def _enforce_login_rate_limit(request: Request, action: str) -> str:
+async def _enforce_login_rate_limit(request: Request, action: str) -> str:
     bucket = f"login:{action}:{rate_limit_service.client_fingerprint(request)}"
-    rate_limit_service.enforce(
+    # The limiter records the attempt in PostgreSQL; a slow store must not
+    # stall the loop, and it must run before any authentication work.
+    await asyncio.to_thread(
+        rate_limit_service.enforce,
         bucket,
         limit=settings.AUTH_LOGIN_RATE_LIMIT,
         window_seconds=settings.AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS,
@@ -209,14 +213,17 @@ async def start_login(request: Request, response: Response):
     if not oidc_enabled():
         raise HTTPException(status_code=400, detail="OIDC login is not enabled on this deployment")
 
-    _enforce_login_rate_limit(request, "start")
+    await _enforce_login_rate_limit(request, "start")
 
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
     code_verifier = secrets.token_urlsafe(64)
     redirect_uri = _login_redirect_uri(request)
 
-    authorization_url = build_oidc_authorization_url(
+    # Discovery fetches the provider's metadata over HTTP; keep that wait off
+    # the event loop.
+    authorization_url = await asyncio.to_thread(
+        build_oidc_authorization_url,
         redirect_uri=redirect_uri,
         state=state,
         nonce=nonce,
@@ -245,7 +252,7 @@ async def login(request: LoginRequest, http_request: Request, response: Response
     if not settings.AUTH_ENABLED:
         return _guest_user_session()
 
-    bucket = _enforce_login_rate_limit(http_request, "callback")
+    bucket = await _enforce_login_rate_limit(http_request, "callback")
 
     transaction = decode_oidc_transaction_token(
         http_request.cookies.get(OIDC_TRANSACTION_COOKIE_NAME) or ""
@@ -258,15 +265,20 @@ async def login(request: LoginRequest, http_request: Request, response: Response
     if transaction["redirect_uri"] != request.redirectUri:
         raise HTTPException(status_code=400, detail="Login redirect mismatch. Please sign in again.")
 
-    session_user = authenticate_oidc_auth_code(
-        code=request.code,
-        redirect_uri=transaction["redirect_uri"],
-        expected_nonce=transaction["nonce"],
-        code_verifier=transaction["code_verifier"],
-    )
+    # Code exchange, userinfo, and session creation all block on the provider
+    # or the database; run the whole sequence on the worker pool in order.
+    def complete_login() -> ResolvedSessionUser:
+        session_user = authenticate_oidc_auth_code(
+            code=request.code,
+            redirect_uri=transaction["redirect_uri"],
+            expected_nonce=transaction["nonce"],
+            code_verifier=transaction["code_verifier"],
+        )
+        _issue_session(session_user, http_request, response)
+        rate_limit_service.clear(bucket)
+        return session_user
 
-    _issue_session(session_user, http_request, response)
-    rate_limit_service.clear(bucket)
+    session_user = await asyncio.to_thread(complete_login)
 
     return _build_user_session(session_user)
 
@@ -281,10 +293,16 @@ async def login_with_password(
     if not password_auth_enabled():
         raise HTTPException(status_code=400, detail="Password login is not enabled on this deployment")
 
-    bucket = _enforce_login_rate_limit(http_request, "password")
-    result: PasswordAuthResult = authenticate_password(request.email, request.password)
-    _issue_session(result.user, http_request, response, remember_me=request.remember_me)
-    rate_limit_service.clear(bucket)
+    bucket = await _enforce_login_rate_limit(http_request, "password")
+
+    # Password verification is deliberately slow hashing plus database reads.
+    def complete_login() -> PasswordAuthResult:
+        result: PasswordAuthResult = authenticate_password(request.email, request.password)
+        _issue_session(result.user, http_request, response, remember_me=request.remember_me)
+        rate_limit_service.clear(bucket)
+        return result
+
+    result = await asyncio.to_thread(complete_login)
     return PasswordLoginResponse(
         email=result.user.email,
         name=result.user.name,

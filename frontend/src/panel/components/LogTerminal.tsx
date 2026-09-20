@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 
 interface LogTerminalProps {
   entries: string[];
+  dropped?: number;
   onClear: () => void;
 }
 
-export function LogTerminal({ entries, onClear }: LogTerminalProps) {
+export function LogTerminal({ entries, dropped = 0, onClear }: LogTerminalProps) {
   const [open, setOpen] = useState(false);
   const preRef = useRef<HTMLPreElement>(null);
 
@@ -65,7 +66,14 @@ export function LogTerminal({ entries, onClear }: LogTerminalProps) {
           ref={preRef}
           className="max-h-40 min-h-[3rem] overflow-auto whitespace-pre-wrap border-t border-border/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground/80"
         >
-          {entries.length === 0 ? "No transfers yet." : entries.join("\n")}
+          {entries.length === 0
+            ? "No transfers yet."
+            : [
+                dropped > 0 ? `… ${dropped} earlier ${dropped === 1 ? "entry" : "entries"} dropped` : null,
+                ...entries,
+              ]
+                .filter(Boolean)
+                .join("\n")}
         </pre>
       ) : null}
     </section>

@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EngineeringBomTable } from "./engineering-bom-table";
-import { SelectionInspector } from "./selection-inspector";
+import { SelectionInspector, type HighlightedNetEntry } from "./selection-inspector";
 import { filterLabelInstances, type LabelInstanceRef } from "@/lib/label-instances";
 import { WebGpu3dTab } from "./webgpu-3d-tab";
 import { EcadViewerControls } from "./ecad-viewer-controls";
@@ -15,25 +15,57 @@ import { ViewerOverlayRail, SELECTION_INSPECTOR_RAIL_RESIZE } from "./viewer-ove
 import { fetchApi, readApiError } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { canWriteCatalog } from "@/lib/roles";
-import { crossProbeRequestForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
+import { crossProbeRequestForSelection, enrichPrismSelection, netStatisticsRefForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
+import {
+    adoptViewerNets,
+    highlightRefs,
+    netFromSelection,
+    removeHighlightedNet,
+    sameHighlightedNet,
+    toggleHighlightedNet,
+    type HighlightedNet,
+} from "@/lib/net-highlights";
+import { NetHighlightBar } from "./net-highlight-bar";
 import { selectionFromDesignSearchHit, type DesignSearchHit } from "@/lib/design-search";
+import {
+    commentIdFromOverlayHit,
+    commentLocationFromArea,
+    commentOverlaySet,
+    commentScreenPosition,
+    normalizeComment,
+    worldToViewportScreen,
+    type ActiveSchematicPage,
+} from "@/lib/comment-overlays";
 import { DesignSearchField } from "./design-search-field";
+import {
+    requestedVariantFromSearchParams,
+    resolveVariantSelection,
+    variantSearchParams,
+} from "./design-variants/variant-selection";
+import { DesignVariantSelector } from "./design-variants/variant-selector";
 import { usePrismCrossProbe } from "@/hooks/use-prism-cross-probe";
+import {
+    projectAssemblyState,
+    physicalVisibility,
+} from "@/lib/design-variants";
+import { dnpVisibilityPlan, EMPTY_DNP_PLAN } from "./design-variants/dnp-visibility";
+import {
+    syncViewerVariant,
+    viewerVariantNotice,
+    type ViewerVariantTarget,
+} from "@/lib/ecad-viewer-variant";
 import type { User } from "@/types/auth";
 import type {
     ECadViewerElement,
-    EcadCommentAnchor,
     EcadCommentAreaDetail,
     EcadCommentOverlayHitDetail,
+    EcadHighlightChangeDetail,
+    EcadNetStatistics,
     EcadSemanticSelectionDetail,
     EcadViewportInsets,
 } from "@/types/ecad-viewer";
 import type { PrismSelection, PrismSelectionContext, PrismSemanticIndex } from "@/types/prism-selection";
 import type { Comment, CommentContext, CommentLocation, CommentsFile, MentionCandidate } from "@/types/comments";
-import {
-    DEFAULT_COMMENT_CLASS,
-    DEFAULT_COMMENT_SEVERITY,
-} from "@/types/comments";
 
 interface VisualizerProps {
     projectId: string;
@@ -68,16 +100,6 @@ function selectionContextForTab(tab: VisualizerTab): PrismSelectionContext {
 const isAbortError = (error: unknown): boolean =>
     error instanceof DOMException && error.name === "AbortError";
 
-function normalizeComment(raw: Comment): Comment {
-    return {
-        ...raw,
-        commentClass: raw.commentClass ?? DEFAULT_COMMENT_CLASS,
-        severity: raw.severity ?? DEFAULT_COMMENT_SEVERITY,
-        mentions: raw.mentions ?? [],
-        replies: raw.replies ?? [],
-    };
-}
-
 type ViewerBlobSource = {
     filename: string;
     content: string;
@@ -105,63 +127,15 @@ function applyCommentMode(viewer: ECadViewerElement | null, enabled: boolean): v
     }
 }
 
-function worldToViewportScreen(
-    viewer: ECadViewerElement | null,
-    x: number,
-    y: number,
-): { x: number; y: number } | null {
-    if (!viewer) return null;
-    const local = viewer.getScreenLocation(x, y);
-    if (!local) return null;
-    const rect = viewer.getBoundingClientRect();
-    return { x: rect.left + local.x, y: rect.top + local.y };
-}
-
+/** Attach the overlay set for one view to its viewer; overlays are a separate render pass. */
 function publishCommentsOverlay(
     viewer: ECadViewerElement | null,
     context: CommentContext,
     comments: Comment[],
-    activePage?: {
-        projectPath: string;
-        filename: string;
-        page?: string;
-    } | null,
+    activePage?: ActiveSchematicPage | null,
 ): void {
     if (!viewer) return;
-
-    const filtered = comments.filter((comment) => {
-        if (comment.context !== context) return false;
-        if (context === "SCH" && activePage && comment.location.page) {
-            // New comments use the unique instance path. Continue accepting
-            // filename/page identifiers so existing comment files still show.
-            return [activePage.projectPath, activePage.filename, activePage.page]
-                .filter(Boolean)
-                .includes(comment.location.page);
-        }
-        return true;
-    });
-
-    viewer.setCommentOverlays({
-        context,
-        comments: filtered.map((comment) => {
-            const page = comment.location.page;
-            const anchor: EcadCommentAnchor = comment.elementId
-                ? { kind: "source-item", uuid: comment.elementId, page }
-                : {
-                      kind: "world",
-                      x: comment.location.x,
-                      y: comment.location.y,
-                      page,
-                  };
-            return {
-                id: comment.id,
-                anchor,
-                areaBounds: comment.location.bounds,
-                metadata: { commentId: comment.id },
-                accessibilityLabel: comment.content.slice(0, 80),
-            };
-        }),
-    });
+    viewer.setCommentOverlays(commentOverlaySet(comments, context, activePage));
 }
 
 type EcadViewerHostProps = {
@@ -359,7 +333,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
     // Open on the tab a caller asked for (e.g. clicking a changed .kicad_pcb in
     // the history file list), read once on mount; defaults to the schematic.
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [activeTab, setActiveTab] = useState<VisualizerTab>(() => {
         const requested = searchParams.get("tab");
         return requested === "pcb"
@@ -401,11 +375,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const [componentImportPending, setComponentImportPending] = useState(false);
     const [labelInstances, setLabelInstances] = useState<LabelInstanceRef[]>([]);
     const [navigatingLabelInstance, setNavigatingLabelInstance] = useState(false);
-    const [activeSchematicPage, setActiveSchematicPage] = useState<{
-        projectPath: string;
-        filename: string;
-        page?: string;
-    } | null>(null);
+    const [activeSchematicPage, setActiveSchematicPage] = useState<ActiveSchematicPage | null>(null);
+    // Bumped every time a host reports ready; the variant sync effect keys on
+    // it so a ready arriving after the selection still converges.
+    const [schematicReadyGeneration, setSchematicReadyGeneration] = useState(0);
+    const [pcbReadyGeneration, setPcbReadyGeneration] = useState(0);
 
     // Comment collaboration state
     const [comments, setComments] = useState<Comment[]>([]);
@@ -431,14 +405,159 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         registerClient,
         notifyClientReady,
     } = usePrismCrossProbe(semanticIndex);
+
+    // The nets the reviewer has accumulated with shift-click (#305). The
+    // visualizer owns this collection; the board viewer and the 3D viewer
+    // project it. A double-click / search / schematic cross-probe replaces
+    // it with that one net, Escape and Clear empty it, and an empty-canvas
+    // click leaves it alone so a deselect never loses the build-up.
+    const [highlightedNets, setHighlightedNets] = useState<HighlightedNet[]>([]);
+    const clearHighlightedNets = useCallback(() => {
+        setHighlightedNets((current) => (current.length ? [] : current));
+    }, []);
+    const toggleNetForSelection = useCallback((selection: PrismSelection) => {
+        const net = netFromSelection(enrichPrismSelection(selection, semanticIndex), semanticIndex);
+        if (!net) return;
+        // A shift-click that takes a net out of the collection deselects it
+        // too; the click that added it is what put it in the panel.
+        const removing = highlightedNets.some((entry) => sameHighlightedNet(entry, net));
+        setHighlightedNets((current) => toggleHighlightedNet(current, net));
+        if (removing) clearGlobalSelection();
+    }, [clearGlobalSelection, highlightedNets, semanticIndex]);
+    // The inspected object follows the collection: when its net is dropped
+    // (chip, panel row, or a second shift-click) the panel must not keep
+    // describing a net that is no longer selected.
+    const removeHighlighted = useCallback((net: HighlightedNet) => {
+        setHighlightedNets((current) => removeHighlightedNet(current, net));
+        const inspected = netFromSelection(globalSelection, semanticIndex);
+        if (inspected && sameHighlightedNet(inspected, net)) clearGlobalSelection();
+    }, [clearGlobalSelection, globalSelection, semanticIndex]);
+    // Make a listed net the inspected object without moving any camera.
+    const inspectHighlighted = useCallback((net: HighlightedNet) => {
+        selectGlobal({
+            kind: "net",
+            sourceContext: selectionContextForTab(activeTab),
+            netName: net.netName,
+            netUid: net.netUid,
+            netCode: net.netCode,
+        });
+    }, [activeTab, selectGlobal]);
+    const fitHighlightedNets = useCallback(() => {
+        pcbViewerRef.current?.focusHighlightedNets?.();
+    }, []);
+    // Escape and the bar's Clear drop the inspected object and the nets.
+    const clearSelectionAndHighlights = useCallback(() => {
+        clearGlobalSelection();
+        clearHighlightedNets();
+    }, [clearGlobalSelection, clearHighlightedNets]);
     const notifySchematicViewerReady = useCallback(
-        () => notifyClientReady("visualizer-schematic"),
+        () => {
+            setSchematicReadyGeneration((generation) => generation + 1);
+            notifyClientReady("visualizer-schematic");
+        },
         [notifyClientReady],
     );
     const notifyPcbViewerReady = useCallback(
-        () => notifyClientReady("visualizer-pcb"),
+        () => {
+            setPcbReadyGeneration((generation) => generation + 1);
+            notifyClientReady("visualizer-pcb");
+        },
         [notifyClientReady],
     );
+
+    // The index supplies the catalog and overlays atomically; there is no
+    // independent catalog fetch or revision-reconciliation state.
+    const requestedVariant = requestedVariantFromSearchParams(searchParams);
+    const variantSelection = resolveVariantSelection(
+        requestedVariant,
+        semanticIndex,
+        semanticIndexError,
+    );
+    const effectiveAssembly = useMemo(
+        () =>
+            semanticIndex
+                ? projectAssemblyState(semanticIndex, variantSelection.effective)
+                : null,
+        [semanticIndex, variantSelection.effective],
+    );
+    // Presentation consumers read the effective projection; cross-probe
+    // registration below keeps the base index so selection identities stay
+    // stable while the projection changes.
+    const effectiveComponents =
+        effectiveAssembly?.components ?? semanticIndex?.components ?? null;
+    // VAR-19: the 3D workspace hides unambiguous DNP models unless the local
+    // Show DNP override is on. The plan is derived, never stored.
+    const [showDnp, setShowDnp] = useState(false);
+    const dnpPlan = useMemo(
+        () =>
+            semanticIndex
+                ? dnpVisibilityPlan(
+                    physicalVisibility(semanticIndex, variantSelection.effective),
+                    showDnp,
+                )
+                : EMPTY_DNP_PLAN,
+        [semanticIndex, showDnp, variantSelection.effective],
+    );
+    const handleVariantSelect = useCallback(
+        (name: string | null) => {
+            setSearchParams(variantSearchParams(searchParams, name), {
+                replace: true,
+            });
+        },
+        [searchParams, setSearchParams],
+    );
+
+    // The ecad-viewer elements own replay across source replacement and page
+    // switches (the reflected `variant` attribute is durable). These effects
+    // cover what they cannot: a freshly mounted element, and a ready arriving
+    // after the selection. A bundle older than the vendored API is reported,
+    // never skipped silently.
+    const reportedViewerVariantIssues = useRef(new Set<string>());
+    const reportViewerVariantSync = useCallback(
+        (target: ViewerVariantTarget, result: ReturnType<typeof syncViewerVariant>) => {
+            const notice = viewerVariantNotice(target, result);
+            if (!notice) return;
+            const key = `${target}:${result.state}:${result.requested ?? ""}`;
+            if (reportedViewerVariantIssues.current.has(key)) return;
+            reportedViewerVariantIssues.current.add(key);
+            console.error(`[Visualizer] ${notice}`);
+            toast.error(notice);
+        },
+        [],
+    );
+    useEffect(() => {
+        let cancelled = false;
+        void customElements.whenDefined("ecad-viewer").then(() => {
+            if (cancelled) return;
+            reportViewerVariantSync(
+                "schematic",
+                syncViewerVariant(schematicViewerElement, variantSelection.effective),
+            );
+        });
+        return () => { cancelled = true; };
+    }, [
+        reportViewerVariantSync,
+        schematicReadyGeneration,
+        schematicViewerElement,
+        variantSelection.effective,
+    ]);
+    useEffect(() => {
+        let cancelled = false;
+        void customElements.whenDefined("ecad-viewer").then(() => {
+            if (cancelled) return;
+            reportViewerVariantSync(
+                "pcb",
+                syncViewerVariant(pcbViewerElement, variantSelection.effective),
+            );
+        });
+        return () => { cancelled = true; };
+    }, [
+        pcbReadyGeneration,
+        pcbViewerElement,
+        reportViewerVariantSync,
+        variantSelection.effective,
+    ]);
+
     const canImportLibraryComponent = canWriteCatalog(user?.role);
     const canModifyComments = user?.role === "admin" || user?.role === "designer";
 
@@ -789,6 +908,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const normalized = normalizeEcadSelection(detail, revisionKey);
             if (normalized) {
                 selectGlobal(normalized);
+                // A shift-click carries its intent on the event: toggle the
+                // item's net in the collection as well as inspecting it.
+                if (detail.operation === "toggle") toggleNetForSelection(normalized);
             } else {
                 // Empty selection: a click on empty canvas away from any item.
                 // Clear the current selection so it deselects and the selection
@@ -804,18 +926,36 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             if (normalized) crossProbeGlobal(normalized);
         };
 
+        // The board viewer reports the set whenever it changes it itself
+        // (double-click cross-probe, clear), so the collection follows.
+        const handleHighlightChange = (event: Event) => {
+            const detail = (event as CustomEvent<EcadHighlightChangeDetail>).detail;
+            setHighlightedNets((current) => adoptViewerNets(current, detail.nets));
+        };
+
         schematicViewer?.addEventListener("ecad-viewer:selection", handleSelection as EventListener);
         pcbViewer?.addEventListener("ecad-viewer:selection", handleSelection as EventListener);
         schematicViewer?.addEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
         pcbViewer?.addEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
+        pcbViewer?.addEventListener("ecad-viewer:highlight-change", handleHighlightChange as EventListener);
 
         return () => {
             schematicViewer?.removeEventListener("ecad-viewer:selection", handleSelection as EventListener);
             pcbViewer?.removeEventListener("ecad-viewer:selection", handleSelection as EventListener);
             schematicViewer?.removeEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
             pcbViewer?.removeEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
+            pcbViewer?.removeEventListener("ecad-viewer:highlight-change", handleHighlightChange as EventListener);
         };
-    }, [commit, clearGlobalSelection, crossProbeGlobal, pcbViewerElement, schematicViewerElement, selectGlobal, semanticIndex?.sourceRevisionKey]);
+    }, [commit, clearGlobalSelection, crossProbeGlobal, pcbViewerElement, schematicViewerElement, selectGlobal, semanticIndex?.sourceRevisionKey, toggleNetForSelection]);
+
+    // Project the collection onto the board. Keyed on the ready generation so
+    // nets accumulated before the board finished loading are applied once it
+    // has; a re-applied identical set is a no-op in the viewer.
+    useEffect(() => {
+        const viewer = pcbViewerElement;
+        if (!viewer || pcbReadyGeneration === 0) return;
+        viewer.setHighlightedNets?.(highlightRefs(highlightedNets));
+    }, [highlightedNets, pcbReadyGeneration, pcbViewerElement]);
 
     useEffect(() => {
         const applySelection = (
@@ -825,7 +965,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         ) => {
             if (!viewer) return;
             if (!selection) {
-                viewer.clearSelection();
+                // The collection is the visualizer's; deselecting the
+                // inspected object must not drop it from the board.
+                viewer.clearSelection({ keepHighlights: true });
                 return;
             }
             if (typeof viewer.requestCrossProbe !== "function") return;
@@ -905,22 +1047,58 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         ),
     );
 
+    // The highlight collection is a selection in its own right on the CAD
+    // views: the panel lists it even when nothing is inspected.
+    const highlightsVisibleInActiveView = highlightedNets.length > 0 && activeViewContext !== null;
+    const inspectorHasContent = (globalSelection !== null && selectionVisibleInActiveView) || highlightsVisibleInActiveView;
+
     useEffect(() => {
-        if (globalSelection && selectionVisibleInActiveView) {
+        if (inspectorHasContent) {
             setRightRailTab("selection");
         } else {
-            // No selection for this view (cleared, or a single-view selection
+            // Nothing for this view (cleared, or a single-view selection
             // that belongs to the other view): close the selection panel so it
             // does not linger. Leave other rail tabs (comments) alone.
             setRightRailTab((tab) => (tab === "selection" ? null : tab));
         }
-    }, [globalSelection, selectionVisibleInActiveView]);
+    }, [inspectorHasContent]);
 
-    // Refresh the layer color map when a selection carries a layer, so the
-    // inspector can show a swatch matching the layer menu. Read lazily from the
-    // PCB viewer; layer colors are stable for a board.
+    // Routed length / layers / counts for the selected net, read from the
+    // board the PCB viewer has loaded. Keyed on the ready generation so a
+    // selection made before the board finished parsing (SCH cross-probe, BOM)
+    // fills in once it has.
+    const netStatistics = useMemo(() => {
+        const ref = netStatisticsRefForSelection(globalSelection);
+        if (!ref || !pcbViewerElement || pcbReadyGeneration === 0) return null;
+        try {
+            return pcbViewerElement.getNetStatistics?.(ref) ?? null;
+        } catch {
+            return null;
+        }
+    }, [globalSelection, pcbReadyGeneration, pcbViewerElement]);
+
+    // The same summary for every highlighted net, so the panel can list the
+    // whole collection (#305). Names the board does not know come back null.
+    const highlightedNetEntries = useMemo<HighlightedNetEntry[]>(() => {
+        const read = (net: HighlightedNet): EcadNetStatistics | null => {
+            if (!pcbViewerElement || pcbReadyGeneration === 0) return null;
+            try {
+                return pcbViewerElement.getNetStatistics?.({ name: net.netName, netCode: net.netCode }) ?? null;
+            } catch {
+                return null;
+            }
+        };
+        return highlightedNets.map((net) => ({ net, statistics: read(net) }));
+    }, [highlightedNets, pcbReadyGeneration, pcbViewerElement]);
+
+    // Refresh the layer color map when a selection carries a layer or its net
+    // has routing layers, so the inspector can show swatches matching the
+    // layer menu. Read lazily from the PCB viewer; layer colors are stable for
+    // a board.
     useEffect(() => {
-        if (!globalSelection?.anchor?.layer || !pcbViewerElement) return;
+        if (!pcbViewerElement) return;
+        const highlightedLayers = highlightedNetEntries.some((entry) => entry.statistics?.layers.length);
+        if (!globalSelection?.anchor?.layer && !netStatistics?.layers.length && !highlightedLayers) return;
         void customElements.whenDefined("ecad-viewer").then(() => {
             const layers = pcbViewerElement.getPcbViewState?.()?.layers;
             if (!layers?.length) return;
@@ -936,7 +1114,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 return changed ? next : previous;
             });
         });
-    }, [globalSelection, pcbViewerElement]);
+    }, [globalSelection, highlightedNetEntries, netStatistics, pcbViewerElement]);
 
     useEffect(() => {
         const selection = globalSelection;
@@ -1030,8 +1208,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
     const openCommentCardForOverlayHit = useCallback((event: Event) => {
         const detail = (event as CustomEvent<EcadCommentOverlayHitDetail>).detail;
-        const metadata = detail.metadata as { commentId?: string } | null | undefined;
-        const commentId = metadata?.commentId ?? detail.commentId;
+        const commentId = commentIdFromOverlayHit(detail);
         if (!commentId) return;
         const viewer = detail.context === "SCH" ? schematicViewerRef.current : pcbViewerRef.current;
         setSelectedCommentId(commentId);
@@ -1044,13 +1221,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         const detail = (event as CustomEvent<EcadCommentAreaDetail>).detail;
         setCommentMode(false);
         setPendingContext(detail.context);
-        setPendingLocation({
-            x: detail.x,
-            y: detail.y,
-            layer: detail.layer ?? "",
-            page: detail.page,
-            bounds: detail.bounds,
-        });
+        setPendingLocation(commentLocationFromArea(detail));
         pendingElementRef.current = null;
         setShowCommentForm(true);
     }, []);
@@ -1156,9 +1327,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             viewer.zoomToLocation(comment.location.x, comment.location.y);
         }
         setSelectedCommentId(comment.id);
-        setCommentCardScreenPosition(
-            worldToViewportScreen(viewer, comment.location.x, comment.location.y),
-        );
+        setCommentCardScreenPosition(commentScreenPosition(viewer, comment));
     }, []);
 
     const selectedComment = useMemo(
@@ -1177,7 +1346,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             ) return;
 
             if (event.key === "Escape") {
-                clearGlobalSelection();
+                clearSelectionAndHighlights();
                 setRightRailTab(null);
                 setCommentMode(false);
                 setShowCommentForm(false);
@@ -1253,7 +1422,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         // ecad-viewer still receives every key Prism does not handle.
         window.addEventListener("keydown", handleKeyboard, true);
         return () => window.removeEventListener("keydown", handleKeyboard, true);
-    }, [activeTab, canModifyComments, clearGlobalSelection]);
+    }, [activeTab, canModifyComments, clearSelectionAndHighlights]);
 
     const schematicRootSource = useMemo<ViewerBlobSource | null>(
         () => (schematicContent ? { filename: "root.kicad_sch", content: schematicContent } : null),
@@ -1276,6 +1445,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         <div className="relative flex h-full min-h-0 flex-col bg-background">
             <DesignSearchField
                 semanticIndex={semanticIndex}
+                components={effectiveComponents}
                 currentPage={activeSchematicPage?.filename || activeSchematicPage?.page || activeSchematicPage?.projectPath}
                 loading={semanticIndexLoading}
                 active={viewerActive}
@@ -1301,6 +1471,15 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     );
                 })}
                 <div className="flex-1" />
+                {activeTab !== "assembly" && (
+                    <DesignVariantSelector
+                        resolution={variantSelection}
+                        variants={semanticIndex?.assembly?.catalog ?? []}
+                        requested={requestedVariant}
+                        onSelect={handleVariantSelect}
+                        onRetry={() => { void generateSemanticIdentity(); }}
+                    />
+                )}
                 {(activeTab === "sch" || activeTab === "pcb") && canModifyComments && (
                     <Button
                         variant={commentMode ? "default" : "ghost"}
@@ -1371,6 +1550,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                         viewer={schematicViewerElement}
                                         onVisibleWidthChange={setSchematicLeftInset}
                                     />
+                                    <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-2">
+                                        <NetHighlightBar
+                                            nets={highlightedNets}
+                                            onRemove={removeHighlighted}
+                                            onClear={clearSelectionAndHighlights}
+                                        />
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -1407,6 +1593,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                         viewer={pcbViewerElement}
                                         onVisibleWidthChange={setPcbLeftInset}
                                     />
+                                    <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-2">
+                                        <NetHighlightBar
+                                            nets={highlightedNets}
+                                            onRemove={removeHighlighted}
+                                            onClear={clearSelectionAndHighlights}
+                                            onFit={fitHighlightedNets}
+                                        />
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -1429,8 +1623,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 active={viewerActive && (activeTab === "3d" || activeTab === "stackup")}
                                 workspace={activeTab === "stackup" ? "stackup" : "pcb"}
                                 selection={globalSelection}
+                                highlightedNets={highlightedNets}
                                 onSelection={crossProbeGlobal}
                                 onClearSelection={clearGlobalSelection}
+                                hiddenComponents={dnpPlan.hidden}
+                                ambiguousComponents={dnpPlan.ambiguous}
+                                showDnp={showDnp}
+                                onShowDnpChange={setShowDnp}
                             />
                         </div>
                     )}
@@ -1439,6 +1638,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         <div className="absolute inset-0 z-20 bg-background">
                             <EngineeringBomTable
                                 semanticIndex={semanticIndex}
+                                components={effectiveComponents}
                                 loading={semanticIndexLoading}
                                 error={semanticIndexError}
                                 selection={globalSelection}
@@ -1449,26 +1649,34 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     )}
 
                     {activeTab === "assembly" && (
-                        <div className="absolute inset-0 z-20 bg-background">
-                            {ibomUrl ? (
-                                <iframe
-                                    title="Assembly Assistant"
-                                    src={ibomUrl}
-                                    className="h-full w-full border-0 bg-background"
-                                    // InteractiveHtmlBom needs scripts plus
-                                    // same-origin to run, and downloads for
-                                    // its exports. Content is generated by
-                                    // our backend from the repo's own design
-                                    // files, so the scripts+same-origin pair
-                                    // is accepted by design here.
-                                    // react-doctor-disable-next-line react-doctor/iframe-missing-sandbox
-                                    sandbox="allow-scripts allow-same-origin allow-downloads"
-                                />
-                            ) : (
-                                <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
-                                    No interactive assembly HTML was found for this revision.
+                        <div className="absolute inset-0 z-20 flex flex-col bg-background">
+                            {requestedVariant && (
+                                <div className="shrink-0 border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                                    This committed assembly artifact does not
+                                    follow the selected design variant.
                                 </div>
                             )}
+                            <div className="min-h-0 flex-1">
+                                {ibomUrl ? (
+                                    <iframe
+                                        title="Assembly Assistant"
+                                        src={ibomUrl}
+                                        className="h-full w-full border-0 bg-background"
+                                        // InteractiveHtmlBom needs scripts plus
+                                        // same-origin to run, and downloads for
+                                        // its exports. Content is generated by
+                                        // our backend from the repo's own design
+                                        // files, so the scripts+same-origin pair
+                                        // is accepted by design here.
+                                        // react-doctor-disable-next-line react-doctor/iframe-missing-sandbox
+                                        sandbox="allow-scripts allow-same-origin allow-downloads"
+                                    />
+                                ) : (
+                                    <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
+                                        No interactive assembly HTML was found for this revision.
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -1512,18 +1720,23 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 highlightedId={selectedCommentId}
                                 embedded
                             />
-                        ) : globalSelection && selectionVisibleInActiveView ? (
+                        ) : inspectorHasContent ? (
                             <SelectionInspector
                                 open
-                                selection={globalSelection}
+                                selection={globalSelection && selectionVisibleInActiveView ? globalSelection : null}
                                 semanticIndex={semanticIndex}
+                                components={effectiveComponents}
                                 layerColors={layerColors}
+                                netStatistics={netStatistics}
                                 viewContext={activeViewContext ?? undefined}
+                                highlightedNets={highlightsVisibleInActiveView ? highlightedNetEntries : undefined}
+                                onInspectHighlightedNet={inspectHighlighted}
+                                onRemoveHighlightedNet={removeHighlighted}
                                 onOpenChange={(open) => {
                                     if (!open) setRightRailTab(null);
                                 }}
-                                onClear={clearGlobalSelection}
-                                onImportComponent={globalSelection.kind === "net" ? undefined : handleImportSelectedComponent}
+                                onClear={clearSelectionAndHighlights}
+                                onImportComponent={globalSelection?.kind === "net" ? undefined : handleImportSelectedComponent}
                                 canImportComponent={canImportLibraryComponent}
                                 importingComponent={componentImportPending}
                                 labelInstances={labelInstances}

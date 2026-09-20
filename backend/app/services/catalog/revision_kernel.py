@@ -6,6 +6,7 @@ import json
 import uuid
 from typing import Any
 
+from app.services.catalog.conflicts import CatalogConflict
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.normalization import (
     canonical_json,
@@ -13,26 +14,17 @@ from app.services.catalog.normalization import (
     sha256_text,
     utc_now_iso as _utc_now_iso,
 )
+from app.services.catalog.workflow_policy import (
+    LEGACY_WORKFLOW_STAGE_MAP,
+    WORKFLOW_STAGES,
+    normalize_workflow_stage,
+)
 
 
 REVISION_MANIFEST_A0 = "prism.revision_manifest_a0"
 REVISION_MANIFEST_A1 = "prism.revision_manifest_a1"
 REVISION_MANIFEST_A2 = "prism.revision_manifest_a2"
 REVISION_MANIFEST_A3 = "prism.revision_manifest_a3"
-
-WORKFLOW_STAGES = ("open", "in_progress", "qa_review", "done", "released", "archived")
-LEGACY_WORKFLOW_STAGE_MAP = {
-    "draft": "open",
-    "in_review": "qa_review",
-    "qa_approved": "done",
-    "released": "released",
-    "deprecated": "archived",
-}
-
-
-def normalize_workflow_stage(stage: str) -> str:
-    normalized = (stage or "").strip().lower()
-    return LEGACY_WORKFLOW_STAGE_MAP.get(normalized, normalized)
 
 
 class CatalogRevisionKernel:
@@ -202,6 +194,12 @@ class CatalogRevisionKernel:
         canonical = canonical_json(payload)
         return sha256_text(canonical)
 
+    @staticmethod
+    def assert_expected_revision(current_id: str, expected_revision_id: str = "") -> None:
+        # Empty expected_revision_id is the legacy skip used by older callers.
+        if expected_revision_id and current_id != expected_revision_id:
+            raise CatalogConflict()
+
     def clone_revision(
         self,
         conn: Any,
@@ -216,8 +214,7 @@ class CatalogRevisionKernel:
         component, current = self.active_revision_row(conn, component_id, released=False)
         if not component or not current:
             raise ValueError("Component not found")
-        if expected_revision_id and str(current["id"]) != expected_revision_id:
-            raise ValueError("Component revision conflict: refresh the component before saving")
+        self.assert_expected_revision(str(current["id"]), expected_revision_id)
 
         now = _utc_now_iso()
         next_version = int(

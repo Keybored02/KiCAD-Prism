@@ -14,23 +14,23 @@ from __future__ import annotations
 
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
-from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from app.release_studio.documents import notes as note_templates
 from app.release_studio.documents import sheets as sheet_templates
 from app.release_studio.documents import tables as table_templates
+from app.release_studio.documents.acquisition import (
+    DRILL_ARTWORK_KEY,
+    AcquisitionRequest,
+    acquire_views,
+    fabrication_layers,
+    layer_artwork_key,
+    layer_page_key,
+)
 from app.release_studio.documents.artwork import (
     AcquiredArtwork,
-    ArtworkError,
-    acquire,
-    acquire_board_render,
-    acquire_board_views,
-    acquire_testpoint_views,
-    acquire_drill_map,
     assembly_density_warnings,
     assembly_projection_mix,
     assembly_projection_warnings,
@@ -38,6 +38,7 @@ from app.release_studio.documents.artwork import (
     content_view,
 )
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_preset
+from app.release_studio.documents.inputs import DocumentInputs
 from app.release_studio.documents.layout import Rect, Sheet
 from app.release_studio.documents.pdf import append_pdf_pages, render_pdf_pages
 from app.release_studio.documents.svg import render_svg
@@ -46,76 +47,6 @@ logger = logging.getLogger(__name__)
 
 DOCUMENT_DOMAIN = "documentation"
 
-# Which layers each sheet plots. Kept here rather than in the templates so the
-# sheet code stays about layout and this stays about what KiCad is asked for.
-#
-# The assembly sheets are deliberately absent. Plotting `F.Fab` reproduces text
-# authored per footprint at whatever size and offset each library chose, which
-# on a dense board overlaps into an unreadable mass at every scale -- density
-# does not change with scale. Those views come from Cruncher instead, below.
-#
-# Fabrication no longer plots a separate Edge.Cuts+F.Cu "overview": the first
-# copper layer page *is* that view (every copper plot already carries the
-# outline). A second plot of the same geometry was a full board load for a
-# duplicate page.
-
-#: The board's raytraced isometric view, for the cover.
-#:
-#: The same `kicad-cli pcb render` the project thumbnail uses, so the picture on
-#: a release cover is the picture of the project.
-BOARD_RENDER_KEY = "board-render"
-
-#: Technical layers plotted after the copper ones, in the order a reader walks
-#: a board: what is on it, what covers it, what is cut out of it.
-_TECHNICAL_LAYERS: tuple[str, ...] = (
-    "F.Silkscreen",
-    "B.Silkscreen",
-    "F.Mask",
-    "B.Mask",
-    "F.Paste",
-    "B.Paste",
-    "Edge.Cuts",
-)
-
-
-def _layer_artwork_key(layer: str) -> str:
-    return f"layer:{layer}"
-
-
-def _layer_page_key(layer: str) -> str:
-    return f"fabrication-{layer.replace('.', '_')}"
-
-
-def fabrication_layers(stackup: Mapping[str, Any]) -> tuple[str, ...]:
-    """Every layer the fabrication document gives a page to, outside in.
-
-    Copper comes from the board's own stackup so a twelve-layer board gets
-    twelve copper pages in stack order rather than a guessed `F.Cu`/`B.Cu`
-    pair; the technical layers follow in a fixed order.
-    """
-
-    copper: list[str] = []
-    for layer in (stackup.get("layers") or []) if isinstance(stackup, Mapping) else []:
-        name = str(layer.get("name") or "").strip()
-        # `kind` is the projection's own normalized classification; `type` is
-        # KiCad's raw value, which for copper is "signal"/"power"/"mixed" and
-        # never the word "copper". Reading `type` first therefore rejected
-        # every copper layer on a board that declares signal layers, leaving
-        # the fabrication document with no copper pages at all and an
-        # "unavailable" overview page where the first copper plot belongs.
-        kind = str(layer.get("kind") or layer.get("type") or "").strip().lower()
-        if not name or not name.endswith(".Cu"):
-            continue
-        if kind and "copper" not in kind:
-            continue
-        if name not in copper:
-            copper.append(name)
-    return tuple(copper) + _TECHNICAL_LAYERS
-
-#: The drill sheet's artwork is not a layer plot: holes are not a layer, so the
-#: view comes from `pcb export drill --generate-map` instead.
-DRILL_ARTWORK_KEY = "drill"
-
 #: Assembly views come from `kicad-cruncher pcb-svg`, which fits one designator
 #: into each component's own bounds over a hidden-line-removed outline.
 ASSEMBLY_SIDES: tuple[str, ...] = ("top", "bottom")
@@ -123,50 +54,6 @@ ASSEMBLY_SIDES: tuple[str, ...] = ("top", "bottom")
 #: Testpoint views use a derived board containing only TP footprints, with
 #: legacy references normalized through Monkey before Cruncher renders them.
 TESTPOINT_SIDES: tuple[str, ...] = ("top", "bottom")
-
-#: Key the concurrent acquisition uses for the one job that returns every
-#: Cruncher assembly view. Testpoint views are a second board load and run
-#: outside this pool so they cannot steal a plot slot.
-_CRUNCHER_JOB = "__cruncher__"
-
-#: Ceiling on concurrent acquisitions.
-#:
-#: Bounded by memory, not cores: every one of these loads the whole board, and
-#: a twelve-layer board asks for twenty-odd plots.  Running them all at once
-#: exhausted the worker on a 35 MB `.kicad_pcb` -- the processes were killed
-#: with no output at all, which looked like a silent failure rather than the
-#: resource limit it was.
-_MAX_PARALLEL_ACQUISITIONS = 4
-
-
-def _acquire_concurrently(
-    jobs: Mapping[str, Callable[[], Any]], warnings: list[str]
-) -> dict[str, Any]:
-    """Run every acquisition at once; a failure costs one view, not the set.
-
-    These are subprocess calls, so threads are the right tool: each spends
-    essentially all of its time waiting on a child process.
-    """
-
-    if not jobs:
-        return {}
-
-    results: dict[str, Any] = {}
-    workers = min(len(jobs), _MAX_PARALLEL_ACQUISITIONS)
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(job): key for key, job in jobs.items()}
-        for future in as_completed(futures):
-            key = futures[future]
-            label = {
-                _CRUNCHER_JOB: "assembly views",
-            }.get(key, f"artwork for {key}")
-            try:
-                results[key] = future.result()
-            except (ArtworkError, OSError) as exc:
-                # A missing view degrades one sheet, never the document set.
-                warnings.append(f"{label} unavailable: {exc}")
-                logger.warning("Release Studio %s unavailable: %s", label, exc)
-    return results
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,8 +171,60 @@ def compose(
     KiCad installation.
     """
 
+    return compose_documents(
+        DocumentInputs.from_compose_kwargs(
+            context=context,
+            stats=stats,
+            stackup=stackup,
+            variants=variants,
+            placements=placements,
+            members=members,
+            testpoints=testpoints,
+            population=population,
+            designators=designators,
+            notes=notes,
+            fields=fields,
+            typography=typography,
+            revision_history=revision_history,
+            impedance_rows=impedance_rows,
+            stackup_pdf=stackup_pdf,
+            bom_headers=bom_headers,
+            bom_rows=bom_rows,
+            sheet_size=sheet_size,
+            board=board,
+            cli_path=cli_path,
+            cruncher_path=cruncher_path,
+            workdir=workdir,
+        ),
+        on_progress=on_progress,
+        acquirer=acquirer,
+        drill_acquirer=drill_acquirer,
+        assembly_acquirer=assembly_acquirer,
+        board_render_acquirer=board_render_acquirer,
+        testpoint_acquirer=testpoint_acquirer,
+    )
+
+
+def compose_documents(
+    inputs: DocumentInputs,
+    *,
+    on_progress: Callable[[str, str, float], None] | None = None,
+    acquirer: Callable[..., AcquiredArtwork] | None = None,
+    drill_acquirer: Callable[..., AcquiredArtwork] | None = None,
+    assembly_acquirer: Callable[..., Mapping[str, AcquiredArtwork]] | None = None,
+    board_render_acquirer: Callable[..., Any] | None = None,
+    testpoint_acquirer: Callable[..., Mapping[str, AcquiredArtwork]] | None = None,
+) -> DocumentSet:
+    """Compose sheets from typed inputs and one acquisition pass.
+
+    Sheet order, the shared package scale, warning propagation, and the
+    released PDF members stay here. Artwork subprocesses live in
+    :func:`acquire_views`.
+    """
+
     # Validate before acquiring artwork so an invalid technical configuration
     # cannot perform work and then degrade into a default-looking document.
+    typography = inputs.typography
     typography_preset(typography)
     logger.info("Release Studio composing documents with typography %s", typography)
 
@@ -293,14 +232,27 @@ def compose(
         if on_progress is not None:
             on_progress(step, message, percent)
 
+    context = inputs.context
+    stats = inputs.stats
+    stackup = inputs.stackup
+    variants = inputs.variants
+    placements = inputs.placements
+    members = inputs.members
+    fields = inputs.fields
+    sheet_size = inputs.sheet_size
+    revision_history = inputs.revision_history
+    impedance_rows = inputs.impedance_rows
+    stackup_pdf = inputs.stackup_pdf
+    population = inputs.population
+    testpoints = inputs.testpoints
+    bom_headers = inputs.bom_headers
+    bom_rows = inputs.bom_rows
+
     warnings: list[str] = []
-    art: dict[str, AcquiredArtwork] = {}
-    assembly: dict[str, AcquiredArtwork] = {}
-    testpoint: dict[str, AcquiredArtwork] = {}
 
     substitutions = note_templates.substitution_context(context, fields=fields, stats=stats)
     sheet_notes, note_warnings = note_templates.resolve_notes(
-        notes,
+        inputs.notes,
         substitutions,
         defaults=sheet_templates.DEFAULT_NOTES,
         typography=typography,
@@ -311,90 +263,28 @@ def compose(
     warnings.extend(note_warnings)
     warnings.extend(field_warnings)
 
-    # Every acquisition below is an independent subprocess writing to its own
-    # directory, so they are started together rather than queued behind each
-    # other.  The Cruncher render is by far the longest, and running it beside
-    # the plots instead of after them is most of the saving.
     layer_pages = fabrication_layers(stackup)
-    jobs: dict[str, Callable[[], Any]] = {}
-    if board is not None and cli_path and workdir is not None:
-        fetch = acquirer or acquire
-        for layer in layer_pages:
-            jobs[_layer_artwork_key(layer)] = partial(
-                fetch,
-                cli_path,
-                board,
-                # The outline travels with every layer: a copper plot with no
-                # board edge cannot be located on the board it came from.
-                ("Edge.Cuts", layer) if layer != "Edge.Cuts" else ("Edge.Cuts",),
-                workdir / f"layer-{layer.replace('.', '_')}",
-                variant=str(context.get("variant") or ""),
-            )
-        jobs[BOARD_RENDER_KEY] = partial(
-            board_render_acquirer or acquire_board_render, cli_path, board,
-            workdir / "render",
+    acquired = acquire_views(
+        AcquisitionRequest(
+            board=inputs.board,
+            workdir=inputs.workdir,
+            layer_pages=layer_pages,
+            variant=str(context.get("variant") or ""),
+            cli_path=inputs.cli_path,
+            cruncher_path=inputs.cruncher_path,
+            designators=tuple(inputs.designators or ()),
+            acquirer=acquirer,
+            drill_acquirer=drill_acquirer,
+            assembly_acquirer=assembly_acquirer,
+            board_render_acquirer=board_render_acquirer,
+            testpoint_acquirer=testpoint_acquirer,
         )
-        jobs[DRILL_ARTWORK_KEY] = partial(
-            drill_acquirer or acquire_drill_map, cli_path, board, workdir / DRILL_ARTWORK_KEY
-        )
-    else:
-        warnings.append("kicad-cli unavailable: sheets composed without board artwork")
-
-    if board is not None and cruncher_path and workdir is not None:
-        # One invocation for every assembly view: loading the board dominates
-        # the cost and Cruncher writes them all from a single load.
-        jobs[_CRUNCHER_JOB] = partial(
-            assembly_acquirer or acquire_board_views,
-            cruncher_path,
-            board,
-            workdir / "cruncher",
-        )
-    else:
-        warnings.append(
-            "kicad-cruncher unavailable: assembly sheets composed without artwork"
-        )
-
-    acquired = _acquire_concurrently(jobs, warnings)
-    board_render = acquired.pop(BOARD_RENDER_KEY, None)
-    for key, value in acquired.items():
-        if key != _CRUNCHER_JOB:
-            art[key] = value
-            continue
-        for view_key, drawing in value.items():
-            kind, _, side = view_key.partition("-")
-            if kind == "testpoint":
-                testpoint[side] = drawing
-            else:
-                assembly[side] = drawing
-
-    # Testpoints are a second board load from a derived TP-only staging board.
-    # That keeps the assembly input untouched and lets legacy fp_text
-    # references be normalized to Cruncher's property-based designator API.
-    # They run *after* the plot pool (and after the assembly Cruncher, when that
-    # was overlapped with catalogue wave A) so they cannot steal an acquisition
-    # slot from a layer plot.
-    #
-    # Measured rather than assumed: pooling them alongside the layer plots on
-    # JTYU-OBC moved compose from 213.3s to 217.5s. Cruncher is CPU bound, so
-    # overlapping it with the plots splits the same cores instead of filling
-    # idle ones.
-    if board is not None and cruncher_path and workdir is not None and not testpoint:
-        try:
-            testpoint_views = (testpoint_acquirer or acquire_testpoint_views)(
-                cruncher_path,
-                board,
-                workdir / "testpoints",
-                designators=tuple(designators or ()),
-            )
-            for view_key, drawing in testpoint_views.items():
-                kind, _, side = view_key.partition("-")
-                if kind == "testpoint":
-                    testpoint[side] = drawing
-                else:
-                    assembly.setdefault(side, drawing)
-        except (ArtworkError, OSError, TypeError) as exc:
-            warnings.append(f"testpoint views unavailable: {exc}")
-            logger.warning("Release Studio testpoint views unavailable: %s", exc)
+    )
+    warnings.extend(acquired.warnings)
+    art = dict(acquired.layers)
+    assembly = dict(acquired.assembly)
+    testpoint = dict(acquired.testpoints)
+    board_render = acquired.board_render
 
     for side, drawing in assembly.items():
         side_count = sum(
@@ -477,7 +367,7 @@ def compose(
     report("documents-fabrication", "Composing fabrication drawings", 72.0)
     copper_layers = [layer for layer in layer_pages if layer.endswith(".Cu")]
     overview_layer = copper_layers[0] if copper_layers else None
-    overview = art.get(_layer_artwork_key(overview_layer)) if overview_layer else None
+    overview = art.get(layer_artwork_key(overview_layer)) if overview_layer else None
     fabrication, fab_scale, fab_overflow = sheet_templates.fabrication_sheet(
         context, stats, stackup, overview, size=sheet_size, scale=scale,
         notes=sheet_notes["fabrication"], fields=title_fields, typography=typography,
@@ -497,7 +387,7 @@ def compose(
     for layer in layer_pages:
         if layer == overview_layer:
             continue
-        drawing = art.get(_layer_artwork_key(layer))
+        drawing = art.get(layer_artwork_key(layer))
         if drawing is None:
             # Without a plot there is nothing this page could show that the
             # first one does not already say.
@@ -508,7 +398,7 @@ def compose(
             typography=typography, layer=layer,
         )
         fabrication_pages.append(
-            (sheet, _layer_page_key(layer), used, drawing, _artwork_window(sheet))
+            (sheet, layer_page_key(layer), used, drawing, _artwork_window(sheet))
         )
     fabrication_pages.extend(
         _continuation_pages(

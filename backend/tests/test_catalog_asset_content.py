@@ -65,8 +65,7 @@ class AssetSourceResolution(unittest.TestCase):
             def __exit__(self_inner, *_exc):
                 return False
 
-        service = ComponentCatalogDomainService.__new__(ComponentCatalogDomainService)
-        service._store_root = self.store
+        service = ComponentCatalogDomainService(store_root=self.store)
         service.initialize = lambda: None
         service._connect = lambda: _Conn()
         return service

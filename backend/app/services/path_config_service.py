@@ -533,6 +533,8 @@ def get_path_config(
     project_path: str,
     use_cache: bool = True,
     anchor: Optional[str] = None,
+    *,
+    store: bool = True,
 ) -> PathConfig:
     """
     Get path configuration for a project.
@@ -541,6 +543,7 @@ def get_path_config(
     Args:
         project_path: Absolute path to project root
         use_cache: Whether to use cached config
+        store: Whether to retain a newly resolved config (false for snapshots)
         anchor: This project's own ``.kicad_pro``/board filename, when the
             directory holds more than one project
 
@@ -573,10 +576,11 @@ def get_path_config(
                 merged_dict[key] = DEFAULT_PATHS[key]
 
     merged = PathConfig(**merged_dict)
-    _config_cache[cache_key] = {
-        "config": merged.dict(),
-        "prism_mtime": prism_mtime,
-    }
+    if store:
+        _config_cache[cache_key] = {
+            "config": merged.dict(),
+            "prism_mtime": prism_mtime,
+        }
     return merged
 
 

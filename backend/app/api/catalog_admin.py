@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import hashlib
 import io
@@ -11,9 +12,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.api.catalog_errors import raise_catalog_value_error
 from app.core.config import settings
 from app.core.security import AuthenticatedUser, require_catalog_reader, require_catalog_writer
 from app.services.component_catalog_service import catalog_service
+from app.services.catalog import workflow_policy
 from app.services.catalog_job_service import catalog_jobs
 from app.services.local_artifact_store import artifact_store
 from app.services.library_folder_import_service import configured_import_roots, resolve_server_import_path
@@ -23,40 +26,12 @@ from app.services.workspace_service import workspace
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
-WORKFLOW_TRANSITIONS: dict[str, set[str]] = {
-    "open": {"in_progress", "archived"},
-    "in_progress": {"qa_review", "open", "archived"},
-    "qa_review": {"done", "in_progress", "archived"},
-    "done": {"released", "qa_review", "archived"},
-    "released": {"archived", "open"},
-    "archived": {"open"},
-}
-
-LEGACY_WORKFLOW_STAGE_MAP = {
-    "draft": "open",
-    "in_review": "qa_review",
-    "qa_approved": "done",
-    "deprecated": "archived",
-}
-
-
 def _normalize_workflow_stage(value: str) -> str:
-    normalized = value.strip().lower()
-    return LEGACY_WORKFLOW_STAGE_MAP.get(normalized, normalized)
+    return workflow_policy.normalize_workflow_stage(value)
 
 
 def _can_transition_workflow(user: AuthenticatedUser, current_stage: str, next_stage: str) -> bool:
-    if current_stage == next_stage:
-        return user.role in {"admin", "designer"} or (user.role == "qa" and current_stage == "qa_review")
-    if next_stage not in WORKFLOW_TRANSITIONS.get(current_stage, set()):
-        return False
-    if user.role == "admin":
-        return True
-    if user.role == "designer":
-        return not (current_stage == "qa_review" and next_stage == "done")
-    if user.role == "qa":
-        return current_stage == "qa_review" and next_stage in {"done", "in_progress", "archived"}
-    return False
+    return workflow_policy.can_transition(user.role, current_stage, next_stage)
 
 
 def _enqueue_catalog_job(
@@ -402,7 +377,8 @@ async def upload_folder_snapshot_file(
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _folder_snapshot_for_user(snapshot_id, user)
-    try:
+
+    def store() -> dict[str, Any]:
         artifact = artifact_store.put_stream(
             file.file,
             media_type=file.content_type or "application/octet-stream",
@@ -411,6 +387,9 @@ async def upload_folder_snapshot_file(
         )
         artifact_store.add_snapshot_file(snapshot_id, relative_path, artifact)
         return {"relative_path": relative_path, "sha256": artifact.sha256, "size_bytes": artifact.size_bytes}
+
+    try:
+        return await asyncio.to_thread(store)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
@@ -994,8 +973,7 @@ def update_catalog_component(
             expected_revision_id=expected_revision_id,
         )
     except ValueError as exc:
-        status_code = 409 if "revision conflict" in str(exc).lower() else 400
-        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        raise_catalog_value_error(exc)
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
     return component
@@ -1022,8 +1000,7 @@ def create_component_representation(
             change_summary=payload.change_summary,
         )
     except ValueError as exc:
-        status = 409 if "revision conflict" in str(exc).lower() else 400
-        raise HTTPException(status_code=status, detail=str(exc)) from exc
+        raise_catalog_value_error(exc)
 
 
 @router.patch("/components/{component_id}/representations/{representation_id}")
@@ -1050,8 +1027,7 @@ def update_component_representation(
             change_summary=payload.change_summary,
         )
     except ValueError as exc:
-        status = 409 if "revision conflict" in str(exc).lower() else 400
-        raise HTTPException(status_code=status, detail=str(exc)) from exc
+        raise_catalog_value_error(exc)
 
 
 @router.delete("/components/{component_id}/representations/{representation_id}")
@@ -1069,8 +1045,7 @@ def delete_component_representation(
             actor=user.email,
         )
     except ValueError as exc:
-        status = 409 if "revision conflict" in str(exc).lower() else 400
-        raise HTTPException(status_code=status, detail=str(exc)) from exc
+        raise_catalog_value_error(exc)
 
 
 @router.post("/components/{component_id}/symbol-import")
@@ -1079,25 +1054,27 @@ async def import_symbol_library(
     file: UploadFile = File(...),
     target_library: str = Form(default=""),
     selected_symbol: str = Form(default=""),
-    counterpart_asset_id: str = Form(default=""),
+    counterpart_asset_id: str = Form(default=""), expected_revision_id: str = Form(default=""),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     payload = await file.read()
     if not payload:
         raise HTTPException(status_code=400, detail="Uploaded symbol library was empty")
 
+    # Runs kicad-cli; a slow upgrade must not stall the event loop.
     try:
-        return catalog_service.import_symbol_library(
+        return await asyncio.to_thread(
+            catalog_service.import_symbol_library,
             component_id,
             upload_name=file.filename or "uploaded.kicad_sym",
             payload=payload,
             target_library=target_library or component_id,
             selected_symbol=selected_symbol,
             counterpart_asset_id=counterpart_asset_id,
-            actor=user.email,
+            actor=user.email, expected_revision_id=expected_revision_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_catalog_value_error(exc)
 
 
 @router.post("/components/{component_id}/footprint-import")
@@ -1106,7 +1083,7 @@ async def import_footprint(
     file: UploadFile = File(...),
     target_library: str = Form(default=""),
     selected_footprint: str = Form(default=""),
-    counterpart_asset_id: str = Form(default=""),
+    counterpart_asset_id: str = Form(default=""), expected_revision_id: str = Form(default=""),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     payload = await file.read()
@@ -1114,17 +1091,18 @@ async def import_footprint(
         raise HTTPException(status_code=400, detail="Uploaded footprint payload was empty")
 
     try:
-        return catalog_service.import_footprint(
+        return await asyncio.to_thread(
+            catalog_service.import_footprint,
             component_id,
             upload_name=file.filename or "uploaded.kicad_mod",
             payload=payload,
             target_library=target_library or "Prism_Footprints",
             selected_footprint=selected_footprint,
             counterpart_asset_id=counterpart_asset_id,
-            actor=user.email,
+            actor=user.email, expected_revision_id=expected_revision_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_catalog_value_error(exc)
 
 
 @router.post("/components/{component_id}/assets/{asset_type}")
@@ -1132,7 +1110,7 @@ async def import_auxiliary_asset(
     component_id: str,
     asset_type: str,
     file: UploadFile = File(...),
-    target_library: str = Form(default=""),
+    target_library: str = Form(default=""), expected_revision_id: str = Form(default=""),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     payload = await file.read()
@@ -1140,16 +1118,17 @@ async def import_auxiliary_asset(
         raise HTTPException(status_code=400, detail="Uploaded asset payload was empty")
 
     try:
-        return catalog_service.attach_auxiliary_asset(
+        return await asyncio.to_thread(
+            catalog_service.attach_auxiliary_asset,
             component_id,
             asset_type=asset_type,
             upload_name=file.filename or f"{asset_type}.bin",
             payload=payload,
             target_library=target_library or "Prism_Assets",
-            actor=user.email,
+            actor=user.email, expected_revision_id=expected_revision_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_catalog_value_error(exc)
 
 
 @router.delete("/components/{component_id}/assets/{asset_type}")
@@ -1179,8 +1158,7 @@ def detach_component_asset_by_id(
             actor=user.email,
         )
     except ValueError as exc:
-        status = 409 if "revision conflict" in str(exc).lower() or "referenced" in str(exc).lower() else 400
-        raise HTTPException(status_code=status, detail=str(exc)) from exc
+        raise_catalog_value_error(exc)
 
 
 @router.delete("/components/{component_id}")
@@ -1221,7 +1199,7 @@ def transition_release_status(
             expected_manifest_hash=payload.expected_manifest_hash,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_catalog_value_error(exc)
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
     return component
@@ -1575,7 +1553,7 @@ class LinkAssetRequest(BaseModel):
     target_library: str = ""
     target_name: str = ""
     counterpart_asset_id: str = ""
-
+    expected_revision_id: str = ""
 
 @router.post("/components/{component_id}/assets/{asset_type}/link")
 def link_library_asset(
@@ -1593,7 +1571,7 @@ def link_library_asset(
             target_library=payload.target_library,
             target_name=payload.target_name,
             counterpart_asset_id=payload.counterpart_asset_id,
-            actor=user.email,
+            actor=user.email, expected_revision_id=payload.expected_revision_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise_catalog_value_error(exc)

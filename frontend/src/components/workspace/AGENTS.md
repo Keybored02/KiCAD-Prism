@@ -25,9 +25,23 @@ these modules are forms and grids over server data rather than viewer bridges.
 
 ## Modules
 
-**Component authoring** — `library-component-workspace.tsx` (the monolith),
-`library-component-quick-view.tsx`, `library-asset-link-picker.tsx`,
-`use-edit-history.ts`.
+**Component authoring** — `library-component-workspace.tsx` (the coordinator:
+URL ownership and current/historical selection stay here),
+`library-component-chrome.tsx` (shared badges, cards, empty/loading chrome),
+`library-component-evidence.ts` (tab evidence load hooks, no store or query
+library), `library-component-validation.ts` (component-scoped AbortController
+and `watchPrismJob` adapter; the coordinator starts/aborts and applies the
+originating component's result), `library-component-evidence-panels.tsx` (read-only revisions, review,
+usage, and audit evidence), `library-component-metadata-dialog.tsx` and
+`library-component-asset-dialog.tsx` (edit sessions captured at open, one
+success callback), `library-component-metadata-form.ts` (definition-driven
+values, identity/provisional required rules, storage-key PATCH mapping;
+save validation matches the single PATCH, not bulk-edit shape checks),
+`library-component-metadata-fields.tsx` (typed input adapters),
+`library-component-asset-download.ts` (released-revision downloads through the
+matching remote-provider representation, not the default placement pair),
+`library-component-quick-view.tsx`,
+`library-asset-link-picker.tsx`, `use-edit-history.ts`.
 
 **Previews** — two paths that share nothing but a subject.
 `library-preview-viewport.tsx` pans and zooms a stored SVG render
@@ -41,6 +55,8 @@ pair draws. Navigation belongs to the viewer, not to the frame around it — see
 `frontend/src/lib/ecad-renderer.ts`.
 
 **Import** — `library-import-center.tsx`,
+`library-import-session-proposals.ts` (proposals keyed by session ID; abort
+superseded reads; non-overlapping scan polling),
 `library-import-remediation-dialog.tsx`, `library-import-remediation-grid.tsx`,
 `library-folder-discovery-dialog.tsx`. Import produces proposals that a human
 remediates before acceptance; the grid is the remediation surface.
@@ -69,3 +85,7 @@ Its input buffer is genuinely local state; the resolved selection is not.
   before changing its submission path.
 - `library-component-workspace.tsx` is slated for decomposition. Do not add to
   it if the work can live in a sibling module.
+- **Single-editor extras stay writable.** Field definitions are admin-gated, so
+  the metadata dialog always keeps the additional-extras JSON box. Designers
+  can still add ad-hoc keys; defined extras render as typed controls and are
+  omitted from that leftover object.

@@ -12,6 +12,7 @@ import {
   type RenderNavigationOptions,
 } from "@/lib/ecad-renderer";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 import { useLibraryCrossProbe } from "./library-cross-probe";
 
@@ -63,6 +64,7 @@ export function LibraryAssetRenderer({
   unit = 1,
   navigation = EMBEDDED_PREVIEW_NAVIGATION,
   onControllerChange,
+  loadAsset = loadAssetText,
 }: {
   assetId: string;
   kind: "symbol" | "footprint";
@@ -75,11 +77,13 @@ export function LibraryAssetRenderer({
   unit?: number;
   navigation?: RenderNavigationOptions;
   onControllerChange?: (controller: RenderController | null) => void;
+  loadAsset?: (url: string) => Promise<string>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const renderedRef = useRef<RenderHandle | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState("");
+  const [retryNonce, setRetryNonce] = useState(0);
   const crossProbe = useLibraryCrossProbe();
   const registerProbe = crossProbe?.register;
   const handleProbe = crossProbe?.handleProbe;
@@ -102,7 +106,7 @@ export function LibraryAssetRenderer({
       try {
         const [renderer, text] = await Promise.all([
           loadEcadRenderer(),
-          loadAssetText(url),
+          loadAsset(url),
         ]);
         if (cancelled) return;
         const canvas = canvasRef.current;
@@ -167,6 +171,8 @@ export function LibraryAssetRenderer({
     registerProbe,
     onUnitsChange,
     onControllerChange,
+    loadAsset,
+    retryNonce,
   ]);
 
   // Unmount is the only place the last render is torn down; the effect above
@@ -194,8 +200,11 @@ export function LibraryAssetRenderer({
           </div>
         ) : null}
         {state === "error" ? (
-          <div className="absolute inset-0 flex items-center justify-center px-3 text-center text-xs text-muted-foreground">
-            {message || `Could not render this ${kind}`}
+          <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-3 text-center text-xs text-muted-foreground">
+            <span>{message || `Could not render this ${kind}`}</span>
+            <Button variant="outline" size="sm" onClick={() => setRetryNonce((nonce) => nonce + 1)}>
+              Retry {kind} preview
+            </Button>
           </div>
         ) : null}
       </div>

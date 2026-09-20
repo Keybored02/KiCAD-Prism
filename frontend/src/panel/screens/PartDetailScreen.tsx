@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ChevronDown,
   ChevronUp,
+  CircleAlert,
   ExternalLink,
   FileText,
   Loader2,
@@ -28,17 +29,43 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { PanelComponent, PanelSupplySource } from "@/panel/lib/panel-api";
-import { getComponent, getInlineBundle, getPartManifest } from "@/panel/lib/panel-api";
-import { hasSession, retry, sendRpcCommand } from "@/panel/lib/kicad-bridge";
+import {
+  classifyPanelLoadFailure,
+  getComponent,
+  getInlineBundle,
+  getPartManifest,
+} from "@/panel/lib/panel-api";
+import { usePanelAssetLoader } from "@/panel/lib/use-panel-asset-loader";
+import { getSessionId, KiCadRpcError, sendRpcCommand } from "@/panel/lib/kicad-bridge";
+import { formatPlacementError, PLACEMENT_RESPONSE_TIMEOUT_MS } from "@/panel/lib/panel-placement";
 import { LibraryPreviewPair } from "@/components/workspace/library-preview-inspector";
 import { cn } from "@/lib/utils";
+import { inventoryWarnings } from "@/lib/inventory-presentation";
 
 interface PartDetailScreenProps {
   componentId: string;
-  /** If the component was already loaded (from a list), pass it to avoid re-fetch */
+  /** Slim list row used as a labeled preview while full detail loads. */
   prefetched?: PanelComponent | null;
   onBack: () => void;
+  onAuthRequired: () => void;
   appendLog: (msg: string) => void;
+}
+
+type DetailLoad =
+  | { phase: "loading"; preview: PanelComponent | null }
+  | { phase: "ready"; component: PanelComponent }
+  | {
+      phase: "error";
+      preview: PanelComponent | null;
+      kind: "not_found" | "failed";
+      message: string;
+    };
+
+function previewFor(
+  componentId: string,
+  prefetched?: PanelComponent | null,
+): PanelComponent | null {
+  return prefetched?.id === componentId ? prefetched : null;
 }
 
 const CORE_PARAMETERS = [
@@ -83,114 +110,161 @@ export function PartDetailScreen({
   componentId,
   prefetched,
   onBack,
+  onAuthRequired,
   appendLog,
 }: PartDetailScreenProps) {
-  const [component, setComponent] = useState<PanelComponent | null>(
-    prefetched ?? null
-  );
-  const [loading, setLoading] = useState(!prefetched);
+  const loadPreviewAsset = usePanelAssetLoader(onAuthRequired);
+  const [load, setLoad] = useState<DetailLoad>(() => ({
+    phase: "loading",
+    preview: previewFor(componentId, prefetched),
+  }));
+  const [retryNonce, setRetryNonce] = useState(0);
   const [showAllParams, setShowAllParams] = useState(false);
   const [placing, setPlacing] = useState(false);
-  const [placingInline, setPlacingInline] = useState(false);
+  const [placementError, setPlacementError] = useState<string | null>(null);
+  const placingRef = useRef(false);
+  const placementControllerRef = useRef<AbortController | null>(null);
   const [representationId, setRepresentationId] = useState("");
 
-  // Fetch full component details. List screens pass a slim payload, so detail
-  // refreshes the component before previews/assets are shown.
+  useEffect(() => () => placementControllerRef.current?.abort(), [componentId]);
+
+  // List rows are slim (empty representations). Only a successful detail
+  // response is authoritative; prefetch is labeled loading, never Place-ready.
   useEffect(() => {
+    const preview = previewFor(componentId, prefetched);
+    setLoad({ phase: "loading", preview });
+    setRepresentationId("");
+    setShowAllParams(false);
+    setPlacementError(null);
     const controller = new AbortController();
     getComponent(componentId, controller.signal)
-      .then((c) => {
-        if (!controller.signal.aborted) {
-          setComponent(c);
-          setRepresentationId(c.default_representation_id || c.representations[0]?.id || "");
-          setLoading(false);
-        }
+      .then((detail) => {
+        if (controller.signal.aborted) return;
+        setLoad({ phase: "ready", component: detail });
+        setRepresentationId(
+          detail.default_representation_id || detail.representations[0]?.id || "",
+        );
       })
       .catch((err) => {
-        if (!controller.signal.aborted) {
-          appendLog(`Failed to load component: ${(err as Error).message}`);
-          setLoading(false);
+        if (controller.signal.aborted) return;
+        const kind = classifyPanelLoadFailure(err);
+        if (kind === "auth") {
+          onAuthRequired();
+          return;
         }
+        appendLog(`Failed to load component: ${(err as Error).message}`);
+        setLoad({
+          phase: "error",
+          preview,
+          kind,
+          message: err instanceof Error ? err.message : String(err),
+        });
       });
     return () => controller.abort();
-  }, [componentId, prefetched, appendLog]);
+  }, [componentId, retryNonce, prefetched, appendLog, onAuthRequired]);
 
-  // ─── Place via manifest ────────────────────────────────────────
-
-  async function handlePlace() {
-    if (!component || !hasSession()) {
+  async function runPlacement(path: "manifest" | "inline") {
+    const sessionId = getSessionId();
+    if (load.phase !== "ready" || !sessionId) {
       appendLog("Cannot place: no session or component.");
       return;
     }
+    const component = load.component;
+    if (placingRef.current) return;
+    placingRef.current = true;
+    const controller = new AbortController();
+    placementControllerRef.current = controller;
+    let dispatchAttempted = false;
     setPlacing(true);
+    setPlacementError(null);
     try {
-      const manifest = await getPartManifest(component.id, representationId);
-      await retry(async () => {
-        await sendRpcCommand(
-          "PLACE_COMPONENT",
-          manifest as Record<string, unknown>
-        );
-      });
-      appendLog(`Placed ${component.name} via manifest.`);
+      const payload = path === "manifest"
+        ? await getPartManifest(component.id, representationId, controller.signal)
+        : await getInlineBundle(component.id, representationId, controller.signal);
+      if (controller.signal.aborted) return;
+      if (sessionId !== getSessionId()) {
+        throw new KiCadRpcError("pre_dispatch", "KiCad session changed while preparing placement. Try again in the current schematic.");
+      }
+      dispatchAttempted = true;
+      await sendRpcCommand(
+        "PLACE_COMPONENT",
+        path === "manifest" ? payload : {
+          library: payload.library,
+          symbol_name: payload.symbol_name,
+          compression: payload.compression,
+        },
+        path === "inline" ? (payload.data as string) || "" : "",
+        PLACEMENT_RESPONSE_TIMEOUT_MS,
+      );
+      if (!controller.signal.aborted) appendLog(`Placed ${component.name} via ${path === "inline" ? "inline bundle" : "manifest"}.`);
     } catch (err) {
-      appendLog(`Placement failed: ${(err as Error).message}`);
+      if (controller.signal.aborted) return;
+      const failure = dispatchAttempted || err instanceof KiCadRpcError ? err
+        : new KiCadRpcError("pre_dispatch", err instanceof Error ? err.message : String(err));
+      const message = formatPlacementError(failure);
+      setPlacementError(message);
+      appendLog(message);
     } finally {
-      setPlacing(false);
+      if (placementControllerRef.current === controller) {
+        placingRef.current = false;
+        placementControllerRef.current = null;
+        setPlacing(false);
+      }
     }
   }
 
-  // ─── Place via inline ──────────────────────────────────────────
-
-  async function handleInline() {
-    if (!component || !hasSession()) {
-      appendLog("Cannot place: no session or component.");
-      return;
-    }
-    setPlacingInline(true);
-    try {
-      const bundle = (await getInlineBundle(component.id, representationId)) as Record<
-        string,
-        unknown
-      >;
-      await retry(async () => {
-        await sendRpcCommand(
-          "PLACE_COMPONENT",
-          {
-            library: bundle.library,
-            symbol_name: bundle.symbol_name,
-            compression: bundle.compression,
-          },
-          (bundle.data as string) || ""
-        );
-      });
-      appendLog(`Placed ${component.name} via inline bundle.`);
-    } catch (err) {
-      appendLog(`Inline placement failed: ${(err as Error).message}`);
-    } finally {
-      setPlacingInline(false);
-    }
-  }
-
-  // ─── Loading state ─────────────────────────────────────────────
-
-  if (loading || !component) {
+  if (load.phase !== "ready") {
+    const preview = load.preview;
     return (
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon-xs" onClick={onBack}>
+          <Button variant="ghost" size="icon-xs" onClick={onBack} aria-label="Back">
             <ArrowLeft className="h-3.5 w-3.5" />
           </Button>
-          <Skeleton className="h-4 w-32" />
+          {preview ? (
+            <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+              Details
+            </span>
+          ) : (
+            <Skeleton className="h-4 w-32" />
+          )}
         </div>
-        <Skeleton className="h-6 w-48" />
-        <Skeleton className="h-3 w-36" />
-        <Skeleton className="h-3 w-64" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-40 w-full" />
+        {preview ? (
+          <div className="px-0.5">
+            <h2 className="break-all text-base font-bold leading-tight text-primary">
+              {preview.name}
+            </h2>
+            <p className="mt-0.5 text-xs text-foreground/80">
+              {preview.manufacturer || "Unknown Manufacturer"}
+            </p>
+            {load.phase === "loading" ? (
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading details…
+              </p>
+            ) : null}
+          </div>
+        ) : load.phase === "loading" ? (
+          <>
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-3 w-36" />
+            <Skeleton className="h-3 w-64" />
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-40 w-full" />
+          </>
+        ) : null}
+        {load.phase === "error" ? (
+          <DetailErrorState
+            kind={load.kind}
+            message={load.message}
+            onRetry={() => setRetryNonce((nonce) => nonce + 1)}
+          />
+        ) : null}
       </div>
     );
   }
 
+  const component = load.component;
   const selectedRepresentation =
     component.representations.find((r) => r.id === representationId) ||
     component.representations.find((r) => r.is_default) ||
@@ -224,13 +298,13 @@ export function PartDetailScreen({
           {canPlace && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-xs" aria-label="More actions">
+                <Button variant="ghost" size="icon-xs" aria-label="More actions" disabled={placing}>
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleInline} disabled={placingInline}>
-                  {placingInline ? (
+                <DropdownMenuItem onClick={() => void runPlacement("inline")} disabled={placing}>
+                  {placing ? (
                     <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                   ) : null}
                   Inline Fallback
@@ -331,6 +405,7 @@ export function PartDetailScreen({
             stacked
             symbolMeta={`${symbolMeta} · Rev.${component.version}`}
             footprintMeta={selectedRepresentation.footprint?.target_name || component.package_name || "—"}
+            loadAsset={loadPreviewAsset}
           />
         </Section>
       )}
@@ -401,13 +476,41 @@ export function PartDetailScreen({
               Datasheet
             </Button>
           )}
-          <Button className="min-w-0 flex-1" onClick={handlePlace} disabled={!canPlace || placing}>
+          <Button className="min-w-0 flex-1" onClick={() => void runPlacement("manifest")} disabled={!canPlace || placing}>
             {placing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {canPlace ? "Place" : "Unavailable"}
           </Button>
         </div>
+        {placementError ? (
+          <p className="text-[10px] text-destructive" role="alert">
+            {placementError}
+          </p>
+        ) : null}
       </div>
 
+    </div>
+  );
+}
+
+function DetailErrorState({
+  kind,
+  message,
+  onRetry,
+}: {
+  kind: "not_found" | "failed";
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="rounded border border-destructive bg-destructive/10 px-3 py-6 text-center">
+      <CircleAlert className="mx-auto h-4 w-4 text-destructive" />
+      <p className="mt-2 text-xs font-medium">
+        {kind === "not_found" ? "Part not found" : "Couldn't load this part"}
+      </p>
+      <p className="mt-1 text-[10px] text-muted-foreground">{message}</p>
+      <Button className="mt-3" size="sm" variant="outline" onClick={onRetry}>
+        <RefreshCw className="h-3 w-3" /> Retry
+      </Button>
     </div>
   );
 }
@@ -468,19 +571,25 @@ function ParameterTable({
 
 function AvailabilityCard({ source }: { source: PanelSupplySource }) {
   const isVendor = source.kind === "vendor";
+  const mixedUnits = Boolean(source.mixed_units);
+  const warnings = inventoryWarnings(source);
+  const uncertain = warnings.length > 0;
   const asOf = formatAsOf(source.fetched_at);
   const breaks = isVendor ? (source.price_breaks ?? []) : [];
+  const inStock = !uncertain && source.stock > 0;
+  const plentiful = inStock && source.stock > 100;
   const dotTone =
-    source.stock > 100 ? "bg-emerald-500" : source.stock > 0 ? "bg-amber-400" : "bg-red-500";
-  const qtyTone = source.stock > 0 ? "text-foreground" : "text-muted-foreground";
+    uncertain ? "bg-muted-foreground/40" : plentiful ? "bg-emerald-500" : inStock ? "bg-amber-400" : "bg-red-500";
+  const qtyTone = uncertain || inStock ? "text-foreground" : "text-muted-foreground";
   // Soft badge tones mirror the dot: plentiful emerald, scarce amber, none red.
-  const statusTone =
-    source.stock > 100
+  const statusTone = uncertain
+    ? "border-border bg-secondary/40 text-muted-foreground"
+    : plentiful
       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-      : source.stock > 0
+      : inStock
         ? "border-amber-400/30 bg-amber-400/10 text-amber-300"
         : "border-red-500/30 bg-red-500/10 text-red-400";
-  const statusLabel = source.stock_status
+  const statusLabel = uncertain ? warnings.join(" · ") : source.stock_status
     ? source.stock_status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
     : null;
 
@@ -502,15 +611,15 @@ function AvailabilityCard({ source }: { source: PanelSupplySource }) {
         ) : null}
         {asOf ? (
           <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">
-            Updated {asOf}
+            {source.mixed_freshness ? "Latest location update" : "Updated"} {asOf}
           </span>
         ) : null}
       </div>
 
-      <div className="flex items-end justify-between gap-3 px-3 pb-3 pt-1">
+      <div className="flex flex-wrap items-end justify-between gap-3 px-3 pb-3 pt-1">
         <div>
           <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            On hand
+            {warnings.includes("Sync failed") ? "Last known on hand" : "On hand"}
           </div>
           <div
             className={cn(
@@ -518,15 +627,21 @@ function AvailabilityCard({ source }: { source: PanelSupplySource }) {
               qtyTone
             )}
           >
-            {formatQuantity(source.stock)}
-            {source.uom ? (
-              <span className="ml-1 text-xs font-normal text-muted-foreground">{source.uom}</span>
-            ) : null}
+            {mixedUnits ? (
+              "Mixed units"
+            ) : (
+              <>
+                {formatQuantity(source.stock)}
+                {source.uom ? (
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">{source.uom}</span>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           {statusLabel ? (
-            <Badge variant="outline" className={cn("shrink-0", statusTone)}>
+            <Badge variant="outline" className={cn("max-w-full whitespace-normal", statusTone)}>
               {statusLabel}
             </Badge>
           ) : null}

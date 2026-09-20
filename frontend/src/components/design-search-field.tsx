@@ -20,10 +20,15 @@ import {
 } from "@/lib/design-search";
 import { shortcutKeys } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
-import type { PrismSemanticIndex } from "@/types/prism-selection";
+import type { PrismSemanticIndex, SemanticComponent } from "@/types/prism-selection";
 
 type DesignSearchFieldProps = {
     semanticIndex: PrismSemanticIndex | null;
+    /**
+     * Effective component projection (VAR-11) to search instead of the index's
+     * base list; the base index still supplies nets, terminals and page names.
+     */
+    components?: readonly SemanticComponent[] | null;
     currentPage?: string | null;
     loading?: boolean;
     active?: boolean;
@@ -58,6 +63,7 @@ function scrollListChildIntoView(list: HTMLElement, child: HTMLElement) {
 
 export function DesignSearchField({
     semanticIndex,
+    components = null,
     currentPage,
     loading = false,
     active = true,
@@ -73,8 +79,12 @@ export function DesignSearchField({
     const [rawActiveIndex, setActiveIndex] = useState(0);
 
     const hits = useMemo(
-        () => searchDesignEntities(semanticIndex, query, { currentPage }),
-        [currentPage, query, semanticIndex],
+        () =>
+            searchDesignEntities(semanticIndex, query, {
+                currentPage,
+                components: components ?? undefined,
+            }),
+        [components, currentPage, query, semanticIndex],
     );
     // A hit list that has shrunk past the highlight takes the highlight back to
     // the top during render, rather than after a commit that showed the wrong
@@ -194,7 +204,7 @@ export function DesignSearchField({
     const showHits = open && !loading && hits.length > 0;
 
     return createPortal(
-        <div ref={rootRef} className="relative mx-auto w-full max-w-xl">
+        <div ref={rootRef} className="relative w-full">
             <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input

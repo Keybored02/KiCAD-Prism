@@ -43,6 +43,13 @@ export function SourceStep({
     onContinue: () => void;
 }) {
     const ready = Boolean(commitSha && source?.board && source.schematic);
+    // The default design is always an explicit choice, even when the revision
+    // has named variants. Its stored value is the executor's `default`
+    // sentinel, never a presentation label.
+    const variantOptions = Array.from(
+        new Set(["default", ...(source?.variants ?? [])].filter(Boolean)),
+    );
+    const selectedVariant = variantOptions.includes(variant) ? variant : "default";
     return (
         <div className="space-y-5">
             <h3 className="text-lg font-semibold">Source</h3>
@@ -78,13 +85,15 @@ export function SourceStep({
                 <Field label="Variant" htmlFor="rs-source-variant">
                     <select
                         id="rs-source-variant"
-                        value={variant}
-                        disabled={!source?.variants.length || Boolean(busy)}
+                        value={selectedVariant}
+                        disabled={Boolean(busy)}
                         onChange={(event) => onVariant(event.target.value)}
                         className="flex h-9 w-full border border-input bg-background px-3 py-1.5 text-sm leading-none"
                     >
-                        {(source?.variants.length ? source.variants : ["default"]).map((item) => (
-                            <option key={item} value={item}>{item}</option>
+                        {variantOptions.map((item) => (
+                            <option key={item} value={item}>
+                                {item === "default" ? "Default" : item}
+                            </option>
                         ))}
                     </select>
                 </Field>

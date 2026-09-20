@@ -3,6 +3,12 @@ import { ExternalLink, PackageSearch, RefreshCw, RotateCcw } from "lucide-react"
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+    BomAssemblyFilterControl,
+    filterComponentsForAssembly,
+    isAssembled,
+    type BomAssemblyFilter,
+} from "@/components/design-variants/assembly-filter";
 import { cn } from "@/lib/utils";
 import type {
     PrismSelection,
@@ -15,6 +21,7 @@ export const BOM_REQUIRED_COLUMNS = [
     "Qty",
     "Value",
     "DNP",
+    "In BOM",
     "Description",
     "Datasheet",
     "Manufacturer",
@@ -30,6 +37,8 @@ export const BOM_REQUIRED_COLUMNS = [
     "Power Dissipation (W)",
     "Rate",
 ] as const;
+
+const EMPTY_COMPONENTS: SemanticComponent[] = [];
 
 interface BomGroup {
     key: string;
@@ -50,6 +59,11 @@ interface EngineeringBomTableProps {
     selection: PrismSelection | null;
     onSelection: (selection: PrismSelection) => void;
     onRetry: () => void;
+    /**
+     * Effective components for the active assembly selection (VAR-11's
+     * projection). When omitted the table shows the base index.
+     */
+    components?: SemanticComponent[] | null;
 }
 
 const naturalReferenceSort = (left: SemanticComponent, right: SemanticComponent) =>
@@ -166,6 +180,7 @@ const groupMatchesQuery = (group: BomGroup, query: string): boolean => {
     });
 };
 
+// react-doctor-disable-next-line no-giant-component - the table's grouping, field model, search syntax, resizing and rendering share one column/group model, and the D1 filter adds only its own small state on top; splitting it would scatter that single model across files.
 export function EngineeringBomTable({
     semanticIndex,
     loading,
@@ -173,8 +188,20 @@ export function EngineeringBomTable({
     selection,
     onSelection,
     onRetry,
+    components,
 }: EngineeringBomTableProps) {
     const [query, setQuery] = useState("");
+    const [assemblyFilter, setAssemblyFilter] =
+        useState<BomAssemblyFilter>("all");
+    const allComponents = components ?? semanticIndex?.components ?? EMPTY_COMPONENTS;
+    const assemblyCount = useMemo(
+        () => allComponents.filter(isAssembled).length,
+        [allComponents],
+    );
+    const filteredComponents = useMemo(
+        () => filterComponentsForAssembly(allComponents, assemblyFilter),
+        [allComponents, assemblyFilter],
+    );
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
         if (typeof window === "undefined") return {};
         try {
@@ -206,17 +233,17 @@ export function EngineeringBomTable({
     const columns = useMemo(() => {
         const required = new Set<string>(BOM_REQUIRED_COLUMNS);
         const extras = new Set<string>();
-        for (const component of semanticIndex?.components || []) {
+        for (const component of allComponents) {
             for (const field of Object.keys(component.fields || {})) {
                 if (!required.has(field) && !isInternalField(field)) extras.add(field);
             }
         }
         return [...BOM_REQUIRED_COLUMNS, ...[...extras].sort((left, right) => left.localeCompare(right))];
-    }, [semanticIndex]);
+    }, [allComponents]);
 
     const groups = useMemo(() => {
         const byValue = new Map<string, SemanticComponent[]>();
-        for (const component of semanticIndex?.components || []) {
+        for (const component of filteredComponents) {
             const fields = componentFields(component);
             const valueKey = fields.Value.trim().toLocaleLowerCase();
             const group = byValue.get(valueKey) || [];
@@ -235,7 +262,7 @@ export function EngineeringBomTable({
                     sensitivity: "base",
                 }),
             );
-    }, [semanticIndex]);
+    }, [filteredComponents]);
 
     const visibleGroups = useMemo(() => {
         if (!query.trim()) return groups;
@@ -292,7 +319,17 @@ export function EngineeringBomTable({
                     />
                 </div>
                 <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{semanticIndex.components.length} components</span>
+                    <BomAssemblyFilterControl
+                        value={assemblyFilter}
+                        onChange={setAssemblyFilter}
+                        allCount={allComponents.length}
+                        assemblyCount={assemblyCount}
+                    />
+                    <span>
+                        {assemblyFilter === "all"
+                            ? `${allComponents.length} components`
+                            : `${filteredComponents.length} of ${allComponents.length} components`}
+                    </span>
                     <Badge variant="outline">{visibleGroups.length} groups</Badge>
                     <Button
                         type="button"
@@ -415,6 +452,9 @@ export function EngineeringBomTable({
                                             } else if (column === "DNP") {
                                                 const isDnp = value.toLocaleLowerCase() === "yes";
                                                 content = <Badge variant={isDnp ? "destructive" : "outline"}>{value || "No"}</Badge>;
+                                            } else if (column === "In BOM") {
+                                                const excluded = value.toLocaleLowerCase() === "no";
+                                                content = <Badge variant={excluded ? "destructive" : "outline"}>{value || "Yes"}</Badge>;
                                             } else {
                                                 content = <span className="block max-w-sm truncate" title={value}>{value || "—"}</span>;
                                             }

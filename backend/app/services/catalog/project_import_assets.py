@@ -16,6 +16,27 @@ from app.services.catalog.revision_kernel import CatalogRevisionKernel
 
 SUPPORTED_ASSET_TYPES = ("symbol", "footprint", "3dmodel", "spice")
 PLACE_REQUIRED_ASSET_TYPES = ("symbol", "footprint")
+IMPORT_UNCHANGED_METADATA_FIELDS: tuple[str, ...] = (
+    "name",
+    "value",
+    "description",
+    "datasheet_url",
+    "manufacturer",
+    "mpn",
+    "category",
+    "package_name",
+    "vendor",
+    "vendor_part_number",
+    "mass_g",
+    "rqjc_c_w",
+    "rqjc_top_c_w",
+    "temp_max_c",
+    "temp_min_c",
+    "power_dissipation_w",
+    "rate",
+    "sap_code",
+    "summary",
+)
 
 
 @dataclass(frozen=True)
@@ -210,27 +231,7 @@ class CatalogProjectImportAssets:
         metadata: dict[str, Any],
         selected_assets: dict[str, list[dict[str, Any]]],
     ) -> bool:
-        metadata_fields = (
-            "name",
-            "value",
-            "description",
-            "datasheet_url",
-            "manufacturer",
-            "mpn",
-            "category",
-            "package_name",
-            "vendor",
-            "vendor_part_number",
-            "mass_g",
-            "rqjc_c_w",
-            "rqjc_top_c_w",
-            "temp_max_c",
-            "temp_min_c",
-            "power_dissipation_w",
-            "rate",
-            "sap_code",
-            "summary",
-        )
+        metadata_fields = IMPORT_UNCHANGED_METADATA_FIELDS
         if any(str(revision.get(field) or "") != str(metadata.get(field) or "") for field in metadata_fields):
             return False
         if _json_loads(revision.get("extra_fields"), {}) != metadata.get("extra_fields", {}):
@@ -274,4 +275,8 @@ class CatalogProjectImportAssets:
                     raise ValueError(f"Staged {asset_type} asset is missing or has changed")
 
 
-__all__ = ["CatalogAssetSearchPlan", "CatalogProjectImportAssets"]
+__all__ = [
+    "CatalogAssetSearchPlan",
+    "CatalogProjectImportAssets",
+    "IMPORT_UNCHANGED_METADATA_FIELDS",
+]

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Box, Layers3, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import { Box, Eye, EyeOff, Layers3, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,8 +14,10 @@ import {
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
+import { dnpVisibilityNotice } from "./design-variants/dnp-visibility";
 import type { User } from "@/types/auth";
 import type { PrismSelection } from "@/types/prism-selection";
+import type { HighlightedNet } from "@/lib/net-highlights";
 import type {
     PrismRendererSelection,
     PrismSemanticViewerElement,
@@ -86,8 +88,17 @@ interface WebGpu3dTabProps {
     active: boolean;
     workspace: "pcb" | "stackup";
     selection: PrismSelection | null;
+    /** Nets accumulated with shift-click; every one renders emphasised (#305). */
+    highlightedNets?: readonly HighlightedNet[];
     onSelection: (selection: PrismSelection) => void;
     onClearSelection: () => void;
+    /** Unambiguous footprint-effective DNP references (VAR-19). */
+    hiddenComponents?: readonly string[];
+    /** References kept visible because they own several footprints. */
+    ambiguousComponents?: readonly string[];
+    /** Local Show DNP override; never changes the variant. */
+    showDnp?: boolean;
+    onShowDnpChange?: (showDnp: boolean) => void;
 }
 
 const selectionForRenderer = (selection: PrismSelection | null): PrismRendererSelection | null => {
@@ -105,6 +116,13 @@ const selectionForRenderer = (selection: PrismSelection | null): PrismRendererSe
     };
 };
 
+const highlightsForRenderer = (nets: readonly HighlightedNet[]): PrismRendererSelection[] =>
+    nets.map((net) => ({ netName: net.netName, netUid: net.netUid, netCode: net.netCode }));
+
+/** Stable defaults: a fresh `[]` on every render would re-run the apply effect. */
+const NO_COMPONENTS: readonly string[] = [];
+const NO_NETS: readonly HighlightedNet[] = [];
+
 // react-doctor-disable-next-line no-giant-component - WebGPU render loop lifecycle cannot be split without lifting GPU handles
 export function WebGpu3dTab({
     projectId,
@@ -113,8 +131,13 @@ export function WebGpu3dTab({
     active,
     workspace,
     selection,
+    highlightedNets = NO_NETS,
     onSelection,
     onClearSelection,
+    hiddenComponents = NO_COMPONENTS,
+    ambiguousComponents = NO_COMPONENTS,
+    showDnp = false,
+    onShowDnpChange,
 }: WebGpu3dTabProps) {
     const viewerRef = useRef<PrismSemanticViewerElement | null>(null);
     const selectionRef = useCommittedRef(selection);
@@ -249,6 +272,12 @@ export function WebGpu3dTab({
         viewerRef.current?.setSelection(selectionForRenderer(selection));
     }, [selection, viewerReady]);
 
+    // The element replays the last set on its next controller, so applying
+    // before ready or across a reload is safe.
+    useEffect(() => {
+        viewerRef.current?.setHighlightedNets?.(highlightsForRenderer(highlightedNets));
+    }, [highlightedNets, viewerElement]);
+
     useEffect(() => {
         if (!active || !viewerReady) return;
         const frame = window.requestAnimationFrame(() => {
@@ -316,6 +345,29 @@ export function WebGpu3dTab({
             node.removeEventListener("prism-semantic-viewer:error", handleError);
         };
     }, [onClearSelection, onSelection, projectId, selectionRef, status?.sourceRevisionKey, tabLoadStartedAt, viewerElement]);
+
+    // VAR-19: the PCB 3D workspace hides unambiguous footprint-effective DNP
+    // models. The element replays the set across reloads; this effect covers
+    // mount, ready and plan changes, and the stackup workspace never changes
+    // component visibility. Ambiguous pairs are never in this list (VAR-18
+    // keeps them visible), so no DNP state is guessed.
+    useEffect(() => {
+        if (isStackup) return;
+        const node = viewerElement;
+        if (!node) return;
+        let cancelled = false;
+        void customElements.whenDefined("prism-semantic-viewer").then(() => {
+            if (cancelled) return;
+            node.setHiddenComponents([...hiddenComponents]);
+        });
+        return () => { cancelled = true; };
+    }, [hiddenComponents, isStackup, viewerElement, viewerReady]);
+
+    const ambiguityNotice = dnpVisibilityNotice({
+        hidden: [],
+        ambiguous: [...ambiguousComponents],
+        absent: [],
+    });
 
     const readiness = job?.readiness ?? status?.readiness;
     const readinessStage = readiness?.stage || (status?.status === "ready" ? "semantic-ready" : "generating");
@@ -472,6 +524,28 @@ export function WebGpu3dTab({
                     <Badge variant="secondary" className="pointer-events-auto gap-1 shadow-sm">
                         <Loader2 className="h-3 w-3 animate-spin" />
                         {stageLabel}
+                    </Badge>
+                )}
+                {!isStackup && onShowDnpChange && (
+                    <Button
+                        className="pointer-events-auto shadow-sm"
+                        size="sm"
+                        variant={showDnp ? "default" : "secondary"}
+                        aria-pressed={showDnp}
+                        onClick={() => onShowDnpChange(!showDnp)}
+                        title="Show components marked do-not-populate for the selected variant"
+                    >
+                        {showDnp ? <Eye className="mr-2 h-3.5 w-3.5" /> : <EyeOff className="mr-2 h-3.5 w-3.5" />}
+                        {showDnp ? "Showing DNP" : "Show DNP"}
+                    </Button>
+                )}
+                {!isStackup && ambiguityNotice && (
+                    <Badge
+                        variant="outline"
+                        className="pointer-events-auto shadow-sm"
+                        title={ambiguityNotice}
+                    >
+                        {ambiguousComponents.length} alternate-footprint {ambiguousComponents.length === 1 ? "part" : "parts"} stay visible
                     </Badge>
                 )}
                 {canGenerate && (

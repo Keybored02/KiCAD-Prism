@@ -12,6 +12,7 @@ import {
     LibraryBig,
     LoaderCircle,
     Network,
+    Route,
     Waypoints,
     X,
 } from "lucide-react";
@@ -21,7 +22,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { labelInstanceListLabel, type LabelInstanceRef } from "@/lib/label-instances";
+import { netFromSelection, netLeafName, sameHighlightedNet, type HighlightedNet } from "@/lib/net-highlights";
 import { selectionLabel } from "@/lib/prism-selection";
+import type { EcadNetStatistics } from "@/types/ecad-viewer";
 import type {
     PrismSelection,
     PrismSelectionContext,
@@ -31,10 +34,23 @@ import type {
     SemanticTerminal,
 } from "@/types/prism-selection";
 
+/** A highlighted net as the inspector lists it, with its copper summary. */
+export interface HighlightedNetEntry {
+    net: HighlightedNet;
+    /** Null while the board is loading or when the board has no such net. */
+    statistics: EcadNetStatistics | null;
+}
+
 interface SelectionInspectorProps {
     open: boolean;
+    /** The inspected object; null shows the highlighted nets on their own. */
     selection: PrismSelection | null;
     semanticIndex: PrismSemanticIndex | null;
+    /**
+     * Effective components for the active assembly selection (VAR-11's
+     * projection). When omitted the inspector shows the base index.
+     */
+    components?: SemanticComponent[] | null;
     onOpenChange: (open: boolean) => void;
     onClear: () => void;
     onImportComponent?: () => void;
@@ -49,23 +65,45 @@ interface SelectionInspectorProps {
     /** Layer name -> swatch color, so the Layer row can show the layer's color. */
     layerColors?: Record<string, string>;
     /**
+     * Routing summary for the selected net (or the terminal's net), read from
+     * the loaded board. Shown only in the PCB view; null while the board is
+     * still loading or when the net has no copper.
+     */
+    netStatistics?: EcadNetStatistics | null;
+    /**
      * The view currently on screen. When set, the card presents the (cross-
      * probed) selection as it belongs to this view, overriding the context the
      * selection was originally made in.
      */
     viewContext?: "SCH" | "PCB";
+    /**
+     * Every net in the review's highlight collection (#305), listed so the
+     * panel reflects the whole set rather than only the last click.
+     */
+    highlightedNets?: readonly HighlightedNetEntry[];
+    /** Make a listed net the inspected object. */
+    onInspectHighlightedNet?: (net: HighlightedNet) => void;
+    /** Drop a listed net from the collection. */
+    onRemoveHighlightedNet?: (net: HighlightedNet) => void;
 }
+
+const NO_HIGHLIGHTS: readonly HighlightedNetEntry[] = [];
 
 const atIndex = <T,>(items: T[], index: number | undefined): T | undefined =>
     index === undefined ? undefined : items[index];
 
-function resolveComponent(selection: PrismSelection, index: PrismSemanticIndex | null): SemanticComponent | undefined {
+function resolveComponent(
+    selection: PrismSelection,
+    index: PrismSemanticIndex | null,
+    effectiveComponents?: SemanticComponent[] | null,
+): SemanticComponent | undefined {
     if (!index || selection.kind === "net") return undefined;
+    const components = effectiveComponents ?? index.components;
     if (selection.componentUid) {
-        const byUid = index.components.find((component) => component.componentUid === selection.componentUid);
+        const byUid = components.find((component) => component.componentUid === selection.componentUid);
         if (byUid) return byUid;
     }
-    return atIndex(index.components, index.indexes.componentByReference?.[selection.reference]);
+    return atIndex(components, index.indexes.componentByReference?.[selection.reference]);
 }
 
 function resolveNet(selection: PrismSelection, index: PrismSemanticIndex | null): SemanticNet | undefined {
@@ -200,6 +238,25 @@ const resolvedItemType = (
     return "Net geometry";
 };
 
+// One layer name with its swatch, for the Layer row and the routing layer list.
+function LayerValue({ name, color }: { name: string; color?: string }) {
+    return (
+        <span className="inline-flex items-center justify-end gap-1.5">
+            {color && (
+                <span
+                    className="size-3 shrink-0 border"
+                    style={{ backgroundColor: color }}
+                    aria-hidden
+                />
+            )}
+            <span>{name}</span>
+        </span>
+    );
+}
+
+// Millimetres to four places, KiCad's Net Inspector precision.
+const formatLength = (mm: number): string => `${mm.toFixed(4)} mm`;
+
 function IntegrationRow({ icon: Icon, title, description }: {
     icon: typeof LibraryBig;
     title: string;
@@ -257,6 +314,125 @@ function CollapsibleSection({
     );
 }
 
+function HighlightedNetsSection({
+    entries,
+    inspected,
+    layerColors,
+    viewContext,
+    onInspect,
+    onRemove,
+}: {
+    entries: readonly HighlightedNetEntry[];
+    inspected: HighlightedNet | null;
+    layerColors?: Record<string, string>;
+    viewContext?: "SCH" | "PCB";
+    onInspect?: (net: HighlightedNet) => void;
+    onRemove?: (net: HighlightedNet) => void;
+}) {
+    return (
+        <CollapsibleSection title={`Highlighted nets (${entries.length})`} icon={Network}>
+            <ul className="border bg-card/40" aria-label="Highlighted nets">
+                {entries.map(({ net, statistics }) => {
+                    const label = netLeafName(net.netName);
+                    const current = inspected !== null && sameHighlightedNet(inspected, net);
+                    // Routing numbers describe copper, so they belong to the
+                    // PCB view; the schematic lists the names only.
+                    const routing = viewContext === "PCB" ? statistics : null;
+                    return (
+                        <li
+                            key={net.netName}
+                            className={cn(
+                                "flex items-start gap-1 border-b px-2 py-1.5 last:border-b-0",
+                                current && "bg-primary/10",
+                            )}
+                            aria-current={current ? "true" : undefined}
+                        >
+                            <button
+                                type="button"
+                                className="min-w-0 flex-1 text-left"
+                                title={net.netName}
+                                aria-label={`Inspect ${label}`}
+                                onClick={() => onInspect?.(net)}
+                                disabled={!onInspect}
+                            >
+                                <span className="block truncate font-mono font-medium">{label}</span>
+                                {routing && (
+                                    <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-muted-foreground">
+                                        <span className="tabular-nums">{formatLength(routing.routedLength)}</span>
+                                        {routing.layers.map((layer) => (
+                                            <LayerValue key={layer} name={layer} color={layerColors?.[layer]} />
+                                        ))}
+                                    </span>
+                                )}
+                                {viewContext === "PCB" && !routing && (
+                                    <span className="mt-0.5 block text-muted-foreground">No copper on this board</span>
+                                )}
+                            </button>
+                            {onRemove && (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    className="size-6 shrink-0"
+                                    aria-label={`Remove ${label} from highlights`}
+                                    onClick={() => onRemove(net)}
+                                >
+                                    <X className="size-3.5" aria-hidden />
+                                </Button>
+                            )}
+                        </li>
+                    );
+                })}
+            </ul>
+        </CollapsibleSection>
+    );
+}
+
+const inspectorAsideClassName = (embedded: boolean): string => cn(
+    "flex h-full flex-col bg-background",
+    embedded ? "w-full" : "relative z-30 w-96 shrink-0 border-l shadow-lg",
+);
+
+function InspectorFooter({ onClear }: { onClear: () => void }) {
+    return (
+        <footer className="flex shrink-0 items-center justify-between gap-2 border-t bg-card/70 p-2">
+            <span className="text-xs text-muted-foreground">Esc clears selection</span>
+            <Button size="sm" variant="outline" onClick={onClear}>Clear</Button>
+        </footer>
+    );
+}
+
+/** The panel with nothing inspected: only the highlight collection. */
+function HighlightsOnlyInspector({ embedded, onOpenChange, footer, children }: {
+    embedded: boolean;
+    onOpenChange: (open: boolean) => void;
+    footer: ReactNode;
+    children: ReactNode;
+}) {
+    return (
+        <aside className={inspectorAsideClassName(embedded)} aria-label="Selection inspector">
+            <header className="shrink-0 border-b bg-card/70 px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                    <nav aria-label="Selection breadcrumb" className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                        <span>Selection</span>
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate text-foreground">Highlighted nets</span>
+                    </nav>
+                    {!embedded && (
+                        <Button variant="ghost" size="icon-sm" aria-label="Close selection inspector" onClick={() => onOpenChange(false)}>
+                            <X className="h-4 w-4" />
+                        </Button>
+                    )}
+                </div>
+            </header>
+            <ScrollArea className="themed-scrollbar min-h-0 flex-1">
+                <div className="space-y-3 p-3 text-xs">{children}</div>
+            </ScrollArea>
+            {footer}
+        </aside>
+    );
+}
+
 function LibraryImportRow({ onImport, disabled, loading }: {
     onImport: () => void;
     disabled: boolean;
@@ -285,6 +461,7 @@ export function SelectionInspector({
     open,
     selection,
     semanticIndex,
+    components,
     onOpenChange,
     onClear,
     onImportComponent,
@@ -296,10 +473,36 @@ export function SelectionInspector({
     navigatingLabelInstance = false,
     embedded = false,
     layerColors,
+    netStatistics,
     viewContext,
+    highlightedNets = NO_HIGHLIGHTS,
+    onInspectHighlightedNet,
+    onRemoveHighlightedNet,
 }: SelectionInspectorProps) {
-    if (!open || !selection) return null;
-    const component = resolveComponent(selection, semanticIndex);
+    if (!open) return null;
+    const asideClassName = inspectorAsideClassName(embedded);
+    const footer = <InspectorFooter onClear={onClear} />;
+    const highlightedSection = highlightedNets.length > 0 && (
+        <HighlightedNetsSection
+            entries={highlightedNets}
+            inspected={netFromSelection(selection, semanticIndex)}
+            layerColors={layerColors}
+            viewContext={viewContext}
+            onInspect={onInspectHighlightedNet}
+            onRemove={onRemoveHighlightedNet}
+        />
+    );
+    if (!selection) {
+        // Nothing inspected, but the collection still stands: list it so the
+        // reviewer can see, inspect and prune what they have accumulated.
+        if (!highlightedSection) return null;
+        return (
+            <HighlightsOnlyInspector embedded={embedded} onOpenChange={onOpenChange} footer={footer}>
+                {highlightedSection}
+            </HighlightsOnlyInspector>
+        );
+    }
+    const component = resolveComponent(selection, semanticIndex, components);
     const net = resolveNet(selection, semanticIndex);
     const terminal = resolveTerminal(selection, semanticIndex);
     const SelectionIcon = selection.kind === "component" ? Cpu : selection.kind === "terminal" ? Waypoints : Network;
@@ -309,6 +512,9 @@ export function SelectionInspector({
         ? labelInstances.findIndex((instance) => instance.uuid === activeUuid)
         : -1;
     const showLabelNav = labelInstances.length >= 2 && Boolean(onNavigateLabelInstance);
+    // Routing numbers describe copper, so they belong to the PCB view only;
+    // the same net selected in the schematic shows connectivity instead.
+    const routing = selection.kind !== "component" && viewContext === "PCB" ? netStatistics ?? null : null;
     const labelOrdinal = labelIndex >= 0 ? labelIndex + 1 : 1;
     const currentInstance = labelInstances[labelIndex >= 0 ? labelIndex : 0];
     const currentInstanceLabel = currentInstance
@@ -316,15 +522,7 @@ export function SelectionInspector({
         : undefined;
 
     return (
-        <aside
-            className={cn(
-                "flex h-full flex-col bg-background",
-                embedded
-                    ? "w-full"
-                    : "relative z-30 w-96 shrink-0 border-l shadow-lg",
-            )}
-            aria-label="Selection inspector"
-        >
+        <aside className={asideClassName} aria-label="Selection inspector">
             <header className="shrink-0 border-b bg-card/70 px-3 py-2">
                 <div className="flex items-center justify-between gap-3">
                     <nav aria-label="Selection breadcrumb" className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
@@ -357,6 +555,12 @@ export function SelectionInspector({
 
             <ScrollArea className="themed-scrollbar min-h-0 flex-1">
                 <div className="space-y-3 p-3 text-xs">
+                    {highlightedSection && (
+                        <>
+                            {highlightedSection}
+                            <Separator />
+                        </>
+                    )}
                     {showLabelNav && (
                         <CollapsibleSection title="Instances">
                             <div className="flex items-center justify-between gap-2 border bg-card/40 px-3 py-2">
@@ -431,16 +635,10 @@ export function SelectionInspector({
                             <PropertyRow
                                 label="Layer"
                                 value={selection.anchor?.layer && (
-                                    <span className="inline-flex items-center justify-end gap-1.5">
-                                        {layerColors?.[selection.anchor.layer] && (
-                                            <span
-                                                className="size-3 shrink-0 border"
-                                                style={{ backgroundColor: layerColors[selection.anchor.layer] }}
-                                                aria-hidden
-                                            />
-                                        )}
-                                        <span>{selection.anchor.layer}</span>
-                                    </span>
+                                    <LayerValue
+                                        name={selection.anchor.layer}
+                                        color={layerColors?.[selection.anchor.layer]}
+                                    />
                                 )}
                             />
                         </dl>
@@ -500,6 +698,29 @@ export function SelectionInspector({
                         </>
                     )}
 
+                    {routing && (
+                        <>
+                            <Separator />
+                            <CollapsibleSection title="Routing" icon={Route}>
+                                <dl data-testid="net-routing">
+                                    <PropertyRow label="Routed length" value={formatLength(routing.routedLength)} />
+                                    <PropertyRow
+                                        label="Layers used"
+                                        value={routing.layers.length > 0 ? (
+                                            <span className="flex flex-wrap justify-end gap-x-3 gap-y-1">
+                                                {routing.layers.map((layer) => (
+                                                    <LayerValue key={layer} name={layer} color={layerColors?.[layer]} />
+                                                ))}
+                                            </span>
+                                        ) : undefined}
+                                    />
+                                    <PropertyRow label="Tracks" value={routing.trackCount} />
+                                    <PropertyRow label="Vias" value={routing.viaCount} />
+                                </dl>
+                            </CollapsibleSection>
+                        </>
+                    )}
+
                     {(terminal || net) && (
                         <>
                             <Separator />
@@ -523,10 +744,7 @@ export function SelectionInspector({
                 </div>
             </ScrollArea>
 
-            <footer className="flex shrink-0 items-center justify-between gap-2 border-t bg-card/70 p-2">
-                <span className="text-xs text-muted-foreground">Esc clears selection</span>
-                <Button size="sm" variant="outline" onClick={onClear}>Clear</Button>
-            </footer>
+            {footer}
         </aside>
     );
 }

@@ -68,7 +68,7 @@ interface NetRecord {
     tokens: string;
 }
 
-const componentEngines = new WeakMap<PrismSemanticIndex, Fuse<ComponentRecord>>();
+const componentEngines = new WeakMap<object, Fuse<ComponentRecord>>();
 const netEngines = new WeakMap<PrismSemanticIndex, Fuse<NetRecord>>();
 
 export function searchDesignEntities(
@@ -77,6 +77,11 @@ export function searchDesignEntities(
     options?: {
         currentPage?: string | null;
         limit?: number;
+        /**
+         * Effective components for the active assembly selection (VAR-11's
+         * projection). When omitted the base index is searched.
+         */
+        components?: readonly SemanticComponent[] | null;
     },
 ): DesignSearchHit[] {
     const needle = query.trim();
@@ -85,7 +90,7 @@ export function searchDesignEntities(
     const limit = options?.limit ?? DEFAULT_GROUP_LIMIT;
     const currentPage = options?.currentPage ?? null;
 
-    const components = componentEngine(index)
+    const components = componentEngine(index, options?.components)
         .search(needle)
         .slice(0, limit)
         .map((result) => componentHit(result.item.component, fuseScore(result.score), currentPage));
@@ -135,11 +140,15 @@ export function selectionFromDesignSearchHit(
     };
 }
 
-function componentEngine(index: PrismSemanticIndex): Fuse<ComponentRecord> {
-    const cached = componentEngines.get(index);
+function componentEngine(
+    index: PrismSemanticIndex,
+    effectiveComponents?: readonly SemanticComponent[] | null,
+): Fuse<ComponentRecord> {
+    const key: object = effectiveComponents ?? index;
+    const cached = componentEngines.get(key);
     if (cached) return cached;
     const engine = new Fuse(
-        index.components.map((component) => {
+        (effectiveComponents ?? index.components).map((component) => {
             const fields = Object.values(component.fields ?? {}).flatMap(
                 (value) => {
                     const text = fieldText(value);
@@ -164,7 +173,7 @@ function componentEngine(index: PrismSemanticIndex): Fuse<ComponentRecord> {
             ],
         },
     );
-    componentEngines.set(index, engine);
+    componentEngines.set(key, engine);
     return engine;
 }
 

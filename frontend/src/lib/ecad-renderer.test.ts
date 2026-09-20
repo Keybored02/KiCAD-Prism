@@ -72,6 +72,59 @@ describe("asset text caching", () => {
     expect(first).toBe("(kicad_symbol_lib)");
     expect(second).toBe("(kicad_symbol_lib)");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(url, {
+      credentials: "same-origin",
+      headers: undefined,
+    });
+  });
+
+  it("does not reuse a cached body across auth scopes", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve("cookie-body"),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve("token-body"),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const url = "/api/remote-provider/assets/scoped/content";
+    await expect(loadAssetText(url)).resolves.toBe("cookie-body");
+    await expect(
+      loadAssetText(url, {
+        authScope: "panel:1:authed",
+        headers: { Authorization: "Bearer token" },
+        credentials: "include",
+      }),
+    ).resolves.toBe("token-body");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual({
+      credentials: "include",
+      headers: { Authorization: "Bearer token" },
+    });
+  });
+
+  it("does not remember a 401 as the answer after credentials change", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve("(symbol)"),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const url = "/api/remote-provider/assets/unauthorized-then-ok/content";
+    await expect(loadAssetText(url)).rejects.toMatchObject({
+      name: "AssetTextHttpError", status: 401,
+    });
+    await expect(
+      loadAssetText(url, { authScope: "panel:2:authed" }),
+    ).resolves.toBe("(symbol)");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("does not remember a failed request as the answer", async () => {

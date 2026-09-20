@@ -9,6 +9,7 @@ import io
 import re
 from typing import Any, Mapping
 
+from app.services.catalog.metadata_descriptors import BUILTIN_METADATA_DESCRIPTORS
 from app.services.catalog.metadata_schema import METADATA_SCHEMA_VERSION
 from app.services.catalog.normalization import json_loads as _json_loads, slugify
 
@@ -300,23 +301,12 @@ class CatalogMetadataCsv:
         if row.get("spice_file_path"):
             asset_links.append(("spice", row["spice_file_path"], "", ""))
         payload = {
-            "value": row["value"],
-            "description": row["description"],
-            "datasheet_url": row["datasheet"],
-            "manufacturer": row["manufacturer"],
-            "mpn": row["manufacturer_part_number"],
-            "category": row.get("category", ""),
-            "package_name": row.get("package_name", ""),
-            "vendor": row.get("vendor", ""),
-            "vendor_part_number": row.get("vendor_part_number", ""),
-            "mass_g": row.get("mass_g", ""),
-            "rqjc_c_w": row.get("rqjc_c_w", ""),
-            "rqjc_top_c_w": row.get("rqjc_top_c_w", ""),
-            "temp_max_c": row.get("temp_max_c", ""),
-            "temp_min_c": row.get("temp_min_c", ""),
-            "power_dissipation_w": row.get("power_dissipation_w", ""),
-            "rate": row.get("rate", ""),
-            "sap_code": row.get("sap_code", ""),
+            descriptor.key: (
+                row[descriptor.request_csv_field()]
+                if descriptor.request_csv_field() in CSV_REQUIRED_COLUMNS
+                else row.get(descriptor.request_csv_field(), "")
+            )
+            for descriptor in BUILTIN_METADATA_DESCRIPTORS
         }
         return PreparedMetadataCsvImportRow(
             row=row,

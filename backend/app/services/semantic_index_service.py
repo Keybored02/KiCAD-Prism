@@ -16,18 +16,40 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Iterator
 
 from app.core.config import settings
-from app.services import path_config_service, semantic_visualizer_service
+from app.services import (
+    kicad_monkey_design_adapter,
+    path_config_service,
+    project_source_snapshot,
+    semantic_index_nets,
+    semantic_index_variants,
+    semantic_visualizer_service,
+    variant_catalog_service,
+    variant_source_scan,
+)
+from app.services.kicad_monkey_design_adapter import KiCadMonkeyDesign
 
 
 SCHEMA = "prism.semantic_index_a0"
 GENERATOR_NAME = "kicad-prism-semantic-index"
-GENERATOR_VERSION = "0.1.0"
+GENERATOR_VERSION = "0.2.0"
 _GENERATOR_INPUTS = ("semantic-index", SCHEMA, GENERATOR_VERSION)
+# The build identity covers every module whose logic shapes the payload, so a
+# change to the kicad-monkey adapter, the variant resolver or the catalog
+# discovery invalidates cached indexes like a change to this file does.
+GENERATOR_MODULE_PATHS = (
+    Path(__file__),
+    Path(kicad_monkey_design_adapter.__file__),
+    Path(semantic_index_nets.__file__),
+    Path(semantic_index_variants.__file__),
+    Path(variant_catalog_service.__file__),
+    Path(project_source_snapshot.__file__),
+    Path(variant_source_scan.__file__),
+)
 GENERATOR_BUILD = hashlib.sha256(
     b"\0".join(
         (
             "|".join(_GENERATOR_INPUTS).encode("utf-8"),
-            Path(__file__).read_bytes(),
+            *(path.read_bytes() for path in GENERATOR_MODULE_PATHS),
         )
     )
 ).hexdigest()[:12]
@@ -104,7 +126,7 @@ def _source_entries_on_disk(root: Path) -> list[tuple[str, str]]:
     for path in sorted(root.rglob("*")):
         if not path.is_file() or ".git" in path.parts:
             continue
-        if path.suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES:
+        if path.suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES and path.name != ".prism.json":
             continue
         entries.append((path.relative_to(root).as_posix(), _blob_id(path.read_bytes())))
     return entries
@@ -144,7 +166,7 @@ def _source_entries_in_commit(
         if not path.startswith(prefix):
             continue
         relative = path[len(prefix):]
-        if Path(relative).suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES:
+        if Path(relative).suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES and Path(relative).name != ".prism.json":
             continue
         entries.append((relative, parts[2]))
     return entries
@@ -797,6 +819,7 @@ def build_semantic_index(
     timing_callback: Callable[[dict[str, Any]], None] | None = None,
     include_pcb: bool = True,
     include_components: bool = True,
+    include_assembly: bool = True,
     pcb: Any = None,
 ) -> dict[str, Any]:
     def timed(phase: str, action: Callable[[], Any], **metadata: Any) -> Any:
@@ -824,59 +847,26 @@ def build_semantic_index(
             "KICAD_MONKEY_PYTHONPATH or install the package in the backend runtime"
         ) from exc
 
-    design = timed("load-project", lambda: KiCadDesign.from_project_file(project_file))
-    # Whether the caller handed us an already-parsed board. Captured before `pcb`
-    # is reassigned below, so the detach on the upstream fallback can tell an
-    # injected board (keep it) from one it would otherwise lazily parse (drop it).
-    board_was_injected = pcb is not None
-    if pcb is not None:
-        # The Release Studio projections already parsed this board. Re-parsing
-        # it here is the single largest avoidable cost on a large `.kicad_pcb`.
-        design._pcb = pcb
-    compile_netlist = getattr(design, "to_netlist", None)
-    netlist = timed("compile-netlist", compile_netlist) if callable(compile_netlist) else None
+    design = timed(
+        "load-project",
+        lambda: KiCadMonkeyDesign(KiCadDesign.from_project_file(project_file), board=pcb),
+    )
+    netlist = timed("compile-netlist", design.netlist)
     # kicad_design_to_json materializes PnP data and therefore accesses the
     # lazily parsed board. Resolve it explicitly so benchmark output separates
     # the parser cost from the much smaller JSON projection cost.
-    pcb = timed("load-pcb", lambda: design.pcb) if include_pcb else None
-
-    def materialize_design_json() -> dict[str, Any]:
-        try:
-            return design.to_json(
-                include_indexes=True,
-                include_pcb=include_pcb,
-            )
-        except TypeError as exc:
-            # Compatibility with an older installed kicad-monkey. The local
-            # optimized tree supports include_pcb=False; upstream releases
-            # without it remain functional.
-            if "include_pcb" not in str(exc):
-                raise
-            if not include_pcb and not board_was_injected:
-                # The upstream to_json has no include_pcb switch, so its PnP
-                # projection would lazily parse the whole `.kicad_pcb` even
-                # though this caller does not want board data. That board parse
-                # is the single largest cost of a schematic-only build (~25s on
-                # a 9MB board). Detach the board so the projection skips it; the
-                # PCB is parsed once, separately, by the stages that need it.
-                # An already-injected board is left in place: the caller paid to
-                # parse it, so dropping it here (and clearing pcb_path, which
-                # makes design.pcb return None instead of re-parsing) would throw
-                # that work away.
-                design._pcb = None
-                design.pcb_path = None
-            return design.to_json(include_indexes=True)
+    pcb = timed("load-pcb", design.board) if include_pcb else None
 
     design_payload = timed(
         "materialize-design-json",
-        materialize_design_json,
+        lambda: design.to_json(include_indexes=True, include_pcb=include_pcb),
         components=len(getattr(netlist, "components", ()) or ()),
         nets=len(getattr(netlist, "nets", ()) or ()),
         includePcb=include_pcb,
     )
     sheet_instances, buses, schematic_placements = timed(
         "project-schematic-instances",
-        lambda: _schematic_semantic_projection(design, project_file),
+        lambda: _schematic_semantic_projection(design.native, project_file),
     )
     source_fields_by_uuid = (
         timed(
@@ -1078,6 +1068,7 @@ def build_semantic_index(
         # One snapshot for the whole board: resolving each element against the
         # board rebuilds the net mapping every time.
         net_table = _net_table(pcb)
+        split_nets = semantic_index_nets.SplitNetClaims(net_by_name)
 
         def ensure_pcb_net(name: str, code: int | None) -> tuple[dict[str, Any], int] | tuple[None, None]:
             if not name:
@@ -1144,8 +1135,8 @@ def build_semantic_index(
                 elif terminal is not None:
                     terminal["pcbPadUuid"] = pad_uuid
                     if net_entry is not None:
-                        terminal["netUid"] = net_entry["netUid"]
-                        terminal["netName"] = name
+                        split_nets.note_pad(name, _string(terminal.get("netName")))
+                        terminal.update(netUid=net_entry["netUid"], netName=name)
                 if pad_uuid and terminal_index is not None:
                     indexes["terminalByPcbPadUuid"][pad_uuid] = terminal_index
 
@@ -1164,6 +1155,8 @@ def build_semantic_index(
                     continue
                 net_entry["pcbRefs"][0][target_key].append(source_uuid)
                 indexes["netByPcbUuid"][source_uuid] = net_index
+
+        split_nets.reconcile(nets, terminals, indexes)
 
     if timing_callback is not None:
         timing_callback(
@@ -1198,4 +1191,11 @@ def build_semantic_index(
         "buses": buses,
         "indexes": indexes,
     }
+    if include_assembly:
+        result["assembly"] = timed(
+            "resolve-variants",
+            lambda: semantic_index_variants.assemble_semantic_index(
+                design, project_file, components, schematic_placements
+            ),
+        )
     return result

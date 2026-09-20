@@ -5,6 +5,7 @@ Comment CRUD is backed by the PostgreSQL ``comments`` schema. Visualizer markers
 are published via ecad-viewer overlay scenes (never written into KiCad sources).
 """
 
+import asyncio
 import os
 import re
 from typing import List, Optional
@@ -208,11 +209,14 @@ async def list_mention_candidates(
     Workspace-scoped users available for @mentions in comments.
     Requires project access; list itself is instance-wide role assignments.
     """
-    get_project_for_role_or_404(project_id, user.role)
-    return [
-        MentionCandidate(email=item["email"], role=item["role"])
-        for item in access_service.list_role_assignments()
-    ]
+    def read() -> List[MentionCandidate]:
+        get_project_for_role_or_404(project_id, user.role)
+        return [
+            MentionCandidate(email=item["email"], role=item["role"])
+            for item in access_service.list_role_assignments()
+        ]
+
+    return await asyncio.to_thread(read)
 
 
 @router.get("/{project_id}/comments")
@@ -220,8 +224,11 @@ async def get_comments(project_id: str, user: AuthenticatedUser = Depends(requir
     """
     Get all comments for a project from DB snapshot.
     """
-    project = get_project_for_role_or_404(project_id, user.role)
-    return comments_store.get_comments_file(project.id, project.path)
+    def read():
+        project = get_project_for_role_or_404(project_id, user.role)
+        return comments_store.get_comments_file(project.id, project.path)
+
+    return await asyncio.to_thread(read)
 
 
 @router.get("/{project_id}/comparison-comments")
@@ -233,15 +240,21 @@ async def get_comparison_comments(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """List discussion threads for one immutable, explicitly ordered comparison."""
-    project = get_project_for_role_or_404(project_id, user.role)
     domain_norm = _normalize_context(domain) if domain else None
-    return comments_store.get_comparison_comments(
-        project_id=project.id,
-        project_path=project.path,
-        base_commit=_normalize_commit(base, "base"),
-        compare_commit=_normalize_commit(compare, "compare"),
-        comparison_domain=domain_norm,
-    )
+    base_commit = _normalize_commit(base, "base")
+    compare_commit = _normalize_commit(compare, "compare")
+
+    def read():
+        project = get_project_for_role_or_404(project_id, user.role)
+        return comments_store.get_comparison_comments(
+            project_id=project.id,
+            project_path=project.path,
+            base_commit=base_commit,
+            compare_commit=compare_commit,
+            comparison_domain=domain_norm,
+        )
+
+    return await asyncio.to_thread(read)
 
 
 @router.post(
@@ -254,7 +267,6 @@ async def create_comparison_comment(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """Create a comparison-, file-, group-, or semantic-item discussion."""
-    project = get_project_for_role_or_404(project_id, user.role)
     domain = _normalize_context(request.domain)
     anchor_kind = _normalize_anchor_kind(request.anchorKind)
     if anchor_kind in {"item", "group"} and not request.semanticItemId:
@@ -262,27 +274,38 @@ async def create_comparison_comment(
             status_code=400,
             detail="semanticItemId is required for item and group comments",
         )
-    return comments_store.create_comment(
-        project_id=project.id,
-        project_path=project.path,
-        context=domain,
-        location={"x": 0.0, "y": 0.0, "layer": "", "page": request.filePath or ""},
-        content=_normalize_content(request.content),
-        author=_normalize_author(request.author),
-        element_id=request.semanticItemId,
-        element_ref=request.semanticItemRef,
-        element_type=anchor_kind,
-        comment_class=_normalize_comment_class(request.commentClass),
-        severity=_normalize_severity(request.severity),
-        mentions=request.mentions,
-        scope="comparison",
-        base_commit=_normalize_commit(request.baseCommit, "baseCommit"),
-        compare_commit=_normalize_commit(request.compareCommit, "compareCommit"),
-        comparison_domain=domain,
-        file_path=request.filePath,
-        semantic_item_id=request.semanticItemId,
-        anchor_kind=anchor_kind,
-    )
+    content = _normalize_content(request.content)
+    author = _normalize_author(request.author)
+    comment_class = _normalize_comment_class(request.commentClass)
+    severity = _normalize_severity(request.severity)
+    base_commit = _normalize_commit(request.baseCommit, "baseCommit")
+    compare_commit = _normalize_commit(request.compareCommit, "compareCommit")
+
+    def write():
+        project = get_project_for_role_or_404(project_id, user.role)
+        return comments_store.create_comment(
+            project_id=project.id,
+            project_path=project.path,
+            context=domain,
+            location={"x": 0.0, "y": 0.0, "layer": "", "page": request.filePath or ""},
+            content=content,
+            author=author,
+            element_id=request.semanticItemId,
+            element_ref=request.semanticItemRef,
+            element_type=anchor_kind,
+            comment_class=comment_class,
+            severity=severity,
+            mentions=request.mentions,
+            scope="comparison",
+            base_commit=base_commit,
+            compare_commit=compare_commit,
+            comparison_domain=domain,
+            file_path=request.filePath,
+            semantic_item_id=request.semanticItemId,
+            anchor_kind=anchor_kind,
+        )
+
+    return await asyncio.to_thread(write)
 
 
 @router.post("/{project_id}/comments", dependencies=[Depends(require_designer)])
@@ -294,28 +317,33 @@ async def create_comment(
     """
     Create a new comment on the design.
     """
-    project = get_project_for_role_or_404(project_id, user.role)
-
     context = _normalize_context(request.context)
     content = _normalize_content(request.content)
     location = request.location.model_dump()
     location["bounds"] = _normalize_bounds(request.location.bounds)
+    author = _normalize_author(request.author)
+    comment_class = _normalize_comment_class(request.commentClass)
+    severity = _normalize_severity(request.severity)
 
-    return comments_store.create_comment(
-        project_id=project.id,
-        project_path=project.path,
-        context=context,
-        location=location,
-        content=content,
-        author=_normalize_author(request.author),
-        element_id=request.elementId,
-        element_ref=request.elementRef,
-        element_type=request.elementType,
-        comment_class=_normalize_comment_class(request.commentClass),
-        severity=_normalize_severity(request.severity),
-        mentions=request.mentions,
-        metadata=request.metadata,
-    )
+    def write():
+        project = get_project_for_role_or_404(project_id, user.role)
+        return comments_store.create_comment(
+            project_id=project.id,
+            project_path=project.path,
+            context=context,
+            location=location,
+            content=content,
+            author=author,
+            element_id=request.elementId,
+            element_ref=request.elementRef,
+            element_type=request.elementType,
+            comment_class=comment_class,
+            severity=severity,
+            mentions=request.mentions,
+            metadata=request.metadata,
+        )
+
+    return await asyncio.to_thread(write)
 
 
 @router.patch("/{project_id}/comments/{comment_id}", dependencies=[Depends(require_designer)])
@@ -328,8 +356,6 @@ async def update_comment(
     """
     Update a comment's status (e.g., resolve it).
     """
-    project = get_project_for_role_or_404(project_id, user.role)
-
     if request.status is None:
         raise HTTPException(status_code=400, detail="No update fields provided")
 
@@ -337,12 +363,16 @@ async def update_comment(
     if status not in {"OPEN", "RESOLVED"}:
         raise HTTPException(status_code=400, detail="Status must be 'OPEN' or 'RESOLVED'")
 
-    updated_comment = comments_store.update_comment_status(
-        project_id=project.id,
-        project_path=project.path,
-        comment_id=comment_id,
-        status=status,
-    )
+    def write():
+        project = get_project_for_role_or_404(project_id, user.role)
+        return comments_store.update_comment_status(
+            project_id=project.id,
+            project_path=project.path,
+            comment_id=comment_id,
+            status=status,
+        )
+
+    updated_comment = await asyncio.to_thread(write)
 
     if not updated_comment:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -360,15 +390,20 @@ async def add_reply(
     """
     Add a reply to an existing comment.
     """
-    project = get_project_for_role_or_404(project_id, user.role)
+    content = _normalize_content(request.content)
+    author = _normalize_author(request.author)
 
-    result = comments_store.add_reply(
-        project_id=project.id,
-        project_path=project.path,
-        comment_id=comment_id,
-        content=_normalize_content(request.content),
-        author=_normalize_author(request.author),
-    )
+    def write():
+        project = get_project_for_role_or_404(project_id, user.role)
+        return comments_store.add_reply(
+            project_id=project.id,
+            project_path=project.path,
+            comment_id=comment_id,
+            content=content,
+            author=author,
+        )
+
+    result = await asyncio.to_thread(write)
 
     if not result:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -386,13 +421,15 @@ async def delete_comment(
     """
     Delete a comment.
     """
-    project = get_project_for_role_or_404(project_id, user.role)
+    def write():
+        project = get_project_for_role_or_404(project_id, user.role)
+        return comments_store.delete_comment(
+            project_id=project.id,
+            project_path=project.path,
+            comment_id=comment_id,
+        )
 
-    deleted = comments_store.delete_comment(
-        project_id=project.id,
-        project_path=project.path,
-        comment_id=comment_id,
-    )
+    deleted = await asyncio.to_thread(write)
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -410,11 +447,13 @@ async def push_comments(project_id: str, user: AuthenticatedUser = Depends(requi
     Export DB snapshot to comments.json artifact only.
     Git commit/push is intentionally left to the user workflow.
     """
-    project = get_project_for_role_or_404(project_id, user.role)
+    def export() -> str:
+        project = get_project_for_role_or_404(project_id, user.role)
+        comments_path = comments_store.export_comments_json(project.id, project.path)
+        return os.path.relpath(comments_path, project.path)
 
     try:
-        comments_path = comments_store.export_comments_json(project.id, project.path)
-        comments_rel_path = os.path.relpath(comments_path, project.path)
+        comments_rel_path = await asyncio.to_thread(export)
 
         return {
             "success": True,

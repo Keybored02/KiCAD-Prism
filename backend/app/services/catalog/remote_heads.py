@@ -11,10 +11,9 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.catalog.component_read_models import (
-    STATE_FILES_PARTIAL,
-    STATE_METADATA_ONLY,
-    STATE_PLACE_READY,
-    supply_source_payload,
+    cad_availability,
+    inventory_payloads_from_source_rows,
+    remote_place_enabled,
 )
 from app.services.catalog.metadata_normalization import IDENTITY_KIND_MPN
 from app.services.catalog.normalization import json_loads
@@ -22,6 +21,7 @@ from app.services.catalog.preview_renderer import PREVIEW_STATUS_READY
 
 
 REMOTE_HEADS_MAX_PAGE_SIZE = 200
+REMOTE_HEAD_TIEBREAKER = "component_id"
 _PROJECTION_VERSION_SQL = "SELECT value FROM catalog_meta WHERE key = 'remote_component_heads_version'"
 
 
@@ -31,15 +31,7 @@ def remote_head_payload(raw: Any) -> dict[str, Any]:
     has_symbol = bool(row.get("has_symbol"))
     has_footprint = bool(row.get("has_footprint"))
     identity_kind = str(row.get("identity_kind") or IDENTITY_KIND_MPN)
-    missing_assets = [
-        kind for kind, present in (("symbol", has_symbol), ("footprint", has_footprint)) if not present
-    ]
-    if has_symbol and has_footprint:
-        availability_state = STATE_PLACE_READY
-    elif has_symbol or has_footprint:
-        availability_state = STATE_FILES_PARTIAL
-    else:
-        availability_state = STATE_METADATA_ONLY
+    availability_state, missing_assets = cad_availability(has_symbol, has_footprint)
     assets: list[dict[str, Any]] = []
     if has_symbol:
         assets.append(
@@ -83,11 +75,18 @@ def remote_head_payload(raw: Any) -> dict[str, Any]:
         "previews": previews,
         "availability_state": availability_state,
         "missing_assets": missing_assets,
-        "place_enabled": has_symbol and has_footprint and identity_kind == IDENTITY_KIND_MPN,
+        "place_enabled": remote_place_enabled(
+            is_active=True,
+            identity_kind=identity_kind,
+            missing_assets=missing_assets,
+            release_status="released",
+        ),
         "release_status": "released",
         "workflow_stage": "released",
         "supply": {
-            "sources": [supply_source_payload(source) for source in json_loads(row.get("inventory_sources"), [])]
+            "sources": inventory_payloads_from_source_rows(
+                json_loads(row.get("inventory_sources"), [])
+            )[1]
         },
         "default_representation_id": str(row.get("default_representation_id") or ""),
         "representation_count": int(row.get("representation_count") or 0),
@@ -141,11 +140,11 @@ class CatalogRemoteHeads:
                 "WHEN LOWER(mpn) = LOWER(%s) THEN 0 "
                 "WHEN LOWER(mpn) LIKE LOWER(%s) THEN 1 "
                 "WHEN LOWER(name) LIKE LOWER(%s) THEN 2 "
-                "ELSE 3 END, updated_at DESC"
+                f"ELSE 3 END, updated_at DESC, {REMOTE_HEAD_TIEBREAKER}"
             )
             order_params: list[Any] = [query_text, f"{query_text}%", f"{query_text}%"]
         else:
-            order_sql = "ORDER BY updated_at DESC"
+            order_sql = f"ORDER BY updated_at DESC, {REMOTE_HEAD_TIEBREAKER}"
             order_params = []
 
         total: int | None = None
@@ -200,4 +199,9 @@ class CatalogRemoteHeads:
         }
 
 
-__all__ = ["REMOTE_HEADS_MAX_PAGE_SIZE", "CatalogRemoteHeads", "remote_head_payload"]
+__all__ = [
+    "REMOTE_HEADS_MAX_PAGE_SIZE",
+    "REMOTE_HEAD_TIEBREAKER",
+    "CatalogRemoteHeads",
+    "remote_head_payload",
+]

@@ -82,7 +82,8 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 `backend/app/services/release_studio_build_service.py`
 (`run_release_studio_build_job`) → `backend/app/release_studio/pipeline.py` →
 `backend/app/release_studio/steps.py` · `backend/app/release_studio/jobset.py`
-→ `backend/app/release_studio/documents/` →
+→ `backend/app/release_studio/document_pipeline.py` ·
+`backend/app/release_studio/documents/` →
 `frontend/src/components/release-studio/ReleaseStudioPanel.tsx`
 
 **Author and release a component**
@@ -99,7 +100,17 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 `backend/app/services/comments_store_service.py` ·
 `backend/app/services/comments_url_service.py` →
 `frontend/src/components/comment-panel.tsx` →
-`frontend/src/components/visualizer.tsx` (overlay anchoring)
+`frontend/src/lib/comment-overlays.ts` (overlay shaping) →
+`frontend/src/components/visualizer.tsx` (overlay attachment)
+
+**Select a design variant**
+`backend/app/services/variant_catalog_service.py` →
+`backend/app/services/semantic_index_variants.py` (index catalog and assembly block) →
+`frontend/src/components/design-variants/variant-selection.ts` (URL owner and
+resolution) →
+`frontend/src/lib/design-variants.ts` (effective projection) →
+`frontend/src/components/visualizer.tsx` ·
+`frontend/src/components/engineering-bom-table.tsx` (viewer-side selection)
 
 **Place a symbol from desktop KiCad**
 `backend/app/api/remote_provider.py` · `backend/app/api/provider_oauth.py` →

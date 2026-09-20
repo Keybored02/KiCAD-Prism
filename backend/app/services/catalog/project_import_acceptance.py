@@ -28,6 +28,17 @@ from app.services.catalog.runtime import CatalogRuntime
 
 
 _COPIED_ASSET_TYPES = frozenset({"symbol", "footprint", "3dmodel", "spice"})
+PROJECT_IMPORT_SYMBOL_LABEL_TO_KEY: dict[str, str] = {
+    "Vendor": "vendor",
+    "Vendor Part Number": "vendor_part_number",
+    "Mass (g)": "mass_g",
+    "RQjC (C/W)": "rqjc_c_w",
+    "RQjC_top (C/W)": "rqjc_top_c_w",
+    "Temp_max (C)": "temp_max_c",
+    "Temp_min (C)": "temp_min_c",
+    "Power Dissipation (W)": "power_dissipation_w",
+    "Rate": "rate",
+}
 
 
 class CatalogProjectImportAcceptance:
@@ -71,15 +82,10 @@ class CatalogProjectImportAcceptance:
             "manufacturer": source_metadata.get("manufacturer"),
             "manufacturer_part_number": source_metadata.get("manufacturer_part_number"),
             "package_name": source_metadata.get("footprint"),
-            "vendor": fields.get("Vendor", ""),
-            "vendor_part_number": fields.get("Vendor Part Number", ""),
-            "mass_g": fields.get("Mass (g)", ""),
-            "rqjc_c_w": fields.get("RQjC (C/W)", ""),
-            "rqjc_top_c_w": fields.get("RQjC_top (C/W)", ""),
-            "temp_max_c": fields.get("Temp_max (C)", ""),
-            "temp_min_c": fields.get("Temp_min (C)", ""),
-            "power_dissipation_w": fields.get("Power Dissipation (W)", ""),
-            "rate": fields.get("Rate", ""),
+            **{
+                key: fields.get(label, "")
+                for label, key in PROJECT_IMPORT_SYMBOL_LABEL_TO_KEY.items()
+            },
             "extra_fields": fields,
             **(metadata_overrides or {}),
         }
@@ -298,4 +304,4 @@ class CatalogProjectImportAcceptance:
                 )
 
 
-__all__ = ["CatalogProjectImportAcceptance"]
+__all__ = ["CatalogProjectImportAcceptance", "PROJECT_IMPORT_SYMBOL_LABEL_TO_KEY"]

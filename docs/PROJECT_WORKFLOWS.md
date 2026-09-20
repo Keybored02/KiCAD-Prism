@@ -92,6 +92,38 @@ you can jump between occurrences, including labels that share a sheet.
 Treat cross-probe as navigation assistance, not an electrical-rule or
 manufacturing approval.
 
+## Design variants
+
+A KiCad design can carry named assembly variants (for example a `Lite` and a
+`Pro` population). When the revision declares them, the Visualizer toolbar
+offers a `Variant` selector; the default assembly is the base design.
+
+- `?variant=<name>` in the URL is the selection. Choosing a variant rewrites
+  only that parameter with `replace`, so the commit pin and the open tab
+  survive, and links keep their meaning when shared. Deep links, reloads and
+  back/forward all resolve the same way.
+- Selecting a variant updates the schematic and PCB viewers, the 3D workspace,
+  the BOM, the BOM assembly filter, the selection inspector and header search.
+- The PCB 3D workspace hides parts whose effective footprint state is DNP; the
+  local `Show DNP` toggle reveals them without changing the variant.
+- A name that is not in the viewed revision renders the default assembly and
+  says so; the URL is left unchanged so the link still works on a revision that
+  has the variant. An empty catalog, a load failure and a revision without
+  variant data each show their own state.
+- The BOM keeps every component; the `Assembly` filter hides parts excluded
+  from the BOM or marked DNP (`!excludeFromBom && !dnp`) and `All components`
+  shows them with their effective flags.
+- Release Studio's Source step offers the same catalog with an explicit
+  `Default` choice first; the design variant selected there is part of the
+  release's technical identity.
+- Assembly Assistant artifacts are generated for the reference assembly and do
+  not follow the selected variant; the tab says so when a variant is selected.
+- Known limitations: DNP flags set on KiCad rule areas are reported as a
+  diagnostic and are not applied to component state (no containment engine);
+  component- and sheet-level overrides are honoured. A reference with alternate
+  footprints stays visible in 3D with its DNP state unresolved, and the
+  workspace names the references in a notice.
+
 ## Comments
 
 The schematic and PCB viewers support object and area comments. Designers and

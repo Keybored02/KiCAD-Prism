@@ -5,6 +5,13 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
+from app.services.catalog.metadata_descriptors import (
+    BUILTIN_KEYWORD_KEYS,
+    BUILTIN_SEARCH_DOCUMENT_KEYS,
+    BUILTIN_METADATA_DESCRIPTORS,
+    read_builtin_metadata_value,
+)
+
 
 IDENTITY_KIND_MPN = "mpn"
 IDENTITY_KIND_PROVISIONAL_IPN = "provisional_ipn"
@@ -30,18 +37,7 @@ def normalize_identity_value(value: Any) -> str:
 def metadata_search_document(payload: dict[str, Any]) -> str:
     fixed = " ".join(
         str(payload.get(key) or "")
-        for key in (
-            "name",
-            "value",
-            "description",
-            "manufacturer",
-            "mpn",
-            "package_name",
-            "category",
-            "vendor",
-            "vendor_part_number",
-            "sap_code",
-        )
+        for key in ("name", *BUILTIN_SEARCH_DOCUMENT_KEYS)
     ).strip()
     extra_fields = payload.get("extra_fields") or {}
     extra = " ".join(f"{key} {value}" for key, value in dict(extra_fields).items())
@@ -49,16 +45,7 @@ def metadata_search_document(payload: dict[str, Any]) -> str:
 
 
 def metadata_keywords(payload: dict[str, Any]) -> list[str]:
-    return dedupe(
-        [
-            str(payload.get("value") or ""),
-            str(payload.get("manufacturer") or ""),
-            str(payload.get("mpn") or ""),
-            str(payload.get("package_name") or ""),
-            str(payload.get("category") or ""),
-            str(payload.get("vendor") or ""),
-        ]
-    )
+    return dedupe([str(payload.get(key) or "") for key in BUILTIN_KEYWORD_KEYS])
 
 
 def fts_query(query: str) -> str:
@@ -77,34 +64,23 @@ def normalize_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     if identity_kind not in {IDENTITY_KIND_MPN, IDENTITY_KIND_PROVISIONAL_IPN}:
         raise ValueError("identity_kind must be 'mpn' or 'provisional_ipn'")
     normalized = {
-        "value": str(payload.get("value") or "").strip(),
-        "description": str(payload.get("description") or "").strip(),
-        "datasheet_url": str(payload.get("datasheet_url") or payload.get("datasheet") or "").strip(),
-        "manufacturer": str(payload.get("manufacturer") or "").strip(),
-        "mpn": str(payload.get("mpn") or payload.get("manufacturer_part_number") or "").strip(),
-        "category": str(payload.get("category") or "").strip(),
-        "package_name": str(payload.get("package_name") or "").strip(),
-        "vendor": str(payload.get("vendor") or "").strip(),
-        "vendor_part_number": str(payload.get("vendor_part_number") or "").strip(),
-        "mass_g": str(payload.get("mass_g") or "").strip(),
-        "rqjc_c_w": str(payload.get("rqjc_c_w") or "").strip(),
-        "rqjc_top_c_w": str(payload.get("rqjc_top_c_w") or "").strip(),
-        "temp_max_c": str(payload.get("temp_max_c") or "").strip(),
-        "temp_min_c": str(payload.get("temp_min_c") or "").strip(),
-        "power_dissipation_w": str(payload.get("power_dissipation_w") or "").strip(),
-        "rate": str(payload.get("rate") or "").strip(),
-        "sap_code": str(payload.get("sap_code") or "").strip(),
-        "identity_kind": identity_kind,
-        "identity_source": str(payload.get("identity_source") or "").strip(),
-        "source_internal_part_number": str(
-            payload.get("source_internal_part_number")
-            or payload.get("internal_part_number")
-            or ""
-        ).strip(),
+        descriptor.key: read_builtin_metadata_value(payload, descriptor)
+        for descriptor in BUILTIN_METADATA_DESCRIPTORS
     }
-    for field in ("value", "description", "datasheet_url", "manufacturer"):
-        if not normalized[field]:
-            raise ValueError(f"{field} is required")
+    normalized.update(
+        {
+            "identity_kind": identity_kind,
+            "identity_source": str(payload.get("identity_source") or "").strip(),
+            "source_internal_part_number": str(
+                payload.get("source_internal_part_number")
+                or payload.get("internal_part_number")
+                or ""
+            ).strip(),
+        }
+    )
+    for descriptor in BUILTIN_METADATA_DESCRIPTORS:
+        if descriptor.normalize_required and not normalized[descriptor.key]:
+            raise ValueError(f"{descriptor.key} is required")
     if identity_kind == IDENTITY_KIND_MPN and not normalized["mpn"]:
         raise ValueError("mpn is required for manufacturer-part identities")
     if identity_kind == IDENTITY_KIND_PROVISIONAL_IPN:

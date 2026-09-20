@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { fetchJson } from "@/lib/api";
+import { repositoryWebUrl } from "@/lib/repository-url";
 import { cn } from "@/lib/utils";
 import type { FolderTreeItem, Project, ProjectPropertiesResponse } from "@/types/project";
 import { Button } from "@/components/ui/button";
@@ -276,6 +277,7 @@ export function WorkspaceProjectPropertiesSheet({
   const panelProject = activeProject ?? project;
   const displayName = activeProject?.display_name || activeProject?.name || "Project";
   const repositoryLabel = panelProject ? resolveRepositoryLabel(panelProject) : "Standalone Project";
+  const repositoryUrl = panelProject ? repositoryWebUrl(panelProject.repo_url) : null;
   const folderPath = useMemo(
     () => buildFolderPath(panelProject?.folder_id ?? null, folderById),
     [panelProject?.folder_id, folderById]
@@ -424,15 +426,17 @@ export function WorkspaceProjectPropertiesSheet({
                 <MetadataRow
                   label="Repository Link"
                   value={
-                    panelProject.repo_url ? (
+                    repositoryUrl ? (
                       <a
-                        href={panelProject.repo_url}
+                        href={repositoryUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="break-all underline underline-offset-4 transition-colors hover:text-primary"
                       >
-                        {panelProject.repo_url}
+                        {repositoryUrl}
                       </a>
+                    ) : panelProject.repo_url ? (
+                      <span className="break-all">{panelProject.repo_url}</span>
                     ) : (
                       repositoryLabel
                     )

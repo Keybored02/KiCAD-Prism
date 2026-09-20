@@ -11,6 +11,7 @@ import json
 from typing import Any
 import uuid
 
+from app.services.catalog.conflicts import manifest_conflict, revision_conflict
 from app.services.catalog.component_read_models import (
     VALIDATION_STATUS_FAILED,
     VALIDATION_STATUS_NOT_RUN,
@@ -28,16 +29,7 @@ from app.services.catalog.revision_kernel import (
     normalize_workflow_stage,
 )
 from app.services.catalog.runtime import CatalogRuntime
-
-
-WORKFLOW_TRANSITIONS: dict[str, frozenset[str]] = {
-    "open": frozenset({"in_progress", "archived"}),
-    "in_progress": frozenset({"qa_review", "open", "archived"}),
-    "qa_review": frozenset({"done", "in_progress", "archived"}),
-    "done": frozenset({"released", "qa_review", "archived"}),
-    "released": frozenset({"archived", "open"}),
-    "archived": frozenset({"open"}),
-}
+from app.services.catalog.workflow_policy import WORKFLOW_TRANSITIONS
 
 _RELEASE_BLOCKING_VALIDATION = frozenset(
     {VALIDATION_STATUS_FAILED, VALIDATION_STATUS_SKIPPED, VALIDATION_STATUS_NOT_RUN}
@@ -108,16 +100,16 @@ class CatalogReleaseWorkflow:
         if not revision:
             raise ValueError("Component revision not found")
         if expected_revision_id and str(revision["id"]) != expected_revision_id:
-            raise ValueError("Component revision conflict: refresh the component before changing workflow")
+            raise revision_conflict("Component revision conflict: refresh the component before changing workflow")
         if expected_manifest_hash and str(revision.get("manifest_hash") or "") != expected_manifest_hash:
-            raise ValueError("Component manifest conflict: refresh the component before changing workflow")
+            raise manifest_conflict()
         current_status = normalize_workflow_stage(str(revision["release_status"]))
         if current_status == "released" and release_status == "open":
             revision = self._open_draft_from_release(conn, runtime, component_id, actor)
             current_status = normalize_workflow_stage(str(revision["release_status"]))
 
         if release_status != current_status and release_status not in WORKFLOW_TRANSITIONS.get(
-            current_status, frozenset()
+            current_status, ()
         ):
             raise ValueError(f"Cannot transition revision from {current_status} to {release_status}")
         if actor and current_status == "qa_review" and release_status == "in_progress" and not review_note.strip():

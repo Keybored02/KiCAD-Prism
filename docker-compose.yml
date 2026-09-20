@@ -99,6 +99,9 @@ services:
       # GitHub Token for private repository access and Release publishing (optional)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GITLAB_TOKEN=${GITLAB_TOKEN:-}
+      # Custom token_name variables in PRISM_FORGE_HOSTS need a local env_file
+      # override; see docs/FORGE_HOSTS.md.
+      - PRISM_FORGE_HOSTS=${PRISM_FORGE_HOSTS:-}
       - PRISM_DATABASE_URL=${PRISM_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
       - PRISM_DATABASE_POOL_MIN_SIZE=${PRISM_DATABASE_POOL_MIN_SIZE:-1}
       - PRISM_DATABASE_POOL_MAX_SIZE=${PRISM_DATABASE_POOL_MAX_SIZE:-10}

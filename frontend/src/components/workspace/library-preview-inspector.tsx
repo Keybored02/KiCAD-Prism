@@ -132,6 +132,7 @@ function LivePreviewPane({
   unit = 1,
   onUnitChange,
   className,
+  loadAsset,
 }: {
   assetId?: string;
   kind: "symbol" | "footprint";
@@ -141,6 +142,7 @@ function LivePreviewPane({
   unit?: number;
   onUnitChange?: (unit: number) => void;
   className?: string;
+  loadAsset?: (url: string) => Promise<string>;
 }) {
   const [controller, setController] = useState<RenderController | null>(null);
   const [units, setUnits] = useState(1);
@@ -185,6 +187,7 @@ function LivePreviewPane({
           unit={unit}
           onUnitsChange={setUnits}
           onControllerChange={setController}
+          loadAsset={loadAsset}
         />
       </LibraryLivePreviewViewport>
     </div>
@@ -201,6 +204,7 @@ export interface LibraryPreviewPairProps {
   symbolMeta?: string;
   footprintMeta?: string;
   className?: string;
+  loadAsset?: (url: string) => Promise<string>;
 }
 
 function LibraryPreviewPanes({
@@ -216,6 +220,7 @@ function LibraryPreviewPanes({
   symbolMeta,
   footprintMeta,
   expandedView,
+  loadAsset,
 }: LibraryPreviewPairProps & {
   source: AssetSource;
   navigation: RenderNavigationOptions;
@@ -247,6 +252,7 @@ function LibraryPreviewPanes({
             onSymbolUnitChange?.(next);
           }}
           className={expandedView ? "min-h-0 flex-1" : paneClassName}
+          loadAsset={loadAsset}
         />
       </div>
       <div className="flex min-h-0 min-w-0 flex-col gap-2">
@@ -258,6 +264,7 @@ function LibraryPreviewPanes({
           source={source}
           navigation={navigation}
           className={expandedView ? "min-h-0 flex-1" : paneClassName}
+          loadAsset={loadAsset}
         />
       </div>
     </div>
@@ -274,6 +281,7 @@ function LibraryPreviewPairSession({
   symbolMeta,
   footprintMeta,
   className,
+  loadAsset,
 }: LibraryPreviewPairProps) {
   const [expanded, setExpanded] = useState(false);
   const [latchedProbe, setLatchedProbe] =
@@ -319,6 +327,7 @@ function LibraryPreviewPairSession({
           symbolMeta={symbolMeta}
           footprintMeta={footprintMeta}
           expandedView={false}
+          loadAsset={loadAsset}
         />
       </LibraryCrossProbeProvider>
       {/* The lightbox gets its own probe session rather than nesting inside
@@ -356,6 +365,7 @@ function LibraryPreviewPairSession({
               symbolMeta={symbolMeta}
               footprintMeta={footprintMeta}
               expandedView
+              loadAsset={loadAsset}
             />
           </LibraryCrossProbeProvider>
         </DialogContent>

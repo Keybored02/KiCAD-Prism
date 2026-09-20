@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import json
+import os
 import sys
 import tarfile
 import unittest
@@ -61,6 +63,51 @@ class ForgeDescribeTests(unittest.TestCase):
         target = forge.describe_forge("https://bitbucket.org/org/board.git")
         self.assertEqual(target.kind, "unsupported")
         self.assertIn("GitHub and GitLab", target.token_hint)
+
+    def test_a_hostname_that_contains_gitlab_is_not_auto_enabled(self) -> None:
+        with patch.object(forge.settings, "PRISM_FORGE_HOSTS", ""):
+            target = forge.describe_forge("https://notgitlab.example.com/org/board.git")
+        self.assertEqual(target.kind, "unsupported")
+
+    def test_configured_self_hosted_gitlab_resolves(self) -> None:
+        with (
+            patch.object(forge.settings, "PRISM_FORGE_HOSTS", "git.acme.test=gitlab"),
+            patch.object(forge.settings, "GITLAB_TOKEN", "glpat-example"),
+        ):
+            target = forge.describe_forge("https://git.acme.test/group/board.git")
+        self.assertEqual(target.kind, "gitlab")
+        self.assertEqual(target.api_root, "https://git.acme.test/api/v4")
+        self.assertTrue(target.token_configured)
+
+    def test_structured_self_hosted_targets_use_their_own_token_references(self) -> None:
+        config = json.dumps(
+            [
+                {
+                    "host": "git-a.acme.test",
+                    "kind": "gitlab",
+                    "api_root": "https://gateway.acme.test/one/api/v4",
+                    "token_name": "ACME_A_TOKEN",
+                },
+                {
+                    "host": "git-b.acme.test",
+                    "kind": "gitlab",
+                    "api_root": "https://gateway.acme.test/two/api/v4",
+                    "token_name": "ACME_B_TOKEN",
+                },
+            ]
+        )
+        with (
+            patch.object(forge.settings, "PRISM_FORGE_HOSTS", config),
+            patch.dict(os.environ, {"ACME_A_TOKEN": "token-a", "ACME_B_TOKEN": "token-b"}, clear=False),
+        ):
+            first = forge.describe_forge("https://git-a.acme.test/group/board.git")
+            second = forge.describe_forge("https://git-b.acme.test/group/board.git")
+        self.assertTrue(first.token_configured)
+        self.assertTrue(second.token_configured)
+        self.assertNotIn("token-a", repr(first))
+        self.assertNotIn("token-b", repr(second))
+        self.assertNotIn("token-a", str(first.to_dict()))
+        self.assertNotIn("token-b", str(second.to_dict()))
 
 
 class ForgeZipTests(unittest.TestCase):
@@ -236,6 +283,60 @@ class ForgePublishTests(unittest.TestCase):
         self.assertIn("/packages/generic/", calls[0])
         self.assertTrue(calls[1].endswith("/releases"))
 
+    def test_self_hosted_gitlab_publish_uses_api_prefix_and_per_host_header(self) -> None:
+        config = json.dumps(
+            [
+                {
+                    "host": "git-a.acme.test",
+                    "kind": "gitlab",
+                    "api_root": "https://gateway.acme.test/one/api/v4",
+                    "token_name": "ACME_A_TOKEN",
+                },
+                {
+                    "host": "git-b.acme.test",
+                    "kind": "gitlab",
+                    "api_root": "https://gateway.acme.test/two/api/v4",
+                    "token_name": "ACME_B_TOKEN",
+                },
+            ]
+        )
+        calls: list[dict] = []
+
+        def request(method, url, **kwargs):  # noqa: ANN001
+            calls.append({"method": method, "url": url, "headers": kwargs["headers"]})
+            return _Response(201, {})
+
+        with (
+            patch.object(forge.settings, "PRISM_FORGE_HOSTS", config),
+            patch.dict(os.environ, {"ACME_A_TOKEN": "token-a", "ACME_B_TOKEN": "token-b"}, clear=False),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            forge.publish_release(
+                repo_url="https://git-a.acme.test/group/board.git",
+                commit_sha="a" * 40,
+                tag="v1.0.0",
+                title="Board",
+                notes="",
+                zip_bytes=b"zip-a",
+                filename="board-a.zip",
+            )
+            forge.publish_release(
+                repo_url="https://git-b.acme.test/group/board.git",
+                commit_sha="b" * 40,
+                tag="v2.0.0",
+                title="Board",
+                notes="",
+                zip_bytes=b"zip-b",
+                filename="board-b.zip",
+            )
+        self.assertEqual(calls[0]["url"], "https://gateway.acme.test/one/api/v4/projects/group%2Fboard/packages/generic/v1.0.0/v1.0.0/board-a.zip")
+        self.assertEqual(calls[0]["headers"]["PRIVATE-TOKEN"], "token-a")
+        self.assertEqual(calls[1]["url"], "https://gateway.acme.test/one/api/v4/projects/group%2Fboard/releases")
+        self.assertEqual(calls[1]["headers"]["PRIVATE-TOKEN"], "token-a")
+        self.assertEqual(calls[2]["url"], "https://gateway.acme.test/two/api/v4/projects/group%2Fboard/packages/generic/v2.0.0/v2.0.0/board-b.zip")
+        self.assertEqual(calls[2]["headers"]["PRIVATE-TOKEN"], "token-b")
+        self.assertEqual(calls[3]["headers"]["PRIVATE-TOKEN"], "token-b")
+
     def test_clone_only_token_is_reported_as_forbidden(self) -> None:
         with (
             patch.object(forge.settings, "GITHUB_TOKEN", "ghp_clone"),
@@ -274,6 +375,43 @@ class ForgePublishTests(unittest.TestCase):
                     filename="board.zip",
                 )
         request.assert_not_called()
+
+    def test_requests_never_follow_redirects_with_forge_credentials(self) -> None:
+        with (
+            patch.object(forge.settings, "GITLAB_TOKEN", "glpat-example"),
+            patch.object(
+                forge.requests,
+                "request",
+                return_value=_Response(302, {}, text="redirect"),
+            ) as request,
+        ):
+            with self.assertRaisesRegex(forge.ForgePublishError, "unexpected redirect"):
+                forge.publish_release(
+                    repo_url="https://gitlab.com/group/board.git",
+                    commit_sha="a" * 40,
+                    tag="v1.0.0",
+                    title="",
+                    notes="",
+                    zip_bytes=b"zip",
+                    filename="board.zip",
+                )
+        self.assertFalse(request.call_args.kwargs["allow_redirects"])
+
+    def test_error_detail_redacts_before_truncating_the_response(self) -> None:
+        detail = forge._error_detail(
+            _Response(500, None, text=("x" * 299) + "secret-token-tail"),
+            sensitive_values=("secret-token-tail",),
+        )
+        self.assertNotIn("secret-token-tail", detail)
+
+    def test_error_detail_redacts_bare_bearer_tokens(self) -> None:
+        detail = forge._error_detail(
+            _Response(500, None, text="upstream echoed ghp-secret"),
+            sensitive_values=forge._sensitive_header_values(
+                {"Authorization": "Bearer ghp-secret"}
+            ),
+        )
+        self.assertNotIn("ghp-secret", detail)
 
 
 class ForgeListTests(unittest.TestCase):

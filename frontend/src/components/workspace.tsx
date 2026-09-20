@@ -7,7 +7,7 @@ import type { User } from "@/types/auth";
 import type { FolderTreeItem, Project } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { useWorkspaceData } from "@/hooks/use-workspace-data";
+import { useWorkspaceData, workspaceSessionKey } from "@/hooks/use-workspace-data";
 import { useWorkspaceSearch } from "@/hooks/use-workspace-search";
 import { canManageProjects as roleCanManageProjects, canOpenLibraryManager } from "@/lib/roles";
 import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
@@ -19,6 +19,7 @@ import { WorkspaceListView } from "./workspace/workspace-list-view";
 import { LibraryManagerWorkspace } from "./workspace/library-manager-workspace";
 import { WorkspaceAppsPlaceholder } from "./workspace/workspace-apps-placeholder";
 import { WorkspaceLoadingState } from "./workspace/workspace-loading-state";
+import { WorkspaceRefreshNotice } from "./workspace/workspace-refresh-notice";
 import { WorkspaceProjectPropertiesSheet } from "./workspace/workspace-project-properties-sheet";
 import { WorkspaceProjectToolbar } from "./workspace/workspace-project-toolbar";
 import { WorkspaceSidebar } from "./workspace/workspace-sidebar";
@@ -61,8 +62,8 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const { projects, folders, loading, error, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
-    useWorkspaceData();
+  const { projects, folders, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
+    useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
 
   const requestedSection = searchParams.get("section") === "library-manager" ? "library-manager" : "projects";
   const [section, setSection] = useState<WorkspaceSection>(requestedSection);
@@ -74,7 +75,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
 
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  // The project the user asked to inspect. It only counts as selected while
+  // that project is still in the workspace, so a project removed by a refresh
+  // (or another session's data) deselects itself without an adjustment effect.
+  const [requestedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [rawBulkSelection, setBulkSelectedProjectIds] = useState<Set<string>>(() => new Set());
 
   const [folderToRename, setFolderToRename] = useState<FolderTreeItem | null>(null);
@@ -261,15 +265,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   };
 
   const selectedProject = useMemo(
-    () => projects.find((project) => project.id === selectedProjectId) ?? null,
-    [projects, selectedProjectId]
+    () => projects.find((project) => project.id === requestedProjectId) ?? null,
+    [projects, requestedProjectId]
   );
-
-  useEffect(() => {
-    if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) {
-      setSelectedProjectId(null);
-    }
-  }, [projects, selectedProjectId]);
+  const selectedProjectId = selectedProject?.id ?? null;
 
 
   const handleCreateFolder = async (name: string) => {
@@ -557,7 +556,9 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
               the section switcher alive — the reviewer can navigate out of a
               broken section instead of reloading. Keyed to the section so
               switching away and back retries rather than staying broken. */}
-          <main className="min-h-0 flex-1 overflow-hidden">
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <WorkspaceRefreshNotice refreshError={refreshError} refresh={refresh} />
+            <div className="min-h-0 flex-1 overflow-hidden">
             <ErrorBoundary label="this section" resetKeys={[section]}>
               {loading ? (
                 <WorkspaceLoadingState />
@@ -720,6 +721,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                 </div>
               )}
             </ErrorBoundary>
+            </div>
           </main>
         </div>
       </div>

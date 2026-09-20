@@ -13,6 +13,28 @@ from app.services.catalog.normalization import (
 from app.services.catalog.revision_kernel import CatalogRevisionKernel
 
 
+REVISION_DIFF_METADATA_FIELDS: tuple[str, ...] = (
+    "name",
+    "value",
+    "description",
+    "datasheet_url",
+    "manufacturer",
+    "mpn",
+    "category",
+    "package_name",
+    "vendor",
+    "vendor_part_number",
+    "mass_g",
+    "rqjc_c_w",
+    "rqjc_top_c_w",
+    "temp_max_c",
+    "temp_min_c",
+    "power_dissipation_w",
+    "rate",
+    "sap_code",
+)
+
+
 class CatalogRevisionComparison:
     """Compare revisions using a caller-supplied connection."""
 
@@ -71,11 +93,7 @@ class CatalogRevisionComparison:
             raise ValueError("Component revision not found")
         if str(before["component_id"]) != component_id or str(after["component_id"]) != component_id:
             raise ValueError("Component revision does not belong to this component")
-        fixed_fields = (
-            "name", "value", "description", "datasheet_url", "manufacturer", "mpn", "category",
-            "package_name", "vendor", "vendor_part_number", "mass_g", "rqjc_c_w", "rqjc_top_c_w",
-            "temp_max_c", "temp_min_c", "power_dissipation_w", "rate", "sap_code",
-        )
+        fixed_fields = REVISION_DIFF_METADATA_FIELDS
         before_metadata = {field: str(before.get(field) or "") for field in fixed_fields}
         after_metadata = {field: str(after.get(field) or "") for field in fixed_fields}
         before_extra = json_loads(before.get("extra_fields"), {})
@@ -207,4 +225,4 @@ class CatalogRevisionComparison:
         }
 
 
-__all__ = ["CatalogRevisionComparison"]
+__all__ = ["CatalogRevisionComparison", "REVISION_DIFF_METADATA_FIELDS"]

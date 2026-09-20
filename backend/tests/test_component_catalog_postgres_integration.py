@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 import base64
 import csv
 import hashlib
@@ -22,6 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.catalog.asset_imports import CatalogAssetImports  # noqa: E402
 from app.services.catalog.asset_registry import CatalogAssetRegistry  # noqa: E402
+from app.services.catalog.postgres_runtime import CatalogPostgresConnection, PostgresCatalogRuntime  # noqa: E402
+from app.services.catalog.inventory_csv import CatalogInventoryCsv  # noqa: E402
 from app.services.catalog.preview_pipeline import CatalogPreviewPipeline  # noqa: E402
 from app.services.catalog.preview_renderer import CatalogPreviewRenderer  # noqa: E402
 from app.services.catalog_schema_migrations import (  # noqa: E402
@@ -404,6 +407,146 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         assert errored is not None
         self.assertEqual(errored["local_inventory"]["fetch_status"], "error")
 
+    def test_inventory_policy_survives_list_remote_projection_and_csv_roundtrip(self) -> None:
+        self._install_deterministic_preview_renderer()
+        component = self._complete_cad(self._component(), "InventoryPolicy")
+        component_id = component["id"]
+        for stage, actor in (("in_progress", "designer@example.com"), ("qa_review", "designer@example.com"),
+                             ("done", "qa@example.com"), ("released", "designer@example.com")):
+            component = self.service.set_release_status(
+                component_id, stage, actor=actor,
+                expected_revision_id=component["revision_id"],
+                expected_manifest_hash=component["manifest_hash"],
+            )
+        runtime = PostgresCatalogRuntime(database_url=POSTGRES_URL)
+        locations = [
+            ("inventree", "a", 2, "pcs", "available", "ok", "2026-01-02T00:00:00.5Z"),
+            ("inventree", "b", 3, "pcs", "reserved", "error", "2026-01-02T01:00:00+02:00"),
+            ("csv", "", 2, "pcs", "available", "ok", "2026-01-01T00:00:00Z"),
+            ("csv", "b", 3, "g", "available", "ok", "2026-01-01T00:00:00Z"),
+            ("warehouse_x", "", 7, "pcs", "available", "ok", "2026-01-01T00:00:00Z"),
+        ]
+        with runtime.connect() as conn:
+            for source, location, quantity, uom, status, fetch, stamp in locations:
+                conn.execute(
+                    """INSERT INTO inventory_levels
+                       (source, component_id, location_key, source_record_id, quantity, uom,
+                        inventory_status, fetch_status, fetched_at, updated_at)
+                       VALUES (%s, %s, %s, '', %s, %s, %s, %s, %s, %s)""",
+                    (source, component_id, location, quantity, uom, status, fetch, stamp, stamp),
+                )
+            conn.commit()
+        detail = self.service.get_component(component_id)
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        sources = detail["supply"]["sources"]
+        self.assertEqual([source["id"] for source in sources], ["inventree", "csv", "warehouse_x"])
+        self.assertEqual(detail["stock_quantity"], 5)
+        self.assertEqual(sources[0]["fetch_status"], "error")
+        self.assertTrue(sources[0]["mixed_fetch"])
+        self.assertTrue(sources[0]["mixed_status"])
+        self.assertTrue(sources[0]["mixed_freshness"])
+        self.assertEqual(sources[0]["fetched_at"], "2026-01-02T00:00:00.5Z")
+        self.assertTrue(sources[1]["mixed_units"])
+        self.assertEqual(sources[1]["stock"], 0)
+        listed = self.service.list_components(query=component["mpn"], lightweight=False)["items"][0]
+        self.assertEqual(listed["local_inventory"], detail["local_inventory"])
+        self.assertEqual(listed["supply"], detail["supply"])
+        remote = self.service.list_remote_component_heads(query=component["mpn"])["items"][0]
+        self.assertEqual(remote["supply"], detail["supply"])
+
+        exported = next(row for row in CatalogInventoryCsv.parse(self.service.export_inventory_csv())
+                        if row["component_id"] == component_id)
+        self.assertEqual(exported["quantity"], "")
+        result = self.service.import_inventory_csv(CatalogInventoryCsv.render_export([exported]))
+        self.assertEqual(result["updated"], 0)
+        self.assertIn("quantity is required", result["errors"][0])
+        self.assertEqual(self.service.get_component(component_id)["supply"], detail["supply"])
+
+    def _capture_list_sql(self, **kwargs: object) -> tuple[list[str], dict]:
+        captured: list[str] = []
+        original = CatalogPostgresConnection.execute
+
+        def execute(conn: object, sql: str, params: object = None) -> object:
+            captured.append(str(sql))
+            return original(conn, sql, params)
+
+        with patch.object(CatalogPostgresConnection, "execute", execute):
+            page = self.service.list_components(**kwargs)
+        return captured, page
+
+    @staticmethod
+    def _is_representation_hydration(sql: str) -> bool:
+        compact = " ".join(sql.split()).lower()
+        return "from revision_representations" in compact and "where revision_id in" in compact
+
+    @staticmethod
+    def _is_inventory_hydration(sql: str) -> bool:
+        compact = " ".join(sql.split()).lower()
+        return "from inventory_levels" in compact
+
+    def test_full_list_hydration_query_count_is_bounded_for_page_size(self) -> None:
+        token = "hydrate-" + uuid.uuid4().hex[:8]
+        fixtures: list[dict] = []
+        for index in range(50):
+            component = self.service.create_manual_component(
+                value="10k",
+                description="List hydration fixture",
+                datasheet="https://example.com/hydrate.pdf",
+                manufacturer=f"Hydrate {token}",
+                manufacturer_part_number=f"HYD-{token}-{index:02d}",
+                actor="author@example.com",
+            )
+            self.component_ids.append(str(component["id"]))
+            fixtures.append(component)
+        self._install_deterministic_preview_renderer()
+        fixtures[24] = self._complete_cad(fixtures[24], f"HydrateCad{token[:8]}")
+        csv_rows = [
+            "component_id,manufacturer,mpn,quantity,uom,inventory_status",
+            f"{fixtures[0]['id']},{fixtures[0]['manufacturer']},{fixtures[0]['mpn']},12,pcs,available",
+            f"{fixtures[-1]['id']},{fixtures[-1]['manufacturer']},{fixtures[-1]['mpn']},3,pcs,available",
+        ]
+        self.assertEqual(self.service.import_inventory_csv("\n".join(csv_rows))["updated"], 2)
+
+        one_sql, one_page = self._capture_list_sql(query=token, page=1, page_size=1)
+        fifty_sql, fifty_page = self._capture_list_sql(query=token, page=1, page_size=50)
+        self.assertEqual(one_page["total"], 50)
+        self.assertEqual(len(one_page["items"]), 1)
+        self.assertEqual(len(fifty_page["items"]), 50)
+        self.assertEqual(len(one_sql), len(fifty_sql))
+        self.assertEqual(sum(1 for sql in fifty_sql if self._is_representation_hydration(sql)), 1)
+        self.assertEqual(sum(1 for sql in fifty_sql if self._is_inventory_hydration(sql)), 1)
+
+        listed_by_id = {item["id"]: item for item in fifty_page["items"]}
+        for fixture in (fixtures[0], fixtures[24], fixtures[-1]):
+            detail = self.service.get_component(str(fixture["id"]))
+            listed = listed_by_id[str(fixture["id"])]
+            assert detail is not None
+            self.assertEqual(listed["representations"], detail["representations"])
+            self.assertEqual(listed["previews"], detail["previews"])
+            self.assertEqual(listed["local_inventory"], detail["local_inventory"])
+            self.assertEqual(listed["supply"], detail["supply"])
+        cad_rep = next(
+            item
+            for item in listed_by_id[str(fixtures[24]["id"])]["representations"]
+            if item["is_default"]
+        )
+        self.assertTrue(cad_rep["symbol"]["id"])
+        self.assertTrue(cad_rep["footprint"]["id"])
+        self.assertTrue(cad_rep["symbol"]["preview_id"])
+        self.assertTrue(cad_rep["footprint"]["preview_id"])
+        self.assertEqual(listed_by_id[str(fixtures[0]["id"])]["stock_quantity"], 12)
+        self.assertEqual(listed_by_id[str(fixtures[-1]["id"])]["stock_quantity"], 3)
+        self.assertFalse(listed_by_id[str(fixtures[24]["id"])]["stock_known"])
+
+        light_sql, light_page = self._capture_list_sql(
+            query=token, page=1, page_size=50, lightweight=True
+        )
+        self.assertEqual(len(light_page["items"]), 50)
+        self.assertFalse(any(self._is_representation_hydration(sql) for sql in light_sql))
+        self.assertFalse(any(self._is_inventory_hydration(sql) for sql in light_sql))
+        self.assertIsNone(light_page["items"][0]["local_inventory"])
+
     def test_mpn_correction_updates_identity_and_rejects_conflicts(self) -> None:
         first = self._component("correction-a-" + uuid.uuid4().hex[:8])
         second = self._component("correction-b-" + uuid.uuid4().hex[:8])
@@ -463,6 +606,127 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual([status for status, _ in results].count("conflict"), 1)
         self.assertEqual(len(self.service.list_component_revisions(component["id"])), 2)
         self.assertTrue(self.service.verify_component_audit_chain(component["id"])["valid"])
+
+    def test_stale_asset_upload_and_link_do_not_advance_head(self) -> None:
+        component = self._component("asset-rev-" + uuid.uuid4().hex[:8])
+        self._import_symbol(str(self._component("asset-donor-" + uuid.uuid4().hex[:8])["id"]), "DonorSym")
+        stale_id = component["revision_id"]
+        advanced = self.service.update_component_metadata(
+            component["id"],
+            {"description": "Editor B advanced the head"},
+            actor="editor-b@example.com",
+            expected_revision_id=stale_id,
+        )
+        assert advanced is not None
+        head_id = str(advanced["revision_id"])
+        revisions_before = self.service.list_component_revisions(component["id"])
+        donor_file = next(
+            path for path in self.service.browse_library_assets("symbol")["files"]
+            if "DonorSym" in path
+        )
+
+        def conflict(action) -> None:
+            with self.assertRaisesRegex(ValueError, "revision conflict"):
+                action()
+
+        stale_symbol = b'''(kicad_symbol_lib (version 20231120) (generator "test")
+          (symbol "StaleSym"
+            (property "Reference" "U" (at 0 0 0) (effects (font (size 1.27 1.27))))
+            (property "Value" "StaleSym" (at 0 0 0) (effects (font (size 1.27 1.27))))
+          )
+        )'''
+        conflict(lambda: self.service.import_symbol_library(
+            component["id"], upload_name="StaleSym.kicad_sym", payload=stale_symbol,
+            target_library="Stale", selected_symbol="StaleSym", actor="editor-a@example.com",
+            expected_revision_id=stale_id,
+        ))
+        conflict(lambda: self.service.import_footprint(
+            component["id"], upload_name="StaleFp.kicad_mod",
+            payload=b'(footprint "StaleFp" (version 20240108) (generator "test"))',
+            target_library="Stale", selected_footprint="StaleFp", actor="editor-a@example.com",
+            expected_revision_id=stale_id,
+        ))
+        conflict(lambda: self.service.attach_auxiliary_asset(
+            component["id"], asset_type="3dmodel", upload_name="stale.step",
+            payload=b"ISO-10303-21;END-ISO-10303-21;", target_library="Stale",
+            actor="editor-a@example.com", expected_revision_id=stale_id,
+        ))
+        conflict(lambda: self.service.link_library_asset(
+            component["id"], "symbol", file_path_rel=donor_file,
+            target_library="Availability", target_name="DonorSym", actor="editor-a@example.com",
+            expected_revision_id=stale_id,
+        ))
+
+        blocked = self.service.get_component(component["id"])
+        assert blocked is not None
+        self.assertEqual(blocked["revision_id"], head_id)
+        self.assertEqual(blocked["assets"], [])
+        self.assertEqual(self.service.list_component_revisions(component["id"]), revisions_before)
+
+        imported = self.service.import_symbol_library(
+            component["id"], upload_name="FreshSym.kicad_sym",
+            payload=stale_symbol.replace(b"StaleSym", b"FreshSym"),
+            target_library="Fresh", selected_symbol="FreshSym", actor="editor-a@example.com",
+            expected_revision_id=head_id,
+        )
+        self.assertEqual(imported["mode"], "imported")
+        self.assertNotEqual(imported["component"]["revision_id"], head_id)
+
+        legacy = self.service.import_footprint(
+            component["id"], upload_name="LegacyFp.kicad_mod",
+            payload=b'(footprint "LegacyFp" (version 20240108) (generator "test"))',
+            target_library="Fresh", selected_footprint="LegacyFp", actor="editor-a@example.com",
+        )
+        self.assertEqual(legacy["mode"], "imported")
+
+        auxiliary = self.service.attach_auxiliary_asset(
+            component["id"], asset_type="3dmodel", upload_name="fresh.step",
+            payload=b"ISO-10303-21;END-ISO-10303-21;", target_library="Fresh",
+            actor="editor-a@example.com",
+            expected_revision_id=legacy["component"]["revision_id"],
+        )
+        self.assertTrue(any(item["asset_type"] == "3dmodel" for item in auxiliary["component"]["assets"]))
+
+        self.service.link_library_asset(
+            component["id"], "symbol", file_path_rel=donor_file,
+            target_library="Availability", target_name="DonorSym", actor="editor-a@example.com",
+            expected_revision_id=auxiliary["component"]["revision_id"],
+        )
+        after_link = self.service.get_component(component["id"])
+        assert after_link is not None
+        self.assertNotEqual(after_link["revision_id"], auxiliary["component"]["revision_id"])
+        self.assertGreaterEqual(sum(1 for item in after_link["assets"] if item["asset_type"] == "symbol"), 2)
+
+        multi = b'''(kicad_symbol_lib (version 20231120) (generator "test")
+          (symbol "PickA"
+            (property "Reference" "U" (at 0 0 0) (effects (font (size 1.27 1.27))))
+            (property "Value" "PickA" (at 0 0 0) (effects (font (size 1.27 1.27))))
+          )
+          (symbol "PickB"
+            (property "Reference" "U" (at 0 0 0) (effects (font (size 1.27 1.27))))
+            (property "Value" "PickB" (at 0 0 0) (effects (font (size 1.27 1.27))))
+          )
+        )'''
+        picker_head = str(after_link["revision_id"])
+        picker = self.service.import_symbol_library(
+            component["id"], upload_name="multi.kicad_sym", payload=multi,
+            target_library="Fresh", selected_symbol="", actor="editor-a@example.com",
+            expected_revision_id=picker_head,
+        )
+        self.assertEqual(picker["mode"], "selection_required")
+        self.assertEqual(self.service.get_component(component["id"])["revision_id"], picker_head)
+        chosen = self.service.import_symbol_library(
+            component["id"], upload_name="multi.kicad_sym", payload=multi,
+            target_library="Fresh", selected_symbol="PickB", actor="editor-a@example.com",
+            expected_revision_id=picker_head,
+        )
+        self.assertEqual(chosen["mode"], "imported")
+        self.assertEqual(chosen["selected_symbol"], "PickB")
+        conflict(lambda: self.service.import_symbol_library(
+            component["id"], upload_name="multi.kicad_sym", payload=multi,
+            target_library="Fresh", selected_symbol="", actor="editor-a@example.com",
+            expected_revision_id=picker_head,
+        ))
 
     def test_metadata_schema_and_qa_batch_round_trip(self) -> None:
         token = uuid.uuid4().hex[:10]
@@ -1233,6 +1497,378 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                     "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value"
                 )
                 conn.commit()
+
+    def _import_symbol(self, component_id: str, name: str) -> dict:
+        payload = f'''(kicad_symbol_lib (version 20231120) (generator "test")
+          (symbol "{name}"
+            (property "Reference" "U" (at 0 0 0) (effects (font (size 1.27 1.27))))
+            (property "Value" "{name}" (at 0 0 0) (effects (font (size 1.27 1.27))))
+          )
+        )'''.encode()
+        return self.service.import_symbol_library(
+            component_id,
+            upload_name=f"{name}.kicad_sym",
+            payload=payload,
+            target_library="Availability",
+            selected_symbol=name,
+            actor="designer@example.com",
+        )["component"]
+
+    def _import_footprint(self, component_id: str, name: str) -> dict:
+        return self.service.import_footprint(
+            component_id,
+            upload_name=f"{name}.kicad_mod",
+            payload=f'(footprint "{name}" (version 20240108) (generator "test"))'.encode(),
+            target_library="Availability",
+            selected_footprint=name,
+            actor="designer@example.com",
+        )["component"]
+
+    def _complete_cad(self, component: dict, name: str) -> dict:
+        after_symbol = self._import_symbol(str(component["id"]), name)
+        return self._import_footprint(str(after_symbol["id"]), name)
+
+    def _listed(
+        self,
+        component_id: str,
+        *,
+        lightweight: bool = False,
+        include_inactive: bool = False,
+        **kwargs: object,
+    ) -> dict:
+        detail = self.service.get_component(component_id, include_inactive=True)
+        assert detail is not None
+        page = self.service.list_components(
+            query=str(detail.get("mpn") or detail.get("name") or ""),
+            page=1,
+            page_size=50,
+            lightweight=lightweight,
+            include_inactive=include_inactive,
+            **kwargs,
+        )
+        match = next((item for item in page["items"] if item["id"] == component_id), None)
+        self.assertIsNotNone(match, f"{component_id} missing from list {kwargs}")
+        return match or {}
+
+    def _assert_availability(
+        self,
+        component_id: str,
+        *,
+        state: str,
+        missing: list[str],
+        place_enabled: bool,
+        include_inactive: bool = False,
+    ) -> None:
+        detail = self.service.get_component(component_id, include_inactive=include_inactive)
+        assert detail is not None
+        summary = self._listed(
+            component_id, lightweight=True, include_inactive=include_inactive
+        )
+        full_list = self._listed(
+            component_id, lightweight=False, include_inactive=include_inactive
+        )
+        for payload in (detail, summary, full_list):
+            self.assertEqual(payload["availability_state"], state)
+            self.assertEqual(payload["missing_assets"], missing)
+            self.assertEqual(payload["place_enabled"], place_enabled)
+        filtered = self.service.list_components(
+            query=str(detail.get("mpn") or detail.get("name") or ""),
+            availability_state=state,
+            page=1,
+            page_size=50,
+            include_inactive=include_inactive,
+        )
+        self.assertIn(component_id, {item["id"] for item in filtered["items"]})
+        other_states = {"metadata_only", "files_partial", "place_ready"} - {state}
+        for other in other_states:
+            other_page = self.service.list_components(
+                query=str(detail.get("mpn") or detail.get("name") or ""),
+                availability_state=other,
+                page=1,
+                page_size=50,
+                include_inactive=include_inactive,
+            )
+            self.assertNotIn(component_id, {item["id"] for item in other_page["items"]})
+
+    def test_availability_agrees_across_filter_summary_and_detail(self) -> None:
+        metadata = self._component("avail-meta-" + uuid.uuid4().hex[:8])
+        self._assert_availability(
+            str(metadata["id"]),
+            state="metadata_only",
+            missing=["symbol", "footprint"],
+            place_enabled=False,
+        )
+
+        partial = self._import_symbol(
+            str(self._component("avail-partial-" + uuid.uuid4().hex[:8])["id"]),
+            "PartialSym",
+        )
+        self._assert_availability(
+            str(partial["id"]),
+            state="files_partial",
+            missing=["footprint"],
+            place_enabled=False,
+        )
+
+        complete = self._complete_cad(
+            self._component("avail-complete-" + uuid.uuid4().hex[:8]),
+            "Complete",
+        )
+        default_symbol_id = next(
+            item["symbol"]["id"]
+            for item in complete["representations"]
+            if item.get("is_default") and item.get("symbol")
+        )
+        mismatched = self.service.create_representation(
+            str(complete["id"]),
+            label="Incomplete default",
+            symbol_asset_id=default_symbol_id,
+            make_default=True,
+            expected_revision_id=str(complete["revision_id"]),
+            actor="designer@example.com",
+        )
+        self.assertTrue(
+            any(asset["asset_type"] == "footprint" for asset in mismatched["assets"])
+        )
+        self._assert_availability(
+            str(mismatched["id"]),
+            state="files_partial",
+            missing=["footprint"],
+            place_enabled=False,
+        )
+        before_queue = self.service.release_queue_summary()
+        self.service.set_release_status(
+            str(mismatched["id"]), "in_progress", actor="designer@example.com"
+        )
+        self.service.set_release_status(
+            str(mismatched["id"]), "qa_review", actor="designer@example.com"
+        )
+        queued = self.service.release_queue_summary()
+        self.assertEqual(queued["qa_review"], before_queue["qa_review"] + 1)
+        self.assertEqual(queued["blocked"], before_queue["blocked"] + 1)
+
+        ready = self._complete_cad(
+            self._component("avail-ready-" + uuid.uuid4().hex[:8]),
+            "Ready",
+        )
+        self._assert_availability(
+            str(ready["id"]),
+            state="place_ready",
+            missing=[],
+            place_enabled=False,
+        )
+
+        token = uuid.uuid4().hex[:8]
+        provisional = self._complete_cad(
+            self.service.create_manual_component(
+                name=f"IPN-{token}",
+                value="provisional",
+                description="Provisional availability fixture",
+                datasheet="https://example.com/provisional.pdf",
+                manufacturer="Prism Availability",
+                manufacturer_part_number="",
+                identity_kind="provisional_ipn",
+                identity_source="fixture",
+                source_internal_part_number=f"IPN-{token}",
+                actor="author@example.com",
+            ),
+            "Provisional",
+        )
+        self.component_ids.append(str(provisional["id"]))
+        self._assert_availability(
+            str(provisional["id"]),
+            state="place_ready",
+            missing=[],
+            place_enabled=False,
+        )
+
+        inactive = self._complete_cad(
+            self._component("avail-inactive-" + uuid.uuid4().hex[:8]),
+            "Inactive",
+        )
+        self.assertTrue(
+            self.service.deactivate_component(
+                str(inactive["id"]), actor="author@example.com", reason="availability fixture"
+            )
+        )
+        hidden = self.service.list_components(page=1, page_size=100, include_inactive=False)
+        self.assertNotIn(str(inactive["id"]), {item["id"] for item in hidden["items"]})
+        self._assert_availability(
+            str(inactive["id"]),
+            state="place_ready",
+            missing=[],
+            place_enabled=False,
+            include_inactive=True,
+        )
+
+        released = self._complete_cad(
+            self._component("avail-released-" + uuid.uuid4().hex[:8]),
+            "Released",
+        )
+        self.service.set_release_status(
+            str(released["id"]), "in_progress", actor="designer@example.com"
+        )
+        self.service.set_release_status(
+            str(released["id"]), "qa_review", actor="designer@example.com"
+        )
+        current = self.service.get_component(str(released["id"]))
+        assert current is not None
+        approved = self.service.set_release_status(
+            str(released["id"]),
+            "done",
+            actor="qa@example.com",
+            expected_revision_id=current["revision_id"],
+            expected_manifest_hash=current["manifest_hash"],
+        )
+        self.service.set_release_status(
+            str(released["id"]),
+            "released",
+            actor="designer@example.com",
+            expected_revision_id=approved["revision_id"],
+            expected_manifest_hash=approved["manifest_hash"],
+        )
+        self._assert_availability(
+            str(released["id"]),
+            state="place_ready",
+            missing=[],
+            place_enabled=True,
+        )
+
+    def test_tied_timestamps_paginate_without_duplicate_or_omitted_ids(self) -> None:
+        token = "tie-" + uuid.uuid4().hex[:8]
+        frozen = "2026-09-12T21:00:00+00:00"
+        fixtures: list[dict] = []
+        with (
+            patch("app.services.catalog.component_writer.utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.revision_kernel._utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.revision_finalization.utc_now_iso", return_value=frozen),
+        ):
+            for index in range(4):
+                component = self.service.create_manual_component(
+                    name="Tied Name",
+                    value="10k",
+                    description=f"Pagination {token}",
+                    datasheet="https://example.com/r.pdf",
+                    manufacturer="Prism Tiebreak",
+                    manufacturer_part_number=f"PG-TIE-{token}-{index}",
+                    actor="author@example.com",
+                )
+                self.component_ids.append(str(component["id"]))
+                fixtures.append(component)
+
+        expected = {str(item["id"]) for item in fixtures}
+        timestamps = {str(item["revision_updated_at"]) for item in fixtures}
+        names = {str(item["name"]) for item in fixtures}
+        self.assertEqual(timestamps, {frozen})
+        self.assertEqual(names, {"Tied Name"})
+
+        def paged_ids(**kwargs: object) -> list[str]:
+            seen: list[str] = []
+            page = 1
+            while True:
+                result = self.service.list_components(
+                    query=token,
+                    page=page,
+                    page_size=2,
+                    lightweight=True,
+                    **kwargs,
+                )
+                batch = [
+                    str(item["id"])
+                    for item in result["items"]
+                    if str(item["id"]) in expected
+                ]
+                overlap = set(seen) & set(batch)
+                self.assertFalse(overlap, overlap)
+                seen.extend(batch)
+                if page >= int(result["pages"]) or not result["items"]:
+                    break
+                page += 1
+            return seen
+
+        ranked_ids = paged_ids()
+        named_ids = paged_ids(sort_by="name", sort_dir="asc")
+        manufacturer_ids = paged_ids(sort_by="manufacturer", sort_dir="asc")
+        self.assertEqual(set(ranked_ids), expected)
+        self.assertEqual(len(ranked_ids), 4)
+        self.assertEqual(ranked_ids, sorted(expected))
+        self.assertEqual(named_ids, ranked_ids)
+        self.assertEqual(manufacturer_ids, ranked_ids)
+        self.assertEqual(paged_ids(), ranked_ids)
+
+        clock = (
+            patch("app.services.catalog.component_writer.utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.revision_kernel._utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.revision_finalization.utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.asset_registry.utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.asset_links.utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.representations.utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.release_workflow.utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.preview_pipeline.utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.preview_store.utc_now_iso", return_value=frozen),
+            patch("app.services.catalog.klc_validation.utc_now_iso", return_value=frozen),
+        )
+        released: list[dict] = []
+        with ExitStack() as stack:
+            for frozen_clock in clock:
+                stack.enter_context(frozen_clock)
+            for index, item in enumerate(fixtures):
+                current = self._complete_cad(item, f"Tie{token[-6:]}{index}")
+                self.service.set_release_status(
+                    current["id"], "in_progress", actor="designer@example.com"
+                )
+                review = self.service.set_release_status(
+                    current["id"], "qa_review", actor="designer@example.com"
+                )
+                approved = self.service.set_release_status(
+                    current["id"],
+                    "done",
+                    actor="qa@example.com",
+                    expected_revision_id=review["revision_id"],
+                    expected_manifest_hash=review["manifest_hash"],
+                )
+                released.append(
+                    self.service.set_release_status(
+                        current["id"],
+                        "released",
+                        actor="designer@example.com",
+                        expected_revision_id=approved["revision_id"],
+                        expected_manifest_hash=approved["manifest_hash"],
+                    )
+                )
+        self.assertEqual({str(item["revision_updated_at"]) for item in released}, {frozen})
+
+        def paged_remote_ids() -> list[str]:
+            seen: list[str] = []
+            page = 1
+            while True:
+                result = self.service.list_remote_component_heads(
+                    query=token,
+                    page=page,
+                    page_size=2,
+                )
+                batch = [
+                    str(item["id"])
+                    for item in result["items"]
+                    if str(item["id"]) in expected
+                ]
+                overlap = set(seen) & set(batch)
+                self.assertFalse(overlap, overlap)
+                seen.extend(batch)
+                pages = result["pages"]
+                if pages is None:
+                    if not result["has_more"] or not result["items"]:
+                        break
+                elif page >= int(pages) or not result["items"]:
+                    break
+                page += 1
+            return seen
+
+        remote_ids = paged_remote_ids()
+        self.assertEqual(set(remote_ids), expected)
+        self.assertEqual(len(remote_ids), 4)
+        self.assertEqual(remote_ids, sorted(expected))
+        self.assertEqual(paged_remote_ids(), remote_ids)
 
 
 if __name__ == "__main__":

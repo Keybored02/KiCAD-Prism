@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from app.core.config import settings
+from app.services.catalog.asset_types import PLACE_REQUIRED_ASSET_TYPES
+from app.services.catalog.inventory_policy import aggregate_inventory_locations
 from app.services.catalog.metadata_normalization import IDENTITY_KIND_MPN
 from app.services.catalog.normalization import (
     json_loads,
@@ -16,11 +18,45 @@ from app.services.catalog.revision_kernel import CatalogRevisionKernel, normaliz
 
 
 PREVIEW_STATUS_READY = "ready"
-PLACE_REQUIRED_ASSET_TYPES = ("symbol", "footprint")
 
 STATE_METADATA_ONLY = "metadata_only"
 STATE_FILES_PARTIAL = "files_partial"
 STATE_PLACE_READY = "place_ready"
+
+
+def representation_slot_present(asset: dict[str, Any] | None) -> bool:
+    """True when a representation symbol or footprint slot carries an asset id."""
+
+    return bool(asset) and bool(str(asset.get("id") or "").strip())
+
+
+def cad_availability(has_symbol: bool, has_footprint: bool) -> tuple[str, list[str]]:
+    """Classify CAD completeness from the effective representation pair."""
+
+    present = {"symbol": has_symbol, "footprint": has_footprint}
+    missing = [kind for kind in PLACE_REQUIRED_ASSET_TYPES if not present[kind]]
+    if not missing:
+        return STATE_PLACE_READY, missing
+    if len(missing) == 1:
+        return STATE_FILES_PARTIAL, missing
+    return STATE_METADATA_ONLY, missing
+
+
+def remote_place_enabled(
+    *,
+    is_active: bool,
+    identity_kind: str,
+    missing_assets: list[str],
+    release_status: str,
+) -> bool:
+    """Permission to place is separate from CAD completeness."""
+
+    return (
+        bool(is_active)
+        and str(identity_kind or IDENTITY_KIND_MPN) == IDENTITY_KIND_MPN
+        and not missing_assets
+        and _release_allows_remote(release_status)
+    )
 
 # Availability sources shown in the remote-provider payload. Everything today
 # is local inventory; distributor adapters (supply_quotes) extend
@@ -44,6 +80,54 @@ VALIDATION_STATUS_NOT_RUN = "not_run"
 KLC_RELEASE_GATE_VALUES = {"off", "warn", "block"}
 
 
+# Distinguishes "inventory was not preloaded" from a legitimate empty result.
+_PRELOAD_UNSET = object()
+
+_INVENTORY_LOCATION_COLUMNS = (
+    "component_id, source, location_key, quantity, uom, "
+    "inventory_status, fetch_status, fetched_at"
+)
+# Must match inventory_policy.INVENTORY_SOURCE_PRIORITY (inventree, csv, then name).
+_INVENTORY_LOCATION_ORDER = (
+    "CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END, "
+    "source, location_key"
+)
+
+
+def local_inventory_payload(row: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Shape the preferred inventory aggregate used by component payloads."""
+
+    if row is None:
+        return None
+    return {
+        "source": str(row["source"]),
+        "quantity": float(row["quantity"] or 0),
+        "uom": str(row["uom"] or ""),
+        "inventory_status": str(row["inventory_status"] or ""),
+        "fetch_status": str(row.get("fetch_status") or "ok"),
+        "fetched_at": str(row["fetched_at"] or ""),
+        "mixed_units": bool(row.get("mixed_units")),
+        "mixed_status": bool(row.get("mixed_status")),
+        "mixed_fetch": bool(row.get("mixed_fetch")),
+        "mixed_freshness": bool(row.get("mixed_freshness")),
+    }
+
+
+def inventory_payloads_from_source_rows(
+    rows: list[Mapping[str, Any]],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Return ``(local_inventory, supply_sources)`` from raw location rows.
+
+    Aggregated mappings must not be re-aggregated: that loses mixed-data flags.
+    """
+
+    payloads = [item.as_payload_row() for item in aggregate_inventory_locations(rows)]
+    return (
+        local_inventory_payload(payloads[0]) if payloads else None,
+        [supply_source_payload(row) for row in payloads],
+    )
+
+
 def supply_source_payload(row: dict[str, Any]) -> dict[str, Any]:
     """Shape one inventory source for the stable component payload."""
 
@@ -61,6 +145,10 @@ def supply_source_payload(row: dict[str, Any]) -> dict[str, Any]:
         "stock_status": str(row.get("inventory_status") or ""),
         "fetch_status": str(row.get("fetch_status") or "ok"),
         "fetched_at": str(row.get("fetched_at") or ""),
+        "mixed_units": bool(row.get("mixed_units")),
+        "mixed_status": bool(row.get("mixed_status")),
+        "mixed_fetch": bool(row.get("mixed_fetch")),
+        "mixed_freshness": bool(row.get("mixed_freshness")),
     }
 
 
@@ -97,6 +185,51 @@ class CatalogComponentReadModels:
             if previews is not None
             else self.load_previews_for_revision(conn, revision_id)
         )
+        rows = conn.execute(
+            "SELECT * FROM revision_representations WHERE revision_id = %s "
+            "ORDER BY display_order, id",
+            (revision_id,),
+        ).fetchall()
+        return self._shape_representation_rows(rows, assets=assets, previews=previews)
+
+    def load_representations_for_revisions(
+        self,
+        conn: Any,
+        revision_ids: list[str],
+        *,
+        assets_by_revision: dict[str, list[dict[str, Any]]] | None = None,
+        previews_by_revision: dict[str, list[dict[str, Any]]] | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Load every representation for ``revision_ids`` in one query."""
+
+        assets_by_revision = assets_by_revision or {}
+        previews_by_revision = previews_by_revision or {}
+        shaped: dict[str, list[dict[str, Any]]] = {revision_id: [] for revision_id in revision_ids}
+        if not revision_ids:
+            return shaped
+        placeholders = ",".join("%s" for _ in revision_ids)
+        rows_by_revision: dict[str, list[Any]] = {revision_id: [] for revision_id in revision_ids}
+        for row in conn.execute(
+            f"SELECT * FROM revision_representations WHERE revision_id IN ({placeholders}) "
+            "ORDER BY revision_id, display_order, id",
+            tuple(revision_ids),
+        ).fetchall():
+            rows_by_revision.setdefault(str(row["revision_id"]), []).append(row)
+        for revision_id, rows in rows_by_revision.items():
+            shaped[revision_id] = self._shape_representation_rows(
+                rows,
+                assets=assets_by_revision.get(revision_id, []),
+                previews=previews_by_revision.get(revision_id, []),
+            )
+        return shaped
+
+    @staticmethod
+    def _shape_representation_rows(
+        rows: list[Any],
+        *,
+        assets: list[dict[str, Any]],
+        previews: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         assets_by_id = {str(asset["id"]): asset for asset in assets}
         previews_by_asset: dict[str, list[dict[str, Any]]] = {}
         for preview in previews:
@@ -124,11 +257,6 @@ class CatalogComponentReadModels:
                 "preview_id": str(ready_preview["id"]) if ready_preview else "",
             }
 
-        rows = conn.execute(
-            "SELECT * FROM revision_representations WHERE revision_id = %s "
-            "ORDER BY display_order, id",
-            (revision_id,),
-        ).fetchall()
         return [
             {
                 "id": str(row["id"]),
@@ -144,45 +272,53 @@ class CatalogComponentReadModels:
             for row in rows
         ]
 
+    def _load_inventory_locations(self, conn: Any, component_id: str) -> list[dict[str, Any]]:
+        return [
+            dict(row)
+            for row in conn.execute(
+                f"""
+                SELECT {_INVENTORY_LOCATION_COLUMNS}
+                FROM inventory_levels
+                WHERE component_id = %s
+                ORDER BY {_INVENTORY_LOCATION_ORDER}
+                """,
+                (component_id,),
+            ).fetchall()
+        ]
+
     def local_inventory(self, conn: Any, component_id: str) -> dict[str, Any] | None:
-        row = conn.execute(
-            """
-            SELECT source, SUM(quantity) AS quantity, MIN(uom) AS uom,
-                   MIN(inventory_status) AS inventory_status,
-                   MIN(fetch_status) AS fetch_status, MAX(fetched_at) AS fetched_at
-            FROM inventory_levels
-            WHERE component_id = %s
-            GROUP BY source
-            ORDER BY CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END, source
-            LIMIT 1
-            """,
-            (component_id,),
-        ).fetchone()
-        if not row:
-            return None
-        return {
-            "source": str(row["source"]),
-            "quantity": float(row["quantity"] or 0),
-            "uom": str(row["uom"] or ""),
-            "inventory_status": str(row["inventory_status"] or ""),
-            "fetch_status": str(row["fetch_status"] or "ok"),
-            "fetched_at": str(row["fetched_at"] or ""),
-        }
+        local, _ = inventory_payloads_from_source_rows(
+            self._load_inventory_locations(conn, component_id)
+        )
+        return local
 
     def supply_sources(self, conn: Any, component_id: str) -> list[dict[str, Any]]:
+        _, sources = inventory_payloads_from_source_rows(
+            self._load_inventory_locations(conn, component_id)
+        )
+        return sources
+
+    def load_inventory_for_components(
+        self, conn: Any, component_ids: list[str]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Load raw inventory locations for many components in one query."""
+
+        grouped: dict[str, list[dict[str, Any]]] = {component_id: [] for component_id in component_ids}
+        if not component_ids:
+            return grouped
+        placeholders = ",".join("%s" for _ in component_ids)
         rows = conn.execute(
-            """
-            SELECT source, SUM(quantity) AS quantity, MIN(uom) AS uom,
-                   MIN(inventory_status) AS inventory_status,
-                   MIN(fetch_status) AS fetch_status, MAX(fetched_at) AS fetched_at
+            f"""
+            SELECT {_INVENTORY_LOCATION_COLUMNS}
             FROM inventory_levels
-            WHERE component_id = %s
-            GROUP BY source
-            ORDER BY CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END, source
+            WHERE component_id IN ({placeholders})
+            ORDER BY component_id, {_INVENTORY_LOCATION_ORDER}
             """,
-            (component_id,),
+            tuple(component_ids),
         ).fetchall()
-        return [supply_source_payload(dict(row)) for row in rows]
+        for row in rows:
+            grouped.setdefault(str(row["component_id"]), []).append(dict(row))
+        return grouped
 
     def load_previews_for_assets(self, conn: Any, asset_ids: list[str]) -> list[dict[str, Any]]:
         if not asset_ids:
@@ -475,22 +611,24 @@ class CatalogComponentReadModels:
         }
 
     def availability(
-        self, assets: list[dict[str, Any]], release_status: str, is_active: bool
+        self,
+        *,
+        default_symbol: dict[str, Any] | None,
+        default_footprint: dict[str, Any] | None,
+        release_status: str,
+        is_active: bool,
+        identity_kind: str = IDENTITY_KIND_MPN,
     ) -> tuple[str, list[str], bool]:
-        asset_types = {str(asset["asset_type"]) for asset in assets}
-        missing = [
-            asset_type
-            for asset_type in PLACE_REQUIRED_ASSET_TYPES
-            if asset_type not in asset_types
-        ]
-        if missing and len(missing) == len(PLACE_REQUIRED_ASSET_TYPES):
-            state = STATE_METADATA_ONLY
-        elif missing:
-            state = STATE_FILES_PARTIAL
-        else:
-            state = STATE_PLACE_READY
-        place_enabled = is_active and not missing and _release_allows_remote(release_status)
-        return state, missing, place_enabled
+        state, missing = cad_availability(
+            representation_slot_present(default_symbol),
+            representation_slot_present(default_footprint),
+        )
+        return state, missing, remote_place_enabled(
+            is_active=is_active,
+            identity_kind=identity_kind,
+            missing_assets=missing,
+            release_status=release_status,
+        )
 
     def component_payload(
         self,
@@ -502,6 +640,9 @@ class CatalogComponentReadModels:
         preloaded_assets: list[dict[str, Any]] | None = None,
         preloaded_previews: list[dict[str, Any]] | None = None,
         preloaded_validation_runs: dict[str, dict[str, Any]] | None = None,
+        preloaded_representations: list[dict[str, Any]] | None = None,
+        preloaded_local_inventory: Any = _PRELOAD_UNSET,
+        preloaded_supply_sources: list[dict[str, Any]] | None = None,
         representation_id: str = "",
     ) -> dict[str, Any]:
         assets = (
@@ -514,8 +655,12 @@ class CatalogComponentReadModels:
             if preloaded_previews is not None
             else self.load_previews_for_revision(conn, str(revision_row["id"]))
         )
-        representations = self.load_representations_for_revision(
-            conn, str(revision_row["id"]), assets=assets, previews=previews
+        representations = (
+            preloaded_representations
+            if preloaded_representations is not None
+            else self.load_representations_for_revision(
+                conn, str(revision_row["id"]), assets=assets, previews=previews
+            )
         )
         default_representation = next((item for item in representations if item["is_default"]), None)
         effective_representation = default_representation
@@ -529,26 +674,22 @@ class CatalogComponentReadModels:
                 raise ValueError("Selected representation is incomplete")
         symbol_asset = effective_representation.get("symbol") if effective_representation else None
         footprint_asset = effective_representation.get("footprint") if effective_representation else None
-        missing_assets = [
-            kind
-            for kind, value in (("symbol", symbol_asset), ("footprint", footprint_asset))
-            if not value
-        ]
-        availability_state = (
-            STATE_PLACE_READY
-            if not missing_assets
-            else STATE_FILES_PARTIAL
-            if len(missing_assets) == 1
-            else STATE_METADATA_ONLY
+        availability_state, missing_assets, place_enabled = self.availability(
+            default_symbol=symbol_asset,
+            default_footprint=footprint_asset,
+            release_status=str(revision_row["release_status"]),
+            is_active=bool(component_row["is_active"]),
+            identity_kind=str(component_row.get("identity_kind") or IDENTITY_KIND_MPN),
         )
-        place_enabled = (
-            bool(component_row["is_active"])
-            and str(component_row.get("identity_kind") or IDENTITY_KIND_MPN) == IDENTITY_KIND_MPN
-            and not missing_assets
-            and _release_allows_remote(str(revision_row["release_status"]))
+        if preloaded_local_inventory is _PRELOAD_UNSET:
+            local_inventory = self.local_inventory(conn, str(component_row["id"]))
+        else:
+            local_inventory = preloaded_local_inventory
+        supply_sources = (
+            preloaded_supply_sources
+            if preloaded_supply_sources is not None
+            else self.supply_sources(conn, str(component_row["id"]))
         )
-        local_inventory = self.local_inventory(conn, str(component_row["id"]))
-        supply_sources = self.supply_sources(conn, str(component_row["id"]))
         validation_summary = self.component_validation_summary(
             conn,
             str(revision_row["id"]),
@@ -675,15 +816,19 @@ class CatalogComponentReadModels:
         *,
         released_view: bool = False,
         validation_summary: dict[str, Any] | None = None,
+        default_symbol_asset_id: str = "",
+        default_footprint_asset_id: str = "",
     ) -> dict[str, Any]:
+        assets_by_id = {str(asset["id"]): asset for asset in assets}
+        symbol_asset = assets_by_id.get(str(default_symbol_asset_id or ""))
+        footprint_asset = assets_by_id.get(str(default_footprint_asset_id or ""))
         availability_state, missing_assets, place_enabled = self.availability(
-            assets,
-            str(revision_row["release_status"]),
-            bool(component_row["is_active"]),
+            default_symbol=symbol_asset,
+            default_footprint=footprint_asset,
+            release_status=str(revision_row["release_status"]),
+            is_active=bool(component_row["is_active"]),
+            identity_kind=str(component_row.get("identity_kind") or IDENTITY_KIND_MPN),
         )
-        if str(component_row.get("identity_kind") or IDENTITY_KIND_MPN) != IDENTITY_KIND_MPN:
-            place_enabled = False
-        symbol_asset = next((asset for asset in assets if asset["asset_type"] == "symbol"), None)
         # Lightweight payloads are used by the KiCad remote panel; avoid validation lookups on search paths.
         validation_summary = validation_summary or {
             "status": VALIDATION_STATUS_NOT_RUN,
@@ -722,6 +867,7 @@ class CatalogComponentReadModels:
             "summary": str(revision_row["summary"]),
             "revision": int(revision_row["version"]),
             "version": f"{int(revision_row['version'])}.0.0",
+            # LIB_ID follows the default pair, matching detail payloads.
             "library_name": str(symbol_asset["target_library"]) if symbol_asset else "",
             "symbol_name": str(symbol_asset["target_name"]) if symbol_asset else "",
             "availability_state": availability_state,
@@ -784,6 +930,11 @@ class CatalogComponentReadModels:
 
 __all__ = [
     "CatalogComponentReadModels",
+    "cad_availability",
+    "inventory_payloads_from_source_rows",
+    "local_inventory_payload",
+    "remote_place_enabled",
+    "representation_slot_present",
     "supply_source_payload",
     "SUPPLY_KIND_VENDOR",
     "SUPPLY_KIND_LOCAL",

@@ -87,24 +87,50 @@ export function loadEcadRenderer(): Promise<EcadRenderer> {
 }
 
 /**
+ * How to fetch asset bytes. The catalog workspace uses cookies; the KiCad
+ * panel can attach a negotiated bearer token. `authScope` is part of the
+ * cache key so a body fetched under one credential is not reused after
+ * login, logout, or a token change.
+ */
+export interface AssetTextRequest {
+  authScope?: string;
+  headers?: HeadersInit;
+  credentials?: RequestCredentials;
+}
+
+/**
  * Asset bytes are immutable -- editing one produces a new asset row -- so a
  * body is cached for the tab's lifetime and shared by every surface showing
- * the same part.
+ * the same part. The cache is keyed by auth scope and URL, not URL alone.
  */
 const assetText = new Map<string, Promise<string>>();
 
-export function loadAssetText(url: string): Promise<string> {
-  let pending = assetText.get(url);
+export class AssetTextHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`Asset request failed (${status})`);
+    this.name = "AssetTextHttpError";
+  }
+}
+
+export function loadAssetText(
+  url: string,
+  request: AssetTextRequest = {},
+): Promise<string> {
+  const key = `${request.authScope ?? ""}\n${url}`;
+  let pending = assetText.get(key);
   if (!pending) {
-    pending = fetch(url, { credentials: "same-origin" }).then((response) => {
+    pending = fetch(url, {
+      credentials: request.credentials ?? "same-origin",
+      headers: request.headers,
+    }).then((response) => {
       if (!response.ok) {
-        throw new Error(`Asset request failed (${response.status})`);
+        throw new AssetTextHttpError(response.status);
       }
       return response.text();
     });
     // A failed request must not be remembered as the answer.
-    pending.catch(() => assetText.delete(url));
-    assetText.set(url, pending);
+    pending.catch(() => assetText.delete(key));
+    assetText.set(key, pending);
   }
   return pending;
 }

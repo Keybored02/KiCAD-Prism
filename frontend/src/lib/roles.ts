@@ -1,3 +1,4 @@
+import { CATALOG_WORKFLOW_POLICY } from "@/lib/catalog-workflow-policy.generated";
 import type { CatalogComponent, WorkflowStage } from "@/types/catalog";
 import type { UserRole } from "@/types/auth";
 
@@ -118,15 +119,6 @@ export const ROLE_AUTHORITIES: readonly RoleAuthority[] = [
   },
 ] as const;
 
-const WORKFLOW_TRANSITIONS: Record<WorkflowStage, WorkflowStage[]> = {
-  open: ["in_progress", "archived"],
-  in_progress: ["qa_review", "open", "archived"],
-  qa_review: ["done", "in_progress", "archived"],
-  done: ["released", "qa_review", "archived"],
-  released: ["archived", "open"],
-  archived: ["open"],
-};
-
 export function roleLabel(role: UserRole): string {
   return ROLE_LABELS[role] ?? role;
 }
@@ -152,21 +144,38 @@ export function canReviewCatalogQa(role?: UserRole | null): boolean {
   return roleHasAuthority(role, "review_catalog_qa");
 }
 
+const WORKFLOW_STAGES: readonly string[] = CATALOG_WORKFLOW_POLICY.stages;
+const LEGACY_WORKFLOW_ALIASES: Readonly<Record<string, string>> = CATALOG_WORKFLOW_POLICY.legacyAliases;
+
+/**
+ * The current stage name a component reports, with the server's legacy aliases
+ * applied so older stored values (`draft`, `in_review`, ...) offer the same
+ * transitions the server would accept for them.
+ */
+export function normalizeWorkflowStage(stage: string | null | undefined): WorkflowStage | null {
+  const trimmed = (stage ?? "").trim().toLowerCase();
+  const normalized = LEGACY_WORKFLOW_ALIASES[trimmed] ?? trimmed;
+  return WORKFLOW_STAGES.includes(normalized) ? (normalized as WorkflowStage) : null;
+}
+
 export function workflowStage(component: CatalogComponent): WorkflowStage {
-  return component.workflow_stage ?? component.release_status;
+  const raw = component.workflow_stage ?? component.release_status;
+  return normalizeWorkflowStage(raw) ?? raw;
+}
+
+/**
+ * Transitions to offer for a role from a stage, straight from the generated
+ * server contract. The server still authorizes the request; this only decides
+ * what the client shows. Unknown roles and stages offer nothing.
+ */
+export function allowedWorkflowTransitionsFrom(role: UserRole | undefined | null, stage: string): WorkflowStage[] {
+  const current = normalizeWorkflowStage(stage);
+  if (!role || !current) return [];
+  const byStage = CATALOG_WORKFLOW_POLICY.allowed[role as keyof typeof CATALOG_WORKFLOW_POLICY.allowed];
+  if (!byStage) return [];
+  return [...(byStage[current] as readonly WorkflowStage[])];
 }
 
 export function allowedWorkflowTransitions(role: UserRole | undefined | null, component: CatalogComponent): WorkflowStage[] {
-  const current = workflowStage(component);
-  const transitions = WORKFLOW_TRANSITIONS[current] ?? [];
-  if (role === "admin") {
-    return transitions;
-  }
-  if (role === "designer") {
-    return transitions.filter((next) => !(current === "qa_review" && next === "done"));
-  }
-  if (role === "qa" && current === "qa_review") {
-    return transitions.filter((next) => next === "done" || next === "in_progress" || next === "archived");
-  }
-  return [];
+  return allowedWorkflowTransitionsFrom(role, workflowStage(component));
 }

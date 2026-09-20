@@ -19,6 +19,14 @@ from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult
 from app.services.job_service import jobs as v3_jobs
+from app.services.project_import_followups import (
+    retry_import_follow_ups,
+    schedule_import_follow_ups,
+)
+from app.services.project_import_plan import (
+    ProjectImportPlan,
+    build_project_import_plan,
+)
 from app.services.workspace_service import workspace
 
 
@@ -987,6 +995,51 @@ def _discover_remote_projects(
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def _register_planned_projects(
+    plan: ProjectImportPlan,
+    target_path: Path,
+    repo_id: str,
+    context: JobContext,
+) -> list[str]:
+    """Register only the projects named by the plan."""
+
+    checkout_root = target_path.resolve()
+    imported_ids: list[str] = []
+    total = len(plan.selected)
+    for index, project in enumerate(plan.selected):
+        context.check_cancelled()
+        if plan.import_type == "type1":
+            project_root = target_path
+            description = f"Project {plan.repo_name}"
+        else:
+            project_root = target_path / project.relative_path
+            if not project_root.resolve().is_relative_to(checkout_root):
+                raise ValueError(
+                    f"Project path escapes the checkout: {project.relative_path}"
+                )
+            description = f"{plan.repo_name} / {project.name}"
+        cached = resolve_cached_paths(str(project_root), anchor=project.project_file)
+        if project.adopt_project_id:
+            workspace.update_project(project.adopt_project_id, **cached)
+            imported_ids.append(project.adopt_project_id)
+        else:
+            imported_ids.append(
+                workspace.register_project(
+                    repo_id=repo_id,
+                    name=project.name,
+                    relative_path=project.register_relative_path,
+                    description=description,
+                    **cached,
+                )
+            )
+        context.progress(
+            stage="register-projects",
+            message=f"Registered {index + 1} of {total} projects",
+            percent=80 + (15 * (index + 1) / total) if total else 80,
+        )
+    return imported_ids
+
+
 def run_project_import_job_v3(context: JobContext) -> JobResult:
     payload = context.payload
     parsed = parse_remote_url(str(payload["repo_url"]), remote_url_policy())
@@ -1019,78 +1072,34 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             "directories containing a .kicad_pro, .kicad_pcb or .kicad_sch file."
         )
 
-    # Importing three boards out of twenty used to make the other seventeen
-    # unreachable: the repository was registered, and every later import of the
-    # same URL failed as a duplicate. Adding to an existing repository is now
-    # the normal path, and only the projects not yet registered are imported.
     already_imported: set[str] = set()
+    existing_rows: list[dict] = []
+    existing_checkout_path = None
     if existing_repo:
+        existing_rows = list(workspace.get_projects_by_repo(str(existing_repo["id"])))
         already_imported = {
             make_project_key(
                 str(row.get("relative_path") or "."),
                 str(row.get("project_file_rel") or ""),
             )
-            for row in workspace.get_projects_by_repo(str(existing_repo["id"]))
+            for row in existing_rows
         }
+        existing_checkout_path = workspace.repository_clone_path(existing_repo)
 
-    discovered_by_key = {project.project_key: project for project in discovered}
-    projects_by_directory: dict[str, list[DiscoveredProject]] = {}
-    for project in discovered:
-        projects_by_directory.setdefault(project.relative_path, []).append(project)
-
-    def is_already_imported(project: DiscoveredProject) -> bool:
-        if project.project_key in already_imported:
-            return True
-        # A row registered before anchors existed is keyed by its directory
-        # alone. It stands for that directory's one project -- which is only
-        # unambiguous while the directory still holds one.
-        return (
-            project.relative_path in already_imported
-            and len(projects_by_directory[project.relative_path]) == 1
-        )
-
-    if import_type == "type1":
-        requested_paths = [discovered[0].project_key]
-
-    # A caller may name a project by its key, or name a directory and mean every
-    # project in it -- which is what every client sent before projects had keys.
-    resolved_selection: list[str] = []
-    unknown: list[str] = []
-    for path in requested_paths:
-        if path in discovered_by_key:
-            resolved_selection.append(path)
-        elif path in projects_by_directory:
-            resolved_selection.extend(
-                project.project_key for project in projects_by_directory[path]
-            )
-        else:
-            unknown.append(path)
-    if unknown:
-        raise ValueError(
-            "Selected paths are not KiCad projects in this repository: "
-            + ", ".join(sorted(set(unknown)))
-        )
-
-    selected_keys = list(dict.fromkeys(resolved_selection))
-    selected_projects = [
-        discovered_by_key[key]
-        for key in selected_keys
-        if not is_already_imported(discovered_by_key[key])
-    ]
-    if not selected_projects:
-        if requested_paths and already_imported:
-            raise ValueError(
-                f"Every selected project is already imported from "
-                f"'{existing_repo.get('name') or repo_name}'."
-            )
-        raise ValueError("No projects selected for import")
-
-    if existing_repo:
-        target_path = Path(workspace.repository_clone_path(existing_repo))
-        base_path = target_path.parent
-    else:
-        base_path = Path(project_service.PROJECTS_ROOT) / import_type
-        target_path = base_path / repo_name
+    plan = build_project_import_plan(
+        repo_url=repo_url,
+        repo_name=repo_name,
+        import_type=import_type,
+        discovered=discovered,
+        requested_paths=requested_paths,
+        already_imported=already_imported,
+        existing_repo=existing_repo,
+        existing_rows=existing_rows,
+        projects_root=str(project_service.PROJECTS_ROOT),
+        existing_checkout_path=existing_checkout_path,
+    )
+    target_path = Path(plan.target_path)
+    base_path = target_path.parent
 
     try:
         adopted_checkout = False
@@ -1159,68 +1168,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 clone_path_abs=str(target_path),
                 import_type="single" if import_type == "type1" else "multi",
             )
-        imported_ids: list[str] = []
-        if import_type == "type1":
-            project = selected_projects[0]
-            cached = resolve_cached_paths(str(target_path), anchor=project.project_file)
-            imported_ids.append(
-                workspace.register_project(
-                    repo_id=repo_id,
-                    name=repo_name,
-                    relative_path=".",
-                    description=f"Project {repo_name}",
-                    **cached,
-                )
-            )
-        else:
-            checkout_root = target_path.resolve()
-            # Read once: adoption removes rows from this list as it consumes
-            # them, so two projects cannot both claim the same legacy row.
-            existing_rows = (
-                workspace.get_projects_by_repo(repo_id) if existing_repo else []
-            )
-            for index, project in enumerate(selected_projects):
-                context.check_cancelled()
-                relative_path = project.relative_path
-                full_project_path = target_path / relative_path
-                # Paths are already validated against discovery; this keeps the
-                # guarantee local to the place that does the filesystem write.
-                if not full_project_path.resolve().is_relative_to(checkout_root):
-                    raise ValueError(f"Project path escapes the checkout: {relative_path}")
-                # Discovery already worked out the board name, including for
-                # directories whose .kicad_pro is gitignored.
-                board_name = project.name or os.path.basename(relative_path)
-                cached = resolve_cached_paths(
-                    str(full_project_path), anchor=project.project_file
-                )
-                # A row this directory registered before anchors existed is
-                # this project, not a third one; take it over so re-importing
-                # an affected install corrects it instead of leaving the
-                # wrongly-identified project registered beside its replacement.
-                legacy_row = find_legacy_row_to_adopt(
-                    existing_rows, relative_path, board_name
-                )
-                if legacy_row is not None:
-                    workspace.update_project(str(legacy_row["id"]), **cached)
-                    imported_ids.append(str(legacy_row["id"]))
-                    existing_rows = [
-                        row for row in existing_rows if row["id"] != legacy_row["id"]
-                    ]
-                else:
-                    imported_ids.append(
-                        workspace.register_project(
-                            repo_id=repo_id,
-                            name=board_name,
-                            relative_path=relative_path,
-                            description=f"{repo_name} / {board_name}",
-                            **cached,
-                        )
-                    )
-                context.progress(
-                    stage="register-projects",
-                    message=f"Registered {index + 1} of {len(selected_projects)} projects",
-                    percent=80 + (15 * (index + 1) / len(selected_projects)),
-                )
+        imported_ids = _register_planned_projects(plan, target_path, repo_id, context)
         # Render boards in their own jobs. The projects are registered and
         # browsable now; thumbnails fill in as each render finishes, rather than
         # holding the import open for two minutes per board.
@@ -1230,23 +1178,14 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             percent=97,
             force=True,
         )
-        thumbnail_job_ids: list[str] = []
-        for imported_id in imported_ids:
-            # Queued before the render: the card shows a size and a title block
-            # before it shows a picture, and this job is the cheaper of the two.
-            try:
-                start_project_metadata_job(imported_id, requested_by="project-import")
-            except Exception as error:
-                print(f"Could not queue metadata for {imported_id}: {error}", flush=True)
-            try:
-                job_id = start_thumbnail_job(imported_id, requested_by="project-import")
-            except Exception as error:
-                # A thumbnail is cosmetic; failing to queue one must not undo an
-                # otherwise complete import.
-                print(f"Could not queue thumbnail for {imported_id}: {error}", flush=True)
-                continue
-            if job_id:
-                thumbnail_job_ids.append(job_id)
+        follow_ups = schedule_import_follow_ups(
+            imported_ids, requested_by="project-import"
+        )
+        thumbnail_job_ids = [
+            str(item["job_id"])
+            for item in follow_ups
+            if item.get("operation") == "thumbnail" and item.get("job_id")
+        ]
 
         return JobResult(
             message=f"Imported {len(imported_ids)} project(s)",
@@ -1256,6 +1195,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 "repo_url": repo_url,
                 "import_type": import_type,
                 "thumbnail_job_ids": thumbnail_job_ids,
+                "follow_ups": follow_ups,
             },
         )
     except Exception:
@@ -1366,7 +1306,7 @@ def run_project_metadata_job_v3(context: JobContext) -> JobResult:
         schematic_path,
         pcb_path,
         repo_path=repo_path,
-        relative_path=relative_path,
+        relative_path=relative_path, anchor=anchor,
     )
     pcb = computed.get("pcb") or {}
     return JobResult(

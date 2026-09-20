@@ -185,8 +185,68 @@ class SourceDiscoveryTests(unittest.TestCase):
         self.assertNotIn("jobsets", source)
         self.assertIn("Custom BOM", source["bom_presets"])
         self.assertIn("Current project settings", source["bom_presets"])
-        self.assertEqual(source["variants"], ["A"])
-        self.assertEqual(source["variant"], "A")
+        # The explicit default is offered before the discovered names.
+        self.assertEqual(source["variants"], ["default", "A"])
+        self.assertEqual(source["variant"], "default")
+
+    def test_variants_come_from_the_shared_catalog_for_the_scoped_source(self) -> None:
+        from app.release_studio import source as source_module
+
+        payload = {
+            "variants": [
+                {"name": "default", "description": None, "sources": ["project"]},
+                {"name": "Lite", "description": None, "sources": ["schematic"]},
+                {"name": "Lite", "description": None, "sources": ["pcb"]},
+                {"name": "  ", "description": None, "sources": []},
+                {"name": "Pro", "description": None, "sources": ["pcb"]},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            repo_root = Path(raw)
+            scoped = repo_root / "hardware" / "board"
+            scoped.mkdir(parents=True)
+            (scoped / "board.kicad_pro").write_text("{}\n")
+            with patch(
+                "app.services.variant_catalog_service.discover_variant_catalog",
+                return_value=payload,
+            ) as discover:
+                names = source_module._variants(
+                    repo_root,
+                    "b" * 40,
+                    "hardware/board",
+                    "hardware/board/board.kicad_pro",
+                )
+        self.assertEqual(names, ["Lite", "Pro"])
+        project, commit = discover.call_args.args
+        self.assertEqual(commit, "b" * 40)
+        self.assertEqual(project.path, str(scoped.resolve()))
+        self.assertEqual(project.project_file, "board.kicad_pro")
+
+    def test_variant_discovery_failure_offers_only_the_default(self) -> None:
+        from app.release_studio import source as source_module
+
+        files = ["board.kicad_pcb", "board.kicad_sch", "board.kicad_pro"]
+        with (
+            patch("app.release_studio.source._ls_tree", return_value=files),
+            patch("app.release_studio.source._bom_presets", return_value=[]),
+            patch(
+                "app.services.variant_catalog_service.discover_variant_catalog",
+                side_effect=ValueError("no project file in this commit"),
+            ),
+        ):
+            source = discover_source(Path("/unused"), "a" * 40, "hardware/board")
+        self.assertEqual(source["variants"], ["default"])
+        self.assertEqual(source["variant"], "default")
+
+    def test_no_project_file_skips_catalog_discovery(self) -> None:
+        from app.release_studio import source as source_module
+
+        with patch(
+            "app.services.variant_catalog_service.discover_variant_catalog"
+        ) as discover:
+            names = source_module._variants(Path("/repo"), "b" * 40, None, None)
+        self.assertEqual(names, [])
+        discover.assert_not_called()
 
 
 class ApplySourceDefaultsTests(unittest.TestCase):
@@ -239,6 +299,34 @@ class ApplySourceDefaultsTests(unittest.TestCase):
         self.assertEqual(result["schematic"], "a.kicad_sch")
         self.assertEqual(result["variant"], "default")
         self.assertEqual(result["default_bom_preset"], "Current project settings")
+
+    def test_explicit_default_survives_named_variants(self) -> None:
+        discovered = {
+            "boards": ["a.kicad_pcb"],
+            "schematics": ["a.kicad_sch"],
+            "board": "a.kicad_pcb",
+            "schematic": "a.kicad_sch",
+            "variants": ["default", "assembly"],
+            "bom_presets": [],
+            "default_bom_preset": "",
+            "variant": "",
+        }
+        result = apply_source_defaults(discovered, {"variant": "default"})
+        self.assertEqual(result["variant"], "default")
+
+    def test_removed_named_variant_falls_back_to_default_not_another_name(self) -> None:
+        discovered = {
+            "boards": ["a.kicad_pcb"],
+            "schematics": ["a.kicad_sch"],
+            "board": "a.kicad_pcb",
+            "schematic": "a.kicad_sch",
+            "variants": ["default", "assembly", "pro"],
+            "bom_presets": [],
+            "default_bom_preset": "",
+            "variant": "",
+        }
+        result = apply_source_defaults(discovered, {"variant": "assembly-v2"})
+        self.assertEqual(result["variant"], "default")
 
 
 class ReleaseStudioInputApiTests(unittest.TestCase):

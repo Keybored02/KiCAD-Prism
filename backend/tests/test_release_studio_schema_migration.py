@@ -19,10 +19,9 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
+from app.services.workspace_migrations.m008_release_studio import migrate as _release_studio  # noqa: E402
 from app.services.workspace_schema_migrations import (  # noqa: E402
     MIGRATIONS,
-    _release_studio,
-    _release_studio,
     apply_workspace_migrations,
 )
 

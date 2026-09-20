@@ -83,6 +83,9 @@ class ReleaseBundleTests(unittest.TestCase):
             archive_root = "kicad-prism-v3.1.2-alpha.1-linux-amd64"
             self.assertIn(f"{archive_root}/compose.yml", packaged_names)
             self.assertIn(f"{archive_root}/SHA256SUMS", packaged_names)
+            self.assertIn(f"{archive_root}/UPGRADES.md", packaged_names)
+            self.assertIn(f"{archive_root}/scripts/prism_backup.py", packaged_names)
+            self.assertIn(f"{archive_root}/scripts/prism_deploy/tui.py", packaged_names)
 
             expected_archive_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
             self.assertEqual(

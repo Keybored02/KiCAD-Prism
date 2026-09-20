@@ -288,6 +288,9 @@ export function EcadViewerControls({
                                     ["values", "Values"],
                                     ["footprintText", "Footprint text"],
                                     ["hiddenText", "Hidden text"],
+                                    ["padNumbers", "Pad numbers"],
+                                    ["padNetNames", "Net names on pads"],
+                                    ["trackNetNames", "Net names on tracks & vias"],
                                 ] as const).map(([kind, label]) => (
                                     <label key={kind} className="flex cursor-pointer items-center justify-between gap-3 text-xs">
                                         <span>{label}</span>

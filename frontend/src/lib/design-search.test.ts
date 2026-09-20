@@ -133,3 +133,41 @@ describe("selectionFromDesignSearchHit", () => {
         });
     });
 });
+
+describe("searchDesignEntities effective components", () => {
+    // The assembly projection hands the effective list in; the base index's
+    // stale MPN must not be found in its place.
+    const base = index(
+        [
+            component({
+                reference: "R1",
+                value: "10k",
+                footprint: "R_0603",
+                fields: { "Manufacturer Part Number": "X-1" },
+            }),
+        ],
+        [],
+    );
+
+    it("searches the effective projection when one is provided", () => {
+        expect(searchDesignEntities(base, "X-LITE")).toEqual([]);
+
+        const effective = [
+            {
+                ...base.components[0]!,
+                fields: {
+                    ...base.components[0]!.fields,
+                    "Manufacturer Part Number": "X-LITE",
+                },
+            },
+        ];
+        const hits = searchDesignEntities(base, "X-LITE", {
+            components: effective,
+        });
+        expect(hits.map((hit) => hit.title)).toEqual(["R1"]);
+        // The base component is untouched and still searchable by its own text.
+        expect(searchDesignEntities(base, "X-1").map((hit) => hit.title)).toEqual([
+            "R1",
+        ]);
+    });
+});

@@ -429,10 +429,12 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     <ArrowLeft className="h-4 w-4 mr-2" />
                     Back
                 </Button>
-                <div className={cn("min-w-0", activeSection === "visualizers" ? "shrink-0" : "flex-1")}>
+                {/* The title takes whatever the header has left; it truncates only when
+                    there is genuinely no room, rather than at a fixed pixel cap. */}
+                <div className="min-w-[7rem] flex-1">
                     <h1 className={cn(
                         "text-xl font-bold truncate",
-                        activeSection === "visualizers" ? "max-w-[140px] md:max-w-[220px]" : "max-w-[200px] md:max-w-none",
+                        activeSection === "visualizers" ? "" : "max-w-[200px] md:max-w-none",
                     )}>
                         {project ? getDisplayName(project) : ""}
                     </h1>
@@ -446,7 +448,9 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                 {activeSection === "visualizers" ? (
                     <div
                         id={VISUALIZER_DESIGN_SEARCH_SLOT_ID}
-                        className="flex min-w-0 flex-1 justify-center px-2"
+                        // Compact at rest so the project name is not squeezed; grows while
+                        // the search field or its results have focus.
+                        className="flex w-full min-w-0 max-w-sm shrink justify-center px-2 transition-[max-width] duration-150 focus-within:max-w-lg"
                     />
                 ) : null}
 

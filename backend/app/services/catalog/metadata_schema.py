@@ -8,48 +8,15 @@ import re
 import uuid
 from typing import Any, Iterable
 
+from app.services.catalog.metadata_descriptors import (
+    BUILTIN_METADATA_FIELDS,
+    SYMBOL_METADATA_LABEL_TO_KEY,
+)
 from app.services.catalog.normalization import json_loads, utc_now_iso as _utc_now_iso
 
 
-SYMBOL_METADATA_LABEL_TO_KEY = {
-    "Value": "value",
-    "Description": "description",
-    "Datasheet": "datasheet_url",
-    "Manufacturer": "manufacturer",
-    "Manufacturer Part Number": "mpn",
-    "Vendor": "vendor",
-    "Vendor Part Number": "vendor_part_number",
-    "Mass (g)": "mass_g",
-    "RQjC (C/W)": "rqjc_c_w",
-    "RQjC_top (C/W)": "rqjc_top_c_w",
-    "Temp_max (C)": "temp_max_c",
-    "Temp_min (C)": "temp_min_c",
-    "Power Dissipation (W)": "power_dissipation_w",
-    "Rate": "rate",
-    "SAP Code": "sap_code",
-}
-
 METADATA_SCHEMA_VERSION = "prism.component_metadata_a1"
 METADATA_FIELD_TYPES = {"text", "number", "url", "boolean", "enum"}
-BUILTIN_METADATA_FIELDS: tuple[dict[str, Any], ...] = (
-    {"key": "value", "label": "Value", "group": "core", "type": "text", "required": True},
-    {"key": "category", "label": "Category", "group": "core", "type": "text"},
-    {"key": "description", "label": "Description", "group": "core", "type": "text", "required": True},
-    {"key": "datasheet_url", "label": "Datasheet", "group": "core", "type": "url", "required": True},
-    {"key": "manufacturer", "label": "Manufacturer", "group": "core", "type": "text", "required": True},
-    {"key": "mpn", "label": "Manufacturer Part Number", "group": "core", "type": "text", "required": True},
-    {"key": "vendor", "label": "Vendor", "group": "core", "type": "text"},
-    {"key": "vendor_part_number", "label": "Vendor Part Number", "group": "core", "type": "text"},
-    {"key": "package_name", "label": "Package / Footprint", "group": "core", "type": "text"},
-    {"key": "mass_g", "label": "Mass", "group": "engineering", "type": "number", "unit": "g"},
-    {"key": "rqjc_c_w", "label": "RQjC", "group": "engineering", "type": "number", "unit": "C/W"},
-    {"key": "rqjc_top_c_w", "label": "RQjC top", "group": "engineering", "type": "number", "unit": "C/W"},
-    {"key": "temp_max_c", "label": "Maximum temperature", "group": "engineering", "type": "number", "unit": "C"},
-    {"key": "temp_min_c", "label": "Minimum temperature", "group": "engineering", "type": "number", "unit": "C"},
-    {"key": "power_dissipation_w", "label": "Power dissipation", "group": "engineering", "type": "number", "unit": "W"},
-    {"key": "rate", "label": "Rate", "group": "engineering", "type": "number"},
-    {"key": "sap_code", "label": "SAP Code", "group": "core", "type": "text"},
-)
 
 
 class CatalogMetadataSchema:

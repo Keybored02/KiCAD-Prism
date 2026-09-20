@@ -24,16 +24,68 @@ from app.services.workspace_service import workspace
 logger = logging.getLogger(__name__)
 
 
-def source_fingerprint(schematic_path: Optional[str], pcb_path: Optional[str]) -> str:
+def locate_project_file(project_path: str, anchor: Optional[str] = None) -> Optional[str]:
+    """The sidecar ``.kicad_pro`` that owns this project, when there is one.
+
+    The locator is the viewer's -- the project's anchor first, then configured
+    paths, then the directory -- so the card expands variables from the same
+    project the rendered board does. Absence is normal: a directory can hold
+    design files with no project file, and that is not an error here.
+    """
+    from app.services import semantic_visualizer_service
+
+    try:
+        return str(semantic_visualizer_service.find_kicad_project(project_path, anchor))
+    except (OSError, ValueError):
+        return None
+
+
+def _read_project_text_variables(
+    project_file: Optional[str],
+) -> tuple[dict[str, str], str]:
+    """The project's ``text_variables`` and the name KiCad knows it by.
+
+    A malformed project file must not fail the metadata job: the board may
+    still render and its title block may not reference any variable at all.
+    """
+    if not project_file:
+        return {}, ""
+
+    project_name = Path(project_file).stem
+    try:
+        from kicad_monkey import KiCadProject
+
+        project = KiCadProject.from_file(project_file)
+    except Exception as error:  # malformed JSON, unreadable file, ...
+        logger.warning("Could not read text variables from %s: %s", project_file, error)
+        return {}, project_name
+    return dict(project.text_variables), project_name
+
+
+def source_fingerprint(
+    schematic_path: Optional[str],
+    pcb_path: Optional[str],
+    project_file_path: Optional[str] = None,
+) -> str:
     """Identify the inputs a stored row was computed from.
 
     Size and mtime rather than a content hash: hashing a 57 MB board to decide
     whether to re-read it would cost more than the read it is guarding. The
-    pair is enough to notice a sync that changed either file, which is the only
+    set is enough to notice a sync that changed any of them, which is the only
     event that can invalidate a row.
+
+    The sidecar ``.kicad_pro`` is an input too. A title block can be authored
+    from the project's ``text_variables`` (``(title "${TITLE}")``), so editing
+    a variable changes the card without touching either design file, and a
+    fingerprint that watched only the design files would leave the stored row
+    showing the old value forever.
     """
     parts: list[str] = []
-    for label, path in (("sch", schematic_path), ("pcb", pcb_path)):
+    for label, path in (
+        ("sch", schematic_path),
+        ("pcb", pcb_path),
+        ("pro", project_file_path),
+    ):
         if not path:
             parts.append(f"{label}:-")
             continue
@@ -106,6 +158,8 @@ def compute_project_metadata(
     project_path: str,
     schematic_path: Optional[str],
     pcb_path: Optional[str],
+    *,
+    anchor: Optional[str] = None,
 ) -> dict[str, Any]:
     """Read what the files say about themselves.
 
@@ -114,7 +168,14 @@ def compute_project_metadata(
     it. Failing the whole job would leave the panel with nothing at all, which
     is strictly worse and would also make the toolchain a hard dependency of
     browsing the workspace.
+
+    ``anchor`` picks the project's own ``.kicad_pro`` when a directory holds
+    more than one, and that project's ``text_variables`` expand the title
+    block fields of both documents.
     """
+    project_file = locate_project_file(project_path, anchor)
+    project_variables, project_name = _read_project_text_variables(project_file)
+
     board_facts: dict[str, Any] = {}
     stats_source = ""
     if pcb_path:
@@ -127,12 +188,19 @@ def compute_project_metadata(
 
     return {
         "schematic": project_properties_service.compute_schematic_metadata(
-            project_path, schematic_path
+            project_path,
+            schematic_path,
+            project_variables=project_variables,
+            project_name=project_name,
         ),
         "pcb": project_properties_service.compute_pcb_metadata(
-            project_path, pcb_path, board_facts
+            project_path,
+            pcb_path,
+            board_facts,
+            project_variables=project_variables,
+            project_name=project_name,
         ),
-        "source_fingerprint": source_fingerprint(schematic_path, pcb_path),
+        "source_fingerprint": source_fingerprint(schematic_path, pcb_path, project_file),
         "board_stats_source": stats_source,
     }
 
@@ -144,6 +212,7 @@ def refresh_project_metadata(
     pcb_path: Optional[str],
     repo_path: Optional[str] = None,
     relative_path: Optional[str] = None,
+    anchor: Optional[str] = None,
 ) -> dict[str, Any]:
     """Recompute and store one project's metadata.
 
@@ -154,7 +223,9 @@ def refresh_project_metadata(
     cheap half and they are what a push actually changes.
     """
     stored = workspace.get_project_metadata(project_id)
-    files_fingerprint = source_fingerprint(schematic_path, pcb_path)
+    files_fingerprint = source_fingerprint(
+        schematic_path, pcb_path, locate_project_file(project_path, anchor)
+    )
 
     if stored and str(stored.get("source_fingerprint") or "") == files_fingerprint:
         computed: dict[str, Any] = {
@@ -165,7 +236,9 @@ def refresh_project_metadata(
             "reused_file_metadata": True,
         }
     else:
-        computed = compute_project_metadata(project_path, schematic_path, pcb_path)
+        computed = compute_project_metadata(
+            project_path, schematic_path, pcb_path, anchor=anchor
+        )
         computed["reused_file_metadata"] = False
 
     repository: Optional[dict[str, Any]] = None
@@ -194,21 +267,40 @@ def refresh_project_metadata(
 
 def stored_metadata_is_current(
     project_id: str,
-    schematic_path: Optional[str],
-    pcb_path: Optional[str],
+    project_path: str,
+    anchor: Optional[str] = None,
     repo_path: Optional[str] = None,
 ) -> tuple[Optional[dict[str, Any]], bool]:
     """Return the stored row and whether it still describes the project.
 
     Stale on either axis: the files may have changed, or the repository may
-    have moved. Both are cheap to check -- two ``stat`` calls and a HEAD read.
+    have moved. Both are cheap to check -- three ``stat`` calls and a HEAD
+    read.
+
+    The document paths are resolved here, with the same anchor the metadata
+    job stored the row with. A caller passing its own pair could disagree with
+    that job's locator and leave the row looking stale on every read.
+
+    The sidecar ``.kicad_pro`` is part of the file fingerprint because the
+    stored title block was expanded from its text variables: editing one
+    changes the card without touching either design file.
     """
+    from app.services import project_service
+    from app.services.project_import_service import infer_project_anchor
+
     record = workspace.get_project_metadata(project_id)
     if not record:
         return None, False
 
+    # The same anchor the job stored the row with: an exact path when the row
+    # has one, otherwise the directory's only project. A plain locator could
+    # pick a different file than the job did and leave the row stale forever.
+    anchor = anchor or infer_project_anchor(project_path)
+    schematic_path = project_service.find_schematic_file(project_path, anchor)
+    pcb_path = project_service.find_pcb_file(project_path, anchor)
+    project_file = locate_project_file(project_path, anchor)
     files_current = str(record.get("source_fingerprint") or "") == source_fingerprint(
-        schematic_path, pcb_path
+        schematic_path, pcb_path, project_file
     )
     repo_current = str(record.get("repo_fingerprint") or "") == repo_fingerprint(repo_path)
     return record, files_current and repo_current

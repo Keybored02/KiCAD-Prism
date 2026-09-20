@@ -34,7 +34,8 @@ as a spurious change in a customer's release comparison.**
 | `jobset.py` | KiCad jobset translation, pinned to the KiCad 10.0.4 executor. |
 | `closure.py` | Resolves every input a build depends on. Outputs are never closure inputs. |
 | `inputs.py` · `source.py` | Input discovery and revision sourcing. |
-| `documents/` | Document generation — `documents/engine.py` orchestrates, the rest render. |
+| `document_pipeline.py` | Gathers typed `DocumentInputs` and writes composed sheets as a member-producing step. |
+| `documents/` | Document generation — `documents/acquisition.py` acquires views, `documents/engine.py` composes sheets, the rest render. |
 | `canonical/` | Byte-canonical encoding and JSON. Frozen by default. |
 | `config/` | Schema, loader, substitution, and digest classification. |
 | `vendors/` | Vendor-specific packaging (`vendors/jlcpcb.py`, `vendors/pack.py`, `vendors/registry.py`). |
@@ -54,8 +55,9 @@ Entry point is `backend/app/services/release_studio_build_service.py`
 - **Steps do not overlap.** They used to; `steps.py` documents why they no
   longer do. Do not reintroduce concurrency across `kicad-cli` processes.
 - **A missing view degrades one sheet, never the document set**
-  (`documents/engine.py`). Failure handling here is deliberately partial — do
-  not "fix" it into an all-or-nothing abort.
+  (`documents/acquisition.py`). Failure handling here is deliberately partial —
+  do not "fix" it into an all-or-nothing abort. Complete composition failure
+  still fails the documents step (`document_pipeline.py`).
 - **Consumers must not infer terminal state from the evidence index**
   (`backend/app/api/release_studio.py`). Ask the job, not the artifacts.
 

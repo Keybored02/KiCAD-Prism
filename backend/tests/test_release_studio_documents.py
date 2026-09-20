@@ -1631,6 +1631,122 @@ class AssemblySheetTests(unittest.TestCase):
             result.warnings,
         )
 
+    def test_one_failed_layer_plot_keeps_the_other_documents(self) -> None:
+        def acquirer(_cli, _board, layers, _workdir, **_kwargs):
+            if "F.Cu" in layers:
+                raise artwork_module.ArtworkError("plotter refused F.Cu")
+            return _svg_artwork(50.0, 40.0)
+
+        result = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            board=Path("/nonexistent/board.kicad_pcb"),
+            cli_path="kicad-cli",
+            workdir=Path("/tmp"),
+            acquirer=acquirer,
+            drill_acquirer=lambda *_a, **_k: _svg_artwork(50.0, 40.0),
+            board_render_acquirer=lambda *_a, **_k: None,
+        )
+        self.assertEqual(
+            [output.key for output in result.outputs],
+            ["cover", "fabrication", "assembly", "testpoint", "drill"],
+        )
+        self.assertTrue(
+            any("plotter refused F.Cu" in warning for warning in result.warnings),
+            result.warnings,
+        )
+        self.assertIn("board artwork unavailable", _page(result, "fabrication"))
+        self.assertIn("fabrication-B_Cu", result.page_svgs())
+
+
+class AcquisitionBoundaryTests(unittest.TestCase):
+    def test_one_failed_job_leaves_the_other_views(self) -> None:
+        from app.release_studio.documents.acquisition import (
+            AcquisitionRequest,
+            acquire_views,
+            fabrication_layers,
+            layer_artwork_key,
+        )
+
+        def acquirer(_cli, _board, layers, _workdir, **_kwargs):
+            if "F.Cu" in layers:
+                raise artwork_module.ArtworkError("plotter refused F.Cu")
+            return _svg_artwork(50.0, 40.0)
+
+        result = acquire_views(
+            AcquisitionRequest(
+                board=Path("/nonexistent/board.kicad_pcb"),
+                workdir=Path("/tmp"),
+                layer_pages=fabrication_layers(STACKUP),
+                cli_path="kicad-cli",
+                acquirer=acquirer,
+                drill_acquirer=lambda *_a, **_k: _svg_artwork(50.0, 40.0),
+                board_render_acquirer=lambda *_a, **_k: None,
+            )
+        )
+        self.assertTrue(
+            any("plotter refused F.Cu" in warning for warning in result.warnings),
+            result.warnings,
+        )
+        self.assertNotIn(layer_artwork_key("F.Cu"), result.layers)
+        self.assertIn(layer_artwork_key("B.Cu"), result.layers)
+        self.assertIn("drill", result.layers)
+
+
+class DocumentPipelineTests(unittest.TestCase):
+    def test_complete_composition_failure_fails_the_documents_step(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        from app.release_studio.document_pipeline import with_documents
+        from app.release_studio.steps import DOCUMENT_STEP_SPEC
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch(
+                "app.release_studio.document_pipeline.compose_documents",
+                side_effect=RuntimeError("renderer exploded"),
+            ):
+                outputs, warnings, _projections = with_documents(
+                    [],
+                    closure_root=root,
+                    config={"board": ""},
+                    candidate={"commit_sha": "a" * 40, "variant": ""},
+                    output_root=root,
+                    cli_path=None,
+                    staging=root,
+                )
+        doc = next(
+            output for output in outputs if output.step_id == DOCUMENT_STEP_SPEC.step_id
+        )
+        self.assertEqual(doc.returncode, 1)
+        self.assertIn("compose failed", doc.skipped_reason)
+        self.assertTrue(any("no sheets were composed" in warning for warning in warnings))
+
+    def test_missing_acquisitions_still_write_the_document_set(self) -> None:
+        import tempfile
+
+        from app.release_studio.document_pipeline import with_documents
+        from app.release_studio.steps import DOCUMENT_STEP_SPEC
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outputs, warnings, _projections = with_documents(
+                [],
+                closure_root=root,
+                config={"board": "", "document_number": "DOC-1"},
+                candidate={"commit_sha": "a" * 40, "variant": ""},
+                output_root=root,
+                cli_path=None,
+                staging=root,
+            )
+        doc = next(
+            output for output in outputs if output.step_id == DOCUMENT_STEP_SPEC.step_id
+        )
+        self.assertEqual(doc.returncode, 0)
+        self.assertGreater(len(doc.files), 0)
+        self.assertTrue(any("kicad-cli unavailable" in warning for warning in warnings))
+
 
 class SheetSetConsistencyTests(unittest.TestCase):
     """Properties that hold across the whole package, not one sheet."""

@@ -1131,6 +1131,49 @@ function parseZone(expr) {
     P.pair("uuid", T.string)
   );
 }
+function maybeAbsentBool(obj, name, e) {
+  const value = e[1];
+  return value === void 0 ? true : T.boolean(obj, name, value);
+}
+function parseFootprintVariantField(expr) {
+  const parsed = parse_expr(
+    expr,
+    P.start("field"),
+    P.pair("name", T.string),
+    P.pair("value", T.string)
+  );
+  return { name: parsed["name"] ?? "", value: parsed["value"] ?? "" };
+}
+function parseFootprintVariant(expr) {
+  const parsed = parse_expr(
+    expr,
+    P.start("variant"),
+    P.pair("name", T.string),
+    P.expr("dnp", maybeAbsentBool),
+    P.expr("exclude_from_bom", maybeAbsentBool),
+    P.expr("exclude_from_pos_files", maybeAbsentBool),
+    P.collection("fields", "field", T.item(parseFootprintVariantField))
+  );
+  const variant = {
+    name: parsed["name"] ?? "",
+    fields: parsed["fields"] ?? []
+  };
+  for (const token of ["dnp", "exclude_from_bom", "exclude_from_pos_files"]) {
+    if (parsed[token] !== void 0) variant[token] = parsed[token];
+  }
+  return variant;
+}
+function parseBoardVariant(expr) {
+  const parsed = parse_expr(
+    expr,
+    P.start("variant"),
+    P.pair("name", T.string),
+    P.pair("description", T.string)
+  );
+  const variant = { name: parsed["name"] ?? "" };
+  if (parsed["description"] !== void 0) variant.description = parsed["description"];
+  return variant;
+}
 function parseFootprint(expr) {
   return parse_expr(
     expr,
@@ -1170,9 +1213,11 @@ function parseFootprint(expr) {
       P.atom("board_only"),
       P.atom("exclude_from_pos_files"),
       P.atom("exclude_from_bom"),
+      P.atom("dnp"),
       P.atom("allow_solder_mask_bridges"),
       P.atom("allow_missing_courtyard")
     ),
+    P.collection("variants", "variant", T.item(parseFootprintVariant)),
     P.dict("properties", "property", T.string),
     P.collection(
       "properties_kicad_8",
@@ -1291,6 +1336,10 @@ var BoardParser = class {
       P.dict("properties", "property", T.string),
       P.list("layers", T.item(parseLayer)),
       P.collection("nets", "net", T.item(parseNet)),
+      P.expr(
+        "variants",
+        (obj, name, e) => e.slice(1).map((entry) => parseBoardVariant(entry))
+      ),
       P.collection("footprints", "footprint", T.item(parseFootprint)),
       P.collection("footprints", "module", T.item(parseFootprint)),
       // Support legacy module
@@ -1980,6 +2029,10 @@ function serializeSchematicSymbol(symbol, level = 0) {
     result += `${indentString(level + 1)}(on_board ${symbol.on_board ? "yes" : "no"})
 `;
   }
+  if (symbol.in_pos_files !== void 0) {
+    result += `${indentString(level + 1)}(in_pos_files ${symbol.in_pos_files ? "yes" : "no"})
+`;
+  }
   if (symbol.dnp !== void 0)
     result += `${indentString(level + 1)}(dnp ${symbol.dnp ? "yes" : "no"})
 `;
@@ -2059,6 +2112,7 @@ function serializeSchematicSymbol(symbol, level = 0) {
             if (path.footprint)
               result += `${indentString(level + 4)}(footprint "${escapeString(path.footprint)}")
 `;
+            result += serializeVariants(path.variants, level + 4);
             result += `${indentString(level + 3)})
 `;
           }
@@ -2072,6 +2126,32 @@ function serializeSchematicSymbol(symbol, level = 0) {
   }
   result += `${indent})
 `;
+  return result;
+}
+function serializeVariants(variants, level) {
+  if (!variants || variants.length === 0) return "";
+  const indent = indentString(level);
+  const inner = indentString(level + 1);
+  let result = "";
+  for (const variant of variants) {
+    result += `${indent}(variant
+${inner}(name "${escapeString(variant.name)}")
+`;
+    for (const token of ["dnp", "exclude_from_sim", "in_bom", "on_board", "in_pos_files"]) {
+      const value = variant[token];
+      if (value !== void 0) result += `${inner}(${token} ${value ? "yes" : "no"})
+`;
+    }
+    for (const field of variant.fields ?? []) {
+      result += `${inner}(field
+${indentString(level + 2)}(name "${escapeString(field.name)}")
+${indentString(level + 2)}(value "${escapeString(field.value)}")
+${inner})
+`;
+    }
+    result += `${indent})
+`;
+  }
   return result;
 }
 function serializeSheetPin(pin) {
@@ -2144,6 +2224,7 @@ function serializeSchematicSheet(sheet, level = 0) {
             if (path.page)
               result += `${indentString(level + 4)}(page "${escapeString(path.page)}")
 `;
+            result += serializeVariants(path.variants, level + 4);
             result += `${indentString(level + 3)})
 `;
           }
@@ -2932,6 +3013,39 @@ function parseLibSymbol(expr) {
     P.collection("drawings", "textbox", T.item(parseTextBox))
   );
 }
+function parseVariantField(expr) {
+  const parsed = parse_expr(
+    expr,
+    P.start("field"),
+    P.pair("name", T.string),
+    P.pair("value", T.string)
+  );
+  return {
+    name: parsed["name"] ?? "",
+    value: parsed["value"] ?? ""
+  };
+}
+function parseVariant(expr) {
+  const parsed = parse_expr(
+    expr,
+    P.start("variant"),
+    P.pair("name", T.string),
+    P.pair("dnp", T.boolean),
+    P.pair("exclude_from_sim", T.boolean),
+    P.pair("in_bom", T.boolean),
+    P.pair("on_board", T.boolean),
+    P.pair("in_pos_files", T.boolean),
+    P.collection("fields", "field", T.item(parseVariantField))
+  );
+  const variant = {
+    name: parsed["name"] ?? "",
+    fields: parsed["fields"] ?? []
+  };
+  for (const token of ["dnp", "exclude_from_sim", "in_bom", "on_board", "in_pos_files"]) {
+    if (parsed[token] !== void 0) variant[token] = parsed[token];
+  }
+  return variant;
+}
 function parseSchematicSymbol(expr) {
   const parsed = parse_expr(
     expr,
@@ -2952,6 +3066,7 @@ function parseSchematicSymbol(expr) {
     P.pair("body_style", T.number),
     P.pair("in_bom", T.boolean),
     P.pair("on_board", T.boolean),
+    P.pair("in_pos_files", T.boolean),
     P.pair("dnp", T.boolean),
     P.atom("fields_autoplaced"),
     P.pair("uuid", T.string),
@@ -2987,7 +3102,8 @@ function parseSchematicSymbol(expr) {
               P.pair("reference", T.string),
               P.pair("value", T.string),
               P.pair("unit", T.number),
-              P.pair("footprint", T.string)
+              P.pair("footprint", T.string),
+              P.collection("variants", "variant", T.item(parseVariant))
             )
           )
         )
@@ -3041,7 +3157,8 @@ function parseSchematicSheet(expr) {
               null,
               P.start("path"),
               P.positional("path", T.string),
-              P.pair("page", T.string)
+              P.pair("page", T.string),
+              P.collection("variants", "variant", T.item(parseVariant))
             )
           )
         )

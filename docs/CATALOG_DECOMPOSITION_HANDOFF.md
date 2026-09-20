@@ -1,23 +1,93 @@
-# Catalog decomposition implementation handoff
+# Catalog decomposition: status and handoff
 
-Updated: 2026-08-31, Asia/Kolkata
+Updated: 2026-09-16, Asia/Kolkata. Earlier versions of this file described the
+program while it was in flight; that text is kept below under
+[Historical program record](#historical-program-record-2026-08-31) and is not
+current instruction.
 
-## Status
+## Current status
 
-**Catalog PR 1 remains pending acceptance.** The recovered characterization
-tests, architecture ratchets, agent navigation, and CI baseline selection are
-on `refactor/catalog-characterization-gates-resume`, rebased onto
-`origin/dev` at `2e841016263b3e8b9d3cc68c005a7c1e54ade6ea`. No production
-catalog behavior changed. Do not start PR 2 until this resume branch is green
-in GitHub Actions and merged into `dev`.
+**The catalog decomposition program is complete and merged into `dev`.**
+`backend/app/services/catalog/` is the implemented package (58 modules across
+the foundation, persistence, domain-operation, and wiring layers described in
+`backend/app/services/catalog/AGENTS.md`), not an empty marker. Do not restart
+the PR sequence below; new catalog behaviour goes into that package, and the
+architecture checker and characterization suites already gate it in CI.
 
-## Objective
+Merged sequence (all into `dev`):
+
+| Step | PR | Merged | Scope |
+| --- | --- | --- | --- |
+| PR 1 | #197 | 2026-09-01 | characterization gates, architecture ratchet, agent navigation, CI job |
+| PR 2 | #211 | 2026-09-01 | runtime and PostgreSQL foundation |
+| PR 3 | #213 | 2026-09-01 | revision kernel and component reads |
+| PR 4 | #214 | 2026-09-01 | project and folder imports |
+| PR 5 | #216 | 2026-09-01 | metadata and inventory workflows |
+| PR 6 | #217 | 2026-09-01 | asset and preview services |
+| PR 7 | #219 | 2026-09-01 | validation, release workflow, and health |
+| PR 8 | #220 | 2026-09-02 | placement, provider tokens, signed URLs, DBL export |
+| close-out | #221 | 2026-09-02 | remaining catalog logic moved out of the domain facade |
+
+Follow-on work from the 2026-09 refactoring audit landed on the same package
+and its consumers: #231 (availability from the default representation), #233
+(collaborators constructed once per service instance), #234 (built-in
+metadata descriptors), #235 (batched list hydration), #236 (inventory
+aggregation), #238 (deterministic list tie-breaks), #239/#240 (component
+workspace evidence panels and edit sessions), #254 (permanent job-failure
+classification), and #269 (one workflow policy definition with a generated
+frontend contract).
+
+Current gate output on `dev` at the time of this update:
+
+```text
+Catalog architecture OK: 0 legacy-import violations, 15 private-use keys,
+219 production modules checked, 16 grandfathered ceilings
+```
+
+`component_catalog_service.py` remains the stable composition root and
+`component_catalog_domain.py` the compatibility facade under the waiver below.
+Callers outside `backend/app/services/` use the facade; new behaviour lives in
+the package. Dynamic `__getattr__`, mixins, and collaborators that depend back
+on the facade remain prohibited.
+
+## Durable checkpoint state
+
+Retain until the compatibility facade is retired:
+
+- `kicad_prism_catalog_checkpoint_ea95799` — durable behavioral checkpoint;
+  **never drop or modify this database**
+- ignored fixture directory `data/catalog-checkpoints/ea95799`
+- database dump SHA-256:
+  `abfb8378722f9e8729ad2512ad6e115d5a8f7c3fa6edcbc2f65b7b0e41235fa7`
+- component ID: `f3fc82c9-2bc1-4d57-8c7d-b39edcca66ee`
+- revision ID: `e69ed89e-be61-4e73-b3b5-abe98f2ce67d`
+- manifest hash:
+  `2026fddbaad92ceccbf967db444a893e3e2d9e05e1e6f27c5d23347d509fdc9c`
+
+The disposable PR 1 databases (`kicad_prism_catalog_pr1_oracle_20260828`,
+`kicad_prism_backend_pr1_20260828`) were to be dropped after that merge and are
+not needed by anything current.
+
+`Prism.sqlite` is not Prism's runtime database. PostgreSQL remains the catalog
+source of truth. `Prism.sqlite` is a generated compatibility artifact inside the
+KiCad Database Library export bundle, alongside the `.kicad_dbl` files.
+
+## Historical program record (2026-08-31)
+
+Everything below is the handoff as written on 2026-08-31, while PR 1 was still
+pending on `refactor/catalog-characterization-gates-resume`. Branch names,
+commit hashes, gate counts, and the "remaining program" list are historical;
+every step in that list has since merged (see the table above). It is kept so
+the pinned digests, verification record, and design constraints stay
+inspectable.
+
+### Objective
 
 Implement the KiCAD Prism god-module decomposition program as sequential,
 behavior-preserving pull requests. The primary agent owns architecture, review,
 verification, commits, pushes, and pull requests.
 
-## Repository and immutable reference
+### Repository and immutable reference
 
 - Repository: `/Users/Swaroop/Personal-Projects/KiCAD-Platform/KiCAD-Prism`
 - PR 1 resume branch: `refactor/catalog-characterization-gates-resume`
@@ -28,7 +98,7 @@ verification, commits, pushes, and pull requests.
 - Checkpoint PR: GitHub PR #192, merged into `dev` as
   `ea95799b19fd7d7d45723e2b7cdc60291982001a`.
 
-## PR 1 contents
+### PR 1 contents
 
 - `.github/workflows/dev-quality-gate.yml` — `catalog-architecture` job with
   event-correct base-ref selection
@@ -44,9 +114,9 @@ verification, commits, pushes, and pull requests.
 
 No existing production catalog implementation changed.
 
-## PR 1 retained work
+### PR 1 retained work
 
-### Contract characterization
+#### Contract characterization
 
 `backend/tests/test_component_catalog_postgres_integration.py` extends the
 existing PostgreSQL integration suite without increasing its test count (15
@@ -76,7 +146,7 @@ schema, and queries the target row by manufacturer part number for the full
 normalized 12-tuple. Signed URLs assert `https`, netloc `prism.example`, empty
 fragment, and query keys exactly `{rev, representation, exp, sig}`.
 
-### Architecture ratchets
+#### Architecture ratchets
 
 `scripts/check_catalog_architecture.py` is a standard-library AST checker. It:
 
@@ -102,7 +172,7 @@ Catalog architecture OK: 0 legacy-import violations, 80 private-use keys,
 `backend/app/services/service_client_service.py::_connect` is in the baseline
 with count 7. Architecture unit tests: 17 passed.
 
-### Agent navigation
+#### Agent navigation
 
 - Model-neutral `prism-catalog-change` skill and Claude discovery shim
 - Skill listed in the root `AGENTS.md` task table
@@ -114,7 +184,7 @@ with count 7. Architecture unit tests: 17 passed.
 Agent guidance OK (247 paths, 5 model-neutral skill shims).
 ```
 
-### CI
+#### CI
 
 The quality workflow has a `catalog-architecture` job running the checker,
 agent-document validation, checker tests, and compilation. The job is included
@@ -128,7 +198,7 @@ Base-ref selection:
   `HEAD^`, otherwise explicit bootstrap without `--base-ref`
 - schedule/workflow_dispatch: `HEAD^` when available, otherwise bootstrap
 
-## Current resume verification
+### Current resume verification
 
 - `git diff --check`
 - Python compilation of backend application, tests, and scripts
@@ -146,30 +216,7 @@ Base-ref selection:
   five catalog files, and seven DBL files
 - earlier fixed-dataset performance comparison: no material median regression
 
-## PostgreSQL and file checkpoint state
-
-Retain through the entire catalog decomposition program:
-
-- `kicad_prism_catalog_checkpoint_ea95799` — durable behavioral checkpoint;
-  **never drop or modify this database**
-- ignored fixture directory `data/catalog-checkpoints/ea95799`
-- database dump SHA-256:
-  `abfb8378722f9e8729ad2512ad6e115d5a8f7c3fa6edcbc2f65b7b0e41235fa7`
-- component ID: `f3fc82c9-2bc1-4d57-8c7d-b39edcca66ee`
-- revision ID: `e69ed89e-be61-4e73-b3b5-abe98f2ce67d`
-- manifest hash:
-  `2026fddbaad92ceccbf967db444a893e3e2d9e05e1e6f27c5d23347d509fdc9c`
-
-Disposable PR 1 databases, drop after merge:
-
-- `kicad_prism_catalog_pr1_oracle_20260828`
-- `kicad_prism_backend_pr1_20260828`
-
-`Prism.sqlite` is not Prism’s runtime database. PostgreSQL remains the catalog
-source of truth. `Prism.sqlite` is a generated compatibility artifact inside the
-KiCad Database Library export bundle, alongside the `.kicad_dbl` files.
-
-## Remaining catalog program
+### Remaining catalog program (as planned on 2026-08-31; all merged since)
 
 Each branch starts from `dev` after the preceding PR merges.
 
@@ -203,7 +250,7 @@ tooling, and finally mechanical migration-file separation.
 
 ## Approved compatibility-facade size exception
 
-The completed decomposition retains `component_catalog_domain.py` as a 2,132
+The completed decomposition retains `component_catalog_domain.py` as a 2,014
 line compatibility facade for the alpha lifecycle. This is an explicit waiver
 from the original 500-line facade/orchestrator target, not permission for a new
 god module. The stable historical surface has 183 forwarding signatures, and
@@ -216,7 +263,7 @@ The exception has these hard bounds:
 - the facade contains transaction and connection scopes plus explicit
   delegation, but no domain implementation;
 - new catalog behavior must be implemented in `backend/app/services/catalog/`;
-- the checked-in 2,132-line architecture ceiling may only shrink and must never
+- the checked-in 2,014-line architecture ceiling may only shrink and must never
   increase;
 - collaborators must not import or retain a reference to the facade; and
 - after the alpha compatibility window, callers should migrate to supported

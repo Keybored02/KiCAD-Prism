@@ -84,5 +84,7 @@ from the next release's `.env.example` and migrate site values; copying the old
 
 Full guides:
 
+- `UPGRADES.md` in this archive
+- `scripts/prism_backup.py` in this archive
 - <https://github.com/krishna-swaroop/KiCAD-Prism/blob/main/docs/DEPLOYMENT.md>
 - <https://github.com/krishna-swaroop/KiCAD-Prism/blob/main/docs/OPERATIONS.md>

@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from app.services import (
     kicad_board_stats_service,
+    kicad_text_variables,
     project_metadata_service,
     project_properties_service,
 )
@@ -42,6 +43,89 @@ SCHEMATIC_HEADER = """(kicad_sch
 \t\t(rev "A")
 \t)
 """
+
+# The project sidecar Cynthion ships: every title block field is authored from
+# one of these, and the values live here rather than in the board.
+PROJECT_SETTINGS = {
+    "meta": {"filename": "board.kicad_pro", "version": 3},
+    "text_variables": {
+        "TITLE": "Cynthion",
+        "DATE": "2024-08-27",
+        "VERSION": "1.4.0",
+        "COPYRIGHT": "Copyright 2019-2024 Great Scott Gadgets",
+        "LICENSE": "Licensed under the CERN-OHL-P v2",
+    },
+}
+
+# Cynthion's authoring shape, on a KiCad 7 board: every field is a variable.
+VARIABLE_BOARD_HEADER = """(kicad_pcb
+\t(version 20221018)
+\t(generator "pcbnew")
+\t(title_block
+\t\t(title "${TITLE}")
+\t\t(date "${DATE}")
+\t\t(rev "${VERSION}")
+\t\t(company "${COPYRIGHT}")
+\t\t(comment 1 "${LICENSE}")
+\t)
+)
+"""
+
+# Yard Stick One, same authors: a literal title beside variable fields. The
+# split is per field, so one file can be half expanded and half not.
+MIXED_BOARD_HEADER = """(kicad_pcb
+\t(version 20221018)
+\t(generator "pcbnew")
+\t(title_block
+\t\t(title "YARD Stick One")
+\t\t(date "${DATE}")
+\t\t(rev "${VERSION}")
+\t)
+)
+"""
+
+# KiCad 8+ writes a copy of the project variables into the board as top-level
+# `(property ...)` entries, so the board still resolves without its sidecar.
+# The nested footprint entry is a footprint property and must not be read.
+DOCUMENT_PROPERTY_BOARD_HEADER = """(kicad_pcb
+\t(version 20240706)
+\t(generator "pcbnew")
+\t(title_block
+\t\t(title "${TITLE1}")
+\t)
+\t(property "TITLE1" "WREN-V Single")
+\t(footprint "Pads:MTG370_800"
+\t\t(property "TITLE1" "footprint property, not a variable")
+\t)
+)
+"""
+
+VARIABLE_SCHEMATIC_HEADER = """(kicad_sch
+\t(version 20231120)
+\t(generator "eeschema")
+\t(uuid "00000000-0000-0000-0000-000000000001")
+\t(title_block
+\t\t(title "${TITLE}")
+\t\t(date "${DATE}")
+\t)
+)
+"""
+
+
+def _write_project(root: Path, settings: dict = PROJECT_SETTINGS, name: str = "board") -> str:
+    path = root / f"{name}.kicad_pro"
+    path.write_text(json.dumps(settings), encoding="utf-8")
+    return str(path)
+
+
+def _compute_metadata(root: Path, pcb: str | None, sch: str | None = None) -> dict:
+    """Compute with kicad-cli stubbed: geometry is not what these tests read."""
+    with patch.object(
+        kicad_board_stats_service,
+        "export_board_stats",
+        side_effect=kicad_board_stats_service.BoardStatsUnavailable("no kicad-cli"),
+    ):
+        return project_metadata_service.compute_project_metadata(str(root), sch, pcb)
 
 
 def _write(directory: Path, name: str, header: str, filler_mb: int = 0) -> str:
@@ -136,6 +220,148 @@ class HeaderExtractionTests(unittest.TestCase):
                 )
             )
         self.assertIsNone(project_properties_service.compute_pcb_metadata("/tmp", None))
+
+
+class TextVariableExpansionTests(unittest.TestCase):
+    """The substitution policy, unit by unit.
+
+    Mirrors `expand_text_vars`/`substitute_text_vars` in the viewer; drift here
+    is what makes the card disagree with the board rendered beside it.
+    """
+
+    def test_resolves_a_variable_that_is_itself_a_variable(self):
+        # `VERSION -> "${RELEASE_DATE}"` is exactly the indirection the
+        # viewer's recursion guard exists for.
+        variables = {"VERSION": "${RELEASE_DATE}", "RELEASE_DATE": "2026-08-27"}
+
+        self.assertEqual(
+            kicad_text_variables.expand_text_variables("v${VERSION}", variables),
+            "v2026-08-27",
+        )
+
+    def test_terminates_on_a_self_reference(self):
+        variables = {"SELF": "${SELF}"}
+
+        self.assertEqual(
+            kicad_text_variables.expand_text_variables("${SELF}", variables),
+            "${SELF}",
+        )
+
+    def test_leaves_an_undefined_variable_alone(self):
+        self.assertEqual(
+            kicad_text_variables.expand_text_variables("v${NOT_DEFINED}", {}),
+            "v${NOT_DEFINED}",
+        )
+
+    def test_context_layers_project_over_document_over_title_block(self):
+        context = kicad_text_variables.TextVariableContext(
+            filename="board.kicad_pcb",
+            project_name="cynthion",
+            project_variables={"TITLE": "project"},
+            document_properties={"TITLE": "document copy", "COPY": "document"},
+            title_block_fields={"TITLE": "title block"},
+        )
+
+        self.assertEqual(context.expand("${TITLE}"), "project")
+        self.assertEqual(context.expand("${COPY}"), "document")
+        self.assertEqual(context.expand("${FILENAME}"), "board.kicad_pcb")
+        self.assertEqual(context.expand("${PROJECTNAME}"), "cynthion")
+
+
+class TitleBlockExpansionTests(unittest.TestCase):
+    """The card reads the same values the viewer paints."""
+
+    def test_expands_a_title_block_authored_entirely_from_variables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_project(root)
+            pcb = _write(root, "board.kicad_pcb", VARIABLE_BOARD_HEADER)
+
+            computed = _compute_metadata(root, pcb)
+
+        self.assertEqual(computed["pcb"]["title_block"]["title"], "Cynthion")
+        self.assertEqual(computed["pcb"]["title_block"]["date"], "2024-08-27")
+
+    def test_expands_the_variable_fields_and_keeps_the_literal_ones(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_project(root)
+            pcb = _write(root, "board.kicad_pcb", MIXED_BOARD_HEADER)
+
+            computed = _compute_metadata(root, pcb)
+
+        self.assertEqual(computed["pcb"]["title_block"]["title"], "YARD Stick One")
+        self.assertEqual(computed["pcb"]["title_block"]["date"], "2024-08-27")
+
+    def test_expands_the_schematic_title_block_from_the_same_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_project(root)
+            sch = _write(root, "board.kicad_sch", VARIABLE_SCHEMATIC_HEADER)
+
+            computed = _compute_metadata(root, None, sch)
+
+        self.assertEqual(computed["schematic"]["title_block"]["title"], "Cynthion")
+        self.assertEqual(computed["schematic"]["title_block"]["date"], "2024-08-27")
+
+    def test_resolves_title_block_context_fields(self):
+        # A project variable may itself reference REVISION; the title block
+        # fields are the last layer the expansion can pull from.
+        settings = {
+            "meta": {"filename": "board.kicad_pro", "version": 3},
+            "text_variables": {"BUILD": "rev ${REVISION}"},
+        }
+        header = """(kicad_pcb
+\t(version 20240819)
+\t(generator "pcbnew")
+\t(title_block
+\t\t(title "${BUILD}")
+\t\t(rev "9")
+\t)
+)
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_project(root, settings)
+            pcb = _write(root, "board.kicad_pcb", header)
+
+            computed = _compute_metadata(root, pcb)
+
+        self.assertEqual(computed["pcb"]["title_block"]["title"], "rev 9")
+
+    def test_leaves_unknown_references_visible_rather_than_blank(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pcb = _write(root, "board.kicad_pcb", VARIABLE_BOARD_HEADER)
+
+            computed = _compute_metadata(root, pcb)
+
+        self.assertEqual(computed["pcb"]["title_block"]["title"], "${TITLE}")
+        self.assertEqual(computed["pcb"]["title_block"]["date"], "${DATE}")
+
+    def test_reads_the_document_property_copy_when_no_project_exists(self):
+        # KiCad 8+'s newer authoring shape: the values are also in the board.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pcb = _write(root, "board.kicad_pcb", DOCUMENT_PROPERTY_BOARD_HEADER)
+
+            computed = _compute_metadata(root, pcb)
+
+        self.assertEqual(computed["pcb"]["title_block"]["title"], "WREN-V Single")
+
+    def test_the_project_wins_over_the_documents_cached_copy(self):
+        settings = {
+            "meta": {"filename": "board.kicad_pro", "version": 3},
+            "text_variables": {"TITLE1": "the live value"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_project(root, settings)
+            pcb = _write(root, "board.kicad_pcb", DOCUMENT_PROPERTY_BOARD_HEADER)
+
+            computed = _compute_metadata(root, pcb)
+
+        self.assertEqual(computed["pcb"]["title_block"]["title"], "the live value")
 
 
 class BoardFactsTests(unittest.TestCase):
@@ -370,7 +596,7 @@ class RefreshReusesExpensiveWorkTests(unittest.TestCase):
             ):
                 ws.get_project_metadata.return_value = record
                 _, current = project_metadata_service.stored_metadata_is_current(
-                    "prj-1", None, pcb, "/repo"
+                    "prj-1", str(root), None, "/repo"
                 )
 
         self.assertFalse(current)
@@ -395,6 +621,125 @@ class RefreshReusesExpensiveWorkTests(unittest.TestCase):
         self.assertIsNone(computed["repository"])
         self.assertIsNotNone(computed["pcb"])
 
+    def test_a_project_variable_edit_recomputes_without_touching_the_board(self) -> None:
+        """The stored title block was expanded from the sidecar.
+
+        Editing a `text_variables` entry changes the card while both design
+        files sit still, so the fingerprint has to cover the project file or
+        the row would show the old value until the next design change.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pro = _write_project(root, {"text_variables": {"TITLE": "Before"}})
+            pcb = _write(root, "board.kicad_pcb", VARIABLE_BOARD_HEADER)
+            stored = {
+                "schematic": None,
+                "pcb": {"title_block": {"title": "Before"}},
+                "source_fingerprint": project_metadata_service.source_fingerprint(None, pcb, pro),
+                "board_stats_source": "",
+            }
+
+            _write_project(root, {"text_variables": {"TITLE": "After"}})
+            os.utime(pro, (0, 0))
+
+            with (
+                patch.object(project_metadata_service, "workspace") as ws,
+                patch.object(kicad_board_stats_service, "export_board_stats", side_effect=kicad_board_stats_service.BoardStatsUnavailable("none")),
+            ):
+                ws.get_project_metadata.return_value = stored
+                computed = project_metadata_service.refresh_project_metadata(
+                    "prj-1", str(root), None, pcb
+                )
+
+        self.assertFalse(computed["reused_file_metadata"])
+        self.assertEqual(computed["pcb"]["title_block"]["title"], "After")
+
+    def test_an_untouched_project_file_keeps_reusing_the_row(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pro = _write_project(root, {"text_variables": {"TITLE": "Before"}})
+            pcb = _write(root, "board.kicad_pcb", VARIABLE_BOARD_HEADER)
+            stored = {
+                "schematic": None,
+                "pcb": {"title_block": {"title": "Before"}},
+                "source_fingerprint": project_metadata_service.source_fingerprint(None, pcb, pro),
+                "board_stats_source": "",
+            }
+
+            with (
+                patch.object(project_metadata_service, "workspace") as ws,
+                patch.object(project_metadata_service, "compute_project_metadata") as compute,
+                patch.object(project_metadata_service, "repo_fingerprint", return_value=""),
+            ):
+                ws.get_project_metadata.return_value = stored
+                computed = project_metadata_service.refresh_project_metadata(
+                    "prj-1", str(root), None, pcb
+                )
+
+        compute.assert_not_called()
+        self.assertTrue(computed["reused_file_metadata"])
+        self.assertEqual(computed["pcb"]["title_block"]["title"], "Before")
+
+    def test_a_project_variable_edit_makes_the_row_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pro = _write_project(root, {"text_variables": {"TITLE": "Before"}})
+            pcb = _write(root, "board.kicad_pcb", VARIABLE_BOARD_HEADER)
+            record = {
+                "source_fingerprint": project_metadata_service.source_fingerprint(None, pcb, pro),
+                "repo_fingerprint": "",
+            }
+
+            _write_project(root, {"text_variables": {"TITLE": "After"}})
+            os.utime(pro, (0, 0))
+
+            with patch.object(project_metadata_service, "workspace") as ws:
+                ws.get_project_metadata.return_value = record
+                _, current = project_metadata_service.stored_metadata_is_current(
+                    "prj-1", str(root), "board.kicad_pro"
+                )
+
+        self.assertFalse(current)
+
+    def test_a_row_written_by_the_job_reads_back_current(self) -> None:
+        """The checker must resolve the same inputs the job fingerprinted.
+
+        If it located the documents or the sidecar differently, the panel
+        would queue a refresh on every open and never settle.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pro = _write_project(root, {"text_variables": {"TITLE": "Cynthion"}})
+            pcb = _write(root, "board.kicad_pcb", VARIABLE_BOARD_HEADER)
+            record = {
+                "source_fingerprint": project_metadata_service.source_fingerprint(None, pcb, pro),
+                "repo_fingerprint": "",
+            }
+
+            with patch.object(project_metadata_service, "workspace") as ws:
+                ws.get_project_metadata.return_value = record
+                _, current = project_metadata_service.stored_metadata_is_current(
+                    "prj-1", str(root)
+                )
+
+        self.assertTrue(current)
+
+
+class ProjectFileLocationTests(unittest.TestCase):
+    def test_locates_the_project_file_the_anchor_names(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_project(root, name="alpha")
+            beta = _write_project(root, name="beta")
+
+            located = project_metadata_service.locate_project_file(str(root), "beta.kicad_pro")
+
+        self.assertEqual(Path(located).resolve(), Path(beta).resolve())
+
+    def test_missing_project_file_is_not_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertIsNone(project_metadata_service.locate_project_file(directory))
+
 
 class SourceFingerprintTests(unittest.TestCase):
     """The fingerprint is what lets a stored row notice it has gone stale."""
@@ -412,6 +757,22 @@ class SourceFingerprintTests(unittest.TestCase):
             after = project_metadata_service.source_fingerprint(None, pcb)
 
         self.assertNotEqual(before, after)
+
+    def test_changes_when_the_project_file_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pcb = _write(root, "board.kicad_pcb", BOARD_HEADER)
+            pro = _write_project(root, {"text_variables": {"TITLE": "Before"}})
+            before = project_metadata_service.source_fingerprint(None, pcb, pro)
+
+            _write_project(root, {"text_variables": {"TITLE": "After"}})
+            os.utime(pro, (0, 0))
+            after = project_metadata_service.source_fingerprint(None, pcb, pro)
+
+        self.assertNotEqual(before, after)
+        self.assertNotEqual(
+            before, project_metadata_service.source_fingerprint(None, pcb)
+        )
 
     def test_is_stable_for_an_untouched_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

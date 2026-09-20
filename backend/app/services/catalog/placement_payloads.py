@@ -15,27 +15,12 @@ from typing import Any
 
 from app.core.config import settings
 from app.services.catalog.asset_files import content_type_for_asset
-from app.services.catalog.metadata_schema import SYMBOL_METADATA_LABEL_TO_KEY
+from app.services.catalog.metadata_descriptors import (
+    SYMBOL_METADATA_FIELD_ORDER,
+    SYMBOL_METADATA_LABEL_TO_KEY,
+)
 from app.services.catalog.normalization import sanitize_name, sha256_bytes
 
-
-SYMBOL_METADATA_FIELD_ORDER: tuple[str, ...] = (
-    "Value",
-    "Description",
-    "Datasheet",
-    "Manufacturer",
-    "Manufacturer Part Number",
-    "Vendor",
-    "Vendor Part Number",
-    "Mass (g)",
-    "RQjC (C/W)",
-    "RQjC_top (C/W)",
-    "Temp_max (C)",
-    "Temp_min (C)",
-    "Power Dissipation (W)",
-    "Rate",
-    "SAP Code",
-)
 
 _TOP_LEVEL_PROPERTY_RE = re.compile(r'^([ \t]+)\(property "([^"]+)" ')
 _MODEL_RE = re.compile(r'\(model\s+"[^"]+"')

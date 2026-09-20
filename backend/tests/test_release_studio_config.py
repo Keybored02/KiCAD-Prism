@@ -262,6 +262,96 @@ class ConfigurationAuthoringTests(unittest.TestCase):
 
             self.assertEqual(retried["commit_sha"], first["commit_sha"])
 
+    def test_a_blocked_push_times_out_without_updating_the_mirror(self) -> None:
+        from app.release_studio import git_publish
+        from app.services import release_studio_build_service as builds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkout, _remote = self._checkout_with_remote(root)
+            old_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
+            ).strip()
+            path = str(_blocking_git_bin(root / "git-bin")) + os.pathsep + os.environ["PATH"]
+            with (
+                patch.dict(os.environ, {"PATH": path}),
+                patch.object(git_publish, "GIT_COMMAND_TIMEOUT_SECONDS", 1),
+                patch(
+                    "app.services.design_compare_service._repo_paths",
+                    return_value=(checkout, None, checkout),
+                ),
+            ):
+                with self.assertRaisesRegex(builds.BuildError, "timed out"):
+                    builds.save_configuration(
+                        "project",
+                        "default",
+                        parse_configuration_yaml(_MIN_CONFIG),
+                        author_email="designer@example.com",
+                    )
+
+            self.assertEqual(
+                subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip(),
+                old_head,
+            )
+            self.assertFalse(
+                (checkout / ".prism" / "release-studio" / "configurations" / "default.yaml").exists()
+            )
+
+    def test_cancellation_does_not_update_the_mirror(self) -> None:
+        from app.services import release_studio_build_service as builds
+        from app.services.job_runtime import JobCancelled
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkout, _remote = self._checkout_with_remote(root)
+            old_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
+            ).strip()
+
+            def cancel() -> None:
+                raise JobCancelled("stop")
+
+            with patch(
+                "app.services.design_compare_service._repo_paths",
+                return_value=(checkout, None, checkout),
+            ):
+                with self.assertRaises(JobCancelled):
+                    builds.save_configuration(
+                        "project",
+                        "default",
+                        parse_configuration_yaml(_MIN_CONFIG),
+                        author_email="designer@example.com",
+                        check_cancelled=cancel,
+                    )
+
+            self.assertEqual(
+                subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip(),
+                old_head,
+            )
+
+
+def _blocking_git_bin(directory: Path) -> Path:
+    import shutil
+
+    directory.mkdir(parents=True, exist_ok=True)
+    real_git = shutil.which("git")
+    if not real_git:
+        raise AssertionError("git is required for publication tests")
+    wrapper = directory / "git"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        'for arg in "$@"; do\n'
+        '  if [ "$arg" = "push" ]; then\n'
+        "    sleep 30\n"
+        "    exit 1\n"
+        "  fi\n"
+        "done\n"
+        f'exec "{real_git}" "$@"\n',
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    return directory
+
 
 class ReleaseStudioConfigTests(unittest.TestCase):
     def test_unknown_configuration_key_is_rejected_by_name(self) -> None:
