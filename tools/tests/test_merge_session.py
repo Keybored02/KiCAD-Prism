@@ -11,6 +11,7 @@ for, that did not result in a merge, is just their work gone missing.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -61,33 +62,51 @@ class MergingBranches(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        """Build the fixture repository ONCE, then copy it per test.
+
+        Every test wants the same starting point: one board, two branches that each
+        removed a different part. Building that in setUp meant eight git subprocesses
+        and four full board parses per test, about twenty seconds each and most of this
+        suite's runtime. The inputs never vary, so it is built once here and each test
+        gets a copy, which is a directory copy rather than a parse.
+        """
         if not BOARD.is_file():
             raise unittest.SkipTest("no sample board checked out")
 
-    def setUp(self) -> None:
-        self.work = Path(tempfile.mkdtemp())
-        self.repo = self.work / "proj"
-        self.repo.mkdir()
-        git(self.work, "init", "-q", "-b", "main", str(self.repo))
-        git(self.repo, "config", "user.email", "test@example.com")
-        git(self.repo, "config", "user.name", "Test")
+        cls._master = Path(tempfile.mkdtemp())
+        cls.addClassCleanup(shutil.rmtree, cls._master, ignore_errors=True)
+        master_repo = cls._master / "proj"
+        master_repo.mkdir()
 
-        self.base_text = BOARD.read_text(encoding="utf-8")
-        self.board = self.repo / "board.kicad_pcb"
-        self.board.write_text(self.base_text, encoding="utf-8")
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-qm", "base")
+        git(cls._master, "init", "-q", "-b", "main", str(master_repo))
+        git(master_repo, "config", "user.email", "test@example.com")
+        git(master_repo, "config", "user.name", "Test")
+
+        cls._base_text = BOARD.read_text(encoding="utf-8")
+        board = master_repo / "board.kicad_pcb"
+        board.write_text(cls._base_text, encoding="utf-8")
+        git(master_repo, "add", "-A")
+        git(master_repo, "commit", "-qm", "base")
 
         # theirs removes one part; ours removes a different one
-        git(self.repo, "checkout", "-q", "-b", "feature")
-        self.board.write_text(drop_footprint(self.base_text, 5), encoding="utf-8")
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-qm", "remove a part")
+        git(master_repo, "checkout", "-q", "-b", "feature")
+        board.write_text(drop_footprint(cls._base_text, 5), encoding="utf-8")
+        git(master_repo, "add", "-A")
+        git(master_repo, "commit", "-qm", "remove a part")
 
-        git(self.repo, "checkout", "-q", "main")
-        self.board.write_text(drop_footprint(self.base_text, 0), encoding="utf-8")
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-qm", "remove another part")
+        git(master_repo, "checkout", "-q", "main")
+        board.write_text(drop_footprint(cls._base_text, 0), encoding="utf-8")
+        git(master_repo, "add", "-A")
+        git(master_repo, "commit", "-qm", "remove another part")
+
+    def setUp(self) -> None:
+        # A copy, so a test that commits or rewrites branches cannot leak into the next.
+        self.work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.work, ignore_errors=True)
+        self.repo = self.work / "proj"
+        shutil.copytree(self._master / "proj", self.repo)
+        self.base_text = self._base_text
+        self.board = self.repo / "board.kicad_pcb"
 
     def take_theirs(self, plan):
         entry = next(f for f in plan.files if f.kind == "pcb")

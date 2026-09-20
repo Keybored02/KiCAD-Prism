@@ -27,8 +27,10 @@ from .widgets import (
     Card,
     ChangeRow,
     Disclosure,
+    IconButton,
     ScrollThumb,
     StatusIcon,
+    draw_kind_icon,
 )
 
 try:
@@ -297,6 +299,11 @@ class PrismDialog(wx.Dialog):
         if not self:
             return
 
+        # Same reason as _rebuild: this clears and rebuilds every card, and an unfrozen
+        # rebuild shows the empty panel for a frame. Thawed on every path out, including
+        # the early returns below, via CallAfter so it cannot be missed.
+        self.Freeze()
+        wx.CallAfter(self._thaw_if_frozen)
         self.content.Clear(delete_windows=True)
 
         if error is not None:
@@ -387,12 +394,28 @@ class PrismDialog(wx.Dialog):
         self.changes = result
         self._rebuild()
 
+    def _thaw_if_frozen(self):
+        """Thaw once, safely. A window left frozen never repaints again."""
+        if self and self.IsFrozen():
+            self.Thaw()
+
     def _rebuild(self):
         """Re-render from data already in hand. No refetch, expanding a file is
-        instant even when computing the diff was slow."""
-        self.content.Clear(delete_windows=True)
-        self._render()
-        self._relayout()
+        instant even when computing the diff was slow.
+
+        Frozen while it runs. Clearing the sizer destroys every child window and the
+        render builds them again, and without a freeze wx paints that empty moment, so
+        toggling a section flashed the whole panel blank. Freeze/Thaw collapses it into
+        one paint at the end. Thaw in a finally: a window left frozen never repaints
+        again, which is a far worse bug than the flicker.
+        """
+        self.Freeze()
+        try:
+            self.content.Clear(delete_windows=True)
+            self._render()
+            self._relayout()
+        finally:
+            self.Thaw()
 
     def _on_path_enter(self, _e):
         if self._project_dir():
@@ -821,17 +844,23 @@ class PrismDialog(wx.Dialog):
         else:
             return  # no branch to show
 
+        # An icon instead of the word "Branch", and the branch itself hard left: the
+        # name is the content, and a label that only ever says "Branch" is noise beside
+        # an icon that says the same thing.
         line = wx.BoxSizer(wx.HORIZONTAL)
         line.Add(
-            card.label("Branch", tone="muted_fg"), 0, wx.ALIGN_CENTER_VERTICAL
+            StatusIcon(card, "git", self.pal, tone="muted_fg", tooltip="Current branch"),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+            th.SP_XS,
         )
-        line.AddStretchSpacer()
 
         badge = Badge(card, label, self.pal, tone=tone)
         badge.SetToolTip(tip)
         badge.SetCursor(wx.Cursor(wx.CURSOR_HAND))
         badge.Bind(wx.EVT_LEFT_UP, lambda _e: self._switch_branch())
         line.Add(badge, 0, wx.ALIGN_CENTER_VERTICAL)
+        line.AddStretchSpacer()
 
         card.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
 
@@ -1055,7 +1084,9 @@ class PrismDialog(wx.Dialog):
             self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
 
-        card = Card(self.scroll, "Git", self.pal)
+        # No heading: the branch and commit icons already say what this card is, and a
+        # "GIT" caption above them was one label too many.
+        card = Card(self.scroll, "", self.pal)
 
         # The branch, first, as a clickable pill: it says which version you have open and
         # is the way to switch. No separate "Switch branch" button, the tag is the control.
@@ -1275,7 +1306,12 @@ class PrismDialog(wx.Dialog):
 
         row = wx.BoxSizer(wx.HORIZONTAL)
         row.Add(
-            Button(card, "Fetch", self.pal, variant="ghost", on_click=self._fetch),
+            IconButton(
+                card, "fetch", self.pal,
+                tooltip="Fetch from the remote",
+                variant="ghost",
+                on_click=self._fetch,
+            ),
             0,
             wx.RIGHT,
             th.SP_SM,
@@ -1720,9 +1756,16 @@ class PrismDialog(wx.Dialog):
         Only a link when Prism actually knows the project. A link that lands on a 404 is
         worse than plain text.
         """
+        # A commit icon rather than the words, with the sha and subject hard left. The
+        # label still distinguishes last/current/latest, so it becomes the tooltip
+        # rather than being dropped.
         row = wx.BoxSizer(wx.HORIZONTAL)
-        row.Add(card.label(label, tone="muted_fg"), 0, wx.ALIGN_CENTER_VERTICAL)
-        row.AddStretchSpacer()
+        row.Add(
+            StatusIcon(card, "commit", self.pal, tone="muted_fg", tooltip=label),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+            th.SP_XS,
+        )
 
         sha = Badge(card, commit_hash, self.pal, tone="muted")
         row.Add(sha, 0, wx.ALIGN_CENTER_VERTICAL)
@@ -1755,6 +1798,7 @@ class PrismDialog(wx.Dialog):
             text.SetFont(f)
             row.Add(text, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_SM)
 
+        row.AddStretchSpacer()
         card.body.Add(row, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
 
     def _open_commit(self, prism, commit_hash):
@@ -1876,18 +1920,21 @@ class PrismDialog(wx.Dialog):
             th.SP_SM,
         )
         row = wx.BoxSizer(wx.HORIZONTAL)
+        # Outlined, not ghost: a ghost button is invisible until hovered, and this is
+        # the control most people are looking for in this card.
         row.Add(
-            Button(card, "Stage all", self.pal, variant="ghost", on_click=self._stage_all),
+            Button(card, "Stage all", self.pal, variant="secondary", on_click=self._stage_all),
             0,
             wx.RIGHT,
             th.SP_XS,
         )
         if staged:
             row.Add(
-                Button(card, "Unstage all", self.pal, variant="ghost", on_click=self._unstage_all),
+                Button(card, "Unstage all", self.pal, variant="secondary", on_click=self._unstage_all),
                 0,
             )
-        card.body.Add(row, 0, wx.LEFT, th.SP_SM)
+        # Breathing room under the "N files staged" line; the buttons sat right on it.
+        card.body.Add(row, 0, wx.LEFT | wx.TOP, th.SP_SM)
 
     def _stage_all(self):
         self._staging_action(lambda repo: AgentClient().stage(repo, all=True))
@@ -1905,11 +1952,11 @@ class PrismDialog(wx.Dialog):
         """A per-file stage/unstage toggle, reflecting whether the path is staged now."""
         if path in set(self._staged_paths()):
             return Button(
-                card, "unstage", self.pal, variant="ghost",
+                card, "Unstage", self.pal, variant="ghost",
                 on_click=lambda p=path: self._unstage_paths([p]),
             )
         return Button(
-            card, "stage", self.pal, variant="ghost",
+            card, "Stage", self.pal, variant="ghost",
             on_click=lambda p=path: self._stage_paths([p]),
         )
 
@@ -1934,16 +1981,37 @@ class PrismDialog(wx.Dialog):
         every design change first (never churn) and commits, the quick path. A detached
         HEAD is handled by the agent, which refuses and prompts to make a branch first.
         """
+        # SP_MD above the label separates the commit box from the staging controls;
+        # they are two different steps and were running together.
         card.body.Add(
             card.label("Commit message", tone="muted_fg", small=True),
             0,
             wx.LEFT | wx.TOP,
-            th.SP_SM,
+            th.SP_MD,
         )
-        self.commit_message = wx.TextCtrl(card, value="", size=wx.Size(-1, 28))
+        # The field: taller, bordered, with a placeholder and real inner padding.
+        # wx.TextCtrl cannot be owner-drawn the way the buttons are, but BORDER_SIMPLE
+        # plus the muted fill and a themed border gives it the same shape as the rest
+        # of the panel instead of the raw native sunken box.
+        self.commit_message = wx.TextCtrl(
+            card,
+            value="",
+            size=wx.Size(-1, 32),
+            style=wx.BORDER_SIMPLE,
+        )
         self.commit_message.SetBackgroundColour(_c(self.pal["muted"]))
         self.commit_message.SetForegroundColour(_c(self.pal["foreground"]))
-        card.body.Add(self.commit_message, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, th.SP_SM)
+        f = self.commit_message.GetFont()
+        f.SetPointSize(th.FONT_BODY)
+        self.commit_message.SetFont(f)
+        # Clear of the label above, so the caption and the field do not read as one
+        # smudged block the way they did when the box sat directly on the text.
+        card.body.Add(
+            self.commit_message,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP,
+            th.SP_SM,
+        )
 
         row = wx.BoxSizer(wx.HORIZONTAL)
         if self._staged_paths():
@@ -1958,7 +2026,7 @@ class PrismDialog(wx.Dialog):
             )
         row.Add(
             Button(
-                card, "Commit all", self.pal,
+                card, "Commit", self.pal,
                 variant="ghost" if self._staged_paths() else "primary",
                 on_click=lambda: self._commit(staged_only=False),
             ),
@@ -2068,7 +2136,7 @@ class PrismDialog(wx.Dialog):
             if path in staged:
                 line.Add(
                     Button(
-                        card, "unstage", self.pal, variant="ghost",
+                        card, "Unstage", self.pal, variant="ghost",
                         on_click=lambda p=path: self._unstage_paths([p]),
                     ),
                     0,
@@ -2077,7 +2145,7 @@ class PrismDialog(wx.Dialog):
             else:
                 line.Add(
                     Button(
-                        card, "stage anyway", self.pal, variant="ghost",
+                        card, "Stage", self.pal, variant="ghost",
                         on_click=lambda p=path: self._stage_paths([p]),
                     ),
                     0,

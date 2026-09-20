@@ -276,7 +276,9 @@ jobs:
         run: python -m compileall -q tools/prism_agent tools/kicad_plugin
 
       - name: Run agent and plugin tests
-        run: python -m pytest tools/tests -q
+        # --slow includes the merge-engine suite, which is skipped by default locally
+        # (see tools/conftest.py). The gate runs everything.
+        run: python -m pytest tools/tests -q --slow
 
   semantic-viewer:
     name: Semantic viewer

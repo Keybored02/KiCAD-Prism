@@ -198,6 +198,53 @@ class Button(wx.Panel):
         gc.DrawText(self.label, (w - tw) / 2, (h - tht) / 2)
 
 
+class IconButton(Button):
+    """A square Button carrying a drawn icon instead of a label.
+
+    Inherits every bit of Button's behaviour (hover, press, variants, colours), so an
+    icon action sits in a row of text buttons without looking like a different widget.
+    The tooltip is required, not decorative: an icon alone does not say what it does.
+    """
+
+    ICON = 16
+
+    def __init__(self, parent, kind, pal, tooltip, variant="ghost", on_click=None):
+        self.kind = kind
+        super().__init__(parent, "", pal, variant=variant, on_click=on_click)
+        self.SetToolTip(tooltip)
+
+    def _measure(self) -> wx.Size:
+        # Square, sized off the same vertical padding a text button uses, so an icon
+        # button lines up with the text buttons beside it instead of sitting short.
+        side = self.ICON + self.PAD_Y * 2
+        return wx.Size(side, side)
+
+    def _on_paint(self, _e):
+        dc = wx.AutoBufferedPaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+        if not gc:
+            return
+
+        w, h = self.GetSize()
+        dc.SetBackground(wx.Brush(_surface_of(self, self.pal)))
+        dc.Clear()
+
+        fill, icon_colour, border = self._colours()
+        if fill is not None:
+            gc.SetBrush(wx.Brush(fill))
+            gc.SetPen(wx.Pen(border) if border else wx.TRANSPARENT_PEN)
+            gc.DrawRoundedRectangle(0.5, 0.5, w - 1, h - 1, self.RADIUS)
+
+        draw_kind_icon(
+            gc,
+            self.kind,
+            (w - self.ICON) / 2,
+            (h - self.ICON) / 2,
+            icon_colour,
+            size=self.ICON,
+        )
+
+
 class StatusIcon(wx.Panel):
     """An icon whose colour carries its state, with a tooltip that says it in words.
 
@@ -458,6 +505,45 @@ def draw_kind_icon(
             node = gc.CreatePath()
             node.AddCircle(*px(cx, cy), 3 * s)
             gc.StrokePath(node)
+        return
+
+    if kind == "commit":
+        # lucide "git-commit-horizontal": a node on a line, the commit on its branch.
+        line = gc.CreatePath()
+        line.MoveToPoint(*px(3, 12))
+        line.AddLineToPoint(*px(9, 12))
+        line.MoveToPoint(*px(15, 12))
+        line.AddLineToPoint(*px(21, 12))
+        gc.StrokePath(line)
+
+        node = gc.CreatePath()
+        node.AddCircle(*px(12, 12), 3 * s)
+        gc.StrokePath(node)
+        return
+
+    if kind == "fetch":
+        # lucide "refresh-cw": two arcs with arrowheads. Fetch re-reads the remote,
+        # and the circular arrows are the gesture everyone already knows for that.
+        arcs = gc.CreatePath()
+        # Top arc, sweeping right, ending at the arrowhead it feeds.
+        arcs.MoveToPoint(*px(21, 12))
+        arcs.AddCurveToPoint(*px(21, 7), *px(17, 3), *px(12, 3))
+        arcs.AddCurveToPoint(*px(8.5, 3), *px(5.5, 5), *px(4, 8))
+        # Bottom arc, sweeping back the other way.
+        arcs.MoveToPoint(*px(3, 12))
+        arcs.AddCurveToPoint(*px(3, 17), *px(7, 21), *px(12, 21))
+        arcs.AddCurveToPoint(*px(15.5, 21), *px(18.5, 19), *px(20, 16))
+        gc.StrokePath(arcs)
+
+        # The two arrowheads, one at each arc's tail.
+        heads = gc.CreatePath()
+        heads.MoveToPoint(*px(8, 8))
+        heads.AddLineToPoint(*px(3, 8))
+        heads.AddLineToPoint(*px(3, 3))
+        heads.MoveToPoint(*px(16, 16))
+        heads.AddLineToPoint(*px(21, 16))
+        heads.AddLineToPoint(*px(21, 21))
+        gc.StrokePath(heads)
         return
 
     if kind == "library":
