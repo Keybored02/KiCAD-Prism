@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EngineeringBomTable } from "./engineering-bom-table";
-import { SelectionInspector } from "./selection-inspector";
+import { SelectionInspector, type HighlightedNetEntry } from "./selection-inspector";
 import { filterLabelInstances, type LabelInstanceRef } from "@/lib/label-instances";
 import { WebGpu3dTab } from "./webgpu-3d-tab";
 import { EcadViewerControls } from "./ecad-viewer-controls";
@@ -19,6 +19,7 @@ import { crossProbeRequestForSelection, enrichPrismSelection, netStatisticsRefFo
 import {
     adoptViewerNets,
     highlightRefs,
+    sameHighlightedNet,
     netFromSelection,
     removeHighlightedNet,
     toggleHighlightedNet,
@@ -59,6 +60,7 @@ import type {
     EcadCommentAreaDetail,
     EcadCommentOverlayHitDetail,
     EcadHighlightChangeDetail,
+    EcadNetStatistics,
     EcadSemanticSelectionDetail,
     EcadViewportInsets,
 } from "@/types/ecad-viewer";
@@ -416,11 +418,30 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const toggleNetForSelection = useCallback((selection: PrismSelection) => {
         const net = netFromSelection(enrichPrismSelection(selection, semanticIndex), semanticIndex);
         if (!net) return;
+        // A shift-click that takes a net out of the collection deselects it
+        // too; the click that added it is what put it in the panel.
+        const removing = highlightedNets.some((entry) => sameHighlightedNet(entry, net));
         setHighlightedNets((current) => toggleHighlightedNet(current, net));
-    }, [semanticIndex]);
+        if (removing) clearGlobalSelection();
+    }, [clearGlobalSelection, highlightedNets, semanticIndex]);
+    // The inspected object follows the collection: when its net is dropped
+    // (chip, panel row, or a second shift-click) the panel must not keep
+    // describing a net that is no longer selected.
     const removeHighlighted = useCallback((net: HighlightedNet) => {
         setHighlightedNets((current) => removeHighlightedNet(current, net));
-    }, []);
+        const inspected = netFromSelection(globalSelection, semanticIndex);
+        if (inspected && sameHighlightedNet(inspected, net)) clearGlobalSelection();
+    }, [clearGlobalSelection, globalSelection, semanticIndex]);
+    // Make a listed net the inspected object without moving any camera.
+    const inspectHighlighted = useCallback((net: HighlightedNet) => {
+        selectGlobal({
+            kind: "net",
+            sourceContext: selectionContextForTab(activeTab),
+            netName: net.netName,
+            netUid: net.netUid,
+            netCode: net.netCode,
+        });
+    }, [activeTab, selectGlobal]);
     const fitHighlightedNets = useCallback(() => {
         pcbViewerRef.current?.focusHighlightedNets?.();
     }, []);
@@ -1026,16 +1047,21 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         ),
     );
 
+    // The highlight collection is a selection in its own right on the CAD
+    // views: the panel lists it even when nothing is inspected.
+    const highlightsVisibleInActiveView = highlightedNets.length > 0 && activeViewContext !== null;
+    const inspectorHasContent = (globalSelection !== null && selectionVisibleInActiveView) || highlightsVisibleInActiveView;
+
     useEffect(() => {
-        if (globalSelection && selectionVisibleInActiveView) {
+        if (inspectorHasContent) {
             setRightRailTab("selection");
         } else {
-            // No selection for this view (cleared, or a single-view selection
+            // Nothing for this view (cleared, or a single-view selection
             // that belongs to the other view): close the selection panel so it
             // does not linger. Leave other rail tabs (comments) alone.
             setRightRailTab((tab) => (tab === "selection" ? null : tab));
         }
-    }, [globalSelection, selectionVisibleInActiveView]);
+    }, [inspectorHasContent]);
 
     // Routed length / layers / counts for the selected net, read from the
     // board the PCB viewer has loaded. Keyed on the ready generation so a
@@ -1051,13 +1077,28 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         }
     }, [globalSelection, pcbReadyGeneration, pcbViewerElement]);
 
+    // The same summary for every highlighted net, so the panel can list the
+    // whole collection (#305). Names the board does not know come back null.
+    const highlightedNetEntries = useMemo<HighlightedNetEntry[]>(() => {
+        const read = (net: HighlightedNet): EcadNetStatistics | null => {
+            if (!pcbViewerElement || pcbReadyGeneration === 0) return null;
+            try {
+                return pcbViewerElement.getNetStatistics?.({ name: net.netName, netCode: net.netCode }) ?? null;
+            } catch {
+                return null;
+            }
+        };
+        return highlightedNets.map((net) => ({ net, statistics: read(net) }));
+    }, [highlightedNets, pcbReadyGeneration, pcbViewerElement]);
+
     // Refresh the layer color map when a selection carries a layer or its net
     // has routing layers, so the inspector can show swatches matching the
     // layer menu. Read lazily from the PCB viewer; layer colors are stable for
     // a board.
     useEffect(() => {
         if (!pcbViewerElement) return;
-        if (!globalSelection?.anchor?.layer && !netStatistics?.layers.length) return;
+        const highlightedLayers = highlightedNetEntries.some((entry) => entry.statistics?.layers.length);
+        if (!globalSelection?.anchor?.layer && !netStatistics?.layers.length && !highlightedLayers) return;
         void customElements.whenDefined("ecad-viewer").then(() => {
             const layers = pcbViewerElement.getPcbViewState?.()?.layers;
             if (!layers?.length) return;
@@ -1073,7 +1114,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 return changed ? next : previous;
             });
         });
-    }, [globalSelection, netStatistics, pcbViewerElement]);
+    }, [globalSelection, highlightedNetEntries, netStatistics, pcbViewerElement]);
 
     useEffect(() => {
         const selection = globalSelection;
@@ -1679,20 +1720,23 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 highlightedId={selectedCommentId}
                                 embedded
                             />
-                        ) : globalSelection && selectionVisibleInActiveView ? (
+                        ) : inspectorHasContent ? (
                             <SelectionInspector
                                 open
-                                selection={globalSelection}
+                                selection={globalSelection && selectionVisibleInActiveView ? globalSelection : null}
                                 semanticIndex={semanticIndex}
                                 components={effectiveComponents}
                                 layerColors={layerColors}
                                 netStatistics={netStatistics}
                                 viewContext={activeViewContext ?? undefined}
+                                highlightedNets={highlightsVisibleInActiveView ? highlightedNetEntries : undefined}
+                                onInspectHighlightedNet={inspectHighlighted}
+                                onRemoveHighlightedNet={removeHighlighted}
                                 onOpenChange={(open) => {
                                     if (!open) setRightRailTab(null);
                                 }}
                                 onClear={clearSelectionAndHighlights}
-                                onImportComponent={globalSelection.kind === "net" ? undefined : handleImportSelectedComponent}
+                                onImportComponent={globalSelection?.kind === "net" ? undefined : handleImportSelectedComponent}
                                 canImportComponent={canImportLibraryComponent}
                                 importingComponent={componentImportPending}
                                 labelInstances={labelInstances}

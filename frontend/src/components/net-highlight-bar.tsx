@@ -1,7 +1,7 @@
 import { Crosshair, Network, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { HighlightedNet } from "@/lib/net-highlights";
+import { netLeafName, type HighlightedNet } from "@/lib/net-highlights";
 
 interface NetHighlightBarProps {
     nets: readonly HighlightedNet[];
@@ -10,13 +10,6 @@ interface NetHighlightBarProps {
     /** Fit the board camera to the highlighted copper; absent off the PCB. */
     onFit?: () => void;
 }
-
-// The display name KiCad uses for a hierarchical net: the leaf after the
-// last slash, with the full name on the chip's title for disambiguation.
-const leafName = (name: string): string => {
-    const slash = name.lastIndexOf("/");
-    return slash >= 0 ? name.slice(slash + 1) : name;
-};
 
 /**
  * The nets the reviewer has accumulated with shift-click, floating over the
@@ -37,7 +30,7 @@ export function NetHighlightBar({ nets, onRemove, onClear, onFit }: NetHighlight
             </Badge>
             <ul className="flex flex-wrap items-center gap-1" aria-label="Highlighted net list">
                 {nets.map((net) => {
-                    const label = leafName(net.netName);
+                    const label = netLeafName(net.netName);
                     return (
                         <li
                             key={net.netName}

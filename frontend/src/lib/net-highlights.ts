@@ -13,8 +13,17 @@ export interface HighlightedNet {
     pcbUuids?: string[];
 }
 
-const sameNet = (a: HighlightedNet, b: HighlightedNet): boolean =>
+export const sameHighlightedNet = (a: HighlightedNet, b: HighlightedNet): boolean =>
     a.netName === b.netName || (Boolean(a.netUid) && a.netUid === b.netUid);
+
+/**
+ * The display name KiCad uses for a hierarchical net: the leaf after the
+ * last slash. Callers put the full name on a title for disambiguation.
+ */
+export const netLeafName = (name: string): string => {
+    const slash = name.lastIndexOf("/");
+    return slash >= 0 ? name.slice(slash + 1) : name;
+};
 
 /** The net a selection stands for: the net itself, or a terminal's net. */
 export function netFromSelection(
@@ -61,8 +70,8 @@ export function toggleHighlightedNet(
     nets: readonly HighlightedNet[],
     net: HighlightedNet,
 ): HighlightedNet[] {
-    return nets.some((entry) => sameNet(entry, net))
-        ? nets.filter((entry) => !sameNet(entry, net))
+    return nets.some((entry) => sameHighlightedNet(entry, net))
+        ? nets.filter((entry) => !sameHighlightedNet(entry, net))
         : [...nets, net];
 }
 
@@ -70,7 +79,7 @@ export function removeHighlightedNet(
     nets: readonly HighlightedNet[],
     net: HighlightedNet,
 ): HighlightedNet[] {
-    return nets.filter((entry) => !sameNet(entry, net));
+    return nets.filter((entry) => !sameHighlightedNet(entry, net));
 }
 
 /** Viewer refs for the collection, one per net, in order. */
