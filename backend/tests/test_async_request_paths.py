@@ -10,6 +10,7 @@ from fastapi import HTTPException, Response
 from starlette.requests import Request
 
 from app.api import _helpers as api_helpers
+from app.api import agent as agent_api
 from app.api import auth as auth_api
 from app.api import catalog_admin as catalog_admin_api
 from app.api import comments as comments_api
@@ -319,6 +320,82 @@ class VariantCatalogReadsDoNotBlockTheLoopTests(unittest.TestCase):
                 asyncio.run(scenario()),
                 "the event loop was blocked by catalog discovery",
             )
+
+
+class AgentTokenExchangeDoesNotBlockTheLoopTests(unittest.TestCase):
+    """The agent's PKCE exchange consumes a code and records a token in PostgreSQL.
+
+    The KiCad agent calls this while the user waits on a loopback redirect, so a
+    slow catalog must stall that one exchange, not every other request.
+    """
+
+    def test_blocked_code_exchange_does_not_stall_an_unrelated_request(self) -> None:
+        blocked = _BlockedStore(result={"access_token": "v1.token", "token_type": "Bearer"})
+
+        async def scenario() -> bool:
+            exchange = asyncio.create_task(
+                agent_api.token(
+                    code="one-time",
+                    redirect_uri="http://127.0.0.1:1234/callback",
+                    code_verifier="verifier",
+                )
+            )
+            await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
+            probe_finished = await _lightweight_probe_completes_while(exchange)
+            blocked.gate.set()
+            response = await exchange
+            self.assertEqual(response.status_code, 200)
+            return probe_finished
+
+        with patch.object(
+            agent_api.agent_auth_service, "exchange_authorization_code", blocked
+        ):
+            self.assertTrue(
+                asyncio.run(scenario()),
+                "the event loop was blocked by the agent code exchange",
+            )
+
+
+class AgentTokenRevocationDoesNotBlockTheLoopTests(unittest.TestCase):
+    """Revocation reads the token row, checks ownership, then writes. All blocking."""
+
+    def test_blocked_token_lookup_does_not_stall_an_unrelated_request(self) -> None:
+        blocked = _BlockedStore(result={"email": "v@example.com"})
+        user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
+
+        async def scenario() -> bool:
+            revoke = asyncio.create_task(agent_api.revoke_token("jti-1", user))
+            await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
+            probe_finished = await _lightweight_probe_completes_while(revoke)
+            blocked.gate.set()
+            self.assertEqual(await revoke, {"status": "revoked"})
+            return probe_finished
+
+        from app.services.component_catalog_service import catalog_service
+
+        with patch.object(catalog_service, "get_agent_token", blocked), patch.object(
+            agent_api.agent_auth_service, "revoke_agent_token_by_jti"
+        ):
+            self.assertTrue(
+                asyncio.run(scenario()),
+                "the event loop was blocked by agent token revocation",
+            )
+
+    def test_ownership_is_still_refused_when_the_check_runs_off_the_loop(self) -> None:
+        """Moving the sequence to a worker thread must not weaken the check."""
+        user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
+        revoked = MagicMock()
+
+        from app.services.component_catalog_service import catalog_service
+
+        with patch.object(
+            catalog_service, "get_agent_token", return_value={"email": "someone@else.com"}
+        ), patch.object(agent_api.agent_auth_service, "revoke_agent_token_by_jti", revoked):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(agent_api.revoke_token("jti-1", user))
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        revoked.assert_not_called()
 
 
 if __name__ == "__main__":

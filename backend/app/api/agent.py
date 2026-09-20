@@ -17,6 +17,7 @@ controls using the victim's live session.
 
 from __future__ import annotations
 
+import asyncio
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -132,7 +133,10 @@ async def authorize_submit(
     if user.auth_type == "guest":
         raise HTTPException(status_code=400, detail="Sign-in is not required on this server")
 
-    code = agent_auth_service.issue_authorization_code(
+    # Storing the one-time code is a PostgreSQL write; the validation above is
+    # pure and stays on the loop.
+    code = await asyncio.to_thread(
+        agent_auth_service.issue_authorization_code,
         user=user,  # type: ignore[arg-type]
         redirect_uri=redirect_uri,
         scope=scope,
@@ -150,7 +154,10 @@ async def token(
     code_verifier: str = Form(...),
 ) -> JSONResponse:
     """Back-channel exchange: code + PKCE verifier for a scoped user token."""
-    payload = agent_auth_service.exchange_authorization_code(
+    # Consuming the code and recording the issued token are PostgreSQL writes;
+    # a slow store must stall this request, not the loop every request shares.
+    payload = await asyncio.to_thread(
+        agent_auth_service.exchange_authorization_code,
         code=code,
         redirect_uri=redirect_uri,
         code_verifier=code_verifier,
@@ -171,7 +178,8 @@ async def list_tokens(
     from app.services.component_catalog_service import catalog_service
 
     email = None if (all_users and user.role == "admin") else user.email
-    return catalog_service.list_agent_tokens(email=email)
+    # A catalog read; keep it off the event loop like every other store call.
+    return await asyncio.to_thread(catalog_service.list_agent_tokens, email=email)
 
 
 @router.delete("/tokens/{jti}")
@@ -182,13 +190,19 @@ async def revoke_token(
     """Revoke one agent token. A user may revoke their own; an admin, anyone's."""
     from app.services.component_catalog_service import catalog_service
 
-    row = catalog_service.get_agent_token(jti)
-    if not row:
-        raise HTTPException(status_code=404, detail="Token not found")
-    if user.role != "admin" and row["email"] != user.email.strip().lower():
-        raise HTTPException(status_code=403, detail="Not your token")
+    # The lookup, the ownership check and the revocation are one blocking
+    # sequence against PostgreSQL. Run them in their original order on one
+    # worker thread; the ownership check stays between the two writes, so a
+    # caller can never revoke a token the check would have refused.
+    def revoke() -> None:
+        row = catalog_service.get_agent_token(jti)
+        if not row:
+            raise HTTPException(status_code=404, detail="Token not found")
+        if user.role != "admin" and row["email"] != user.email.strip().lower():
+            raise HTTPException(status_code=403, detail="Not your token")
+        agent_auth_service.revoke_agent_token_by_jti(jti)
 
-    agent_auth_service.revoke_agent_token_by_jti(jti)
+    await asyncio.to_thread(revoke)
     return {"status": "revoked"}
 
 
