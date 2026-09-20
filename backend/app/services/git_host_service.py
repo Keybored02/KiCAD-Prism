@@ -69,8 +69,12 @@ def origin_url(project_id: str) -> str:
 
     Empty when the server has no public URL configured. Better to say nothing than to
     hand out a URL (say, 127.0.0.1) that only works on the server's own machine.
+
+    Reads PUBLIC_BASE_URL, the canonical public origin. This used to read a
+    PRISM_SERVER_URL that no longer exists, so every call raised AttributeError and
+    publishing could not hand the agent an origin to push to.
     """
-    base = settings.PRISM_SERVER_URL.strip().rstrip("/")
+    base = settings.PUBLIC_BASE_URL.strip().rstrip("/")
     if not base:
         return ""
     return f"{base}/git/{project_id}.git"

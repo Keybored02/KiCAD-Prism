@@ -29,10 +29,36 @@ def git(*args, cwd):
 
 @pytest.fixture
 def ws(tmp_path, monkeypatch):
+    """A workspace service that removes whatever it registered.
+
+    These run against the configured PostgreSQL, which on a developer machine is the
+    real workspace. Without cleanup they left rows behind, so a second run collided on
+    the unique `url` ("Key (url)=(u) already exists") and the suite only passed once
+    per database. Every repository registered through this fixture is dropped again,
+    which also keeps the tests from accumulating junk projects in a live workspace.
+    """
     monkeypatch.setenv("KICAD_PROJECTS_ROOT", str(tmp_path))
     service = WorkspaceService()
     service.initialize()
-    return service
+
+    registered: list[str] = []
+    original = service.register_repository
+
+    def tracking_register(*args, **kwargs):
+        repo_id = original(*args, **kwargs)
+        registered.append(repo_id)
+        return repo_id
+
+    service.register_repository = tracking_register  # type: ignore[method-assign]
+    try:
+        yield service
+    finally:
+        with service._connect() as conn:
+            for repo_id in registered:
+                # Projects reference the repository, so they go first.
+                conn.execute("DELETE FROM ws_projects WHERE repo_id=%s", (repo_id,))
+                conn.execute("DELETE FROM ws_repositories WHERE id=%s", (repo_id,))
+            conn.commit()
 
 
 # -- reading the real origin -----------------------------------------------
@@ -124,7 +150,9 @@ def project_payload(ws, tmp_path, *, with_remote: str | None) -> dict:
         git("remote", "add", "origin", with_remote, cwd=repo)
     rid = ws.register_repository(name="proj", url="u", clone_path_abs=str(repo))
     ws.register_project(repo_id=rid, name="proj", relative_path=".")
-    row = ws.get_all_projects()[0]
+    # The project this call just made, not whatever sorts first in the workspace.
+    # Indexing [0] read someone else's project on a database with real content.
+    row = next(p for p in ws.get_all_projects() if p["repo_id"] == rid)
     return json.loads(_row_to_project(row).model_dump_json())
 
 

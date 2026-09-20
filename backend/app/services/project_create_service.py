@@ -168,7 +168,7 @@ def reserve(name: str, description: str = "", folder_id: str | None = None) -> d
     if not origin:
         git_host_service.delete(project_id)
         raise CreateError(
-            "This server has no public URL set (PRISM_SERVER_URL), so there is no "
+            "This server has no public URL set (PUBLIC_BASE_URL), so there is no "
             "address for you to push to."
         )
 

@@ -25,11 +25,10 @@ def git(*args, cwd, check=True):
 @pytest.fixture(autouse=True)
 def workspace_root(tmp_path, monkeypatch):
     monkeypatch.setenv("KICAD_PROJECTS_ROOT", str(tmp_path))
+    # CATALOG_SQLITE_PATH went with the move to PostgreSQL, and the public origin is
+    # PUBLIC_BASE_URL now. Patching names that no longer exist made the whole file error.
     monkeypatch.setattr(
-        "app.core.config.settings.CATALOG_SQLITE_PATH", str(tmp_path / "test.sqlite3")
-    )
-    monkeypatch.setattr(
-        "app.core.config.settings.PRISM_SERVER_URL", "https://prism.example.com"
+        "app.core.config.settings.PUBLIC_BASE_URL", "https://prism.example.com"
     )
     # The module-level `workspace` singleton resolved its DB path at import time.
     from app.services.workspace_service import WorkspaceService

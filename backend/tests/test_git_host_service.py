@@ -204,13 +204,13 @@ def test_a_refused_adoption_leaves_no_orphaned_repo(tmp_path, make_bad):
 def test_origin_url_is_empty_when_the_server_has_no_public_url(monkeypatch):
     """Better to say nothing than to hand out http://127.0.0.1:8000/git/..., which
     works only on the server's own machine."""
-    monkeypatch.setattr("app.core.config.settings.PRISM_SERVER_URL", "")
+    monkeypatch.setattr("app.core.config.settings.PUBLIC_BASE_URL", "")
     assert git_host_service.origin_url("prj_abc") == ""
 
 
 def test_origin_url_is_cloneable_when_configured(monkeypatch):
     monkeypatch.setattr(
-        "app.core.config.settings.PRISM_SERVER_URL", "https://prism.example.com/"
+        "app.core.config.settings.PUBLIC_BASE_URL", "https://prism.example.com/"
     )
     assert (
         git_host_service.origin_url("prj_abc")

@@ -287,17 +287,37 @@ class WorkspaceService:
         url: str,
         clone_path_abs: str,
         import_type: str = "single",
+        origin_url: str | None = None,
+        origin_owner: str | None = None,
     ) -> str:
+        """Register a repository, recording where its git actually lives.
+
+        The origin is settled here rather than left NULL for the next startup's
+        backfill. The agent reads origin_url to decide what it may clone from, and a
+        row registered mid-session would otherwise answer "nothing" until a restart.
+
+        `url` cannot be trusted for this: a clone holds a real remote there, a local
+        import holds the filesystem path the user picked, and a client cannot tell them
+        apart. So ask git, exactly as _backfill_origin does. A caller that already knows
+        (Prism hosting the origin itself) passes it instead of making us guess.
+        """
         repo_id = _new_id("repo_")
         now = _utc_now_iso()
         rel = self._rel_clone_path(clone_path_abs)
+        if origin_owner is None:
+            discovered = _git_origin(clone_path_abs)
+            origin_url = discovered
+            origin_owner = "external" if discovered else "none"
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO ws_repositories (id,name,url,clone_path,import_type,cloned_at) VALUES (%s,%s,%s,%s,%s,%s)",
-                (repo_id, name, url, rel, import_type, now),
+                "INSERT INTO ws_repositories (id,name,url,clone_path,import_type,cloned_at,origin_url,origin_owner)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                (repo_id, name, url, rel, import_type, now, origin_url or "", origin_owner),
             )
             conn.commit()
-        logger.info("Registered repository %s (%s)", name, repo_id)
+        logger.info(
+            "Registered repository %s (%s) origin_owner=%s", name, repo_id, origin_owner
+        )
         return repo_id
 
     def get_repository_by_url(self, url: str) -> Optional[Dict[str, Any]]:
@@ -361,8 +381,15 @@ class WorkspaceService:
         has_3d_model: bool = False,
         has_ibom: bool = False,
         prism_json_hash: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> str:
-        project_id = _new_id("prj_")
+        """Register a project, minting an id unless the caller already has one.
+
+        Prism-hosted creation mints the id first because the bare repo is named after
+        it (prj_abc.git). Minting a second one here would leave the repo and the row
+        pointing at different projects, and every later lookup by id would miss.
+        """
+        project_id = project_id or _new_id("prj_")
         now = _utc_now_iso()
         with self._connect() as conn:
             conn.execute(
