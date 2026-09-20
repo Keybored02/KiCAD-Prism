@@ -54,12 +54,32 @@ def _c(hex_value):
     return wx.Colour(*th.hex_to_rgb(hex_value))
 
 
+def _initial_size() -> wx.Size:
+    """How big the panel opens: tall, but never taller than the screen.
+
+    The panel stacks a header, the git card, the change list and a commit box, and at
+    620px the commit box was below the fold as soon as anything was expanded. It asks
+    for 860 instead, clamped to the usable height of the display it opens on (minus a
+    margin for the taskbar) so a laptop screen does not get a dialog running off the
+    bottom with its buttons unreachable.
+    """
+    want_w, want_h = 560, 860
+    try:
+        area = wx.Display(wx.Display.GetFromPoint(wx.GetMousePosition())).GetClientArea()
+    except Exception:
+        try:
+            area = wx.Display().GetClientArea()
+        except Exception:
+            return wx.Size(want_w, 620)  # the old fixed size, as a last resort
+    return wx.Size(min(want_w, area.width - 40), min(want_h, area.height - 60))
+
+
 class PrismDialog(wx.Dialog):
     def __init__(self, parent, board_path):
         super().__init__(
             parent,
             title="Prism",
-            size=wx.Size(520, 620),
+            size=_initial_size(),
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
         )
         # Follow the OS/KiCad appearance: a light dialog inside a dark KiCad (or
@@ -1938,12 +1958,16 @@ class PrismDialog(wx.Dialog):
         if noise:
             self._add_noise(card, noise)
 
-        # Staging controls, then a commit box, when there is design work to commit.
-        # KiCad's churn alone is not worth a commit prompt, that is what the .gitignore
-        # card is for.
-        if design or self._staged_paths():
-            self._add_staging(card)
-            self._add_commit_box(card)
+        # Staging controls and the commit box, whenever there is anything at all to
+        # commit. This used to require a DESIGN change, so on a tree whose only changes
+        # were KiCad's own generated files, expanding that section showed the files and
+        # no way to act on them: the controls were not scrolled out of view, they were
+        # never built. Churn is still excluded from "Stage all" and still folded away by
+        # default; deciding to commit one is the user's call, and the panel now lets
+        # them follow through on it.
+        if design or noise or self._staged_paths():
+            self._add_staging(card, has_design=bool(design))
+            self._add_commit_box(card, has_design=bool(design))
 
         self.content.Add(card, 0, wx.EXPAND)
 
@@ -1951,34 +1975,60 @@ class PrismDialog(wx.Dialog):
         """Files currently staged, from the git status the dialog already fetched."""
         return list(((self.data or {}).get("git") or {}).get("staged") or [])
 
-    def _add_staging(self, card):
+    def _add_staging(self, card, has_design=True):
         """Stage / unstage controls: what goes into the next commit.
 
-        Shows the staged count and the two bulk actions. "Stage all" means all DESIGN
-        changes, never KiCad's churn, that is the whole point. Per-file staging lives on
-        each file row (via _add_file); this is the summary and the bulk controls.
+        Lists what is staged, then the bulk actions. "Stage all" means all DESIGN
+        changes, never KiCad's churn, that is the whole point, so it is only offered
+        when there is design work for it to stage. Per-file staging lives on each file
+        row (via _add_file); this is the summary and the bulk controls.
         """
         staged = self._staged_paths()
         card.body.Add(
-            card.label(
-                "%d file%s staged for commit"
-                % (len(staged), "" if len(staged) == 1 else "s"),
-                tone="muted_fg",
-                small=True,
-            ),
+            card.label("Staged:", tone="muted_fg", small=True),
             0,
             wx.LEFT | wx.TOP,
             th.SP_SM,
         )
+        # The files themselves, not a count. "3 files staged" told you the number and
+        # then made you go and work out which three; the commit is about to include
+        # exactly these, so they are worth the space.
+        if staged:
+            for path in staged:
+                line = wx.BoxSizer(wx.HORIZONTAL)
+                line.Add(
+                    card.label(path, tone="foreground", small=True, mono=True),
+                    1,
+                    wx.ALIGN_CENTER_VERTICAL,
+                )
+                line.Add(
+                    Button(
+                        card, "Unstage", self.pal, variant="ghost",
+                        on_click=lambda p=path: self._unstage_paths([p]),
+                    ),
+                    0,
+                    wx.ALIGN_CENTER_VERTICAL,
+                )
+                card.body.Add(line, 0, wx.EXPAND | wx.LEFT, th.SP_MD)
+        else:
+            card.body.Add(
+                card.label("nothing yet", tone="muted_fg", small=True),
+                0,
+                wx.LEFT,
+                th.SP_MD,
+            )
+
         row = wx.BoxSizer(wx.HORIZONTAL)
         # Outlined, not ghost: a ghost button is invisible until hovered, and this is
-        # the control most people are looking for in this card.
-        row.Add(
-            Button(card, "Stage all", self.pal, variant="secondary", on_click=self._stage_all),
-            0,
-            wx.RIGHT,
-            th.SP_XS,
-        )
+        # the control most people are looking for in this card. Hidden when there is no
+        # design work, since it stages only design files and would refuse outright.
+        if has_design:
+            row.Add(
+                Button(card, "Stage all", self.pal, variant="secondary", on_click=self._stage_all),
+                0,
+                wx.RIGHT,
+                th.SP_XS,
+            )
         if staged:
             row.Add(
                 Button(card, "Unstage all", self.pal, variant="secondary", on_click=self._unstage_all),
@@ -2039,7 +2089,7 @@ class PrismDialog(wx.Dialog):
             self.data["git"] = fresh.get("git") or {}
         self._rebuild()
 
-    def _add_commit_box(self, card):
+    def _add_commit_box(self, card, has_design=True):
         """A message field and the commit buttons beneath the uncommitted changes.
 
         Two buttons, because there are two intents. "Commit staged" honours exactly what
@@ -2091,13 +2141,17 @@ class PrismDialog(wx.Dialog):
             else "Commit all changes"
         )
         row = wx.BoxSizer(wx.HORIZONTAL)
-        row.Add(
-            Button(
-                card, label, self.pal, variant="primary",
-                on_click=lambda: self._commit(staged_only=bool(staged)),
-            ),
-            0,
+        button = Button(
+            card, label, self.pal, variant="primary",
+            on_click=lambda: self._commit(staged_only=bool(staged)),
         )
+        # With nothing staged the button stages every design change first, so on a tree
+        # holding only KiCad's churn it would have nothing to stage and the agent would
+        # refuse. Say so up front instead of letting the click fail.
+        if not staged and not has_design:
+            button.Enable(False)
+            button.SetToolTip("Stage a file first: there are no design changes to commit.")
+        row.Add(button, 0)
         card.body.Add(row, 0, wx.LEFT | wx.TOP | wx.BOTTOM, th.SP_SM)
 
     def _commit(self, staged_only=False):
