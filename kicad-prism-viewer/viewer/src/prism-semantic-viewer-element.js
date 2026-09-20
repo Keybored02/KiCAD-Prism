@@ -236,6 +236,9 @@ export class PrismSemanticViewerElement extends HTMLElement {
     // A fresh viewer is already unselected. Avoid a redundant clearSelection()
     // while the staged shell is completing its first-frame setup.
     if (this.pendingSelection) this.controller?.setSelection?.(this.pendingSelection);
+    if (this.pendingHighlightedNets?.length) {
+      this.controller?.setHighlightedNets?.(this.pendingHighlightedNets);
+    }
   }
 
   emitReady(detail) {
@@ -254,6 +257,17 @@ export class PrismSemanticViewerElement extends HTMLElement {
   setSelection(selection) {
     this.pendingSelection = selection || null;
     this.controller?.setSelection?.(this.pendingSelection);
+  }
+
+  /**
+   * Replace the highlighted nets (Prism #305): every listed net renders
+   * emphasised alongside the inspected selection. Idempotent and safe before
+   * the viewer is ready or after a reload; the last call is replayed on the
+   * next controller. Unresolved references are dropped.
+   */
+  setHighlightedNets(nets) {
+    this.pendingHighlightedNets = Array.isArray(nets) ? [...nets] : [];
+    this.controller?.setHighlightedNets?.(this.pendingHighlightedNets);
   }
 
   /**

@@ -147,6 +147,126 @@ class SemanticIndexServiceTests(unittest.TestCase):
         self.assertIs(design._pcb, injected)
         self.assertIs(design.pcb, injected)
 
+    def test_split_nets_fold_into_the_board_net_through_shared_pads(self) -> None:
+        # A bus member crossing sheet pins: the board calls it /SIG, the
+        # netlist splits it into two sheet-local nets. R1.2 sits on a net the
+        # netlist names the same way; R1.1 is on a board-only net; U2.1's net
+        # straddles two board nets and must be left alone.
+        def net(name, *terminals, wires=()):
+            return {
+                "name": name,
+                "net_class": "Fast",
+                "aliases": [],
+                "terminals": [{"designator": d, "pin": p} for d, p in terminals],
+                "graphical": {
+                    "wires": list(wires),
+                    "pins": [{"designator": d, "pin": p, "svg_id": f"pin-{d}-{p}"} for d, p in terminals],
+                },
+            }
+
+        payload = {
+            "components": [{"designator": d} for d in ("U1", "J1", "R1", "U2")],
+            "nets": [
+                net("/Port/SIG", ("U1", "1"), ("U1", "2"), wires=("wire-port",)),
+                net("/SOM/SIG", ("J1", "2"), wires=("wire-som",)),
+                net("GND", ("R1", "2")),
+                net("/Ambiguous", ("U2", "1"), ("U2", "2")),
+            ],
+        }
+
+        class FakeDesign:
+            _pcb = None
+
+            @property
+            def pcb(self):
+                return self._pcb
+
+            def to_netlist(self):
+                return SimpleNamespace(components=[], nets=[])
+
+            def to_json(self, include_indexes=True, *, include_pcb=True):
+                return payload
+
+        def pad(number, uuid, name, code):
+            return SimpleNamespace(uuid=uuid, number=number, net=SimpleNamespace(name=name, ordinal=code))
+
+        def footprint(reference, uuid, *pads):
+            return SimpleNamespace(
+                uuid=uuid,
+                properties=[SimpleNamespace(name="Reference", value=reference)],
+                pads=list(pads),
+            )
+
+        board = SimpleNamespace(
+            footprints=[
+                footprint("U1", "fp-u1", pad("1", "pad-u1-1", "/SIG", 7)),  # U1.2 has no pad
+                footprint("J1", "fp-j1", pad("2", "pad-j1-2", "/SIG", 7)),
+                footprint("R1", "fp-r1", pad("1", "pad-r1-1", "/ORPHAN", 8), pad("2", "pad-r1-2", "GND", 1)),
+                footprint("U2", "fp-u2", pad("1", "pad-u2-1", "/X", 9), pad("2", "pad-u2-2", "/Y", 10)),
+            ],
+            segments=[SimpleNamespace(uuid="track-sig", net=SimpleNamespace(name="/SIG", ordinal=7))],
+            arcs=[],
+            vias=[],
+            zones=[],
+        )
+
+        class FakeKiCadDesign:
+            @staticmethod
+            def from_project_file(_path):
+                return FakeDesign()
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            sys.modules,
+            {"kicad_monkey": SimpleNamespace(KiCadDesign=FakeKiCadDesign)},
+        ):
+            index = semantic_index_service.build_semantic_index(
+                Path(temporary) / "board.kicad_pro",
+                source_revision_key="revision-a",
+                include_assembly=False,
+                pcb=board,
+            )
+
+        nets = {entry["name"]: entry for entry in index["nets"]}
+        self.assertEqual(
+            list(nets),
+            ["GND", "/Ambiguous", "/SIG", "/ORPHAN", "/X", "/Y"],
+        )
+        sig = nets["/SIG"]
+        self.assertEqual(sig["aliases"], ["/Port/SIG", "/SOM/SIG"])
+        self.assertEqual(sig["netCode"], 7)
+        self.assertEqual(sig["netClass"], "Fast")
+        self.assertEqual(sig["netUid"], semantic_index_service._stable_uid("net", "/SIG"))
+        self.assertEqual(sig["pcbRefs"][0]["padUuids"], ["pad-u1-1", "pad-j1-2"])
+        self.assertEqual(sig["pcbRefs"][0]["trackUuids"], ["track-sig"])
+        wires = sorted(uuid for ref in sig["schematicRefs"] for uuid in ref["wireUuids"])
+        self.assertEqual(wires, ["wire-port", "wire-som"])
+        pins = sorted(uuid for ref in sig["schematicRefs"] for uuid in ref["pinUuids"])
+        self.assertEqual(pins, ["pin-J1-2", "pin-U1-1", "pin-U1-2"])
+
+        by_name = index["indexes"]["netByName"]
+        sig_index = index["nets"].index(sig)
+        for name in ("/SIG", "/Port/SIG", "/SOM/SIG"):
+            self.assertEqual(by_name[name], sig_index, name)
+        self.assertEqual(index["indexes"]["netByNetCode"]["7"], sig_index)
+        self.assertEqual(index["indexes"]["netByPcbUuid"]["track-sig"], sig_index)
+        self.assertEqual(index["indexes"]["netByPcbUuid"]["pad-j1-2"], sig_index)
+        self.assertEqual(index["indexes"]["netBySchematicUuid"]["wire-som"], sig_index)
+        self.assertEqual(index["indexes"]["netBySchematicUuid"]["pin-U1-2"], sig_index)
+        # Every other index still points at its own record after renumbering.
+        self.assertEqual(index["indexes"]["netByName"]["GND"], index["nets"].index(nets["GND"]))
+        self.assertEqual(index["indexes"]["netByPcbUuid"]["pad-r1-1"], index["nets"].index(nets["/ORPHAN"]))
+        self.assertEqual(index["indexes"]["netBySchematicUuid"]["pin-U2-1"], index["nets"].index(nets["/Ambiguous"]))
+
+        terminals = {f"{t['reference']}.{t['pin']}": t for t in index["terminals"]}
+        for pair in ("U1.1", "U1.2", "J1.2"):
+            self.assertEqual(terminals[pair]["netName"], "/SIG", pair)
+            self.assertEqual(terminals[pair]["netUid"], sig["netUid"], pair)
+        self.assertEqual(index["indexes"]["terminalByPcbPadUuid"]["pad-j1-2"], index["terminals"].index(terminals["J1.2"]))
+        # The straddling net keeps its wires; its pads belong to the board nets.
+        self.assertEqual(nets["/Ambiguous"]["pcbRefs"][0]["padUuids"], [])
+        self.assertEqual(nets["/X"]["pcbRefs"][0]["padUuids"], ["pad-u2-1"])
+        self.assertNotIn("aliases", nets["/X"])
+
     def test_upstream_to_json_detaches_the_board_for_a_schematic_build(self) -> None:
         # The default production build is the pip kicad-monkey, whose to_json has
         # no include_pcb switch. Model that shape: the adapter must detach the

@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from .copper_geometry import ingest_copper_geometry, is_copper_geometry_document
 from .glb_inspect import mesh_axis_range
+from .models import stable_id
 from .native_clipper import NativeClipperError, build_native_clip_response
 from .prism_clipper2 import PrismClipper2Library, prism_clipper2_library_info
 from .pcb_geometry import (
@@ -61,22 +62,21 @@ class SemanticGltfBuilder:
             name = str(net.get("name") or "")
             if not name:
                 continue
-            net_id = len(self.nets)
-            self.net_id_by_name[name] = net_id
-            self.nets.append(
-                {
-                    "id": net_id,
-                    "uid": str(net.get("uid") or ""),
-                    "name": name,
-                    "netClass": str(net.get("net_class") or ""),
-                    "metrics": {
-                        "traceLengthMm": 0.0,
-                        "layers": [],
-                        "objectCounts": {},
-                    },
-                    "analysis": {},
-                }
+            aliases = [
+                str(alias)
+                for alias in net.get("aliases", []) or []
+                if alias and str(alias) != name
+            ]
+            net_id = self._register_net(
+                name,
+                uid=str(net.get("uid") or ""),
+                net_class=str(net.get("net_class") or ""),
+                aliases=aliases,
             )
+            # A name the topology already owns keeps its id; an alias never
+            # steals a net's own name.
+            for alias in aliases:
+                self.net_id_by_name.setdefault(alias, net_id)
         self.objects: list[dict[str, Any]] = []
         self.object_features = [
             {
@@ -103,6 +103,49 @@ class SemanticGltfBuilder:
         self.board_thickness_mm = float(topology.get("board", {}).get("thickness_mm") or 0.0)
         if base_board_glb and base_board_glb.exists():
             self._read_board_y_range(base_board_glb)
+
+    def _register_net(
+        self,
+        name: str,
+        *,
+        uid: str = "",
+        net_class: str = "",
+        aliases: list[str] | None = None,
+    ) -> int:
+        net_id = len(self.nets)
+        self.net_id_by_name[name] = net_id
+        self.nets.append(
+            {
+                "id": net_id,
+                "uid": uid or stable_id("net", name),
+                "name": name,
+                "netClass": net_class,
+                "aliases": list(aliases or []),
+                "metrics": {
+                    "traceLengthMm": 0.0,
+                    "layers": [],
+                    "objectCounts": {},
+                },
+                "analysis": {},
+            }
+        )
+        return net_id
+
+    def _net_id(self, net_name: str) -> int:
+        """The scene id for a copper record's net, 0 for no net.
+
+        Copper carries the board's net name. The topology normally already
+        maps it (``_reconcile_board_nets``); a name it never saw, such as a
+        net routed without any pad, is registered here so its copper is still
+        attributable rather than lumped into net 0.
+        """
+
+        if not net_name:
+            return 0
+        net_id = self.net_id_by_name.get(net_name)
+        if net_id is None:
+            net_id = self._register_net(net_name)
+        return net_id
 
     def _read_board_y_range(self, path: Path) -> None:
         axis_range = mesh_axis_range(path, "_pcb", 1)
@@ -212,7 +255,7 @@ class SemanticGltfBuilder:
         layer = self.layer_by_name.get(layer_name)
         if len(outer) < 3 or not layer:
             return
-        net_id = self.net_id_by_name.get(net_name, 0)
+        net_id = self._net_id(net_name)
         layer_id = int(layer["id"])
         if feature_id is None:
             feature_id = self._feature_id(source_uid, net_id, layer_id, kind)
@@ -313,7 +356,7 @@ class SemanticGltfBuilder:
                 kind="track",
                 outer=capsule(start, end, width / 2.0),
             )
-            self.net_trace_length[self.net_id_by_name.get(net_name, 0)] += math.dist(start, end)
+            self.net_trace_length[self._net_id(net_name)] += math.dist(start, end)
 
     def _add_arc(self, record: dict[str, Any]) -> None:
         layer = str(record.get("layer") or "")
@@ -334,7 +377,7 @@ class SemanticGltfBuilder:
                     kind="track_arc",
                     outer=capsule(start, end, width / 2.0),
                 )
-                self.net_trace_length[self.net_id_by_name.get(net_name, 0)] += math.dist(start, end)
+                self.net_trace_length[self._net_id(net_name)] += math.dist(start, end)
 
     def _add_zone(self, record: dict[str, Any]) -> None:
         operations = [op for op in record.get("operations", []) or [] if op.get("kind") == "PlotPoly"]
@@ -370,7 +413,7 @@ class SemanticGltfBuilder:
         drill = float(record.get("drill") or 0.0)
         outer = circle(center, radius)
         holes = [circle(center, drill / 2.0)] if drill > 0 else []
-        net_id = self.net_id_by_name.get(str(record.get("net_name") or ""), 0)
+        net_id = self._net_id(str(record.get("net_name") or ""))
         layer_ids = [int(self.layer_by_name[layer]["id"]) for layer in layers]
         feature_id = self._source_feature_id(
             str(record.get("uuid") or ""),
@@ -431,7 +474,7 @@ class SemanticGltfBuilder:
             drill = float(hole_info.get("drill_mm") or 0.0)
             center = transform(point_nm(op.get("x"), op.get("y")), origin, angle)
             holes = [circle(center, drill / 2.0)] if drill > 0 else []
-            net_id = self.net_id_by_name.get(net_name, 0)
+            net_id = self._net_id(net_name)
             layer_ids = [int(self.layer_by_name[layer]["id"]) for layer in layers]
             is_plated = drill > 0 and bool(hole_info.get("plated", True))
             feature_id = (

@@ -55,9 +55,25 @@ export interface KiCanvasSelectDetail {
     semantic?: EcadSemanticSelectionDetail;
 }
 
+/** Modifier keys held during the click, as observed by the viewer. */
+export interface EcadSelectionModifiers {
+    shift: boolean;
+    ctrl: boolean;
+    meta: boolean;
+    alt: boolean;
+}
+
+/**
+ * What the gesture means for the highlighted-net set: a shift-click on a
+ * net-bearing item is `toggle`; everything else is `replace`.
+ */
+export type EcadSelectionOperation = "replace" | "toggle";
+
 export interface EcadSemanticSelectionDetail {
     sourceContext: "SCH" | "PCB";
     itemType: string;
+    operation?: EcadSelectionOperation;
+    modifiers?: EcadSelectionModifiers;
     uuid?: string;
     crossIndex?: string;
     reference?: string;
@@ -127,6 +143,23 @@ export interface EcadNetStatistics {
     layers: string[];
     trackCount: number;
     viaCount: number;
+}
+
+/** A board net as the viewer's highlight API refers to it. */
+export interface EcadNetRef {
+    /** Board net name. */
+    name: string;
+    /** Board-local code, valid only for the loaded board; a hint. */
+    netCode?: number;
+    /** Copper item uuids of the net, for names the board does not carry. */
+    uuids?: readonly string[];
+}
+
+export interface EcadHighlightChangeDetail {
+    /** The resulting set, in insertion order. */
+    nets: EcadNetRef[];
+    /** Why the viewer changed the set itself. */
+    source: "gesture" | "crossprobe" | "clear";
 }
 
 export interface EcadNetStatisticsRef {
@@ -358,7 +391,23 @@ export interface ECadViewerElement extends HTMLElement {
     setActive(active: boolean): void;
     setViewportInsets(insets: EcadViewportInsets | null): void;
     resize?(): void;
-    clearSelection(): void;
+    /**
+     * Drop the inspected object; the highlighted nets too unless
+     * `keepHighlights` is set.
+     */
+    clearSelection(options?: { keepHighlights?: boolean }): void;
+    /**
+     * Replace the board's highlighted nets. Resolved by name, then code, then
+     * copper uuids; unresolved refs are reported. Never moves the camera
+     * unless `focus` is set, and emits no highlight-change for it.
+     */
+    setHighlightedNets?(
+        nets: readonly EcadNetRef[],
+        options?: { focus?: boolean },
+    ): { applied: EcadNetRef[]; unresolved: EcadNetRef[] };
+    getHighlightedNets?(): EcadNetRef[];
+    /** Fit the board camera to the highlighted copper. False when empty. */
+    focusHighlightedNets?(): boolean;
     /**
      * Routing summary for a board net, resolved by name first and net code
      * second. Null until the board has loaded or when the net is not on it.
@@ -448,6 +497,7 @@ declare global {
         "ecad-viewer:crossprobe:result": CustomEvent<CrossProbeResult>;
         "ecad-viewer:selection": CustomEvent<EcadSemanticSelectionDetail>;
         "ecad-viewer:crossprobe": CustomEvent<EcadSemanticSelectionDetail>;
+        "ecad-viewer:highlight-change": CustomEvent<EcadHighlightChangeDetail>;
         "ecad-viewer:view-state-change": CustomEvent<void>;
         "ecad-viewer:comment-overlay-click": CustomEvent<EcadCommentOverlayHitDetail>;
         "ecad-viewer:document-comparison-ready": CustomEvent<EcadDocumentComparisonPreparation>;

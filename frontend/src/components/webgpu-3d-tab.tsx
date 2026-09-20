@@ -17,6 +17,7 @@ import { useCommittedRef } from "@/hooks/use-committed-ref";
 import { dnpVisibilityNotice } from "./design-variants/dnp-visibility";
 import type { User } from "@/types/auth";
 import type { PrismSelection } from "@/types/prism-selection";
+import type { HighlightedNet } from "@/lib/net-highlights";
 import type {
     PrismRendererSelection,
     PrismSemanticViewerElement,
@@ -87,6 +88,8 @@ interface WebGpu3dTabProps {
     active: boolean;
     workspace: "pcb" | "stackup";
     selection: PrismSelection | null;
+    /** Nets accumulated with shift-click; every one renders emphasised (#305). */
+    highlightedNets?: readonly HighlightedNet[];
     onSelection: (selection: PrismSelection) => void;
     onClearSelection: () => void;
     /** Unambiguous footprint-effective DNP references (VAR-19). */
@@ -113,8 +116,12 @@ const selectionForRenderer = (selection: PrismSelection | null): PrismRendererSe
     };
 };
 
+const highlightsForRenderer = (nets: readonly HighlightedNet[]): PrismRendererSelection[] =>
+    nets.map((net) => ({ netName: net.netName, netUid: net.netUid, netCode: net.netCode }));
+
 /** Stable defaults: a fresh `[]` on every render would re-run the apply effect. */
 const NO_COMPONENTS: readonly string[] = [];
+const NO_NETS: readonly HighlightedNet[] = [];
 
 // react-doctor-disable-next-line no-giant-component - WebGPU render loop lifecycle cannot be split without lifting GPU handles
 export function WebGpu3dTab({
@@ -124,6 +131,7 @@ export function WebGpu3dTab({
     active,
     workspace,
     selection,
+    highlightedNets = NO_NETS,
     onSelection,
     onClearSelection,
     hiddenComponents = NO_COMPONENTS,
@@ -263,6 +271,12 @@ export function WebGpu3dTab({
         if (!viewerReady) return;
         viewerRef.current?.setSelection(selectionForRenderer(selection));
     }, [selection, viewerReady]);
+
+    // The element replays the last set on its next controller, so applying
+    // before ready or across a reload is safe.
+    useEffect(() => {
+        viewerRef.current?.setHighlightedNets?.(highlightsForRenderer(highlightedNets));
+    }, [highlightedNets, viewerElement]);
 
     useEffect(() => {
         if (!active || !viewerReady) return;

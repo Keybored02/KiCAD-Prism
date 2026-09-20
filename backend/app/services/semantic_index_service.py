@@ -20,6 +20,7 @@ from app.services import (
     kicad_monkey_design_adapter,
     path_config_service,
     project_source_snapshot,
+    semantic_index_nets,
     semantic_index_variants,
     semantic_visualizer_service,
     variant_catalog_service,
@@ -38,6 +39,7 @@ _GENERATOR_INPUTS = ("semantic-index", SCHEMA, GENERATOR_VERSION)
 GENERATOR_MODULE_PATHS = (
     Path(__file__),
     Path(kicad_monkey_design_adapter.__file__),
+    Path(semantic_index_nets.__file__),
     Path(semantic_index_variants.__file__),
     Path(variant_catalog_service.__file__),
     Path(project_source_snapshot.__file__),
@@ -1066,6 +1068,7 @@ def build_semantic_index(
         # One snapshot for the whole board: resolving each element against the
         # board rebuilds the net mapping every time.
         net_table = _net_table(pcb)
+        split_nets = semantic_index_nets.SplitNetClaims(net_by_name)
 
         def ensure_pcb_net(name: str, code: int | None) -> tuple[dict[str, Any], int] | tuple[None, None]:
             if not name:
@@ -1132,8 +1135,8 @@ def build_semantic_index(
                 elif terminal is not None:
                     terminal["pcbPadUuid"] = pad_uuid
                     if net_entry is not None:
-                        terminal["netUid"] = net_entry["netUid"]
-                        terminal["netName"] = name
+                        split_nets.note_pad(name, _string(terminal.get("netName")))
+                        terminal.update(netUid=net_entry["netUid"], netName=name)
                 if pad_uuid and terminal_index is not None:
                     indexes["terminalByPcbPadUuid"][pad_uuid] = terminal_index
 
@@ -1152,6 +1155,8 @@ def build_semantic_index(
                     continue
                 net_entry["pcbRefs"][0][target_key].append(source_uuid)
                 indexes["netByPcbUuid"][source_uuid] = net_index
+
+        split_nets.reconcile(nets, terminals, indexes)
 
     if timing_callback is not None:
         timing_callback(

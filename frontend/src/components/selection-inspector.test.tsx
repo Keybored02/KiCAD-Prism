@@ -91,3 +91,86 @@ describe("SelectionInspector routing section", () => {
     expect(renderInspector(COMPONENT, { netStatistics: STATS, viewContext: "PCB" }).queryByTestId("net-routing")).toBeNull();
   });
 });
+
+describe("SelectionInspector highlighted nets", () => {
+  const ENTRIES = [
+    { net: { netName: "/Port/SIG", netCode: 1 }, statistics: STATS },
+    { net: { netName: "/MGMT.D0_P", netCode: 2 }, statistics: null },
+  ];
+
+  it("lists every highlighted net with its copper summary on the PCB view", () => {
+    const { getByRole } = renderInspector(NET, {
+      viewContext: "PCB",
+      highlightedNets: ENTRIES,
+      layerColors: { "F.Cu": "#c83434" },
+    });
+    const list = within(getByRole("list", { name: "Highlighted nets" }));
+    const rows = list.getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("SIG");
+    expect(rows[0]).toHaveTextContent("21.2832 mm");
+    expect(rows[0]).toHaveTextContent("F.Cu");
+    expect(rows[0].querySelector("button")).toHaveAttribute("title", "/Port/SIG");
+    expect(rows[1]).toHaveTextContent("MGMT.D0_P");
+    expect(rows[1]).toHaveTextContent("No copper on this board");
+  });
+
+  it("marks the inspected net and lets the reviewer inspect or remove a row", () => {
+    const inspected: string[] = [];
+    const removed: string[] = [];
+    const { getByRole } = renderInspector(
+      { ...NET, netName: "/MGMT.D0_P", netCode: 2 },
+      {
+        viewContext: "PCB",
+        highlightedNets: ENTRIES,
+        onInspectHighlightedNet: (net) => inspected.push(net.netName),
+        onRemoveHighlightedNet: (net) => removed.push(net.netName),
+      },
+    );
+    const list = within(getByRole("list", { name: "Highlighted nets" }));
+    const rows = list.getAllByRole("listitem");
+    expect(rows[1]).toHaveAttribute("aria-current", "true");
+    expect(rows[0]).not.toHaveAttribute("aria-current");
+    list.getByRole("button", { name: "Inspect SIG" }).click();
+    list.getByRole("button", { name: "Remove MGMT.D0_P from highlights" }).click();
+    expect(inspected).toEqual(["/Port/SIG"]);
+    expect(removed).toEqual(["/MGMT.D0_P"]);
+  });
+
+  it("keeps the names but drops the copper numbers on the schematic view", () => {
+    const { getByRole, queryByText } = renderInspector(NET, {
+      viewContext: "SCH",
+      highlightedNets: ENTRIES,
+    });
+    const list = within(getByRole("list", { name: "Highlighted nets" }));
+    expect(list.getAllByRole("listitem")).toHaveLength(2);
+    expect(queryByText("21.2832 mm")).toBeNull();
+    expect(queryByText("No copper on this board")).toBeNull();
+  });
+
+  it("stands on its own when nothing is inspected", () => {
+    const { getByRole, getByLabelText, queryByText } = render(
+      <SelectionInspector
+        open
+        selection={null}
+        semanticIndex={null}
+        onOpenChange={() => {}}
+        onClear={() => {}}
+        highlightedNets={ENTRIES}
+        viewContext="PCB"
+        embedded
+      />,
+    );
+    expect(getByLabelText("Selection breadcrumb")).toHaveTextContent("Highlighted nets");
+    expect(within(getByRole("list", { name: "Highlighted nets" })).getAllByRole("listitem")).toHaveLength(2);
+    expect(queryByText("Connectivity")).toBeNull();
+    expect(getByRole("button", { name: "Clear" })).toBeInTheDocument();
+  });
+
+  it("renders nothing without a selection or highlights", () => {
+    const { container } = render(
+      <SelectionInspector open selection={null} semanticIndex={null} onOpenChange={() => {}} onClear={() => {}} embedded />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+});
