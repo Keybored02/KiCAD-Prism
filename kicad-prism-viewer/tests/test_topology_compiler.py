@@ -129,6 +129,87 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(len(topology["terminals"]), 2)
         self.assertEqual(topology["indexes"]["net_name_to_net"]["VBUS"], "net_vbus")
 
+    def test_board_net_names_reconcile_with_the_schematic_netlist(self) -> None:
+        # A bus member crossing sheet pins: the board calls it /SIG, the
+        # netlist splits it into two sheet-local nets. A pad-only net and a
+        # net the netlist agrees on complete the picture.
+        design = {
+            "schema": "kicad_monkey.design.a0",
+            "components": [
+                {"designator": "U1"},
+                {"designator": "J1"},
+                {"designator": "R1"},
+            ],
+            "nets": [
+                {"uid": "net_port_sig", "name": "/Port/SIG", "terminals": [{"designator": "U1", "pin": "1"}]},
+                {"uid": "net_som_sig", "name": "/SOM/SIG", "terminals": [{"designator": "J1", "pin": "2"}]},
+                {"uid": "net_gnd", "name": "GND", "terminals": [{"designator": "R1", "pin": "2"}]},
+            ],
+        }
+        pcb_metadata = {
+            "board": {"bbox_mm": [0.0, 0.0, 10.0, 10.0]},
+            "terminal_pad_links": [
+                {"designator": "U1", "pin": "1", "net_name": "/SIG", "object_uid": "pad_u1_1"},
+                {"designator": "J1", "pin": "2", "net_name": "/SIG", "object_uid": "pad_j1_2"},
+                {"designator": "R1", "pin": "1", "net_name": "/ORPHAN", "object_uid": "pad_r1_1"},
+                {"designator": "R1", "pin": "2", "net_name": "GND", "object_uid": "pad_r1_2"},
+            ],
+        }
+        topology = compile_topology(design, [], pcb_metadata, {})
+        nets = {net["name"]: net for net in topology["nets"]}
+
+        self.assertEqual(list(nets), ["/Port/SIG", "/SOM/SIG", "GND", "/ORPHAN"])
+        self.assertEqual(nets["/Port/SIG"]["aliases"], ["/SIG", "/SOM/SIG"])
+        self.assertEqual(nets["/SOM/SIG"]["aliases"], ["/SIG"])
+        self.assertEqual(nets["GND"]["aliases"], [])
+        self.assertEqual(nets["/ORPHAN"]["aliases"], [])
+        self.assertTrue(nets["/ORPHAN"]["uid"].startswith("net_"))
+
+        names = topology["indexes"]["net_name_to_net"]
+        self.assertEqual(names["/SIG"], "net_port_sig")
+        self.assertEqual(names["/SOM/SIG"], "net_som_sig")
+        self.assertEqual(names["/ORPHAN"], nets["/ORPHAN"]["uid"])
+
+        pads = {(t["designator"], t["pin"]): t["pcb_pad_id"] for t in topology["terminals"]}
+        self.assertEqual(pads[("U1", "1")], "pad_u1_1")
+        self.assertEqual(pads[("J1", "2")], "pad_j1_2")
+        self.assertEqual(pads[("R1", "2")], "pad_r1_2")
+
+    def test_semantic_builder_attributes_copper_by_board_name(self) -> None:
+        topology = self.semantic_topology()
+        topology["nets"] = [
+            {"uid": "net_port_sig", "name": "/Port/SIG", "aliases": ["/SIG", "/SOM/SIG"]},
+            {"uid": "net_som_sig", "name": "/SOM/SIG", "aliases": ["/SIG"]},
+        ]
+        builder = SemanticGltfBuilder(topology)
+        track = {
+            "kind": "segment",
+            "layer": "F.Cu",
+            "operations": [
+                {"kind": "ThickSegment", "start_x": 0, "start_y": 0, "end_x": 5_000_000, "end_y": 0, "width_nm": 200_000}
+            ],
+        }
+        builder.add_pcb_ir({"records": [
+            {**track, "uuid": "t1", "net_name": "/SIG"},
+            {**track, "uuid": "t2", "net_name": "/LONE"},
+        ]})
+
+        self.assertEqual(builder.net_id_by_name["/SIG"], 1)
+        self.assertEqual(builder.net_id_by_name["/SOM/SIG"], 2)
+        self.assertEqual(builder.nets[1]["aliases"], ["/SIG", "/SOM/SIG"])
+        by_net = {}
+        for item in builder.objects:
+            by_net.setdefault(item["netId"], 0)
+            by_net[item["netId"]] += 1
+        self.assertIn(1, by_net)
+        self.assertNotIn(0, by_net)
+        lone = builder.nets[3]
+        self.assertEqual(lone["name"], "/LONE")
+        self.assertEqual(lone["uid"], "net_" + __import__("hashlib").sha1(b"/LONE").hexdigest()[:12])
+        self.assertEqual(builder.net_id_by_name["/LONE"], 3)
+        self.assertGreater(builder.net_trace_length[1], 0)
+        self.assertGreater(builder.net_trace_length[3], 0)
+
     def test_physical_stackup_keeps_paste_and_real_dielectric(self) -> None:
         class ItemType:
             def __init__(self, value: str) -> None:

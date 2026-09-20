@@ -6,7 +6,7 @@ import {
   planComponentVisibility,
 } from "./component-visibility.js";
 import { escapeHtml } from "./escape-html.js";
-import { resolveNetIds } from "./net-emphasis.js";
+import { findNetByName, resolveNetIds } from "./net-emphasis.js";
 import { loadGltf } from "./gltf-loader.js";
 import { clamp } from "./math.js";
 import { Renderer } from "./renderer.js";
@@ -347,9 +347,8 @@ export async function mountStandaloneViewer(options = {}) {
       try {
         if (!selection) clearSelection({ keepHighlights: true });
         else if (selection?.netName || selection?.netUid) {
-          const match = scene.nets.find((item) =>
-            (selection.netUid && item.uid === selection.netUid)
-            || (selection.netName && item.name === selection.netName));
+          const match = (selection.netUid && scene.nets.find((item) => item.uid === selection.netUid))
+            || (selection.netName && findNetByName(scene.nets, selection.netName));
           if (match) selectNet(Number(match.id), true);
         }
         else if (selection?.netId) selectNet(Number(selection.netId), true);
@@ -2430,7 +2429,7 @@ function updateSelectionCard() {
     if (schematicFeature.netUid) {
       net = scene.nets.find(n => n.uid === schematicFeature.netUid);
     } else if (schematicFeature.netName) {
-      net = scene.nets.find(n => n.name === schematicFeature.netName);
+      net = findNetByName(scene.nets, schematicFeature.netName);
     }
   }
 
@@ -2527,7 +2526,7 @@ function updateSelectionCard() {
     netRef.addEventListener("click", () => {
       const netName = netRef.dataset.netName;
       if (!netName) return;
-      const targetNet = scene.nets.find(n => n.name === netName);
+      const targetNet = findNetByName(scene.nets, netName);
       if (targetNet) {
         selectNet(Number(targetNet.id), true);
       }

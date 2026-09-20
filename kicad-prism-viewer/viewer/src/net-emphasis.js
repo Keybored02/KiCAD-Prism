@@ -58,9 +58,21 @@ export function packNetEmphasis(ids, capacity) {
 }
 
 /**
+ * The scene net a name stands for: its own name, or one of the aliases the
+ * compiler recorded when the board and the schematic netlist call the same
+ * net differently. Scene order is id order, so a net that merged others
+ * (the lowest id of the group) wins over the empty records it absorbed.
+ */
+export function findNetByName(nets, name) {
+  if (!Array.isArray(nets) || !name) return null;
+  return nets.find((item) => item.name === name
+    || (Array.isArray(item.aliases) && item.aliases.includes(name))) || null;
+}
+
+/**
  * Resolve host net references against the scene's net records. A reference
- * matches by uid first, then by exact name; unresolved references are
- * dropped rather than guessed.
+ * matches by uid first, then by exact name or alias; unresolved references
+ * are dropped rather than guessed.
  */
 export function resolveNetIds(nets, refs) {
   const ids = new Set();
@@ -68,7 +80,7 @@ export function resolveNetIds(nets, refs) {
   for (const ref of refs) {
     if (!ref) continue;
     const match = (ref.netUid && nets.find((item) => item.uid === ref.netUid))
-      || (ref.netName && nets.find((item) => item.name === ref.netName));
+      || (ref.netName && findNetByName(nets, ref.netName));
     const id = Number(match?.id);
     if (Number.isInteger(id) && id > 0) ids.add(id);
   }

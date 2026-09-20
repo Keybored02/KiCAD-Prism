@@ -8,6 +8,7 @@ import {
     NET_EMPHASIS_OFF,
     NET_EMPHASIS_ON,
     NET_MASK_WGSL,
+    findNetByName,
     netMaskCapacityFor,
     normalizeNetIds,
     packNetEmphasis,
@@ -73,6 +74,32 @@ describe("resolveNetIds", () => {
     });
     it("is empty without a scene", () => {
         assert.equal(resolveNetIds(undefined, [{ netName: "NET_A" }]).size, 0);
+    });
+    it("resolves the board's name for a net the netlist calls differently", () => {
+        const scene = [
+            { id: 1, uid: "a", name: "/Port/MGMT.D0_P", aliases: ["/MGMT.D0_P", "/SOM/MGMT.D0_P"] },
+            { id: 2, uid: "b", name: "/SOM/MGMT.D0_P", aliases: ["/MGMT.D0_P"] },
+        ];
+        const ids = resolveNetIds(scene, [{ netName: "/MGMT.D0_P" }, { netName: "/SOM/MGMT.D0_P" }]);
+        assert.deepEqual([...ids], [1]);
+    });
+});
+
+describe("findNetByName", () => {
+    const scene = [
+        { id: 1, name: "/Port/SIG", aliases: ["/SIG", "/SOM/SIG"] },
+        { id: 2, name: "/SOM/SIG", aliases: ["/SIG"] },
+        { id: 3, name: "/SIG_2" },
+    ];
+    it("prefers the record that owns the copper over the ones it absorbed", () => {
+        assert.equal(findNetByName(scene, "/SOM/SIG").id, 1);
+        assert.equal(findNetByName(scene, "/SIG").id, 1);
+        assert.equal(findNetByName(scene, "/SIG_2").id, 3);
+    });
+    it("is null for an unknown or empty name", () => {
+        assert.equal(findNetByName(scene, "/NOPE"), null);
+        assert.equal(findNetByName(scene, ""), null);
+        assert.equal(findNetByName(null, "/SIG"), null);
     });
 });
 
