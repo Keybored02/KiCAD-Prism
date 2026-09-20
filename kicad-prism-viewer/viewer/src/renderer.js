@@ -5,6 +5,13 @@ import {
   normalizeHiddenFeatureIds,
   packFeatureVisibility,
 } from "./feature-visibility.js";
+import {
+  MIN_NET_MASK_CAPACITY,
+  NET_MASK_WGSL,
+  netMaskCapacityFor,
+  normalizeNetIds,
+  packNetEmphasis,
+} from "./net-emphasis.js";
 
 const VERTEX_STRIDE = 40;
 // WebGPU dynamic uniform offsets require 256-byte alignment; each draw buffer is padded to that size.
@@ -33,7 +40,9 @@ struct Draw {
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var<uniform> draw: Draw;
 @group(0) @binding(3) var<storage, read> hiddenMask: array<u32>;
+@group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${FEATURE_MASK_WGSL}
+${NET_MASK_WGSL}
 
 struct VertexInput {
   @location(0) position: vec3f,
@@ -72,7 +81,7 @@ fn aces(color: vec3f) -> vec3f {
   let copper = kind == 1u;
   let component = kind == 2u;
   if (component && featureHidden(input.objectId)) { discard; }
-  let selected = globals.activeNet != 0u && input.netId == globals.activeNet;
+  let selected = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
   let selectedComponent = component && globals.selectedFeature != 0u && input.objectId == globals.selectedFeature;
   var base = draw.color.rgb;
   if (selected && copper) {
@@ -163,6 +172,8 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var<uniform> draw: Draw;
 @group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;
+@group(0) @binding(4) var<storage, read> netMask: array<u32>;
+${NET_MASK_WGSL}
 struct Input {
   @location(0) unit: vec3f,
   @location(1) normal: vec3f,
@@ -200,7 +211,7 @@ struct Output {
 }
 @fragment fn fs(input: Output) -> @location(0) vec4f {
   if (input.visible == 0u) { discard; }
-  let selected = globals.activeNet != 0u && input.netId == globals.activeNet;
+  let selected = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
   var base = draw.color.rgb;
   if (selected) {
     if (draw.flags.z < 0.5) {
@@ -299,6 +310,7 @@ export class Renderer {
         { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+        { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       ],
     });
     const layout = device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] });
@@ -335,6 +347,51 @@ export class Renderer {
       this.featureMaskCapacity,
     );
     this.uploadFeatureMask();
+    // Net-emphasis mask: default-off, indexed by net id (Prism #305). It always
+    // exists so every bind group is valid before the first highlight.
+    this.emphasizedNetIds = new Set();
+    this.netMaskCapacity = MIN_NET_MASK_CAPACITY;
+    this.netMaskBuffer = this.createNetMaskBuffer(this.netMaskCapacity);
+    this.uploadNetMask();
+  }
+
+  createNetMaskBuffer(capacity) {
+    return this.device.createBuffer({
+      label: "net-emphasis-mask",
+      size: capacity * Uint32Array.BYTES_PER_ELEMENT,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+  }
+
+  uploadNetMask() {
+    const data = packNetEmphasis(this.emphasizedNetIds, this.netMaskCapacity);
+    this.device.queue.writeBuffer(this.netMaskBuffer, 0, data);
+  }
+
+  /**
+   * Replace the emphasised net set. Idempotent; the mask is rebuilt from
+   * scratch so no stale slot survives, and the buffer only grows.
+   */
+  setEmphasizedNetIds(ids) {
+    this.emphasizedNetIds = normalizeNetIds(ids);
+    const capacity = netMaskCapacityFor(this.emphasizedNetIds, this.netMaskCapacity);
+    if (capacity !== this.netMaskCapacity) {
+      this.netMaskBuffer?.destroy?.();
+      this.netMaskCapacity = capacity;
+      this.netMaskBuffer = this.createNetMaskBuffer(capacity);
+      this.rebindAll();
+    }
+    this.uploadNetMask();
+  }
+
+  rebindAll() {
+    for (const entry of this.entries) {
+      entry.bindGroup = this.makeBindGroup(entry.drawBuffer);
+    }
+    if (this.barrels) {
+      this.barrels.bindGroup = this.makeBindGroup(this.barrels.drawBuffer);
+    }
+    this.bundleCache.clear();
   }
 
   createFeatureMaskBuffer(capacity) {
@@ -353,6 +410,7 @@ export class Renderer {
         { binding: 1, resource: { buffer: drawBuffer } },
         { binding: 2, resource: { buffer: this.layerOffsetBuffer } },
         { binding: 3, resource: { buffer: this.featureMaskBuffer } },
+        { binding: 4, resource: { buffer: this.netMaskBuffer } },
       ],
     });
   }
@@ -381,12 +439,7 @@ export class Renderer {
       this.featureMaskBuffer?.destroy?.();
       this.featureMaskCapacity = capacity;
       this.featureMaskBuffer = this.createFeatureMaskBuffer(capacity);
-      for (const entry of this.entries) {
-        entry.bindGroup = this.makeBindGroup(entry.drawBuffer);
-      }
-      if (this.barrels) {
-        this.barrels.bindGroup = this.makeBindGroup(this.barrels.drawBuffer);
-      }
+      this.rebindAll();
     }
     this.uploadFeatureMask();
     this.bundleCache.clear();
@@ -699,7 +752,7 @@ export class Renderer {
     view.setUint32(64, activeNetId || 0, true);
     view.setUint32(68, selectedLayer || 0, true);
     view.setFloat32(72, time, true);
-    view.setFloat32(76, activeNetId ? 1 : 0, true);
+    view.setFloat32(76, activeNetId || this.emphasizedNetIds.size ? 1 : 0, true);
     view.setUint32(80, selectedFeatureId || 0, true);
     floats.set([0.35, -0.5, 0.8, 0], 24);
     this.device.queue.writeBuffer(this.globalBuffer, 0, data);
