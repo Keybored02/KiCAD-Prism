@@ -521,6 +521,26 @@ def draw_kind_icon(
         gc.StrokePath(node)
         return
 
+    if kind == "pull":
+        # lucide "arrow-down-to-line": commits coming down onto your branch. Distinct
+        # from the fetch arrows on purpose, fetch only looks, pull changes your files.
+        arrow = gc.CreatePath()
+        arrow.MoveToPoint(*px(12, 3))
+        arrow.AddLineToPoint(*px(12, 15))
+        gc.StrokePath(arrow)
+
+        head = gc.CreatePath()
+        head.MoveToPoint(*px(6, 11))
+        head.AddLineToPoint(*px(12, 17))
+        head.AddLineToPoint(*px(18, 11))
+        gc.StrokePath(head)
+
+        floor = gc.CreatePath()
+        floor.MoveToPoint(*px(5, 21))
+        floor.AddLineToPoint(*px(19, 21))
+        gc.StrokePath(floor)
+        return
+
     if kind == "fetch":
         # lucide "refresh-cw": two arcs with arrowheads. Fetch re-reads the remote,
         # and the circular arrows are the gesture everyone already knows for that.
@@ -1009,6 +1029,18 @@ class Card(wx.Panel):
             )
 
         self.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
+
+    def rule(self, space=None):
+        """A hairline across the card, to separate one block of rows from the next.
+
+        wx.StaticLine draws in the system colour, which is wrong against the card in
+        either theme, so this is a one-pixel panel in the theme's border colour.
+        """
+        line = wx.Panel(self, size=wx.Size(-1, 1))
+        line.SetBackgroundColour(_c(self.pal["border"]))
+        gap = th.SP_SM if space is None else space
+        self.body.Add(line, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, gap)
+        return line
 
     def compact_row(self, label, value, tone=None, badge=False):
         """A tighter label/value line that never overflows on the right.

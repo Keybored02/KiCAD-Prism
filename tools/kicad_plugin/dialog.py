@@ -1385,8 +1385,33 @@ class PrismDialog(wx.Dialog):
             ),
             0,
             wx.RIGHT,
-            th.SP_SM,
+            th.SP_XS,
         )
+        # Pull, beside Fetch, only when there is something to pull and the branch has
+        # not diverged. A diverged branch is the merge's job, and _add_pull_row already
+        # explains that and offers it; pulling there would be a textual merge of a
+        # board, which is the one thing this must never do.
+        if behind and not ahead:
+            row.Add(
+                IconButton(
+                    card, "pull", self.pal,
+                    tooltip="Pull %d commit%s from the remote"
+                    % (behind, "" if behind == 1 else "s"),
+                    variant="ghost",
+                    on_click=self._pull,
+                ),
+                0,
+                wx.ALIGN_CENTER_VERTICAL,
+            )
+            row.Add(
+                Badge(card, str(behind), self.pal, tone="primary"),
+                0,
+                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+                th.SP_SM,
+            )
+        else:
+            row.AddSpacer(th.SP_XS)
+
         # Push only when ahead and NOT diverged (diverged is the merge's job).
         if ahead and not behind:
             row.Add(
@@ -1658,11 +1683,12 @@ class PrismDialog(wx.Dialog):
         self._load()
 
     def _add_pull_row(self, card, git):
-        """Offer to pull, but only when it would actually work.
+        """The diverged case, which is the one that needs explaining.
 
-        Every reason it would not is said out loud instead. A Pull button that fails
-        when pressed teaches people to distrust the whole dialog, and the failures here
-        are ones the user can fix (commit your work, get back on a branch).
+        A plain pull is an icon button beside Fetch in the sync row. This handles the
+        situation that button deliberately refuses: both sides have moved on, where
+        pulling would mean a textual merge of a board and the answer is the object-level
+        merge instead.
         """
         behind = git.get("behind") or 0
         ahead = git.get("ahead") or 0
@@ -1696,22 +1722,6 @@ class PrismDialog(wx.Dialog):
                 th.SP_XS,
             )
             return
-
-        if not behind:
-            return  # nothing to pull; no button, no noise
-
-        card.body.Add(
-            Button(
-                card,
-                "Pull %d commit%s" % (behind, "" if behind == 1 else "s"),
-                self.pal,
-                variant="secondary",
-                on_click=self._pull,
-            ),
-            0,
-            wx.TOP,
-            th.SP_XS,
-        )
 
     def _merge(self):
         """Open the object-level merge for the branch this one has diverged from.
@@ -1966,6 +1976,7 @@ class PrismDialog(wx.Dialog):
         # default; deciding to commit one is the user's call, and the panel now lets
         # them follow through on it.
         if design or noise or self._staged_paths():
+            card.rule()  # the change list above, what you are committing below
             self._add_staging(card, has_design=bool(design))
             self._add_commit_box(card, has_design=bool(design))
 
@@ -1984,16 +1995,18 @@ class PrismDialog(wx.Dialog):
         row (via _add_file); this is the summary and the bulk controls.
         """
         staged = self._staged_paths()
-        card.body.Add(
-            card.label("Staged:", tone="muted_fg", small=True),
-            0,
-            wx.LEFT | wx.TOP,
-            th.SP_SM,
-        )
-        # The files themselves, not a count. "3 files staged" told you the number and
-        # then made you go and work out which three; the commit is about to include
-        # exactly these, so they are worth the space.
+        # Only when there is something staged: a "Staged:" heading over nothing is a
+        # label explaining its own emptiness.
         if staged:
+            card.body.Add(
+                card.label("Staged:", tone="foreground", bold=True),
+                0,
+                wx.LEFT | wx.TOP,
+                th.SP_SM,
+            )
+            # The files themselves, not a count. "3 files staged" told you the number
+            # and left you to work out which three; the commit is about to include
+            # exactly these, so they are worth the space.
             for path in staged:
                 line = wx.BoxSizer(wx.HORIZONTAL)
                 line.Add(
@@ -2010,13 +2023,6 @@ class PrismDialog(wx.Dialog):
                     wx.ALIGN_CENTER_VERTICAL,
                 )
                 card.body.Add(line, 0, wx.EXPAND | wx.LEFT, th.SP_MD)
-        else:
-            card.body.Add(
-                card.label("nothing yet", tone="muted_fg", small=True),
-                0,
-                wx.LEFT,
-                th.SP_MD,
-            )
 
         row = wx.BoxSizer(wx.HORIZONTAL)
         # Outlined, not ghost: a ghost button is invisible until hovered, and this is
@@ -2216,6 +2222,9 @@ class PrismDialog(wx.Dialog):
             self.noise_open = is_open
             self._rebuild()
 
+        # A rule above it: KiCad's churn is a different subject from the user's own
+        # changes listed above, and without a break the two ran together.
+        card.rule()
         card.body.Add(
             Disclosure(
                 card,
@@ -2226,8 +2235,7 @@ class PrismDialog(wx.Dialog):
                 count=len(noise),
             ),
             0,
-            wx.EXPAND | wx.TOP,
-            th.SP_XS,
+            wx.EXPAND,
         )
 
         if not self.noise_open:
