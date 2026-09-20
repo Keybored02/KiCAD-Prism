@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
@@ -161,37 +160,6 @@ async def session_bootstrap(request: Request):
         raise HTTPException(status_code=400, detail="next_url must stay on the provider origin")
 
     nonce_url = provider_auth_service.build_bootstrap_nonce_url(base_url, access_token, next_url)
-    return JSONResponse({"nonce_url": nonce_url})
-
-
-@router.post("/oauth/session/bootstrap-from-agent", include_in_schema=False)
-async def session_bootstrap_from_agent(request: Request):
-    """Turn the agent's existing sign-in into a panel session, so the user logs in once.
-
-    The agent signs the user in through its own loopback flow and holds a scoped token
-    for them. The Remote Symbols panel is a browser with no Prism cookie, so it sent
-    them round the login again for an identity Prism had already established.
-
-    The agent token IS the credential here: it is validated by the agent auth service,
-    so a revoked, expired or forged one is refused. Nothing in the request body is
-    trusted for identity, and next_url is pinned to this origin so the one-shot session
-    URL cannot be aimed somewhere else.
-    """
-    _require_provider_auth()
-    body = await request.json()
-    agent_token = str(body.get("agent_token") or "")
-    next_url = str(body.get("next_url") or "")
-    base_url = _base_url(request)
-
-    if not next_url.startswith(f"{base_url}/"):
-        raise HTTPException(status_code=400, detail="next_url must stay on the provider origin")
-
-    nonce_url = await asyncio.to_thread(
-        provider_auth_service.build_bootstrap_nonce_url_for_agent,
-        base_url,
-        agent_token,
-        next_url,
-    )
     return JSONResponse({"nonce_url": nonce_url})
 
 

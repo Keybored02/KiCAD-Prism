@@ -12,7 +12,6 @@ we ever want the plugin to talk to Prism directly.
 from __future__ import annotations
 
 import json
-import logging
 import subprocess
 import urllib.error
 import urllib.parse
@@ -20,8 +19,6 @@ import urllib.request
 from dataclasses import dataclass
 
 from . import identity
-
-log = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 TIMEOUT = 10
@@ -79,38 +76,6 @@ class PrismClient:
         one that most needs telling.
         """
         return self._request("GET", "/api/plugin/version")
-
-    def panel_session_url(self, next_url: str) -> str:
-        """A URL that opens `next_url` already signed in as this agent's user.
-
-        The Remote Symbols panel is a browser with no Prism cookie, so it would send
-        the user through a login for an identity the agent has already established.
-        This trades the agent's own token for a one-shot URL that lands on `next_url`
-        with a session cookie set.
-
-        Returns "" when the server is too old to offer it, auth is off, or the agent
-        has no token: every one of those is a normal state, and the caller simply opens
-        `next_url` directly and lets the panel ask for a login as it did before.
-        """
-        if not self.config.token:
-            log.debug("no agent token, so the browser will ask for a login")
-            return ""
-        result = self._request(
-            "POST",
-            "/oauth/session/bootstrap-from-agent",
-            {"agent_token": self.config.token, "next_url": next_url},
-        )
-        nonce_url = str((result or {}).get("nonce_url") or "")
-        if not nonce_url:
-            # Worth a line: the fallback is silent by design, so without this a
-            # misrouted or older server looks exactly like "you are not signed in".
-            log.info(
-                "Couldn't pre-authenticate the browser for %s; it will ask for a login. "
-                "(Is /oauth reachable on %s?)",
-                next_url,
-                self.config.base_url,
-            )
-        return nonce_url
 
     def auth_config(self) -> dict | None:
         """Whether the server wants anyone to log in, and via which provider.

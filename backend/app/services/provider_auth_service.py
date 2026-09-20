@@ -344,58 +344,21 @@ def validate_access_token(token: str) -> dict[str, Any]:
     return payload
 
 
-def _bootstrap_url_for(base_url: str, identity: dict[str, Any], next_url: str) -> str:
-    """A one-shot URL that turns a proven identity into a browser session.
-
-    Short-lived and single-use by construction: it expires in two minutes and its jti
-    is revoked the moment it is consumed, so the URL is worthless the instant after it
-    has been followed (and worthless anyway if it leaks two minutes later).
-    """
+def build_bootstrap_nonce_url(base_url: str, access_token: str, next_url: str) -> str:
+    payload = validate_access_token(access_token)
     token = _encode_payload(
         {
             "type": "bootstrap",
-            "email": identity["email"],
-            "name": identity["name"],
-            "picture": identity.get("picture", ""),
-            "role": identity["role"],
+            "email": payload["email"],
+            "name": payload["name"],
+            "picture": payload.get("picture", ""),
+            "role": payload["role"],
             "next_url": next_url,
             "jti": secrets.token_urlsafe(12),
             "exp": _now() + 120,
         }
     )
     return f"{base_url.rstrip('/')}/oauth/bootstrap?token={token}"
-
-
-def build_bootstrap_nonce_url(base_url: str, access_token: str, next_url: str) -> str:
-    return _bootstrap_url_for(base_url, validate_access_token(access_token), next_url)
-
-
-def build_bootstrap_nonce_url_for_agent(
-    base_url: str, agent_token: str, next_url: str
-) -> str:
-    """The same handoff, for a user the KiCad agent has already signed in.
-
-    The agent authenticates once, through its own loopback OAuth flow, and holds a
-    scoped token for the same Prism user. Making that user log in a second time in the
-    Remote Symbols panel proves nothing new, so a valid agent token buys the same
-    browser session an access token does.
-
-    The agent token is validated here, by the same service that issues and revokes
-    them, so a revoked or expired one is refused exactly as it would be on any other
-    request. The session created is a NORMAL user session: it carries the user's real
-    role and no agent scopes, because this is the user signing in, not the agent acting
-    on their behalf.
-    """
-    from app.services import agent_auth_service
-
-    payload = agent_auth_service.validate_agent_token(agent_token)
-    identity = {
-        "email": payload["email"],
-        "name": payload["name"],
-        "picture": payload.get("picture", ""),
-        "role": payload["role"],
-    }
-    return _bootstrap_url_for(base_url, identity, next_url)
 
 
 def consume_bootstrap_token(token: str) -> dict[str, Any]:
