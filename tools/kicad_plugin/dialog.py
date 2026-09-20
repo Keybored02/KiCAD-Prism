@@ -214,12 +214,30 @@ class PrismDialog(wx.Dialog):
 
         self.SetSizer(root)
 
+    def _max_scroll_pos(self) -> int:
+        """The furthest down the view may legally sit, in scroll units.
+
+        The scrollbars are hidden (ScrollThumb draws its own), so nothing else works
+        this out for us, and wx silently ignores a Scroll() past the end rather than
+        clamping to it.
+        """
+        _, unit_y = self.scroll.GetScrollPixelsPerUnit()
+        if not unit_y:
+            return 0
+        view_h = self.scroll.GetClientSize().height
+        content_h = self.content.GetMinSize().height
+        return max(0, (content_h - view_h + unit_y - 1) // unit_y)
+
     def _on_wheel(self, e):
-        """ShowScrollbars(NEVER) also disables wheel scrolling, so drive it here."""
+        """ShowScrollbars(NEVER) also disables wheel scrolling, so drive it here.
+
+        Clamped at BOTH ends. Only the top was clamped before, and a Scroll() past the
+        bottom is ignored outright rather than clipped, so once a section was expanded
+        the wheel stopped short and the commit box below it could not be reached.
+        """
         lines = e.GetWheelRotation() / e.GetWheelDelta()
-        self.scroll.Scroll(
-            -1, max(0, self.scroll.GetScrollPos(wx.VERTICAL) - int(lines * 3))
-        )
+        target = self.scroll.GetScrollPos(wx.VERTICAL) - int(lines * 3)
+        self.scroll.Scroll(-1, max(0, min(target, self._max_scroll_pos())))
         self.thumb.Refresh()
 
     def _on_close(self, event):
@@ -238,8 +256,22 @@ class PrismDialog(wx.Dialog):
             event.Skip()
 
     def _relayout(self):
+        """Re-fit the scrolled content, and keep the scroll position legal.
+
+        Expanding a section makes the content taller; collapsing one makes it shorter.
+        The scrollbars are hidden (ScrollThumb draws its own), and a hidden scrollbar
+        does not re-clamp the scroll position on its own, so after a collapse the view
+        could sit past the new end of the content, with the commit box scrolled out of
+        sight and no visible scrollbar to explain why. Re-fit, then pull the position
+        back inside the content if it now falls outside it.
+        """
         self.content.FitInside(self.scroll)
         self.scroll.Layout()
+
+        max_pos = self._max_scroll_pos()
+        if self.scroll.GetScrollPos(wx.VERTICAL) > max_pos:
+            self.scroll.Scroll(-1, max_pos)
+
         self.thumb.Refresh()  # the thumb size depends on the new content height
         self.Layout()
         self.Refresh()
@@ -1980,17 +2012,32 @@ class PrismDialog(wx.Dialog):
         )
 
     def _staging_action(self, fn):
-        """Run a stage/unstage call against the repo, then refresh. Errors are shown."""
+        """Run a stage/unstage call, then refresh only what staging can change.
+
+        Staging moves files between the index and the working tree. It cannot change
+        the agent's health, the server's reachability, or the contents of the diff, so
+        calling _load() here re-fetched all of that and re-ran the whole render for a
+        checkbox: the panel visibly reloaded on every stage click.
+
+        Only the git status is re-read, and the panel is rebuilt from data already in
+        hand. _rebuild is frozen, so the update is a single repaint.
+        """
         project = (self.data or {}).get("project")
         if not project or not project.get("repo_root"):
             return
         try:
             with wx.BusyCursor():
                 fn(project["repo_root"])
+                fresh = AgentClient().project(self.board_path)
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
-        self._load()
+
+        # Keep everything else (including the diff we already computed) and swap in the
+        # new git status, which is the only part staging affects.
+        if fresh and self.data:
+            self.data["git"] = fresh.get("git") or {}
+        self._rebuild()
 
     def _add_commit_box(self, card):
         """A message field and the commit buttons beneath the uncommitted changes.
@@ -2032,22 +2079,22 @@ class PrismDialog(wx.Dialog):
             th.SP_SM,
         )
 
+        # One button, because there is only one intent: commit what this panel says
+        # will be committed. Two buttons ("Commit staged" beside a "Commit" that staged
+        # everything first) meant the second silently overrode the staging the user had
+        # just done, which is a trap rather than a shortcut. When nothing is staged it
+        # falls back to staging every design change, so the quick path still works.
+        staged = self._staged_paths()
+        label = (
+            "Commit %d file%s" % (len(staged), "" if len(staged) == 1 else "s")
+            if staged
+            else "Commit all changes"
+        )
         row = wx.BoxSizer(wx.HORIZONTAL)
-        if self._staged_paths():
-            row.Add(
-                Button(
-                    card, "Commit staged", self.pal, variant="primary",
-                    on_click=lambda: self._commit(staged_only=True),
-                ),
-                0,
-                wx.RIGHT,
-                th.SP_SM,
-            )
         row.Add(
             Button(
-                card, "Commit", self.pal,
-                variant="ghost" if self._staged_paths() else "primary",
-                on_click=lambda: self._commit(staged_only=False),
+                card, label, self.pal, variant="primary",
+                on_click=lambda: self._commit(staged_only=bool(staged)),
             ),
             0,
         )
