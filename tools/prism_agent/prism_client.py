@@ -77,6 +77,27 @@ class PrismClient:
         """
         return self._request("GET", "/api/plugin/version")
 
+    def panel_session_url(self, next_url: str) -> str:
+        """A URL that opens `next_url` already signed in as this agent's user.
+
+        The Remote Symbols panel is a browser with no Prism cookie, so it would send
+        the user through a login for an identity the agent has already established.
+        This trades the agent's own token for a one-shot URL that lands on `next_url`
+        with a session cookie set.
+
+        Returns "" when the server is too old to offer it, auth is off, or the agent
+        has no token: every one of those is a normal state, and the caller simply opens
+        `next_url` directly and lets the panel ask for a login as it did before.
+        """
+        if not self.config.token:
+            return ""
+        result = self._request(
+            "POST",
+            "/oauth/session/bootstrap-from-agent",
+            {"agent_token": self.config.token, "next_url": next_url},
+        )
+        return str((result or {}).get("nonce_url") or "")
+
     def auth_config(self) -> dict | None:
         """Whether the server wants anyone to log in, and via which provider.
 

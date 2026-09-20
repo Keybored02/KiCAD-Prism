@@ -298,6 +298,26 @@ class _Handler(BaseHTTPRequestHandler):
         # Constant-time compare: the token guards git + filesystem access.
         return secrets.compare_digest(token, self.state.token)
 
+    def _signed_in_url(self, url: str) -> str:
+        """`url`, but opening it lands already signed in when the agent is signed in.
+
+        The user signed in once through the agent; sending them through a browser login
+        again for the same identity is friction with nothing behind it. This trades the
+        agent's token for a one-shot URL that sets a session cookie and redirects on to
+        `url`.
+
+        Falls back to the plain URL on ANY failure, and that is the point: the server
+        may be older, auth may be off, the agent may be a guest, the network may be
+        down. None of those should stop a link from opening, they just mean the browser
+        asks for a login the way it always did.
+        """
+        try:
+            handoff = self.state.prism.panel_session_url(url)
+        except Exception:  # noqa: BLE001 - a convenience must never break the link
+            log.debug("couldn't pre-authenticate the browser", exc_info=True)
+            return url
+        return handoff or url
+
     def log_message(self, fmt, *args):  # noqa: A003 - silence stdlib access logging
         pass
 
@@ -523,7 +543,7 @@ class _Handler(BaseHTTPRequestHandler):
                 # section instead of selecting the commit.
                 sha = quote(str(commit))
                 url += "?section=history&commit=%s" % sha
-            webbrowser.open(url)
+            webbrowser.open(self._signed_in_url(url))
             self._send(200, {"ok": True})
             return
 
