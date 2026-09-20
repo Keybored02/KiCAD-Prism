@@ -19,9 +19,9 @@ import { crossProbeRequestForSelection, enrichPrismSelection, netStatisticsRefFo
 import {
     adoptViewerNets,
     highlightRefs,
-    sameHighlightedNet,
     netFromSelection,
     removeHighlightedNet,
+    sameHighlightedNet,
     toggleHighlightedNet,
     type HighlightedNet,
 } from "@/lib/net-highlights";
@@ -1625,7 +1625,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 selection={globalSelection}
                                 highlightedNets={highlightedNets}
                                 onSelection={crossProbeGlobal}
-                                onClearSelection={clearSelectionAndHighlights}
+                                onClearSelection={clearGlobalSelection}
                                 hiddenComponents={dnpPlan.hidden}
                                 ambiguousComponents={dnpPlan.ambiguous}
                                 showDnp={showDnp}

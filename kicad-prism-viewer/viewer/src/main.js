@@ -345,7 +345,7 @@ export async function mountStandaloneViewer(options = {}) {
     setSelection(selection) {
       suppressSelectionChange = true;
       try {
-        if (!selection) clearSelection({ keepHighlights: true });
+        if (!selection) clearSelection();
         else if (selection?.netName || selection?.netUid) {
           const match = (selection.netUid && scene.nets.find((item) => item.uid === selection.netUid))
             || (selection.netName && findNetByName(scene.nets, selection.netName));
@@ -2167,16 +2167,12 @@ function findSchematicFeatureByReference(reference) {
 }
 
 /**
- * Drop the inspected object. The viewer's own Esc / Clear also drop the
- * host's highlighted nets; a host clearing just its inspected selection
- * passes `keepHighlights` so the nets it still lists stay emphasised.
+ * Drop the inspected object. The highlighted net set is the host's: only
+ * `setHighlightedNets` changes it, so an empty click or Esc here reads the
+ * same as on the board — the inspected object goes, the nets stay lit.
  */
-function clearSelection({ keepHighlights = false } = {}) {
+function clearSelection() {
   state.activeNetId = 0;
-  if (!keepHighlights) {
-    state.highlightedNetIds = new Set();
-    renderer?.setEmphasizedNetIds(state.highlightedNetIds);
-  }
   state.selectedFeatureId = 0;
   state.selectedSchematicFeature = null;
   state.selectionAnchor = null;
