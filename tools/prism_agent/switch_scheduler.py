@@ -21,6 +21,7 @@ schedule can be cancelled.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -66,6 +67,91 @@ class SwitchScheduler:
         self._thread: threading.Thread | None = None
         self._cancel = threading.Event()
 
+    # -- persistence -------------------------------------------------------
+    #
+    # A pending switch used to live only in this object. The agent is restarted
+    # routinely (an update, a tray Restart, a dev iteration), and every restart
+    # silently dropped the switch: KiCad closed, nothing was watching, no checkout
+    # happened and no error was ever shown. The user saw the old branch and no
+    # explanation. So the pending switch is written down and picked up again.
+
+    def _state_path(self) -> Path:
+        return Path(discovery.config_dir()) / "pending-switch.json"
+
+    def _persist(self, pending: PendingSwitch | None) -> None:
+        """Write or clear the pending switch. Never raises: this is bookkeeping."""
+        path = self._state_path()
+        try:
+            if pending is None:
+                path.unlink(missing_ok=True)
+                return
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "repo": pending.repo,
+                        "ref": pending.ref,
+                        "project_dir": pending.project_dir,
+                        "kicad_pid": pending.kicad_pid,
+                        "created": pending.created,
+                    }
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            log.warning("couldn't record the pending switch", exc_info=True)
+
+    def resume(self) -> None:
+        """Pick up a switch scheduled before the agent restarted.
+
+        Called once at startup. Three outcomes, and each is deliberate:
+
+          KiCad still running   watch it again, exactly as before the restart.
+          KiCad already gone    perform the switch now. It closed while nothing was
+                                watching, which is the case that used to be lost.
+          Too old               drop it. A switch the user set up long ago and walked
+                                away from should not reopen KiCad out of nowhere.
+        """
+        path = self._state_path()
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+
+        try:
+            pending = PendingSwitch(
+                repo=str(raw["repo"]),
+                ref=str(raw["ref"]),
+                project_dir=str(raw["project_dir"]),
+                kicad_pid=int(raw["kicad_pid"]),
+                created=float(raw.get("created") or time.time()),
+            )
+        except (KeyError, TypeError, ValueError):
+            self._persist(None)
+            return
+
+        if time.time() - pending.created > MAX_WAIT_SECONDS:
+            log.info("Dropping a stale pending switch to %s", pending.ref)
+            self._persist(None)
+            return
+
+        # If the pid has been recycled onto an unrelated process we simply wait for
+        # that one to exit instead. The switch is still guarded at the moment it acts
+        # (_perform re-checks the tree and refuses a dirty one), and the alternative,
+        # checking out under a KiCad that is actually still open, is the dangerous one.
+        log.info(
+            "Resuming a pending switch to %s (KiCad pid %s)", pending.ref, pending.kicad_pid
+        )
+        with self._lock:
+            self._cancel = threading.Event()
+            self._pending = pending
+            cancel = self._cancel
+            self._thread = threading.Thread(
+                target=self._watch, args=(pending, cancel), daemon=True,
+                name="prism-switch-watch",
+            )
+            self._thread.start()
+
     def schedule(self, *, repo: str, ref: str, project_dir: str, kicad_pid: int) -> dict:
         """Record a switch and start watching. Replaces any pending one.
 
@@ -87,6 +173,7 @@ class SwitchScheduler:
             )
             cancel = self._cancel
             pending = self._pending
+            self._persist(pending)  # survive an agent restart before KiCad closes
             self._thread = threading.Thread(
                 target=self._watch, args=(pending, cancel), daemon=True,
                 name="prism-switch-watch",
@@ -100,6 +187,7 @@ class SwitchScheduler:
             had = self._pending is not None
             self._cancel.set()
             self._pending = None
+            self._persist(None)
         return {"ok": True, "cancelled": had}
 
     def pending(self) -> dict | None:
@@ -137,13 +225,27 @@ class SwitchScheduler:
         # KiCad is gone. Let the OS settle before touching the tree.
         log.info("KiCad pid %s exited; performing switch to %s", pending.kicad_pid, pending.ref)
         time.sleep(SETTLE_SECONDS)
-        self._clear_if_current(pending)
-        self._perform(pending)
+        # Drop the in-memory slot now (a new schedule may legitimately replace this
+        # one), but keep the persisted record until the switch has actually been
+        # attempted. Clearing it first meant an agent that stopped in this window lost
+        # the switch entirely, which is the very thing persistence exists to prevent.
+        self._clear_if_current(pending, persist=False)
+        try:
+            self._perform(pending)
+        finally:
+            self._persist(None)
 
-    def _clear_if_current(self, pending: PendingSwitch) -> None:
+    def _clear_if_current(self, pending: PendingSwitch, persist: bool = True) -> None:
+        """Release the pending slot if it is still this switch.
+
+        `persist=False` leaves the on-disk record alone, for the caller that is about
+        to act on it and wants it to survive until it has.
+        """
         with self._lock:
             if self._pending is pending:
                 self._pending = None
+                if persist:
+                    self._persist(None)
 
     def _perform(self, pending: PendingSwitch) -> None:
         """Re-check the guard, check out, reopen. Any failure is reported to the user."""

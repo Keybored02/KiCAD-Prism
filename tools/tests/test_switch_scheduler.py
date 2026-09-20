@@ -5,6 +5,7 @@ point, so these drive it with a fake pid-alive signal and a fake launch, and ass
 checkout only happens after "KiCad" is gone and the guard still passes.
 """
 
+import json
 import subprocess
 import sys
 import time
@@ -150,6 +151,95 @@ def test_cancel_drops_a_pending_switch(project, fast, monkeypatch):
     assert sched.pending() is None
     time.sleep(0.1)  # give the watcher a chance to (not) act
     assert (project / "board.kicad_pcb").read_text() == "(kicad_pcb v1)"
+
+
+def test_a_process_that_has_exited_is_not_reported_as_running():
+    """THE one that stalled every switch on Windows.
+
+    Windows keeps a process object alive while any handle to it remains, so OpenProcess
+    succeeds for a process that has already exited. Treating "the handle opened" as
+    "still running" meant the watcher waited on a KiCad that had closed long ago: no
+    checkout, no reopen, no error, just the old branch still there.
+    """
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    # The Popen object still holds a handle, which is exactly the case that used to lie.
+    for _ in range(40):
+        if not discovery._pid_alive(child.pid):
+            break
+        time.sleep(0.05)
+    assert not discovery._pid_alive(child.pid)
+
+
+def test_a_running_process_is_reported_as_running():
+    import os
+
+    assert discovery._pid_alive(os.getpid())
+
+
+def test_a_pending_switch_survives_the_agent_restarting(project, fast, monkeypatch, tmp_path):
+    """The switch is owed even if the agent stops between scheduling and KiCad closing.
+
+    Restarts happen routinely (an update, a tray Restart, a dev iteration). The pending
+    switch used to live only in memory, so a restart dropped it: KiCad closed, nothing
+    was watching, no checkout happened and nothing was ever reported. The user saw the
+    old branch and no explanation.
+    """
+    state = tmp_path / "cfg"
+    monkeypatch.setattr(discovery, "config_dir", lambda: state)
+
+    # Agent one: schedule while "KiCad" is running, then go away without acting.
+    monkeypatch.setattr(discovery, "_pid_alive", lambda pid: True)
+    first = switch_scheduler.SwitchScheduler()
+    first.schedule(repo=str(project), ref="feature", project_dir=str(project), kicad_pid=7)
+    first._cancel.set()  # the process died; its watcher stops with it
+    assert (state / "pending-switch.json").is_file()
+
+    # Agent two starts with KiCad already closed, and owes the switch.
+    launched = []
+    monkeypatch.setattr(discovery, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: launched.append(d))
+
+    second = switch_scheduler.SwitchScheduler()
+    second.resume()
+    for _ in range(80):
+        if checkout.status(project).get("current_branch") == "feature":
+            break
+        time.sleep(0.05)
+
+    assert checkout.status(project)["current_branch"] == "feature"
+    assert launched, "the project should have been reopened"
+    for _ in range(40):
+        if not (state / "pending-switch.json").is_file():
+            break
+        time.sleep(0.05)
+    assert not (state / "pending-switch.json").is_file()
+
+
+def test_a_switch_too_old_to_honour_is_dropped_on_resume(project, monkeypatch, tmp_path):
+    """A switch set up and abandoned should not reopen KiCad out of nowhere later."""
+    state = tmp_path / "cfg"
+    state.mkdir()
+    monkeypatch.setattr(discovery, "config_dir", lambda: state)
+    (state / "pending-switch.json").write_text(
+        json.dumps(
+            {
+                "repo": str(project),
+                "ref": "feature",
+                "project_dir": str(project),
+                "kicad_pid": 7,
+                "created": time.time() - (switch_scheduler.MAX_WAIT_SECONDS + 60),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(discovery, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: pytest.fail("must not reopen"))
+
+    switch_scheduler.SwitchScheduler().resume()
+    time.sleep(0.3)
+    assert checkout.status(project)["current_branch"] == "main"
+    assert not (state / "pending-switch.json").is_file()
 
 
 if __name__ == "__main__":

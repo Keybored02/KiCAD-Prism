@@ -118,6 +118,9 @@ class AgentState:
         from .__main__ import spawn_notify
 
         self.switch = switch_scheduler.SwitchScheduler(notify=spawn_notify)
+        # A switch scheduled before a restart is still owed. Without this the agent
+        # came back with no watcher, KiCad closed, and the checkout never happened.
+        self.switch.resume()
         # Set by the entry point. Lets /quit stop the agent, so the tray icon is a
         # convenience rather than the only way out.
         self.request_stop = None

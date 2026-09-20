@@ -160,17 +160,31 @@ def running_agent() -> dict | None:
 
 def _pid_alive(pid: int) -> bool:
     if sys.platform == "win32":
-        # No signal 0 on Windows; ask the OS whether the handle opens.
+        # No signal 0 on Windows, so ask the OS about the process object.
+        #
+        # Opening a handle is NOT the test. Windows keeps the process object alive
+        # while anyone still holds a handle to it, so OpenProcess succeeds for a
+        # process that has already exited, and the old check reported such a process
+        # as running forever. That is what left a scheduled branch switch waiting on a
+        # KiCad that had long since closed. GetExitCodeProcess distinguishes them:
+        # STILL_ACTIVE means running, anything else means it has exited.
         import ctypes
 
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        handle = ctypes.windll.kernel32.OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-        )
-        if handle:
-            ctypes.windll.kernel32.CloseHandle(handle)
-            return True
-        return False
+        STILL_ACTIVE = 259
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                # Cannot tell. Say "alive" so we keep waiting rather than checking out
+                # under a KiCad that might still have the board open.
+                return True
+            return code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)  # signal 0 tests existence without touching the process
     except ProcessLookupError:

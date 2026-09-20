@@ -256,6 +256,30 @@ def list_branches(repo: str | Path) -> dict:
     }
 
 
+def _remote_tracking_for(repo: Path, name: str) -> str:
+    """The single remote-tracking ref a bare branch name would check out, or "".
+
+    `git checkout feature` creates a local branch from `origin/feature` when exactly
+    one remote has it. When two remotes do, git refuses as ambiguous rather than
+    guessing, so this returns "" in that case too and the caller reports the ref as
+    unresolvable instead of silently picking a remote.
+    """
+    if "/" in name:
+        return ""  # already qualified; rev-parse would have found it
+    matches = [
+        line.strip()
+        for line in _git(
+            repo,
+            "for-each-ref",
+            "--format=%(refname:short)",
+            f"refs/remotes/*/{name}",
+            check=False,
+        ).splitlines()
+        if line.strip()
+    ]
+    return matches[0] if len(matches) == 1 else ""
+
+
 def resolve(repo: Path, ref: str) -> dict:
     """What is this ref, if anything?
 
@@ -274,6 +298,24 @@ def resolve(repo: Path, ref: str) -> dict:
         sha = _git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
     except CheckoutError:
         sha = ""
+
+    # A branch that exists only on the remote does not resolve by its short name: there
+    # is no local ref called `feature`, only `origin/feature`. `git checkout feature`
+    # still does the right thing (it creates a local branch tracking the remote one),
+    # and that is exactly what the picker asks for when you choose a remote branch, so
+    # resolving it here is what stops a perfectly real branch being reported as "not a
+    # commit, branch or tag in this repository".
+    tracking = ""
+    if not sha:
+        tracking = _remote_tracking_for(repo, ref)
+        if tracking:
+            try:
+                sha = _git(
+                    repo, "rev-parse", "--verify", "--quiet", f"{tracking}^{{commit}}"
+                )
+            except CheckoutError:
+                sha = ""
+
     if not sha:
         return {"found": False, "sha": "", "kind": "", "subject": "", "ref": ref}
 
@@ -284,6 +326,10 @@ def resolve(repo: Path, ref: str) -> dict:
         kind = "tag"
     elif _ok(repo, "show-ref", "--verify", "--quiet", f"refs/remotes/{ref}"):
         kind = "remote-branch"
+    elif tracking:
+        # Checking this out creates a local branch of this name, so it behaves as a
+        # branch: HEAD stays attached and the user can commit normally.
+        kind = "branch"
 
     subject = _git(repo, "log", "-1", "--format=%s", sha, check=False)
     return {"found": True, "sha": sha, "kind": kind, "subject": subject, "ref": ref}

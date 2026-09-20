@@ -1166,10 +1166,29 @@ class PrismDialog(wx.Dialog):
             wx.MessageBox("No other branches to switch to.", "Prism", wx.OK | wx.ICON_INFORMATION)
             return
 
-        picked = wx.GetSingleChoice("Switch to which branch?", "Switch branch", choices)
+        picked = self._pick_branch(choices)
         if not picked:
             return
         self._do_switch(repo, ref_for[picked])
+
+    def _pick_branch(self, choices):
+        """A branch picker wide enough to read a branch name in.
+
+        wx.GetSingleChoice sizes itself to the text and cannot be resized, so anything
+        like feature/long-descriptive-name was clipped in a narrow column. This is the
+        same single-selection dialog, built so the list has room.
+        """
+        dlg = wx.SingleChoiceDialog(
+            self, "Switch to which branch?", "Switch branch", choices
+        )
+        try:
+            dlg.SetSize(wx.Size(520, 420))
+            dlg.CentreOnParent()
+            if dlg.ShowModal() != wx.ID_OK:
+                return ""
+            return dlg.GetStringSelection()
+        finally:
+            dlg.Destroy()
 
     def _do_switch(self, repo, ref):
         """Switch to `ref` safely: resolve any uncommitted work, then defer the actual
