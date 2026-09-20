@@ -809,6 +809,96 @@ def _group_schematic_refs(
     return refs
 
 
+def _reconcile_split_nets(
+    nets: list[dict[str, Any]],
+    terminals: list[dict[str, Any]],
+    indexes: dict[str, dict[str, int]],
+    claims: dict[str, dict[str, None]],
+) -> None:
+    """Fold a board net and the schematic nets it is the same net as into one record.
+
+    The schematic netlist and the board can disagree on a net's name: a bus
+    member that crosses sheet pins is ``/MGMT.D0_P`` on the board while the
+    netlist knows it as ``/Managment Port/MGMT.D0_P`` and, when it stops at
+    the sheet boundary, ``/SOM/MGMT.D0_P`` too. Left alone that is three
+    records: a board-only one holding the copper and pads, and schematic-only
+    ones holding the wires, so a selection on either side never reaches the
+    other.
+
+    ``claims`` says which schematic nets have pins on which board net. Each
+    board net that is claimed absorbs its claimants: the board's name is the
+    net's name (it is KiCad's own netlist name, the one the board shows) and
+    the schematic names become aliases; the schematic refs, sheets, class and
+    pin terminals move over; every name resolves to the one record. A
+    schematic net with pins on several board nets is left alone rather than
+    guessed at.
+    """
+
+    if not claims:
+        return
+    index_by_name = {net["name"]: index for index, net in enumerate(nets)}
+    boards_by_schematic: dict[str, set[str]] = {}
+    for board_name, schematic_names in claims.items():
+        for schematic_name in schematic_names:
+            boards_by_schematic.setdefault(schematic_name, set()).add(board_name)
+
+    absorbed: dict[int, int] = {}  # old index of an absorbed record -> board record index
+    target_by_absorbed_uid: dict[str, dict[str, Any]] = {}
+    for board_name, schematic_names in claims.items():
+        board_index = index_by_name.get(board_name)
+        if board_index is None:
+            continue
+        board = nets[board_index]
+        for schematic_name in schematic_names:
+            schematic_index = index_by_name.get(schematic_name)
+            if (
+                schematic_index is None
+                or schematic_index in absorbed
+                or len(boards_by_schematic.get(schematic_name, ())) != 1
+            ):
+                continue
+            schematic = nets[schematic_index]
+            absorbed[schematic_index] = board_index
+            target_by_absorbed_uid[_string(schematic.get("netUid"))] = board
+            aliases = board.setdefault("aliases", [])
+            for alias in (schematic_name, *schematic.get("aliases", ())):
+                if alias and alias != board["name"] and alias not in aliases:
+                    aliases.append(alias)
+            board.setdefault("sourceSheets", [])
+            for sheet in schematic.get("sourceSheets", ()):
+                if sheet not in board["sourceSheets"]:
+                    board["sourceSheets"].append(sheet)
+            if not board.get("netClass"):
+                board["netClass"] = schematic.get("netClass", "")
+            board["schematicRefs"].extend(schematic.get("schematicRefs", ()))
+    if not absorbed:
+        return
+
+    # Drop the absorbed records and renumber every net index around them.
+    kept: list[dict[str, Any]] = []
+    renumbered: dict[int, int] = {}
+    for index, net in enumerate(nets):
+        if index in absorbed:
+            continue
+        renumbered[index] = len(kept)
+        kept.append(net)
+    for index, target in absorbed.items():
+        renumbered[index] = renumbered[target]
+    nets[:] = kept
+    for key in ("netByName", "netByNetCode", "netBySchematicUuid", "netByPcbUuid"):
+        indexes[key] = {name: renumbered[index] for name, index in indexes[key].items()}
+    for index, net in enumerate(nets):
+        for alias in net.get("aliases", ()):
+            indexes["netByName"].setdefault(alias, index)
+    # Pins on the schematic side only (no pad) still name the old record;
+    # the padded ones were already moved by the board pass.
+    for terminal in terminals:
+        target = target_by_absorbed_uid.get(_string(terminal.get("netUid")))
+        if target is not None:
+            terminal["netUid"] = target["netUid"]
+            terminal["netName"] = target["name"]
+
+
 def build_semantic_index(
     project_file: Path,
     *,
@@ -1066,6 +1156,11 @@ def build_semantic_index(
         # One snapshot for the whole board: resolving each element against the
         # board rebuilds the net mapping every time.
         net_table = _net_table(pcb)
+        schematic_net_names = set(net_by_name)
+        # Board net name -> the schematic nets whose pins sit on it, in first-
+        # seen order, for nets the two sides call differently (see
+        # ``_reconcile_split_nets``).
+        claims: dict[str, dict[str, None]] = {}
 
         def ensure_pcb_net(name: str, code: int | None) -> tuple[dict[str, Any], int] | tuple[None, None]:
             if not name:
@@ -1132,6 +1227,12 @@ def build_semantic_index(
                 elif terminal is not None:
                     terminal["pcbPadUuid"] = pad_uuid
                     if net_entry is not None:
+                        schematic_name = _string(terminal.get("netName"))
+                        if (
+                            name not in schematic_net_names
+                            and schematic_name in schematic_net_names
+                        ):
+                            claims.setdefault(name, {}).setdefault(schematic_name, None)
                         terminal["netUid"] = net_entry["netUid"]
                         terminal["netName"] = name
                 if pad_uuid and terminal_index is not None:
@@ -1152,6 +1253,8 @@ def build_semantic_index(
                     continue
                 net_entry["pcbRefs"][0][target_key].append(source_uuid)
                 indexes["netByPcbUuid"][source_uuid] = net_index
+
+        _reconcile_split_nets(nets, terminals, indexes, claims)
 
     if timing_callback is not None:
         timing_callback(
