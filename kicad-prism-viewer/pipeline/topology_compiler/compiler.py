@@ -368,7 +368,17 @@ def compile_topology(
             )
 
     terminal_pad_links = list((pcb_metadata or {}).get("terminal_pad_links", []) or [])
-    _reconcile_board_nets(nets, net_by_name, terminals, terminal_pad_links, pcb_metadata)
+    validation_warnings: list[str] = []
+    reconciled = _reconcile_board_nets(nets, net_by_name, terminals, terminal_pad_links, pcb_metadata)
+    if reconciled:
+        # With a correct netlist this never fires: the board and the netlist
+        # agree on every name. Record it so a netlister regression is visible
+        # in the artifact instead of silently absorbed.
+        validation_warnings.append(
+            "board net names absent from the schematic netlist: "
+            f"{reconciled['aliased']} aliased onto netlist nets through shared pads, "
+            f"{reconciled['board_only']} board-only (e.g. {reconciled['example']})"
+        )
 
     terminal_by_key = {
         (terminal.designator, terminal.pin, terminal.net_name): terminal
@@ -475,7 +485,7 @@ def compile_topology(
         indexes=indexes,
         validation={
             "errors": [],
-            "warnings": [],
+            "warnings": validation_warnings,
             "stats": {
                 "components": len(components),
                 "nets": len(nets),
@@ -506,7 +516,7 @@ def _reconcile_board_nets(
     terminals: list[Terminal],
     terminal_pad_links: list[dict[str, Any]],
     pcb_metadata: dict[str, Any] | None,
-) -> None:
+) -> dict[str, Any] | None:
     """Make every board net name resolve to a topology net.
 
     The schematic netlist and the board can disagree on a net's name: a bus
@@ -539,15 +549,20 @@ def _reconcile_board_nets(
         if terminal.net_uid in net_index:
             claims_by_board_name.setdefault(board_name, set()).add(terminal.net_uid)
 
+    aliased = board_only = 0
+    example = ""
     for name in _board_net_names(pcb_metadata):
         if name in net_by_name:
             continue
+        example = example or name
         claims = sorted(claims_by_board_name.get(name, ()), key=net_index.__getitem__)
         if not claims:
             net = Net(uid=_net_uid(name), name=name)
             nets.append(net)
             net_by_name[name] = net
+            board_only += 1
             continue
+        aliased += 1
         primary = nets[net_index[claims[0]]]
         _add_alias(primary, name)
         for uid in claims[1:]:
@@ -555,6 +570,9 @@ def _reconcile_board_nets(
             _add_alias(secondary, name)
             _add_alias(primary, secondary.name)
         net_by_name[name] = primary
+    if not aliased and not board_only:
+        return None
+    return {"aliased": aliased, "board_only": board_only, "example": example}
 
 
 def _add_alias(net: Net, alias: str) -> None:

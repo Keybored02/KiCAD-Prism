@@ -165,6 +165,15 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(nets["/ORPHAN"]["aliases"], [])
         self.assertTrue(nets["/ORPHAN"]["uid"].startswith("net_"))
 
+        self.assertEqual(
+            topology["validation"]["warnings"],
+            [
+                "board net names absent from the schematic netlist: 1 aliased onto "
+                "netlist nets through shared pads, 1 board-only (e.g. /SIG)"
+            ],
+        )
+        self.assertEqual(compile_topology(self.sample_design())["validation"]["warnings"], [])
+
         names = topology["indexes"]["net_name_to_net"]
         self.assertEqual(names["/SIG"], "net_port_sig")
         self.assertEqual(names["/SOM/SIG"], "net_som_sig")
