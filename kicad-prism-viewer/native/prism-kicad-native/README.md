@@ -20,4 +20,3 @@ The frozen contract schema is
 [`schema/prism.pcb_geometry.v1.schema.json`](schema/prism.pcb_geometry.v1.schema.json).
 The Docker build compiles the helper in a Rust builder stage and copies only the
 release binary into the Python worker image.
-

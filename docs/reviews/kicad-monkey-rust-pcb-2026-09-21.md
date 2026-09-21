@@ -1,7 +1,7 @@
 # kicad_monkey Rust PCB integration report
 
-Date: 2026-09-21  
-Branch: `feat/kicad-monkey-rust-pcb`  
+Date: 2026-09-21
+Branch: `feat/kicad-monkey-rust-pcb`
 Baseline: `origin/dev` at `6e0a0ae52f196bede8660ea426d60cf65d69442c`
 
 ## Outcome

@@ -105,4 +105,3 @@ Rust path even when old source files serialize `*.Cu`; they remain explicit
 non-plated drills. The legacy plotter path can retain a zero-area copper record
 for such a pad. Bounds for shared USB-PD semantic objects were within the 0.005
 mm curve tolerance during implementation validation.
-
