@@ -7,9 +7,11 @@ from typing import Any, Callable
 
 from .copper_geometry import (
     copper_emit_available,
-    copper_emit_enabled,
     emit_copper_geometry,
+    emit_rust_geometry,
     extract_pcb_metadata_from_copper,
+    pcb_geometry_backend,
+    rust_geometry_available,
 )
 from .pcb_extract import compile_pcb_artifacts
 
@@ -66,10 +68,13 @@ class PrismCompilationContext:
 
     @property
     def pcb_path(self) -> Path:
+        conventional = self.project_file.with_suffix(".kicad_pcb")
+        if conventional.is_file():
+            return conventional
         design_path = getattr(self.design, "pcb_path", None)
         if design_path:
             return Path(design_path)
-        return self.project_file.with_suffix(".kicad_pcb")
+        return conventional
 
     @property
     def pcb(self):
@@ -115,7 +120,7 @@ class PrismCompilationContext:
     def pcb_metadata(self) -> dict[str, Any]:
         return self.board_compilation.metadata
 
-    def _compile_copper_board(self) -> BoardCompilation:
+    def _compile_python_copper_board(self) -> BoardCompilation:
         # Resolve the board path from the design sidecar only. Accessing
         # ``self.pcb`` would hydrate a full KiCadPcb and erase the copper-path win.
         pcb_file = self.pcb_path
@@ -135,6 +140,68 @@ class PrismCompilationContext:
         )
         self.timings.setdefault("copper_emit_ms", 0.0)
         self.timings.setdefault("pcb_metadata_copper_ms", 0.0)
+        return BoardCompilation(
+            pcb_ir=None,
+            copper_geometry=copper_geometry,
+            metadata=metadata,
+            pad_holes={},
+        )
+
+    def _compile_rust_board(self) -> BoardCompilation:
+        if not rust_geometry_available():
+            raise RuntimeError(
+                "PRISM_PCB_GEOMETRY_BACKEND=rust requires an executable "
+                "prism-kicad-native helper; set PRISM_KICAD_NATIVE_PATH when running from source"
+            )
+        pcb_file = self.pcb_path
+        copper_geometry = self._timed(
+            "rust_geometry_emit_ms",
+            "emit PCB geometry with prism-kicad-native",
+            lambda: emit_rust_geometry(pcb_file),
+        )
+        self._log(
+            "PCB geometry backend: rust; "
+            f"kicad-monkey revision: {copper_geometry.kicad_monkey_revision}; "
+            f"schema: {copper_geometry.schema}; "
+            f"features: {len(copper_geometry.features)}; "
+            f"drills: {len(copper_geometry.drills)}"
+        )
+        for diagnostic in copper_geometry.diagnostics:
+            self._log(
+                "PCB geometry diagnostic: "
+                f"{diagnostic.get('severity', 'warning')} "
+                f"{diagnostic.get('code', 'native')}: {diagnostic.get('message', '')}"
+            )
+        if self.profile:
+            self.profile(
+                "rust_geometry_contract",
+                {
+                    "schema": copper_geometry.schema,
+                    "kicad_monkey_revision": copper_geometry.kicad_monkey_revision,
+                    "features": len(copper_geometry.features),
+                    "drills": len(copper_geometry.drills),
+                    "diagnostics": len(copper_geometry.diagnostics),
+                    **copper_geometry.metrics,
+                },
+            )
+        metadata = self._timed(
+            "pcb_metadata_rust_ms",
+            "derive PCB topology indexes from Rust geometry",
+            lambda: extract_pcb_metadata_from_copper(
+                self.project_file,
+                copper_geometry,
+                profile_callback=self._board_compilation_profile,
+            ),
+        )
+        metadata["mode"] = "rust"
+        metadata["geometry_backend"] = {
+            "name": "rust",
+            "schema": copper_geometry.schema,
+            "kicad_monkey_revision": copper_geometry.kicad_monkey_revision,
+            "source_digest": copper_geometry.source_digest,
+            "metrics": copper_geometry.metrics,
+            "diagnostics": list(copper_geometry.diagnostics),
+        }
         return BoardCompilation(
             pcb_ir=None,
             copper_geometry=copper_geometry,
@@ -173,15 +240,22 @@ class PrismCompilationContext:
     @property
     def board_compilation(self) -> BoardCompilation:
         if self._board_compilation is None:
-            use_copper = copper_emit_enabled() and copper_emit_available()
-            if copper_emit_enabled() and not use_copper:
-                self._log(
-                    "PRISM_COPPER_EMIT_ENABLED set but emit_pcb_copper_geometry "
-                    "is unavailable; falling back to Plotter IR"
-                )
+            backend = pcb_geometry_backend()
+            if backend == "rust":
+                factory = self._compile_rust_board
+            elif backend == "python-copper":
+                if not copper_emit_available():
+                    raise RuntimeError(
+                        "PRISM_PCB_GEOMETRY_BACKEND=python-copper requires "
+                        "kicad_monkey.emit_pcb_copper_geometry"
+                    )
+                factory = self._compile_python_copper_board
+            else:
+                factory = self._compile_ir_board
+            self._log(f"PCB geometry backend: {backend}")
             self._board_compilation = self._timed(
                 "board_compilation_ms",
                 "compile unified PCB artifacts",
-                self._compile_copper_board if use_copper else self._compile_ir_board,
+                factory,
             )
         return self._board_compilation

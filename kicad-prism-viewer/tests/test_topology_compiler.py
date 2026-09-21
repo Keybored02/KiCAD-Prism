@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -45,9 +46,13 @@ from pipeline.topology_compiler.kicad_cli_export import (
     _component_nodes,
 )
 from pipeline.topology_compiler.copper_geometry import (
+    KICAD_MONKEY_RUST_REVISION,
+    PRISM_PCB_GEOMETRY_SCHEMA,
+    _geometry_document_from_dict,
     copper_emit_enabled,
     extract_pcb_metadata_from_copper,
     is_copper_geometry_document,
+    pcb_geometry_backend,
 )
 from pipeline.topology_compiler.semantic_gltf import (
     SemanticGltfBuilder,
@@ -660,6 +665,75 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(compilation.metadata["bbox_mm"], [0.0, 0.0, 10.0, 8.0])
         self.assertEqual(compilation.metadata["components"][0]["designator"], "U1")
         metadata_spy.assert_called_once()
+
+    def test_rust_geometry_contract_validates_revision_digest_and_dense_indexes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pcb = Path(tmp) / "unit.kicad_pcb"
+            pcb.write_text("(kicad_pcb)", encoding="utf-8")
+            digest = hashlib.sha256(pcb.read_bytes()).hexdigest()
+            payload = {
+                "schema": PRISM_PCB_GEOMETRY_SCHEMA,
+                "kicad_monkey_revision": KICAD_MONKEY_RUST_REVISION,
+                "source": {"digest_sha256": digest},
+                "bounds_nm": [0, 0, 1_000_000, 1_000_000],
+                "layers": [
+                    {
+                        "index": 0,
+                        "key": "F.Cu",
+                        "name": "F.Cu",
+                        "source_ordinal": 0,
+                        "layer_type": "signal",
+                        "user_name": None,
+                    }
+                ],
+                "nets": [
+                    {"index": 0, "key": "VBUS", "name": "VBUS", "source_ordinal": 1}
+                ],
+                "features": [
+                    {
+                        "source_order": 0,
+                        "semantic_id": "track:track-1",
+                        "kind": "track",
+                        "source_uid": "track-1",
+                        "net_index": 0,
+                        "layer_indexes": [0],
+                        "outer_nm": [[0, 0], [1_000_000, 0], [0, 1_000_000]],
+                        "holes_nm": [],
+                        "footprint_uid": None,
+                        "component_ref": None,
+                        "pad_number": None,
+                        "island": False,
+                    }
+                ],
+                "drills": [],
+                "diagnostics": [],
+                "stats": {"features": 1},
+                "metrics": {"total_ms": 1.0},
+            }
+            document = _geometry_document_from_dict(payload, pcb)
+            self.assertEqual(document.schema, PRISM_PCB_GEOMETRY_SCHEMA)
+            self.assertEqual(document.features[0].source_uid, "track-1")
+            self.assertTrue(is_copper_geometry_document(document))
+
+            payload["kicad_monkey_revision"] = "wrong"
+            with self.assertRaisesRegex(RuntimeError, "revision mismatch"):
+                _geometry_document_from_dict(payload, pcb)
+
+            payload["kicad_monkey_revision"] = KICAD_MONKEY_RUST_REVISION
+            payload["stats"]["unsupported_features"] = 1
+            with self.assertRaisesRegex(RuntimeError, "unsupported feature"):
+                _geometry_document_from_dict(payload, pcb)
+
+    def test_explicit_rust_backend_never_falls_back_when_helper_is_missing(self) -> None:
+        with patch.dict(os.environ, {"PRISM_PCB_GEOMETRY_BACKEND": "rust"}, clear=True):
+            self.assertEqual(pcb_geometry_backend(), "rust")
+            context = PrismCompilationContext(Path("unit.kicad_pro"))
+            with patch(
+                "pipeline.topology_compiler.context.rust_geometry_available",
+                return_value=False,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "requires an executable"):
+                    _ = context.board_compilation
 
     def test_artifact_manifest_is_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

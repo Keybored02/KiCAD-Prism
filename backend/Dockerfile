@@ -2,6 +2,7 @@
 ARG KICAD_MONKEY_VARIANT=kicad-monkey-upstream
 ARG NODE_VERSION=22.23.2
 ARG PYTHON_VERSION=3.12.13
+ARG RUST_VERSION=1.95.0
 ARG UV_VERSION=0.12.5
 
 # KiCad CLI runtime. Release/source defaults are reproducible and AMD64-only.
@@ -17,6 +18,14 @@ COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ .
 RUN npm run build:panel
+
+FROM --platform=${KICAD_BASE_PLATFORM} rust:${RUST_VERSION}-bookworm AS prism-kicad-native-builder
+WORKDIR /build/prism-kicad-native
+COPY kicad-prism-viewer/native/prism-kicad-native/Cargo.toml \
+    kicad-prism-viewer/native/prism-kicad-native/Cargo.lock \
+    kicad-prism-viewer/native/prism-kicad-native/rust-toolchain.toml ./
+COPY kicad-prism-viewer/native/prism-kicad-native/src ./src
+RUN cargo build --release --locked
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
@@ -51,6 +60,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv-bin /uv /uvx /usr/local/bin/
+COPY --from=prism-kicad-native-builder \
+    /build/prism-kicad-native/target/release/prism-kicad-native \
+    /usr/local/bin/prism-kicad-native
 
 # Reuse the pinned Node runtime for the isolated WebGPU asset compiler.
 COPY --from=remote-provider-panel /usr/local/bin/node /usr/local/bin/node
@@ -78,6 +90,7 @@ ENV PATH="/app/venv/bin:$PATH"
 ENV PRISM_SEMANTIC_VIEWER_REPO=/opt/kicad-prism-viewer
 ENV PYTHONPATH=/opt/kicad-prism-viewer
 ENV PRISM_CLIPPER2_LIBRARY=/usr/local/lib/libprism_clipper2.so
+ENV PRISM_KICAD_NATIVE_PATH=/usr/local/bin/prism-kicad-native
 
 # API, workers, Release Studio, and the semantic viewer share one fully resolved
 # runtime. Installing two independently resolved files into this venv was the

@@ -50,7 +50,14 @@ def _compute_build_fingerprint() -> str:
         ]
         hasher = hashlib.sha256()
         hasher.update(base.encode("utf-8"))
-        hasher.update(os.environ.get("PRISM_COPPER_EMIT_ENABLED", "").encode("utf-8"))
+        geometry_backend = os.environ.get("PRISM_PCB_GEOMETRY_BACKEND", "legacy")
+        helper_path = Path(
+            os.environ.get("PRISM_KICAD_NATIVE_PATH", "/usr/local/bin/prism-kicad-native")
+        )
+        hasher.update(geometry_backend.encode("utf-8"))
+        hasher.update(str(helper_path).encode("utf-8"))
+        if geometry_backend == "rust" and helper_path.is_file():
+            hasher.update(helper_path.read_bytes())
         hasher.update(os.environ.get("PRISM_KICAD_MONKEY_SOURCE", "").encode("utf-8"))
         for rel_path in inputs:
             path = viewer_root / rel_path
