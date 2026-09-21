@@ -775,6 +775,40 @@ def restore(repo: str | Path, ref: str = "stash@{0}") -> dict:
     return {"ok": True, "restored": ref}
 
 
+def apply(repo: str | Path, ref: str = "stash@{0}") -> dict:
+    """Put a stash back, and KEEP it in the list.
+
+    The difference from `restore` is the whole point: this leaves the stash where it is.
+    That is worth having when the same set-aside work is wanted on more than one branch,
+    or when the user wants to look at it without committing to having taken it.
+
+    The cost is the one `restore` avoids: a list of near-identical entries nobody can
+    tell apart. So this is the deliberate choice, not the default, and the caller says
+    which it wants.
+    """
+    path = Path(repo)
+
+    dirt = dirty_files(path)
+    if dirt["blocking"]:
+        # Same guard as restore(): applying onto a dirty tree can conflict, and a
+        # conflict between a stash and a board is not something we can merge our way
+        # out of.
+        raise CheckoutError(
+            f"{len(dirt['blocking'])} file(s) have uncommitted changes. "
+            "Commit or stash them before applying another stash."
+        )
+
+    try:
+        _git(path, "stash", "apply", ref)
+    except CheckoutError as exc:
+        raise CheckoutError(
+            f"Couldn't apply the stash: {exc}\n\n"
+            "It is still in the stash list, so nothing is lost."
+        ) from exc
+
+    return {"ok": True, "applied": ref, "kept": True}
+
+
 def drop(repo: str | Path, ref: str = "stash@{0}") -> dict:
     """Throw a stash away.
 
@@ -1209,7 +1243,36 @@ def fetch(repo: str | Path) -> dict:
     }
 
 
-def push(repo: str | Path, set_upstream: bool = False) -> dict:
+def remotes(repo: str | Path) -> list[dict]:
+    """The remotes on this repo, in git's own order with `origin` first when present.
+
+    Read-only. This exists so publishing a new branch can ASK which remote rather than
+    assuming: a repo with both `origin` and `upstream` (the fork layout) would otherwise
+    silently publish to whichever the code happened to name.
+    """
+    path = Path(repo)
+    if not (path / ".git").exists():
+        return []
+
+    out = _git(path, "remote", "-v", check=False)
+    seen: dict[str, str] = {}
+    for line in out.splitlines():
+        # "origin	git@github.com:owner/repo.git (fetch)"
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        name, url = parts[0], parts[1]
+        # Fetch and push URLs both appear; the fetch one is what we report, and it is
+        # listed first, so do not let the push line overwrite it.
+        seen.setdefault(name, url)
+
+    result = [{"name": n, "url": u} for n, u in seen.items()]
+    # `origin` first: it is the convention, and it is what a picker should preselect.
+    result.sort(key=lambda r: (r["name"] != "origin", r["name"]))
+    return result
+
+
+def push(repo: str | Path, set_upstream: bool = False, remote: str = "") -> dict:
     """Push the current branch to its remote, refusing anything that would rewrite it.
 
     **Never force.** A push that is rejected as non-fast-forward means the remote has
@@ -1219,6 +1282,9 @@ def push(repo: str | Path, set_upstream: bool = False) -> dict:
 
     `set_upstream` publishes a brand-new branch that has no remote yet (``push -u``). A
     branch that already tracks a remote pushes to it normally.
+
+    `remote` names where to publish, for the repo that has more than one. Blank keeps
+    the historical behaviour (`origin`), so a caller that does not care is unaffected.
 
     Authentication is the user's own local git (SSH keys, credential helper). Prism
     stores nothing and prompts for nothing.
@@ -1246,7 +1312,18 @@ def push(repo: str | Path, set_upstream: bool = False) -> dict:
         )
 
     if set_upstream and not upstream:
-        result = _remote_git(path, "push", "-u", "origin", branch)
+        target = remote or "origin"
+        known = {r["name"] for r in remotes(path)}
+        if not known:
+            raise CheckoutError(
+                "This repository has no remote to push to. Add one first."
+            )
+        if target not in known:
+            raise CheckoutError(
+                f"'{target}' is not a remote of this repository. "
+                f"Known remotes: {', '.join(sorted(known))}."
+            )
+        result = _remote_git(path, "push", "-u", target, branch)
     else:
         result = _remote_git(path, "push")
 

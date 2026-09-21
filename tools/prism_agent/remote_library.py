@@ -116,7 +116,7 @@ def kicad_config_dir(kicad_command: str = "") -> Path | None:
 
 
 def _version_of_command(kicad_command: str) -> str:
-    """The major version in a pinned executable path, e.g. ...\KiCad\10.0\bin\kicad.exe.
+    r"""The major version in a pinned executable path, e.g. ...\KiCad\10.0\bin\kicad.exe.
 
     Returns "" when the path says nothing, which is the normal case on a layout that
     does not carry the version in a folder name.

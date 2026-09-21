@@ -412,6 +412,17 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, checkout.list_branches(path))
             return
 
+        if route.path == "/remotes":
+            # Where this repo could push. Read-only, and only interesting when there is
+            # more than one: that is the case where publishing has to ask rather than
+            # assume origin.
+            path = (query.get("path") or [""])[0]
+            if not path:
+                self._send(400, {"error": "path is required"})
+                return
+            self._send(200, {"remotes": checkout.remotes(path)})
+            return
+
         if route.path == "/switch":
             # The pending scheduled switch, if any (so the panel can show/cancel it).
             self._send(200, {"pending": self.state.switch.pending()})
@@ -746,7 +757,12 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             try:
                 self._send(
-                    200, checkout.push(path, set_upstream=bool(body.get("set_upstream")))
+                    200,
+                    checkout.push(
+                        path,
+                        set_upstream=bool(body.get("set_upstream")),
+                        remote=body.get("remote") or "",
+                    ),
                 )
             except checkout.CheckoutError as exc:
                 self._send(400, {"error": str(exc)})
@@ -777,7 +793,12 @@ class _Handler(BaseHTTPRequestHandler):
                     action = "stash"
 
             try:
-                if action == "drop":
+                if action == "apply-keep":
+                    # Restores and KEEPS the stash. Deliberately a different verb from
+                    # "apply": that one has always meant pop, and an older plugin sending
+                    # it must keep getting pop rather than silently changing behaviour.
+                    result = checkout.apply(path, body.get("ref") or "stash@{0}")
+                elif action == "drop":
                     # Destroys the stash. The CALLER confirms; this route cannot ask.
                     result = checkout.drop(path, body.get("ref") or "stash@{0}")
                 elif action == "apply":

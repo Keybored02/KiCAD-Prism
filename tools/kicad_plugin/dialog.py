@@ -1179,7 +1179,6 @@ class PrismDialog(wx.Dialog):
         self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
         self._render_gitignore()
-        self._render_stashes()
 
     def _switch_branch(self):
         """Pick a branch and check it out, respecting the uncommitted-work guard."""
@@ -1412,6 +1411,28 @@ class PrismDialog(wx.Dialog):
         else:
             row.AddSpacer(th.SP_XS)
 
+        # Stashes, when there are any. Opens the list rather than rendering it: it is
+        # consulted occasionally, and a permanent card for it pushed the everyday
+        # controls down the dialog for something most repos do not have.
+        stashed = self._stash_entries()
+        if stashed:
+            row.Add(
+                IconButton(
+                    card, "stash", self.pal,
+                    tooltip="Stashed changes",
+                    variant="ghost",
+                    on_click=self._open_stashes,
+                ),
+                0,
+                wx.ALIGN_CENTER_VERTICAL,
+            )
+            row.Add(
+                Badge(card, str(len(stashed)), self.pal, tone="muted"),
+                0,
+                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+                th.SP_SM,
+            )
+
         # Push only when ahead and NOT diverged (diverged is the merge's job).
         if ahead and not behind:
             row.Add(
@@ -1550,74 +1571,76 @@ class PrismDialog(wx.Dialog):
         wx.MessageBox(note, "Prism", wx.OK | wx.ICON_INFORMATION)
         self._load()
 
-    def _render_stashes(self):
-        """The repo's stashes, with apply and drop.
+    def _stash_entries(self):
+        """The repo's stashes, or [] if they cannot be read.
 
-        Only shown when there is one. A stash the user cannot see is a stash they will
-        never restore, and "where did my changes go" is the worst thing this feature
-        could leave them asking.
+        Read on render to size the badge, and again when the modal opens. Cheap (one
+        `git stash list`) and always current, which matters more here than caching:
+        a stale count on a button that opens a list is a contradiction the user sees.
+        """
+        project = (self.data or {}).get("project")
+        if not project:
+            return []
+        try:
+            return (AgentClient().stashes(project["path"]) or {}).get("stashes") or []
+        except AgentUnavailable:
+            return []  # not worth an error of its own; the rest of the dialog works
+
+    def _open_stashes(self):
+        """The stash list, on demand.
+
+        A modal rather than a card in the scroll: stashes are consulted occasionally,
+        and a permanent section for them pushed the everyday controls further down the
+        dialog for something most people do not have.
+        """
+        entries = self._stash_entries()
+        if not entries:
+            wx.MessageBox(
+                "There is nothing stashed.", "Prism", wx.OK | wx.ICON_INFORMATION
+            )
+            return
+
+        dlg = StashesDialog(self, entries, self.pal)
+        try:
+            dlg.ShowModal()
+            action, entry = dlg.result
+        finally:
+            dlg.Destroy()
+
+        if not action:
+            return
+        if action == "pop":
+            self._apply_stash(entry)
+        elif action == "apply":
+            self._apply_stash_keep(entry)
+        elif action == "drop":
+            self._drop_stash(entry)
+
+    def _stash(self):
+        """Set the working tree aside, under a name the user chose.
+
+        The message is the point, so this goes through the same prompt the switch guard
+        uses rather than stashing silently: an unnamed stash is one nobody restores.
         """
         project = (self.data or {}).get("project")
         if not project:
             return
 
+        design = [f for f in (self.changes or []) if not f.get("noise")]
+        count = len(design) or len(self.changes or [])
+        message = self._ask_stash_message(
+            "%d file%s will be set aside." % (count, "" if count == 1 else "s")
+        )
+        if message is None:
+            return  # cancelled
+
         try:
-            entries = (AgentClient().stashes(project["path"]) or {}).get(
-                "stashes"
-            ) or []
-        except AgentUnavailable:
-            return  # not worth an error of its own; the rest of the dialog still works
-
-        if not entries:
+            with wx.BusyCursor():
+                AgentClient().stash(project["path"], message)
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
-
-        card = Card(self.scroll, "Stashes", self.pal)
-        for entry in entries[:5]:
-            row = wx.BoxSizer(wx.HORIZONTAL)
-            label = card.label(entry["message"] or "(no message)")
-            row.Add(label, 1, wx.ALIGN_CENTER_VERTICAL)
-            row.Add(
-                card.label(entry["when"], tone="muted_fg", small=True),
-                0,
-                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
-                th.SP_SM,
-            )
-            row.Add(
-                Button(
-                    card,
-                    "Apply",
-                    self.pal,
-                    variant="ghost",
-                    on_click=lambda e=entry: self._apply_stash(e),
-                ),
-                0,
-                wx.ALIGN_CENTER_VERTICAL,
-            )
-            # Drop destroys the stash, so it is marked destructive rather than sitting
-            # there looking like Apply's twin.
-            row.Add(
-                Button(
-                    card,
-                    "Drop",
-                    self.pal,
-                    variant="destructive-ghost",
-                    on_click=lambda e=entry: self._drop_stash(e),
-                ),
-                0,
-                wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
-                th.SP_XS,
-            )
-            card.body.Add(row, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS)
-
-        if len(entries) > 5:
-            card.body.Add(
-                card.label(
-                    "and %d more" % (len(entries) - 5), tone="muted_fg", small=True
-                ),
-                0,
-            )
-
-        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+        self._load()
 
     def _drop_stash(self, entry):
         """Throw a stash away. The confirmation IS the safety mechanism here.
@@ -1675,7 +1698,34 @@ class PrismDialog(wx.Dialog):
             return
 
         wx.MessageBox(
-            "Applied “%s”.\n\nReopen the board in KiCad to see it."
+            "Restored “%s” and removed it from the stash list."
+            "\n\nReopen the board in KiCad to see it."
+            % (entry["message"] or "your changes"),
+            "Prism",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+        self._load()
+
+    def _apply_stash_keep(self, entry):
+        """Restore a stash and leave it in the list.
+
+        The same shape as _apply_stash but the other verb, so the message has to say
+        which happened: the two are indistinguishable from the board alone, and the
+        difference only shows up later when the stash is or is not still there.
+        """
+        project = (self.data or {}).get("project")
+        if not project:
+            return
+        try:
+            with wx.BusyCursor():
+                AgentClient().apply_stash_keep(project["path"], entry["ref"])
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        wx.MessageBox(
+            "Restored “%s”. It is still in the stash list."
+            "\n\nReopen the board in KiCad to see it."
             % (entry["message"] or "your changes"),
             "Prism",
             wx.OK | wx.ICON_INFORMATION,
@@ -1950,20 +2000,8 @@ class PrismDialog(wx.Dialog):
         )
 
         if self.section_open:
-            if design:
-                for f in design:
-                    self._add_file(card, f)
-            else:
-                card.body.Add(
-                    card.label(
-                        "Nothing but KiCad's own backup files.",
-                        tone="muted_fg",
-                        small=True,
-                    ),
-                    0,
-                    wx.LEFT | wx.BOTTOM,
-                    th.SP_MD,
-                )
+            for f in design:
+                self._add_file(card, f)
 
         if noise:
             self._add_noise(card, noise)
@@ -2039,7 +2077,16 @@ class PrismDialog(wx.Dialog):
             row.Add(
                 Button(card, "Unstage all", self.pal, variant="secondary", on_click=self._unstage_all),
                 0,
+                wx.RIGHT,
+                th.SP_XS,
             )
+        # Set the whole lot aside. Staged or not: the mental model is "put my work
+        # away", and a stash that took only half of it would leave the tree in a state
+        # nobody asked for.
+        row.Add(
+            Button(card, "Stash…", self.pal, variant="secondary", on_click=self._stash),
+            0,
+        )
         # Breathing room under the "N files staged" line; the buttons sat right on it.
         card.body.Add(row, 0, wx.LEFT | wx.TOP, th.SP_SM)
 
@@ -2438,3 +2485,126 @@ class PrismDialog(wx.Dialog):
             AgentClient().open_in_prism(prism["id"])
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+
+
+class StashesDialog(wx.Dialog):
+    """The stash list, with the three things you can do to one.
+
+    A modal rather than a card in the main scroll. Stashes are consulted occasionally,
+    so a permanent section for them cost every user vertical space for something most
+    repos do not have. Here there is also room to say what each button does, which the
+    cramped inline row never had.
+
+    Returns via `self.result`: (action, entry), or (None, None) if the user just closed
+    it. The caller performs the action, because it owns the refresh and the error
+    reporting that every one of them needs.
+    """
+
+    def __init__(self, parent, entries, pal):
+        super().__init__(
+            parent,
+            title="Stashed changes",
+            style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
+        )
+        self.pal = pal
+        self.result = (None, None)
+
+        self.SetBackgroundColour(_c(pal["background"]))
+
+        outer = wx.BoxSizer(wx.VERTICAL)
+
+        # Scrolled, because a repo can accumulate a lot of these and a dialog that
+        # silently shows the first few is how a stash gets forgotten.
+        scroll = wx.ScrolledWindow(self, style=wx.VSCROLL)
+        scroll.SetBackgroundColour(_c(pal["background"]))
+        scroll.SetScrollRate(0, 12)
+        body = wx.BoxSizer(wx.VERTICAL)
+
+        for entry in entries:
+            body.Add(self._entry_card(scroll, entry), 0, wx.EXPAND | wx.BOTTOM, th.SP_SM)
+
+        scroll.SetSizer(body)
+        outer.Add(scroll, 1, wx.EXPAND | wx.ALL, th.SP_MD)
+
+        # Pop and Apply differ in one word, so the difference is spelled out once here
+        # rather than trusted to the button labels.
+        legend = wx.StaticText(
+            self,
+            label="Pop restores and removes the stash. Apply restores and keeps it.",
+        )
+        legend.SetForegroundColour(_c(pal["muted_fg"]))
+        f = legend.GetFont()
+        f.SetPointSize(th.FONT_SMALL)
+        legend.SetFont(f)
+        outer.Add(legend, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, th.SP_MD)
+
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        buttons.AddStretchSpacer()
+        close = wx.Button(self, wx.ID_CANCEL, "Close")
+        buttons.Add(close, 0)
+        outer.Add(buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, th.SP_MD)
+
+        self.SetSizer(outer)
+        self.SetSize(wx.Size(560, 420))
+        self.CentreOnParent()
+
+    def _entry_card(self, parent, entry):
+        card = Card(parent, "", self.pal)
+
+        card.body.Add(
+            card.label(entry.get("message") or "(no message)", bold=True, wrap=True),
+            0,
+            wx.EXPAND | wx.ALL,
+            th.SP_SM,
+        )
+
+        # Where it came from and when. The origin branch is ours to know only for our
+        # own stashes; one made by hand in a terminal simply does not say.
+        meta = entry.get("when") or ""
+        if entry.get("origin_branch"):
+            meta = "from %s  ·  %s" % (entry["origin_branch"], meta)
+        if meta:
+            card.body.Add(
+                card.label(meta, tone="muted_fg", small=True),
+                0,
+                wx.LEFT | wx.RIGHT | wx.BOTTOM,
+                th.SP_SM,
+            )
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.AddStretchSpacer()
+        row.Add(
+            Button(
+                card, "Pop", self.pal, variant="secondary",
+                on_click=lambda e=entry: self._choose("pop", e),
+            ),
+            0,
+            wx.RIGHT,
+            th.SP_XS,
+        )
+        row.Add(
+            Button(
+                card, "Apply", self.pal, variant="ghost",
+                on_click=lambda e=entry: self._choose("apply", e),
+            ),
+            0,
+            wx.RIGHT,
+            th.SP_XS,
+        )
+        # Drop destroys the stash, so it is marked destructive rather than sitting
+        # there looking like the other two.
+        row.Add(
+            Button(
+                card, "Drop", self.pal, variant="destructive-ghost",
+                on_click=lambda e=entry: self._choose("drop", e),
+            ),
+            0,
+        )
+        card.body.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, th.SP_SM)
+        return card
+
+    def _choose(self, action, entry):
+        # Close and hand the choice back. The caller confirms (Drop) and reports, so
+        # this dialog never has to be dismissed behind another one.
+        self.result = (action, entry)
+        self.EndModal(wx.ID_OK)

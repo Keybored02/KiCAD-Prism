@@ -566,6 +566,28 @@ def draw_kind_icon(
         gc.StrokePath(heads)
         return
 
+    if kind == "stash":
+        # lucide "archive": a lid over a box, with a handle on the drawer. Work put
+        # away rather than thrown out, which is exactly what a stash is.
+        lid = gc.CreatePath()
+        lid.AddRoundedRectangle(*px(3, 3), 18 * s, 5 * s, 1 * s)
+        gc.StrokePath(lid)
+
+        box = gc.CreatePath()
+        box.MoveToPoint(*px(5, 8))
+        box.AddLineToPoint(*px(5, 20))
+        box.AddCurveToPoint(*px(5, 20.5), *px(5.5, 21), *px(6, 21))
+        box.AddLineToPoint(*px(18, 21))
+        box.AddCurveToPoint(*px(18.5, 21), *px(19, 20.5), *px(19, 20))
+        box.AddLineToPoint(*px(19, 8))
+        gc.StrokePath(box)
+
+        handle = gc.CreatePath()
+        handle.MoveToPoint(*px(10, 12))
+        handle.AddLineToPoint(*px(14, 12))
+        gc.StrokePath(handle)
+        return
+
     if kind == "library":
         # lucide "library": three books on a shelf, the middle one tilted.
         books = gc.CreatePath()

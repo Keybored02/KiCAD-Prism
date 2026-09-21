@@ -329,15 +329,22 @@ class AgentClient:
         """Update tracking refs and report ahead/behind. Read-only, always safe."""
         return self._call("POST", "/fetch", {"path": path}, timeout=DIFF_TIMEOUT)
 
-    def push(self, path, set_upstream=False):
+    def remotes(self, path):
+        """Where this repo could push. Read-only."""
+        return self._call("GET", "/remotes?path=" + urllib.parse.quote(path))
+
+    def push(self, path, set_upstream=False, remote=""):
         """Push the current branch. Never forces; a rejection is reported, not overridden.
 
         `set_upstream` publishes a new branch that has no remote yet. Slow over a board
-        repo, so it gets the same room a diff does.
+        repo, so it gets the same room a diff does. `remote` names where to publish it,
+        for a repo with more than one; blank means origin, as before.
         """
         body = {"path": path}
         if set_upstream:
             body["set_upstream"] = True
+        if remote:
+            body["remote"] = remote
         return self._call("POST", "/push", body, timeout=DIFF_TIMEOUT)
 
     def merge_plan(self, path, ref):
@@ -377,6 +384,17 @@ class AgentClient:
         """Put a stash back into the working tree."""
         return self._call(
             "POST", "/stash", {"path": path, "action": "apply", "ref": ref}
+        )
+
+    def apply_stash_keep(self, path, ref="stash@{0}"):
+        """Put a stash back and KEEP it in the list.
+
+        Distinct from apply_stash, which pops. The verb differs on the wire too: an
+        agent too old for this answers "Unknown stash action" rather than silently
+        popping a stash the user meant to keep.
+        """
+        return self._call(
+            "POST", "/stash", {"path": path, "action": "apply-keep", "ref": ref}
         )
 
     def drop_stash(self, path, ref="stash@{0}"):
