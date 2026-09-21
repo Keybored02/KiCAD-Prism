@@ -164,23 +164,6 @@ async def session_bootstrap(request: Request):
     return JSONResponse({"nonce_url": nonce_url})
 
 
-@router.post("/oauth/session/agent-identity", include_in_schema=False)
-async def agent_identity(request: Request):
-    """Who an agent token belongs to, if it is currently valid.
-
-    The login page calls this before offering "Continue as <user>", so the name it
-    shows is the backend's answer rather than the agent's claim. Refuses a revoked,
-    expired or forged token exactly as any other route would.
-    """
-    _require_provider_auth()
-    body = await request.json()
-    identity = await asyncio.to_thread(
-        provider_auth_service.identity_from_agent_token,
-        str(body.get("agent_token") or ""),
-    )
-    return JSONResponse({"email": identity["email"], "name": identity["name"]})
-
-
 @router.post("/oauth/session/bootstrap-from-agent", include_in_schema=False)
 async def session_bootstrap_from_agent(request: Request):
     """Sign the browser in as the user the KiCad agent is already signed in as.

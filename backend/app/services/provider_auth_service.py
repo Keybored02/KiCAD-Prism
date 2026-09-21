@@ -370,37 +370,24 @@ def build_bootstrap_nonce_url(base_url: str, access_token: str, next_url: str) -
     return _bootstrap_url_for(base_url, validate_access_token(access_token), next_url)
 
 
-def identity_from_agent_token(agent_token: str) -> dict[str, Any]:
-    """Who this agent token belongs to, refusing anything not currently valid.
-
-    THE security boundary of the KiCad handoff. The agent cannot vouch for itself:
-    a compromised one would simply claim to be signed in. So the backend, which
-    issues and revokes these tokens, is the only thing that gets to say whether one
-    is good, and a revoked, expired, forged or unknown token raises here.
-    """
-    from app.services import agent_auth_service
-
-    payload = agent_auth_service.validate_agent_token(agent_token)
-    return {
-        "email": payload["email"],
-        "name": payload["name"],
-        "picture": payload.get("picture", ""),
-        "role": payload["role"],
-    }
-
-
 def build_bootstrap_nonce_url_for_agent(
     base_url: str, agent_token: str, next_url: str
 ) -> str:
     """The same handoff, for a user the KiCad agent has already signed in.
 
+    THE security boundary of this path. The agent cannot vouch for itself: a
+    compromised one would simply claim to be signed in. So the backend, which issues
+    and revokes these tokens, is the only thing that decides whether one is good, and
+    a revoked, expired, forged or unknown token raises here.
+
     The session this leads to is a NORMAL user session carrying the user's own role
     and no agent scopes: this is the user signing in, by proving their identity with a
     credential they already hold, not the agent acting on their behalf.
     """
-    return _bootstrap_url_for(
-        base_url, identity_from_agent_token(agent_token), next_url
-    )
+    from app.services import agent_auth_service
+
+    payload = agent_auth_service.validate_agent_token(agent_token)
+    return _bootstrap_url_for(base_url, payload, next_url)
 
 
 def consume_bootstrap_token(token: str) -> dict[str, Any]:

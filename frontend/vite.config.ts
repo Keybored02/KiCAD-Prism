@@ -24,6 +24,20 @@ export default defineConfig({
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
+      // The Remote Symbols panel is a separate app the backend serves, and the
+      // provider metadata points KiCad at PUBLIC_BASE_URL, which in dev is this
+      // server. Without this, /remote-provider/panel hit the SPA catch-all and
+      // KiCad opened the main web UI instead of the panel.
+      "/remote-provider": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
+      // The discovery document KiCad reads before anything else, to find
+      // panel_url and the auth metadata. It is on the backend as well.
+      "/.well-known": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
     },
   },
   build: {

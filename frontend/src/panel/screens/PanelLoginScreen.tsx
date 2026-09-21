@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -9,12 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-
-import {
-  findAgentSignIn,
-  startAgentSignIn,
-  type AgentSignIn,
-} from "@/lib/kicad-agent-signin";
+import { startAgentSignIn } from "@/lib/kicad-agent-signin";
 
 interface PanelLoginScreenProps {
   onLogin: () => void;
@@ -29,32 +24,18 @@ export function PanelLoginScreen({
   error,
   sessionReady,
 }: PanelLoginScreenProps) {
-  // The Prism agent's sign-in, offered when there is one to use. The user signed in
-  // once in the KiCad plugin; asking again here proves nothing new. Absent on a
-  // machine with no agent, which is the normal case and shows nothing.
-  const [agent, setAgent] = useState<AgentSignIn | null>(null);
+  // Signing in with the sign-in the plugin already has. Purely an alternative to the
+  // button below: it fails to the same KiCad flow, so nothing depends on it working.
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void findAgentSignIn().then((found) => {
-      if (!cancelled) setAgent(found);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const useAgentSignIn = async () => {
-    if (!agent) return;
     setAgentBusy(true);
     setAgentError(null);
     try {
-      // A full navigation: the point is to land on the handoff URL so this panel
-      // keeps the session cookie it sets, then come back here authenticated.
+      // A full navigation, so this browser keeps the session cookie the handoff URL
+      // sets, then comes back here authenticated.
       window.location.href = await startAgentSignIn(
-        agent.port,
         window.location.pathname + window.location.search,
       );
     } catch (err) {
@@ -94,46 +75,8 @@ export function PanelLoginScreen({
           </CardHeader>
 
           <CardContent className="space-y-3 pb-5">
-            {/* The account is named rather than assumed: the plugin may be signed
-                in as someone other than whoever is at the keyboard, and silently
-                using that account would be worse than a click. */}
-            {agent && (
-              <>
-                <Button
-                  className="w-full"
-                  onClick={() => void useAgentSignIn()}
-                  disabled={agentBusy || isLoading}
-                >
-                  {agentBusy ? (
-                    <>
-                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                      Signing in…
-                    </>
-                  ) : (
-                    `Continue as ${agent.email}`
-                  )}
-                </Button>
-                <p className="text-center text-[10px] text-muted-foreground">
-                  Already signed in through the KiCad plugin.
-                </p>
-
-                {agentError && (
-                  <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
-                    {agentError}
-                  </div>
-                )}
-
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                  <span className="h-px flex-1 bg-border" />
-                  <span>or</span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-              </>
-            )}
-
             <Button
               className="w-full"
-              variant={agent ? "outline" : "default"}
               onClick={onLogin}
               disabled={isLoading || !sessionReady}
             >
@@ -146,6 +89,34 @@ export function PanelLoginScreen({
                 "Sign In via KiCad"
               )}
             </Button>
+
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              <span className="h-px flex-1 bg-border" />
+              <span>or</span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => void useAgentSignIn()}
+              disabled={agentBusy || isLoading}
+            >
+              {agentBusy ? (
+                <>
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  Signing in…
+                </>
+              ) : (
+                "Use the plugin's sign-in"
+              )}
+            </Button>
+
+            {agentError && (
+              <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
+                {agentError}
+              </div>
+            )}
 
             {!sessionReady && (
               <div className="flex items-center justify-center gap-2 rounded border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">

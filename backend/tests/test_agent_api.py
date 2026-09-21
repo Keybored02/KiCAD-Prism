@@ -229,19 +229,6 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(me.status_code, 200)
         self.assertEqual(me.json()["email"], email)
 
-    def test_the_identity_probe_names_the_user_without_signing_anyone_in(self) -> None:
-        """What the "Continue as <user>" button is built from."""
-        email = "panel-named@example.com"
-        token = self._obtain_token(self._client_for(email, "designer"), email=email)
-
-        response = self.TestClient(self.main.app).post(
-            "/oauth/session/agent-identity", json={"agent_token": token}
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["email"], email)
-        # It answers who, and nothing that could be replayed as a credential.
-        self.assertNotIn("nonce_url", response.json())
-
     def test_the_handoff_is_single_use(self) -> None:
         email = "panel-once@example.com"
         token = self._obtain_token(self._client_for(email, "designer"), email=email)
@@ -269,12 +256,6 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(client.delete(f"/api/agent/tokens/{jti}").status_code, 200)
 
         self.assertNotEqual(self._handoff(token).status_code, 200)
-        self.assertNotEqual(
-            self.TestClient(self.main.app)
-            .post("/oauth/session/agent-identity", json={"agent_token": token})
-            .status_code,
-            200,
-        )
 
     def test_a_forged_or_absent_token_buys_nothing(self) -> None:
         self.assertNotEqual(self._handoff("v1.not.a.real.token").status_code, 200)
