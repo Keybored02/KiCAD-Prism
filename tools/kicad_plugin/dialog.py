@@ -1447,7 +1447,7 @@ class PrismDialog(wx.Dialog):
         return True
 
     def _switch_now(self, repo, ref):
-        """Check out `ref`, once the user confirms the board is closed.
+        """Check out `ref`.
 
         KiCad stays open. The hazard was never KiCad itself, only its in-memory copy of
         the board being written back on the next save, and closing the board releases
@@ -1457,20 +1457,12 @@ class PrismDialog(wx.Dialog):
         This replaced a flow that closed KiCad entirely and reopened the project after
         the checkout: a full restart to avoid one stale buffer.
 
-        The checkout is the point of no return, so the warning comes first and No is
-        the default: a reflex Enter must not swap the files under an open board.
+        No confirmation here. Picking a branch IS the instruction, and where there was
+        uncommitted work the user has just answered for it; asking again afterwards
+        made the common case two dialogs for one decision. The caution that prompt
+        carried is in the result below instead, where it is still true and costs
+        nobody a click.
         """
-        answer = wx.MessageBox(
-            "Close the PCB and schematic editors first, then switch.\n\n"
-            "Leave them open and KiCad will write the old board back over %s the next "
-            "time you save.\n\n"
-            "Are they closed? Switch to %s now?" % (ref, ref),
-            "Switch branch",
-            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
-        )
-        if answer != wx.YES:
-            return
-
         try:
             with wx.BusyCursor():
                 AgentClient().switch(repo, ref)
@@ -1480,7 +1472,8 @@ class PrismDialog(wx.Dialog):
 
         wx.MessageBox(
             "Switched to %s.\n\n"
-            "Reopen the board from KiCad's project manager to see it." % ref,
+            "Close the board and schematic without saving, then reopen it from "
+            "KiCad's project manager." % ref,
             "Prism",
             wx.OK | wx.ICON_INFORMATION,
         )
