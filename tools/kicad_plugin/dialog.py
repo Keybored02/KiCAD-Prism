@@ -90,6 +90,10 @@ class PrismDialog(wx.Dialog):
         self.changes = None  # None = couldn't fetch; [] = genuinely nothing
         # Stashes as of the last load. Rendered from, never fetched during a render.
         self._stashes = []
+        # Likewise: whether a KiCad .gitignore would help here.
+        self._gitignore = {}
+        # Likewise: what publishing this project to Prism would involve.
+        self._publish = {}
         self.verdict = "ok"  # this plugin vs the server: ok | update | required
         self.download_url = ""
         # Which files the user has expanded, by path. Kept across a re-render so
@@ -315,6 +319,8 @@ class PrismDialog(wx.Dialog):
         self.data = None
         self.changes = _CHANGES_LOADING
         self._stashes = []
+        self._gitignore = {}
+        self._publish = {}
         self._render_contacting()
         self._relayout()
 
@@ -343,14 +349,34 @@ class PrismDialog(wx.Dialog):
                 # reading them inline would put an HTTP round-trip on the UI thread
                 # each time a section is toggled.
                 stashes = []
+                gitignore = {}
+                publish = {}
                 if project and (project.get("project") or {}).get("path"):
+                    project_path = (project["project"])["path"]
                     try:
-                        stashes = (
-                            client.stashes((project["project"])["path"]) or {}
-                        ).get("stashes") or []
+                        stashes = (client.stashes(project_path) or {}).get(
+                            "stashes"
+                        ) or []
                     except AgentUnavailable:
                         stashes = []  # not worth failing the whole load over
-                payload = {"health": health, "project": project, "stashes": stashes}
+                    try:
+                        gitignore = client.gitignore_status(project_path) or {}
+                    except AgentUnavailable:
+                        gitignore = {}
+                    # Only when Prism does not already have the project: that is the
+                    # only case _render_publish draws anything for.
+                    if not project.get("prism"):
+                        try:
+                            publish = client.publish_status(project_path) or {}
+                        except AgentUnavailable as exc:
+                            publish = {"error": str(exc)}
+                payload = {
+                    "health": health,
+                    "project": project,
+                    "stashes": stashes,
+                    "gitignore": gitignore,
+                    "publish": publish,
+                }
                 error = None
             except AgentUnavailable as exc:
                 payload = None
@@ -421,6 +447,8 @@ class PrismDialog(wx.Dialog):
 
         self.data = payload["project"]
         self._stashes = payload.get("stashes") or []
+        self._gitignore = payload.get("gitignore") or {}
+        self._publish = payload.get("publish") or {}
 
         # The diff parses every changed board, so it can take a second or two on a big
         # one. Don't block on it either: render everything else now with the changes card
@@ -943,10 +971,11 @@ class PrismDialog(wx.Dialog):
         """
         card = Card(self.scroll, "Not in Prism", self.pal)
 
-        try:
-            state = AgentClient().publish_status(project["path"])
-        except AgentUnavailable as exc:
-            card.body.Add(card.label(str(exc), tone="muted_fg"), 0)
+        # From the payload, for the same reason as the other cards: this runs on every
+        # render, and _rebuild re-renders on every collapse/expand.
+        state = self._publish or {}
+        if state.get("error"):
+            card.body.Add(card.label(state["error"], tone="muted_fg"), 0)
             self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
 
@@ -1487,7 +1516,7 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 AgentClient().push(repo)
         except AgentUnavailable as exc:
-            if "isn't tracking a remote" in str(exc):
+            if getattr(exc, "code", "") == "no_upstream":
                 self._publish_branch(repo)
                 return
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
@@ -1561,11 +1590,10 @@ class PrismDialog(wx.Dialog):
         if not project:
             return
 
-        try:
-            state = AgentClient().gitignore_status(project["path"]) or {}
-        except AgentUnavailable:
-            return  # not worth an error of its own
-
+        # From the payload, not fetched here: this runs on every render, and _rebuild
+        # re-renders on every collapse/expand, so a fetch would block the KiCad UI
+        # thread each time a section is toggled.
+        state = self._gitignore or {}
         if not state.get("is_repo") or state.get("has_gitignore"):
             return
 

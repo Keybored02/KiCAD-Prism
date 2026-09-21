@@ -48,7 +48,17 @@ _ORIGIN_CLOSE = "]"
 
 
 class CheckoutError(Exception):
-    """Refused, with a reason the user can act on."""
+    """Refused, with a reason the user can act on.
+
+    `code` is the same refusal in a form a caller can branch on. The message is written
+    for a person and gets reworded; a UI that has to recognise a specific refusal (to
+    offer the remedy for it) must not depend on that wording. Only the refusals a caller
+    actually acts on carry one, so an empty code means "just show the message".
+    """
+
+    def __init__(self, message: str, code: str = ""):
+        super().__init__(message)
+        self.code = code
 
 
 def _git(repo: Path, *args: str, check: bool = True, strip: bool = True) -> str:
@@ -1308,7 +1318,8 @@ def push(repo: str | Path, set_upstream: bool = False, remote: str = "") -> dict
         # upstream branch" error surface raw; the caller can offer to publish it.
         raise CheckoutError(
             f"'{branch}' isn't tracking a remote yet. Publish it to create the remote "
-            "branch."
+            "branch.",
+            code="no_upstream",
         )
 
     if set_upstream and not upstream:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,7 +32,27 @@ ENDPOINT_FILE = "agent.json"
 
 
 class AgentUnavailable(Exception):
-    """We couldn't get an answer out of the agent, it's down, or it refused."""
+    """We couldn't get an answer out of the agent, it's down, or it refused.
+
+    `code` is the agent's own name for a refusal, when it gave one. It lets a caller
+    recognise a specific case and offer its remedy without matching on the message,
+    which is written for a person and gets reworded. Empty for everything else,
+    including an agent that never answered at all.
+    """
+
+    def __init__(self, message, code=""):
+        super().__init__(message)
+        self.code = code
+
+
+# The refusal code from the last HTTP error body, if it carried one. A side channel
+# rather than a return value because _http_message has status-only exits that never
+# read a body, and threading a tuple through all of them to say "no code" each time
+# would obscure what those branches are actually for.
+#
+# THREAD-LOCAL, not a module global: the plugin loads on one worker thread and computes
+# the diff on another, so a shared slot could hand one request the other's code.
+_codes = threading.local()
 
 
 def _http_message(exc, route):
@@ -60,6 +81,7 @@ def _http_message(exc, route):
         body = json.loads(exc.read() or b"{}")
         if isinstance(body, dict):
             detail = body.get("error") or ""
+            _codes.value = body.get("code") or ""
     except (ValueError, OSError):
         pass
     return detail or "The agent returned HTTP %d for %s." % (exc.code, route)
@@ -136,7 +158,12 @@ class AgentClient:
             # agent answering "404" is reported as an agent that isn't running, and the
             # user goes off restarting a process that was working fine. An HTTP status
             # is proof it's alive.
-            raise AgentUnavailable(_http_message(exc, path)) from exc
+            # The body can only be read once, and _http_message consumes it, so the
+            # code it found is picked up here rather than returned alongside: every
+            # other path out of that function is a status-only message with no body.
+            _codes.value = ""
+            message = _http_message(exc, path)
+            raise AgentUnavailable(message, getattr(_codes, "value", "")) from exc
         except urllib.error.URLError as exc:
             # Nothing answered: the agent really is gone, or the endpoint file is stale
             # (it quit without cleaning up).

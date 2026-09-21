@@ -163,6 +163,27 @@ def test_publishing_defaults_to_origin_when_no_remote_is_named(repo, tmp_path):
     assert git("log", "--oneline", "-1", cwd=origin).stdout.strip()
 
 
+def test_a_branch_with_no_upstream_refuses_with_a_code(repo):
+    """The plugin offers to publish when it sees this, so it must not have to read
+    the message to recognise it.
+
+    Matching on the wording worked until someone reworded it, and then the offer
+    silently stopped appearing with nothing failing anywhere.
+    """
+    git("remote", "add", "origin", "https://example.com/origin.git", cwd=repo)
+
+    with pytest.raises(CheckoutError) as caught:
+        checkout.push(repo)
+    assert caught.value.code == "no_upstream"
+
+
+def test_an_ordinary_refusal_carries_no_code(repo):
+    """Only the refusals a caller acts on get one; everything else just shows."""
+    with pytest.raises(CheckoutError) as caught:
+        checkout.push(repo, set_upstream=True, remote="nope")
+    assert caught.value.code == ""
+
+
 # -- the wire verbs -------------------------------------------------------
 #
 # The route maps an action name onto one of these functions. That mapping is the thing

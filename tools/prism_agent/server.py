@@ -765,7 +765,13 @@ class _Handler(BaseHTTPRequestHandler):
                     ),
                 )
             except checkout.CheckoutError as exc:
-                self._send(400, {"error": str(exc)})
+                # `code` names the refusal so the plugin can offer the remedy for it
+                # (here: publish the branch) without matching on the message text,
+                # which is written for a person and gets reworded.
+                body_out = {"error": str(exc)}
+                if getattr(exc, "code", ""):
+                    body_out["code"] = exc.code
+                self._send(400, body_out)
             return
 
         if route.path == "/stash":
