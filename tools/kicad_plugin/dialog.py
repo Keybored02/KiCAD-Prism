@@ -1384,7 +1384,7 @@ class PrismDialog(wx.Dialog):
                 )
                 return
 
-        self._schedule_switch(repo, ref, resolution)
+        self._switch_now(repo, ref)
 
     def _resolve_before_switch(self, repo, why):
         """Ask what to do with the uncommitted changes before switching.
@@ -1449,6 +1449,45 @@ class PrismDialog(wx.Dialog):
             wx.MessageBox(text, "Prism", wx.OK | wx.ICON_WARNING)
             return False
         return True
+
+    def _switch_now(self, repo, ref):
+        """EXPERIMENT: check out with KiCad still open, and let the user reopen.
+
+        The deferred path (see _schedule_switch, still here) waits for KiCad to exit,
+        because KiCad holds the board in memory and would write it back on save. But
+        the editors are DLLs inside kicad.exe rather than processes of their own, so
+        there is no editor pid to wait on, and closing just the board is what actually
+        releases that copy.
+
+        So this asks the user to close the editors and confirms before moving anything.
+        The checkout is the point of no return, so the warning comes first and No is the
+        default: a reflex Enter must not swap the files under an open board.
+        """
+        answer = wx.MessageBox(
+            "Close the PCB and schematic editors first, then switch.\n\n"
+            "Leave them open and KiCad will write the old board back over %s the next "
+            "time you save.\n\n"
+            "The editors are closed. Switch to %s now?" % (ref, ref),
+            "Switch branch",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+        )
+        if answer != wx.YES:
+            return
+
+        try:
+            with wx.BusyCursor():
+                AgentClient().switch_now(repo, ref)
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        wx.MessageBox(
+            "Switched to %s.\n\n"
+            "Reopen the board from KiCad's project manager to see it." % ref,
+            "Prism",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+        self._load()
 
     def _schedule_switch(self, repo, ref, resolution=""):
         """Hand the checkout+reopen to the agent, to run after KiCad closes.

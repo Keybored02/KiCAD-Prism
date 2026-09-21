@@ -718,6 +718,28 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(exc)})
             return
 
+        if route.path == "/switch/now":
+            # EXPERIMENT: check out immediately, with KiCad still open.
+            #
+            # The deferred path exists because KiCad holds the board in memory and
+            # rewrites it on save. But the editors are DLLs inside kicad.exe, not
+            # separate processes, so there is no editor pid to wait on; closing just
+            # the board releases the in-memory copy without closing KiCad. This route
+            # is here to find out whether that is enough in practice.
+            #
+            # It does NOT reopen anything: the user reopens the board from KiCad's
+            # project manager, which is the whole point of the flow being tested.
+            path = body.get("path") or ""
+            ref = body.get("ref") or ""
+            if not path or not ref:
+                self._send(400, {"error": "path and ref are required"})
+                return
+            try:
+                self._send(200, checkout.checkout(path, ref))
+            except checkout.CheckoutError as exc:
+                self._send(400, {"error": str(exc)})
+            return
+
         if route.path == "/switch/cancel":
             self._send(200, self.state.switch.cancel())
             return

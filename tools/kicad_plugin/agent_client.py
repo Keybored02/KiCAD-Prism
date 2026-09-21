@@ -277,6 +277,16 @@ class AgentClient:
             },
         )
 
+    def switch_now(self, path, ref):
+        """Check out immediately, with KiCad still open.
+
+        The alternative to schedule_switch, being trialled: the editors live inside
+        kicad.exe rather than in processes of their own, so there is no editor pid to
+        wait on, and closing just the board is what actually releases KiCad's copy of
+        it. Nothing is reopened; the user does that from the project manager.
+        """
+        return self._call("POST", "/switch/now", {"path": path, "ref": ref})
+
     def cancel_switch(self):
         """Drop a pending scheduled switch."""
         return self._call("POST", "/switch/cancel", {})
