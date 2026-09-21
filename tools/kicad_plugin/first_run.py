@@ -18,6 +18,7 @@ from __future__ import annotations
 import wx
 
 from . import prism_theme as th
+from . import prompts
 from .agent_client import AgentClient, AgentUnavailable
 from .widgets import Button, Card
 
@@ -259,10 +260,10 @@ class FirstRunDialog(wx.Dialog):
             with wx.BusyCursor():
                 result = AgentClient().sign_in()
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
         if result.get("error"):
-            wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, result["error"], "Prism")
         # Re-render the options so the sign-in card drops away once we're in.
         self._render_options_again()
 
@@ -305,13 +306,13 @@ class FirstRunDialog(wx.Dialog):
         try:
             result = AgentClient().save_settings(payload)
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         # The agent reports an OS refusal rather than persisting a setting it
         # couldn't honour, surface that instead of claiming success.
         if result.get("error"):
-            wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, result["error"], "Prism")
 
         self.EndModal(wx.ID_OK)
 

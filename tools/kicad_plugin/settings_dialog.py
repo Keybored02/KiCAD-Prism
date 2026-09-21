@@ -11,6 +11,7 @@ from __future__ import annotations
 import wx
 
 from . import prism_theme as th
+from . import prompts
 from .agent_client import AgentClient, AgentUnavailable
 from .widgets import Button, Card
 
@@ -487,18 +488,15 @@ class SettingsDialog(wx.Dialog):
             with wx.BusyCursor():
                 result = AgentClient().link_library()
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         if result.get("error"):
-            wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, result["error"], "Prism")
         else:
-            wx.MessageBox(
-                "Linked to KiCad %s. Restart KiCad to load it."
+            prompts.tell(self, "Linked to KiCad %s. Restart KiCad to load it."
                 % (result.get("kicad_version") or ""),
-                "Prism",
-                wx.OK | wx.ICON_INFORMATION,
-            )
+                "Prism")
         self._load()
 
     def _style_input(self, ctrl):
@@ -526,13 +524,13 @@ class SettingsDialog(wx.Dialog):
         try:
             result = AgentClient().save_settings(payload)
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         # The agent reports registration failures (e.g. the OS refused) rather
         # than silently persisting a setting it couldn't honour.
         if result.get("error"):
-            wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, result["error"], "Prism")
 
         self.data = result
         self.content.Clear(delete_windows=True)
@@ -584,14 +582,12 @@ class SettingsDialog(wx.Dialog):
         """
         url = self.url.GetValue().strip()
         if not url:
-            wx.MessageBox(
-                "Set the Prism server URL first.", "Prism", wx.OK | wx.ICON_WARNING
-            )
+            prompts.tell(self, "Set the Prism server URL first.", "Prism")
             return
         try:
             AgentClient().save_settings({"server_url": url})
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         result = self._run_cancellable(
@@ -606,7 +602,7 @@ class SettingsDialog(wx.Dialog):
         if result.get("cancelled"):
             return
         if result.get("error"):
-            wx.MessageBox(result["error"], "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, result["error"], "Prism")
 
         self.data = result
         self.content.Clear(delete_windows=True)
@@ -665,19 +661,17 @@ class SettingsDialog(wx.Dialog):
             return None
 
         if "error" in outcome:
-            wx.MessageBox(outcome["error"], "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, outcome["error"], "Prism")
             return None
         return outcome.get("result")
 
     def _sign_out(self):
-        if (
-            wx.MessageBox(
-                "Sign out of Prism on this machine? The KiCad agent's token is "
-                "revoked, and you sign in again through the browser to reconnect.",
-                "Prism",
-                wx.YES_NO | wx.ICON_QUESTION,
-            )
-            != wx.YES
+        if not prompts.ask(
+            self,
+            "Sign out of Prism on this machine? The KiCad agent's token is "
+            "revoked, and you sign in again through the browser to reconnect.",
+            "Prism",
+            yes="Sign out",
         ):
             return
         # Off the UI thread too: the server-side revoke can stall if Prism is
@@ -692,7 +686,7 @@ class SettingsDialog(wx.Dialog):
         # Signed out locally regardless; the warning only means Prism could not be
         # reached to revoke the token, which the user may want to do by hand.
         if result.get("warning"):
-            wx.MessageBox(result["warning"], "Prism", wx.OK | wx.ICON_INFORMATION)
+            prompts.tell(self, result["warning"], "Prism")
 
         self.data = result
         self.content.Clear(delete_windows=True)
@@ -703,7 +697,7 @@ class SettingsDialog(wx.Dialog):
         try:
             self.data = AgentClient().save_settings({"clear_token": True})
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
         self.content.Clear(delete_windows=True)
         self._render()
@@ -713,7 +707,7 @@ class SettingsDialog(wx.Dialog):
         try:
             AgentClient().restart()
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         # It takes a moment to come back on a new port; poll rather than guess.
@@ -728,13 +722,11 @@ class SettingsDialog(wx.Dialog):
         self._load()
 
     def _stop(self):
-        if (
-            wx.MessageBox(
-                "Stop the Prism agent? The plugin needs it to run.",
-                "Prism",
-                wx.YES_NO | wx.ICON_QUESTION,
-            )
-            != wx.YES
+        if not prompts.ask(
+            self,
+            "Stop the Prism agent? The plugin needs it to run.",
+            "Prism",
+            yes="Stop",
         ):
             return
         try:

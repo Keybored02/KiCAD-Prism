@@ -18,6 +18,7 @@ import wx.adv
 
 from . import agent_launcher
 from . import prism_theme as th
+from . import prompts
 from . import version
 from .agent_client import AgentClient, AgentUnavailable
 from .settings_dialog import SettingsDialog
@@ -766,7 +767,7 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 agent_launcher.start_agent()
         except agent_launcher.LaunchError as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         for _ in range(40):
@@ -850,7 +851,7 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 agent_launcher.start_agent()
         except agent_launcher.LaunchError as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         # The agent needs a moment to bind its port and publish the discovery
@@ -864,11 +865,8 @@ class PrismDialog(wx.Dialog):
             except AgentUnavailable:
                 continue
         else:
-            wx.MessageBox(
-                "The agent started but isn't responding yet. Try Refresh.",
-                "Prism",
-                wx.OK | wx.ICON_INFORMATION,
-            )
+            prompts.tell(self, "The agent started but isn't responding yet. Try Refresh.",
+                "Prism")
             return
 
         self._load()
@@ -1070,17 +1068,14 @@ class PrismDialog(wx.Dialog):
         else:
             message = "Push %s to Prism?" % project["name"]
 
-        if (
-            wx.MessageBox(message, "Add to Prism", wx.YES_NO | wx.ICON_QUESTION)
-            != wx.YES
-        ):
+        if not prompts.ask(self, message, "Add to Prism", yes="Publish"):
             return
 
         try:
             with wx.BusyCursor():
                 AgentClient().publish(project["path"], project["name"])
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         self._load()  # it is in Prism now; the whole dialog says something different
@@ -1140,19 +1135,19 @@ class PrismDialog(wx.Dialog):
         project = (self.data or {}).get("project")
         if not project or not project.get("repo_root"):
             return
-        name = wx.GetTextFromUser(
+        name = prompts.ask_text(
+            self,
             "Name a branch to keep this commit (and any work on it):",
             "Create a branch",
-            "",
         )
-        if not name.strip():
+        if not name or not name.strip():
             return
         branch = name.strip()
         try:
             with wx.BusyCursor():
                 AgentClient().create_branch(project["repo_root"], branch)
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
         self._publish_new_branch(project["repo_root"], branch)
         self._load()
@@ -1180,22 +1175,14 @@ class PrismDialog(wx.Dialog):
         choices = [keep_local] + [
             "Publish to %s  (%s)" % (r["name"], r["url"]) for r in remotes
         ]
-        dlg = wx.SingleChoiceDialog(
+        index = prompts.ask_choice(
             self,
             "'%s' has been created.\n\nWhere should it go?" % branch,
             "Publish branch",
             choices,
         )
-        try:
-            dlg.SetSize(wx.Size(560, 320))
-            dlg.CentreOnParent()
-            if dlg.ShowModal() != wx.ID_OK:
-                return ""
-            index = dlg.GetSelection()
-        finally:
-            dlg.Destroy()
-
-        if index <= 0:
+        # None is cancelled, 0 is the "keep it local" row: both mean do not publish.
+        if not index:
             return ""
         return remotes[index - 1]["name"]
 
@@ -1213,13 +1200,10 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 AgentClient().push(repo, set_upstream=True, remote=target)
         except AgentUnavailable as exc:
-            wx.MessageBox(
-                "'%s' was created, but publishing it to %s failed:\n\n%s\n\n"
+            prompts.tell(self, "'%s' was created, but publishing it to %s failed:\n\n%s\n\n"
                 "You can publish it later from the panel."
                 % (branch, target, exc),
-                "Prism",
-                wx.OK | wx.ICON_WARNING,
-            )
+                "Prism")
 
     def _return_to_branch(self, branch):
         """Return to the branch we detached from. Goes through the same scheduled switch
@@ -1303,7 +1287,7 @@ class PrismDialog(wx.Dialog):
         try:
             data = AgentClient().branches(repo)
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         current = data.get("current") or ""
@@ -1328,7 +1312,7 @@ class PrismDialog(wx.Dialog):
             ref_for[label] = short
 
         if not choices:
-            wx.MessageBox("No other branches to switch to.", "Prism", wx.OK | wx.ICON_INFORMATION)
+            prompts.tell(self, "No other branches to switch to.", "Prism")
             return
 
         picked = self._pick_branch(choices)
@@ -1340,20 +1324,12 @@ class PrismDialog(wx.Dialog):
         """A branch picker wide enough to read a branch name in.
 
         wx.GetSingleChoice sizes itself to the text and cannot be resized, so anything
-        like feature/long-descriptive-name was clipped in a narrow column. This is the
-        same single-selection dialog, built so the list has room.
+        like feature/long-descriptive-name was clipped in a narrow column.
         """
-        dlg = wx.SingleChoiceDialog(
+        index = prompts.ask_choice(
             self, "Switch to which branch?", "Switch branch", choices
         )
-        try:
-            dlg.SetSize(wx.Size(520, 420))
-            dlg.CentreOnParent()
-            if dlg.ShowModal() != wx.ID_OK:
-                return ""
-            return dlg.GetStringSelection()
-        finally:
-            dlg.Destroy()
+        return "" if index is None else choices[index]
 
     def _do_switch(self, repo, ref):
         """Switch to `ref` safely: settle any uncommitted work first, then check out.
@@ -1365,7 +1341,7 @@ class PrismDialog(wx.Dialog):
         try:
             state = AgentClient().checkout_status(repo, ref) or {}
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         if not state.get("can"):
@@ -1374,9 +1350,7 @@ class PrismDialog(wx.Dialog):
                 if not self._resolve_before_switch(repo, state.get("message", "")):
                     return  # user cancelled or it failed
             else:
-                wx.MessageBox(
-                    state.get("message", "Can't switch."), "Prism", wx.OK | wx.ICON_WARNING
-                )
+                prompts.tell(self, state.get("message", "Can't switch."), "Prism")
                 return
 
         self._switch_now(repo, ref)
@@ -1392,44 +1366,47 @@ class PrismDialog(wx.Dialog):
         board, they only settle the changes already in the tree.
         """
         choices = ["Commit", "Stash", "Discard"]
-        picked = wx.GetSingleChoice(
+        index = prompts.ask_choice(
+            self,
             "%s\n\nWhat do you want to do with them before switching?" % why,
             "Uncommitted changes",
             choices,
         )
-        if not picked:
+        if index is None:
             return ""  # Cancel
+        picked = choices[index]
 
         try:
             if picked == "Commit":
                 return "commit" if self._commit_before_switch(repo) else ""
             if picked == "Stash":
                 with wx.BusyCursor():
-                    message = wx.GetTextFromUser("Stash message:", "Stash", "")
+                    message = prompts.ask_text(self, "Stash message:", "Stash")
+                    if message is None:
+                        return ""  # cancelled at the message, not at the choice
                     AgentClient().stash(repo, message.strip())
                 return "stash"
             if picked == "Discard":
-                if (
-                    wx.MessageBox(
-                        "Discard all uncommitted changes? This cannot be undone.",
-                        "Discard",
-                        wx.YES_NO | wx.ICON_WARNING,
-                    )
-                    != wx.YES
+                if not prompts.ask(
+                    self,
+                    "Discard all uncommitted changes? This cannot be undone.",
+                    "Discard",
+                    yes="Discard",
+                    destructive=True,
                 ):
                     return ""
                 with wx.BusyCursor():
                     AgentClient().discard(repo)
                 return "discard"
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return ""
         return ""
 
     def _commit_before_switch(self, repo):
         """Commit all design work with a message, so the switch can proceed."""
-        message = wx.GetTextFromUser("Commit message:", "Commit", "")
-        if not message.strip():
+        message = prompts.ask_text(self, "Commit message:", "Commit")
+        if not message or not message.strip():
             return False
         try:
             with wx.BusyCursor():
@@ -1442,7 +1419,7 @@ class PrismDialog(wx.Dialog):
                 # now on a different branch than the switch target, so re-checking is the
                 # honest thing. Treat as resolved; the caller re-runs the dry run.
                 return True
-            wx.MessageBox(text, "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, text, "Prism")
             return False
         return True
 
@@ -1467,16 +1444,13 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 AgentClient().switch(repo, ref)
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
-        wx.MessageBox(
-            "Switched to %s.\n\n"
+        prompts.tell(self, "Switched to %s.\n\n"
             "Close the board and schematic without saving, then reopen it from "
             "KiCad's project manager." % ref,
-            "Prism",
-            wx.OK | wx.ICON_INFORMATION,
-        )
+            "Prism")
         self._load()
 
     def _add_sync_row(self, card, git):
@@ -1585,7 +1559,7 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 AgentClient().fetch(project["repo_root"])
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
         self._load()
 
@@ -1608,7 +1582,7 @@ class PrismDialog(wx.Dialog):
             if getattr(exc, "code", "") == "no_upstream":
                 self._publish_branch(repo)
                 return
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
         self._load()
 
@@ -1622,48 +1596,39 @@ class PrismDialog(wx.Dialog):
         try:
             remotes = (AgentClient().remotes(repo) or {}).get("remotes") or []
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         if not remotes:
-            wx.MessageBox(
-                "This project has no remote to push to.\n\n"
+            prompts.tell(self, "This project has no remote to push to.\n\n"
                 "Add one with `git remote add`, then push again.",
-                "Prism",
-                wx.OK | wx.ICON_WARNING,
-            )
+                "Prism")
             return
 
         if len(remotes) == 1:
             target = remotes[0]["name"]
-            answer = wx.MessageBox(
-                "This branch hasn't been pushed yet.\n\nPublish it to %s?"
-                % target,
+            if not prompts.ask(
+                self,
+                "This branch hasn't been pushed yet.\n\nPublish it to %s?" % target,
                 "Publish branch",
-                wx.YES_NO | wx.ICON_QUESTION,
-            )
-            if answer != wx.YES:
+                yes="Publish",
+            ):
                 return
         else:
             # remotes() puts origin first, so the default selection is the convention.
             choices = ["%s  (%s)" % (r["name"], r["url"]) for r in remotes]
-            dlg = wx.SingleChoiceDialog(
+            index = prompts.ask_choice(
                 self, "Publish this branch to which remote?", "Publish branch", choices
             )
-            try:
-                dlg.SetSize(wx.Size(560, 360))
-                dlg.CentreOnParent()
-                if dlg.ShowModal() != wx.ID_OK:
-                    return
-                target = remotes[dlg.GetSelection()]["name"]
-            finally:
-                dlg.Destroy()
+            if index is None:
+                return
+            target = remotes[index]["name"]
 
         try:
             with wx.BusyCursor():
                 AgentClient().push(repo, set_upstream=True, remote=target)
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
         self._load()
 
@@ -1733,15 +1698,13 @@ class PrismDialog(wx.Dialog):
 
     def _add_gitignore(self, project, would):
         """Write it, after saying what it will do."""
-        if (
-            wx.MessageBox(
-                "Add a KiCad .gitignore to this project?\n\n"
-                "%d generated file(s) will stop being reported. Nothing is committed "
-                "and nothing on disk is deleted." % len(would),
-                "Add .gitignore",
-                wx.YES_NO | wx.ICON_QUESTION,
-            )
-            != wx.YES
+        if not prompts.ask(
+            self,
+            "Add a KiCad .gitignore to this project?\n\n"
+            "%d generated file(s) will stop being reported. Nothing is committed "
+            "and nothing on disk is deleted." % len(would),
+            "Add .gitignore",
+            yes="Add",
         ):
             return
 
@@ -1749,7 +1712,7 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 result = AgentClient().add_gitignore(project["path"])
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         # It is not committed. Say so, rather than letting the user assume it is done
@@ -1763,7 +1726,7 @@ class PrismDialog(wx.Dialog):
                 "Untracking those is up to you." % len(result["still_tracked"])
             )
         note += "\n\nCommit it when you're ready."
-        wx.MessageBox(note, "Prism", wx.OK | wx.ICON_INFORMATION)
+        prompts.tell(self, note, "Prism")
         self._load()
 
     def _stash_entries(self):
@@ -1786,9 +1749,7 @@ class PrismDialog(wx.Dialog):
         """
         entries = self._stash_entries()
         if not entries:
-            wx.MessageBox(
-                "There is nothing stashed.", "Prism", wx.OK | wx.ICON_INFORMATION
-            )
+            prompts.tell(self, "There is nothing stashed.", "Prism")
             return
 
         dlg = StashesDialog(self, entries, self.pal)
@@ -1830,33 +1791,31 @@ class PrismDialog(wx.Dialog):
         if not count:
             return
 
-        answer = wx.MessageBox(
+        if not prompts.ask(
+            self,
             "Discard %d file%s?\n\n"
             "This cannot be undone.\n\n"
             "KiCad still has the board open, so close it WITHOUT saving and reopen it "
             "afterwards. Saving would write the discarded changes back."
             % (count, "" if count == 1 else "s"),
             "Discard changes",
-            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
-        )
-        if answer != wx.YES:
+            yes="Discard",
+            destructive=True,
+        ):
             return
 
         try:
             with wx.BusyCursor():
                 result = AgentClient().discard(project["path"])
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         discarded = (result or {}).get("count") or count
-        wx.MessageBox(
-            "Discarded %d file%s.\n\n"
+        prompts.tell(self, "Discarded %d file%s.\n\n"
             "Close KiCad without saving and reopen the board to see it."
             % (discarded, "" if discarded == 1 else "s"),
-            "Prism",
-            wx.OK | wx.ICON_INFORMATION,
-        )
+            "Prism")
         self._load()
 
     def _stash(self):
@@ -1881,7 +1840,7 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 AgentClient().stash(project["path"], message)
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
         self._load()
 
@@ -1896,20 +1855,21 @@ class PrismDialog(wx.Dialog):
         if not project:
             return
 
-        answer = wx.MessageBox(
+        if not prompts.ask(
+            self,
             "Discard “%s”?\n\nThese changes will be gone. This can't be undone from "
             "Prism." % (entry["message"] or "your changes"),
             "Discard changes",
-            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
-        )
-        if answer != wx.YES:
+            yes="Discard",
+            destructive=True,
+        ):
             return
 
         try:
             with wx.BusyCursor():
                 result = AgentClient().drop_stash(project["path"], entry["ref"])
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         # Say what went, and hand over the escape hatch. Git keeps the commit until it
@@ -1924,7 +1884,7 @@ class PrismDialog(wx.Dialog):
                 "\n\nIf that was a mistake, it can still be recovered for a while:"
                 "\n    git stash apply %s" % sha[:12]
             )
-        wx.MessageBox(note, "Prism", wx.OK | wx.ICON_INFORMATION)
+        prompts.tell(self, note, "Prism")
         self._load()
 
     def _apply_stash(self, entry):
@@ -1937,16 +1897,13 @@ class PrismDialog(wx.Dialog):
         except AgentUnavailable as exc:
             # The agent refuses rather than forcing a conflict, and it says why. A stash
             # that fails to apply is still in the list, so nothing is lost.
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
-        wx.MessageBox(
-            "Restored “%s” and removed it from the stash list."
+        prompts.tell(self, "Restored “%s” and removed it from the stash list."
             "\n\nReopen the board in KiCad to see it."
             % (entry["message"] or "your changes"),
-            "Prism",
-            wx.OK | wx.ICON_INFORMATION,
-        )
+            "Prism")
         self._load()
 
     def _apply_stash_keep(self, entry):
@@ -1963,16 +1920,13 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 AgentClient().apply_stash_keep(project["path"], entry["ref"])
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
-        wx.MessageBox(
-            "Restored “%s”. It is still in the stash list."
+        prompts.tell(self, "Restored “%s”. It is still in the stash list."
             "\n\nReopen the board in KiCad to see it."
             % (entry["message"] or "your changes"),
-            "Prism",
-            wx.OK | wx.ICON_INFORMATION,
-        )
+            "Prism")
         self._load()
 
     def _add_pull_row(self, card, git):
@@ -2036,15 +1990,12 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 AgentClient().start_merge(project["path"], "@{u}")
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
-        wx.MessageBox(
-            "Prism has opened the merge in your browser.\n\n"
+        prompts.tell(self, "Prism has opened the merge in your browser.\n\n"
             "Nothing changes on disk until you finish it there.",
-            "Prism",
-            wx.OK | wx.ICON_INFORMATION,
-        )
+            "Prism")
 
     def _pull(self):
         """Fast-forward the working tree. The agent refuses anything riskier."""
@@ -2081,7 +2032,7 @@ class PrismDialog(wx.Dialog):
             with wx.BusyCursor():
                 result = AgentClient().pull(project["path"], stash_message)
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         note = result.get("message", "Done.")
@@ -2096,11 +2047,8 @@ class PrismDialog(wx.Dialog):
 
         # The board on disk has changed under KiCad, which will not know. Saying so is
         # the difference between a confusing stale view and an understood one.
-        wx.MessageBox(
-            "%s\n\nReopen the board in KiCad to see the updated version." % note,
-            "Prism",
-            wx.OK | wx.ICON_INFORMATION,
-        )
+        prompts.tell(self, "%s\n\nReopen the board in KiCad to see the updated version." % note,
+            "Prism")
         self._load()
 
     def _ask_stash_message(self, why):
@@ -2110,18 +2058,12 @@ class PrismDialog(wx.Dialog):
         nothing about what is in it, and after two of them nobody knows which board they
         were half way through editing.
         """
-        dlg = wx.TextEntryDialog(
-            self,
-            why + "\n\nWhat were you working on?",
-            "Set changes aside",
-            value="",
+        value = prompts.ask_text(
+            self, why + "\n\nWhat were you working on?", "Set changes aside"
         )
-        try:
-            if dlg.ShowModal() != wx.ID_OK:
-                return None
-            return dlg.GetValue().strip()
-        finally:
-            dlg.Destroy()
+        # None (cancelled) is passed straight through: the caller distinguishes it from
+        # an empty message, which is a valid answer.
+        return None if value is None else value.strip()
 
     def _add_commit_row(
         self, card, commit_hash, subject, prism, label="Last commit", icon="commit"
@@ -2184,7 +2126,7 @@ class PrismDialog(wx.Dialog):
         try:
             AgentClient().open_in_prism(prism.get("id"), commit=commit_hash)
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
 
     # -- uncommitted changes -----------------------------------------------
 
@@ -2399,7 +2341,7 @@ class PrismDialog(wx.Dialog):
                 fn(project["repo_root"])
                 fresh = AgentClient().project(self.board_path)
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
 
         # Keep everything else (including the diff we already computed) and swap in the
@@ -2484,7 +2426,7 @@ class PrismDialog(wx.Dialog):
             return
         message = self.commit_message.GetValue().strip()
         if not message:
-            wx.MessageBox("A commit needs a message.", "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, "A commit needs a message.", "Prism")
             return
 
         repo = project["repo_root"]
@@ -2498,20 +2440,20 @@ class PrismDialog(wx.Dialog):
             if "detached" in text.lower():
                 self._commit_on_new_branch(repo, message, staged_only=staged_only)
                 return
-            wx.MessageBox(text, "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, text, "Prism")
             return
 
         self._load()
 
     def _commit_on_new_branch(self, repo, message, staged_only=False):
         """Offer to name a branch for a commit that would otherwise be detached."""
-        name = wx.GetTextFromUser(
+        name = prompts.ask_text(
+            self,
             "You're on a detached commit, so this would not be on any branch.\n\n"
             "Name a branch to keep it on:",
             "Create a branch",
-            "",
         )
-        if not name.strip():
+        if not name or not name.strip():
             return
         branch = name.strip()
         try:
@@ -2521,7 +2463,7 @@ class PrismDialog(wx.Dialog):
                     repo, message, stage_all_design=not staged_only
                 )
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
             return
         # After the commit, so what gets published is the work, not an empty branch.
         self._publish_new_branch(repo, branch)
@@ -2716,17 +2658,14 @@ class PrismDialog(wx.Dialog):
                 self._reference_of(group),
             )
         except crossprobe.ProbeError as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_INFORMATION)
+            prompts.tell(self, str(exc), "Prism")
             return
         except Exception as exc:
             # A raw pcbnew/SWIG error here would otherwise crash the plugin and
             # can take KiCad down with it. Cross-probe is a convenience; a failed
             # jump must never be fatal. Report it and stay open.
-            wx.MessageBox(
-                "Couldn't jump to that item in KiCad.\n\n%s" % exc,
-                "Prism",
-                wx.OK | wx.ICON_INFORMATION,
-            )
+            prompts.tell(self, "Couldn't jump to that item in KiCad.\n\n%s" % exc,
+                "Prism")
             return
 
         # The item is selected behind the dialog; get out of the way so it can be
@@ -2753,7 +2692,7 @@ class PrismDialog(wx.Dialog):
         try:
             AgentClient().open_in_prism(prism["id"])
         except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            prompts.tell(self, str(exc), "Prism")
 
 
 class StashesDialog(wx.Dialog):
