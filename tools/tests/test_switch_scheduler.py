@@ -242,5 +242,108 @@ def test_a_switch_too_old_to_honour_is_dropped_on_resume(project, monkeypatch, t
     assert not (state / "pending-switch.json").is_file()
 
 
+# -- KiCad writing on its way out ----------------------------------------
+#
+# The bug: choose "discard", close KiCad, and the switch is refused with "1 file(s)
+# have uncommitted changes". KiCad rewrites .kicad_pro as it exits (it expands the
+# file with defaults for its version, which a project authored in an older KiCad gets
+# every single time), so the tree the user just cleaned is dirty again by the time the
+# scheduler looks. Their answer is re-applied to those writes.
+
+
+def test_discard_survives_kicad_rewriting_files_on_exit(project, fast, monkeypatch):
+    """THE reported bug. Discard, close KiCad, and the switch must still happen."""
+    monkeypatch.setattr(discovery, "_pid_alive", lambda pid: False)
+    launched = []
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: launched.append(d))
+
+    # The user's own edit, which they chose to discard...
+    (project / "board.kicad_pcb").write_text("(kicad_pcb THEIR EDIT)")
+    decided_at = time.time()
+    checkout.discard(project)
+    assert not checkout.dirty_files(project)["blocking"], "clean when they answered"
+
+    # ...and then KiCad rewrites the project file as it closes.
+    (project / "board.kicad_pro").write_text('{"upgraded_by_kicad": true}')
+
+    notes, notify = _capture_notify()
+    sched = switch_scheduler.SwitchScheduler(notify=notify)
+    sched._perform(
+        switch_scheduler.PendingSwitch(
+            repo=str(project), ref="feature", project_dir=str(project),
+            kicad_pid=1, resolution="discard", decided_at=decided_at,
+        )
+    )
+
+    assert checkout.status(project)["current_branch"] == "feature"
+    assert launched, "and the project is reopened"
+
+
+def test_work_the_user_never_answered_for_is_not_discarded(project, fast, monkeypatch):
+    """The safety property. Re-applying a discard must never reach a file the user was
+    not asked about: they reopened KiCad and did real work, and that is not ours to
+    throw away no matter what they said earlier about something else."""
+    monkeypatch.setattr(discovery, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: None)
+
+    # They answered, and the tree was cleaned.
+    (project / "board.kicad_pro").write_text('{"settings": 1}')
+    checkout.discard(project)
+    # Long enough ago that anything written now is plainly not KiCad shutting down:
+    # they reopened it and did real work, which nobody asked them about.
+    decided_at = time.time() - (switch_scheduler.SHUTDOWN_WINDOW_SECONDS + 60)
+    (project / "board.kicad_pcb").write_text("(kicad_pcb REAL WORK)")
+
+    notes, notify = _capture_notify()
+    sched = switch_scheduler.SwitchScheduler(notify=notify)
+    sched._perform(
+        switch_scheduler.PendingSwitch(
+            repo=str(project), ref="feature", project_dir=str(project),
+            kicad_pid=1, resolution="discard", decided_at=decided_at,
+        )
+    )
+
+    assert (project / "board.kicad_pcb").read_text() == "(kicad_pcb REAL WORK)"
+    assert checkout.status(project)["current_branch"] == "main", "refused, not switched"
+    assert any("uncommitted" in m.lower() for _, m in notes)
+
+
+def test_without_a_recorded_answer_a_dirty_tree_is_still_refused(project, fast, monkeypatch):
+    """No resolution means nothing was asked, so nothing may be assumed."""
+    monkeypatch.setattr(discovery, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(open_project, "launch_kicad", lambda d: pytest.fail("no switch"))
+
+    (project / "board.kicad_pcb").write_text("(kicad_pcb UNSAVED)")
+
+    notes, notify = _capture_notify()
+    sched = switch_scheduler.SwitchScheduler(notify=notify)
+    sched._perform(
+        switch_scheduler.PendingSwitch(
+            repo=str(project), ref="feature", project_dir=str(project), kicad_pid=1
+        )
+    )
+
+    assert (project / "board.kicad_pcb").read_text() == "(kicad_pcb UNSAVED)"
+    assert checkout.status(project)["current_branch"] == "main"
+
+
+def test_the_answer_survives_an_agent_restart(project, fast, monkeypatch, tmp_path):
+    """The resolution is only useful if it outlives the process that took it."""
+    state = tmp_path / "cfg"
+    monkeypatch.setattr(discovery, "config_dir", lambda: state)
+    monkeypatch.setattr(discovery, "_pid_alive", lambda pid: True)
+
+    first = switch_scheduler.SwitchScheduler()
+    first.schedule(
+        repo=str(project), ref="feature", project_dir=str(project), kicad_pid=7,
+        resolution="discard",
+    )
+    first._cancel.set()
+
+    raw = json.loads((state / "pending-switch.json").read_text(encoding="utf-8"))
+    assert raw["resolution"] == "discard"
+    assert raw["decided_at"] > 0
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

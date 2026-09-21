@@ -43,6 +43,12 @@ SETTLE_SECONDS = 1.5
 # How often to poll the pid.
 POLL_SECONDS = 1.0
 
+# How long after the user's decision a write still counts as KiCad shutting down.
+# It covers the user answering, KiCad being closed, and KiCad flushing its project
+# files on the way out, which is a person-paced sequence rather than a fast one. Work
+# done in a KiCad reopened afterwards falls outside it and is never assumed about.
+SHUTDOWN_WINDOW_SECONDS = 15 * 60
+
 
 @dataclass
 class PendingSwitch:
@@ -51,6 +57,17 @@ class PendingSwitch:
     project_dir: str
     kicad_pid: int
     created: float = field(default_factory=time.time)
+    # How the user already settled the tree before scheduling: "discard", "stash", or
+    # "" when it was clean and nothing was asked. KiCad rewrites files of its own on
+    # exit (project settings, autosaves), which re-dirties a tree that was clean when
+    # the user answered. Re-applying THEIR answer to THOSE writes is honouring the
+    # decision they made; asking again after KiCad has closed is asking about files
+    # they never touched.
+    resolution: str = ""
+    # When the user answered. Files written after this are KiCad's exit writes (or
+    # work done in a KiCad reopened afterwards); files that were already dirty then
+    # are the ones they answered about. See _unsettled_dirt.
+    decided_at: float = field(default_factory=time.time)
 
 
 class SwitchScheduler:
@@ -94,6 +111,10 @@ class SwitchScheduler:
                         "project_dir": pending.project_dir,
                         "kicad_pid": pending.kicad_pid,
                         "created": pending.created,
+                        # Carried across a restart too: the user's answer outlives the
+                        # process that took it.
+                        "resolution": pending.resolution,
+                        "decided_at": pending.decided_at,
                     }
                 ),
                 encoding="utf-8",
@@ -125,6 +146,8 @@ class SwitchScheduler:
                 project_dir=str(raw["project_dir"]),
                 kicad_pid=int(raw["kicad_pid"]),
                 created=float(raw.get("created") or time.time()),
+                resolution=str(raw.get("resolution") or ""),
+                decided_at=float(raw.get("decided_at") or time.time()),
             )
         except (KeyError, TypeError, ValueError):
             self._persist(None)
@@ -152,7 +175,15 @@ class SwitchScheduler:
             )
             self._thread.start()
 
-    def schedule(self, *, repo: str, ref: str, project_dir: str, kicad_pid: int) -> dict:
+    def schedule(
+        self,
+        *,
+        repo: str,
+        ref: str,
+        project_dir: str,
+        kicad_pid: int,
+        resolution: str = "",
+    ) -> dict:
         """Record a switch and start watching. Replaces any pending one.
 
         Refuses if KiCad is not actually running under that pid: scheduling against a
@@ -169,7 +200,11 @@ class SwitchScheduler:
             self._cancel.set()  # stop any existing watcher
             self._cancel = threading.Event()
             self._pending = PendingSwitch(
-                repo=repo, ref=ref, project_dir=project_dir, kicad_pid=kicad_pid
+                repo=repo,
+                ref=ref,
+                project_dir=project_dir,
+                kicad_pid=kicad_pid,
+                resolution=resolution,
             )
             cancel = self._cancel
             pending = self._pending
@@ -247,6 +282,42 @@ class SwitchScheduler:
                 if persist:
                     self._persist(None)
 
+    def _unsettled_dirt(self, repo: Path, pending: PendingSwitch) -> set:
+        """Dirty files that are NOT explained by KiCad writing on its way out.
+
+        The user answered for the tree as it stood at `decided_at`, and the agent then
+        cleaned it. Anything dirty now was written after that moment, by KiCad shutting
+        down (it rewrites .kicad_pro with the defaults for its version, drops
+        autosaves, touches the .prl) or by a person who reopened KiCad and did real
+        work.
+
+        Modification time is what separates them, because the FILENAME does not: the
+        reported bug was a .kicad_pro the user had never touched, so a set of paths
+        they answered about would not have contained it. A file written within the
+        shutdown window is KiCad's; one written later is somebody's work, and its
+        presence cancels the re-apply entirely rather than being discarded with the
+        rest.
+        """
+        try:
+            dirt = checkout.dirty_files(repo)
+        except checkout.CheckoutError:
+            # Cannot tell, so assume the worst and leave the tree alone.
+            return {"<unknown>"}
+
+        cutoff = pending.decided_at + SHUTDOWN_WINDOW_SECONDS
+        unexplained = set()
+        for rel in dirt.get("blocking") or ():
+            try:
+                written = (repo / rel).stat().st_mtime
+            except OSError:
+                # Deleted rather than modified. Not something KiCad does on exit, so
+                # it is not ours to assume about.
+                unexplained.add(rel)
+                continue
+            if written > cutoff:
+                unexplained.add(rel)
+        return unexplained
+
     def _perform(self, pending: PendingSwitch) -> None:
         """Re-check the guard, check out, reopen. Any failure is reported to the user."""
         repo = Path(pending.repo)
@@ -260,6 +331,37 @@ class SwitchScheduler:
             log.warning("Switch to %s aborted: status failed: %s", pending.ref, exc)
             self._notify("Prism", "Couldn't switch to %s: %s" % (pending.ref, exc))
             return
+
+        if not state["can"] and state.get("reason") == "dirty" and pending.resolution:
+            # KiCad rewrites files of its own as it exits: it expands .kicad_pro with
+            # the defaults for its version, writes autosaves, touches the .prl. A tree
+            # the user cleaned a moment ago is dirty again through nothing they did,
+            # and refusing here made "discard, then switch" fail every single time on
+            # a project KiCad had upgraded the format of.
+            #
+            # So their answer is re-applied, to KiCad's own writes only. What makes
+            # that safe is `settled`: those are the exact paths that were dirty when
+            # they answered. Anything else dirty now is work from after the decision,
+            # and the refusal below still stands for it.
+            extra = self._unsettled_dirt(repo, pending)
+            if extra:
+                log.info(
+                    "Not re-applying '%s': %d file(s) dirty that the user never saw: %s",
+                    pending.resolution, len(extra), ", ".join(sorted(extra)[:5]),
+                )
+            else:
+                log.info(
+                    "Re-applying '%s' to what KiCad wrote on exit, before switching to %s",
+                    pending.resolution, pending.ref,
+                )
+                try:
+                    if pending.resolution == "discard":
+                        checkout.discard(repo)
+                    elif pending.resolution == "stash":
+                        checkout.stash(repo, "changes KiCad wrote on exit")
+                    state = checkout.status(repo, pending.ref)
+                except checkout.CheckoutError as exc:
+                    log.warning("Couldn't re-apply '%s': %s", pending.resolution, exc)
 
         if not state["can"]:
             log.warning(

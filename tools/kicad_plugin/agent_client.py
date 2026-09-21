@@ -254,11 +254,16 @@ class AgentClient:
         """Local and remote branches, for a switch picker. Read-only."""
         return self._call("GET", "/branches?path=" + urllib.parse.quote(path))
 
-    def schedule_switch(self, path, ref, project_dir, kicad_pid):
+    def schedule_switch(self, path, ref, project_dir, kicad_pid, resolution=""):
         """Defer a branch switch until KiCad closes, then check out and reopen.
 
         The plugin can't close KiCad, and a checkout under an open board would be
         overwritten on the next save, so the agent waits for `kicad_pid` to exit.
+
+        `resolution` is how the user just settled uncommitted work ("discard" or
+        "stash"). KiCad rewrites its own files on exit, so a tree that was clean when
+        they answered is dirty again by the time the switch runs; the agent re-applies
+        their answer to those writes instead of refusing.
         """
         return self._call(
             "POST",
@@ -267,6 +272,7 @@ class AgentClient:
                 "path": path,
                 "ref": ref,
                 "project_dir": project_dir,
+                "resolution": resolution,
                 "kicad_pid": kicad_pid,
             },
         )

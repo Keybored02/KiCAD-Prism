@@ -1305,10 +1305,12 @@ class PrismDialog(wx.Dialog):
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
 
+        resolution = ""
         if not state.get("can"):
             reason = state.get("reason")
             if reason in ("dirty", "untracked_collision"):
-                if not self._resolve_before_switch(repo, state.get("message", "")):
+                resolution = self._resolve_before_switch(repo, state.get("message", ""))
+                if not resolution:
                     return  # user cancelled or it failed
             else:
                 wx.MessageBox(
@@ -1316,14 +1318,14 @@ class PrismDialog(wx.Dialog):
                 )
                 return
 
-        self._schedule_switch(repo, ref)
+        self._schedule_switch(repo, ref, resolution)
 
     def _resolve_before_switch(self, repo, why):
         """Ask what to do with the uncommitted changes before switching.
 
-        Commit, stash, or discard, in git's own terms, no euphemisms. Returns whether the
-        tree is now clean enough to switch (True), or the user cancelled / it failed
-        (False). Doing any of these now, while KiCad is open, is safe: none of them opens
+        Commit, stash, or discard, in git's own terms, no euphemisms. Returns which
+        action was taken ("commit", "stash", "discard") so the caller can tell the agent
+        how the user settled things, or "" if they cancelled or it failed. Doing any of these now, while KiCad is open, is safe: none of them opens
         a different board, they only settle the current changes. The branch checkout
         itself is what waits for KiCad to close.
         """
@@ -1334,16 +1336,16 @@ class PrismDialog(wx.Dialog):
             choices,
         )
         if not picked:
-            return False  # Cancel
+            return ""  # Cancel
 
         try:
             if picked == "Commit":
-                return self._commit_before_switch(repo)
+                return "commit" if self._commit_before_switch(repo) else ""
             if picked == "Stash":
                 with wx.BusyCursor():
                     message = wx.GetTextFromUser("Stash message:", "Stash", "")
                     AgentClient().stash(repo, message.strip())
-                return True
+                return "stash"
             if picked == "Discard":
                 if (
                     wx.MessageBox(
@@ -1353,14 +1355,14 @@ class PrismDialog(wx.Dialog):
                     )
                     != wx.YES
                 ):
-                    return False
+                    return ""
                 with wx.BusyCursor():
                     AgentClient().discard(repo)
-                return True
+                return "discard"
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
-            return False
-        return False
+            return ""
+        return ""
 
     def _commit_before_switch(self, repo):
         """Commit all design work with a message, so the switch can proceed."""
@@ -1382,8 +1384,12 @@ class PrismDialog(wx.Dialog):
             return False
         return True
 
-    def _schedule_switch(self, repo, ref):
-        """Hand the checkout+reopen to the agent, to run after KiCad closes."""
+    def _schedule_switch(self, repo, ref, resolution=""):
+        """Hand the checkout+reopen to the agent, to run after KiCad closes.
+
+        `resolution` is how the user just settled uncommitted work, passed on so the
+        agent can re-apply it to whatever KiCad writes on its way out.
+        """
         import os
 
         project = (self.data or {}).get("project") or {}
@@ -1391,7 +1397,7 @@ class PrismDialog(wx.Dialog):
         try:
             with wx.BusyCursor():
                 AgentClient().schedule_switch(
-                    repo, ref, project_dir, os.getpid()
+                    repo, ref, project_dir, os.getpid(), resolution
                 )
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)

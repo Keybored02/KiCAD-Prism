@@ -706,6 +706,12 @@ class _Handler(BaseHTTPRequestHandler):
                         ref=ref,
                         project_dir=project_dir,
                         kicad_pid=int(kicad_pid),
+                        # How the caller settled the tree just now. KiCad rewrites its
+                        # own files on exit, so a tree that was clean when the user
+                        # answered is dirty again by the time the switch runs; the
+                        # scheduler re-applies their answer to those writes rather
+                        # than refusing and making them start over.
+                        resolution=body.get("resolution") or "",
                     ),
                 )
             except checkout.CheckoutError as exc:
