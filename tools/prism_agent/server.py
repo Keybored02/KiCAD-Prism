@@ -242,17 +242,35 @@ class _Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin", "")
         if not origin:
             return ""
+        # The KiCad panel is served by the BACKEND, which is not always the origin the
+        # agent is configured with: behind a dev server or a reverse proxy the user
+        # browses :5173 while the panel comes from :8000. Both are the same Prism, so
+        # both are allowed, and nothing else is.
+        for candidate in self._prism_origins():
+            want = urlparse(candidate)
+            got = urlparse(origin)
+            if want.scheme == got.scheme and want.netloc == got.netloc:
+                return origin
+        return ""
+
+    def _prism_origins(self) -> list[str]:
+        """Every origin that is legitimately this Prism deployment.
+
+        The configured server URL, plus the backend's own if it differs. Kept to those
+        two: this list is what stops an arbitrary page reaching a service that can run
+        git on the user's disk.
+        """
+        out: list[str] = []
         try:
             configured = settings_store.load().server_url or ""
         except Exception:
-            return ""
-        if not configured:
-            return ""
-        want = urlparse(configured)
-        got = urlparse(origin)
-        if want.scheme == got.scheme and want.netloc == got.netloc:
-            return origin
-        return ""
+            configured = ""
+        if configured:
+            out.append(configured)
+        backend = getattr(self.state.prism.config, "base_url", "") or ""
+        if backend and backend not in out:
+            out.append(backend)
+        return out
 
     def _cors_headers(self) -> None:
         allowed = self._allowed_origin()
