@@ -23,15 +23,19 @@ VERSION = "0.5.1"
 
 # The oldest agent this plugin can work with.
 #
-# 0.5.0, because switching a branch changed shape rather than merely gaining a route.
-# In 0.4.0 /switch was a GET that reported the pending deferred switch; here it is a
-# POST that performs the checkout, so a 0.4.0 agent answers the switch this plugin
-# makes with a 404. /remotes, which the publish picker needs, does not exist there at
-# all. Branch switching is most of what this panel is for, so that is unusable rather
-# than degraded.
+# TESTING: pinned to this release so the outdated-agent card and the restart path can
+# be exercised. A 0.5.0 agent serves a 0.5.1 plugin perfectly well, so this is NOT an
+# honest compatibility claim and must come back down before anyone else installs this.
+# There are no users yet; that is the only reason it is acceptable.
 #
-# (0.3.0 was the previous floor, for /settings and /restart.)
-AGENT_MIN = "0.5.0"
+# What it should say: the last release that actually changed what the plugin needs,
+# which is 0.5.0. Switching a branch changed shape there rather than merely gaining a
+# route. In 0.4.0 /switch was a GET reporting the pending deferred switch; from 0.5.0
+# it is a POST that performs the checkout, so a 0.4.0 agent answers this plugin's
+# switch with a 404, and /remotes does not exist there at all.
+#
+# (0.3.0 was the floor before that, for /settings and /restart.)
+AGENT_MIN = "0.5.1"
 
 
 def parse(v: str) -> tuple:
