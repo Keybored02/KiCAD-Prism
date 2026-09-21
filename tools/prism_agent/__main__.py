@@ -448,6 +448,37 @@ def _watch_for_uninstall(stop: threading.Event) -> None:
         return
 
 
+def _sweep_replaced_binaries() -> None:
+    """Delete the copies of ourselves an installer left behind.
+
+    Windows cannot delete a running .exe, so an installer replacing one renames it
+    aside and writes the new build under the real name. The rename is permanent:
+    nothing ever removes `prism-agent.exe~RF1a2b3c4.TMP`, and every update adds another
+    20 MB. An install directory was found at twice its proper size after one update.
+
+    Safe here because we are the agent that just started under the canonical name, so
+    anything matching the pattern is by definition not us. A file still locked by an
+    agent that has not exited yet simply fails to delete, and the next startup gets it.
+    """
+    if not is_frozen():
+        return
+    binary = Path(discovery.own_binary() or sys.executable)
+    try:
+        for leftover in binary.parent.glob(binary.name + "~*"):
+            # The pattern cannot match our own name, since it requires a `~` suffix.
+            # Checked anyway: this deletes files beside a 20 MB binary, and the cost of
+            # being wrong is the agent removing itself.
+            if leftover == binary:
+                continue
+            try:
+                leftover.unlink()
+                log.info("Removed %s, left by an earlier update", leftover.name)
+            except OSError:
+                pass  # still locked, or gone already; next startup will retry
+    except OSError:
+        pass  # unreadable directory is not worth failing a startup over
+
+
 def _cleanup_os_integration() -> None:
     """Undo everything we registered with the OS. Best effort: a failure here must not
     stop the agent exiting, or an uninstall leaves a process running."""
@@ -461,6 +492,57 @@ def _cleanup_os_integration() -> None:
         protocol.unregister()
     except Exception:
         print("Couldn't unregister the prism:// handler.", file=sys.stderr)
+
+
+def uninstall(forget_settings: bool) -> list[str]:
+    """Undo everything the agent registered with this machine, and say what was done.
+
+    The counterpart to installing. `_watch_for_uninstall` tries to do this by noticing
+    its own binary vanish, which is the best it can manage unprompted, but it cannot be
+    relied on: an installer that RENAMES the locked .exe rather than deleting it leaves
+    a file at that path, so the watcher stays quiet while the plugin is gone. It also
+    only exists in a frozen build, so a source checkout never cleans up at all.
+
+    Being asked directly has neither problem, and it answers the question the watcher
+    cannot: how do I remove the agent WITHOUT uninstalling the plugin?
+
+    `forget_settings` also drops the saved server URL and API token. Kept separate
+    because the common case is reinstalling, where being signed in already is a
+    kindness rather than a leak.
+
+    Returns what it actually did, so the caller can show it rather than claim success
+    over a list of silent failures.
+    """
+    done: list[str] = []
+
+    from . import autostart
+
+    try:
+        if autostart.is_enabled():
+            autostart.disable()
+            done.append("Removed the autostart entry.")
+    except Exception:
+        done.append("Couldn't remove the autostart entry.")
+
+    try:
+        if protocol.is_registered():
+            protocol.unregister()
+            done.append("Unregistered the prism:// handler.")
+    except Exception:
+        done.append("Couldn't unregister the prism:// handler.")
+
+    if forget_settings:
+        try:
+            path = settings_store.settings_path()
+            if path.is_file():
+                path.unlink()
+                done.append("Forgot the saved server and sign-in.")
+        except OSError:
+            done.append("Couldn't remove the saved settings.")
+
+    if not done:
+        done.append("Nothing was registered; there was nothing to undo.")
+    return done
 
 
 def _claim_singleton() -> bool:
@@ -606,6 +688,40 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
         _shutdown(server)
         icon.stop()
 
+    def on_uninstall(icon, _item):
+        # Off the tray thread: the dialogs block, and a blocked tray loop is a frozen
+        # icon with no way back.
+        def run():
+            from . import dialogs
+
+            if not dialogs.ask(
+                "Remove the Prism agent from this computer?\n\n"
+                "It will stop running, no longer start at login, and no longer open "
+                "prism:// links.\n\n"
+                "The KiCad plugin stays installed; remove it from KiCad's Plugin "
+                "Manager if you want that gone too.",
+                title="Remove the Prism agent",
+                confirm="Remove",
+            ):
+                return
+
+            forget = dialogs.ask(
+                "Also forget the saved server and sign-in?\n\n"
+                "Say no to keep them, so reinstalling picks up where you left off.",
+                title="Remove the Prism agent",
+                confirm="Forget them",
+            )
+
+            done = uninstall(forget_settings=forget)
+            _show_dialog("Prism agent removed", "\n".join(done))
+
+            # Only now stop: doing it first would take the dialogs down with us.
+            stop.set()
+            _shutdown(server)
+            icon.stop()
+
+        threading.Thread(target=run, name="prism-uninstall", daemon=True).start()
+
     def on_open_prism(_icon, _item):
         import webbrowser
 
@@ -726,6 +842,10 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
             # half-usable tray form.
             pystray.MenuItem("Restart agent", on_restart),
             pystray.MenuItem("Quit", on_quit),
+            pystray.Menu.SEPARATOR,
+            # Below Quit and behind two questions: this is the destructive one, and it
+            # should not sit where a mis-click lands.
+            pystray.MenuItem("Remove the agent...", on_uninstall),
         ),
     )
 
@@ -789,6 +909,18 @@ def main() -> int:
         help="handle a prism:// link and exit (this is how the OS invokes us)",
     )
     ap.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="undo the autostart entry and the prism:// registration, then exit. "
+        "The tray offers the same thing; this is how a machine with no tray "
+        "(headless, SSH, Wayland without an appindicator) gets at it",
+    )
+    ap.add_argument(
+        "--forget-settings",
+        action="store_true",
+        help="with --uninstall, also delete the saved server URL and API token",
+    )
+    ap.add_argument(
         "--notify",
         nargs=2,
         metavar=("TITLE", "MESSAGE"),
@@ -833,11 +965,23 @@ def main() -> int:
         _show_dialog(args.notify[0], args.notify[1])
         return 0
 
+    if args.uninstall:
+        # Deliberately does NOT stop a running agent: this process is a separate,
+        # short-lived one, and killing the other would be doing something the flag
+        # does not say. The registrations are what outlive a session, and those go.
+        for line in uninstall(forget_settings=args.forget_settings):
+            print(line)
+        return 0
+
     # One agent per machine. A second would bind a different port, overwrite the
     # discovery file, and leave two processes racing, with whichever exits last
     # deleting the file and orphaning the other, so the plugin can find neither.
     if not _claim_singleton():
         return 0  # an equal-or-newer agent already holds the post
+
+    # We hold the post under the canonical name, so any prism-agent.exe~* beside us is
+    # a copy an installer renamed out of the way and never cleaned up.
+    _sweep_replaced_binaries()
 
     # A prism:// registration embeds the interpreter, the source path and the profile,
     # and any of those can drift under it: moving the checkout, switching venvs, or

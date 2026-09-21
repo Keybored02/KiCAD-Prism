@@ -109,6 +109,121 @@ def test_a_source_checkout_still_runs_the_module(monkeypatch):
     assert command[1:] == ["-m", "prism_agent", "--profile", "dev"]
 
 
+# -- removing the agent ----------------------------------------------------
+#
+# The agent outlives KiCad and registers itself with the machine, so something has to
+# be able to undo that. _watch_for_uninstall tries, by noticing its own binary vanish,
+# but an installer that RENAMES the locked .exe leaves a file at that path and the
+# watcher stays quiet. Being asked directly has no such gap.
+
+
+@pytest.fixture
+def registrations(monkeypatch, tmp_path):
+    """Autostart and prism:// as in-memory flags, so no test touches the real machine."""
+    state = {"autostart": True, "protocol": True}
+
+    monkeypatch.setattr(autostart, "is_enabled", lambda: state["autostart"])
+    monkeypatch.setattr(
+        autostart, "disable", lambda: state.__setitem__("autostart", False)
+    )
+    monkeypatch.setattr(protocol, "is_registered", lambda: state["protocol"])
+    monkeypatch.setattr(
+        protocol, "unregister", lambda: state.__setitem__("protocol", False)
+    )
+
+    settings = tmp_path / "settings.json"
+    settings.write_text('{"api_token": "secret"}', encoding="utf-8")
+    monkeypatch.setattr(agent_main.settings_store, "settings_path", lambda: settings)
+    state["settings"] = settings
+    return state
+
+
+def test_uninstall_undoes_both_registrations(registrations):
+    done = agent_main.uninstall(forget_settings=False)
+
+    assert registrations["autostart"] is False
+    assert registrations["protocol"] is False
+    assert any("autostart" in line for line in done)
+    assert any("prism://" in line for line in done)
+
+
+def test_uninstall_keeps_the_sign_in_unless_asked(registrations):
+    """The common case is reinstalling, where being signed in already is a kindness."""
+    agent_main.uninstall(forget_settings=False)
+    assert registrations["settings"].is_file()
+
+
+def test_uninstall_can_forget_the_sign_in(registrations):
+    done = agent_main.uninstall(forget_settings=True)
+    assert not registrations["settings"].is_file()
+    assert any("sign-in" in line for line in done)
+
+
+def test_uninstall_says_when_there_was_nothing_to_do(registrations):
+    """Silence would read as failure. It is a legitimate state, so it is stated."""
+    registrations["autostart"] = False
+    registrations["protocol"] = False
+
+    done = agent_main.uninstall(forget_settings=False)
+    assert done == ["Nothing was registered; there was nothing to undo."]
+
+
+def test_uninstall_reports_a_failure_rather_than_claiming_success(
+    registrations, monkeypatch
+):
+    """Best effort, but never a silent lie: a half-removed agent the user believes is
+    gone is worse than one they know needs another go."""
+
+    def boom():
+        raise OSError("access denied")
+
+    monkeypatch.setattr(autostart, "disable", boom)
+
+    done = agent_main.uninstall(forget_settings=False)
+    assert any("Couldn't remove the autostart entry" in line for line in done)
+
+
+# -- the orphaned binaries -------------------------------------------------
+
+
+def test_the_copies_an_installer_left_behind_are_swept(frozen, tmp_path, monkeypatch):
+    """Each update renames the running .exe aside and never removes it: 20 MB a time."""
+    _install(
+        tmp_path,
+        "prism-agent.exe",
+        "prism-agent.exe~RF2a16af5.TMP",
+        "prism-agent.exe~RF99z.TMP",
+    )
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "prism-agent.exe"))
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    agent_main._sweep_replaced_binaries()
+
+    assert [p.name for p in tmp_path.iterdir()] == ["prism-agent.exe"]
+
+
+def test_the_sweep_never_removes_the_running_agent(frozen, tmp_path, monkeypatch):
+    _install(tmp_path, "prism-agent.exe")
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "prism-agent.exe"))
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    agent_main._sweep_replaced_binaries()
+
+    assert (tmp_path / "prism-agent.exe").is_file()
+
+
+def test_a_source_checkout_sweeps_nothing(tmp_path, monkeypatch):
+    """There is no installer and no binary; the pattern would only match by accident."""
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    decoy = tmp_path / "prism-agent.exe~RF1.TMP"
+    decoy.write_text("not ours", encoding="utf-8")
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
+
+    agent_main._sweep_replaced_binaries()
+
+    assert decoy.is_file()
+
+
 # -- the stale bytecode ----------------------------------------------------
 #
 # A PCM update overwrites our .py files but leaves the previous install's __pycache__,
