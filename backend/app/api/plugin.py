@@ -28,7 +28,7 @@ router = APIRouter()
 # is a judgement about compatibility, which is not something a build can work out.
 
 # The plugin version shipped with this server.
-PLUGIN_EXPECTED = "0.4.0"
+PLUGIN_EXPECTED = "0.5.0"
 
 # The oldest plugin this server can still serve correctly.
 #

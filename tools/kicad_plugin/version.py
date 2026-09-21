@@ -16,15 +16,22 @@ have. Leave it alone for changes the old agent can still serve.
 
 from __future__ import annotations
 
-# This plugin's version. Kept in step with the package metadata.
-VERSION = "0.4.0"
+# This plugin's version, and the source of truth for the package's. package_plugin.py
+# reads it rather than taking one as an argument, and refuses to build unless the
+# agent's VERSION matches, so a zip cannot claim a version its code disagrees with.
+VERSION = "0.5.0"
 
 # The oldest agent this plugin can work with.
 #
-# 0.3.0 added /settings and /restart, which the plugin now depends on: without them
-# Settings is dead and we can't recover from a version mismatch. Anything older is
-# genuinely unusable, not merely degraded.
-AGENT_MIN = "0.3.0"
+# 0.5.0, because switching a branch changed shape rather than merely gaining a route.
+# In 0.4.0 /switch was a GET that reported the pending deferred switch; here it is a
+# POST that performs the checkout, so a 0.4.0 agent answers the switch this plugin
+# makes with a 404. /remotes, which the publish picker needs, does not exist there at
+# all. Branch switching is most of what this panel is for, so that is unusable rather
+# than degraded.
+#
+# (0.3.0 was the previous floor, for /settings and /restart.)
+AGENT_MIN = "0.5.0"
 
 
 def parse(v: str) -> tuple:
