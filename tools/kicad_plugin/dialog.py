@@ -1101,19 +1101,17 @@ class PrismDialog(wx.Dialog):
         origin = on[0] if on else ""
 
         card = Card(self.scroll, "Detached commit", self.pal)
-        commit = (git.get("last_commit_hash") or "")[:8]
+        # The card title and the commit row above it already say which commit this is
+        # and that it is not on a branch, so the banner only has to say what that
+        # COSTS. The one thing worth keeping from the old opening line is that the
+        # branch is untouched: that is reassurance, not a restatement.
         if origin:
             text = (
-                "You're viewing commit %s, not on a branch. %s is unchanged.\n"
-                "Anything you commit here won't be on a branch until you make one."
-                % (commit or "this one", origin)
+                "%s is unchanged. Anything you commit here won't be on a branch "
+                "until you make one." % origin
             )
         else:
-            text = (
-                "You're viewing commit %s, not on a branch.\n"
-                "Anything you commit here won't be on a branch until you make one."
-                % (commit or "this one")
-            )
+            text = "Anything you commit here won't be on a branch until you make one."
         card.body.Add(card.label(text, tone="muted_fg", small=True, wrap=True), 0, wx.BOTTOM, th.SP_SM)
 
         row = wx.BoxSizer(wx.HORIZONTAL)
@@ -1215,7 +1213,12 @@ class PrismDialog(wx.Dialog):
         tip = git.get("tip_commit_hash") or ""
         if detached and tip and tip != commit_hash:
             self._add_commit_row(
-                card, tip, git.get("tip_commit") or "", prism, label="Latest commit"
+                card,
+                tip,
+                git.get("tip_commit") or "",
+                prism,
+                label="Latest commit",
+                icon="commit_tip",
             )
 
         self._add_pull_row(card, git)
@@ -1982,7 +1985,9 @@ class PrismDialog(wx.Dialog):
         finally:
             dlg.Destroy()
 
-    def _add_commit_row(self, card, commit_hash, subject, prism, label="Last commit"):
+    def _add_commit_row(
+        self, card, commit_hash, subject, prism, label="Last commit", icon="commit"
+    ):
         """The commit you are on: SHA in a tag, subject beside it, the pair a link into
         Prism.
 
@@ -1991,10 +1996,12 @@ class PrismDialog(wx.Dialog):
         """
         # A commit icon rather than the words, with the sha and subject hard left. The
         # label still distinguishes last/current/latest, so it becomes the tooltip
-        # rather than being dropped.
+        # rather than being dropped. While detached two of these rows sit together, so
+        # they take different icons: a tooltip only tells you which is which once you
+        # have gone looking.
         row = wx.BoxSizer(wx.HORIZONTAL)
         row.Add(
-            StatusIcon(card, "commit", self.pal, tone="muted_fg", tooltip=label),
+            StatusIcon(card, icon, self.pal, tone="muted_fg", tooltip=label),
             0,
             wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
             th.SP_XS,

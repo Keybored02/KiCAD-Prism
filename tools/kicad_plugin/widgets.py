@@ -559,6 +559,20 @@ def draw_kind_icon(
         gc.StrokePath(node)
         return
 
+    if kind == "commit_tip":
+        # The same node, but at the END of the line rather than on it: this is the tip
+        # of the branch, not a commit somewhere along it. Distinct from "commit" at a
+        # glance, which matters because the two sit one above the other while detached.
+        line = gc.CreatePath()
+        line.MoveToPoint(*px(3, 12))
+        line.AddLineToPoint(*px(13, 12))
+        gc.StrokePath(line)
+
+        node = gc.CreatePath()
+        node.AddCircle(*px(17, 12), 3.5 * s)
+        gc.StrokePath(node)
+        return
+
     if kind == "pull":
         # lucide "arrow-down-to-line": commits coming down onto your branch. Distinct
         # from the fetch arrows on purpose, fetch only looks, pull changes your files.
