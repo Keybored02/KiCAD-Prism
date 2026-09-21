@@ -12,7 +12,7 @@ use kicad_monkey_core::{
     BoardFootprintOperation, BoardPlotLimits, BoardPlotRecord, BoardViaOperationKind, PcbFamily,
     PcbFootprint, PcbNetRef, PcbPad, PcbPadPrimitiveGeometry, PcbPoint, PcbPolygonPoint,
     PcbResolvedPadCopperLayer, PcbRoutingArc, PcbSegment, PcbSelection, PcbVia, PcbView, PcbZone,
-    board_plot_document, resolve_pad_copper_layer,
+    Selector, board_plot_document, resolve_pad_copper_layer, scan_form_spans,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -133,19 +133,8 @@ pub fn materialize(path: &Path, curve_tolerance_mm: f64) -> Result<Document> {
 
     let extraction_started = Instant::now();
     let source_layers = view.layers().collect::<Result<Vec<_>, _>>()?;
-    let layers = source_layers
-        .iter()
-        .enumerate()
-        .map(|(index, layer)| Layer {
-            index,
-            key: layer.name.clone(),
-            name: layer.name.clone(),
-            source_ordinal: layer.ordinal,
-            layer_type: layer.kind.clone(),
-            user_name: layer.user_name.clone(),
-        })
-        .collect::<Vec<_>>();
-    let copper_names = source_layers
+    let layers = contract_layers(&source_layers);
+    let copper_names = layers
         .iter()
         .filter(|layer| layer.name.ends_with(".Cu"))
         .map(|layer| layer.name.clone())
@@ -164,7 +153,7 @@ pub fn materialize(path: &Path, curve_tolerance_mm: f64) -> Result<Document> {
     let segments = view.segments().collect::<Result<Vec<_>, _>>()?;
     let arcs = view.arcs().collect::<Result<Vec<_>, _>>()?;
     let vias = view.vias().collect::<Result<Vec<_>, _>>()?;
-    let zones = view.zones().collect::<Result<Vec<_>, _>>()?;
+    let zones = copper_zones(&view, source, selection)?;
     let metadata = view.metadata().context("decode board metadata")?;
     let setup = view.setup().context("decode board setup")?;
     let board = Board {
@@ -221,7 +210,7 @@ pub fn materialize(path: &Path, curve_tolerance_mm: f64) -> Result<Document> {
     );
 
     let mut diagnostics = Vec::new();
-    let overrides = flash_overrides(source, &vias, &pads, &mut diagnostics)?;
+    let overrides = flash_overrides(source, &view, &vias, &pads, &mut diagnostics)?;
     let mut features = Vec::new();
     let mut drills = Vec::new();
     let mut source_order = 0usize;
@@ -387,19 +376,8 @@ impl AnalyticProducer for TemporaryPrismProducer {
 
         let analytics_started = Instant::now();
         let source_layers = view.layers().collect::<Result<Vec<_>, _>>()?;
-        let legacy_layers = source_layers
-            .iter()
-            .enumerate()
-            .map(|(index, layer)| Layer {
-                index,
-                key: layer.name.clone(),
-                name: layer.name.clone(),
-                source_ordinal: layer.ordinal,
-                layer_type: layer.kind.clone(),
-                user_name: layer.user_name.clone(),
-            })
-            .collect::<Vec<_>>();
-        let copper_names = source_layers
+        let legacy_layers = contract_layers(&source_layers);
+        let copper_names = legacy_layers
             .iter()
             .filter(|layer| layer.name.ends_with(".Cu"))
             .map(|layer| layer.name.clone())
@@ -418,7 +396,7 @@ impl AnalyticProducer for TemporaryPrismProducer {
         let segments = view.segments().collect::<Result<Vec<_>, _>>()?;
         let arcs = view.arcs().collect::<Result<Vec<_>, _>>()?;
         let vias = view.vias().collect::<Result<Vec<_>, _>>()?;
-        let zones = view.zones().collect::<Result<Vec<_>, _>>()?;
+        let zones = copper_zones(&view, source, selection)?;
         let metadata = view.metadata().context("decode board metadata")?;
         let setup = view.setup().context("decode board setup")?;
 
@@ -435,7 +413,7 @@ impl AnalyticProducer for TemporaryPrismProducer {
         );
 
         let mut legacy_diagnostics = Vec::new();
-        let overrides = flash_overrides(source, &vias, &pads, &mut legacy_diagnostics)?;
+        let overrides = flash_overrides(source, &view, &vias, &pads, &mut legacy_diagnostics)?;
         let mut diagnostics = legacy_diagnostics
             .into_iter()
             .map(|item| analytic::Diagnostic {
@@ -1999,8 +1977,38 @@ fn point(value: PcbPoint) -> Point {
     Point::new(value.x, value.y)
 }
 
+fn contract_layers(source_layers: &[kicad_monkey_core::PcbLayer]) -> Vec<Layer> {
+    if source_layers.is_empty() {
+        return [("F.Cu", 0, "signal"), ("B.Cu", 31, "signal")]
+            .into_iter()
+            .enumerate()
+            .map(|(index, (name, ordinal, layer_type))| Layer {
+                index,
+                key: name.to_owned(),
+                name: name.to_owned(),
+                source_ordinal: ordinal,
+                layer_type: layer_type.to_owned(),
+                user_name: None,
+            })
+            .collect();
+    }
+    source_layers
+        .iter()
+        .enumerate()
+        .map(|(index, layer)| Layer {
+            index,
+            key: layer.name.clone(),
+            name: layer.name.clone(),
+            source_ordinal: layer.ordinal,
+            layer_type: layer.kind.clone(),
+            user_name: layer.user_name.clone(),
+        })
+        .collect()
+}
+
 fn flash_overrides(
     source: &str,
+    view: &PcbView<'_>,
     vias: &[PcbVia],
     pads: &[PcbPad],
     diagnostics: &mut Vec<Diagnostic>,
@@ -2018,10 +2026,74 @@ fn flash_overrides(
     if !required {
         return Ok(FlashOverrides::default());
     }
+    let plot_source = blank_top_level_forms(source, view, |head, _| {
+        head == "zone"
+            || head.starts_with("gr_")
+            || matches!(head, "image" | "dimension" | "target")
+    });
+    let plot_source = blank_forms_by_head(
+        &plot_source,
+        &[
+            "zone",
+            "fp_arc",
+            "fp_circle",
+            "fp_curve",
+            "fp_image",
+            "fp_line",
+            "fp_poly",
+            "fp_rect",
+            "fp_text",
+            "fp_text_box",
+            "model",
+            "property",
+            "embedded_files",
+            "embedded_fonts",
+        ],
+    )?;
+    if plot_source.as_bytes() != source.as_bytes() {
+        diagnostics.push(Diagnostic {
+            severity: "warning",
+            code: "plot_facts_ignored_presentation_geometry",
+            message: "ignored zones and board presentation geometry while resolving pad/via copper flashing"
+                .to_owned(),
+            source_uid: None,
+        });
+    }
     let mut limits = BoardPlotLimits::default();
-    limits.max_source_bytes = limits.max_source_bytes.max(source.len().saturating_add(1));
-    let document = board_plot_document(source, limits)
-        .context("resolve effective pad/via flash layers with kicad-monkey board facts")?;
+    limits.max_source_bytes = limits
+        .max_source_bytes
+        .max(plot_source.len().saturating_add(1));
+    // Plot facts are used here only as the upstream authority for conditional
+    // pad/via flashing. Large authored boards can legitimately exceed the
+    // plotter's presentation-oriented default operation ceiling before that
+    // authority is available, so admit a larger but still bounded document.
+    limits.max_operations = limits.max_operations.max(1_000_000);
+    let document = match board_plot_document(&plot_source, limits) {
+        Ok(document) => document,
+        Err(error)
+            if error.to_string().contains(
+                "Board text-box render-cache wrapping requires the outline-font bridge",
+            ) =>
+        {
+            let filtered =
+                blank_top_level_forms(&plot_source, view, |head, _| head == "gr_text_box");
+            diagnostics.push(Diagnostic {
+                severity: "warning",
+                code: "plot_facts_ignored_text_boxes",
+                message:
+                    "ignored visual-only board text boxes while resolving pad/via copper flashing"
+                        .to_owned(),
+                source_uid: None,
+            });
+            board_plot_document(&filtered, limits).context(
+                "resolve effective pad/via flash layers with kicad-monkey board facts after excluding visual-only board text boxes",
+            )?
+        }
+        Err(error) => {
+            return Err(error)
+                .context("resolve effective pad/via flash layers with kicad-monkey board facts");
+        }
+    };
     let mut result = FlashOverrides {
         used_oracle: true,
         ..FlashOverrides::default()
@@ -2060,6 +2132,72 @@ fn flash_overrides(
         source_uid: None,
     });
     Ok(result)
+}
+
+fn copper_zones(view: &PcbView<'_>, source: &str, selection: PcbSelection) -> Result<Vec<PcbZone>> {
+    let filtered = blank_top_level_forms(source, view, |head, text| {
+        head == "zone" && !form_mentions_copper_layer(text)
+    });
+    if filtered.len() == source.len() && filtered.as_bytes() == source.as_bytes() {
+        return view
+            .zones()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Into::into);
+    }
+    let filtered_view = PcbView::parse_selected(&filtered, Default::default(), selection)
+        .context("parse PCB source after excluding non-copper zones")?;
+    filtered_view
+        .zones()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+fn form_mentions_copper_layer(text: &str) -> bool {
+    text.lines().any(|line| {
+        (line.contains("(layer ") || line.contains("(layers ")) && line.contains(".Cu\"")
+    })
+}
+
+fn blank_top_level_forms(
+    source: &str,
+    view: &PcbView<'_>,
+    predicate: impl Fn(&str, &str) -> bool,
+) -> String {
+    let mut bytes = source.as_bytes().to_vec();
+    for span in view.top_level_forms() {
+        let Some(head) = span.head.as_deref() else {
+            continue;
+        };
+        let Ok(text) = span.text(source) else {
+            continue;
+        };
+        if !predicate(head, text) {
+            continue;
+        }
+        for byte in &mut bytes[span.range.clone()] {
+            if !matches!(*byte, b'\n' | b'\r') {
+                *byte = b' ';
+            }
+        }
+    }
+    String::from_utf8(bytes).expect("replacing source bytes with ASCII spaces preserves UTF-8")
+}
+
+fn blank_forms_by_head(source: &str, heads: &[&str]) -> Result<String> {
+    let selector = Selector {
+        heads: Some(heads.iter().map(|head| (*head).to_owned()).collect()),
+        ..Selector::default()
+    };
+    let spans = scan_form_spans(source, &selector).context("select presentation-only PCB forms")?;
+    let mut bytes = source.as_bytes().to_vec();
+    for span in spans {
+        for byte in &mut bytes[span.range] {
+            if !matches!(*byte, b'\n' | b'\r') {
+                *byte = b' ';
+            }
+        }
+    }
+    Ok(String::from_utf8(bytes).expect("replacing source bytes with ASCII spaces preserves UTF-8"))
 }
 
 fn copper_plot_layers(layers: &[String]) -> Vec<String> {
@@ -2114,6 +2252,57 @@ mod tests {
                 "B.Paste".to_owned(),
             ]),
             vec!["F.Cu".to_owned(), "B.Cu".to_owned()]
+        );
+    }
+
+    #[test]
+    fn copper_layer_detection_ignores_non_layer_text() {
+        assert!(form_mentions_copper_layer("(zone\n  (layer \"F.Cu\")\n)"));
+        assert!(form_mentions_copper_layer(
+            "(zone\n  (layers \"F.Cu\" \"B.Cu\")\n)"
+        ));
+        assert!(!form_mentions_copper_layer(
+            "(zone\n  (net_name \"signal.Cu\")\n  (layer \"F.SilkS\")\n)"
+        ));
+    }
+
+    #[test]
+    fn blanked_forms_preserve_source_offsets_and_newlines() {
+        let source = "(kicad_pcb\n  (version 20240108)\n  (zone (layer \"F.SilkS\"))\n  (zone (layer \"F.Cu\"))\n)";
+        let selection = PcbSelection::none().with(PcbFamily::Zones);
+        let view = PcbView::parse_selected(source, Default::default(), selection).unwrap();
+        let filtered = blank_top_level_forms(source, &view, |head, text| {
+            head == "zone" && !form_mentions_copper_layer(text)
+        });
+
+        assert_eq!(filtered.len(), source.len());
+        assert_eq!(
+            filtered.bytes().filter(|byte| *byte == b'\n').count(),
+            source.bytes().filter(|byte| *byte == b'\n').count()
+        );
+        assert!(!filtered.contains("F.SilkS"));
+        assert!(filtered.contains("(zone (layer \"F.Cu\"))"));
+    }
+
+    #[test]
+    fn nested_presentation_forms_can_be_removed_without_touching_pads() {
+        let source = "(kicad_pcb\n  (footprint \"X\"\n    (fp_line (start 0 0) (end 1 1))\n    (pad \"1\" smd rect (at 0 0) (size 1 1) (layers \"F.Cu\"))\n  )\n)";
+        let filtered = blank_forms_by_head(source, &["fp_line"]).unwrap();
+
+        assert_eq!(filtered.len(), source.len());
+        assert!(!filtered.contains("fp_line"));
+        assert!(filtered.contains("(pad \"1\" smd rect"));
+    }
+
+    #[test]
+    fn empty_board_gets_a_synthetic_copper_pair() {
+        let layers = contract_layers(&[]);
+        assert_eq!(
+            layers
+                .iter()
+                .map(|layer| (layer.name.as_str(), layer.source_ordinal))
+                .collect::<Vec<_>>(),
+            vec![("F.Cu", 0), ("B.Cu", 31)]
         );
     }
 

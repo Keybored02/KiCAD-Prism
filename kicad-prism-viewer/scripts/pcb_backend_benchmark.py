@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA = "prism.pcb_backend_benchmark.v1"
+SCHEMA = "prism.pcb_backend_benchmark.v2"
 VIEWER_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = VIEWER_ROOT.parent
 BACKENDS = ("legacy", "python-copper", "rust")
@@ -35,6 +35,8 @@ def _run_trial(
     helper: Path,
     output_root: Path,
     trial: int,
+    *,
+    semantic_only: bool,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     logs = output_root / "logs"
     logs.mkdir(parents=True, exist_ok=True)
@@ -57,17 +59,15 @@ def _run_trial(
             sys.executable,
             "-m",
             "pipeline.topology_compiler",
-            "from-project",
+            "semantic-copper" if semantic_only else "from-project",
             str(project),
             "--output",
             str(artifact_dir),
-            "--scope",
-            "3d",
-            "--force-rebuild",
-            "--clean-cache",
             "--cache-dir",
             str(cache_dir),
         ]
+        if not semantic_only:
+            command.extend(["--scope", "3d", "--force-rebuild", "--clean-cache"])
         started = time.perf_counter()
         with log_path.open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
@@ -92,8 +92,11 @@ def _run_trial(
         manifest = json.loads(
             (artifact_dir / "scene-gltf" / "scene.manifest.json").read_text(encoding="utf-8")
         )
-        inventory = json.loads(
-            (artifact_dir / "artifact-manifest.json").read_text(encoding="utf-8")
+        inventory_path = artifact_dir / "artifact-manifest.json"
+        inventory = (
+            json.loads(inventory_path.read_text(encoding="utf-8"))
+            if inventory_path.is_file()
+            else {}
         )
         node_metrics = next(
             (
@@ -127,6 +130,9 @@ def _run_trial(
             "backend": backend,
             "trial": trial,
             "wall_ms": wall_ms,
+            "semantic_copper_ready_ms": float(
+                metrics.get("semantic_copper_ready_ms") or wall_ms
+            ),
             "cpu_ms": (usage.ru_utime + usage.ru_stime) * 1000.0,
             "peak_rss_bytes": _rss_bytes(usage.ru_maxrss),
             "source_bytes": project.with_suffix(".kicad_pcb").stat().st_size,
@@ -136,7 +142,8 @@ def _run_trial(
             "feature_count": len(manifest.get("objectFeatures") or ()) - 1,
             "net_count": len(manifest.get("nets") or ()) - 1,
             "layer_count": len(manifest.get("layers") or ()),
-            "final_asset_bytes": int(inventory.get("totalBytes") or 0),
+            "final_asset_bytes": int(inventory.get("totalBytes") or 0)
+            or sum(int(tile.get("bytes") or 0) for tile in manifest.get("tiles") or ()),
             "mesh_bytes": int(geometry_stats.get("output_bytes") or 0),
             "source_polygons": int(geometry_stats.get("source_polygons") or 0),
             "triangles": int(geometry_stats.get("triangles") or 0),
@@ -301,6 +308,7 @@ def _helper_identity(helper: Path) -> str:
 def _median(trials: list[dict[str, Any]]) -> dict[str, Any]:
     keys = (
         "wall_ms",
+        "semantic_copper_ready_ms",
         "cpu_ms",
         "peak_rss_bytes",
         "source_bytes",
@@ -335,6 +343,11 @@ def main() -> int:
     )
     parser.add_argument("--warmups", type=int, default=1)
     parser.add_argument("--trials", type=int, default=5)
+    parser.add_argument(
+        "--semantic-only",
+        action="store_true",
+        help="Measure through semantic-copper-ready without invoking kicad-cli GLB export",
+    )
     args = parser.parse_args()
     if args.warmups < 0:
         parser.error("--warmups must not be negative")
@@ -343,13 +356,23 @@ def main() -> int:
     helper = args.helper.resolve()
     if not helper.is_file() or not os.access(helper, os.X_OK):
         parser.error(f"helper is not executable: {helper}")
+    projects = [project.resolve() for project in args.projects]
+    missing_boards = [
+        project for project in projects if not project.with_suffix(".kicad_pcb").is_file()
+    ]
+    if missing_boards:
+        parser.error(
+            "benchmark inputs must be PCB-backed projects with a same-stem .kicad_pcb: "
+            + ", ".join(str(project) for project in missing_boards)
+        )
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     reports = []
-    for raw_project in args.projects:
-        project = raw_project.resolve()
+    for project in projects:
         trials: dict[str, list[dict[str, Any]]] = {backend: [] for backend in BACKENDS}
         manifests: dict[str, dict[str, Any]] = {}
+        failures: list[dict[str, Any]] = []
+        failed_backends: set[str] = set()
         total_rounds = args.warmups + args.trials
         for run_index in range(total_rounds):
             measured_run = run_index >= args.warmups
@@ -359,7 +382,28 @@ def main() -> int:
             offset = run_index % len(BACKENDS)
             order = BACKENDS[offset:] + BACKENDS[:offset]
             for backend in order:
-                result, manifest = _run_trial(project, backend, helper, output, run_index)
+                if backend in failed_backends:
+                    continue
+                try:
+                    result, manifest = _run_trial(
+                        project,
+                        backend,
+                        helper,
+                        output,
+                        run_index,
+                        semantic_only=args.semantic_only,
+                    )
+                except Exception as exc:
+                    failed_backends.add(backend)
+                    failures.append(
+                        {
+                            "backend": backend,
+                            "run": run_index,
+                            "error": str(exc),
+                        }
+                    )
+                    print(f"{project.name} {backend} FAILED: {exc}", flush=True)
+                    continue
                 manifests[backend] = manifest
                 if measured_run:
                     trials[backend].append(result)
@@ -369,13 +413,22 @@ def main() -> int:
                     f"{result['wall_ms']:.1f} ms",
                     flush=True,
                 )
-        medians = {backend: _median(values) for backend, values in trials.items()}
-        legacy_wall = medians["legacy"]["wall_ms"]
-        improvements = {
-            backend: ((legacy_wall - values["wall_ms"]) / legacy_wall) * 100.0
-            for backend, values in medians.items()
-            if backend != "legacy"
+        medians = {
+            backend: _median(values)
+            for backend, values in trials.items()
+            if len(values) == args.trials
         }
+        metric_key = "semantic_copper_ready_ms" if args.semantic_only else "wall_ms"
+        legacy_wall = medians.get("legacy", {}).get(metric_key)
+        improvements = (
+            {
+                backend: ((legacy_wall - values[metric_key]) / legacy_wall) * 100.0
+                for backend, values in medians.items()
+                if backend != "legacy"
+            }
+            if legacy_wall
+            else {}
+        )
         reports.append(
             {
                 "project": str(project),
@@ -384,11 +437,14 @@ def main() -> int:
                 "pcb_sha256": _sha256(project.with_suffix(".kicad_pcb")),
                 "trials": trials,
                 "medians": medians,
+                "failures": failures,
                 "wall_improvement_percent_vs_legacy": improvements,
                 "parity_vs_legacy": {
                     backend: _parity(manifests["legacy"], manifests[backend])
                     for backend in BACKENDS
                     if backend != "legacy"
+                    and "legacy" in manifests
+                    and backend in manifests
                 },
             }
         )
@@ -407,6 +463,10 @@ def main() -> int:
             "backends": list(BACKENDS),
             "cache": "fresh compiler and semantic scene cache per run; forced artifact rebuild",
             "order": "interleaved and rotated per round",
+            "semantic_only": args.semantic_only,
+            "comparison_metric": (
+                "semantic_copper_ready_ms" if args.semantic_only else "wall_ms"
+            ),
         },
         "boards": reports,
     }

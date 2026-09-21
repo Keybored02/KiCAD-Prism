@@ -263,6 +263,93 @@ def cmd_from_project(args: argparse.Namespace) -> None:
     _progress("from-project complete")
 
 
+def cmd_semantic_copper(args: argparse.Namespace) -> None:
+    """Build only semantic copper tiles, without invoking kicad-cli GLB export."""
+
+    _STAGE_TIMINGS_MS.clear()
+    _PROFILE_EVENTS.clear()
+    total_started = time.perf_counter()
+    project_file = args.project
+    _progress(f"semantic-copper input={project_file} output={args.output}")
+    context = PrismCompilationContext(
+        project_file,
+        compatibility_design_json=args.compat_design_json,
+        progress=_progress,
+        profile=_profile("context"),
+        native_semantic_output=args.output / ".native-semantic-pack",
+        semantic_tile_size=args.tile_size,
+        semantic_meshopt_level=args.meshopt_level,
+    )
+    # This command measures the copper lane itself.  Do not hydrate the
+    # schematic or compile a netlist: board metadata is sufficient to build
+    # the layer/net/feature tables consumed by the semantic tile packer.  The
+    # legacy backend may still load KiCadDesign internally to produce PCB IR.
+    try:
+        context.board_compilation
+        pcb_metadata = context.pcb_metadata
+    except Exception as exc:
+        print(f"error: kicad_monkey failed to compile {project_file}: {exc}", file=sys.stderr)
+        raise SystemExit(2)
+
+    with _stage("compile board-only topology model"):
+        topology = compile_topology(
+            {},
+            [],
+            pcb_metadata,
+            _discover_project_assets(project_file),
+        )
+    try:
+        tile_size_mm = _resolve_semantic_tile_size(args.tile_size, pcb_metadata)
+        _profile("compiler")(
+            "tile_size",
+            {
+                "requested": args.tile_size,
+                "resolved_mm": tile_size_mm,
+                "board_bbox_mm": pcb_metadata.get("bbox_mm"),
+            },
+        )
+        with _stage("build semantic GLTF scene tiles"):
+            if context.semantic_mesh_pack is not None:
+                semantic_result = build_packed_semantic_gltf_scene(
+                    topology,
+                    context.semantic_mesh_pack,
+                    args.output,
+                    force_rebuild=True,
+                    clean_cache=True,
+                    progress=_progress,
+                    profile_callback=_profile("semantic_gltf"),
+                )
+            else:
+                semantic_result = build_semantic_gltf_scene(
+                    topology,
+                    {"assets": {}, "components": []},
+                    context.semantic_geometry_source,
+                    args.output,
+                    pad_holes=context.pad_holes,
+                    force_rebuild=True,
+                    clean_cache=True,
+                    cache_dir=args.cache_dir,
+                    meshopt_level=args.meshopt_level,
+                    tile_size_mm=tile_size_mm,
+                    progress=_progress,
+                    profile_callback=_profile("semantic_gltf"),
+                )
+    except Exception as exc:
+        print(f"error: semantic copper export failed for {project_file}: {exc}", file=sys.stderr)
+        raise SystemExit(3)
+
+    _STAGE_TIMINGS_MS["semantic_copper_ready_ms"] = (
+        time.perf_counter() - total_started
+    ) * 1000.0
+    _STAGE_TIMINGS_MS.update(context.timings)
+    result_path = args.output / "semantic-copper-result.json"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json.dumps(semantic_result, indent=2), encoding="utf-8")
+    _write_from_project_metrics(project_file, args.output, total_started)
+    _progress("MILESTONE semantic-copper-ready")
+    _progress("semantic-copper complete")
+
+
 def _stage_metric_key(label: str) -> str | None:
     mapping = {
         "load KiCad project with kicad_monkey": "project_load_ms",
@@ -444,6 +531,31 @@ def main() -> None:
         help="Semantic GLTF tile edge length in millimetres, or auto for a board-adaptive size",
     )
     from_project.set_defaults(func=cmd_from_project)
+
+    semantic_copper = sub.add_parser(
+        "semantic-copper",
+        help="Compile semantic copper tiles without KiCad GLB export",
+    )
+    semantic_copper.add_argument("project", type=Path)
+    semantic_copper.add_argument("--output", type=Path, required=True)
+    semantic_copper.add_argument("--cache-dir", type=Path)
+    semantic_copper.add_argument(
+        "--compat-design-json",
+        action="store_true",
+        help="Use the legacy indexed design JSON payload for topology compilation",
+    )
+    semantic_copper.add_argument(
+        "--meshopt-level",
+        choices=["low", "medium", "high"],
+        default="medium",
+        help="Meshoptimizer compression level for semantic GLTF tiles",
+    )
+    semantic_copper.add_argument(
+        "--tile-size",
+        default="auto",
+        help="Semantic GLTF tile edge length in millimetres, or auto for a board-adaptive size",
+    )
+    semantic_copper.set_defaults(func=cmd_semantic_copper)
 
     clipper2_info = sub.add_parser("clipper2-info", help="Print bundled Prism Clipper2 library diagnostics")
     clipper2_info.add_argument("--library", type=Path, help="Explicit libprism_clipper2 shared library path")

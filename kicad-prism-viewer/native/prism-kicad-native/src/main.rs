@@ -1,5 +1,6 @@
 pub mod analytic_contract;
 mod contract;
+mod geometer_ffi;
 pub mod geometer_packets;
 mod geometry;
 mod materialize;

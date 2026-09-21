@@ -1,8 +1,13 @@
 use crate::analytic_contract::{
     Affine2D, AnalyticPrimitive, Document, MaterialPolarity, NmPoint, Operation,
 };
+use crate::geometer_packets::{
+    BooleanRequest, ClipType, FillRule, Path as GeometerPath, decode_boolean_response,
+    encode_boolean_request,
+};
 use crate::geometry::{
-    Point, capsule, chamfered_rectangle, circle, oval, rounded_rectangle, sample_arc, trapezoid,
+    Point, capsule, chamfered_rectangle, circle, mm_to_nm, oval, rounded_rectangle, sample_arc,
+    trapezoid,
 };
 use crate::semantic_compiler::{LoweringRoute, TileId, classify, resolve_tile_size_mm};
 use anyhow::{Context, Result, bail};
@@ -115,6 +120,7 @@ pub struct CompileMetrics {
     pub parse_analytics_ms: f64,
     pub classification_ms: f64,
     pub lowering_ms: f64,
+    pub clipping_ms: f64,
     pub triangulation_ms: f64,
     pub packed_output_ms: f64,
     pub total_ms: f64,
@@ -236,9 +242,19 @@ pub fn compile_semantic(
         .iter()
         .filter(|item| item.route == LoweringRoute::GeometerBoolean)
         .count();
-    if geometer_operations != 0 {
+    let subtractive_operations = document
+        .operations
+        .iter()
+        .filter(|operation| operation.polarity == MaterialPolarity::Subtract)
+        .count();
+    if subtractive_operations != 0 {
         bail!(
-            "native packed compiler requires Geometer terminal lowering for {geometer_operations} multi-tile or subtractive operation(s)"
+            "native packed compiler does not yet group {subtractive_operations} subtractive operation(s) with their additive subjects"
+        );
+    }
+    if geometer_operations != 0 && !crate::geometer_ffi::available() {
+        bail!(
+            "native packed compiler requires a Geometer SDK-linked helper for {geometer_operations} multi-tile operation(s)"
         );
     }
 
@@ -264,6 +280,7 @@ pub fn compile_semantic(
     let mut source_feature_ids = HashMap::<String, u32>::new();
     let mut meshes = BTreeMap::<(u32, i64, i64), TileMesh>::new();
     let mut lowering_ms = 0.0;
+    let mut clipping_ms = 0.0;
     let mut triangulation_ms = 0.0;
 
     for classified_operation in &classified {
@@ -274,7 +291,22 @@ pub fn compile_semantic(
             apply_drill_hole(&mut regions, drill, mesh_tolerance_mm);
         }
         lowering_ms += lower_started.elapsed().as_secs_f64() * 1000.0;
-        let tile = classified_operation.tiles[0];
+        let tile_regions = if classified_operation.route == LoweringRoute::Direct {
+            vec![(classified_operation.tiles[0], regions)]
+        } else {
+            let clip_started = Instant::now();
+            let result = classified_operation
+                .tiles
+                .iter()
+                .copied()
+                .map(|tile| {
+                    clip_regions_to_tile(&regions, tile, tile_size_mm)
+                        .map(|clipped| (tile, clipped))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            clipping_ms += clip_started.elapsed().as_secs_f64() * 1000.0;
+            result
+        };
         for source_layer_index in &operation.layer_indexes {
             let layer = layer_by_source.get(source_layer_index).with_context(|| {
                 format!("operation references missing source layer index {source_layer_index}")
@@ -323,19 +355,30 @@ pub fn compile_semantic(
             // however, are part of the viewer's picking contract and must
             // describe the terminal mesh.  Circular sweeps in particular
             // must not publish the bounds of their entire parent circle.
-            merge_bounds(&mut feature.bounds_mm, regions_bounds_mm(&regions, layer));
-            let mesh = meshes
-                .entry((layer.id, tile.x, tile.y))
-                .or_insert_with(|| TileMesh {
-                    layer_id: layer.id,
-                    layer_name: layer.name.clone(),
-                    tile,
-                    ..TileMesh::default()
-                });
-            for region in &regions {
-                let triangulate_started = Instant::now();
-                append_region_mesh(mesh, region, layer_surface_y_mm(layer), net_id, feature_id)?;
-                triangulation_ms += triangulate_started.elapsed().as_secs_f64() * 1000.0;
+            for (tile, regions) in &tile_regions {
+                if regions.is_empty() {
+                    continue;
+                }
+                merge_bounds(&mut feature.bounds_mm, regions_bounds_mm(regions, layer));
+                let mesh = meshes
+                    .entry((layer.id, tile.x, tile.y))
+                    .or_insert_with(|| TileMesh {
+                        layer_id: layer.id,
+                        layer_name: layer.name.clone(),
+                        tile: *tile,
+                        ..TileMesh::default()
+                    });
+                for region in regions {
+                    let triangulate_started = Instant::now();
+                    append_region_mesh(
+                        mesh,
+                        region,
+                        layer_surface_y_mm(layer),
+                        net_id,
+                        feature_id,
+                    )?;
+                    triangulation_ms += triangulate_started.elapsed().as_secs_f64() * 1000.0;
+                }
             }
         }
     }
@@ -409,10 +452,11 @@ pub fn compile_semantic(
         parse_analytics_ms,
         classification_ms,
         lowering_ms,
+        clipping_ms,
         triangulation_ms,
         packed_output_ms,
         total_ms: 0.0,
-        direct_operations: classified.len(),
+        direct_operations: classified.len() - geometer_operations,
         geometer_operations,
         vertices,
         triangles,
@@ -757,6 +801,63 @@ fn apply_drill_hole(
             region.holes.push(hole.clone());
         }
     }
+}
+
+fn clip_regions_to_tile(
+    regions: &[Region],
+    tile: TileId,
+    tile_size_mm: f64,
+) -> Result<Vec<Region>> {
+    let subjects = regions
+        .iter()
+        .flat_map(|region| std::iter::once(&region.outer).chain(region.holes.iter()))
+        .filter(|ring| ring.len() >= 3)
+        .map(|ring| {
+            ring.iter()
+                .map(|point| [nm_to_mm(point[0]), nm_to_mm(point[1])])
+                .collect::<GeometerPath>()
+        })
+        .collect::<Vec<_>>();
+    if subjects.is_empty() {
+        return Ok(Vec::new());
+    }
+    let [min_x, min_y, max_x, max_y] = tile_bounds(tile, tile_size_mm);
+    let clips = vec![vec![
+        [min_x, min_y],
+        [max_x, min_y],
+        [max_x, max_y],
+        [min_x, max_y],
+    ]];
+    let request = encode_boolean_request(&BooleanRequest {
+        clip_type: ClipType::Intersection,
+        fill_rule: FillRule::EvenOdd,
+        decimal_precision: 6,
+        cleanup_radius_mm: 0.0,
+        cleanup_miter_limit: 2.0,
+        cleanup_arc_tolerance_mm: 0.005,
+        subjects: &subjects,
+        clips: &clips,
+    })?;
+    let response = crate::geometer_ffi::clipper2_boolean(&request)?;
+    Ok(decode_boolean_response(&response)?
+        .into_iter()
+        .map(|region| Region {
+            outer: region
+                .outline
+                .into_iter()
+                .map(|point| [mm_to_nm(point[0]), mm_to_nm(point[1])])
+                .collect(),
+            holes: region
+                .holes
+                .into_iter()
+                .map(|ring| {
+                    ring.into_iter()
+                        .map(|point| [mm_to_nm(point[0]), mm_to_nm(point[1])])
+                        .collect()
+                })
+                .collect(),
+        })
+        .collect())
 }
 
 fn point_in_ring(point: NmPoint, ring: &[NmPoint]) -> bool {
