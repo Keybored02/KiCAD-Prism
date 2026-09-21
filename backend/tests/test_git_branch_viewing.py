@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from git import Actor, Repo
+from git.exc import BadName
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -117,6 +118,56 @@ class GitBranchViewingTests(unittest.TestCase):
             self.assertIsNone(page["total"])
             self.assertTrue(page["has_more"])
             self.assertEqual(page["resolved_ref_sha"], second.hexsha)
+
+
+class RemoteOnlyBranchTests(unittest.TestCase):
+    """Prism's own clone never checks branches out, so a branch somebody pushed exists
+    in it only as `origin/<name>`.
+
+    Callers name branches the way their user does ("test", not "origin/test"), because
+    that is what their own checkout calls it. Resolving only local heads made every one
+    of those a 404 against a branch the clone demonstrably had.
+
+    Driven through a stand-in rather than a real clone: the real thing needs three
+    repositories, and GitPython holds Windows file handles open on all of them, which
+    already breaks cleanup for other tests in this file. What is worth pinning is the
+    fallback, not git's ability to clone.
+    """
+
+    class _FakeRemote:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class _FakeRepo:
+        """Resolves only the refs it was given, raising BadName as a real repo does."""
+
+        def __init__(self, refs: dict, remotes: list) -> None:
+            self._refs = refs
+            self.remotes = remotes
+
+        def commit(self, ref: str):
+            if ref in self._refs:
+                return self._refs[ref]
+            raise BadName(ref)
+
+    def _repo(self):
+        return self._FakeRepo(
+            {"main": "sha-main", "origin/pushed-only": "sha-pushed"},
+            [self._FakeRemote("origin")],
+        )
+
+    def test_a_branch_that_exists_only_on_the_remote_still_resolves(self) -> None:
+        self.assertEqual(
+            git_service._resolve_commit(self._repo(), "pushed-only"), "sha-pushed"
+        )
+
+    def test_a_local_branch_is_unaffected(self) -> None:
+        self.assertEqual(git_service._resolve_commit(self._repo(), "main"), "sha-main")
+
+    def test_an_unknown_ref_is_still_a_404(self) -> None:
+        with self.assertRaises(Exception) as caught:
+            git_service._resolve_commit(self._repo(), "no-such-branch")
+        self.assertEqual(getattr(caught.exception, "status_code", None), 404)
 
 
 if __name__ == "__main__":

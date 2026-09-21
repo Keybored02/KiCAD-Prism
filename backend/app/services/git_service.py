@@ -48,6 +48,16 @@ def _resolve_commit(repo: Repo, ref: str | None):
     try:
         return repo.commit(ref or "HEAD")
     except BadName as error:
+        # A branch name that exists on the remote but has no local branch here. This
+        # repository is Prism's own clone and nothing ever checks branches out in it,
+        # so a branch someone pushed arrives as `origin/<name>` and never as `<name>`.
+        # Callers name branches the way their user does, so resolve that shape rather
+        # than making every one of them know which clone they are talking to.
+        for remote in repo.remotes:
+            try:
+                return repo.commit(f"{remote.name}/{ref}")
+            except Exception:
+                continue
         raise HTTPException(status_code=404, detail=f"Git ref not found: {ref}") from error
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
