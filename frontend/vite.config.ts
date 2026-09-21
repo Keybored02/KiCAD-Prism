@@ -16,6 +16,14 @@ export default defineConfig({
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
+      // The OAuth surface is on the backend too: the provider flow KiCad's Remote
+      // Symbols panel uses, and the session handoff behind "Continue as <user>".
+      // vite.config.panel.ts has always proxied both; this one only had /api, so
+      // every /oauth/* request through the dev server 404d.
+      "/oauth": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
     },
   },
   build: {
