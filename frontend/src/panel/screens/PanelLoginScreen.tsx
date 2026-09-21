@@ -104,11 +104,6 @@ export function PanelLoginScreen({
                   <p className="mt-0.5 break-all text-xs font-medium">{handoff.email}</p>
                 </div>
 
-                <p className="text-[11px] text-muted-foreground">
-                  This is the account signed in to the KiCad plugin. Continue to use it
-                  here.
-                </p>
-
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
