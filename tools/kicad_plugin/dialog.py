@@ -88,6 +88,8 @@ class PrismDialog(wx.Dialog):
         self.board_path = board_path
         self.data = None
         self.changes = None  # None = couldn't fetch; [] = genuinely nothing
+        # Stashes as of the last load. Rendered from, never fetched during a render.
+        self._stashes = []
         self.verdict = "ok"  # this plugin vs the server: ok | update | required
         self.download_url = ""
         # Which files the user has expanded, by path. Kept across a re-render so
@@ -312,6 +314,7 @@ class PrismDialog(wx.Dialog):
         self.content.Clear(delete_windows=True)
         self.data = None
         self.changes = _CHANGES_LOADING
+        self._stashes = []
         self._render_contacting()
         self._relayout()
 
@@ -335,7 +338,19 @@ class PrismDialog(wx.Dialog):
                     verdict, _ = version.server_verdict(health.get("server_plugin"))
                     if verdict != "required":
                         project = client.project(board_path)
-                payload = {"health": health, "project": project}
+                # Stashes come along for the ride. The sync row needs the count on
+                # every render, and _rebuild re-renders on every collapse/expand, so
+                # reading them inline would put an HTTP round-trip on the UI thread
+                # each time a section is toggled.
+                stashes = []
+                if project and (project.get("project") or {}).get("path"):
+                    try:
+                        stashes = (
+                            client.stashes((project["project"])["path"]) or {}
+                        ).get("stashes") or []
+                    except AgentUnavailable:
+                        stashes = []  # not worth failing the whole load over
+                payload = {"health": health, "project": project, "stashes": stashes}
                 error = None
             except AgentUnavailable as exc:
                 payload = None
@@ -405,6 +420,7 @@ class PrismDialog(wx.Dialog):
             return
 
         self.data = payload["project"]
+        self._stashes = payload.get("stashes") or []
 
         # The diff parses every changed board, so it can take a second or two on a big
         # one. Don't block on it either: render everything else now with the changes card
@@ -1456,12 +1472,78 @@ class PrismDialog(wx.Dialog):
         self._load()
 
     def _push(self):
+        """Push the current branch, publishing it first if it has no remote yet.
+
+        A branch that already tracks a remote goes straight out: git knows where, and a
+        dialog whose answer is the same every time is one people learn to dismiss. The
+        question is only asked when it is real, which is the branch that has never been
+        pushed.
+        """
         project = (self.data or {}).get("project")
         if not project or not project.get("repo_root"):
             return
+        repo = project["repo_root"]
         try:
             with wx.BusyCursor():
-                AgentClient().push(project["repo_root"])
+                AgentClient().push(repo)
+        except AgentUnavailable as exc:
+            if "isn't tracking a remote" in str(exc):
+                self._publish_branch(repo)
+                return
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+        self._load()
+
+    def _publish_branch(self, repo):
+        """Push a branch that has no remote yet, asking WHERE when there is a choice.
+
+        The choice is real here in a way it never is for an ordinary push: nothing has
+        decided yet, and a repo with both `origin` and `upstream` (the fork layout) would
+        otherwise have the destination guessed for it.
+        """
+        try:
+            remotes = (AgentClient().remotes(repo) or {}).get("remotes") or []
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        if not remotes:
+            wx.MessageBox(
+                "This project has no remote to push to.\n\n"
+                "Add one with `git remote add`, then push again.",
+                "Prism",
+                wx.OK | wx.ICON_WARNING,
+            )
+            return
+
+        if len(remotes) == 1:
+            target = remotes[0]["name"]
+            answer = wx.MessageBox(
+                "This branch hasn't been pushed yet.\n\nPublish it to %s?"
+                % target,
+                "Publish branch",
+                wx.YES_NO | wx.ICON_QUESTION,
+            )
+            if answer != wx.YES:
+                return
+        else:
+            # remotes() puts origin first, so the default selection is the convention.
+            choices = ["%s  (%s)" % (r["name"], r["url"]) for r in remotes]
+            dlg = wx.SingleChoiceDialog(
+                self, "Publish this branch to which remote?", "Publish branch", choices
+            )
+            try:
+                dlg.SetSize(wx.Size(560, 360))
+                dlg.CentreOnParent()
+                if dlg.ShowModal() != wx.ID_OK:
+                    return
+                target = remotes[dlg.GetSelection()]["name"]
+            finally:
+                dlg.Destroy()
+
+        try:
+            with wx.BusyCursor():
+                AgentClient().push(repo, set_upstream=True, remote=target)
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
@@ -1568,19 +1650,15 @@ class PrismDialog(wx.Dialog):
         self._load()
 
     def _stash_entries(self):
-        """The repo's stashes, or [] if they cannot be read.
+        """The repo's stashes, as of the last load.
 
-        Read on render to size the badge, and again when the modal opens. Cheap (one
-        `git stash list`) and always current, which matters more here than caching:
-        a stale count on a button that opens a list is a contradiction the user sees.
+        Read from the payload rather than fetched here: this is called from the render
+        path, and _rebuild re-renders on every collapse/expand, so a fetch would put a
+        blocking round-trip on the UI thread each time a section is toggled. Every
+        action that changes the list calls _load, so the count cannot go stale without
+        a refresh that fixes it.
         """
-        project = (self.data or {}).get("project")
-        if not project:
-            return []
-        try:
-            return (AgentClient().stashes(project["path"]) or {}).get("stashes") or []
-        except AgentUnavailable:
-            return []  # not worth an error of its own; the rest of the dialog works
+        return list(self._stashes or [])
 
     def _open_stashes(self):
         """The stash list, on demand.
