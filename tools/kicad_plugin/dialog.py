@@ -2268,6 +2268,10 @@ class PrismDialog(wx.Dialog):
         # default; deciding to commit one is the user's call, and the panel now lets
         # them follow through on it.
         if design or noise or self._staged_paths():
+            # The file rows carry only a hairline gap between them, which is right
+            # within the list and too tight against what follows: the last filename
+            # sat almost on the Stage button. Separate the list from the controls.
+            card.body.AddSpacer(th.SP_SM)
             card.rule()  # the change list above, what you are committing below
             self._add_staging(card, has_design=bool(design))
             self._add_commit_box(card, has_design=bool(design))
@@ -2343,14 +2347,18 @@ class PrismDialog(wx.Dialog):
             wx.RIGHT,
             th.SP_XS,
         )
-        # Destructive, and marked as such rather than sitting there looking like the
-        # other two. The confirmation is what makes it safe; see _discard.
+        # A bin rather than another word: it is the one action here that destroys
+        # work, and an icon says that faster than a label in a row of labels. The
+        # destructive variant draws it red; the confirmation is what makes it safe.
         row.Add(
-            Button(
-                card, "Discard", self.pal, variant="destructive-ghost",
+            IconButton(
+                card, "trash", self.pal,
+                tooltip="Discard uncommitted changes",
+                variant="destructive-ghost",
                 on_click=self._discard,
             ),
             0,
+            wx.ALIGN_CENTER_VERTICAL,
         )
         # Breathing room under the "N files staged" line; the buttons sat right on it.
         card.body.Add(row, 0, wx.LEFT | wx.TOP, th.SP_SM)

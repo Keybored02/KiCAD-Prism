@@ -640,6 +640,36 @@ def draw_kind_icon(
         gc.StrokePath(handle)
         return
 
+    if kind == "trash":
+        # lucide "trash-2": lid, can, and two slats. The one destructive action in the
+        # panel, so it reads as a bin rather than as another word in a row of words.
+        lid = gc.CreatePath()
+        lid.MoveToPoint(*px(3, 6))
+        lid.AddLineToPoint(*px(21, 6))
+        gc.StrokePath(lid)
+
+        handle = gc.CreatePath()
+        handle.MoveToPoint(*px(8, 6))
+        handle.AddLineToPoint(*px(8, 4))
+        handle.AddLineToPoint(*px(16, 4))
+        handle.AddLineToPoint(*px(16, 6))
+        gc.StrokePath(handle)
+
+        can = gc.CreatePath()
+        can.MoveToPoint(*px(5, 6))
+        can.AddLineToPoint(*px(6, 20))
+        can.AddLineToPoint(*px(18, 20))
+        can.AddLineToPoint(*px(19, 6))
+        gc.StrokePath(can)
+
+        slats = gc.CreatePath()
+        slats.MoveToPoint(*px(10, 10))
+        slats.AddLineToPoint(*px(10, 17))
+        slats.MoveToPoint(*px(14, 10))
+        slats.AddLineToPoint(*px(14, 17))
+        gc.StrokePath(slats)
+        return
+
     if kind == "library":
         # lucide "library": three books on a shelf, the middle one tilted.
         books = gc.CreatePath()
