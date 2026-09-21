@@ -2693,9 +2693,16 @@ class PrismDialog(wx.Dialog):
                 "Prism")
             return
 
-        # The item is selected behind the dialog; get out of the way so it can be
-        # seen. Modeless would be nicer, but KiCad's plugin API runs us modally.
-        self.EndModal(wx.ID_OK)
+        # The item is now selected and centred behind us, and that is all this does.
+        #
+        # It used to close the dialog to reveal it, which ended the session on the
+        # first click: you came back to a panel that had reloaded, lost its expanded
+        # sections, and no longer knew which item you had just looked at. Checking
+        # several changes in a row meant reopening the plugin each time.
+        #
+        # probe() calls Refresh(), so the board repaints underneath and the selection
+        # is there whenever the dialog is moved or closed. Where the dialog sits is the
+        # user's business; nothing here moves it.
 
     @staticmethod
     def _reference_of(group) -> str:
