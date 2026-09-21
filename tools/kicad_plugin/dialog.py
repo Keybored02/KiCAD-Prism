@@ -1422,12 +1422,8 @@ class PrismDialog(wx.Dialog):
                     tooltip="Stashed changes",
                     variant="ghost",
                     on_click=self._open_stashes,
+                    count=len(stashed),
                 ),
-                0,
-                wx.ALIGN_CENTER_VERTICAL,
-            )
-            row.Add(
-                Badge(card, str(len(stashed)), self.pal, tone="muted"),
                 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
                 th.SP_SM,
@@ -2084,7 +2080,7 @@ class PrismDialog(wx.Dialog):
         # away", and a stash that took only half of it would leave the tree in a state
         # nobody asked for.
         row.Add(
-            Button(card, "Stash…", self.pal, variant="secondary", on_click=self._stash),
+            Button(card, "Stash", self.pal, variant="secondary", on_click=self._stash),
             0,
         )
         # Breathing room under the "N files staged" line; the buttons sat right on it.

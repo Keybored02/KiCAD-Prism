@@ -207,17 +207,44 @@ class IconButton(Button):
     """
 
     ICON = 16
+    # Space between the icon and a count sitting beside it.
+    COUNT_GAP = 5
 
-    def __init__(self, parent, kind, pal, tooltip, variant="ghost", on_click=None):
+    def __init__(
+        self, parent, kind, pal, tooltip, variant="ghost", on_click=None, count=None
+    ):
         self.kind = kind
+        # A number carried INSIDE the button rather than a separate badge next to it:
+        # the count belongs to the action, and a pill floating beside the outline read
+        # as a second thing to click.
+        self.count = count
         super().__init__(parent, "", pal, variant=variant, on_click=on_click)
         self.SetToolTip(tooltip)
+
+    def _count_text(self) -> str:
+        return "" if self.count is None else str(self.count)
+
+    def _count_width(self) -> int:
+        """How much room the count needs, measured in the font it is drawn in."""
+        text = self._count_text()
+        if not text:
+            return 0
+        dc = wx.ClientDC(self)
+        dc.SetFont(self._count_font())
+        return dc.GetTextExtent(text).GetWidth() + self.COUNT_GAP
+
+    def _count_font(self) -> wx.Font:
+        font = self.GetFont()
+        font.SetPointSize(th.FONT_SMALL)
+        return font
 
     def _measure(self) -> wx.Size:
         # Square, sized off the same vertical padding a text button uses, so an icon
         # button lines up with the text buttons beside it instead of sitting short.
         side = self.ICON + self.PAD_Y * 2
-        return wx.Size(side, side)
+        # A count widens the button rather than changing its height or its outline, so
+        # it still reads as the same control in the row.
+        return wx.Size(side + self._count_width(), side)
 
     def _on_paint(self, _e):
         dc = wx.AutoBufferedPaintDC(self)
@@ -235,14 +262,25 @@ class IconButton(Button):
             gc.SetPen(wx.Pen(border) if border else wx.TRANSPARENT_PEN)
             gc.DrawRoundedRectangle(0.5, 0.5, w - 1, h - 1, self.RADIUS)
 
+        text = self._count_text()
+        # Icon and count are centred as a pair, so a two-digit count does not shove the
+        # icon off to one side.
+        content = self.ICON + self._count_width()
+        x = (w - content) / 2
+
         draw_kind_icon(
             gc,
             self.kind,
-            (w - self.ICON) / 2,
+            x,
             (h - self.ICON) / 2,
             icon_colour,
             size=self.ICON,
         )
+
+        if text:
+            gc.SetFont(self._count_font(), icon_colour)
+            tw, th_, *_ = gc.GetTextExtent(text)
+            gc.DrawText(text, x + self.ICON + self.COUNT_GAP, (h - th_) / 2)
 
 
 class StatusIcon(wx.Panel):
