@@ -186,13 +186,15 @@ async def session_bootstrap_from_agent(request: Request):
     if not next_url.startswith(f"{base_url}/"):
         raise HTTPException(status_code=400, detail="next_url must stay on the provider origin")
 
-    nonce_url = await asyncio.to_thread(
+    nonce_url, email = await asyncio.to_thread(
         provider_auth_service.build_bootstrap_nonce_url_for_agent,
         base_url,
         agent_token,
         next_url,
     )
-    return JSONResponse({"nonce_url": nonce_url})
+    # The email names the account on the confirmation step. It is not a credential:
+    # the URL beside it is, and it is single-use and expires in two minutes.
+    return JSONResponse({"nonce_url": nonce_url, "email": email})
 
 
 @router.get("/oauth/bootstrap", include_in_schema=False)

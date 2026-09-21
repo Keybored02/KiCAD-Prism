@@ -77,19 +77,21 @@ class PrismClient:
         """
         return self._request("GET", "/api/plugin/version")
 
-    def agent_handoff_url(self, agent_token: str, next_url: str) -> str:
+    def agent_handoff_url(self, agent_token: str, next_url: str) -> tuple[str, str]:
         """Trade the agent's token for a one-shot URL that signs a browser in.
 
-        Returns "" whenever the backend declines, which covers a revoked or expired
-        token, auth being off, and a server too old to offer this. Every one of those
-        means the browser should just ask for a login as it always did.
+        Returns the URL and the email it belongs to, or ("", "") whenever the backend
+        declines, which covers a revoked or expired token, auth being off, and a server
+        too old to offer this. Every one of those means the browser should just ask for
+        a login as it always did.
         """
         result = self._request(
             "POST",
             "/oauth/session/bootstrap-from-agent",
             {"agent_token": agent_token, "next_url": next_url},
         )
-        return str((result or {}).get("nonce_url") or "")
+        result = result or {}
+        return str(result.get("nonce_url") or ""), str(result.get("email") or "")
 
     def auth_config(self) -> dict | None:
         """Whether the server wants anyone to log in, and via which provider.

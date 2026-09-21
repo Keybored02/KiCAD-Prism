@@ -22,14 +22,24 @@ const AGENT_PORTS = [48730, 48731];
 // outlast the backend round-trip the agent makes to mint the URL.
 const TIMEOUT_MS = 6000;
 
+export interface AgentHandoff {
+  /** Where to navigate to complete the sign-in. Single-use, expires in two minutes. */
+  nonceUrl: string;
+  /** The account it signs in as, for the confirmation step. */
+  email: string;
+}
+
 /**
  * Ask the agent for a one-shot URL that lands on `nextPath` already signed in.
  *
  * The URL is minted by the backend and consumed once, so it cannot be replayed. Throws
  * when no agent answers or its sign-in is no longer good, which the caller shows as a
  * message and then falls back to the normal login.
+ *
+ * Nothing is signed in yet when this returns: the caller names the account and waits
+ * for the user to confirm before following the URL.
  */
-export async function startAgentSignIn(nextPath: string): Promise<string> {
+export async function startAgentSignIn(nextPath: string): Promise<AgentHandoff> {
   const nextUrl = new URL(nextPath || "/", window.location.origin).toString();
   let lastError = "";
 
@@ -44,7 +54,9 @@ export async function startAgentSignIn(nextPath: string): Promise<string> {
         signal: controller.signal,
       });
       const data = await response.json().catch(() => ({}));
-      if (response.ok && data?.nonce_url) return data.nonce_url as string;
+      if (response.ok && data?.nonce_url) {
+        return { nonceUrl: data.nonce_url as string, email: (data.email as string) || "" };
+      }
       // An agent answered but cannot help: not signed in, or its token expired.
       // Worth reporting, unlike a port with nothing behind it.
       if (data?.error) lastError = data.error;

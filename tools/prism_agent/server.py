@@ -998,10 +998,12 @@ class _Handler(BaseHTTPRequestHandler):
         if not saved.api_token:
             return 409, {"error": "The Prism agent is not signed in."}
 
-        nonce_url = self.state.prism.agent_handoff_url(saved.api_token, next_url)
+        nonce_url, email = self.state.prism.agent_handoff_url(saved.api_token, next_url)
         if not nonce_url:
             return 409, {"error": "The agent's sign-in is no longer valid."}
-        return 200, {"nonce_url": nonce_url}
+        # The email is for naming the account on the confirmation step. The URL is the
+        # credential, and it is single-use and short-lived.
+        return 200, {"nonce_url": nonce_url, "email": email}
 
     def _sign_in(self, body: dict) -> tuple[int, dict]:
         """Run the browser loopback flow, save the token, re-point the client.

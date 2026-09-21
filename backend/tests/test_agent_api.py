@@ -229,6 +229,21 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(me.status_code, 200)
         self.assertEqual(me.json()["email"], email)
 
+    def test_the_handoff_names_the_account_it_would_sign_in(self) -> None:
+        """What the confirmation step shows, so nobody is signed in as a surprise.
+
+        The email comes back with the URL rather than from a second call: the backend
+        validated the token to mint the URL, so it already knows, and asking twice
+        would only add a way for the two answers to disagree.
+        """
+        email = "panel-named@example.com"
+        token = self._obtain_token(self._client_for(email, "designer"), email=email)
+
+        body = self._handoff(token).json()
+        self.assertEqual(body["email"], email)
+        # Naming an account is not signing into it: that still takes the URL.
+        self.assertTrue(body["nonce_url"])
+
     def test_the_handoff_is_single_use(self) -> None:
         email = "panel-once@example.com"
         token = self._obtain_token(self._client_for(email, "designer"), email=email)

@@ -372,7 +372,7 @@ def build_bootstrap_nonce_url(base_url: str, access_token: str, next_url: str) -
 
 def build_bootstrap_nonce_url_for_agent(
     base_url: str, agent_token: str, next_url: str
-) -> str:
+) -> tuple[str, str]:
     """The same handoff, for a user the KiCad agent has already signed in.
 
     THE security boundary of this path. The agent cannot vouch for itself: a
@@ -383,11 +383,15 @@ def build_bootstrap_nonce_url_for_agent(
     The session this leads to is a NORMAL user session carrying the user's own role
     and no agent scopes: this is the user signing in, by proving their identity with a
     credential they already hold, not the agent acting on their behalf.
+
+    Returns the URL together with the email it was minted for, so the caller can name
+    the account before anyone commits to it. That email is the validated one, not a
+    claim the agent made about itself.
     """
     from app.services import agent_auth_service
 
     payload = agent_auth_service.validate_agent_token(agent_token)
-    return _bootstrap_url_for(base_url, payload, next_url)
+    return _bootstrap_url_for(base_url, payload, next_url), str(payload["email"])
 
 
 def consume_bootstrap_token(token: str) -> dict[str, Any]:
