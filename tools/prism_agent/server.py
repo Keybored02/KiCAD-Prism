@@ -549,6 +549,13 @@ class _Handler(BaseHTTPRequestHandler):
                 # section instead of selecting the commit.
                 sha = quote(str(commit))
                 url += "?section=history&commit=%s" % sha
+                # And the branch it is on. Without it the page lists the checkout's
+                # current branch, so a commit from anywhere else was selected in a
+                # history that does not contain it: the highlight landed on nothing
+                # and the user saw the wrong list of commits around it.
+                branch = body.get("branch")
+                if branch:
+                    url += "&branch=%s" % quote(str(branch))
             webbrowser.open(url)
             self._send(200, {"ok": True})
             return

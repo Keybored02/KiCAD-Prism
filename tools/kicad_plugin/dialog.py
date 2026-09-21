@@ -1169,7 +1169,16 @@ class PrismDialog(wx.Dialog):
         except AgentUnavailable:
             return ""  # cannot ask; keeping it local is the safe answer
         if not remotes:
-            return ""  # nothing to publish to, so nothing to ask
+            # Say so. The user asked for a branch expecting to be asked where it goes,
+            # and silence here reads as the question having been answered for them.
+            prompts.tell(
+                self,
+                "'%s' was created here.\n\n"
+                "This project has no remote, so there is nowhere to publish it yet. "
+                "Add one with `git remote add`, then push from the panel." % branch,
+                "Branch created",
+            )
+            return ""
 
         keep_local = "Keep it on this computer for now"
         choices = [keep_local] + [
@@ -2122,9 +2131,25 @@ class PrismDialog(wx.Dialog):
         card.body.Add(row, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
 
     def _open_commit(self, prism, commit_hash):
-        """Open this commit on the project's page in Prism."""
+        """Open this commit on the project's page in Prism, in its own branch.
+
+        The branch matters: the page lists the history of whichever branch it is
+        showing, and without one it shows the server checkout's. A commit from any
+        other branch was then selected in a history that does not contain it.
+
+        On a detached HEAD there is no current branch, so the first branch that
+        contains the commit is used. That is what the panel already shows as where the
+        commit lives, so the page and the panel agree.
+        """
+        git = (self.data or {}).get("git") or {}
+        branch = git.get("branch") or ""
+        if not branch:
+            on = git.get("on_branches") or []
+            branch = on[0] if on else ""
         try:
-            AgentClient().open_in_prism(prism.get("id"), commit=commit_hash)
+            AgentClient().open_in_prism(
+                prism.get("id"), commit=commit_hash, branch=branch
+            )
         except AgentUnavailable as exc:
             prompts.tell(self, str(exc), "Prism")
 

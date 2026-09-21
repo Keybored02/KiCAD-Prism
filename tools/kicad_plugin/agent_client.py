@@ -194,15 +194,20 @@ class AgentClient:
             timeout=DIFF_TIMEOUT,
         )
 
-    def open_in_prism(self, project_id, commit=None):
+    def open_in_prism(self, project_id, commit=None, branch=None):
         """Open the project in the web app, optionally at a specific commit.
 
         The agent builds the URL, because it owns the one function that knows the web
         app's route. Rebuilding it here is how it drifted to the wrong path before.
+
+        `branch` selects the history the commit belongs to. Without it the page shows
+        whatever the server's checkout is on, which need not contain the commit at all.
         """
         body = {"project_id": project_id}
         if commit:
             body["commit"] = commit
+        if branch:
+            body["branch"] = branch
         return self._call("POST", "/open-in-prism", body)
 
     def library(self):
