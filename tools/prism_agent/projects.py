@@ -59,6 +59,15 @@ class GitStatus:
     on_default: bool = False
     ahead: int = 0
     behind: int = 0
+    # Does this branch track a remote at all? Distinct from ahead == 0, which is also
+    # what an UNPUBLISHED branch reports: rev-list has nothing to count against, so a
+    # branch full of unpushed commits looked exactly like one with nothing to push,
+    # and the UI hid the button that would have published it.
+    has_upstream: bool = False
+    # Commits that exist nowhere but here, for a branch with no upstream. Counted
+    # against the default branch, which is the only sensible reference point before
+    # a remote one exists.
+    unpublished: int = 0
     staged: list[str] = field(default_factory=list)
     modified: list[str] = field(default_factory=list)
     untracked: list[str] = field(default_factory=list)
@@ -266,8 +275,22 @@ def git_status(repo_root: str | Path) -> GitStatus:
         counts = _run_git(repo, "rev-list", "--left-right", "--count", "@{u}...HEAD")
         behind, ahead = counts.split()
         st.behind, st.ahead = int(behind), int(ahead)
+        st.has_upstream = True
     except Exception:
         pass
+
+    # A branch that has never been pushed has no upstream to count against, so say how
+    # much work is on it instead. Measured from the default branch: the user needs to
+    # know there is something to publish, and "3 commits" is the honest way to say it.
+    if not st.has_upstream and not st.detached and st.default_branch:
+        try:
+            st.unpublished = int(
+                _run_git(
+                    repo, "rev-list", "--count", f"{st.default_branch}..HEAD"
+                )
+            )
+        except Exception:
+            pass
 
     try:
         st.last_commit_hash = _run_git(repo, "log", "-1", "--format=%h")

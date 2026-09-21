@@ -1147,13 +1147,79 @@ class PrismDialog(wx.Dialog):
         )
         if not name.strip():
             return
+        branch = name.strip()
         try:
             with wx.BusyCursor():
-                AgentClient().create_branch(project["repo_root"], name.strip())
+                AgentClient().create_branch(project["repo_root"], branch)
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
+        self._publish_new_branch(project["repo_root"], branch)
         self._load()
+
+    def _ask_publish_target(self, repo, branch):
+        """After naming a branch: where should it go, if anywhere?
+
+        Asked here rather than at push time because this is the moment the branch is
+        being decided on, and because the answer is genuinely open: a repo with both
+        `origin` and `upstream` (the fork layout) would otherwise have it guessed.
+
+        Returns the remote to publish to, or "" to keep the branch local. Local is a
+        real answer and the default: a branch is useful before anyone else has seen it,
+        and publishing on the user's behalf puts a name on a shared remote that they
+        may not have meant to create.
+        """
+        try:
+            remotes = (AgentClient().remotes(repo) or {}).get("remotes") or []
+        except AgentUnavailable:
+            return ""  # cannot ask; keeping it local is the safe answer
+        if not remotes:
+            return ""  # nothing to publish to, so nothing to ask
+
+        keep_local = "Keep it on this computer for now"
+        choices = [keep_local] + [
+            "Publish to %s  (%s)" % (r["name"], r["url"]) for r in remotes
+        ]
+        dlg = wx.SingleChoiceDialog(
+            self,
+            "'%s' has been created.\n\nWhere should it go?" % branch,
+            "Publish branch",
+            choices,
+        )
+        try:
+            dlg.SetSize(wx.Size(560, 320))
+            dlg.CentreOnParent()
+            if dlg.ShowModal() != wx.ID_OK:
+                return ""
+            index = dlg.GetSelection()
+        finally:
+            dlg.Destroy()
+
+        if index <= 0:
+            return ""
+        return remotes[index - 1]["name"]
+
+    def _publish_new_branch(self, repo, branch):
+        """Publish a just-created branch, if the user picked somewhere for it.
+
+        Failure here is reported but not fatal: the branch exists either way, and the
+        user can publish it later from the Push button. Losing the branch because the
+        network was down would be the worse outcome.
+        """
+        target = self._ask_publish_target(repo, branch)
+        if not target:
+            return
+        try:
+            with wx.BusyCursor():
+                AgentClient().push(repo, set_upstream=True, remote=target)
+        except AgentUnavailable as exc:
+            wx.MessageBox(
+                "'%s' was created, but publishing it to %s failed:\n\n%s\n\n"
+                "You can publish it later from the panel."
+                % (branch, target, exc),
+                "Prism",
+                wx.OK | wx.ICON_WARNING,
+            )
 
     def _return_to_branch(self, branch):
         """Return to the branch we detached from. Goes through the same scheduled switch
@@ -1495,6 +1561,21 @@ class PrismDialog(wx.Dialog):
                 ),
                 0,
             )
+        elif not git.get("has_upstream"):
+            # A branch that has never been pushed reports ahead == 0, because there is
+            # no upstream to count against, which looked exactly like "nothing to
+            # push" and hid this button. So it gets its own: the work is real, it
+            # exists nowhere else, and this is the only way to get it off the machine.
+            unpublished = git.get("unpublished") or 0
+            label = (
+                "Publish %d commit%s" % (unpublished, "" if unpublished == 1 else "s")
+                if unpublished
+                else "Publish branch"
+            )
+            row.Add(
+                Button(card, label, self.pal, variant="primary", on_click=self._push),
+                0,
+            )
         card.body.Add(row, 0, wx.TOP, th.SP_XS)
 
     def _fetch(self):
@@ -1726,6 +1807,58 @@ class PrismDialog(wx.Dialog):
             self._apply_stash_keep(entry)
         elif action == "drop":
             self._drop_stash(entry)
+
+    def _discard(self):
+        """Throw away uncommitted changes. The one unrecoverable action in this panel.
+
+        Two things make this different from Stash, and both are said in the dialog
+        rather than assumed:
+
+        * It cannot be undone. A stash can be fished back out; a discarded edit to a
+          board is gone the moment this runs.
+
+        * KiCad has the board in memory. Reverting the file on disk does not reach
+          that copy, so the next save in KiCad would write the discarded work straight
+          back. pcbnew has no API to make it re-read the board, so the user is told to
+          close and reopen it, which is the only thing that actually works.
+        """
+        project = (self.data or {}).get("project")
+        if not project:
+            return
+
+        design = [f for f in (self.changes or []) if not f.get("noise")]
+        count = len(design) or len(self.changes or [])
+        if not count:
+            return
+
+        answer = wx.MessageBox(
+            "Discard %d file%s?\n\n"
+            "This cannot be undone.\n\n"
+            "KiCad still has the board open, so close it WITHOUT saving and reopen it "
+            "afterwards. Saving would write the discarded changes back."
+            % (count, "" if count == 1 else "s"),
+            "Discard changes",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+        )
+        if answer != wx.YES:
+            return
+
+        try:
+            with wx.BusyCursor():
+                result = AgentClient().discard(project["path"])
+        except AgentUnavailable as exc:
+            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
+            return
+
+        discarded = (result or {}).get("count") or count
+        wx.MessageBox(
+            "Discarded %d file%s.\n\n"
+            "Close KiCad without saving and reopen the board to see it."
+            % (discarded, "" if discarded == 1 else "s"),
+            "Prism",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+        self._load()
 
     def _stash(self):
         """Set the working tree aside, under a name the user chose.
@@ -2169,7 +2302,7 @@ class PrismDialog(wx.Dialog):
                 )
                 line.Add(
                     Button(
-                        card, "Unstage", self.pal, variant="ghost",
+                        card, "Unstage", self.pal, variant="secondary",
                         on_click=lambda p=path: self._unstage_paths([p]),
                     ),
                     0,
@@ -2201,6 +2334,17 @@ class PrismDialog(wx.Dialog):
         row.Add(
             Button(card, "Stash", self.pal, variant="secondary", on_click=self._stash),
             0,
+            wx.RIGHT,
+            th.SP_XS,
+        )
+        # Destructive, and marked as such rather than sitting there looking like the
+        # other two. The confirmation is what makes it safe; see _discard.
+        row.Add(
+            Button(
+                card, "Discard", self.pal, variant="destructive-ghost",
+                on_click=self._discard,
+            ),
+            0,
         )
         # Breathing room under the "N files staged" line; the buttons sat right on it.
         card.body.Add(row, 0, wx.LEFT | wx.TOP, th.SP_SM)
@@ -2221,11 +2365,11 @@ class PrismDialog(wx.Dialog):
         """A per-file stage/unstage toggle, reflecting whether the path is staged now."""
         if path in set(self._staged_paths()):
             return Button(
-                card, "Unstage", self.pal, variant="ghost",
+                card, "Unstage", self.pal, variant="secondary",
                 on_click=lambda p=path: self._unstage_paths([p]),
             )
         return Button(
-            card, "Stage", self.pal, variant="ghost",
+            card, "Stage", self.pal, variant="secondary",
             on_click=lambda p=path: self._stage_paths([p]),
         )
 
@@ -2362,15 +2506,18 @@ class PrismDialog(wx.Dialog):
         )
         if not name.strip():
             return
+        branch = name.strip()
         try:
             with wx.BusyCursor():
-                AgentClient().create_branch(repo, name.strip())
+                AgentClient().create_branch(repo, branch)
                 AgentClient().commit(
                     repo, message, stage_all_design=not staged_only
                 )
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
+        # After the commit, so what gets published is the work, not an empty branch.
+        self._publish_new_branch(repo, branch)
         self._load()
 
     def _add_noise(self, card, noise):
@@ -2426,7 +2573,7 @@ class PrismDialog(wx.Dialog):
             if path in staged:
                 line.Add(
                     Button(
-                        card, "Unstage", self.pal, variant="ghost",
+                        card, "Unstage", self.pal, variant="secondary",
                         on_click=lambda p=path: self._unstage_paths([p]),
                     ),
                     0,
@@ -2435,7 +2582,7 @@ class PrismDialog(wx.Dialog):
             else:
                 line.Add(
                     Button(
-                        card, "Stage", self.pal, variant="ghost",
+                        card, "Stage", self.pal, variant="secondary",
                         on_click=lambda p=path: self._stage_paths([p]),
                     ),
                     0,

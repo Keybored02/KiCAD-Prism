@@ -686,6 +686,45 @@ def test_a_detached_head_still_says_which_branch_the_commit_is_on(repo):
     assert "main" in st.on_branches
 
 
+def test_a_branch_that_has_never_been_pushed_says_so(repo, tmp_path):
+    """A new branch reports ahead == 0 because there is no upstream to count against,
+    which is indistinguishable from "nothing to push".
+
+    The plugin hid its Push button on exactly that check, so a branch full of real
+    commits offered no way to publish them: the work existed only on that machine and
+    the UI said nothing about it.
+    """
+    from prism_agent.projects import git_status
+
+    bare = tmp_path / "origin.git"
+    bare.mkdir()
+    git("init", "--bare", "-b", "main", cwd=bare)
+    git("remote", "add", "origin", str(bare), cwd=repo)
+    git("push", "-u", "origin", "main", cwd=repo)
+
+    checkout.create_branch(repo, "feature/new")
+    commit(repo, "extra.txt", "x", "work on the new branch")
+
+    st = git_status(repo)
+    assert st.has_upstream is False
+    assert st.ahead == 0, "there is nothing to count against, which was the trap"
+    assert st.unpublished == 1, "but there IS work here, and that is what to show"
+
+
+def test_a_published_branch_reports_an_upstream(repo, tmp_path):
+    from prism_agent.projects import git_status
+
+    bare = tmp_path / "origin.git"
+    bare.mkdir()
+    git("init", "--bare", "-b", "main", cwd=bare)
+    git("remote", "add", "origin", str(bare), cwd=repo)
+    git("push", "-u", "origin", "main", cwd=repo)
+
+    st = git_status(repo)
+    assert st.has_upstream is True
+    assert st.unpublished == 0, "only meaningful for a branch with no upstream"
+
+
 def test_being_on_a_branch_is_not_reported_as_detached(repo):
     from prism_agent.projects import git_status
 
