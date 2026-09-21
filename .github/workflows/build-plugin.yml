@@ -112,17 +112,9 @@ jobs:
         with:
           path: binaries
 
-      # The version comes from the source, so the zip always matches the commit it was
-      # built from. The input only verifies, and only when one was given.
-      - name: Assemble the package
-        id: package
-        run: |
-          python tools/package_plugin.py \
-            ${{ inputs.version && format('--expect "{0}"', inputs.version) || '' }} \
-            --binaries binaries \
-            --out dist
-
-      - name: Read the version that was built
+      # Read before packaging, so the artifact can be named after it. package_plugin.py
+      # reads the same constant, and --expect makes it fail rather than disagree.
+      - name: Read the version being built
         id: built
         run: |
           python - <<'EOF' >> "$GITHUB_OUTPUT"
@@ -131,9 +123,21 @@ jobs:
           print("version=" + re.search(r'^VERSION\s*=\s*"([^"]+)"', src, re.M).group(1))
           EOF
 
+      # The version comes from the source, so the zip always matches the commit it was
+      # built from. The input only verifies, and only when one was given.
+      - name: Assemble the package
+        run: |
+          python tools/package_plugin.py \
+            ${{ inputs.version && format('--expect "{0}"', inputs.version) || '' }} \
+            --binaries binaries \
+            --out dist
+
+      # Versioned, so a downloaded artifact says what it is. Two builds in the same
+      # session are otherwise both called "kicad-prism-plugin" and tell you nothing
+      # apart, which is exactly the confusion an update test does not need.
       - uses: actions/upload-artifact@v4
         with:
-          name: kicad-prism-plugin
+          name: kicad-prism-plugin-${{ steps.built.outputs.version }}
           path: dist/*.zip
           if-no-files-found: error
 
