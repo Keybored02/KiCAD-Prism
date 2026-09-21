@@ -55,7 +55,12 @@ def _agent_command() -> list[str]:
     args = ["--profile", PROFILE] if PROFILE else []
 
     if getattr(sys, "frozen", False):
-        return [sys.executable, *args]
+        # own_binary(), not sys.executable: an update renames the running .exe aside,
+        # and an autostart entry pointing at that temp file starts the old agent until
+        # it is cleaned up, then nothing.
+        from .discovery import own_binary
+
+        return [own_binary(), *args]
 
     root = Path(__file__).resolve().parent.parent  # tools/
     bootstrap = (

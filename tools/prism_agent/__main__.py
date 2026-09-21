@@ -545,13 +545,13 @@ def _retire(existing: dict) -> bool:
 def self_command(*args: str) -> list[str]:
     """How to invoke *this* agent again, frozen or not.
 
-    Frozen, sys.executable IS the agent, so it takes the arguments directly. From a
+    Frozen, the agent IS an executable, so it takes the arguments directly. From a
     checkout it's a Python interpreter, which needs `-m prism_agent`. Everything
     that re-launches us (restart, autostart, the prism:// handler) must go through
     here, or it will work in a dev tree and break in the shipped binary.
     """
     if is_frozen():
-        return [sys.executable, *args]
+        return [discovery.own_binary(), *args]
     return [sys.executable, "-m", "prism_agent", *args]
 
 

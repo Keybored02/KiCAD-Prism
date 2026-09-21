@@ -15,6 +15,52 @@ import pcbnew
 import wx
 
 
+def _purge_stale_bytecode() -> None:
+    """Delete a __pycache__ left behind by a PREVIOUS install of this plugin.
+
+    THE bug this exists for: a PCM update overwrites our .py files but leaves the old
+    install's __pycache__ alone, because it only touches files the new package
+    contains. Python then decides the cache is current and imports it, so KiCad runs
+    the version you just replaced. Observed on a 0.5.0 -> 0.5.1 update: version.py said
+    0.5.1, version.cpython-311.pyc said 0.5.0, and the plugin reported itself as 0.5.0.
+    Silent, and it makes every other version check meaningless.
+
+    Python invalidates bytecode by comparing the source's mtime to the one recorded in
+    the .pyc, which normally catches this. It does not here: PCM restores the zip's
+    timestamps, so the freshly written .py can carry an mtime the old .pyc already
+    knows about.
+
+    So compare against our own VERSION instead. version.py is rewritten by every
+    update, and a .pyc older than it cannot have been built from it. Runs before the
+    first submodule import, since after that the stale code is already loaded.
+
+    Best effort: a read-only directory or a locked file is not worth failing an import
+    over, and the worst case is the behaviour we already have.
+    """
+    here = os.path.dirname(os.path.realpath(__file__))
+    cache = os.path.join(here, "__pycache__")
+    if not os.path.isdir(cache):
+        return
+
+    try:
+        source = os.path.getmtime(os.path.join(here, "version.py"))
+    except OSError:
+        return
+
+    for name in os.listdir(cache):
+        if not name.endswith(".pyc"):
+            continue
+        path = os.path.join(cache, name)
+        try:
+            if os.path.getmtime(path) < source:
+                os.remove(path)
+        except OSError:
+            pass  # locked or gone; the import below still works, just not faster
+
+
+_purge_stale_bytecode()
+
+
 def is_dev_install() -> bool:
     """Are we the symlinked working copy, or a real installed package?
 

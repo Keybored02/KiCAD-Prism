@@ -108,7 +108,11 @@ def _launch_command() -> list[str]:
     profile = os.environ.get("PRISM_PROFILE", "").strip()
 
     if getattr(sys, "frozen", False):
-        cmd = [sys.executable, "--open-url"]
+        # own_binary(), not sys.executable: see autostart. A registry command outlives
+        # every build, so recording a renamed temp file is worse here than anywhere.
+        from .discovery import own_binary
+
+        cmd = [own_binary(), "--open-url"]
         # A frozen build reads the profile from the environment, and we cannot set one
         # in a registry command. In practice a frozen agent is the installed one, which
         # has no profile, so this is the expected case rather than a gap.

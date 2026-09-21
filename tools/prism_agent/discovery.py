@@ -88,14 +88,36 @@ def write_endpoint(port: int, token: str, version: str = "") -> Path:
     return path
 
 
-def _own_exe() -> str:
-    """The binary this agent is running from, when frozen.
+def own_binary() -> str:
+    """The path to invoke this frozen agent by, which is NOT always sys.executable.
 
-    Empty from a source checkout, where there's no single file to point at. Used to
-    spot an agent whose binary has been deleted from under it, which is exactly what
-    an uninstall does to a detached process.
+    Windows cannot delete a running .exe, so an installer replacing one renames it
+    aside: our binary becomes `prism-agent.exe~RF1a2b3c4.TMP` and the new build takes
+    the real name. sys.executable still points at the renamed file, so anything that
+    records it (the tray's Restart, the autostart entry, the prism:// handler) ends up
+    pointing at the OLD agent, and at nothing once that temp file is cleaned up. The
+    tray's Restart failed exactly this way after a PCM update.
+
+    So prefer the canonical name beside us: the one the installer writes, the one the
+    plugin looks for, and the only one worth recording anywhere that outlives a build.
+
+    Empty from a source checkout, where there is no single file to point at.
     """
-    return sys.executable if getattr(sys, "frozen", False) else ""
+    if not getattr(sys, "frozen", False):
+        return ""
+    exe = Path(sys.executable)
+    name = "prism-agent.exe" if sys.platform == "win32" else "prism-agent"
+    canonical = exe.with_name(name)
+    if canonical.is_file():
+        return str(canonical)
+    # An unusual layout, or a rename we cannot see past. sys.executable is still the
+    # best answer available, and a wrong path beats refusing to relaunch at all.
+    return sys.executable
+
+
+def _own_exe() -> str:
+    """Kept for the discovery file's `exe` field. See own_binary()."""
+    return own_binary()
 
 
 def read_endpoint() -> dict | None:
