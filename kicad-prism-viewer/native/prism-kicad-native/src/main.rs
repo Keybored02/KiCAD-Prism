@@ -1,4 +1,5 @@
 pub mod analytic_contract;
+mod board_body;
 mod contract;
 mod geometer_ffi;
 pub mod geometer_packets;
@@ -23,6 +24,9 @@ fn run() -> Result<()> {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     if arguments.first().map(String::as_str) == Some("compile-semantic") {
         return compile_semantic_command(&arguments[1..]);
+    }
+    if arguments.first().map(String::as_str) == Some("compile-board-body") {
+        return compile_board_body_command(&arguments[1..]);
     }
     let mut pretty = false;
     let mut analytic = false;
@@ -72,6 +76,40 @@ fn run() -> Result<()> {
     } else {
         serde_json::to_writer(std::io::stdout().lock(), &document)?;
     }
+    println!();
+    Ok(())
+}
+
+fn compile_board_body_command(arguments: &[String]) -> Result<()> {
+    let mut pcb = None;
+    let mut output = None;
+    let mut mesh_tolerance_mm = materialize::DEFAULT_TOLERANCE_MM;
+    let mut index = 0usize;
+    while index < arguments.len() {
+        let option = arguments[index].as_str();
+        index += 1;
+        let value = || {
+            arguments
+                .get(index)
+                .cloned()
+                .with_context(|| format!("{option} requires a value"))
+        };
+        match option {
+            "--pcb" => pcb = Some(PathBuf::from(value()?)),
+            "--output" => output = Some(PathBuf::from(value()?)),
+            "--mesh-tolerance-mm" => {
+                mesh_tolerance_mm = value()?.parse().context("parse --mesh-tolerance-mm")?;
+            }
+            value => bail!("unknown compile-board-body option {value}"),
+        }
+        index += 1;
+    }
+    let pcb = pcb.context(
+        "usage: prism-kicad-native compile-board-body --pcb BOARD --output DIRECTORY [--mesh-tolerance-mm 0.005]",
+    )?;
+    let output = output.context("compile-board-body requires --output")?;
+    let pack = board_body::compile_board_body(&pcb, &output, mesh_tolerance_mm)?;
+    serde_json::to_writer(std::io::stdout().lock(), &pack.metrics)?;
     println!();
     Ok(())
 }

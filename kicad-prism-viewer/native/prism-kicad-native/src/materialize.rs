@@ -2158,7 +2158,7 @@ fn form_mentions_copper_layer(text: &str) -> bool {
     })
 }
 
-fn blank_top_level_forms(
+pub(crate) fn blank_top_level_forms(
     source: &str,
     view: &PcbView<'_>,
     predicate: impl Fn(&str, &str) -> bool,
@@ -2183,7 +2183,7 @@ fn blank_top_level_forms(
     String::from_utf8(bytes).expect("replacing source bytes with ASCII spaces preserves UTF-8")
 }
 
-fn blank_forms_by_head(source: &str, heads: &[&str]) -> Result<String> {
+pub(crate) fn blank_forms_by_head(source: &str, heads: &[&str]) -> Result<String> {
     let selector = Selector {
         heads: Some(heads.iter().map(|head| (*head).to_owned()).collect()),
         ..Selector::default()

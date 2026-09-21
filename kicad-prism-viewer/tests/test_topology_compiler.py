@@ -42,8 +42,12 @@ from pipeline.topology_compiler.pcb_extract import compile_pcb_artifacts, extrac
 from pipeline.topology_compiler.pcb_geometry import extract_pad_holes
 from pipeline.topology_compiler.kicad_cli_export import (
     BOARD_CONTEXT_CACHE_VERSION,
+    ExportResult,
+    GeometryExportArtifacts,
     _board_context_export_args,
     _component_nodes,
+    _run_native_board_export,
+    finalize_project_geometry,
 )
 from pipeline.topology_compiler.copper_geometry import (
     KICAD_MONKEY_RUST_REVISION,
@@ -853,6 +857,80 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertIn("--no-components", args)
         self.assertNotIn("--include-pads", args)
         self.assertIn("no-pads", BOARD_CONTEXT_CACHE_VERSION)
+
+    def test_native_board_manifest_retains_native_silkscreen_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "scene"
+            geometry = output / "geometry"
+            geometry.mkdir(parents=True)
+            board = geometry / "base_board.glb"
+            board.write_bytes(b"native-board")
+            artifacts = GeometryExportArtifacts(
+                project_file=root / "unit.kicad_pro",
+                pcb_file=root / "unit.kicad_pcb",
+                output_dir=output,
+                cli=Path("kicad-cli"),
+                cli_version="10.0",
+                pcb_hash="fixture",
+                exports=[
+                    ExportResult(
+                        "native_board_context", [], board, 4, "", ""
+                    )
+                ],
+                elapsed_ms=4.0,
+            )
+
+            manifest = finalize_project_geometry({}, artifacts)
+
+            self.assertEqual(
+                manifest["generator"], "prism-native-board+kicad-cli-components"
+            )
+            self.assertEqual(
+                [group["id"] for group in manifest["visibility_groups"]],
+                ["board", "silkscreen", "components"],
+            )
+
+    def test_native_board_export_cleans_pack_after_compiler_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            helper = root / "prism-kicad-native"
+            helper.write_bytes(b"fixture-helper")
+            helper.chmod(0o755)
+            geometry = root / "scene" / "geometry"
+            cache = root / "cache"
+            geometry.mkdir(parents=True)
+            cache.mkdir()
+            pcb = root / "unit.kicad_pcb"
+            pcb.write_text("(kicad_pcb)", encoding="utf-8")
+            calls = 0
+
+            def run(*args, **kwargs):  # type: ignore[no-untyped-def]
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return SimpleNamespace(returncode=0, stdout="prism-kicad-native 0.1", stderr="")
+                pack = geometry / ".native-board-pack"
+                pack.mkdir()
+                (pack / "partial.bin").write_bytes(b"partial")
+                return SimpleNamespace(returncode=2, stdout="", stderr="failed")
+
+            with patch(
+                "pipeline.topology_compiler.kicad_cli_export.native_helper_path",
+                return_value=helper,
+            ), patch(
+                "pipeline.topology_compiler.kicad_cli_export.subprocess.run",
+                side_effect=run,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "native board compiler failed"):
+                    _run_native_board_export(
+                        pcb,
+                        geometry,
+                        cache_dir=cache,
+                        cache_key="fixture",
+                    )
+
+            self.assertFalse((geometry / ".native-board-pack").exists())
 
     def test_via_caps_and_barrel_share_one_source_feature(self) -> None:
         builder = SemanticGltfBuilder(self.semantic_topology())

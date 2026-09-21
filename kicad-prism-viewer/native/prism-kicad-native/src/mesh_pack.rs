@@ -11,6 +11,7 @@ use crate::geometry::{
 };
 use crate::semantic_compiler::{LoweringRoute, TileId, classify, resolve_tile_size_mm};
 use anyhow::{Context, Result, bail};
+use rayon::prelude::*;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -122,6 +123,8 @@ pub struct CompileMetrics {
     pub lowering_ms: f64,
     pub clipping_ms: f64,
     pub triangulation_ms: f64,
+    pub triangulation_workers: usize,
+    pub triangulation_jobs: usize,
     pub packed_output_ms: f64,
     pub total_ms: f64,
     pub direct_operations: usize,
@@ -206,6 +209,17 @@ struct FeatureBuilder {
     record: FeatureRecord,
 }
 
+struct TriangulationJob {
+    sequence: usize,
+    layer_id: u32,
+    layer_name: String,
+    tile: TileId,
+    y_mm: f64,
+    net_id: u32,
+    feature_id: u32,
+    region: Region,
+}
+
 pub fn compile_semantic(
     pcb: &Path,
     output: &Path,
@@ -278,10 +292,9 @@ pub fn compile_semantic(
     let mut feature_by_key = HashMap::<String, u32>::new();
     let mut feature_builders = Vec::<FeatureBuilder>::new();
     let mut source_feature_ids = HashMap::<String, u32>::new();
-    let mut meshes = BTreeMap::<(u32, i64, i64), TileMesh>::new();
+    let mut triangulation_jobs = Vec::<TriangulationJob>::new();
     let mut lowering_ms = 0.0;
     let mut clipping_ms = 0.0;
-    let mut triangulation_ms = 0.0;
 
     for classified_operation in &classified {
         let operation = &document.operations[classified_operation.operation_index];
@@ -360,26 +373,45 @@ pub fn compile_semantic(
                     continue;
                 }
                 merge_bounds(&mut feature.bounds_mm, regions_bounds_mm(regions, layer));
-                let mesh = meshes
-                    .entry((layer.id, tile.x, tile.y))
-                    .or_insert_with(|| TileMesh {
+                for region in regions {
+                    triangulation_jobs.push(TriangulationJob {
+                        sequence: triangulation_jobs.len(),
                         layer_id: layer.id,
                         layer_name: layer.name.clone(),
                         tile: *tile,
-                        ..TileMesh::default()
-                    });
-                for region in regions {
-                    let triangulate_started = Instant::now();
-                    append_region_mesh(
-                        mesh,
-                        region,
-                        layer_surface_y_mm(layer),
+                        y_mm: layer_surface_y_mm(layer),
                         net_id,
                         feature_id,
-                    )?;
-                    triangulation_ms += triangulate_started.elapsed().as_secs_f64() * 1000.0;
+                        region: region.clone(),
+                    });
                 }
             }
+        }
+    }
+
+    let triangulation_worker_count = semantic_worker_count();
+    let triangulation_job_count = triangulation_jobs.len();
+    let triangulate_started = Instant::now();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(triangulation_worker_count)
+        .thread_name(|index| format!("prism-semantic-{index}"))
+        .build()
+        .context("create bounded semantic triangulation worker pool")?;
+    let mut chunks = pool.install(|| {
+        triangulation_jobs
+            .into_par_iter()
+            .map(triangulate_job)
+            .collect::<Result<Vec<_>>>()
+    })?;
+    let triangulation_ms = triangulate_started.elapsed().as_secs_f64() * 1000.0;
+    chunks.sort_unstable_by_key(|(sequence, _)| *sequence);
+    let mut meshes = BTreeMap::<(u32, i64, i64), TileMesh>::new();
+    for (_, chunk) in chunks {
+        let key = (chunk.layer_id, chunk.tile.x, chunk.tile.y);
+        if let Some(mesh) = meshes.get_mut(&key) {
+            append_mesh(mesh, chunk)?;
+        } else {
+            meshes.insert(key, chunk);
         }
     }
 
@@ -454,6 +486,8 @@ pub fn compile_semantic(
         lowering_ms,
         clipping_ms,
         triangulation_ms,
+        triangulation_workers: triangulation_worker_count,
+        triangulation_jobs: triangulation_job_count,
         packed_output_ms,
         total_ms: 0.0,
         direct_operations: classified.len() - geometer_operations,
@@ -515,6 +549,47 @@ pub fn compile_semantic(
     }
     fs::rename(&temporary, output)?;
     Ok(pack)
+}
+
+fn semantic_worker_count() -> usize {
+    let available = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1);
+    let default = available.saturating_sub(2).clamp(1, 4);
+    std::env::var("PRISM_SEMANTIC_WORKERS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn triangulate_job(job: TriangulationJob) -> Result<(usize, TileMesh)> {
+    let mut mesh = TileMesh {
+        layer_id: job.layer_id,
+        layer_name: job.layer_name,
+        tile: job.tile,
+        ..TileMesh::default()
+    };
+    append_region_mesh(&mut mesh, &job.region, job.y_mm, job.net_id, job.feature_id)?;
+    Ok((job.sequence, mesh))
+}
+
+fn append_mesh(target: &mut TileMesh, chunk: TileMesh) -> Result<()> {
+    let vertex_offset = target.positions.len() / 3;
+    let chunk_vertices = chunk.positions.len() / 3;
+    if vertex_offset + chunk_vertices > u32::MAX as usize {
+        bail!("tile vertex count exceeds uint32 index range");
+    }
+    target.positions.extend(chunk.positions);
+    target.net_ids.extend(chunk.net_ids);
+    target.feature_ids.extend(chunk.feature_ids);
+    target.indices.extend(
+        chunk
+            .indices
+            .into_iter()
+            .map(|index| index + vertex_offset as u32),
+    );
+    Ok(())
 }
 
 fn layer_records(document: &Document) -> Result<Vec<LayerRecord>> {
