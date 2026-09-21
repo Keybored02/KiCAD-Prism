@@ -133,8 +133,16 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     // Helper function to get display name
     const selectedBranchRef = searchParams.get('branch');
     const currentCommit = searchParams.get('commit');
+    // Matched on ref first, then on name. Prism's clone never checks branches out, so
+    // a branch somebody pushed exists in it only as origin/<name> and its ref reads
+    // "origin/test" where the user (and anything linking here, like the KiCad plugin)
+    // calls it "test". Without the fallback that link selected nothing and the picker
+    // fell back to its first option, showing the wrong branch for the commit on screen.
     const selectedBranch = useMemo(
-        () => branches.find((branch) => branch.ref === selectedBranchRef) || null,
+        () =>
+            branches.find((branch) => branch.ref === selectedBranchRef) ||
+            branches.find((branch) => branch.name === selectedBranchRef) ||
+            null,
         [branches, selectedBranchRef]
     );
     // The empty-value option means "the branch the repo is checked out to".
@@ -462,8 +470,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         // map it back to the default value to keep the select
                         // in sync rather than falling through to the first item.
                         value={
-                            selectedBranchRef && selectedBranchRef !== currentBranch?.ref
-                                ? selectedBranchRef
+                            selectedBranch && selectedBranch.ref !== currentBranch?.ref
+                                ? selectedBranch.ref
                                 : ""
                         }
                         onChange={(event) => handleBranchChange(event.target.value)}
