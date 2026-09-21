@@ -957,6 +957,130 @@ def build_semantic_gltf_scene(
     }
 
 
+def build_packed_semantic_gltf_scene(
+    topology: dict[str, Any],
+    mesh_pack: Any,
+    output_dir: Path,
+    *,
+    force_rebuild: bool = False,
+    clean_cache: bool = False,
+    progress: Callable[[str], None] | None = None,
+    profile_callback: Callable[[str, dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Package native tile buffers without hydrating or reprocessing geometry."""
+
+    del force_rebuild, clean_cache
+    payload = mesh_pack.payload
+    if payload.get("schema") != "prism.semantic_mesh_pack.v1":
+        raise RuntimeError("packed semantic builder requires prism.semantic_mesh_pack.v1")
+    _reconcile_packed_net_metadata(topology, payload)
+    # The native compiler owns geometry and feature IDs.  Topology compilation
+    # owns canonical net names and aliases, so update only the small metadata
+    # document before the thin packer reads it.  Packed vertices are untouched.
+    mesh_pack.metadata_path.write_text(
+        json.dumps(payload, separators=(",", ":")), encoding="utf-8"
+    )
+    scene_dir = output_dir / "scene-gltf"
+    manifest_path = scene_dir / "scene.manifest.json"
+    tool = Path(__file__).resolve().parents[2] / "tools" / "semantic-gltf" / "build.mjs"
+    shutil.rmtree(scene_dir, ignore_errors=True)
+    if progress:
+        progress(
+            "semantic GLTF packed builder: start "
+            f"tiles={len(payload.get('tiles') or ())} "
+            f"metadata={mesh_pack.metadata_path.stat().st_size / 1_000_000:.1f} MB"
+        )
+    started = time.perf_counter()
+    try:
+        with tempfile.TemporaryDirectory(prefix="semantic-packed-node-profile-") as profile_tmp:
+            node_metrics_path = Path(profile_tmp) / "metrics.json"
+            node_env = {}
+            if profile_callback:
+                node_env["PRISM_SEMANTIC_GLTF_METRICS_PATH"] = str(node_metrics_path)
+            _run_node_builder(
+                ["node", str(tool), str(mesh_pack.metadata_path), str(scene_dir)],
+                env=node_env,
+                progress=progress,
+            )
+            if profile_callback:
+                event: dict[str, Any] = {
+                    "elapsed_ms": (time.perf_counter() - started) * 1000.0,
+                    "packed_metadata_bytes": mesh_pack.metadata_path.stat().st_size,
+                    "packed_tile_bytes": sum(
+                        int(tile.get("bytes") or 0) for tile in payload.get("tiles") or ()
+                    ),
+                }
+                if node_metrics_path.is_file():
+                    event["node_metrics"] = json.loads(
+                        node_metrics_path.read_text(encoding="utf-8")
+                    )
+                profile_callback("packed_node_builder", event)
+    finally:
+        shutil.rmtree(mesh_pack.root, ignore_errors=True)
+    if not manifest_path.is_file():
+        raise RuntimeError("packed semantic GLTF builder did not write scene.manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    missing_tiles = [
+        str(tile.get("path") or "")
+        for tile in manifest.get("tiles", [])
+        if not (manifest_path.parent / str(tile.get("path") or "")).is_file()
+    ]
+    if missing_tiles:
+        raise RuntimeError(
+            f"packed semantic GLTF manifest references missing tile {missing_tiles[0]!r}"
+        )
+    if progress:
+        progress(
+            "semantic GLTF packed builder: done "
+            f"tiles={len(manifest.get('tiles', []))} "
+            f"bytes={sum(int(tile.get('bytes') or 0) for tile in manifest.get('tiles', [])) / 1_000_000:.1f} MB"
+        )
+    return {
+        "schema": SCHEMA,
+        "path": "scene-gltf/scene.manifest.json",
+        "geometryRevision": str(manifest.get("geometryRevision") or ""),
+        "tiles": len(manifest.get("tiles", [])),
+        "bytes": sum(int(tile.get("bytes") or 0) for tile in manifest.get("tiles", [])),
+    }
+
+
+def _reconcile_packed_net_metadata(
+    topology: dict[str, Any], payload: dict[str, Any]
+) -> None:
+    """Apply topology-owned names to native board-net IDs without touching meshes."""
+
+    topology_by_name: dict[str, dict[str, Any]] = {}
+    for net in topology.get("nets", []) or []:
+        name = str(net.get("name") or "")
+        if name:
+            topology_by_name[name] = net
+        for alias in net.get("aliases", []) or []:
+            if alias:
+                topology_by_name.setdefault(str(alias), net)
+
+    for packed_net in payload.get("nets", []) or []:
+        if int(packed_net.get("id") or 0) == 0:
+            continue
+        board_name = str(packed_net.get("name") or "")
+        topology_net = topology_by_name.get(board_name)
+        if topology_net is None:
+            continue
+        canonical_name = str(topology_net.get("name") or board_name)
+        aliases = [
+            str(value)
+            for value in topology_net.get("aliases", []) or []
+            if value and str(value) != canonical_name
+        ]
+        if board_name and board_name != canonical_name and board_name not in aliases:
+            aliases.append(board_name)
+        packed_net["name"] = canonical_name
+        packed_net["uid"] = str(topology_net.get("uid") or packed_net.get("uid") or "")
+        packed_net["netClass"] = str(
+            topology_net.get("net_class") or packed_net.get("netClass") or ""
+        )
+        packed_net["aliases"] = aliases
+
+
 def _component_manifest_entries(
     topology: dict[str, Any],
     component_nodes: dict[str, dict[str, Any]],

@@ -207,6 +207,7 @@ pub struct Drill {
     pub center_nm: NmPoint,
     pub width_nm: i64,
     pub height_nm: i64,
+    pub angle_deg: f64,
     pub oval: bool,
     pub plated: bool,
     pub layer_indexes: Vec<usize>,

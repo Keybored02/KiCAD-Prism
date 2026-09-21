@@ -34,6 +34,7 @@ from .pcb_geometry import NM_TO_MM
 
 COPPER_GEOMETRY_SCHEMA = "kicad.copper_geometry.a0"
 PRISM_PCB_GEOMETRY_SCHEMA = "prism.pcb_geometry.v1"
+PRISM_SEMANTIC_MESH_PACK_SCHEMA = "prism.semantic_mesh_pack.v1"
 KICAD_MONKEY_RUST_REVISION = "bc6796c1b8ce55bfbcb8b1771f3ecbc70658d34d"
 DEFAULT_PLATING_THICKNESS_MM = 0.025
 DEFAULT_NATIVE_HELPER = "/usr/local/bin/prism-kicad-native"
@@ -103,6 +104,21 @@ class PcbGeometryDocument:
     diagnostics: tuple[dict[str, Any], ...]
     stats: dict[str, int]
     metrics: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class NativeSemanticMeshPack:
+    root: Path
+    metadata_path: Path
+    payload: dict[str, Any]
+
+    @property
+    def metrics(self) -> dict[str, Any]:
+        return dict(self.payload.get("metrics") or {})
+
+    @property
+    def geometry_revision(self) -> str:
+        return str(self.payload.get("geometryRevision") or "")
 
 
 def pcb_geometry_backend() -> str:
@@ -300,6 +316,221 @@ def emit_rust_geometry(pcb_file: Path) -> PcbGeometryDocument:
     if not isinstance(payload, dict):
         raise RuntimeError("Rust PCB geometry helper output must be a JSON object")
     return _geometry_document_from_dict(payload, pcb_file)
+
+
+def compile_rust_semantic_mesh_pack(
+    pcb_file: Path,
+    output_dir: Path,
+    *,
+    tile_size: str = "auto",
+    mesh_tolerance_mm: float = 0.005,
+    meshopt_level: str = "medium",
+) -> NativeSemanticMeshPack:
+    helper = native_helper_path()
+    if not helper.is_file() or not os.access(helper, os.X_OK):
+        raise RuntimeError(f"Rust PCB geometry helper is unavailable or not executable: {helper}")
+    timeout = float(os.environ.get("PRISM_KICAD_NATIVE_TIMEOUT_SECONDS", "300"))
+    completed = subprocess.run(
+        [
+            str(helper),
+            "compile-semantic",
+            "--pcb",
+            str(pcb_file),
+            "--output",
+            str(output_dir),
+            "--tile-size",
+            str(tile_size),
+            "--mesh-tolerance-mm",
+            str(mesh_tolerance_mm),
+            "--meshopt-level",
+            meshopt_level,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "no diagnostic output"
+        raise RuntimeError(
+            f"Rust semantic compiler failed with exit code {completed.returncode}: {detail}"
+        )
+    metadata_path = output_dir / "mesh-pack.json"
+    if not metadata_path.is_file():
+        raise RuntimeError("Rust semantic compiler did not write mesh-pack.json")
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Rust semantic mesh pack metadata is invalid JSON: {exc}") from exc
+    if payload.get("schema") != PRISM_SEMANTIC_MESH_PACK_SCHEMA:
+        raise RuntimeError(
+            f"native semantic mesh pack schema mismatch: expected {PRISM_SEMANTIC_MESH_PACK_SCHEMA}, "
+            f"got {payload.get('schema')!r}"
+        )
+    if str(payload.get("kicadMonkeyRevision") or "") != KICAD_MONKEY_RUST_REVISION:
+        raise RuntimeError("native semantic mesh pack kicad-monkey revision mismatch")
+    expected_digest = hashlib.sha256(pcb_file.read_bytes()).hexdigest()
+    if str(payload.get("sourceDigest") or "") != expected_digest:
+        raise RuntimeError("native semantic mesh pack source digest mismatch")
+    diagnostics = list(payload.get("diagnostics") or ())
+    errors = [item for item in diagnostics if str(item.get("severity")) == "error"]
+    if errors:
+        raise RuntimeError(f"native semantic mesh pack reported an error: {errors[0]}")
+    missing = [
+        str(tile.get("path") or "")
+        for tile in payload.get("tiles") or ()
+        if not (output_dir / str(tile.get("path") or "")).is_file()
+    ]
+    if missing:
+        raise RuntimeError(f"native semantic mesh pack references missing tile {missing[0]!r}")
+    if not str(payload.get("geometryRevision") or ""):
+        raise RuntimeError("native semantic mesh pack has no geometry revision")
+    return NativeSemanticMeshPack(
+        root=output_dir,
+        metadata_path=metadata_path,
+        payload=payload,
+    )
+
+
+def extract_pcb_metadata_from_mesh_pack(
+    project_file: Path,
+    pack: NativeSemanticMeshPack,
+    profile_callback=None,
+) -> dict[str, Any]:
+    """Build topology metadata from native semantic tables without geometry hydration."""
+
+    started = time.perf_counter()
+    payload = pack.payload
+    board = dict(payload.get("board") or {})
+    layers = [
+        {
+            "name": str(layer.get("name") or ""),
+            "role": str(layer.get("role") or "unknown"),
+            "type": str(layer.get("role") or "unknown"),
+            "thickness_mm": float(layer.get("thicknessMm") or 0.0),
+            "material": str(layer.get("material") or ""),
+            "color": str(layer.get("color") or ""),
+            "stack_index": int(layer.get("stackIndex") or 0),
+            "epsilon_r": layer.get("epsilonR"),
+            "loss_tangent": layer.get("lossTangent"),
+        }
+        for layer in payload.get("layers") or ()
+    ]
+    layer_names = {
+        int(layer.get("id") or 0): str(layer.get("name") or "")
+        for layer in payload.get("layers") or ()
+    }
+    net_names = {
+        int(net.get("id") or 0): str(net.get("name") or "")
+        for net in payload.get("nets") or ()
+    }
+    components_by_key: dict[str, dict[str, Any]] = {}
+    terminal_pad_links: list[dict[str, str]] = []
+    pads: list[dict[str, Any]] = []
+    for feature in payload.get("objectFeatures") or ():
+        if str(feature.get("kind") or "") != "pad" or int(feature.get("id") or 0) == 0:
+            continue
+        designator = str(feature.get("componentRef") or "")
+        footprint_uid = str(feature.get("footprintUid") or "")
+        pad_number = str(feature.get("padNumber") or "")
+        source_uid = str(feature.get("sourceUid") or "")
+        bounds = list(feature.get("boundsMm") or ())
+        bbox = [bounds[0], bounds[1], bounds[3], bounds[4]] if len(bounds) == 6 else None
+        layer_ids = [int(value) for value in feature.get("layerIds") or ()]
+        selected_layers = [layer_names[value] for value in layer_ids if value in layer_names]
+        net_name = net_names.get(int(feature.get("netId") or 0), "")
+        key = footprint_uid or designator
+        if bbox and key:
+            if key not in components_by_key:
+                components_by_key[key] = {
+                    "designator": designator,
+                    "uid": _component_uid(designator),
+                    "unique_id": footprint_uid,
+                    "layer": next(
+                        (name for name in selected_layers if name.endswith(".Cu")),
+                        selected_layers[0] if selected_layers else "F.Cu",
+                    ),
+                    "bbox_mm": bbox,
+                    "x_mm": (bbox[0] + bbox[2]) / 2.0,
+                    "y_mm": (bbox[1] + bbox[3]) / 2.0,
+                    "angle_deg": 0.0,
+                }
+            else:
+                component = components_by_key[key]
+                component["bbox_mm"] = _merge_bbox(component.get("bbox_mm"), bbox)
+                component["x_mm"] = (component["bbox_mm"][0] + component["bbox_mm"][2]) / 2.0
+                component["y_mm"] = (component["bbox_mm"][1] + component["bbox_mm"][3]) / 2.0
+        pad_uid = stable_id("obj", f"pad:{footprint_uid}:{source_uid or pad_number}")
+        pads.append(
+            {
+                "uid": pad_uid,
+                "designator": designator,
+                "number": pad_number,
+                "net_name": net_name,
+                "layers": selected_layers,
+                "bbox_mm": bbox,
+                "source_uid": source_uid,
+            }
+        )
+        if designator and pad_number:
+            terminal_pad_links.append(
+                {
+                    "designator": designator,
+                    "pin": pad_number,
+                    "net_name": net_name,
+                    "object_uid": pad_uid,
+                }
+            )
+    stats = dict(payload.get("stats") or {})
+    metadata = {
+        "source": str(project_file.with_suffix(".kicad_pcb")),
+        "board": {
+            "bbox_mm": list(board.get("bboxMm") or [0.0, 0.0, 80.0, 50.0]),
+            "thickness_mm": float(board.get("thicknessMm") or 1.6),
+            "aux_axis_origin_mm": list(board.get("auxAxisOriginMm") or [0.0, 0.0]),
+            "stackup": {
+                "present": bool(layers),
+                "layers": layers,
+                "computed_thickness_mm": float(board.get("thicknessMm") or 1.6),
+                "copper_finish": str(board.get("copperFinish") or "None"),
+                "edge_connector": bool(board.get("edgeConnector")),
+                "castellated_pads": False,
+                "edge_plating": bool(board.get("edgePlating")),
+            },
+            "net_classes": [],
+        },
+        "physical_objects": [],
+        "terminal_pad_links": terminal_pad_links,
+        "components": list(components_by_key.values()),
+        "pads": pads,
+        "stats": {
+            "layers": len(layers),
+            "footprints": len(components_by_key),
+            "pads": int(stats.get("pads") or len(pads)),
+            "segments": int(stats.get("tracks") or 0),
+            "vias": int(stats.get("vias") or 0),
+            "zones": int(stats.get("zone_fills") or 0),
+            "physical_objects": 0,
+        },
+        "mode": "rust-packed",
+        "geometry_backend": {
+            "name": "rust",
+            "schema": PRISM_SEMANTIC_MESH_PACK_SCHEMA,
+            "kicad_monkey_revision": str(payload.get("kicadMonkeyRevision") or ""),
+            "source_digest": str(payload.get("sourceDigest") or ""),
+            "geometry_revision": pack.geometry_revision,
+            "metrics": pack.metrics,
+            "diagnostics": list(payload.get("diagnostics") or ()),
+        },
+        "bbox_mm": list(board.get("bboxMm") or [0.0, 0.0, 80.0, 50.0]),
+    }
+    _profile_emit(
+        profile_callback,
+        "total",
+        (time.perf_counter() - started) * 1000.0,
+        **metadata["stats"],
+    )
+    return metadata
 
 
 def copper_emit_enabled() -> bool:

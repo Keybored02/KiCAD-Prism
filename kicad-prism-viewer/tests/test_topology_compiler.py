@@ -57,6 +57,7 @@ from pipeline.topology_compiler.copper_geometry import (
 from pipeline.topology_compiler.semantic_gltf import (
     SemanticGltfBuilder,
     _native_backend_for_semantic_mode,
+    _reconcile_packed_net_metadata,
     _semantic_clipper_backend,
     patch_semantic_gltf_components,
 )
@@ -67,6 +68,38 @@ from pipeline.topology_compiler.__main__ import (
 
 
 class TopologyCompilerTests(unittest.TestCase):
+    def test_packed_net_metadata_uses_topology_canonical_name_without_rebinding_ids(self) -> None:
+        payload = {
+            "nets": [
+                {"id": 0, "uid": "", "name": "", "aliases": []},
+                {
+                    "id": 791,
+                    "uid": "board-uid",
+                    "name": "unconnected-(U1-Pad1)",
+                    "netClass": "",
+                    "aliases": [],
+                },
+            ]
+        }
+        _reconcile_packed_net_metadata(
+            {
+                "nets": [
+                    {
+                        "uid": "topology-uid",
+                        "name": "Net-(U1-Pad1)",
+                        "aliases": ["unconnected-(U1-Pad1)"],
+                        "net_class": "Default",
+                    }
+                ]
+            },
+            payload,
+        )
+        self.assertEqual(payload["nets"][1]["id"], 791)
+        self.assertEqual(payload["nets"][1]["uid"], "topology-uid")
+        self.assertEqual(payload["nets"][1]["name"], "Net-(U1-Pad1)")
+        self.assertEqual(payload["nets"][1]["netClass"], "Default")
+        self.assertEqual(payload["nets"][1]["aliases"], ["unconnected-(U1-Pad1)"])
+
     def test_semantic_builder_derives_board_frame_without_opening_glb(self) -> None:
         builder = SemanticGltfBuilder(
             {

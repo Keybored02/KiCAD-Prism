@@ -12,9 +12,14 @@ from pathlib import Path
 
 from .compiler import compile_topology
 from .context import PrismCompilationContext
+from .copper_geometry import pcb_geometry_backend
 from .exporter import export_viewer_html
 from .kicad_cli_export import export_project_geometry_assets, finalize_project_geometry
-from .semantic_gltf import build_semantic_gltf_scene, patch_semantic_gltf_components
+from .semantic_gltf import (
+    build_packed_semantic_gltf_scene,
+    build_semantic_gltf_scene,
+    patch_semantic_gltf_components,
+)
 
 _STAGE_TIMINGS_MS: dict[str, float] = {}
 _PROFILE_EVENTS: list[dict] = []
@@ -145,11 +150,23 @@ def cmd_from_project(args: argparse.Namespace) -> None:
             compatibility_design_json=args.compat_design_json,
             progress=_progress,
             profile=_profile("context"),
+            native_semantic_output=args.output / ".native-semantic-pack",
+            semantic_tile_size=args.tile_size,
+            semantic_meshopt_level=args.meshopt_level,
+        )
+        # The native compiler reads the board file directly. Start it before
+        # KiCadDesign hydration so Rust analytics overlap both the topology
+        # model load and the independent KiCad export lane.
+        board_future = (
+            export_pool.submit(lambda: context.board_compilation)
+            if pcb_geometry_backend() == "rust"
+            else None
         )
         try:
             context.design
             # Overlap copper emit / board compilation with topology JSON work.
-            board_future = export_pool.submit(lambda: context.board_compilation)
+            if board_future is None:
+                board_future = export_pool.submit(lambda: context.board_compilation)
             design_payload = context.design_payload_for_topology
             board_future.result()
             pcb_metadata = context.pcb_metadata
@@ -173,20 +190,34 @@ def cmd_from_project(args: argparse.Namespace) -> None:
             # do not depend on either KiCad GLB. Component node bindings are
             # joined atomically after the component export completes.
             with _stage("build semantic GLTF scene tiles"):
-                result = build_semantic_gltf_scene(
-                    topology,
-                    {"assets": {}, "components": []},
-                    context.semantic_geometry_source,
-                    args.output,
-                    pad_holes=context.pad_holes,
-                    force_rebuild=args.force_rebuild,
-                    clean_cache=args.clean_cache,
-                    cache_dir=args.cache_dir,
-                    meshopt_level=args.meshopt_level,
-                    tile_size_mm=tile_size_mm,
-                    progress=_progress,
-                    profile_callback=_profile("semantic_gltf"),
-                )
+                if context.semantic_mesh_pack is not None:
+                    result = build_packed_semantic_gltf_scene(
+                        topology,
+                        context.semantic_mesh_pack,
+                        args.output,
+                        force_rebuild=args.force_rebuild,
+                        clean_cache=args.clean_cache,
+                        progress=_progress,
+                        profile_callback=_profile("semantic_gltf"),
+                    )
+                else:
+                    result = build_semantic_gltf_scene(
+                        topology,
+                        {"assets": {}, "components": []},
+                        context.semantic_geometry_source,
+                        args.output,
+                        pad_holes=context.pad_holes,
+                        force_rebuild=args.force_rebuild,
+                        clean_cache=args.clean_cache,
+                        cache_dir=args.cache_dir,
+                        meshopt_level=args.meshopt_level,
+                        tile_size_mm=tile_size_mm,
+                        progress=_progress,
+                        profile_callback=_profile("semantic_gltf"),
+                    )
+            _STAGE_TIMINGS_MS["semantic_copper_ready_ms"] = (
+                time.perf_counter() - total_started
+            ) * 1000.0
             _progress("MILESTONE semantic-copper-ready")
             return result
 

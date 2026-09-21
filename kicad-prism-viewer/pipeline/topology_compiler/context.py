@@ -6,10 +6,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .copper_geometry import (
+    NativeSemanticMeshPack,
+    compile_rust_semantic_mesh_pack,
     copper_emit_available,
     emit_copper_geometry,
-    emit_rust_geometry,
     extract_pcb_metadata_from_copper,
+    extract_pcb_metadata_from_mesh_pack,
     pcb_geometry_backend,
     rust_geometry_available,
 )
@@ -20,6 +22,7 @@ from .pcb_extract import compile_pcb_artifacts
 class BoardCompilation:
     pcb_ir: dict[str, Any] | None
     copper_geometry: Any | None
+    semantic_mesh_pack: NativeSemanticMeshPack | None
     metadata: dict[str, Any]
     pad_holes: dict[str, dict[str, Any]]
 
@@ -30,6 +33,10 @@ class PrismCompilationContext:
     compatibility_design_json: bool = False
     progress: Callable[[str], None] | None = None
     profile: Callable[[str, dict[str, Any]], None] | None = None
+    native_semantic_output: Path | None = None
+    semantic_tile_size: str = "auto"
+    semantic_mesh_tolerance_mm: float = 0.005
+    semantic_meshopt_level: str = "medium"
     timings: dict[str, float] = field(default_factory=dict)
     _design: Any = None
     _board_compilation: BoardCompilation | None = None
@@ -110,7 +117,11 @@ class PrismCompilationContext:
     @property
     def semantic_geometry_source(self):
         compilation = self.board_compilation
-        return compilation.copper_geometry or compilation.pcb_ir
+        return compilation.semantic_mesh_pack or compilation.copper_geometry or compilation.pcb_ir
+
+    @property
+    def semantic_mesh_pack(self) -> NativeSemanticMeshPack | None:
+        return self.board_compilation.semantic_mesh_pack
 
     @property
     def pad_holes(self) -> dict[str, Any]:
@@ -143,6 +154,7 @@ class PrismCompilationContext:
         return BoardCompilation(
             pcb_ir=None,
             copper_geometry=copper_geometry,
+            semantic_mesh_pack=None,
             metadata=metadata,
             pad_holes={},
         )
@@ -154,19 +166,26 @@ class PrismCompilationContext:
                 "prism-kicad-native helper; set PRISM_KICAD_NATIVE_PATH when running from source"
             )
         pcb_file = self.pcb_path
-        copper_geometry = self._timed(
-            "rust_geometry_emit_ms",
-            "emit PCB geometry with prism-kicad-native",
-            lambda: emit_rust_geometry(pcb_file),
+        if self.native_semantic_output is None:
+            raise RuntimeError("Rust semantic compilation requires a native output directory")
+        semantic_mesh_pack = self._timed(
+            "rust_semantic_compile_ms",
+            "compile native analytic PCB semantic mesh pack",
+            lambda: compile_rust_semantic_mesh_pack(
+                pcb_file,
+                self.native_semantic_output,
+                tile_size=self.semantic_tile_size,
+                mesh_tolerance_mm=self.semantic_mesh_tolerance_mm,
+                meshopt_level=self.semantic_meshopt_level,
+            ),
         )
         self._log(
-            "PCB geometry backend: rust; "
-            f"kicad-monkey revision: {copper_geometry.kicad_monkey_revision}; "
-            f"schema: {copper_geometry.schema}; "
-            f"features: {len(copper_geometry.features)}; "
-            f"drills: {len(copper_geometry.drills)}"
+            "PCB geometry backend: rust-packed; "
+            f"schema: {semantic_mesh_pack.payload.get('schema')}; "
+            f"features: {len(semantic_mesh_pack.payload.get('objectFeatures') or ()) - 1}; "
+            f"tiles: {len(semantic_mesh_pack.payload.get('tiles') or ())}"
         )
-        for diagnostic in copper_geometry.diagnostics:
+        for diagnostic in semantic_mesh_pack.payload.get("diagnostics") or ():
             self._log(
                 "PCB geometry diagnostic: "
                 f"{diagnostic.get('severity', 'warning')} "
@@ -176,35 +195,28 @@ class PrismCompilationContext:
             self.profile(
                 "rust_geometry_contract",
                 {
-                    "schema": copper_geometry.schema,
-                    "kicad_monkey_revision": copper_geometry.kicad_monkey_revision,
-                    "features": len(copper_geometry.features),
-                    "drills": len(copper_geometry.drills),
-                    "diagnostics": len(copper_geometry.diagnostics),
-                    **copper_geometry.metrics,
+                    "schema": semantic_mesh_pack.payload.get("schema"),
+                    "kicad_monkey_revision": semantic_mesh_pack.payload.get("kicadMonkeyRevision"),
+                    "features": len(semantic_mesh_pack.payload.get("objectFeatures") or ()) - 1,
+                    "barrels": len(semantic_mesh_pack.payload.get("barrels") or ()),
+                    "tiles": len(semantic_mesh_pack.payload.get("tiles") or ()),
+                    "diagnostics": len(semantic_mesh_pack.payload.get("diagnostics") or ()),
+                    **semantic_mesh_pack.metrics,
                 },
             )
         metadata = self._timed(
             "pcb_metadata_rust_ms",
-            "derive PCB topology indexes from Rust geometry",
-            lambda: extract_pcb_metadata_from_copper(
+            "derive PCB topology indexes from native semantic tables",
+            lambda: extract_pcb_metadata_from_mesh_pack(
                 self.project_file,
-                copper_geometry,
+                semantic_mesh_pack,
                 profile_callback=self._board_compilation_profile,
             ),
         )
-        metadata["mode"] = "rust"
-        metadata["geometry_backend"] = {
-            "name": "rust",
-            "schema": copper_geometry.schema,
-            "kicad_monkey_revision": copper_geometry.kicad_monkey_revision,
-            "source_digest": copper_geometry.source_digest,
-            "metrics": copper_geometry.metrics,
-            "diagnostics": list(copper_geometry.diagnostics),
-        }
         return BoardCompilation(
             pcb_ir=None,
-            copper_geometry=copper_geometry,
+            copper_geometry=None,
+            semantic_mesh_pack=semantic_mesh_pack,
             metadata=metadata,
             pad_holes={},
         )
@@ -233,6 +245,7 @@ class PrismCompilationContext:
         return BoardCompilation(
             pcb_ir=ir_payload,
             copper_geometry=None,
+            semantic_mesh_pack=None,
             metadata=metadata,
             pad_holes=pad_holes,
         )

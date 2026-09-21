@@ -783,6 +783,7 @@ fn append_analytic_via(
             center_nm,
             width_nm: mm_to_nm(via.drill),
             height_nm: mm_to_nm(via.drill),
+            angle_deg: 0.0,
             oval: false,
             plated: true,
             layer_indexes: indexes(&physical_layers, layer_index),
@@ -890,7 +891,11 @@ fn append_analytic_pad(
                     continue;
                 }
             };
-            let world_angle = -(pad.angle + footprint_angle);
+            // kicad-monkey exposes the pad angle in the board coordinate
+            // frame.  The footprint angle is still needed to place the pad's
+            // local anchor, but applying it again here rotates the copper
+            // shape twice (most visibly for 90-degree footprints).
+            let world_angle = -pad.angle;
             let rotated_offset = crate::geometry::rotate(
                 Point::new(resolved.offset.x, resolved.offset.y),
                 world_angle,
@@ -928,6 +933,9 @@ fn append_analytic_pad(
         && drill.height.unwrap_or(drill.width) > 0.0
     {
         let height = drill.height.unwrap_or(drill.width);
+        let drill_offset =
+            crate::geometry::rotate(Point::new(drill.offset.x, drill.offset.y), -pad.angle);
+        let drill_center = Point::new(pad_anchor.x + drill_offset.x, pad_anchor.y + drill_offset.y);
         let plated = pad.plated.unwrap_or(pad.kind != "np_thru_hole");
         let mut physical_layers = if plated {
             copper_names.to_vec()
@@ -941,9 +949,10 @@ fn append_analytic_pad(
             semantic_id: semantic_id("pad_hole", &uid),
             source_uid: uid,
             kind: if plated { "plated_pad" } else { "npth_pad" }.to_owned(),
-            center_nm: point_to_nm(pad_anchor),
+            center_nm: point_to_nm(drill_center),
             width_nm: mm_to_nm(drill.width),
             height_nm: mm_to_nm(height),
+            angle_deg: -pad.angle,
             oval: (drill.width - height).abs() > 1e-12,
             plated,
             layer_indexes: indexes(&physical_layers, layer_index),

@@ -99,7 +99,8 @@ def _run_trial(
             (
                 event.get("node_metrics") or {}
                 for event in metrics.get("profileEvents", [])
-                if event.get("stage") == "semantic_gltf.node_builder"
+                if event.get("stage")
+                in {"semantic_gltf.node_builder", "semantic_gltf.packed_node_builder"}
             ),
             {},
         )
@@ -112,6 +113,16 @@ def _run_trial(
             ),
             0,
         )
+        packed_event = next(
+            (
+                event
+                for event in metrics.get("profileEvents", [])
+                if event.get("stage") == "semantic_gltf.packed_node_builder"
+            ),
+            {},
+        )
+        packed_metadata_bytes = int(packed_event.get("packed_metadata_bytes") or 0)
+        packed_tile_bytes = int(packed_event.get("packed_tile_bytes") or 0)
         result = {
             "backend": backend,
             "trial": trial,
@@ -119,7 +130,9 @@ def _run_trial(
             "cpu_ms": (usage.ru_utime + usage.ru_stime) * 1000.0,
             "peak_rss_bytes": _rss_bytes(usage.ru_maxrss),
             "source_bytes": project.with_suffix(".kicad_pcb").stat().st_size,
-            "intermediate_bytes": input_json_bytes,
+            "intermediate_bytes": input_json_bytes or packed_metadata_bytes,
+            "packed_metadata_bytes": packed_metadata_bytes,
+            "packed_tile_bytes": packed_tile_bytes,
             "feature_count": len(manifest.get("objectFeatures") or ()) - 1,
             "net_count": len(manifest.get("nets") or ()) - 1,
             "layer_count": len(manifest.get("layers") or ()),
@@ -186,10 +199,39 @@ def _parity(reference: dict[str, Any], candidate: dict[str, Any]) -> dict[str, A
     candidate_blank = sum(
         not str(item.get("sourceUid") or "") for item in candidate["objectFeatures"][1:]
     )
+    reference_net_names = {
+        str(item.get("name") or "") for item in reference.get("nets", [])
+    }
+    candidate_net_names = {
+        str(item.get("name") or "") for item in candidate.get("nets", [])
+    }
+    net_names_match = reference_net_names == candidate_net_names
+    layer_names_match = [item.get("name") for item in reference["layers"]] == [
+        item.get("name") for item in candidate["layers"]
+    ]
+
+    def barrel_identities(manifest: dict[str, Any]) -> set[tuple[str, str, str]]:
+        net_names = {
+            int(item.get("id") or 0): str(item.get("name") or "")
+            for item in manifest.get("nets", [])
+        }
+        return {
+            (
+                str(item.get("sourceUid") or ""),
+                str(item.get("kind") or ""),
+                net_names.get(int(item.get("netId") or 0), ""),
+            )
+            for item in manifest.get("barrels", [])
+        }
+
+    barrel_identity_match = barrel_identities(reference) == barrel_identities(candidate)
     return {
         "passed": not reference_only
         and not candidate_only
-        and max(bound_deltas, default=0.0) <= 0.005,
+        and max(bound_deltas, default=0.0) <= 0.005
+        and net_names_match
+        and layer_names_match
+        and barrel_identity_match,
         "shared_identities": len(shared),
         "reference_only_count": len(reference_only),
         "candidate_only_count": len(candidate_only),
@@ -207,18 +249,11 @@ def _parity(reference: dict[str, Any], candidate: dict[str, Any]) -> dict[str, A
             }
             for delta, key, legacy_bounds, rust_bounds in bound_differences[:20]
         ],
-        "net_names_match": [item.get("name") for item in reference["nets"]]
-        == [item.get("name") for item in candidate["nets"]],
-        "layer_names_match": [item.get("name") for item in reference["layers"]]
-        == [item.get("name") for item in candidate["layers"]],
-        "barrel_identities_match": {
-            (item.get("sourceUid"), item.get("kind"), item.get("netId"))
-            for item in reference.get("barrels", [])
-        }
-        == {
-            (item.get("sourceUid"), item.get("kind"), item.get("netId"))
-            for item in candidate.get("barrels", [])
-        },
+        # Numeric IDs and table order are document-local. Semantic parity is
+        # the canonical net-name set plus feature/barrel bindings by name.
+        "net_names_match": net_names_match,
+        "layer_names_match": layer_names_match,
+        "barrel_identities_match": barrel_identity_match,
     }
 
 
@@ -270,6 +305,8 @@ def _median(trials: list[dict[str, Any]]) -> dict[str, Any]:
         "peak_rss_bytes",
         "source_bytes",
         "intermediate_bytes",
+        "packed_metadata_bytes",
+        "packed_tile_bytes",
         "feature_count",
         "net_count",
         "layer_count",

@@ -3,6 +3,7 @@ mod contract;
 pub mod geometer_packets;
 mod geometry;
 mod materialize;
+pub mod mesh_pack;
 pub mod semantic_compiler;
 
 use anyhow::{Context, Result, bail};
@@ -18,10 +19,14 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    let arguments = env::args().skip(1).collect::<Vec<_>>();
+    if arguments.first().map(String::as_str) == Some("compile-semantic") {
+        return compile_semantic_command(&arguments[1..]);
+    }
     let mut pretty = false;
     let mut analytic = false;
     let mut source = None;
-    for argument in env::args().skip(1) {
+    for argument in arguments {
         match argument.as_str() {
             "emit-analytic" if source.is_none() && !analytic => analytic = true,
             "--pretty" => pretty = true,
@@ -66,6 +71,59 @@ fn run() -> Result<()> {
     } else {
         serde_json::to_writer(std::io::stdout().lock(), &document)?;
     }
+    println!();
+    Ok(())
+}
+
+fn compile_semantic_command(arguments: &[String]) -> Result<()> {
+    let mut pcb = None;
+    let mut output = None;
+    let mut tile_size = None;
+    let mut mesh_tolerance_mm = materialize::DEFAULT_TOLERANCE_MM;
+    let mut meshopt_level = "medium".to_owned();
+    let mut index = 0usize;
+    while index < arguments.len() {
+        let option = arguments[index].as_str();
+        index += 1;
+        let value = || {
+            arguments
+                .get(index)
+                .cloned()
+                .with_context(|| format!("{option} requires a value"))
+        };
+        match option {
+            "--pcb" => pcb = Some(PathBuf::from(value()?)),
+            "--output" => output = Some(PathBuf::from(value()?)),
+            "--tile-size" => {
+                let raw = value()?;
+                tile_size = if raw == "auto" {
+                    None
+                } else {
+                    Some(raw.parse::<f64>().context("parse --tile-size")?)
+                };
+            }
+            "--mesh-tolerance-mm" => {
+                mesh_tolerance_mm = value()?
+                    .parse::<f64>()
+                    .context("parse --mesh-tolerance-mm")?;
+            }
+            "--meshopt-level" => {
+                meshopt_level = value()?;
+                if !matches!(meshopt_level.as_str(), "low" | "medium" | "high") {
+                    bail!("--meshopt-level must be low, medium, or high");
+                }
+            }
+            value => bail!("unknown compile-semantic option {value}"),
+        }
+        index += 1;
+    }
+    let pcb = pcb.context(
+        "usage: prism-kicad-native compile-semantic --pcb BOARD --output DIRECTORY [--tile-size auto] [--mesh-tolerance-mm 0.005] [--meshopt-level medium]",
+    )?;
+    let output = output.context("compile-semantic requires --output")?;
+    let pack =
+        mesh_pack::compile_semantic(&pcb, &output, tile_size, mesh_tolerance_mm, &meshopt_level)?;
+    serde_json::to_writer(std::io::stdout().lock(), &pack.metrics)?;
     println!();
     Ok(())
 }

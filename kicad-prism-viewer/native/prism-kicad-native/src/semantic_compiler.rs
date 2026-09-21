@@ -3,7 +3,7 @@ use anyhow::{Result, bail};
 
 pub const NM_PER_MM: i64 = 1_000_000;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TileId {
     pub x: i64,
     pub y: i64,
