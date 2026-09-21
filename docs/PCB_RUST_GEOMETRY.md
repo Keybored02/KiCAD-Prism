@@ -53,6 +53,19 @@ and per-layer padstack shapes; footprint transforms; filled-zone polygons and
 islands; and board/layer/stackup facts. Python still loads the design/netlist for
 topology and orchestrates KiCad CLI 3D export and the existing scene compiler.
 
+The feature branch also contains a `prism.pcb_analytic_geometry.v2` producer,
+tile-classification scaffolding, and strict packet codecs for Geometer's packed
+terminal geometry interfaces. These are not yet the runtime Rust backend: the
+current backend still enters the v1 polygon/Python/Node path. The implementation
+status and remaining boundaries are tracked in
+`docs/plans/kicad-monkey-analytic-semantic-pipeline.md`.
+
+PCB geometry emission and semantic tile compilation now run concurrently with
+KiCad board/component GLB export. Semantic Z placement uses the PCB stackup's
+canonical board frame rather than inspecting `base_board.glb`; component
+node/mesh bindings are patched atomically into the scene manifest when export
+finishes, without rebuilding copper tiles.
+
 ## Contract and identity
 
 The frozen v1 schema is
@@ -85,7 +98,8 @@ selected Rust backend.
 
 ## Verification and benchmarking
 
-The committed benchmark runner performs interleaved cold scene builds, records
+The committed benchmark runner measures `legacy`, `python-copper`, and `rust`
+in interleaved cold scene builds, records
 wall and CPU time, peak RSS, input/intermediate/final bytes, feature/net/layer
 counts, mesh size, and stage timings, then compares final semantic manifests:
 
@@ -93,8 +107,13 @@ counts, mesh size, and stage timings, then compares final semantic manifests:
 backend/venv/bin/python kicad-prism-viewer/scripts/pcb_backend_benchmark.py \
   fixtures/release-studio/cynthion/cynthion.kicad_pro \
   --helper kicad-prism-viewer/native/prism-kicad-native/target/release/prism-kicad-native \
-  --output /tmp/prism-pcb-benchmark --trials 3
+  --output /tmp/prism-pcb-benchmark
 ```
+
+The default qualification shape is one warm-up followed by five measured
+trials per backend, with backend order rotated between rounds. The first
+JTYU-OBC report is
+`docs/plans/kicad-monkey-analytic-semantic-pipeline-benchmark.md`.
 
 The Rust contract emits warnings for unsupported primitives instead of dropping
 them silently. A non-zero `unsupported_features` count, any error diagnostic,

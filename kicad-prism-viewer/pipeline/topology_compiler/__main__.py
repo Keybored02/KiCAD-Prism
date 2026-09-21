@@ -14,7 +14,7 @@ from .compiler import compile_topology
 from .context import PrismCompilationContext
 from .exporter import export_viewer_html
 from .kicad_cli_export import export_project_geometry_assets, finalize_project_geometry
-from .semantic_gltf import build_semantic_gltf_scene
+from .semantic_gltf import build_semantic_gltf_scene, patch_semantic_gltf_components
 
 _STAGE_TIMINGS_MS: dict[str, float] = {}
 _PROFILE_EVENTS: list[dict] = []
@@ -167,6 +167,30 @@ def cmd_from_project(args: argparse.Namespace) -> None:
                 "board_bbox_mm": pcb_metadata.get("bbox_mm"),
             },
         )
+
+        def build_semantic_lane() -> dict:
+            # Copper tiles use an explicit stackup-derived coordinate frame and
+            # do not depend on either KiCad GLB. Component node bindings are
+            # joined atomically after the component export completes.
+            with _stage("build semantic GLTF scene tiles"):
+                result = build_semantic_gltf_scene(
+                    topology,
+                    {"assets": {}, "components": []},
+                    context.semantic_geometry_source,
+                    args.output,
+                    pad_holes=context.pad_holes,
+                    force_rebuild=args.force_rebuild,
+                    clean_cache=args.clean_cache,
+                    cache_dir=args.cache_dir,
+                    meshopt_level=args.meshopt_level,
+                    tile_size_mm=tile_size_mm,
+                    progress=_progress,
+                    profile_callback=_profile("semantic_gltf"),
+                )
+            _progress("MILESTONE semantic-copper-ready")
+            return result
+
+        semantic_future = export_pool.submit(build_semantic_lane)
         try:
             export_artifacts = export_future.result()
             _STAGE_TIMINGS_MS["kicad_glb_ms"] = export_artifacts.elapsed_ms
@@ -181,21 +205,12 @@ def cmd_from_project(args: argparse.Namespace) -> None:
                 progress=_progress,
                 profile_callback=_profile("kicad_cli"),
             )
-            with _stage("build semantic GLTF scene tiles"):
-                semantic_geometry["semantic_gltf"] = build_semantic_gltf_scene(
-                    topology,
-                    semantic_geometry,
-                    context.semantic_geometry_source,
-                    args.output,
-                    pad_holes=context.pad_holes,
-                    force_rebuild=args.force_rebuild,
-                    clean_cache=args.clean_cache,
-                    cache_dir=args.cache_dir,
-                    meshopt_level=args.meshopt_level,
-                    tile_size_mm=tile_size_mm,
-                    progress=_progress,
-                    profile_callback=_profile("semantic_gltf"),
-                )
+            semantic_geometry["semantic_gltf"] = semantic_future.result()
+            patch_semantic_gltf_components(
+                args.output / "scene-gltf" / "scene.manifest.json",
+                topology,
+                semantic_geometry.get("components", []) or [],
+            )
             semantic_geometry["assets"]["scene_manifest"] = "scene-gltf/scene.manifest.json"
         except Exception as exc:
             print(f"error: semantic PCB geometry export failed for {project_file}: {exc}", file=sys.stderr)

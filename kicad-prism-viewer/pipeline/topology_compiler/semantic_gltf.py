@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .copper_geometry import ingest_copper_geometry, is_copper_geometry_document
-from .glb_inspect import mesh_axis_range
 from .models import stable_id
 from .native_clipper import NativeClipperError, build_native_clip_response
 from .prism_clipper2 import PrismClipper2Library, prism_clipper2_library_info
@@ -34,7 +33,7 @@ SCHEMA = "prism.semantic_gltf_a0"
 TILE_SIZE_MM = 20.0
 SEMANTIC_GEOMETRY_PROTOCOL_VERSION = "prism.semantic_geometry_protocol_a1"
 SEMANTIC_CLIPPER_PROTOCOL_VERSION = "prism.semantic_clipper_response_a1"
-SEMANTIC_GEOMETRY_COMPILER_VERSION = "semantic-gltf-clipper-a1"
+SEMANTIC_GEOMETRY_COMPILER_VERSION = "semantic-gltf-clipper-a2-canonical-frame"
 
 
 class SemanticGltfBuilder:
@@ -101,8 +100,7 @@ class SemanticGltfBuilder:
         self.board_y_min_mm: float | None = None
         self.board_y_max_mm: float | None = None
         self.board_thickness_mm = float(topology.get("board", {}).get("thickness_mm") or 0.0)
-        if base_board_glb and base_board_glb.exists():
-            self._read_board_y_range(base_board_glb)
+        self._set_canonical_board_y_range()
 
     def _register_net(
         self,
@@ -147,11 +145,30 @@ class SemanticGltfBuilder:
             net_id = self._register_net(net_name)
         return net_id
 
-    def _read_board_y_range(self, path: Path) -> None:
-        axis_range = mesh_axis_range(path, "_pcb", 1)
-        if axis_range:
-            self.board_y_min_mm = axis_range[0] * 1000.0
-            self.board_y_max_mm = axis_range[1] * 1000.0
+    def _set_canonical_board_y_range(self) -> None:
+        """Derive KiCad's board-body frame from stackup facts, without opening a GLB.
+
+        KiCad's exported substrate spans the inward faces of the outer copper
+        layers.  Mapping the authored stackup thickness onto that interval is
+        equivalent to the former mesh-axis inspection while allowing semantic
+        compilation to run before either GLB export finishes.
+        """
+
+        if len(self.copper_layers) < 2 or self.board_thickness_mm <= 0:
+            return
+        ordered = sorted(self.copper_layers, key=lambda layer: float(layer.get("z_mm") or 0.0))
+        bottom = ordered[0]
+        top = ordered[-1]
+        bottom_inner = float(bottom.get("z_mm") or 0.0) + float(
+            bottom.get("thickness_mm") or 0.0
+        ) / 2.0
+        top_inner = float(top.get("z_mm") or 0.0) - float(
+            top.get("thickness_mm") or 0.0
+        ) / 2.0
+        body_thickness = top_inner - bottom_inner
+        if body_thickness > 0:
+            self.board_y_min_mm = 0.0
+            self.board_y_max_mm = body_thickness
 
     def _runtime_z_mm(self, centered_z_mm: float) -> float:
         if (
@@ -584,22 +601,11 @@ class SemanticGltfBuilder:
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
-        components = []
-        for component in self.topology.get("components", []) or []:
-            designator = str(component.get("designator") or "")
-            node = self.component_nodes.get(designator, {})
-            components.append(
-                {
-                    "id": len(components) + 1,
-                    "featureId": len(self.object_features) + len(components),
-                    "uid": str(component.get("uid") or ""),
-                    "designator": designator,
-                    "value": str(component.get("value") or ""),
-                    "footprint": str(component.get("footprint") or ""),
-                    "nodeIndex": node.get("node_index"),
-                    "meshNames": node.get("mesh_names", []),
-                }
-            )
+        components = _component_manifest_entries(
+            self.topology,
+            self.component_nodes,
+            first_feature_id=len(self.object_features),
+        )
         payload = {
             "schema": "prism.semantic_gltf_build_a0",
             "tileSizeMm": tile_size_mm,
@@ -949,6 +955,59 @@ def build_semantic_gltf_scene(
         "tiles": len(manifest.get("tiles", [])),
         "bytes": sum(int(tile.get("bytes") or 0) for tile in manifest.get("tiles", [])),
     }
+
+
+def _component_manifest_entries(
+    topology: dict[str, Any],
+    component_nodes: dict[str, dict[str, Any]],
+    *,
+    first_feature_id: int,
+) -> list[dict[str, Any]]:
+    components: list[dict[str, Any]] = []
+    for component in topology.get("components", []) or []:
+        designator = str(component.get("designator") or "")
+        node = component_nodes.get(designator, {})
+        components.append(
+            {
+                "id": len(components) + 1,
+                "featureId": first_feature_id + len(components),
+                "uid": str(component.get("uid") or ""),
+                "designator": designator,
+                "value": str(component.get("value") or ""),
+                "footprint": str(component.get("footprint") or ""),
+                "nodeIndex": node.get("node_index"),
+                "meshNames": node.get("mesh_names", []),
+            }
+        )
+    return components
+
+
+def patch_semantic_gltf_components(
+    manifest_path: Path,
+    topology: dict[str, Any],
+    component_nodes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Attach late component bindings without rebuilding any copper tile."""
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    object_features = manifest.get("objectFeatures")
+    if not isinstance(object_features, list):
+        raise RuntimeError("semantic GLTF manifest has no objectFeatures table")
+    nodes_by_designator = {
+        str(node.get("designator") or ""): node
+        for node in component_nodes
+        if node.get("designator")
+    }
+    components = _component_manifest_entries(
+        topology,
+        nodes_by_designator,
+        first_feature_id=len(object_features),
+    )
+    manifest["components"] = components
+    temporary = manifest_path.with_name(f".{manifest_path.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
+    os.replace(temporary, manifest_path)
+    return components
 
 
 def _semantic_geometry_compiler_identity(

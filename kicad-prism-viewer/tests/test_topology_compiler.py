@@ -58,6 +58,7 @@ from pipeline.topology_compiler.semantic_gltf import (
     SemanticGltfBuilder,
     _native_backend_for_semantic_mode,
     _semantic_clipper_backend,
+    patch_semantic_gltf_components,
 )
 from pipeline.topology_compiler.__main__ import (
     _resolve_semantic_tile_size,
@@ -66,6 +67,50 @@ from pipeline.topology_compiler.__main__ import (
 
 
 class TopologyCompilerTests(unittest.TestCase):
+    def test_semantic_builder_derives_board_frame_without_opening_glb(self) -> None:
+        builder = SemanticGltfBuilder(
+            {
+                "board": {"thickness_mm": 2.0},
+                "layers": [
+                    {"name": "F.Cu", "role": "copper", "z_mm": 0.95, "thickness_mm": 0.04},
+                    {"name": "B.Cu", "role": "copper", "z_mm": -0.95, "thickness_mm": 0.04},
+                ],
+                "nets": [],
+            },
+            Path("/path/that/must/not/be-opened/base_board.glb"),
+        )
+        self.assertEqual(builder.board_y_min_mm, 0.0)
+        self.assertAlmostEqual(builder.board_y_max_mm or 0.0, 1.86)
+        self.assertAlmostEqual(builder._runtime_z_mm(-1.0), 0.0)
+        self.assertAlmostEqual(builder._runtime_z_mm(1.0), 1.86)
+
+    def test_component_bindings_patch_manifest_without_rebuilding_tiles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "scene.manifest.json"
+            original = {
+                "schema": "prism.semantic_gltf_a0",
+                "geometryRevision": "copper-revision",
+                "objectFeatures": [{"id": 0}],
+                "components": [],
+                "tiles": [{"id": "tile-1", "path": "tile-1.glb", "bytes": 4}],
+            }
+            manifest_path.write_text(json.dumps(original), encoding="utf-8")
+            components = patch_semantic_gltf_components(
+                manifest_path,
+                {
+                    "components": [
+                        {"uid": "component-u1", "designator": "U1", "value": "MCU", "footprint": "QFN"}
+                    ]
+                },
+                [{"designator": "U1", "node_index": 7, "mesh_names": ["U1_body"]}],
+            )
+            patched = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(patched["geometryRevision"], "copper-revision")
+            self.assertEqual(patched["tiles"], original["tiles"])
+            self.assertEqual(components[0]["featureId"], 1)
+            self.assertEqual(components[0]["nodeIndex"], 7)
+            self.assertEqual(components[0]["meshNames"], ["U1_body"])
+
     def test_auto_tile_size_uses_one_power_of_two_tile_for_small_boards(self) -> None:
         self.assertEqual(
             _resolve_semantic_tile_size("auto", {"bbox_mm": [22.0, 15.0, 154.0, 105.0]}),

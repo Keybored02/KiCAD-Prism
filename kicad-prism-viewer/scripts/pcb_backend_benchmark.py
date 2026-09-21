@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Benchmark and compare Prism's legacy and Rust PCB geometry backends."""
+"""Benchmark Prism's three PCB geometry backends on identical cold builds."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.util
 import json
 import os
 import platform
@@ -20,6 +22,7 @@ from typing import Any
 SCHEMA = "prism.pcb_backend_benchmark.v1"
 VIEWER_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = VIEWER_ROOT.parent
+BACKENDS = ("legacy", "python-copper", "rust")
 
 
 def _rss_bytes(value: int) -> int:
@@ -156,9 +159,9 @@ def _signature(manifest: dict[str, Any]) -> dict[tuple[str, str, str, str], list
     }
 
 
-def _parity(legacy: dict[str, Any], rust: dict[str, Any]) -> dict[str, Any]:
-    left = _signature(legacy)
-    right = _signature(rust)
+def _parity(reference: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    left = _signature(reference)
+    right = _signature(candidate)
     shared = left.keys() & right.keys()
     bound_differences = [
         (
@@ -175,23 +178,25 @@ def _parity(legacy: dict[str, Any], rust: dict[str, Any]) -> dict[str, Any]:
     ]
     bound_differences.sort(key=lambda item: item[0], reverse=True)
     bound_deltas = [item[0] for item in bound_differences]
-    legacy_only = sorted(left.keys() - right.keys())
-    rust_only = sorted(right.keys() - left.keys())
-    legacy_blank = sum(
-        not str(item.get("sourceUid") or "") for item in legacy["objectFeatures"][1:]
+    reference_only = sorted(left.keys() - right.keys())
+    candidate_only = sorted(right.keys() - left.keys())
+    reference_blank = sum(
+        not str(item.get("sourceUid") or "") for item in reference["objectFeatures"][1:]
     )
-    rust_blank = sum(
-        not str(item.get("sourceUid") or "") for item in rust["objectFeatures"][1:]
+    candidate_blank = sum(
+        not str(item.get("sourceUid") or "") for item in candidate["objectFeatures"][1:]
     )
     return {
-        "passed": not legacy_only and not rust_only and max(bound_deltas, default=0.0) <= 0.005,
+        "passed": not reference_only
+        and not candidate_only
+        and max(bound_deltas, default=0.0) <= 0.005,
         "shared_identities": len(shared),
-        "legacy_only_count": len(legacy_only),
-        "rust_only_count": len(rust_only),
-        "legacy_only_examples": [list(item) for item in legacy_only[:50]],
-        "rust_only_examples": [list(item) for item in rust_only[:50]],
-        "legacy_blank_source_identity_count": legacy_blank,
-        "rust_blank_source_identity_count": rust_blank,
+        "reference_only_count": len(reference_only),
+        "candidate_only_count": len(candidate_only),
+        "reference_only_examples": [list(item) for item in reference_only[:50]],
+        "candidate_only_examples": [list(item) for item in candidate_only[:50]],
+        "reference_blank_source_identity_count": reference_blank,
+        "candidate_blank_source_identity_count": candidate_blank,
         "max_shared_bounds_delta_mm": max(bound_deltas, default=0.0),
         "largest_shared_bounds_differences": [
             {
@@ -202,19 +207,60 @@ def _parity(legacy: dict[str, Any], rust: dict[str, Any]) -> dict[str, Any]:
             }
             for delta, key, legacy_bounds, rust_bounds in bound_differences[:20]
         ],
-        "net_names_match": [item.get("name") for item in legacy["nets"]]
-        == [item.get("name") for item in rust["nets"]],
-        "layer_names_match": [item.get("name") for item in legacy["layers"]]
-        == [item.get("name") for item in rust["layers"]],
+        "net_names_match": [item.get("name") for item in reference["nets"]]
+        == [item.get("name") for item in candidate["nets"]],
+        "layer_names_match": [item.get("name") for item in reference["layers"]]
+        == [item.get("name") for item in candidate["layers"]],
         "barrel_identities_match": {
             (item.get("sourceUid"), item.get("kind"), item.get("netId"))
-            for item in legacy.get("barrels", [])
+            for item in reference.get("barrels", [])
         }
         == {
             (item.get("sourceUid"), item.get("kind"), item.get("netId"))
-            for item in rust.get("barrels", [])
+            for item in candidate.get("barrels", [])
         },
     }
+
+
+def _git_revision(path: Path) -> str | None:
+    working_directory = path if path.is_dir() else path.parent
+    completed = subprocess.run(
+        ["git", "-C", str(working_directory), "rev-parse", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip() or None
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _python_monkey_identity() -> dict[str, str | None]:
+    spec = importlib.util.find_spec("kicad_monkey")
+    module_path = Path(spec.origin).resolve() if spec and spec.origin else None
+    revision = _git_revision(module_path) if module_path else None
+    return {
+        "module": str(module_path) if module_path else None,
+        "revision": revision,
+    }
+
+
+def _helper_identity(helper: Path) -> str:
+    completed = subprocess.run(
+        [str(helper), "--version"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
 
 
 def _median(trials: list[dict[str, Any]]) -> dict[str, Any]:
@@ -246,10 +292,17 @@ def main() -> int:
     parser.add_argument("projects", nargs="+", type=Path)
     parser.add_argument("--helper", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--trials", type=int, default=3)
+    parser.add_argument(
+        "--project-revision",
+        help="Source revision for an exported/archived project tree without its own .git directory",
+    )
+    parser.add_argument("--warmups", type=int, default=1)
+    parser.add_argument("--trials", type=int, default=5)
     args = parser.parse_args()
-    if args.trials < 3:
-        parser.error("--trials must be at least 3")
+    if args.warmups < 0:
+        parser.error("--warmups must not be negative")
+    if args.trials < 1:
+        parser.error("--trials must be at least 1")
     helper = args.helper.resolve()
     if not helper.is_file() or not os.access(helper, os.X_OK):
         parser.error(f"helper is not executable: {helper}")
@@ -258,28 +311,48 @@ def main() -> int:
     reports = []
     for raw_project in args.projects:
         project = raw_project.resolve()
-        trials: dict[str, list[dict[str, Any]]] = {"legacy": [], "rust": []}
+        trials: dict[str, list[dict[str, Any]]] = {backend: [] for backend in BACKENDS}
         manifests: dict[str, dict[str, Any]] = {}
-        for trial in range(args.trials):
-            for backend in ("legacy", "rust"):
-                measured, manifest = _run_trial(project, backend, helper, output, trial)
-                trials[backend].append(measured)
+        total_rounds = args.warmups + args.trials
+        for run_index in range(total_rounds):
+            measured_run = run_index >= args.warmups
+            trial = run_index - args.warmups
+            # Rotate the order on every round so backend position cannot own a
+            # stable thermal or filesystem-cache advantage.
+            offset = run_index % len(BACKENDS)
+            order = BACKENDS[offset:] + BACKENDS[:offset]
+            for backend in order:
+                result, manifest = _run_trial(project, backend, helper, output, run_index)
                 manifests[backend] = manifest
+                if measured_run:
+                    trials[backend].append(result)
                 print(
-                    f"{project.name} {backend} trial {trial + 1}/{args.trials}: "
-                    f"{measured['wall_ms']:.1f} ms",
+                    f"{project.name} {backend} "
+                    f"{'trial ' + str(trial + 1) + '/' + str(args.trials) if measured_run else 'warm-up'}: "
+                    f"{result['wall_ms']:.1f} ms",
                     flush=True,
                 )
         medians = {backend: _median(values) for backend, values in trials.items()}
         legacy_wall = medians["legacy"]["wall_ms"]
-        rust_wall = medians["rust"]["wall_ms"]
+        improvements = {
+            backend: ((legacy_wall - values["wall_ms"]) / legacy_wall) * 100.0
+            for backend, values in medians.items()
+            if backend != "legacy"
+        }
         reports.append(
             {
                 "project": str(project),
+                "project_revision": args.project_revision
+                or (_git_revision(project) if (project.parent / ".git").exists() else None),
+                "pcb_sha256": _sha256(project.with_suffix(".kicad_pcb")),
                 "trials": trials,
                 "medians": medians,
-                "wall_improvement_percent": ((legacy_wall - rust_wall) / legacy_wall) * 100.0,
-                "parity": _parity(manifests["legacy"], manifests["rust"]),
+                "wall_improvement_percent_vs_legacy": improvements,
+                "parity_vs_legacy": {
+                    backend: _parity(manifests["legacy"], manifests[backend])
+                    for backend in BACKENDS
+                    if backend != "legacy"
+                },
             }
         )
     report = {
@@ -288,11 +361,15 @@ def main() -> int:
             "platform": platform.platform(),
             "python": sys.version,
             "helper": str(helper),
+            "helper_identity": _helper_identity(helper),
+            "python_monkey": _python_monkey_identity(),
         },
         "methodology": {
+            "warmups": args.warmups,
             "trials": args.trials,
-            "cache": "cold semantic scene cache per trial; KiCad CLI export cache unchanged",
-            "order": "legacy then rust, interleaved per trial",
+            "backends": list(BACKENDS),
+            "cache": "fresh compiler and semantic scene cache per run; forced artifact rebuild",
+            "order": "interleaved and rotated per round",
         },
         "boards": reports,
     }
