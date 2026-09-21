@@ -12,10 +12,20 @@ KiCad (https://dev-docs.kicad.org/en/addons/):
       resources/
         icon.png          <- the package icon PCM shows
 
-    python tools/package_plugin.py --version 0.4.0 --binaries <dir> --out dist
+    python tools/package_plugin.py --binaries <dir> --out dist
 
 `--binaries` is a directory of the artifacts CI downloaded, one subdirectory per
 platform (that's how actions/download-artifact lays them out).
+
+The VERSION is read from the source, never passed in. It used to be an argument that
+only reached metadata.json, so a build could ship a package PCM called 0.5.0 whose
+plugin reported 0.4.0 to itself and to the server: the panel showed the old number and
+the update check compared the wrong one, silently. Reading it here means the committed
+tree is what shipped, which is also what makes a zip traceable back to a commit.
+
+`--expect` is for CI to state the version it believes it is building. It verifies, it
+does not set: a mismatch is a failed build rather than a package that disagrees with
+its own source.
 
 One zip is produced per platform, because each carries its own agent binary. A
 single zip with all three would triple the download for no reason, and KiCad has no
@@ -26,12 +36,44 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import zipfile
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
 PLUGIN_SRC = TOOLS / "kicad_plugin"
+
+def _read_constant(path: Path, name: str) -> str:
+    """Read `NAME = "..."` out of a module without importing it.
+
+    The plugin imports wx and the agent imports its own package; neither is available
+    to a packaging script, and neither needs to be just to read a string.
+    """
+    pattern = re.compile(rf"^{name}\s*=\s*[\"']([^\"']+)[\"']", re.M)
+    match = pattern.search(path.read_text(encoding="utf-8"))
+    if not match:
+        raise SystemExit(f"couldn't find {name} in {path}")
+    return match.group(1)
+
+
+def resolve_version() -> str:
+    """The one version this package ships, taken from the plugin's own source.
+
+    The agent is checked against it rather than read separately. They are built and
+    shipped together, so a difference between them is a mistake someone made while
+    bumping one and forgetting the other, and it is worth catching at build time
+    instead of in a user's version check.
+    """
+    plugin = _read_constant(PLUGIN_SRC / "version.py", "VERSION")
+    agent = _read_constant(TOOLS / "prism_agent" / "server.py", "VERSION")
+    if plugin != agent:
+        raise SystemExit(
+            f"version mismatch: plugin {plugin}, agent {agent}. "
+            "They ship in one package and must agree."
+        )
+    return plugin
+
 
 IDENTIFIER = "com.github.keybored02.kicad-prism"
 
@@ -161,7 +203,10 @@ def build_package(version: str, binaries: Path, out: Path, artifact: str) -> Pat
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--version", required=True)
+    ap.add_argument(
+        "--expect",
+        help="the version CI believes it is building; verified against the source",
+    )
     ap.add_argument("--binaries", required=True, type=Path)
     ap.add_argument("--out", default=Path("dist"), type=Path)
     args = ap.parse_args()
@@ -169,12 +214,20 @@ def main() -> int:
     if not PLUGIN_SRC.is_dir():
         raise SystemExit(f"plugin source not found: {PLUGIN_SRC}")
 
+    version = resolve_version()
+    if args.expect and args.expect != version:
+        raise SystemExit(
+            f"asked to build {args.expect}, but the source says {version}. "
+            "Bump tools/kicad_plugin/version.py and tools/prism_agent/server.py first."
+        )
+    print(f"Packaging version {version}")
+
     built = []
     for artifact in PLATFORMS:
         # Only package platforms whose binary we actually got. A macOS runner
         # failing shouldn't stop us shipping Windows and Linux.
         try:
-            built.append(build_package(args.version, args.binaries, args.out, artifact))
+            built.append(build_package(version, args.binaries, args.out, artifact))
         except SystemExit as exc:
             print(f"  skipping {artifact}: {exc}")
 

@@ -22,11 +22,21 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
+# These two are edited BY HAND, and deliberately not derived from the plugin build.
+# Prism releases far more often than the plugin does, so tying them together would mean
+# every backend release claimed a plugin release that never happened. What they record
+# is a judgement about compatibility, which is not something a build can work out.
+
 # The plugin version shipped with this server.
 PLUGIN_EXPECTED = "0.4.0"
 
 # The oldest plugin this server can still serve correctly.
-PLUGIN_MIN = "0.4.0"
+#
+# This TRAILS expected, and should stay behind it. Setting the two equal means the
+# first bump to expected turns every plugin in the field from "you should update" into
+# "you must": hard-blocked, mid-session, for being one release behind. Only raise this
+# when an older plugin is genuinely broken against this server.
+PLUGIN_MIN = "0.3.0"
 
 # Where to get it. Overridable so a private deployment can serve its own build rather
 # than sending users to a public repo they may not be able to reach.

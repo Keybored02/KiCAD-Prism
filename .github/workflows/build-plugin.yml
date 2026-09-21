@@ -7,10 +7,11 @@ name: Build KiCad Plugin
 on:
   workflow_dispatch:
     inputs:
+      # Verified against the source, never used to set it. Bump the version in
+      # tools/kicad_plugin/version.py and tools/prism_agent/server.py.
       version:
-        description: "Version for the package (e.g. 0.4.0)"
-        required: true
-        default: "0.4.0"
+        description: "Expected version (optional). Fails the build if the source says otherwise."
+        required: false
       publish:
         description: "Attach the zip to a GitHub Release"
         type: boolean
@@ -111,12 +112,24 @@ jobs:
         with:
           path: binaries
 
+      # The version comes from the source, so the zip always matches the commit it was
+      # built from. The input only verifies, and only when one was given.
       - name: Assemble the package
+        id: package
         run: |
           python tools/package_plugin.py \
-            --version "${{ inputs.version }}" \
+            ${{ inputs.version && format('--expect "{0}"', inputs.version) || '' }} \
             --binaries binaries \
             --out dist
+
+      - name: Read the version that was built
+        id: built
+        run: |
+          python - <<'EOF' >> "$GITHUB_OUTPUT"
+          import pathlib, re
+          src = pathlib.Path("tools/kicad_plugin/version.py").read_text(encoding="utf-8")
+          print("version=" + re.search(r'^VERSION\s*=\s*"([^"]+)"', src, re.M).group(1))
+          EOF
 
       - uses: actions/upload-artifact@v4
         with:
@@ -128,7 +141,7 @@ jobs:
         if: inputs.publish
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ inputs.version }}
+          tag_name: v${{ steps.built.outputs.version }}
           files: dist/*.zip
           generate_release_notes: true
         env:
