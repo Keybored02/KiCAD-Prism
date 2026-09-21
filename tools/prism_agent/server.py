@@ -30,10 +30,11 @@ Endpoints
     POST /unstage {path, paths?|all} -> unstage files, back to the working tree
     POST /branch {path, name, switch?}
                                      -> create a branch at HEAD (the detached-HEAD remedy)
+    POST /switch {path, ref}         -> check out ref (the user closed the editors)
     POST /switch/schedule {path, ref, project_dir, kicad_pid}
-                                     -> after KiCad closes, check out ref and reopen
-    POST /switch/cancel              -> drop a pending scheduled switch
-    GET  /switch?path=<path>         -> the pending scheduled switch, if any
+                                     -> after that pid exits, check out ref and reopen
+    POST /switch/cancel              -> drop a pending deferred switch
+    GET  /switch/pending             -> the pending deferred switch, if any
     POST /fetch {path}               -> update tracking refs; report ahead/behind
     POST /push {path, set_upstream?} -> push current branch; NEVER forces (refuse+explain)
     POST /stash {path, message}      -> stash uncommitted changes
@@ -111,15 +112,19 @@ class AgentState:
         # Merge sessions, each scoped to one repository and one branch. Separate from
         # `self.token` on purpose: the browser gets one of these, never the agent's key.
         self.merges = merge_tokens.Sessions()
-        # Deferred branch switches: wait for KiCad to close, then check out and reopen.
-        # The notify callback spawns a short-lived helper for any dialog, so this
-        # background work never touches a GUI toolkit on a watcher thread.
+        # Deferred branch switches: wait for a pid to exit, then check out and reopen.
+        # NOT what the plugin's switch button uses any more, see POST /switch: the
+        # editors turned out to be DLLs inside kicad.exe rather than processes, so
+        # there was never an editor pid to wait on, and closing the board is enough.
+        #
+        # Kept because waiting on a process is a real capability and the only thing
+        # that was wrong with it was the UI built on top. The routes below are its
+        # surface; nothing ships that calls them today.
         from . import switch_scheduler
         from .__main__ import spawn_notify
 
         self.switch = switch_scheduler.SwitchScheduler(notify=spawn_notify)
-        # A switch scheduled before a restart is still owed. Without this the agent
-        # came back with no watcher, KiCad closed, and the checkout never happened.
+        # A switch scheduled before a restart is still owed.
         self.switch.resume()
         # Set by the entry point. Lets /quit stop the agent, so the tray icon is a
         # convenience rather than the only way out.
@@ -423,8 +428,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"remotes": checkout.remotes(path)})
             return
 
-        if route.path == "/switch":
-            # The pending scheduled switch, if any (so the panel can show/cancel it).
+        if route.path == "/switch/pending":
+            # The pending deferred switch, if any. See AgentState for why this is not
+            # on the plugin's switch path any more.
             self._send(200, {"pending": self.state.switch.pending()})
             return
 
@@ -685,9 +691,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if route.path == "/switch/schedule":
-            # Defer a branch switch until KiCad closes, then check out and reopen.
-            # The plugin can't close KiCad, and a checkout under an open board would be
-            # overwritten on KiCad's next save, so the agent waits it out.
+            # Defer a checkout until `kicad_pid` exits, then check out and reopen.
+            #
+            # No longer the plugin's switch path (POST /switch is), and nothing shipping
+            # calls this: the editors are DLLs inside kicad.exe, so waiting on a pid
+            # meant waiting for ALL of KiCad. Kept because the machinery is sound and
+            # "do this once that process is gone" is worth having.
             path = body.get("path") or ""
             ref = body.get("ref") or ""
             project_dir = body.get("project_dir") or ""
@@ -706,11 +715,6 @@ class _Handler(BaseHTTPRequestHandler):
                         ref=ref,
                         project_dir=project_dir,
                         kicad_pid=int(kicad_pid),
-                        # How the caller settled the tree just now. KiCad rewrites its
-                        # own files on exit, so a tree that was clean when the user
-                        # answered is dirty again by the time the switch runs; the
-                        # scheduler re-applies their answer to those writes rather
-                        # than refusing and making them start over.
                         resolution=body.get("resolution") or "",
                     ),
                 )
@@ -718,17 +722,20 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(exc)})
             return
 
-        if route.path == "/switch/now":
-            # EXPERIMENT: check out immediately, with KiCad still open.
+        if route.path == "/switch/cancel":
+            self._send(200, self.state.switch.cancel())
+            return
+
+        if route.path == "/switch":
+            # Check out now. KiCad may still be running: what matters is that the
+            # BOARD is closed, not KiCad, because the hazard was only ever KiCad's
+            # in-memory copy being written back on save. The editors are DLLs inside
+            # kicad.exe (_pcbnew.dll, _eeschema.dll), so there is no editor process to
+            # wait on, and closing the board is what releases that copy.
             #
-            # The deferred path exists because KiCad holds the board in memory and
-            # rewrites it on save. But the editors are DLLs inside kicad.exe, not
-            # separate processes, so there is no editor pid to wait on; closing just
-            # the board releases the in-memory copy without closing KiCad. This route
-            # is here to find out whether that is enough in practice.
-            #
-            # It does NOT reopen anything: the user reopens the board from KiCad's
-            # project manager, which is the whole point of the flow being tested.
+            # The caller confirms the editors are closed before calling. Nothing is
+            # reopened: the user does that from KiCad's project manager, which is
+            # faster than the restart this used to require.
             path = body.get("path") or ""
             ref = body.get("ref") or ""
             if not path or not ref:
@@ -738,10 +745,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, checkout.checkout(path, ref))
             except checkout.CheckoutError as exc:
                 self._send(400, {"error": str(exc)})
-            return
-
-        if route.path == "/switch/cancel":
-            self._send(200, self.state.switch.cancel())
             return
 
         if route.path == "/branch":

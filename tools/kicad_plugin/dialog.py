@@ -1356,13 +1356,10 @@ class PrismDialog(wx.Dialog):
             dlg.Destroy()
 
     def _do_switch(self, repo, ref):
-        """Switch to `ref` safely: resolve any uncommitted work, then defer the actual
-        checkout until KiCad closes.
+        """Switch to `ref` safely: settle any uncommitted work first, then check out.
 
-        The checkout is NOT done here. KiCad has the board open, and swapping the files
-        under it would be overwritten on KiCad's next save, real data loss. So the agent
-        does the checkout and reopen after KiCad exits; this method only gets the tree
-        into a switchable state (clean or stashed) and schedules it.
+        The tree has to be clean (or stashed) before anything moves, so that is asked
+        and done here; _switch_now handles the board being open.
         """
         # Dry run: can we switch, or is the tree dirty? checkout_status is read-only.
         try:
@@ -1371,12 +1368,10 @@ class PrismDialog(wx.Dialog):
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
 
-        resolution = ""
         if not state.get("can"):
             reason = state.get("reason")
             if reason in ("dirty", "untracked_collision"):
-                resolution = self._resolve_before_switch(repo, state.get("message", ""))
-                if not resolution:
+                if not self._resolve_before_switch(repo, state.get("message", "")):
                     return  # user cancelled or it failed
             else:
                 wx.MessageBox(
@@ -1391,9 +1386,10 @@ class PrismDialog(wx.Dialog):
 
         Commit, stash, or discard, in git's own terms, no euphemisms. Returns which
         action was taken ("commit", "stash", "discard") so the caller can tell the agent
-        how the user settled things, or "" if they cancelled or it failed. Doing any of these now, while KiCad is open, is safe: none of them opens
-        a different board, they only settle the current changes. The branch checkout
-        itself is what waits for KiCad to close.
+        how the user settled things, or "" if they cancelled or it failed.
+
+        Doing any of these while KiCad is open is safe: none of them opens a different
+        board, they only settle the changes already in the tree.
         """
         choices = ["Commit", "Stash", "Discard"]
         picked = wx.GetSingleChoice(
@@ -1451,23 +1447,24 @@ class PrismDialog(wx.Dialog):
         return True
 
     def _switch_now(self, repo, ref):
-        """EXPERIMENT: check out with KiCad still open, and let the user reopen.
+        """Check out `ref`, once the user confirms the board is closed.
 
-        The deferred path (see _schedule_switch, still here) waits for KiCad to exit,
-        because KiCad holds the board in memory and would write it back on save. But
-        the editors are DLLs inside kicad.exe rather than processes of their own, so
-        there is no editor pid to wait on, and closing just the board is what actually
-        releases that copy.
+        KiCad stays open. The hazard was never KiCad itself, only its in-memory copy of
+        the board being written back on the next save, and closing the board releases
+        that. The editors are DLLs inside kicad.exe rather than processes of their own,
+        so there was never an editor pid to wait on either.
 
-        So this asks the user to close the editors and confirms before moving anything.
-        The checkout is the point of no return, so the warning comes first and No is the
-        default: a reflex Enter must not swap the files under an open board.
+        This replaced a flow that closed KiCad entirely and reopened the project after
+        the checkout: a full restart to avoid one stale buffer.
+
+        The checkout is the point of no return, so the warning comes first and No is
+        the default: a reflex Enter must not swap the files under an open board.
         """
         answer = wx.MessageBox(
             "Close the PCB and schematic editors first, then switch.\n\n"
             "Leave them open and KiCad will write the old board back over %s the next "
             "time you save.\n\n"
-            "The editors are closed. Switch to %s now?" % (ref, ref),
+            "Are they closed? Switch to %s now?" % (ref, ref),
             "Switch branch",
             wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
         )
@@ -1476,7 +1473,7 @@ class PrismDialog(wx.Dialog):
 
         try:
             with wx.BusyCursor():
-                AgentClient().switch_now(repo, ref)
+                AgentClient().switch(repo, ref)
         except AgentUnavailable as exc:
             wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
             return
@@ -1488,36 +1485,6 @@ class PrismDialog(wx.Dialog):
             wx.OK | wx.ICON_INFORMATION,
         )
         self._load()
-
-    def _schedule_switch(self, repo, ref, resolution=""):
-        """Hand the checkout+reopen to the agent, to run after KiCad closes.
-
-        `resolution` is how the user just settled uncommitted work, passed on so the
-        agent can re-apply it to whatever KiCad writes on its way out.
-        """
-        import os
-
-        project = (self.data or {}).get("project") or {}
-        project_dir = project.get("path") or ""
-        try:
-            with wx.BusyCursor():
-                AgentClient().schedule_switch(
-                    repo, ref, project_dir, os.getpid(), resolution
-                )
-        except AgentUnavailable as exc:
-            wx.MessageBox(str(exc), "Prism", wx.OK | wx.ICON_WARNING)
-            return
-
-        wx.MessageBox(
-            "Ready to switch to %s.\n\n"
-            "Close KiCad now. Prism will switch the branch and reopen the project for "
-            "you once KiCad has closed." % ref,
-            "Close KiCad to switch",
-            wx.OK | wx.ICON_INFORMATION,
-        )
-        # Nothing else to do here; the agent takes over. Close our dialog so the user
-        # can get to KiCad's window to close it.
-        self.EndModal(wx.ID_OK)
 
     def _add_sync_row(self, card, git):
         """Fetch and push. Push shows only when there is something to push and it is safe.

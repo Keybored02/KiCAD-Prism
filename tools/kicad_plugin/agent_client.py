@@ -254,42 +254,14 @@ class AgentClient:
         """Local and remote branches, for a switch picker. Read-only."""
         return self._call("GET", "/branches?path=" + urllib.parse.quote(path))
 
-    def schedule_switch(self, path, ref, project_dir, kicad_pid, resolution=""):
-        """Defer a branch switch until KiCad closes, then check out and reopen.
+    def switch(self, path, ref):
+        """Check out `ref`. The caller confirms the board is closed first.
 
-        The plugin can't close KiCad, and a checkout under an open board would be
-        overwritten on the next save, so the agent waits for `kicad_pid` to exit.
-
-        `resolution` is how the user just settled uncommitted work ("discard" or
-        "stash"). KiCad rewrites its own files on exit, so a tree that was clean when
-        they answered is dirty again by the time the switch runs; the agent re-applies
-        their answer to those writes instead of refusing.
+        KiCad itself may stay open: the hazard was only ever its in-memory copy of the
+        board being written back on save, and closing the board releases that. Nothing
+        is reopened; the user does that from the project manager.
         """
-        return self._call(
-            "POST",
-            "/switch/schedule",
-            {
-                "path": path,
-                "ref": ref,
-                "project_dir": project_dir,
-                "resolution": resolution,
-                "kicad_pid": kicad_pid,
-            },
-        )
-
-    def switch_now(self, path, ref):
-        """Check out immediately, with KiCad still open.
-
-        The alternative to schedule_switch, being trialled: the editors live inside
-        kicad.exe rather than in processes of their own, so there is no editor pid to
-        wait on, and closing just the board is what actually releases KiCad's copy of
-        it. Nothing is reopened; the user does that from the project manager.
-        """
-        return self._call("POST", "/switch/now", {"path": path, "ref": ref})
-
-    def cancel_switch(self):
-        """Drop a pending scheduled switch."""
-        return self._call("POST", "/switch/cancel", {})
+        return self._call("POST", "/switch", {"path": path, "ref": ref})
 
     def checkout_status(self, path, ref=""):
         """Could we check `ref` out, and if not, why not? Read-only.
