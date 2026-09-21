@@ -1146,6 +1146,24 @@ def test_list_branches_current_is_empty_when_detached(repo):
     assert checkout.list_branches(repo)["current"] == ""
 
 
+def test_list_branches_does_not_offer_the_remote_itself_as_a_branch(repo):
+    """`origin/HEAD` shortens to "origin", not "origin/HEAD".
+
+    git's refname:short drops the part that makes it unambiguous, so the symref that
+    records the remote's default branch arrives looking exactly like a branch called
+    "origin". Filtering on a "/HEAD" suffix therefore never matched it, and the picker
+    offered "origin" as something to check out: a remote, not a branch, and checking it
+    out fails.
+    """
+    remotes = repo / ".git" / "refs" / "remotes" / "origin"
+    remotes.mkdir(parents=True, exist_ok=True)
+    (remotes / "main").write_text(repo.first + "\n")
+    (remotes / "HEAD").write_text("ref: refs/remotes/origin/main\n")
+
+    data = checkout.list_branches(repo)
+    assert "origin" not in data["remote"], data["remote"]
+
+
 def test_list_branches_names_the_default_branch(repo):
     """With no remote, the default falls back to a local main/master so the picker can
     still mark it."""

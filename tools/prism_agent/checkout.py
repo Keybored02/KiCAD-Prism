@@ -252,9 +252,15 @@ def list_branches(repo: str | Path) -> dict:
         ref = ref.strip()
         if not ref or ref.endswith("/HEAD"):
             continue  # origin/HEAD is a symref, not a branch to check out
+        if "/" not in ref:
+            # A bare remote name with no branch under it. git leaves the directory
+            # refs/remotes/<name>/ behind after the refs in it are packed or deleted,
+            # and for-each-ref reports it: offering "origin" as something to check out
+            # would fail, because it is a remote, not a branch.
+            continue
         # origin/feature -> feature; skip it if a local branch already tracks it, the
         # user picks the local one.
-        short = ref.split("/", 1)[1] if "/" in ref else ref
+        short = ref.split("/", 1)[1]
         if short not in local_set:
             remote.append(ref)
 
