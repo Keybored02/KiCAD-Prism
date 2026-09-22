@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, Mapping, Optional
 from app.core.config import settings
 from app.services import path_config_service
 from app.services.job_service import jobs
-from app.services.semantic_viewer_runtime import find_viewer_repo_root, pythonpath as semantic_viewer_pythonpath
+from app.services.semantic_viewer_runtime import find_viewer_repo_root, pythonpath as semantic_viewer_pythonpath, update_native_geometry_fingerprint
 
 SCHEMA = "prism.visualizer_bundle.a0"
 GENERATOR_NAME = "kicad-prism-webgpu-3d"
@@ -50,14 +50,7 @@ def _compute_build_fingerprint() -> str:
         ]
         hasher = hashlib.sha256()
         hasher.update(base.encode("utf-8"))
-        geometry_backend = os.environ.get("PRISM_PCB_GEOMETRY_BACKEND", "legacy")
-        helper_path = Path(
-            os.environ.get("PRISM_KICAD_NATIVE_PATH", "/usr/local/bin/prism-kicad-native")
-        )
-        hasher.update(geometry_backend.encode("utf-8"))
-        hasher.update(str(helper_path).encode("utf-8"))
-        if geometry_backend == "rust" and helper_path.is_file():
-            hasher.update(helper_path.read_bytes())
+        update_native_geometry_fingerprint(hasher)
         hasher.update(os.environ.get("PRISM_KICAD_MONKEY_SOURCE", "").encode("utf-8"))
         for rel_path in inputs:
             path = viewer_root / rel_path
