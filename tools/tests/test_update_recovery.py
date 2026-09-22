@@ -224,6 +224,81 @@ def test_a_source_checkout_sweeps_nothing(tmp_path, monkeypatch):
     assert decoy.is_file()
 
 
+# -- one autostart entry per profile ---------------------------------------
+#
+# Every profile wrote the SAME registry value, plist and .desktop file, so a dev agent
+# and an installed one could not coexist: whichever ran last overwrote the other, and
+# the loser's settings said autostart was on while nothing started it.
+
+
+def _names_for(monkeypatch, profile):
+    monkeypatch.setattr(autostart, "_suffix", lambda: "" if profile == "release" else profile)
+    return autostart._run_value(), autostart._app_id(), autostart._desktop_name()
+
+
+def test_release_keeps_the_historical_names(monkeypatch):
+    """An entry written before the split is still found, disabled, and not duplicated."""
+    run, app, desktop = _names_for(monkeypatch, "release")
+    assert run == "KiCadPrismAgent"
+    assert app == "com.kicad-prism.agent"
+    assert desktop == "kicad-prism-agent.desktop"
+
+
+def test_another_profile_gets_its_own_names(monkeypatch):
+    run, app, desktop = _names_for(monkeypatch, "dev")
+    assert run == "KiCadPrismAgent-dev"
+    assert app == "com.kicad-prism.agent.dev"
+    assert desktop == "kicad-prism-agent-dev.desktop"
+
+
+def test_the_profiles_never_share_a_name(monkeypatch):
+    """The whole point: two agents that cannot overwrite each other."""
+    release = _names_for(monkeypatch, "release")
+    dev = _names_for(monkeypatch, "dev")
+    assert not set(release) & set(dev)
+
+
+# -- an entry that no longer launches what it says --------------------------
+
+
+def test_a_moved_binary_makes_the_entry_stale(monkeypatch):
+    """An autostart entry records an absolute path and outlives the build that wrote
+    it. After an update that moved the binary it starts the old agent, then nothing,
+    while the setting still reads "enabled"."""
+    monkeypatch.setattr(autostart, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        autostart, "registered_command", lambda: ["C:/old/prism-agent.exe"]
+    )
+    monkeypatch.setattr(autostart, "_agent_command", lambda: ["C:/new/prism-agent.exe"])
+
+    assert autostart.is_stale() is True
+
+
+def test_a_matching_entry_is_not_stale(monkeypatch):
+    monkeypatch.setattr(autostart, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        autostart, "registered_command", lambda: ["C:/here/prism-agent.exe"]
+    )
+    monkeypatch.setattr(
+        autostart, "_agent_command", lambda: ["C:/here/prism-agent.exe"]
+    )
+
+    assert autostart.is_stale() is False
+
+
+def test_an_absent_entry_is_off_not_stale(monkeypatch):
+    """Rewriting here would claim autostart the user never asked for."""
+    monkeypatch.setattr(autostart, "is_enabled", lambda: False)
+    assert autostart.is_stale() is False
+
+
+def test_an_unreadable_entry_is_left_alone(monkeypatch):
+    """Cannot read it back on this platform: do not guess, do not rewrite."""
+    monkeypatch.setattr(autostart, "is_enabled", lambda: True)
+    monkeypatch.setattr(autostart, "registered_command", lambda: [])
+    assert autostart.is_stale() is False
+
+
 # -- the stale bytecode ----------------------------------------------------
 #
 # A PCM update overwrites our .py files but leaves the previous install's __pycache__,

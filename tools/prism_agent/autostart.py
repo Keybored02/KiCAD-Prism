@@ -32,6 +32,39 @@ APP_NAME = "KiCad-Prism Agent"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_VALUE = "KiCadPrismAgent"
 
+
+def _suffix() -> str:
+    """What distinguishes this profile's entry from another's, or "" for release.
+
+    Every name below was a single constant, so a dev agent and an installed one wrote
+    the SAME registry value, the same plist and the same .desktop file. They cannot
+    coexist that way: whichever ran last overwrote the other, and the loser's setting
+    said it was enabled while nothing started it. Observed on a machine where the
+    installed agent's settings.json said autostart was on and no entry for it existed.
+
+    Release keeps the unsuffixed names, so an existing entry is still found, still
+    disabled, and never duplicated by the rename.
+    """
+    from .discovery import PROFILE
+    from .profiles import resolve
+
+    return resolve(PROFILE).config_suffix
+
+
+def _run_value() -> str:
+    suffix = _suffix()
+    return f"{RUN_VALUE}-{suffix}" if suffix else RUN_VALUE
+
+
+def _app_id() -> str:
+    suffix = _suffix()
+    return f"{APP_ID}.{suffix}" if suffix else APP_ID
+
+
+def _desktop_name() -> str:
+    suffix = _suffix()
+    return f"kicad-prism-agent-{suffix}.desktop" if suffix else "kicad-prism-agent.desktop"
+
 log = logging.getLogger(__name__)
 
 
@@ -85,7 +118,7 @@ def _win_is_enabled() -> bool:
 
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
-            winreg.QueryValueEx(key, RUN_VALUE)
+            winreg.QueryValueEx(key, _run_value())
             return True
     except OSError:
         return False
@@ -99,7 +132,7 @@ def _win_enable() -> None:
     command = " ".join(f'"{p}"' for p in _agent_command())
     try:
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
-            winreg.SetValueEx(key, RUN_VALUE, 0, winreg.REG_SZ, command)
+            winreg.SetValueEx(key, _run_value(), 0, winreg.REG_SZ, command)
     except OSError as exc:
         raise AutostartError(f"Couldn't write the registry key: {exc}") from exc
 
@@ -111,7 +144,7 @@ def _win_disable() -> None:
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE
         ) as key:
-            winreg.DeleteValue(key, RUN_VALUE)
+            winreg.DeleteValue(key, _run_value())
     except OSError:
         pass  # already gone
 
@@ -120,7 +153,7 @@ def _win_disable() -> None:
 
 
 def _mac_plist_path() -> Path:
-    return Path.home() / "Library" / "LaunchAgents" / f"{APP_ID}.plist"
+    return Path.home() / "Library" / "LaunchAgents" / f"{_app_id()}.plist"
 
 
 def _mac_is_enabled() -> bool:
@@ -129,7 +162,7 @@ def _mac_is_enabled() -> bool:
 
 def _mac_enable() -> None:
     plist = {
-        "Label": APP_ID,
+        "Label": _app_id(),
         "ProgramArguments": _agent_command(),
         "RunAtLoad": True,
         # Bring it back if it crashes, but don't fight a deliberate quit: the
@@ -165,7 +198,7 @@ def _mac_disable() -> None:
 
 def _linux_desktop_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return Path(base) / "autostart" / "kicad-prism-agent.desktop"
+    return Path(base) / "autostart" / _desktop_name()
 
 
 def _linux_is_enabled() -> bool:
@@ -209,7 +242,110 @@ def _run(cmd: list[str]) -> None:
         log.debug("autostart helper failed: %s", cmd)
 
 
+def _adopt_legacy_entry() -> None:
+    """Take over an entry written before the names were split per profile.
+
+    Every profile used to write the same registry value, plist and .desktop file, so a
+    dev agent and an installed one overwrote each other. Splitting the names fixes that
+    going forward, but it strands whatever is already there: a dev agent's entry sits
+    under the release name, invisible to both profiles, still starting an agent at
+    login that neither believes it enabled.
+
+    So a non-release profile claims a legacy entry that is plainly its own, by reading
+    the recorded command and looking for its own --profile. Release needs nothing: it
+    kept the unsuffixed names, so its entry is already where it looks.
+
+    Best effort; a failure here leaves exactly the situation we had before.
+    """
+    suffix = _suffix()
+    if not suffix or sys.platform != "win32":
+        return
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            try:
+                legacy, _ = winreg.QueryValueEx(key, RUN_VALUE)
+            except OSError:
+                return  # nothing under the old name
+        if f'"{suffix}"' not in legacy and f"--profile {suffix}" not in legacy:
+            return  # it belongs to another profile; leave it alone
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE
+        ) as key:
+            # Write the new name BEFORE removing the old one. The other order leaves a
+            # window where neither exists, and a crash inside it turns "autostart is
+            # on" into an entry nobody has: the exact disagreement this is fixing.
+            winreg.SetValueEx(key, _run_value(), 0, winreg.REG_SZ, legacy)
+            winreg.DeleteValue(key, RUN_VALUE)
+        log.info("Adopted the legacy autostart entry as %s", _run_value())
+    except OSError:
+        pass
+
+
+def registered_command() -> list[str]:
+    """The command the autostart entry actually holds, or [] if it cannot be read."""
+    if sys.platform == "win32":
+        import winreg
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+                value, _ = winreg.QueryValueEx(key, _run_value())
+        except OSError:
+            return []
+        try:
+            import shlex
+
+            return shlex.split(value, posix=False)
+        except ValueError:
+            return []
+
+    if sys.platform == "darwin":
+        try:
+            with _mac_plist_path().open("rb") as handle:
+                return list(plistlib.load(handle).get("ProgramArguments") or [])
+        except (OSError, ValueError):
+            return []
+
+    try:
+        for line in _linux_desktop_path().read_text(encoding="utf-8").splitlines():
+            if line.startswith("Exec="):
+                import shlex
+
+                return shlex.split(line[len("Exec=") :])
+    except (OSError, ValueError):
+        pass
+    return []
+
+
+def is_stale() -> bool:
+    """Does the entry launch something other than what we would write now?
+
+    An autostart entry outlives builds, checkouts and installs, and it records an
+    absolute path. An update that moves the binary, or a checkout that moves, leaves an
+    entry pointing at a file that starts the wrong agent or nothing at all. The setting
+    still reads "enabled", so nothing looks wrong until a login produces no agent.
+
+    Same shape as protocol.is_stale, and for the same reason: is_enabled() only answers
+    whether the entry exists, not whether it still means what it said.
+    """
+    if not is_enabled():
+        return False  # absent is "off", not "stale"
+
+    current = registered_command()
+    if not current:
+        return False  # unreadable on this platform: do not guess, do not rewrite
+
+    want = _agent_command()
+
+    def normalise(parts):
+        return [str(x).strip('"').replace("\\", "/").casefold() for x in parts]
+
+    return normalise(current) != normalise(want)
+
+
 def is_enabled() -> bool:
+    _adopt_legacy_entry()
     if sys.platform == "win32":
         return _win_is_enabled()
     if sys.platform == "darwin":

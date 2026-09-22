@@ -999,6 +999,19 @@ def main() -> int:
     except protocol.RegistrationError as exc:
         log.warning("Couldn't refresh the prism:// registration: %s", exc)
 
+    # The autostart entry drifts the same way, and worse: it records an absolute path,
+    # so an update that moves the binary leaves an entry that starts the old agent
+    # until it is swept and then nothing at all. The setting still reads "enabled", so
+    # nothing looks wrong until a login produces no agent. Repairs only, same as above.
+    try:
+        from . import autostart
+
+        if autostart.is_stale():
+            autostart.enable()
+            log.info("Rewrote a stale autostart entry")
+    except Exception as exc:
+        log.warning("Couldn't refresh the autostart entry: %s", exc)
+
     config = _prism_config()
     server, _thread, state = serve(config)
     port = server.server_address[1]
