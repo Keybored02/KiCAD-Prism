@@ -33,10 +33,12 @@ kicad-monkey-core public source model (Rust)
     │  source scan, selected indexing, typed semantics, nets, padstacks
     ▼
 prism-kicad-native (Rust, Prism-owned adapter)
-    │  geometry realization + prism.pcb_geometry.v1 JSON
+    │  prism.pcb_analytic_geometry.v2 operations in memory
     ▼
-existing SemanticGltfBuilder (Python orchestration)
-    │  Clipper/tiling/triangulation/Meshopt
+tile-aware native lowering + Geometer + Rust triangulation
+    │  prism.semantic_mesh_pack.v1 packed tile buffers
+    ▼
+thin Node GLB/Meshopt packager
     ▼
 WebGPU scene manifest and GLB tiles
 ```
@@ -46,19 +48,19 @@ polygonal approximation tolerance, subprocess lifecycle, strict validation,
 scene ingestion, and rendering. The adapter does not contain an S-expression
 or KiCad parser.
 
-Rust currently handles board source scanning/indexing; resolved name-based and
-ordinal net references; tracks and routed arcs; through/blind/buried vias and
-drills; normal, round, oval, rectangular, rounded, chamfered, trapezoid, custom,
-and per-layer padstack shapes; footprint transforms; filled-zone polygons and
-islands; and board/layer/stackup facts. Python still loads the design/netlist for
-topology and orchestrates KiCad CLI 3D export and the existing scene compiler.
+Rust handles board source scanning/indexing; resolved name-based and ordinal net
+references; analytic tracks, routed arcs, vias, drills and standard pads;
+footprint transforms; filled-zone polygons and custom regions; tile
+classification; terminal clipping; triangulation; and packed tile output. The
+Rust backend does not build the former global polygon JSON or hydrate a Python
+geometry graph. Node only authors GLBs, applies Meshopt and writes the existing
+scene manifest. Python still loads design/netlist topology and coordinates the
+independent semantic, board and component lanes.
 
-The feature branch also contains a `prism.pcb_analytic_geometry.v2` producer,
-tile-classification scaffolding, and strict packet codecs for Geometer's packed
-terminal geometry interfaces. These are not yet the runtime Rust backend: the
-current backend still enters the v1 polygon/Python/Node path. The implementation
-status and remaining boundaries are tracked in
-`docs/plans/kicad-monkey-analytic-semantic-pipeline.md`.
+Rust mode also builds the board body, holes and silkscreen directly through the
+Geometer SDK. Component-model export remains on KiCad CLI until native STEP
+resolution has equivalent coverage. This limitation does not affect the legacy
+backend.
 
 PCB geometry emission and semantic tile compilation now run concurrently with
 KiCad board/component GLB export. Semantic Z placement uses the PCB stackup's
@@ -68,20 +70,22 @@ finishes, without rebuilding copper tiles.
 
 ## Contract and identity
 
-The frozen v1 schema is
-`kicad-prism-viewer/native/prism-kicad-native/schema/prism.pcb_geometry.v1.schema.json`.
-Coordinates are integer nanometres in KiCad board axes. Rings are open; outer
-and hole roles are explicit. Layer and net indexes are dense. Every drawable
-and drill retains a source UID, semantic ID, net, physical layer set, footprint
-UID, reference, and pad number where applicable. These fields feed the existing
-object-feature table, click selection, single-net highlighting, and simultaneous
-multi-net highlighting without a second semantic mapping.
+The producer contract is
+`kicad-prism-viewer/native/prism-kicad-native/schema/prism.pcb_analytic_geometry.v2.schema.json`;
+the terminal output is `prism.semantic_mesh_pack.v1`. Coordinates remain integer
+nanometres in KiCad board axes until terminal lowering. Layer and net indexes
+are dense. Every operation and drill retains its source UID, semantic ID, net,
+physical layer set, footprint UID, reference and pad number. Feature IDs remain
+attached through clipping and tile boundaries, feeding selection and net
+highlighting without semantic rebinding. The v1 polygon schema remains only as
+a compatibility interface for legacy tooling.
 
 ## Build and operation
 
-Docker uses a reproducible Rust builder stage and `cargo build --release
---locked`; only `/usr/local/bin/prism-kicad-native` enters the runtime image.
-The Python runtime does not need a Rust toolchain.
+Docker uses a reproducible Rust builder stage and requires formatting, release
+tests, Clippy and `cargo build --release --locked` to pass. Only
+`/usr/local/bin/prism-kicad-native` enters the runtime image; the Python runtime
+does not need a Rust toolchain.
 
 Useful settings:
 

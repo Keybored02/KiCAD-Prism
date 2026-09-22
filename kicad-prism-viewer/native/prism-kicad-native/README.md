@@ -16,6 +16,8 @@ cargo test --locked
 cargo build --release --locked
 target/release/prism-kicad-native board.kicad_pcb > geometry-v1.json
 target/release/prism-kicad-native emit-analytic board.kicad_pcb > analytics-v2.json
+target/release/prism-kicad-native compile-semantic \
+  --pcb board.kicad_pcb --output semantic-pack --tile-size auto
 ```
 
 The retained compatibility schema is
@@ -25,5 +27,8 @@ The new producer schema is
 It keeps tracks, routing arcs, vias, standard pads, transforms, polarity,
 bounds, and drill/barrel facts analytic. Filled zones and irreducible custom-pad
 regions are the only ordinary polygon carriers.
+`compile-semantic` keeps that contract in memory, performs tile-aware terminal
+lowering and writes `prism.semantic_mesh_pack.v1` metadata plus packed vertex,
+index and feature-ID buffers. It does not emit a global polygon document.
 The Docker build compiles the helper in a Rust builder stage and copies only the
 release binary into the Python worker image.

@@ -49,10 +49,14 @@ COPY kicad-prism-viewer/native/prism-kicad-native/Cargo.toml \
     kicad-prism-viewer/native/prism-kicad-native/rust-toolchain.toml \
     kicad-prism-viewer/native/prism-kicad-native/build.rs ./
 COPY kicad-prism-viewer/native/prism-kicad-native/src ./src
+RUN rustup component add rustfmt clippy
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/build/prism-kicad-native/target \
-    cargo build --release --locked \
+    cargo fmt --check \
+    && cargo test --release --locked \
+    && cargo clippy --release --locked -- -D warnings \
+    && cargo build --release --locked \
     && cp target/release/prism-kicad-native /tmp/prism-kicad-native
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin

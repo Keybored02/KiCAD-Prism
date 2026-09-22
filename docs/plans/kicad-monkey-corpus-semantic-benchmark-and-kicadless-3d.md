@@ -1,7 +1,7 @@
 # kicad_monkey corpus semantic benchmark and KiCad-less 3D study
 
-Date: 2026-09-22  
-Branch: `feat/kicad-monkey-rust-pcb`  
+Date: 2026-09-22
+Branch: `feat/kicad-monkey-rust-pcb`
 kicad_monkey revision: `bc6796c1b8ce55bfbcb8b1771f3ecbc70658d34d`
 
 ## Outcome

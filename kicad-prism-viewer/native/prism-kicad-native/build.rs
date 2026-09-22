@@ -79,10 +79,12 @@ fn main() {
         .expect("Geometer SDK manifest is missing link entries");
 
     let mut archives = vec![required_string(&manifest, "/archives/geometer")];
-    archives.extend(entries.iter().filter_map(|entry| {
-        (required_string(entry, "/kind") == "archive")
-            .then(|| required_string(entry, "/value"))
-    }));
+    archives.extend(
+        entries
+            .iter()
+            .filter(|entry| required_string(entry, "/kind") == "archive")
+            .map(|entry| required_string(entry, "/value")),
+    );
     let linux = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux");
     if linux {
         // Geometer's Linux SDK contains static OCCT archives with intentional
@@ -103,7 +105,7 @@ fn main() {
         let kind = required_string(entry, "/kind");
         let value = required_string(entry, "/value");
         match kind {
-            "archive" => {},
+            "archive" => {}
             // `rustc-link-arg` keeps Linux system libraries after the static
             // archive group. With --as-needed, emitting them as link-lib puts
             // them too early and glibc/libstdc++ symbols remain unresolved.
