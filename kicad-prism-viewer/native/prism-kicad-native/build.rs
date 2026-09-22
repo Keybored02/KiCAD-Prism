@@ -32,6 +32,12 @@ fn emit_archive(root: &Path, relative: &str) {
     println!("cargo:rustc-link-lib=static={}", library_name(relative));
 }
 
+fn archive_path(root: &Path, relative: &str) -> String {
+    let path = root.join(relative);
+    assert!(path.is_file(), "missing Geometer archive {relative}");
+    path.to_string_lossy().into_owned()
+}
+
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(geometer_sdk)");
     println!("cargo:rerun-if-env-changed=GEOMETER_SDK_DIR");
@@ -67,19 +73,49 @@ fn main() {
         "cargo:rustc-link-search=native={}",
         sdk.join("lib/occt").display()
     );
-    emit_archive(&sdk, required_string(&manifest, "/archives/geometer"));
     let entries = manifest
         .pointer("/link/entries")
         .and_then(Value::as_array)
         .expect("Geometer SDK manifest is missing link entries");
+
+    let mut archives = vec![required_string(&manifest, "/archives/geometer")];
+    archives.extend(entries.iter().filter_map(|entry| {
+        (required_string(entry, "/kind") == "archive")
+            .then(|| required_string(entry, "/value"))
+    }));
+    let linux = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux");
+    if linux {
+        // Geometer's Linux SDK contains static OCCT archives with intentional
+        // cyclic dependencies. GNU ld resolves those only when they are in an
+        // archive group; macOS and Windows linkers do not need this treatment.
+        println!("cargo:rustc-link-arg=-Wl,--start-group");
+        for archive in archives {
+            println!("cargo:rustc-link-arg={}", archive_path(&sdk, archive));
+        }
+        println!("cargo:rustc-link-arg=-Wl,--end-group");
+    } else {
+        for archive in archives {
+            emit_archive(&sdk, archive);
+        }
+    }
+
     for entry in entries {
         let kind = required_string(entry, "/kind");
         let value = required_string(entry, "/value");
         match kind {
-            "archive" => emit_archive(&sdk, value),
+            "archive" => {},
+            // `rustc-link-arg` keeps Linux system libraries after the static
+            // archive group. With --as-needed, emitting them as link-lib puts
+            // them too early and glibc/libstdc++ symbols remain unresolved.
+            "system_library" if linux => println!("cargo:rustc-link-arg=-l{value}"),
             "system_library" => println!("cargo:rustc-link-lib={value}"),
             "apple_framework" => println!("cargo:rustc-link-lib=framework={value}"),
             _ => panic!("unsupported Geometer link entry kind: {kind}"),
         }
+    }
+    if linux {
+        println!("cargo:rustc-link-arg=-latomic");
+        println!("cargo:rustc-link-arg=-lgcc");
+        println!("cargo:rustc-link-arg=-lc");
     }
 }

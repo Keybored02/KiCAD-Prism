@@ -488,6 +488,17 @@ fn silkscreen_paths(
     limits.max_source_bytes = limits
         .max_source_bytes
         .max(presentation_source.len().saturating_add(1));
+    // Large production boards can carry dense authored silkscreen and
+    // footprint presentation geometry even after copper/zones are blanked.
+    // Keep the read bounded, but align its typed-reader ceilings with the
+    // upstream PCB reader rather than the much smaller preview defaults.
+    limits.max_graphics = limits.max_graphics.max(1_000_000);
+    limits.max_parse_nodes = limits.max_parse_nodes.max(4_000_000);
+    limits.max_input_points = limits.max_input_points.max(4_000_000);
+    limits.max_input_polygons = limits.max_input_polygons.max(1_000_000);
+    limits.max_metadata_bytes = limits.max_metadata_bytes.max(128 * 1024 * 1024);
+    limits.max_text_bytes = limits.max_text_bytes.max(64 * 1024 * 1024);
+    limits.max_net_class_bytes = limits.max_net_class_bytes.max(32 * 1024 * 1024);
     limits.max_operations = limits.max_operations.max(1_000_000);
     let document = board_plot_document(&presentation_source, limits)
         .context("materialize native silkscreen with kicad-monkey board plot facts")?;
