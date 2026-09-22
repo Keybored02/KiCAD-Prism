@@ -13,7 +13,7 @@ import wx
 from . import prism_theme as th
 from . import prompts
 from .agent_client import AgentClient, AgentUnavailable
-from .widgets import Button, Card
+from .widgets import Badge, Button, Card, IconButton
 
 
 def _c(hex_value):
@@ -68,16 +68,24 @@ class SettingsDialog(wx.Dialog):
 
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         buttons.Add(
-            Button(self, "Save", self.pal, variant="primary", on_click=self._save),
+            IconButton(
+                self,
+                "save",
+                self.pal,
+                tooltip="Save",
+                variant="primary",
+                on_click=self._save,
+            ),
             0,
             wx.RIGHT,
             th.SP_SM,
         )
         buttons.Add(
-            Button(
+            IconButton(
                 self,
-                "Restart agent",
+                "refresh",
                 self.pal,
+                tooltip="Restart agent",
                 variant="secondary",
                 on_click=self._restart,
             ),
@@ -86,14 +94,15 @@ class SettingsDialog(wx.Dialog):
             th.SP_SM,
         )
         buttons.Add(
-            Button(
-                self, "Stop agent", self.pal, variant="secondary", on_click=self._stop
+            IconButton(
+                self,
+                "power",
+                self.pal,
+                tooltip="Stop agent",
+                variant="destructive-ghost",
+                on_click=self._stop,
             ),
             0,
-        )
-        buttons.AddStretchSpacer()
-        buttons.Add(
-            Button(self, "Close", self.pal, variant="ghost", on_click=self.Close), 0
         )
         root.Add(buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, th.SP_LG)
 
@@ -127,29 +136,30 @@ class SettingsDialog(wx.Dialog):
         proto = self.data.get("protocol", {})
         auto = self.data.get("autostart", {})
 
-        # -- server ---------------------------------------------------------
-        server = Card(self.scroll, "Server", self.pal)
-        server.body.Add(
-            server.label("Prism server URL", tone="muted_fg", small=True),
-            0,
-            wx.BOTTOM,
-            th.SP_XS,
+        account = self._render_account(settings, identity)
+        self.content.Add(account, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+
+        library = self._render_library()
+        server = self._render_server(settings, identity)
+        self.content.Add(
+            self._two_col(library, server), 0, wx.EXPAND | wx.BOTTOM, th.SP_MD
         )
-        self.url = wx.TextCtrl(server, value=settings.get("server_url", ""))
-        self._style_input(self.url)
-        server.body.Add(self.url, 0, wx.EXPAND | wx.BOTTOM, th.SP_SM)
 
-        server.row(
-            "Status",
-            "Connected" if identity.get("reachable") else "Unreachable",
-            badge=True,
-            tone="success" if identity.get("reachable") else "destructive",
-        )
-        self.content.Add(server, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+        projects = self._render_projects(settings)
+        if projects is None:
+            return self._render_rest(auto, proto)
+        self.content.Add(projects, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
-        self._render_library()
+        self._render_rest(auto, proto)
 
-        # -- account --------------------------------------------------------
+    def _two_col(self, left, right):
+        """Lay two cards side by side, each taking half the row's width."""
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(left, 1, wx.EXPAND | wx.RIGHT, th.SP_SM // 2)
+        row.Add(right, 1, wx.EXPAND | wx.LEFT, th.SP_SM // 2)
+        return row
+
+    def _render_account(self, settings, identity):
         account = Card(self.scroll, "Account", self.pal)
         if not identity.get("reachable"):
             account.body.Add(
@@ -179,24 +189,40 @@ class SettingsDialog(wx.Dialog):
                 # compact_row, not row: a full email pushed to the right edge by
                 # row()'s stretch spacer clips past the dialog. This keeps it left
                 # and lets it wrap.
-                account.compact_row("Signed in as", user.get("email", "?"))
-                account.compact_row(
-                    "Role", str(user.get("role", "")), badge=True, tone="primary"
+                line = wx.BoxSizer(wx.HORIZONTAL)
+                line.Add(
+                    account.label("Signed in as", tone="muted_fg"),
+                    0,
+                    wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+                    th.SP_XS,
                 )
+                email = account.label(user.get("email", "?"))
+                line.Add(email, 1, wx.ALIGN_CENTER_VERTICAL)
+                role = str(user.get("role", ""))
+                if role:
+                    line.Add(
+                        Badge(account, role, self.pal, "primary"),
+                        0,
+                        wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
+                        th.SP_XS,
+                    )
                 # Signed in: the one action that matters is signing out. It clears
-                # the token here and revokes it at Prism.
-                account.body.Add(
-                    Button(
+                # the token here and revokes it at Prism. Inline with the identity
+                # row, to the right of the role tag, rather than a line of its own.
+                line.Add(
+                    IconButton(
                         account,
-                        "Sign out",
+                        "logout",
                         self.pal,
-                        variant="ghost",
+                        tooltip="Sign out",
+                        variant="secondary",
                         on_click=self._sign_out,
                     ),
                     0,
-                    wx.TOP,
+                    wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
                     th.SP_SM,
                 )
+                account.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS)
             else:
                 account.body.Add(
                     account.label(
@@ -224,9 +250,8 @@ class SettingsDialog(wx.Dialog):
 
         # The manual token field stays as a fallback: a headless box with no
         # browser, or a service token an admin handed out, still needs a way in.
-        # It is secondary to the browser flow now, so it is labelled as such.
         account.body.Add(
-            account.label("API token (advanced)", tone="muted_fg", small=True),
+            account.label("API token", tone="foreground", bold=True, small=True),
             0,
             wx.TOP,
             th.SP_SM,
@@ -259,16 +284,17 @@ class SettingsDialog(wx.Dialog):
                     account,
                     "Clear token",
                     self.pal,
-                    variant="ghost",
+                    variant="secondary",
                     on_click=self._clear_token,
                 ),
                 0,
                 wx.TOP,
                 th.SP_XS,
             )
-        self.content.Add(account, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
-        # -- projects -------------------------------------------------------
+        return account
+
+    def _render_projects(self, settings):
         # Where to look for projects, by their .prism.json marker. A place to look,
         # not a place you are forced to put things: a checkout works wherever it is.
         projects = Card(self.scroll, "Projects", self.pal)
@@ -288,7 +314,7 @@ class SettingsDialog(wx.Dialog):
                 0,
             )
             self.content.Add(projects, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
-            return self._render_rest(auto, proto)
+            return None
 
         projects.body.Add(
             projects.label(
@@ -311,25 +337,31 @@ class SettingsDialog(wx.Dialog):
 
         root_buttons = wx.BoxSizer(wx.HORIZONTAL)
         root_buttons.Add(
-            Button(projects, "Add", self.pal, variant="ghost", on_click=self._add_root),
+            IconButton(
+                projects,
+                "plus",
+                self.pal,
+                tooltip="Add a folder",
+                variant="secondary",
+                on_click=self._add_root,
+            ),
             0,
             wx.RIGHT,
             th.SP_XS,
         )
         root_buttons.Add(
-            Button(
+            IconButton(
                 projects,
-                "Remove",
+                "minus",
                 self.pal,
-                variant="ghost",
+                tooltip="Remove the selected folder",
+                variant="destructive-ghost",
                 on_click=self._remove_root,
             ),
             0,
         )
         projects.body.Add(root_buttons, 0)
-        self.content.Add(projects, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
-
-        self._render_rest(auto, proto)
+        return projects
 
     def _render_rest(self, auto, proto):
         """Everything below the Projects card.
@@ -359,12 +391,11 @@ class SettingsDialog(wx.Dialog):
                 startup,
                 "Run setup again",
                 self.pal,
-                variant="ghost",
+                variant="secondary",
                 on_click=self._rerun_setup,
             ),
             0,
         )
-        self.content.Add(startup, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
         # -- links ----------------------------------------------------------
         links = Card(self.scroll, "prism:// links", self.pal)
@@ -396,7 +427,27 @@ class SettingsDialog(wx.Dialog):
                 ),
                 0,
             )
-        self.content.Add(links, 0, wx.EXPAND)
+
+        self.content.Add(self._two_col(startup, links), 0, wx.EXPAND)
+
+    def _render_server(self, settings, identity):
+        server = Card(self.scroll, "Server", self.pal)
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        self.url = wx.TextCtrl(server, value=settings.get("server_url", ""))
+        self._style_input(self.url)
+        row.Add(self.url, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, th.SP_XS)
+        row.Add(
+            Badge(
+                server,
+                "Connected" if identity.get("reachable") else "Unreachable",
+                self.pal,
+                "success" if identity.get("reachable") else "destructive",
+            ),
+            0,
+            wx.ALIGN_CENTER_VERTICAL,
+        )
+        server.body.Add(row, 0, wx.EXPAND)
+        return server
 
     def _render_library(self):
         """Is Prism KiCad's remote symbol provider, and does it point at our server?
@@ -417,13 +468,11 @@ class SettingsDialog(wx.Dialog):
             card.body.Add(
                 card.label(str(exc), tone="muted_fg", small=True, wrap=True), 0, wx.TOP, th.SP_XS
             )
-            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
-            return
+            return card
 
         if not state.get("configured"):
             card.row("Status", "No KiCad config found", tone="muted_fg")
-            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
-            return
+            return card
 
         linked = state.get("linked")
         stale = state.get("stale")
@@ -475,7 +524,7 @@ class SettingsDialog(wx.Dialog):
             th.SP_XS,
         )
 
-        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
+        return card
 
     def _link_library(self):
         """Register Prism as KiCad's symbol provider.

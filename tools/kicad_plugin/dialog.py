@@ -60,18 +60,18 @@ def _initial_size() -> wx.Size:
 
     The panel stacks a header, the git card, the change list and a commit box, and at
     620px the commit box was below the fold as soon as anything was expanded. It asks
-    for 860 instead, clamped to the usable height of the display it opens on (minus a
+    for 731 instead, clamped to the usable height of the display it opens on (minus a
     margin for the taskbar) so a laptop screen does not get a dialog running off the
     bottom with its buttons unreachable.
     """
-    want_w, want_h = 560, 860
+    want_w, want_h = 560, 731
     try:
         area = wx.Display(wx.Display.GetFromPoint(wx.GetMousePosition())).GetClientArea()
     except Exception:
         try:
             area = wx.Display().GetClientArea()
         except Exception:
-            return wx.Size(want_w, 620)  # the old fixed size, as a last resort
+            return wx.Size(want_w, 527)  # the old fixed size, as a last resort
     return wx.Size(min(want_w, area.width - 40), min(want_h, area.height - 60))
 
 
@@ -217,25 +217,37 @@ class PrismDialog(wx.Dialog):
 
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         self.open_btn = Button(
-            self, "Open in Prism", self.pal, variant="primary", on_click=self.on_open
+            self,
+            "Open",
+            self.pal,
+            variant="primary",
+            on_click=self.on_open,
+            icon="open",
         )
         self.open_btn.Enable(False)
         buttons.Add(self.open_btn, 0, wx.RIGHT, th.SP_SM)
         buttons.Add(
-            Button(self, "Refresh", self.pal, variant="secondary", on_click=self._load),
+            IconButton(
+                self,
+                "refresh",
+                self.pal,
+                tooltip="Refresh",
+                variant="secondary",
+                on_click=self._load,
+            ),
             0,
         )
         buttons.AddStretchSpacer()
         buttons.Add(
-            Button(
-                self, "Settings", self.pal, variant="ghost", on_click=self._on_settings
+            IconButton(
+                self,
+                "settings",
+                self.pal,
+                tooltip="Settings",
+                variant="secondary",
+                on_click=self._on_settings,
             ),
             0,
-            wx.RIGHT,
-            th.SP_SM,
-        )
-        buttons.Add(
-            Button(self, "Close", self.pal, variant="ghost", on_click=self.Close), 0
         )
         root.Add(buttons, 0, wx.EXPAND | wx.ALL, th.SP_LG)
 
@@ -784,7 +796,13 @@ class PrismDialog(wx.Dialog):
                 prompts.tell(self, str(exc), "Prism")
                 return
 
-            for _ in range(40):
+            # A cold PyInstaller binary can take a while to bind its port, longer
+            # still right after an update replaced the file on disk (antivirus
+            # scanning, cold disk cache). This used to give up after 10s with no
+            # error and just re-render, which looked like the restart had silently
+            # failed, it had not, the agent came up seconds later on its own. 30s,
+            # and say so if even that isn't enough, rather than pretending success.
+            for _ in range(120):
                 wx.MilliSleep(250)
                 wx.Yield()
                 try:
@@ -792,6 +810,13 @@ class PrismDialog(wx.Dialog):
                     break
                 except AgentUnavailable:
                     continue
+            else:
+                prompts.tell(
+                    self,
+                    "The new agent hasn't responded yet. It may still be "
+                    "starting, try Refresh in a moment.",
+                    "Prism",
+                )
 
         self._load()
 
@@ -1496,7 +1521,7 @@ class PrismDialog(wx.Dialog):
             IconButton(
                 card, "fetch", self.pal,
                 tooltip="Fetch from the remote",
-                variant="ghost",
+                variant="secondary",
                 on_click=self._fetch,
             ),
             0,
@@ -1513,7 +1538,7 @@ class PrismDialog(wx.Dialog):
                     card, "pull", self.pal,
                     tooltip="Pull %d commit%s from the remote"
                     % (behind, "" if behind == 1 else "s"),
-                    variant="ghost",
+                    variant="secondary",
                     on_click=self._pull,
                 ),
                 0,
@@ -1537,7 +1562,7 @@ class PrismDialog(wx.Dialog):
                 IconButton(
                     card, "stash", self.pal,
                     tooltip="Stashed changes",
-                    variant="ghost",
+                    variant="secondary",
                     on_click=self._open_stashes,
                     count=len(stashed),
                 ),

@@ -12,6 +12,8 @@ platform and genuinely match the web UI's button styles.
 
 from __future__ import annotations
 
+import math
+
 import wx
 
 from . import prism_theme as th
@@ -66,13 +68,18 @@ class Button(wx.Panel):
     RADIUS = 6
     PAD_X = 14
     PAD_Y = 7
+    ICON = 15
+    ICON_GAP = 6
 
-    def __init__(self, parent, label, pal, variant="secondary", on_click=None):
+    def __init__(self, parent, label, pal, variant="secondary", on_click=None, icon=None):
         super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
         self.label = label
         self.pal = pal
         self.variant = variant
         self.on_click = on_click
+        # An optional glyph before the label, e.g. "open" for Open + the same
+        # ExternalLink icon the web UI's "Open in KiCad" button uses.
+        self.icon = icon
         self._hover = False
         self._pressed = False
         self._enabled = True
@@ -99,6 +106,9 @@ class Button(wx.Panel):
         dc = wx.ClientDC(self)
         dc.SetFont(self._font())
         w, h = dc.GetTextExtent(self.label)
+        if self.icon:
+            w += self.ICON + self.ICON_GAP
+            h = max(h, self.ICON)
         return wx.Size(w + self.PAD_X * 2, h + self.PAD_Y * 2)
 
     # -- state -------------------------------------------------------------
@@ -195,7 +205,16 @@ class Button(wx.Panel):
 
         gc.SetFont(self._font(), text_colour)
         tw, tht = gc.GetTextExtent(self.label)[:2]
-        gc.DrawText(self.label, (w - tw) / 2, (h - tht) / 2)
+
+        if self.icon:
+            content_w = self.ICON + self.ICON_GAP + tw
+            x = (w - content_w) / 2
+            draw_kind_icon(
+                gc, self.icon, x, (h - self.ICON) / 2, text_colour, size=self.ICON
+            )
+            gc.DrawText(self.label, x + self.ICON + self.ICON_GAP, (h - tht) / 2)
+        else:
+            gc.DrawText(self.label, (w - tw) / 2, (h - tht) / 2)
 
 
 class IconButton(Button):
@@ -594,28 +613,32 @@ def draw_kind_icon(
         return
 
     if kind == "fetch":
-        # lucide "refresh-cw": two arcs with arrowheads. Fetch re-reads the remote,
-        # and the circular arrows are the gesture everyone already knows for that.
-        arcs = gc.CreatePath()
-        # Top arc, sweeping right, ending at the arrowhead it feeds.
-        arcs.MoveToPoint(*px(21, 12))
-        arcs.AddCurveToPoint(*px(21, 7), *px(17, 3), *px(12, 3))
-        arcs.AddCurveToPoint(*px(8.5, 3), *px(5.5, 5), *px(4, 8))
-        # Bottom arc, sweeping back the other way.
-        arcs.MoveToPoint(*px(3, 12))
-        arcs.AddCurveToPoint(*px(3, 17), *px(7, 21), *px(12, 21))
-        arcs.AddCurveToPoint(*px(15.5, 21), *px(18.5, 19), *px(20, 16))
-        gc.StrokePath(arcs)
+        # lucide "cloud-download": a cloud with a short arrow dropping out of it.
+        # Fetch only looks at the remote, it does not touch your files, so it gets
+        # the "checking what's out there" glyph rather than Pull's arrow-into-floor
+        # (which means your branch just changed).
+        cloud = gc.CreatePath()
+        cloud.MoveToPoint(*px(4, 14.9))
+        cloud.AddCurveToPoint(*px(2, 13.8), *px(1, 12), *px(1, 10.5))
+        cloud.AddCurveToPoint(*px(1, 8), *px(3, 6), *px(5.5, 6))
+        cloud.AddCurveToPoint(*px(6.2, 3.7), *px(8.3, 2), *px(10.8, 2))
+        cloud.AddCurveToPoint(*px(13.9, 2), *px(16.4, 4.5), *px(16.4, 7.6))
+        cloud.AddCurveToPoint(*px(16.4, 7.7), *px(16.4, 7.9), *px(16.4, 8))
+        cloud.AddCurveToPoint(*px(19, 8.5), *px(21, 10.8), *px(21, 13.5))
+        cloud.AddCurveToPoint(*px(21, 16.5), *px(18.5, 19), *px(15.5, 19))
+        cloud.AddLineToPoint(*px(12.5, 19))
+        gc.StrokePath(cloud)
 
-        # The two arrowheads, one at each arc's tail.
-        heads = gc.CreatePath()
-        heads.MoveToPoint(*px(8, 8))
-        heads.AddLineToPoint(*px(3, 8))
-        heads.AddLineToPoint(*px(3, 3))
-        heads.MoveToPoint(*px(16, 16))
-        heads.AddLineToPoint(*px(21, 16))
-        heads.AddLineToPoint(*px(21, 21))
-        gc.StrokePath(heads)
+        arrow = gc.CreatePath()
+        arrow.MoveToPoint(*px(12, 13))
+        arrow.AddLineToPoint(*px(12, 21))
+        gc.StrokePath(arrow)
+
+        head = gc.CreatePath()
+        head.MoveToPoint(*px(9, 18))
+        head.AddLineToPoint(*px(12, 21))
+        head.AddLineToPoint(*px(15, 18))
+        gc.StrokePath(head)
         return
 
     if kind == "stash":
@@ -687,6 +710,185 @@ def draw_kind_icon(
         shelf.MoveToPoint(*px(2, 21))
         shelf.AddLineToPoint(*px(22, 21))
         gc.StrokePath(shelf)
+        return
+
+    if kind == "refresh":
+        # lucide "refresh-cw", the same glyph as "fetch" below: two arcs with
+        # arrowheads. Matches the web UI's Refresh button (RefreshCw).
+        arcs = gc.CreatePath()
+        arcs.MoveToPoint(*px(21, 12))
+        arcs.AddCurveToPoint(*px(21, 7), *px(17, 3), *px(12, 3))
+        arcs.AddCurveToPoint(*px(8.5, 3), *px(5.5, 5), *px(4, 8))
+        arcs.MoveToPoint(*px(3, 12))
+        arcs.AddCurveToPoint(*px(3, 17), *px(7, 21), *px(12, 21))
+        arcs.AddCurveToPoint(*px(15.5, 21), *px(18.5, 19), *px(20, 16))
+        gc.StrokePath(arcs)
+
+        heads = gc.CreatePath()
+        heads.MoveToPoint(*px(8, 8))
+        heads.AddLineToPoint(*px(3, 8))
+        heads.AddLineToPoint(*px(3, 3))
+        heads.MoveToPoint(*px(16, 16))
+        heads.AddLineToPoint(*px(21, 16))
+        heads.AddLineToPoint(*px(21, 21))
+        gc.StrokePath(heads)
+        return
+
+    if kind == "settings":
+        # lucide "settings": a gear. Traced as one closed cog silhouette (outer
+        # radius at each tooth, inner radius at each gap) rather than spokes stuck
+        # onto a circle, so it reads as a gear rather than an asterisk in a ring.
+        TEETH = 8
+        R_OUT, R_IN, R_HOLE = 9.2, 6.6, 3.1
+        HALF_TOOTH = math.radians(14)  # angular half-width of a tooth's flat top
+
+        cog = gc.CreatePath()
+        first = True
+        for i in range(TEETH):
+            centre = i * (2 * math.pi / TEETH) - math.pi / 2
+            a0 = centre - HALF_TOOTH
+            a1 = centre + HALF_TOOTH
+            a_next = centre + (2 * math.pi / TEETH) - HALF_TOOTH
+
+            p_out0 = px(12 + R_OUT * math.cos(a0), 12 + R_OUT * math.sin(a0))
+            p_out1 = px(12 + R_OUT * math.cos(a1), 12 + R_OUT * math.sin(a1))
+            p_in1 = px(12 + R_IN * math.cos(a1), 12 + R_IN * math.sin(a1))
+            p_in0 = px(12 + R_IN * math.cos(a_next), 12 + R_IN * math.sin(a_next))
+
+            if first:
+                cog.MoveToPoint(*p_out0)
+                first = False
+            else:
+                cog.AddLineToPoint(*p_out0)
+            cog.AddLineToPoint(*p_out1)  # across the tooth's flat top
+            cog.AddLineToPoint(*p_in1)  # down the tooth's trailing edge
+            cog.AddLineToPoint(*p_in0)  # across the gap, at the inner radius
+        cog.CloseSubpath()
+        gc.StrokePath(cog)
+
+        hole = gc.CreatePath()
+        hole.AddCircle(*px(12, 12), R_HOLE * s)
+        gc.StrokePath(hole)
+        return
+
+    if kind == "plus":
+        # lucide "plus": a simple cross.
+        cross = gc.CreatePath()
+        cross.MoveToPoint(*px(12, 5))
+        cross.AddLineToPoint(*px(12, 19))
+        cross.MoveToPoint(*px(5, 12))
+        cross.AddLineToPoint(*px(19, 12))
+        gc.StrokePath(cross)
+        return
+
+    if kind == "minus":
+        # lucide "minus": a single stroke.
+        bar = gc.CreatePath()
+        bar.MoveToPoint(*px(5, 12))
+        bar.AddLineToPoint(*px(19, 12))
+        gc.StrokePath(bar)
+        return
+
+    if kind == "save":
+        # lucide "save": a floppy disk, folded corner, and the label window at top.
+        body = gc.CreatePath()
+        body.MoveToPoint(*px(19, 21))
+        body.AddLineToPoint(*px(5, 21))
+        body.AddCurveToPoint(*px(4, 21), *px(3, 20), *px(3, 19))
+        body.AddLineToPoint(*px(3, 5))
+        body.AddCurveToPoint(*px(3, 4), *px(4, 3), *px(5, 3))
+        body.AddLineToPoint(*px(16, 3))
+        body.AddLineToPoint(*px(21, 8))
+        body.AddLineToPoint(*px(21, 19))
+        body.AddCurveToPoint(*px(21, 20), *px(20, 21), *px(19, 21))
+        body.CloseSubpath()
+        gc.StrokePath(body)
+
+        window = gc.CreatePath()
+        window.AddRectangle(*px(7, 3), 8 * s, 5 * s)
+        gc.StrokePath(window)
+
+        slot = gc.CreatePath()
+        slot.MoveToPoint(*px(17, 21))
+        slot.AddLineToPoint(*px(17, 13))
+        slot.AddLineToPoint(*px(7, 13))
+        slot.AddLineToPoint(*px(7, 21))
+        gc.StrokePath(slot)
+        return
+
+    if kind == "logout":
+        # lucide "log-out": a door frame with an arrow stepping out through it.
+        door = gc.CreatePath()
+        door.MoveToPoint(*px(9, 21))
+        door.AddLineToPoint(*px(5, 21))
+        door.AddCurveToPoint(*px(4, 21), *px(3, 20), *px(3, 19))
+        door.AddLineToPoint(*px(3, 5))
+        door.AddCurveToPoint(*px(3, 4), *px(4, 3), *px(5, 3))
+        door.AddLineToPoint(*px(9, 3))
+        gc.StrokePath(door)
+
+        arrow = gc.CreatePath()
+        arrow.MoveToPoint(*px(16, 17))
+        arrow.AddLineToPoint(*px(21, 12))
+        arrow.AddLineToPoint(*px(16, 7))
+        gc.StrokePath(arrow)
+
+        shaft = gc.CreatePath()
+        shaft.MoveToPoint(*px(21, 12))
+        shaft.AddLineToPoint(*px(9, 12))
+        gc.StrokePath(shaft)
+        return
+
+    if kind == "power":
+        # lucide "power": a vertical stroke breaking a ring, the universal "on/off".
+        # The ring is walked as short line segments (not AddArc, whose sweep
+        # direction is easy to get backwards and draw the wrong half of the circle),
+        # leaving a gap at the top where the stroke breaks through.
+        ring = gc.CreatePath()
+        # Sweeps clockwise from just right of the gap, the long way round (through
+        # the bottom), to just left of it, leaving the gap centred at the top (270°)
+        # where the vertical stroke passes through.
+        start_deg, end_deg, steps = 298, 602, 20
+        for i in range(steps + 1):
+            deg = start_deg + (end_deg - start_deg) * i / steps
+            rad = math.radians(deg)
+            point = px(12 + 7 * math.cos(rad), 13 + 7 * math.sin(rad))
+            if i == 0:
+                ring.MoveToPoint(*point)
+            else:
+                ring.AddLineToPoint(*point)
+        gc.StrokePath(ring)
+
+        stroke = gc.CreatePath()
+        stroke.MoveToPoint(*px(12, 2))
+        stroke.AddLineToPoint(*px(12, 12))
+        gc.StrokePath(stroke)
+        return
+
+    if kind == "open":
+        # lucide "external-link": a box with an arrow breaking out of its top-right
+        # corner. Matches the web UI's "Open in KiCad" button (ExternalLink).
+        box = gc.CreatePath()
+        box.MoveToPoint(*px(18, 13))
+        box.AddLineToPoint(*px(18, 19))
+        box.AddCurveToPoint(*px(18, 20), *px(17, 21), *px(16, 21))
+        box.AddLineToPoint(*px(5, 21))
+        box.AddCurveToPoint(*px(4, 21), *px(3, 20), *px(3, 19))
+        box.AddLineToPoint(*px(3, 8))
+        box.AddCurveToPoint(*px(3, 7), *px(4, 6), *px(5, 6))
+        box.AddLineToPoint(*px(11, 6))
+        gc.StrokePath(box)
+
+        arrow = gc.CreatePath()
+        arrow.MoveToPoint(*px(10, 14))
+        arrow.AddLineToPoint(*px(21, 3))
+        gc.StrokePath(arrow)
+
+        head = gc.CreatePath()
+        head.MoveToPoint(*px(15, 3))
+        head.AddLineToPoint(*px(21, 3))
+        head.AddLineToPoint(*px(21, 9))
+        gc.StrokePath(head)
         return
 
     # anything else, a plain document outline
