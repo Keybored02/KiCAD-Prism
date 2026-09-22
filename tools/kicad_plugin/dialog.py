@@ -747,37 +747,52 @@ class PrismDialog(wx.Dialog):
         an update it may have been replaced (fine), but it may also be gone
         entirely, and then the agent quietly fails to come back. The plugin knows
         where its own binary is; use that.
+
+        The whole thing can take several seconds (waiting for the old agent's port
+        to free up, a cold PyInstaller binary spinning up, the new agent's own
+        singleton handshake), and with no visible change the window reads as frozen.
+        A user watching that with no feedback did exactly the reasonable thing and
+        closed it. So the status line and cursor stay busy for the full wait, not
+        just around the launch call, and each phase says what it is doing.
         """
-        try:
-            AgentClient().quit()
-        except AgentUnavailable:
-            pass  # already gone is the state we wanted
-
-        # Wait for the port and the discovery file to be released, or the new
-        # agent's single-instance guard sees the old one and politely refuses.
-        for _ in range(20):
-            wx.MilliSleep(250)
+        with wx.BusyCursor():
+            self.status.SetLabel("Stopping the old agent...")
+            self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
             wx.Yield()
-            try:
-                AgentClient().health()
-            except AgentUnavailable:
-                break
 
-        try:
-            with wx.BusyCursor():
+            try:
+                AgentClient().quit()
+            except AgentUnavailable:
+                pass  # already gone is the state we wanted
+
+            # Wait for the port and the discovery file to be released, or the new
+            # agent's single-instance guard sees the old one and politely refuses.
+            for _ in range(20):
+                wx.MilliSleep(250)
+                wx.Yield()
+                try:
+                    AgentClient().health()
+                except AgentUnavailable:
+                    break
+
+            self.status.SetLabel("Starting the new agent...")
+            wx.Yield()
+
+            try:
                 agent_launcher.start_agent()
-        except agent_launcher.LaunchError as exc:
-            prompts.tell(self, str(exc), "Prism")
-            return
+            except agent_launcher.LaunchError as exc:
+                prompts.tell(self, str(exc), "Prism")
+                return
 
-        for _ in range(40):
-            wx.MilliSleep(250)
-            wx.Yield()
-            try:
-                AgentClient().health()
-                break
-            except AgentUnavailable:
-                continue
+            for _ in range(40):
+                wx.MilliSleep(250)
+                wx.Yield()
+                try:
+                    AgentClient().health()
+                    break
+                except AgentUnavailable:
+                    continue
+
         self._load()
 
     def _render_contacting(self):
