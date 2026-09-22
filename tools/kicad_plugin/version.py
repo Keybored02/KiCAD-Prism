@@ -19,12 +19,12 @@ from __future__ import annotations
 # This plugin's version, and the source of truth for the package's. package_plugin.py
 # reads it rather than taking one as an argument, and refuses to build unless the
 # agent's VERSION matches, so a zip cannot claim a version its code disagrees with.
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 
 # The oldest agent this plugin can work with.
 #
 # TESTING: pinned to this release so the outdated-agent card and the restart path can
-# be exercised. A 0.5.0 agent serves a 0.5.1 plugin perfectly well, so this is NOT an
+# be exercised. A 0.5.1 agent serves a 0.5.2 plugin perfectly well, so this is NOT an
 # honest compatibility claim and must come back down before anyone else installs this.
 # There are no users yet; that is the only reason it is acceptable.
 #
@@ -35,7 +35,7 @@ VERSION = "0.5.1"
 # switch with a 404, and /remotes does not exist there at all.
 #
 # (0.3.0 was the floor before that, for /settings and /restart.)
-AGENT_MIN = "0.5.1"
+AGENT_MIN = "0.5.2"
 
 
 def parse(v: str) -> tuple:
