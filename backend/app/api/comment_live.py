@@ -88,6 +88,8 @@ async def get_comment_changes(
 
 
 async def _check_socket_access(websocket: WebSocket, project_id: str) -> bool:
+    if not settings.PRISM_COMMENT_LIVE_ENABLED:
+        return False
     try:
         user = await get_current_user(websocket)
         if not _can_read_live(user) or not _origin_allowed(websocket, user):

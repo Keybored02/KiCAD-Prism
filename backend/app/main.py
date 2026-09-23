@@ -192,7 +192,8 @@ async def lifespan(app: FastAPI):
                 )
         except Exception:
             logger.exception("Failed to seed bootstrap admin password")
-    comment_live_broker.start()
+    if settings.PRISM_COMMENT_LIVE_ENABLED:
+        comment_live_broker.start()
     try:
         yield
     finally:
