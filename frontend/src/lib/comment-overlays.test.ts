@@ -145,6 +145,23 @@ describe("commentAnchor", () => {
 });
 
 describe("commentOverlaySet", () => {
+    it("uses a descendant binding and keeps unresolved threads off the canvas", () => {
+        const moved = comment("moved", "PCB", { x: 1, y: 2 }, {
+            elementId: "old", anchorResolution: { state: "candidate", binding: {
+                commit: "b", elementId: "new", location: { x: 10, y: 20, layer: "F.Cu" },
+                relativePoint: [0.25, 0.75],
+            } },
+        });
+        const missing = comment("missing", "PCB", {}, {
+            anchorResolution: { state: "unresolved", reason: "ambiguous_merge" },
+        });
+        const set = commentOverlaySet([moved, missing], "PCB");
+        expect(set.comments.map((entry) => entry.id)).toEqual(["moved"]);
+        expect(set.comments[0]?.anchor).toEqual({
+            kind: "source-item", uuid: "new", page: undefined, relativePoint: [0.25, 0.75],
+        });
+    });
+
     it("shapes one overlay per visible comment with its own identity in metadata", () => {
         const long = "x".repeat(120);
         const set = commentOverlaySet(

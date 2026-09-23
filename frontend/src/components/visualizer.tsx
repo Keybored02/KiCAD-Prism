@@ -30,9 +30,9 @@ import { NetHighlightBar } from "./net-highlight-bar";
 import { selectionFromDesignSearchHit, type DesignSearchHit } from "@/lib/design-search";
 import {
     commentIdFromOverlayHit,
+    commentCurrentLocation,
     commentLocationFromArea,
     commentOverlaySet,
-    commentScreenPosition,
     normalizeComment,
     worldToViewportScreen,
     type ActiveSchematicPage,
@@ -64,6 +64,7 @@ import type {
     EcadNetStatistics,
     EcadSemanticSelectionDetail,
     EcadViewportInsets,
+    EcadCommentAnchorResolution,
 } from "@/types/ecad-viewer";
 import type { PrismSelection, PrismSelectionContext, PrismSemanticIndex } from "@/types/prism-selection";
 import type { Comment, CommentContext, CommentLocation, MentionCandidate } from "@/types/comments";
@@ -116,6 +117,7 @@ interface PendingCommentElement {
     elementId?: string;
     elementRef?: string;
     elementType?: string;
+    relativePoint?: [number, number];
 }
 
 function applyCommentMode(viewer: ECadViewerElement | null, enabled: boolean): void {
@@ -134,9 +136,9 @@ function publishCommentsOverlay(
     context: CommentContext,
     comments: Comment[],
     activePage?: ActiveSchematicPage | null,
-): void {
-    if (!viewer) return;
-    viewer.setCommentOverlays(commentOverlaySet(comments, context, activePage));
+): EcadCommentAnchorResolution[] {
+    if (!viewer) return [];
+    return viewer.setCommentOverlays(commentOverlaySet(comments, context, activePage));
 }
 
 type EcadViewerHostProps = {
@@ -383,8 +385,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const [pcbReadyGeneration, setPcbReadyGeneration] = useState(0);
 
     // Comment collaboration state
-    const { comments, setComments, status: commentConnectionStatus, error: commentsError,
-        hasLoaded: commentsLoaded } = useLiveComments(projectId, { kind: "canvas" });
+    const { comments, setComments, refresh: refreshComments, status: commentConnectionStatus, error: commentsError,
+        hasLoaded: commentsLoaded } = useLiveComments(projectId, { kind: "canvas", revision: commit ?? undefined });
+    const [commentMarkerResolutions, setCommentMarkerResolutions] = useState<Record<string, EcadCommentAnchorResolution>>({});
     const [commentMode, setCommentMode] = useState(false);
     const [showCommentForm, setShowCommentForm] = useState(false);
     const [pendingLocation, setPendingLocation] = useState<CommentLocation | null>(null);
@@ -393,6 +396,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // never on screen.
     const pendingElementRef = useRef<PendingCommentElement | null>(null);
     const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
+    const [pendingCommentFocusId, setPendingCommentFocusId] = useState<string | null>(null);
     const [commentCardScreenPosition, setCommentCardScreenPosition] = useState<{ x: number; y: number } | null>(null);
     const [isSubmittingComment, setIsSubmittingComment] = useState(false);
     const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
@@ -1182,17 +1186,20 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // Publish comment markers to the ecad-viewer overlay layer. This never
     // touches replaceSources/appendSources - overlays are a separate render pass.
     useEffect(() => {
+        let resolutions: EcadCommentAnchorResolution[] = [];
         if (activeTab === "sch") {
-            publishCommentsOverlay(schematicViewerElement, "SCH", comments, activeSchematicPage);
+            resolutions = publishCommentsOverlay(schematicViewerElement, "SCH", comments, activeSchematicPage);
             pcbViewerElement?.clearCommentOverlays("PCB");
         } else if (activeTab === "pcb") {
-            publishCommentsOverlay(pcbViewerElement, "PCB", comments);
+            resolutions = publishCommentsOverlay(pcbViewerElement, "PCB", comments);
             schematicViewerElement?.clearCommentOverlays("SCH");
         } else {
             schematicViewerElement?.clearCommentOverlays("SCH");
             pcbViewerElement?.clearCommentOverlays("PCB");
         }
-    }, [activeTab, activeSchematicPage, comments, pcbViewerElement, schematicViewerElement]);
+        setCommentMarkerResolutions(Object.fromEntries(resolutions.map((resolution) => [resolution.id, resolution])));
+    }, [activeTab, activeSchematicPage, comments, pcbReadyGeneration, pcbViewerElement,
+        schematicReadyGeneration, schematicViewerElement]);
 
     // Mirror comment mode onto whichever viewer is currently active.
     useEffect(() => {
@@ -1252,6 +1259,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     elementId: pendingElementRef.current?.elementId,
                     elementRef: pendingElementRef.current?.elementRef,
                     elementType: pendingElementRef.current?.elementType,
+                    ...(pendingElementRef.current?.relativePoint
+                        ? { metadata: { anchorRelativePoint: pendingElementRef.current.relativePoint } }
+                        : {}),
                     commentClass: payload.commentClass,
                     severity: payload.severity,
                     mentions: payload.mentions,
@@ -1280,7 +1290,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to update comment"));
             const updated = normalizeComment(await response.json() as Comment);
-            setComments((prev) => prev.map((entry) => (entry.id === commentId ? updated : entry)));
+            setComments((prev) => prev.map((entry) => (entry.id === commentId
+                ? { ...updated, anchorResolution: entry.anchorResolution } : entry)));
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to update comment");
         }
@@ -1294,7 +1305,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to add reply"));
             const payload = await response.json() as { comment: Comment };
-            setComments((prev) => prev.map((entry) => (entry.id === commentId ? normalizeComment(payload.comment) : entry)));
+            setComments((prev) => prev.map((entry) => (entry.id === commentId
+                ? { ...normalizeComment(payload.comment), anchorResolution: entry.anchorResolution } : entry)));
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to add reply");
         }
@@ -1313,17 +1325,83 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         }
     }, [projectId, setComments]);
 
+    const reattachComment = useCallback(async (comment: Comment) => {
+        const selected = lastSelectionRef.current;
+        if (!commit || !selected?.uuid || selected.x === undefined || selected.y === undefined
+            || selected.sourceContext !== comment.context || !comment.revision) {
+            toast.error("Select an object in the matching viewer revision before reattaching.");
+            return;
+        }
+        const bounds = selected.bounds;
+        const relativePoint = bounds && bounds[2] > 0 && bounds[3] > 0
+            ? [
+                Math.max(0, Math.min(1, (selected.x - bounds[0]) / bounds[2])),
+                Math.max(0, Math.min(1, (selected.y - bounds[1]) / bounds[3])),
+            ]
+            : undefined;
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments/${comment.id}/reattach`, {
+                method: "POST",
+                body: JSON.stringify({
+                    commit,
+                    expectedRevision: comment.revision,
+                    elementId: selected.uuid,
+                    relativePoint,
+                    location: { x: selected.x, y: selected.y, layer: selected.layer ?? "", page: selected.page ?? "" },
+                }),
+            });
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to reattach comment"));
+            refreshComments();
+            toast.success("Comment reattached on this revision.");
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to reattach comment");
+        }
+    }, [commit, projectId, refreshComments]);
+
     const handleCommentClick = useCallback((comment: Comment) => {
+        setSelectedCommentId(comment.id);
+        if (comment.anchorResolution?.state === "unresolved") {
+            toast.message("This comment's anchor needs review on this revision.");
+            return;
+        }
         const targetTab: VisualizerTab = comment.context === "SCH" ? "sch" : "pcb";
         setActiveTab((current) => (current === targetTab ? current : targetTab));
         const viewer = targetTab === "sch" ? schematicViewerRef.current : pcbViewerRef.current;
-        if (viewer) {
-            if (comment.location.page) viewer.switchPage(comment.location.page);
-            viewer.zoomToLocation(comment.location.x, comment.location.y);
-        }
-        setSelectedCommentId(comment.id);
-        setCommentCardScreenPosition(commentScreenPosition(viewer, comment));
+        const location = commentCurrentLocation(comment);
+        if (location.page) viewer?.switchPage(location.page);
+        setPendingCommentFocusId(comment.id);
     }, []);
+
+    useEffect(() => {
+        if (!pendingCommentFocusId) return;
+        const comment = comments.find((entry) => entry.id === pendingCommentFocusId);
+        if (!comment) {
+            setPendingCommentFocusId(null);
+            return;
+        }
+        const expectedTab = comment.context === "SCH" ? "sch" : "pcb";
+        if (activeTab !== expectedTab) return;
+        if (expectedTab === "sch") {
+            const page = commentCurrentLocation(comment).page;
+            const current = [activeSchematicPage?.projectPath, activeSchematicPage?.filename, activeSchematicPage?.page];
+            if (page && !current.includes(page)) {
+                schematicViewerRef.current?.switchPage(page);
+                return;
+            }
+        }
+        const resolution = commentMarkerResolutions[comment.id];
+        if (!resolution || resolution.state === "not-loaded") return;
+        setPendingCommentFocusId(null);
+        if (resolution.state === "missing" || !resolution.location) {
+            toast.message("This comment's source object is missing on this revision.");
+            return;
+        }
+        const viewer = expectedTab === "sch" ? schematicViewerRef.current : pcbViewerRef.current;
+        if (!viewer) return;
+        if (resolution.location.page) viewer.switchPage(resolution.location.page);
+        viewer.zoomToLocation(resolution.location.x, resolution.location.y);
+        setCommentCardScreenPosition(worldToViewportScreen(viewer, resolution.location.x, resolution.location.y));
+    }, [activeSchematicPage, activeTab, commentMarkerResolutions, comments, pendingCommentFocusId]);
 
     const selectedComment = useMemo(
         () => comments.find((entry) => entry.id === selectedCommentId) ?? null,
@@ -1383,6 +1461,12 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         elementId: selection.uuid,
                         elementRef: selection.reference,
                         elementType: selection.itemType,
+                        relativePoint: selection.bounds && selection.bounds[2] > 0 && selection.bounds[3] > 0
+                            ? [
+                                Math.max(0, Math.min(1, (selection.x - selection.bounds[0]) / selection.bounds[2])),
+                                Math.max(0, Math.min(1, (selection.y - selection.bounds[1]) / selection.bounds[3])),
+                            ]
+                            : undefined,
                     };
                     setShowCommentForm(true);
                 } else {
@@ -1724,6 +1808,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 onCommentClick={handleCommentClick}
                                 canModify={canModifyComments}
                                 highlightedId={selectedCommentId}
+                                anchorStatuses={commentMarkerResolutions}
+                                onReattach={reattachComment}
                                 embedded
                             />
                             </div>

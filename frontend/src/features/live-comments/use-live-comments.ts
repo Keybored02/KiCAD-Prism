@@ -10,7 +10,7 @@ const MAX_RECONNECT_MS = 30_000;
 export type CommentConnectionStatus = "loading" | "live" | "reconnecting";
 
 type CommentScope =
-    | { kind: "canvas" }
+    | { kind: "canvas"; revision?: string }
     | { kind: "comparison"; base: string; compare: string };
 
 interface LiveCommentsState {
@@ -51,7 +51,8 @@ function socketUrl(projectId: string, cursor: number): string {
 export function useLiveComments(projectId: string, scope: CommentScope): LiveCommentsResult {
     const base = scope.kind === "comparison" ? scope.base : "";
     const compare = scope.kind === "comparison" ? scope.compare : "";
-    const key = JSON.stringify([projectId, scope.kind, base, compare]);
+    const revision = scope.kind === "canvas" ? scope.revision ?? "" : "";
+    const key = JSON.stringify([projectId, scope.kind, base, compare, revision]);
     const [state, setState] = useState<LiveCommentsState>({
         key,
         comments: [],
@@ -86,7 +87,7 @@ export function useLiveComments(projectId: string, scope: CommentScope): LiveCom
             : { kind: "comparison", base, compare };
         const projectPath = `/api/projects/${encodeURIComponent(projectId)}`;
         const snapshotPath = currentScope.kind === "canvas"
-            ? `${projectPath}/comments`
+            ? `${projectPath}/comments${revision ? `?${new URLSearchParams({ revision })}` : ""}`
             : `${projectPath}/comparison-comments?${new URLSearchParams({ base, compare })}`;
         let disposed = false;
         let cursor = 0;
@@ -241,7 +242,7 @@ export function useLiveComments(projectId: string, scope: CommentScope): LiveCom
             if (pollTimer) clearInterval(pollTimer);
             pollTimer = null;
         };
-    }, [projectId, key, scope.kind, base, compare]);
+    }, [projectId, key, scope.kind, base, compare, revision]);
 
     const current = state.key === key ? state : {
         key, comments: [], status: "loading" as const, error: null, hasLoaded: false,

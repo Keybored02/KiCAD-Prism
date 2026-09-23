@@ -146,6 +146,17 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const defaultBranch = currentBranch || branches[0] || null;
     const activeBranchRef = selectedBranchRef || defaultBranch?.ref || null;
     const activeCommit = currentCommit || selectedBranch?.commit || defaultBranch?.commit || null;
+    const viewerSelectionKey = `${projectId ?? ""}:${activeBranchRef ?? ""}:${currentCommit ?? ""}`;
+    const [viewerPin, setViewerPin] = useState<{ key: string; commit: string } | null>(null);
+    useEffect(() => {
+        if (activeSection !== "visualizers" || currentCommit || !activeCommit) return;
+        setViewerPin((previous) => previous?.key === viewerSelectionKey
+            ? previous : { key: viewerSelectionKey, commit: activeCommit });
+    }, [activeCommit, activeSection, currentCommit, viewerSelectionKey]);
+    const viewerCommit = currentCommit
+        || (viewerPin?.key === viewerSelectionKey ? viewerPin.commit : activeCommit);
+    const newerViewerRevisionAvailable = activeSection === "visualizers" && !currentCommit
+        && !!activeCommit && !!viewerCommit && activeCommit !== viewerCommit;
     const comparisonUrl = useMemo(
         () => readComparisonUrlState(searchParams),
         [searchParams],
@@ -514,6 +525,13 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </select>
                 </div>
 
+                {newerViewerRevisionAvailable && activeCommit && (
+                    <Button variant="outline" size="sm"
+                        onClick={() => setViewerPin({ key: viewerSelectionKey, commit: activeCommit })}>
+                        New revision available · View
+                    </Button>
+                )}
+
                 {/* Sync Button */}
                 {canMutateProject && (
                     <Button
@@ -725,15 +743,15 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             fill
                         >
                             {projectId && (
-                                <ErrorBoundary label="the visualizer" resetKeys={[projectId, activeCommit]}>
+                                <ErrorBoundary label="the visualizer" resetKeys={[projectId, viewerCommit]}>
                                     <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading visualizers...</div>}>
                                         <Visualizer
                                             // The identity the ErrorBoundary
                                             // beside it already resets on.
-                                            key={`${projectId}:${activeCommit ?? ""}`}
+                                            key={`${projectId}:${viewerCommit ?? ""}`}
                                             projectId={projectId}
                                             user={user}
-                                            commit={activeCommit}
+                                            commit={viewerCommit}
                                             active={!comparisonVisible && activeSection === "visualizers"}
                                         />
                                     </Suspense>

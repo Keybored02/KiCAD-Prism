@@ -77,6 +77,19 @@ export interface Comment {
     forgeIssueId?: string;
     forgeIssueUrl?: string;
     forgeSyncState?: string;
+    revision?: number;
+    permissions?: { canReply?: boolean; canEdit?: boolean; canDelete?: boolean; canResolve?: boolean };
+    anchor?: { state: string; commit?: string | null; source?: string | null };
+    anchorResolution?:
+        | { state: "candidate"; binding: {
+            commit: string;
+            elementId?: string | null;
+            location: CommentLocation;
+            relativePoint?: [number, number] | null;
+        } }
+        | { state: "unresolved"; reason: string; lastBinding?: {
+            commit: string; location: CommentLocation;
+        } };
 }
 
 export interface CommentsMeta {
