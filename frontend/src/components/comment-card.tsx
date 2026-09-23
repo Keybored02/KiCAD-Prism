@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { CommentSeverityBadge } from "@/components/comment-severity-badge";
+import { formatCommentTimestamp } from "@/components/comment-date";
 import { cn } from "@/lib/utils";
 import { commentClassLabel, type Comment } from "@/types/comments";
 
@@ -86,7 +87,7 @@ export function CommentCard({
                 <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{comment.author}</div>
                     <div className="text-[10px] text-muted-foreground">
-                        {new Date(comment.timestamp).toLocaleString()}
+                        {formatCommentTimestamp(comment.timestamp)}
                         {comment.elementRef ? ` · ${comment.elementRef}` : ""}
                     </div>
                 </div>
