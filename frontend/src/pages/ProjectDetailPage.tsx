@@ -143,7 +143,9 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         () => branches.find((branch) => branch.is_current) || null,
         [branches]
     );
-    const activeCommit = currentCommit || selectedBranch?.commit || null;
+    const defaultBranch = currentBranch || branches[0] || null;
+    const activeBranchRef = selectedBranchRef || defaultBranch?.ref || null;
+    const activeCommit = currentCommit || selectedBranch?.commit || defaultBranch?.commit || null;
     const comparisonUrl = useMemo(
         () => readComparisonUrlState(searchParams),
         [searchParams],
@@ -337,7 +339,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
             }
 
             try {
-                const refQuery = selectedBranchRef ? `&ref=${encodeURIComponent(selectedBranchRef)}` : "";
+                const refQuery = activeBranchRef ? `&ref=${encodeURIComponent(activeBranchRef)}` : "";
                 const data = await fetchJson<CommitDistanceResponse>(
                     `/api/projects/${projectId}/commits/distance?commit=${encodeURIComponent(currentCommit)}${refQuery}`,
                     { signal: controller.signal },
@@ -359,7 +361,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
         void calculateCommitsBehind();
         return () => controller.abort();
-    }, [currentCommit, projectId, selectedBranchRef]);
+    }, [activeBranchRef, currentCommit, projectId]);
 
     if (loading) {
         return <div className="flex items-center justify-center h-app-viewport">Loading...</div>;
@@ -489,7 +491,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             !branch.is_current
                                 ? [
                                     <option key={branch.ref} value={branch.ref}>
-                                        {branch.source === "remote" ? branch.ref : branch.name}
+                                        {branch.name}
                                     </option>,
                                 ]
                                 : []
@@ -681,14 +683,14 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         >
                             <h2 className="mb-6 text-2xl font-bold">History</h2>
                             {projectId && (
-                                <ErrorBoundary label="the history viewer" resetKeys={[projectId, selectedBranchRef, refreshKey]}>
+                                <ErrorBoundary label="the history viewer" resetKeys={[projectId, activeBranchRef, refreshKey]}>
                                     <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
                                         <HistoryViewer
                                             // The identity the ErrorBoundary
                                             // above already resets on.
-                                            key={`${projectId}:${selectedBranchRef}:${refreshKey}`}
+                                            key={`${projectId}:${activeBranchRef}:${refreshKey}`}
                                             projectId={projectId}
-                                            branchRef={selectedBranchRef}
+                                            branchRef={activeBranchRef}
                                             onViewCommit={handleViewCommit}
                                             onOpenVisualizer={handleOpenCommitVisualizer}
                                             canCompareDiffs

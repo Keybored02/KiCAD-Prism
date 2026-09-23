@@ -51,6 +51,11 @@ Synchronization is a queued worker job. It fetches the configured remote and
 updates the server-managed checkout when the operation is safe. Monitor the job
 rather than treating the HTTP request as the completed synchronization.
 
+The branch selector shows each fetched branch from the configured remote once.
+The viewer reads that branch's fetched commit, even if a local checkout cannot
+fast-forward. **Sync** remains the way to fetch new commits; automatic fetching
+is not yet enabled.
+
 Prism is not where engineers author or push board changes. Use normal developer
 clones and Git review practices, then synchronize Prism.
 
