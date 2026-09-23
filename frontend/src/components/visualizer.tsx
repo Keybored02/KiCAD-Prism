@@ -11,6 +11,7 @@ import { EcadViewerControls } from "./ecad-viewer-controls";
 import { CommentForm, type CommentFormSubmitPayload } from "./comment-form";
 import { CommentCard } from "./comment-card";
 import { CommentPanel } from "./comment-panel";
+import { useLiveComments } from "@/features/live-comments/use-live-comments";
 import { ViewerOverlayRail, SELECTION_INSPECTOR_RAIL_RESIZE } from "./viewer-overlay-rail";
 import { fetchApi, readApiError } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -65,7 +66,7 @@ import type {
     EcadViewportInsets,
 } from "@/types/ecad-viewer";
 import type { PrismSelection, PrismSelectionContext, PrismSemanticIndex } from "@/types/prism-selection";
-import type { Comment, CommentContext, CommentLocation, CommentsFile, MentionCandidate } from "@/types/comments";
+import type { Comment, CommentContext, CommentLocation, MentionCandidate } from "@/types/comments";
 
 interface VisualizerProps {
     projectId: string;
@@ -382,7 +383,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const [pcbReadyGeneration, setPcbReadyGeneration] = useState(0);
 
     // Comment collaboration state
-    const [comments, setComments] = useState<Comment[]>([]);
+    const { comments, setComments, status: commentConnectionStatus, error: commentsError,
+        hasLoaded: commentsLoaded } = useLiveComments(projectId, { kind: "canvas" });
     const [commentMode, setCommentMode] = useState(false);
     const [showCommentForm, setShowCommentForm] = useState(false);
     const [pendingLocation, setPendingLocation] = useState<CommentLocation | null>(null);
@@ -614,10 +616,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const baseUrl = `/api/projects/${projectId}`;
 
             try {
-                const [ibomRes, supportRes, commentsRes, mentionsRes] = await Promise.all([
+                const [ibomRes, supportRes, mentionsRes] = await Promise.all([
                     fetch(appendCommit(`${baseUrl}/ibom`), { signal }),
                     fetch(appendCommit(`${baseUrl}/viewer/support-files`), { signal }),
-                    fetchApi(`${baseUrl}/comments`, { signal }),
                     fetchApi(`${baseUrl}/comments/mention-candidates`, { signal }),
                 ]);
                 if (cancelled) return;
@@ -633,13 +634,6 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     setViewerSupportFiles(payload.files ?? []);
                 } else {
                     setViewerSupportFiles([]);
-                }
-                if (commentsRes.ok) {
-                    const payload = await commentsRes.json() as CommentsFile;
-                    if (cancelled) return;
-                    setComments((payload.comments ?? []).map(normalizeComment));
-                } else {
-                    setComments([]);
                 }
                 if (mentionsRes.ok) {
                     const candidates = await mentionsRes.json() as MentionCandidate[];
@@ -1261,6 +1255,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     commentClass: payload.commentClass,
                     severity: payload.severity,
                     mentions: payload.mentions,
+                    ...(commit ? { revision: { commit } } : {}),
                 }),
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to post comment"));
@@ -1275,7 +1270,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         } finally {
             setIsSubmittingComment(false);
         }
-    }, [pendingContext, pendingLocation, projectId, user?.name]);
+    }, [commit, pendingContext, pendingLocation, projectId, setComments, user?.name]);
 
     const resolveComment = useCallback(async (commentId: string, resolved: boolean) => {
         try {
@@ -1289,7 +1284,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to update comment");
         }
-    }, [projectId]);
+    }, [projectId, setComments]);
 
     const replyToComment = useCallback(async (commentId: string, content: string) => {
         try {
@@ -1303,7 +1298,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to add reply");
         }
-    }, [projectId, user?.name]);
+    }, [projectId, setComments, user?.name]);
 
     const deleteComment = useCallback(async (commentId: string) => {
         try {
@@ -1316,7 +1311,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to delete comment");
         }
-    }, [projectId]);
+    }, [projectId, setComments]);
 
     const handleCommentClick = useCallback((comment: Comment) => {
         const targetTab: VisualizerTab = comment.context === "SCH" ? "sch" : "pcb";
@@ -1709,6 +1704,17 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         }
                     >
                         {rightRailTab === "comments" ? (
+                            <div className="flex h-full min-h-0 flex-col">
+                            {(commentsError || !commentsLoaded || commentConnectionStatus !== "live") && (
+                                <div className="border-b px-3 py-2 text-xs text-muted-foreground" aria-live="polite">
+                                    {commentsError
+                                        ? `${commentsError}${commentsLoaded ? " Showing the last loaded comments." : ""}`
+                                        : !commentsLoaded
+                                            ? "Loading comments…"
+                                            : "Live comments reconnecting; updates may be delayed."}
+                                </div>
+                            )}
+                            <div className="min-h-0 flex-1">
                             <CommentPanel
                                 comments={comments}
                                 onClose={() => setRightRailTab(null)}
@@ -1720,6 +1726,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 highlightedId={selectedCommentId}
                                 embedded
                             />
+                            </div>
+                            </div>
                         ) : inspectorHasContent ? (
                             <SelectionInspector
                                 open

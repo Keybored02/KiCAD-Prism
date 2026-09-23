@@ -87,6 +87,18 @@ export interface CommentsMeta {
 export interface CommentsFile {
     meta: CommentsMeta;
     comments: Comment[];
+    /** Last committed project comment event represented by this snapshot. */
+    cursor?: number;
+}
+
+export interface CommentChangeEvent {
+    type: "change";
+    cursor: number;
+    commentId: string;
+    scope: "canvas" | "comparison";
+    baseCommit?: string | null;
+    compareCommit?: string | null;
+    changeKind: string;
 }
 
 export interface CreateCommentRequest {
@@ -101,6 +113,8 @@ export interface CreateCommentRequest {
     severity?: CommentSeverity;
     mentions?: string[];
     metadata?: Record<string, unknown>;
+    /** Exact revision displayed when this canvas comment was created. */
+    revision?: { commit: string };
 }
 
 export interface CreateReplyRequest {
