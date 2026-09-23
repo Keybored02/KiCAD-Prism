@@ -243,10 +243,14 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
         const controller = new AbortController();
         let cancelled = false;
+        let inFlight = false;
+        let firstLoad = true;
         setBranchesLoading(true);
         setBranchError(null);
 
         const fetchBranches = async () => {
+            if (inFlight) return;
+            inFlight = true;
             try {
                 const data = await fetchJson<ProjectBranchesResponse>(
                     `/api/projects/${projectId}/branches`,
@@ -255,23 +259,34 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                 );
                 if (!cancelled) {
                     setBranches(data.branches || []);
+                    setBranchError(null);
                 }
             } catch (err) {
                 if (!cancelled) {
-                    setBranches([]);
                     setBranchError(err instanceof Error ? err.message : "Failed to load branches");
                 }
             } finally {
                 if (!cancelled) {
-                    setBranchesLoading(false);
+                    if (firstLoad) setBranchesLoading(false);
                 }
+                firstLoad = false;
+                inFlight = false;
             }
         };
 
         void fetchBranches();
+        const timer = window.setInterval(() => {
+            if (document.visibilityState === "visible") void fetchBranches();
+        }, 30_000);
+        const onVisible = () => {
+            if (document.visibilityState === "visible") void fetchBranches();
+        };
+        document.addEventListener("visibilitychange", onVisible);
         return () => {
             cancelled = true;
             controller.abort();
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", onVisible);
         };
     }, [projectId, refreshKey]);
 

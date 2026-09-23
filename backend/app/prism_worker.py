@@ -84,6 +84,8 @@ class PrismWorker:
         self.stopping = False
         self._last_database_error_log = 0.0
         self._catalog_maintenance_date = ""
+        self._auto_sync_attempts: dict[str, datetime] = {}
+        self._next_auto_sync_scan = 0.0
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
@@ -498,6 +500,22 @@ class PrismWorker:
         )
         self._catalog_maintenance_date = today
 
+    def schedule_project_fetches(self) -> None:
+        interval = settings.PRISM_AUTO_SYNC_INTERVAL_SECONDS
+        if self.worker_pool != "prism" or interval <= 0:
+            return
+        now_mono = time.monotonic()
+        if now_mono < self._next_auto_sync_scan:
+            return
+        from app.services.project_auto_sync_service import enqueue_due_fetches
+
+        enqueue_due_fetches(
+            self._auto_sync_attempts,
+            interval_seconds=interval,
+            now=datetime.now(timezone.utc),
+        )
+        self._next_auto_sync_scan = now_mono + min(30, interval)
+
     def run(self) -> None:
         while not self.stopping:
             try:
@@ -520,6 +538,10 @@ class PrismWorker:
                 self.schedule_catalog_maintenance()
             except Exception:
                 self._log_database_error("schedule catalog maintenance")
+            try:
+                self.schedule_project_fetches()
+            except Exception:
+                self._log_database_error("schedule project fetches")
             self.supervise()
             available_slots = self.concurrency - len(self.running) - len(self.pending_releases)
             while available_slots > 0:
