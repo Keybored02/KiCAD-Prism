@@ -128,11 +128,40 @@ def _m002_backfill_create_revisions(conn) -> None:
     )
 
 
+def _m009_anchor_binding_history(conn) -> None:
+    """Append-only reattachments; original provenance remains on comments."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS comment_anchor_bindings (
+            id BIGSERIAL PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            comment_id TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+            effective_commit TEXT NOT NULL,
+            element_id TEXT,
+            file_path TEXT,
+            location_x DOUBLE PRECISION NOT NULL,
+            location_y DOUBLE PRECISION NOT NULL,
+            location_layer TEXT NOT NULL DEFAULT '',
+            location_page TEXT NOT NULL DEFAULT '',
+            area_bounds JSONB,
+            relative_point JSONB,
+            editor_user_id TEXT,
+            editor_kind TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_comment_anchor_bindings_thread
+            ON comment_anchor_bindings(project_id, comment_id, id);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "identity_revisions_tombstones", _m001_identity_revisions_tombstones),
     (2, "backfill_create_revisions", _m002_backfill_create_revisions),
     # Versions 3-7 are reserved for the tracker branch's existing migrations.
     (8, "durable_comment_change_stream", comment_live_events.apply_schema),
+    (9, "anchor_binding_history", _m009_anchor_binding_history),
 ]
 
 

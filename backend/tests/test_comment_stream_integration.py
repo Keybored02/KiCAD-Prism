@@ -68,6 +68,31 @@ class CommentStreamIntegrationTests(unittest.TestCase):
         self.assertEqual(final["cursor"], 5)
         self.assertEqual(final["comments"], [])
 
+    def test_reattach_preserves_origin_and_emits_anchor_event(self) -> None:
+        origin = "a" * 40
+        revision = "b" * 40
+        created = self.store.create_comment(
+            self.project_id, self.path.name, "PCB", {"x": 1, "y": 2}, "Original", "Author",
+            anchor_commit=origin, anchor_source="client", element_id="old-uuid",
+        )
+        changed = self.store.reattach_comment(
+            self.project_id, self.path.name, created["id"], commit=revision,
+            location={"x": 3, "y": 4, "layer": "F.Cu"}, element_id="new-uuid",
+            relative_point=[0.25, 0.75],
+            file_path="board.kicad_pcb", editor=Editor("user:a", "user", "Author"),
+            expected_revision=1,
+        )
+        self.assertEqual(changed["anchor"]["commit"], origin)
+        self.assertEqual(changed["elementId"], "old-uuid")
+        self.assertEqual(changed["revision"], 2)
+        bindings = self.store.get_anchor_bindings(self.project_id, [created["id"]])
+        self.assertEqual(bindings[created["id"]][0]["commit"], revision)
+        self.assertEqual(bindings[created["id"]][0]["elementId"], "new-uuid")
+        self.assertEqual(bindings[created["id"]][0]["relativePoint"], [0.25, 0.75])
+        with self.store._connect() as conn:
+            events = comment_live_events.changes_after(conn, self.project_id, 0)
+        self.assertEqual([event["changeKind"] for event in events], ["upsert", "anchor"])
+
 
 if __name__ == "__main__":
     unittest.main()

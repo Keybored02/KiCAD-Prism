@@ -12,7 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 
+from git import Repo
+from git.exc import GitCommandError
+
 from app.services import (
+    comment_anchor_bindings,
     path_config_service,
     project_source_snapshot,
     semantic_index_service,
@@ -251,3 +255,54 @@ def resolve_manual_pin(project: Any, *, commit: str, context: str = "PCB") -> Re
         file_path=_source_file(project, resolved, context),
         project_relative_path=_project_relative_path(project),
     )
+
+
+def resolve_displayed_bindings(
+    project: Any,
+    comments: list[dict],
+    displayed_commit: str,
+    manual_bindings: dict[str, list[dict]],
+) -> list[dict]:
+    """Add ancestry selection to rail comments without hiding any thread.
+
+    ``candidate`` is deliberately not ``resolved``: only the loaded viewer can
+    prove that a source UUID and schematic instance still exist at this commit.
+    """
+    sha = _full_sha(displayed_commit, "revision")
+    if not sha:
+        raise AnchorValidationError("revision is required", code="invalid_commit")
+    _identity(project, sha)
+    repo = Repo(_project_dir_in_repo(project)[0])
+    ancestry: dict[tuple[str, str], bool] = {}
+
+    def is_ancestor(older: str, newer: str) -> bool:
+        key = (older, newer)
+        if key not in ancestry:
+            try:
+                repo.git.merge_base("--is-ancestor", older, newer)
+                ancestry[key] = True
+            except GitCommandError:
+                ancestry[key] = False
+        return ancestry[key]
+
+    result: list[dict] = []
+    for comment in comments:
+        resolved = dict(comment)
+        origin = comment.get("anchor") or {}
+        original_commit = origin.get("commit")
+        bindings = list(manual_bindings.get(comment["id"], []))
+        if original_commit:
+            bindings.insert(0, {
+                "sequence": 0, "commit": original_commit,
+                "elementId": comment.get("elementId"), "filePath": comment.get("filePath"),
+                "location": comment["location"],
+                "relativePoint": (comment.get("metadata") or {}).get("anchorRelativePoint"),
+            })
+        if not bindings:
+            resolved["anchorResolution"] = {"state": "unresolved", "reason": "unpinned"}
+        else:
+            resolved["anchorResolution"] = comment_anchor_bindings.select_binding(
+                bindings, sha, is_ancestor,
+            )
+        result.append(resolved)
+    return result

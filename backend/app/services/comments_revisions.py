@@ -28,6 +28,7 @@ CHANGE_CREATE = "create"
 CHANGE_EDIT = "edit"
 CHANGE_STATUS = "status"
 CHANGE_DELETE = "delete"
+CHANGE_REATTACH = "reattach"
 
 ORIGIN_PRISM = "prism"
 ORIGIN_REMOTE = "remote"

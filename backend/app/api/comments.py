@@ -6,6 +6,7 @@ are published via ecad-viewer overlay scenes (never written into KiCad sources).
 """
 
 import asyncio
+import math
 import os
 import re
 from typing import Callable, List, Optional, TypeVar
@@ -22,6 +23,7 @@ from app.services.comment_anchor_service import (
     resolve_canvas_anchor,
     resolve_comparison_anchor,
     resolve_manual_pin,
+    resolve_displayed_bindings,
 )
 from app.services.comment_permissions import ActorIdentity, AuthoredObject, CommentAction, CommentPermissionError
 from app.services.comments_revisions import Editor, RevisionConflict
@@ -99,6 +101,14 @@ class UpdateCommentRequest(BaseModel):
 class PinCommentRequest(BaseModel):
     commit: str
     expectedRevision: Optional[int] = None
+
+
+class ReattachCommentRequest(BaseModel):
+    commit: str
+    location: CommentLocation
+    elementId: Optional[str] = None
+    relativePoint: Optional[List[float]] = None
+    expectedRevision: int = Field(ge=1)
 
 
 class CommentAnchor(BaseModel):
@@ -348,19 +358,34 @@ async def list_mention_candidates(
 
 
 @router.get("/{project_id}/comments")
-async def get_comments(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
+async def get_comments(
+    project_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+    revision: Optional[str] = None,
+):
     """
     Get all comments for a project from DB snapshot.
     """
     def read():
         project = get_project_for_role_or_404(project_id, user.role)
         listing = comments_store.get_comments_file(project.id, project.path)
+        if revision:
+            displayed = _normalize_commit(revision, "revision")
+            bindings = comments_store.get_anchor_bindings(
+                project.id, [comment["id"] for comment in listing["comments"]],
+            )
+            listing["comments"] = resolve_displayed_bindings(
+                project, listing["comments"], displayed, bindings,
+            )
         actor = _read_actor(user)
         if actor is not None:
             listing["comments"] = [_with_permissions(comment, actor) for comment in listing["comments"]]
         return listing
 
-    return await asyncio.to_thread(read)
+    try:
+        return await asyncio.to_thread(read)
+    except AnchorValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail) from exc
 
 
 @router.get("/{project_id}/comparison-comments")
@@ -470,6 +495,19 @@ async def create_comment(
     location["bounds"] = _normalize_bounds(request.location.bounds)
     comment_class = _normalize_comment_class(request.commentClass)
     severity = _normalize_severity(request.severity)
+    metadata = dict(request.metadata or {})
+    relative_point = metadata.get("anchorRelativePoint")
+    if relative_point is not None and (
+        not request.elementId
+        or not isinstance(relative_point, list)
+        or len(relative_point) != 2
+        or any(
+            not isinstance(value, (int, float)) or isinstance(value, bool)
+            or not math.isfinite(value) or value < 0 or value > 1
+            for value in relative_point
+        )
+    ):
+        raise HTTPException(status_code=400, detail="anchorRelativePoint requires an object and two values between 0 and 1")
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
@@ -494,7 +532,7 @@ async def create_comment(
             comment_class=comment_class,
             severity=severity,
             mentions=request.mentions,
-            metadata=request.metadata,
+            metadata=metadata,
             file_path=anchor.file_path,
             anchor_commit=anchor.commit,
             anchor_revision_key=anchor.source_revision_key,
@@ -575,6 +613,52 @@ async def pin_comment(
             project.id, project.path, comment_id, _editor(actor), commit=anchor.commit or request.commit,
             source_revision_key=anchor.source_revision_key, file_path=anchor.file_path,
             project_relative_path=anchor.project_relative_path, expected_revision=request.expectedRevision,
+        )
+        return _with_permissions(updated, actor) if updated else None
+
+    result = await _run_mutation(write)
+    if isinstance(result, JSONResponse):
+        return result
+    if result is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return result
+
+
+@router.post("/{project_id}/comments/{comment_id}/reattach", dependencies=[Depends(require_comment_writer)])
+async def reattach_comment(
+    project_id: str,
+    comment_id: str,
+    request: ReattachCommentRequest,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """Append a binding for this commit's descendants; preserve the origin."""
+    location = request.location.model_dump()
+    if not all(math.isfinite(float(location[key])) for key in ("x", "y")):
+        raise HTTPException(status_code=400, detail="Comment location must be finite")
+    location["bounds"] = _normalize_bounds(location.get("bounds"))
+    relative_point = request.relativePoint
+    if relative_point is not None and (
+        len(relative_point) != 2
+        or any(not math.isfinite(value) or value < 0 or value > 1 for value in relative_point)
+        or not request.elementId
+    ):
+        raise HTTPException(status_code=400, detail="relativePoint requires an object and two values between 0 and 1")
+
+    def write():
+        project = get_project_for_role_or_404(project_id, user.role)
+        actor = _actor(user)
+        current = comments_store.get_comment(project.id, project.path, comment_id)
+        if current is None or current.get("scope") != "canvas":
+            return None
+        comment_permissions.authorize(CommentAction.EDIT, actor, target=_authored(current))
+        anchor = resolve_canvas_anchor(
+            project, revision={"commit": request.commit}, context=current["context"],
+        )
+        updated = comments_store.reattach_comment(
+            project.id, project.path, comment_id,
+            commit=anchor.commit or request.commit, location=location,
+            element_id=request.elementId, relative_point=relative_point, file_path=anchor.file_path,
+            editor=_editor(actor), expected_revision=request.expectedRevision,
         )
         return _with_permissions(updated, actor) if updated else None
 

@@ -747,6 +747,96 @@ class CommentsStoreService:
         with self._connect() as conn:
             return comments_revisions.history(conn, project_id=project_id, target_kind=target_kind, target_id=target_id)
 
+    def get_anchor_bindings(self, project_id: str, comment_ids: List[str]) -> Dict[str, List[Dict]]:
+        """Read manual reattachments in one query; creation stays on the root row."""
+        self.initialize()
+        if not comment_ids:
+            return {}
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT id, comment_id, effective_commit, element_id, file_path,
+                          location_x, location_y, location_layer, location_page, area_bounds, relative_point
+                   FROM comment_anchor_bindings
+                   WHERE project_id = %s AND comment_id = ANY(%s)
+                   ORDER BY id""",
+                (project_id, comment_ids),
+            ).fetchall()
+        bindings: Dict[str, List[Dict]] = {}
+        for row in rows:
+            location = {
+                "x": row["location_x"], "y": row["location_y"],
+                "layer": row["location_layer"], "page": row["location_page"],
+            }
+            if row["area_bounds"] is not None:
+                location["bounds"] = row["area_bounds"]
+            bindings.setdefault(row["comment_id"], []).append({
+                "sequence": int(row["id"]), "commit": row["effective_commit"],
+                "elementId": row["element_id"], "filePath": row["file_path"],
+                "location": location, "relativePoint": row["relative_point"],
+            })
+        return bindings
+
+    def reattach_comment(
+        self,
+        project_id: str,
+        project_path: str,
+        comment_id: str,
+        *,
+        commit: str,
+        location: Dict,
+        element_id: Optional[str],
+        relative_point: Optional[List[float]],
+        file_path: Optional[str],
+        editor: Editor,
+        expected_revision: int,
+    ) -> Optional[Dict]:
+        """Append a binding effective from ``commit``; never rewrite origin."""
+        self.initialize()
+        with self._connect() as conn:
+            with conn.transaction():
+                self._bootstrap_project_if_needed(conn, project_id, project_path)
+                row = conn.execute(
+                    """UPDATE comments SET revision = revision + 1, updated_at = %s
+                       WHERE project_id = %s AND id = %s AND scope = 'canvas'
+                         AND deleted_at IS NULL AND revision = %s
+                       RETURNING revision, scope""",
+                    (_utc_now_iso(), project_id, comment_id, expected_revision),
+                ).fetchone()
+                if row is None:
+                    current = conn.execute(
+                        "SELECT revision FROM comments WHERE project_id = %s AND id = %s AND scope = 'canvas' AND deleted_at IS NULL",
+                        (project_id, comment_id),
+                    ).fetchone()
+                    if current is None:
+                        return None
+                    raise RevisionConflict("root", comment_id, int(current["revision"]))
+
+                conn.execute(
+                    """INSERT INTO comment_anchor_bindings (
+                           project_id, comment_id, effective_commit, element_id, file_path,
+                           location_x, location_y, location_layer, location_page, area_bounds, relative_point,
+                           editor_user_id, editor_kind
+                       ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s)""",
+                    (
+                        project_id, comment_id, commit, _optional_str(element_id), _optional_str(file_path),
+                        float(location["x"]), float(location["y"]),
+                        str(location.get("layer", "")), str(location.get("page", "")),
+                        json.dumps(location["bounds"]) if location.get("bounds") is not None else None,
+                        json.dumps(relative_point) if relative_point is not None else None,
+                        editor.user_id, editor.kind,
+                    ),
+                )
+                comments_revisions.record_revision(
+                    conn, project_id=project_id, target_kind=comments_revisions.ROOT,
+                    target_id=comment_id, revision=int(row["revision"]),
+                    change_kind=comments_revisions.CHANGE_REATTACH, editor=editor, emit_change=False,
+                )
+                comment_live_events.record_change(
+                    conn, project_id=project_id, comment_id=comment_id,
+                    scope="canvas", change_kind="anchor",
+                )
+                return self._get_comment_with_replies(conn, project_id, comment_id)
+
     def add_reply(
         self,
         project_id: str,
