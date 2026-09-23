@@ -51,6 +51,12 @@ Synchronization is a queued worker job. It fetches the configured remote and
 updates the server-managed checkout when the operation is safe. Monitor the job
 rather than treating the HTTP request as the completed synchronization.
 
+Prism also fetches remote refs in the background about every five minutes. This
+does not modify the checkout; an open project page checks for a newer fetched
+branch tip and refreshes its view. The manual **Sync** button remains available
+for an immediate fetch and safe checkout fast-forward. Set
+`PRISM_AUTO_SYNC_INTERVAL_SECONDS=0` to disable background fetching.
+
 Prism is not where engineers author or push board changes. Use normal developer
 clones and Git review practices, then synchronize Prism.
 

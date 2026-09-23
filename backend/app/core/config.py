@@ -449,6 +449,13 @@ class Settings(BaseSettings):
         description="PostgreSQL queue polling interval for prism-worker.",
     )
 
+    PRISM_AUTO_SYNC_INTERVAL_SECONDS: int = Field(
+        default=300,
+        ge=0,
+        le=86400,
+        description="Background Git fetch interval per repository; 0 disables automatic fetch.",
+    )
+
     PRISM_JOB_LEASE_SECONDS: int = Field(
         default=30,
         ge=10,

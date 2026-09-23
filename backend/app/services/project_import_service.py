@@ -1414,20 +1414,22 @@ def run_project_thumbnail_job_v3(context: JobContext) -> JobResult:
     )
 
 
-def start_sync_job(project_id: str, *, requested_by: str = "") -> str:
+def start_sync_job(project_id: str, *, requested_by: str = "", fetch_only: bool = False) -> str:
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError("Project not found")
     repository_id = str(row.get("repo_id") or "")
-    active_key = hashlib.sha256(f"sync:{project_id}".encode("utf-8")).hexdigest()
+    mode = "fetch" if fetch_only else "sync"
+    active_key = hashlib.sha256(f"{mode}:{project_id}".encode("utf-8")).hexdigest()
     queued = v3_jobs.enqueue(
         "project_sync",
-        {"project_id": project_id},
+        {"project_id": project_id, "fetch_only": fetch_only},
         worker_pool="prism",
         artifact_key=active_key,
         project_id=project_id,
         repository_id=repository_id or None,
         requested_by=requested_by,
+        priority=200 if fetch_only else 100,
         max_attempts=2,
         resources={"prism_worker": 1, "import": 1},
         locks=(
@@ -1441,19 +1443,22 @@ def start_sync_job(project_id: str, *, requested_by: str = "") -> str:
 
 def run_project_sync_job_v3(context: JobContext) -> JobResult:
     project_id = str(context.payload["project_id"])
+    fetch_only = bool(context.payload.get("fetch_only", False))
     context.progress(
         stage="fetch",
         message="Fetching repository updates",
         percent=5,
         force=True,
     )
-    result = sync_project(project_id)
+    result = sync_project(project_id, fetch_only=fetch_only)
     context.check_cancelled()
     if result.get("status") == "error":
         raise RuntimeError(str(result.get("message") or "Project sync failed"))
     from app.services import file_service
 
     file_service.invalidate_file_listing_cache()
+    if fetch_only:
+        return JobResult(message=str(result.get("message") or "Fetched remote refs"), details=dict(result))
     # Re-render in its own job: a `kicad-cli` render can take two minutes, and
     # sync holds a write lock on the whole repository while it runs.
     try:
@@ -1472,15 +1477,15 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
     )
 
 
-def sync_project(project_id: str) -> dict:
+def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
     """
     Sync a project with its remote repository.
     For Type-1: syncs the project repo.
     For Type-2: syncs the parent repo.
 
-    Prism's checkout is a read-only mirror of the remote. Sync fetches every ref
-    and fast-forwards the current branch; it never merges, never rebases and
-    never commits, so the checkout cannot diverge from what the team pushed.
+    Fetch every ref. Manual Sync fast-forwards the checked-out branch when safe;
+    background refresh only updates remote-tracking refs. Neither mode rebases
+    or creates commits in the server-managed checkout.
     """
     row = workspace.get_project_by_id(project_id)
     if not row:
@@ -1496,24 +1501,18 @@ def sync_project(project_id: str) -> dict:
         repo = Repo(sync_path)
         origin = repo.remote('origin')
 
-        # Sync must reach the remote on the same terms as the clone that created
-        # this checkout. Building the environment here meant it kept an
-        # `accept-new` host key policy after import moved to pinned keys, so an
-        # operator who deliberately pinned a host was still exposed on every
-        # sync -- and sync is the operation that runs unattended, repeatedly,
-        # for the life of the project.
+        # Reuse the clone's pinned-host-key and noninteractive Git policy.
         env = git_env()
 
-        # Clear out thumbnails an older Prism wrote into the tree, so a checkout
-        # carrying them can still fast-forward.
-        derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)
+        if not fetch_only:
+            derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)
 
-        # Prune so branches deleted upstream stop showing up in the branch list,
-        # and fetch all refs rather than only the checked-out branch, so design
-        # comparison can reach any branch without a second network round trip.
+        # Fetch all refs for branch viewing and prune deleted branches.
         fetch_info = origin.fetch(env=env, prune=True)
 
-        if repo.head.is_detached:
+        if fetch_only:
+            message = f"Fetched {len(fetch_info)} ref(s)"
+        elif repo.head.is_detached:
             message = "Fetched refs; checkout is on a detached HEAD so nothing was advanced"
         elif repo.is_dirty(untracked_files=False):
             # Prism never writes into the tree, so a dirty checkout means someone
@@ -1528,13 +1527,12 @@ def sync_project(project_id: str) -> dict:
                 repo.git.merge("--ff-only", tracking.name)
                 message = f"Synced {len(fetch_info)} ref(s)"
 
-        # Refresh cached paths after sync
-        path_config_service.clear_config_cache()
-        project_path = row.get('path', '')
-        if project_path and os.path.isdir(project_path):
-            refresh_project_assets(project_id)
+        if not fetch_only:
+            path_config_service.clear_config_cache()
+            project_path = row.get('path', '')
+            if project_path and os.path.isdir(project_path):
+                refresh_project_assets(project_id)
 
-        # Update repo last_synced_at
         workspace.update_repository_synced(row.get('repo_id', ''))
 
         return {
