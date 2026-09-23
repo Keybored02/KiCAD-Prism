@@ -106,6 +106,7 @@ async def _send_change(websocket: WebSocket, change: dict) -> None:
         websocket.send_json({"type": "change", **change}),
         timeout=_SEND_TIMEOUT_SECONDS,
     )
+    broker.record_delivery(change.get("createdAt"))
 
 
 @router.websocket("/{project_id}/comments/live")
@@ -127,10 +128,12 @@ async def live_comments(websocket: WebSocket, project_id: str, after: int = 0) -
                 try:
                     batch = await asyncio.to_thread(_read_batch, project_id, cursor)
                 except ValueError:
+                    broker.record_replay_failure()
                     await websocket.send_json({"type": "resync"})
                     return
                 for change in batch["changes"]:
                     if change["cursor"] != cursor + 1:
+                        broker.record_replay_failure()
                         await websocket.send_json({"type": "resync"})
                         return
                     await _send_change(websocket, change)
@@ -140,6 +143,7 @@ async def live_comments(websocket: WebSocket, project_id: str, after: int = 0) -
                     cursor = max(cursor, batch["cursor"])
                     break
                 if replayed >= _MAX_SOCKET_REPLAY:
+                    broker.record_replay_failure()
                     await websocket.send_json({"type": "resync"})
                     return
 

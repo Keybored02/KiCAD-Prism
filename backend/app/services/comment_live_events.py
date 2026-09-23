@@ -109,7 +109,7 @@ def changes_after(conn: Any, project_id: str, after: int, *, limit: int = 200) -
         raise ValueError("invalid comment change cursor or limit")
     rows = conn.execute(
         """
-        SELECT cursor, comment_id, scope, base_commit, compare_commit, change_kind
+        SELECT cursor, comment_id, scope, base_commit, compare_commit, change_kind, created_at
         FROM comment_change_events
         WHERE project_id = %s AND cursor > %s
         ORDER BY cursor ASC
@@ -125,6 +125,7 @@ def changes_after(conn: Any, project_id: str, after: int, *, limit: int = 200) -
             "baseCommit": row["base_commit"],
             "compareCommit": row["compare_commit"],
             "changeKind": row["change_kind"],
+            "createdAt": row["created_at"].isoformat().replace("+00:00", "Z"),
         }
         for row in rows
     ]
