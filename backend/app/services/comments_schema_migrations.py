@@ -17,6 +17,15 @@ import logging
 from typing import Callable, List, Tuple
 
 from app.services import comment_live_events
+from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema
+from app.services.trackers.migrations import (
+    cascade_comments_tracker_fks,
+    migrate_comments_tracked_links,
+    migrate_tracked_threads_container_path,
+    migrate_tracked_threads_external_number,
+)
+from app.services.trackers.op_store import apply_schema as apply_op_schema
+from app.services.trackers.projection_events import apply_schema as apply_tracker_projection_events
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +137,16 @@ def _m002_backfill_create_revisions(conn) -> None:
     )
 
 
+def _m004_sync_ops_inbox_and_delete_cascade(conn) -> None:
+    apply_op_schema(conn)
+    apply_inbox_schema(conn)
+    cascade_comments_tracker_fks(conn)
+
+
+def _m006_reply_sync_state(conn) -> None:
+    conn.execute("ALTER TABLE comment_replies ADD COLUMN IF NOT EXISTS sync_state TEXT", prepare=False)
+
+
 def _m009_anchor_binding_history(conn) -> None:
     """Append-only reattachments; original provenance remains on comments."""
     conn.execute(
@@ -156,12 +175,36 @@ def _m009_anchor_binding_history(conn) -> None:
     )
 
 
+def _m011_comment_scope_columns(conn) -> None:
+    """Keep standalone schema migrations compatible with pre-comparison rows.
+
+    The main store also adds these columns during initialization, but tracker
+    workers and migration callers must not depend on that ordering.
+    """
+    conn.execute(
+        ";\n".join((
+            "ALTER TABLE comments ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'canvas'",
+            "ALTER TABLE comments ADD COLUMN IF NOT EXISTS base_commit TEXT",
+            "ALTER TABLE comments ADD COLUMN IF NOT EXISTS compare_commit TEXT",
+        )),
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "identity_revisions_tombstones", _m001_identity_revisions_tombstones),
     (2, "backfill_create_revisions", _m002_backfill_create_revisions),
-    # Versions 3-7 are reserved for the tracker branch's existing migrations.
+    (3, "tracked_threads_and_replies", migrate_comments_tracked_links),
+    (4, "sync_ops_inbox_and_delete_cascade", _m004_sync_ops_inbox_and_delete_cascade),
+    (5, "tracked_threads_external_number", migrate_tracked_threads_external_number),
+    (6, "reply_sync_state", _m006_reply_sync_state),
+    (7, "tracked_threads_container_path", migrate_tracked_threads_container_path),
     (8, "durable_comment_change_stream", comment_live_events.apply_schema),
     (9, "anchor_binding_history", _m009_anchor_binding_history),
+    (10, "tracker_projection_change_stream", apply_tracker_projection_events),
+    (11, "comment_scope_columns", _m011_comment_scope_columns),
+    # Re-installs the v10 trigger function without retry-bookkeeping columns.
+    (12, "tracker_projection_ignores_retry_bookkeeping", apply_tracker_projection_events),
 ]
 
 

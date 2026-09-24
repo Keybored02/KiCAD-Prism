@@ -26,9 +26,9 @@ class FakeWebSocket {
         this.onopen?.();
     }
 
-    emit(cursor: number, scope: "canvas" | "comparison" = "canvas") {
+    emit(cursor: number, scope: "canvas" | "comparison" = "canvas", commentId = "comment-2") {
         this.onmessage?.({ data: JSON.stringify({
-            type: "change", cursor, commentId: "comment-2", changeKind: "updated", scope,
+            type: "change", cursor, commentId, changeKind: "upsert", scope,
         }) });
     }
 
@@ -45,6 +45,12 @@ function comment(id: string): Comment {
         context: "PCB", location: { x: 1, y: 2, layer: "F.Cu" }, content: id,
         replies: [], commentClass: "general", severity: "info", mentions: [],
     };
+}
+
+function thread(value: Comment | null, cursor: number, status = 200): Response {
+    return new Response(JSON.stringify({ comment: value, cursor }), {
+        status, headers: { "Content-Type": "application/json" },
+    });
 }
 
 function snapshot(comments: Comment[], cursor: number, status = 200): Response {
@@ -77,10 +83,12 @@ describe("useLiveComments", () => {
         await waitFor(() => expect(result.current.status).toBe("live"));
         await waitFor(() => expect(api.fetchApi).toHaveBeenCalledTimes(2));
 
-        api.fetchApi.mockResolvedValueOnce(snapshot([comment("comment-1"), comment("comment-2")], 5));
+        // A live change reads only the thread it names, not the whole project.
+        api.fetchApi.mockResolvedValueOnce(thread(comment("comment-2"), 5));
         act(() => FakeWebSocket.instances[0].emit(5));
         await waitFor(() => expect(result.current.comments.map((entry) => entry.id))
             .toEqual(["comment-1", "comment-2"]));
+        expect(api.fetchApi.mock.calls[2][0]).toBe("/api/projects/project-1/comments/comment-2/thread");
 
         vi.useFakeTimers();
         act(() => FakeWebSocket.instances[0].close());
@@ -97,11 +105,42 @@ describe("useLiveComments", () => {
         act(() => FakeWebSocket.instances[0].open());
         await waitFor(() => expect(api.fetchApi).toHaveBeenCalledTimes(2));
 
+        // The thread read fails, so the hook falls back to a snapshot, which also fails.
+        api.fetchApi.mockResolvedValueOnce(thread(null, 8, 503));
         api.fetchApi.mockResolvedValueOnce(snapshot([], 8, 503));
         act(() => FakeWebSocket.instances[0].emit(8));
         await waitFor(() => expect(result.current.error).toContain("503"));
         expect(result.current.comments.map((entry) => entry.id)).toEqual(["comment-1"]);
         expect(result.current.hasLoaded).toBe(true);
+    });
+
+    it("removes a thread that no longer exists", async () => {
+        api.fetchApi.mockResolvedValueOnce(snapshot([comment("comment-1"), comment("comment-2")], 3));
+        const { result } = renderHook(() => useLiveComments("project-1", { kind: "canvas" }));
+        await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+        api.fetchApi.mockResolvedValueOnce(snapshot([comment("comment-1"), comment("comment-2")], 3));
+        act(() => FakeWebSocket.instances[0].open());
+        await waitFor(() => expect(api.fetchApi).toHaveBeenCalledTimes(2));
+
+        api.fetchApi.mockResolvedValueOnce(thread(null, 4));
+        act(() => FakeWebSocket.instances[0].emit(4));
+        await waitFor(() => expect(result.current.comments.map((entry) => entry.id)).toEqual(["comment-1"]));
+    });
+
+    it("reads a burst of many changed threads as one snapshot", async () => {
+        api.fetchApi.mockResolvedValueOnce(snapshot([], 1));
+        const { result } = renderHook(() => useLiveComments("project-1", { kind: "canvas" }));
+        await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+        api.fetchApi.mockResolvedValueOnce(snapshot([], 1));
+        act(() => FakeWebSocket.instances[0].open());
+        await waitFor(() => expect(api.fetchApi).toHaveBeenCalledTimes(2));
+
+        const many = Array.from({ length: 25 }, (_, index) => comment(`c-${index}`));
+        api.fetchApi.mockResolvedValueOnce(snapshot(many, 26));
+        act(() => many.forEach((entry, index) => FakeWebSocket.instances[0].emit(index + 2, "canvas", entry.id)));
+        await waitFor(() => expect(result.current.comments).toHaveLength(25));
+        expect(api.fetchApi).toHaveBeenCalledTimes(3);
+        expect(api.fetchApi.mock.calls[2][0]).toBe("/api/projects/project-1/comments");
     });
 
     it("ignores comparison events while viewing project comments", async () => {

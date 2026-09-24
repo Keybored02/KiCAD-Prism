@@ -1341,7 +1341,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         try {
             const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}/replies`, {
                 method: "POST",
-                body: JSON.stringify({ content, author: user?.name }),
+                body: JSON.stringify({ content }),
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to add reply"));
             const payload = await response.json() as { comment: Comment };
@@ -1350,7 +1350,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to add reply");
         }
-    }, [projectId, setComments, user?.name]);
+    }, [projectId, setComments]);
 
     const deleteComment = useCallback(async (commentId: string) => {
         try {
@@ -1364,6 +1364,45 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             toast.error(error instanceof Error ? error.message : "Failed to delete comment");
         }
     }, [projectId, setComments]);
+
+    const promoteComment = useCallback(async (commentId: string) => {
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}/promote`, {
+                method: "POST",
+            });
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to create issue"));
+            refreshComments();
+            toast.success("Issue publication queued.");
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to create issue");
+        }
+    }, [projectId, refreshComments]);
+
+    const retryCommentSync = useCallback(async (commentId: string) => {
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}/tracker/retry`, {
+                method: "POST",
+            });
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to retry issue sync"));
+            refreshComments();
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to retry issue sync");
+        }
+    }, [projectId, refreshComments]);
+
+    const shareReply = useCallback(async (commentId: string, replyId: string) => {
+        try {
+            const response = await fetchApi(
+                `/api/projects/${projectId}/comments/${commentId}/replies/${replyId}/share`,
+                { method: "POST" },
+            );
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to share reply"));
+            refreshComments();
+            toast.success("Reply queued for the linked issue.");
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to share reply");
+        }
+    }, [projectId, refreshComments]);
 
     const reattachComment = useCallback(async (comment: Comment) => {
         const selected = lastSelectionRef.current;
@@ -1820,6 +1859,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 highlightedId={selectedCommentId}
                                 anchorStatuses={commentMarkerResolutions}
                                 onReattach={reattachComment}
+                                onPromote={promoteComment}
+                                onRetrySync={retryCommentSync}
+                                onShareReply={shareReply}
                                 embedded
                             />
                             </div>
@@ -1884,6 +1926,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
                     onReply={replyToComment}
                     onDelete={deleteComment}
+                    onPromote={promoteComment}
+                    onRetrySync={retryCommentSync}
                 />
             )}
         </div>

@@ -6,6 +6,8 @@ import type { Comment, CommentChangeEvent, CommentsFile } from "@/types/comments
 const FALLBACK_POLL_MS = 15_000;
 const REFRESH_COALESCE_MS = 75;
 const MAX_RECONNECT_MS = 30_000;
+/** Beyond this many changed threads in one burst, one snapshot is cheaper. */
+const MAX_THREAD_REFRESH = 20;
 
 export type CommentConnectionStatus = "loading" | "live" | "reconnecting";
 
@@ -89,10 +91,17 @@ export function useLiveComments(projectId: string, scope: CommentScope): LiveCom
         const snapshotPath = currentScope.kind === "canvas"
             ? `${projectPath}/comments${revision ? `?${new URLSearchParams({ revision })}` : ""}`
             : `${projectPath}/comparison-comments?${new URLSearchParams({ base, compare })}`;
+        const threadPath = (commentId: string) => `${projectPath}/comments/${encodeURIComponent(commentId)}/thread${
+            currentScope.kind === "canvas" && revision ? `?${new URLSearchParams({ revision })}` : ""}`;
         let disposed = false;
         let cursor = 0;
         let requestInFlight = false;
         let refreshAgain = false;
+        let hasSnapshot = false;
+        // A live change names one thread; fetch just those threads unless a
+        // full snapshot is already due (reconnect, resync, poll, visibility).
+        let snapshotDue = false;
+        const pendingThreads = new Map<string, number>();
         let retryCount = 0;
         let socket: WebSocket | null = null;
         let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -107,7 +116,7 @@ export function useLiveComments(projectId: string, scope: CommentScope): LiveCom
                 : current);
         };
 
-        const scheduleRefresh = () => {
+        const armTimer = () => {
             if (disposed) return;
             if (requestInFlight) {
                 refreshAgain = true;
@@ -116,13 +125,86 @@ export function useLiveComments(projectId: string, scope: CommentScope): LiveCom
             if (refreshTimer) return;
             refreshTimer = setTimeout(() => {
                 refreshTimer = null;
-                void readSnapshot();
+                if (snapshotDue || !hasSnapshot || pendingThreads.size > MAX_THREAD_REFRESH) {
+                    void readSnapshot();
+                } else if (pendingThreads.size) {
+                    void readThreads();
+                }
             }, REFRESH_COALESCE_MS);
+        };
+
+        const scheduleRefresh = () => {
+            snapshotDue = true;
+            armTimer();
+        };
+
+        const scheduleThread = (commentId: string, eventCursor: number) => {
+            pendingThreads.set(commentId, Math.max(eventCursor, pendingThreads.get(commentId) ?? 0));
+            armTimer();
+        };
+
+        const belongsHere = (comment: Comment) => currentScope.kind === "canvas"
+            ? comment.scope !== "comparison"
+            : comment.scope === "comparison"
+                && comment.baseCommit === currentScope.base && comment.compareCommit === currentScope.compare;
+
+        const readThreads = async () => {
+            if (disposed || requestInFlight || !pendingThreads.size) return;
+            requestInFlight = true;
+            const batch = new Map(pendingThreads);
+            pendingThreads.clear();
+            const localVersion = localVersionRef.current;
+            const controller = new AbortController();
+            requestController = controller;
+            try {
+                const results = await Promise.all([...batch.keys()].map(async (commentId) => {
+                    const response = await fetchApi(threadPath(commentId), { signal: controller.signal });
+                    if (!response.ok) throw new Error(`Comment could not be loaded (${response.status}).`);
+                    const payload = await response.json() as { comment: Comment | null };
+                    return { commentId, comment: payload.comment ? normalizeComment(payload.comment) : null };
+                }));
+                if (disposed) return;
+                if (localVersion !== localVersionRef.current) {
+                    batch.forEach((eventCursor, commentId) => scheduleThread(commentId, eventCursor));
+                    return;
+                }
+                setState((current) => {
+                    if (current.key !== key) return current;
+                    let comments = current.comments;
+                    for (const { commentId, comment } of results) {
+                        const index = comments.findIndex((entry) => entry.id === commentId);
+                        if (!comment || !belongsHere(comment)) {
+                            if (index >= 0) comments = comments.filter((entry) => entry.id !== commentId);
+                        } else if (index >= 0) {
+                            comments = comments.map((entry, at) => (at === index ? comment : entry));
+                        } else {
+                            comments = [...comments, comment];
+                        }
+                    }
+                    return { ...current, comments, error: null };
+                });
+                // Every change in the batch is now reflected; replaying it adds nothing.
+                cursor = Math.max(cursor, ...batch.values());
+            } catch {
+                if (disposed || controller.signal.aborted) return;
+                // A thread read failed: fall back to the authoritative snapshot.
+                snapshotDue = true;
+                refreshAgain = true;
+            } finally {
+                requestInFlight = false;
+                requestController = null;
+                if (refreshAgain && !disposed) {
+                    refreshAgain = false;
+                    armTimer();
+                }
+            }
         };
 
         const readSnapshot = async () => {
             if (disposed || requestInFlight) return;
             requestInFlight = true;
+            snapshotDue = false;
+            pendingThreads.clear();
             const localVersion = localVersionRef.current;
             const controller = new AbortController();
             requestController = controller;
@@ -136,10 +218,12 @@ export function useLiveComments(projectId: string, scope: CommentScope): LiveCom
                 }
                 if (disposed) return;
                 if (localVersion !== localVersionRef.current) {
+                    snapshotDue = true;
                     refreshAgain = true;
                     return;
                 }
                 cursor = payload.cursor!;
+                hasSnapshot = true;
                 setState(() => ({
                     key,
                     comments: payload.comments.map(normalizeComment),
@@ -156,7 +240,7 @@ export function useLiveComments(projectId: string, scope: CommentScope): LiveCom
                 requestController = null;
                 if (refreshAgain && !disposed) {
                     refreshAgain = false;
-                    scheduleRefresh();
+                    armTimer();
                 }
             }
         };
@@ -212,7 +296,11 @@ export function useLiveComments(projectId: string, scope: CommentScope): LiveCom
                 }
                 if (event.type !== "change" || !Number.isSafeInteger(event.cursor)
                     || event.cursor <= cursor || !isRelevantChange(event, currentScope)) return;
-                scheduleRefresh();
+                if (typeof event.commentId === "string" && event.commentId) {
+                    scheduleThread(event.commentId, event.cursor);
+                } else {
+                    scheduleRefresh();
+                }
             };
             socket.onerror = () => socket?.close();
             socket.onclose = () => {

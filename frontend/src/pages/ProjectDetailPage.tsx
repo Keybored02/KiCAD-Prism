@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from
 import { Button } from "@/components/ui/button";
 import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, Link2 } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -27,6 +27,10 @@ const AssetsPortal = lazy(() =>
 );
 const PathConfigDialog = lazy(() =>
     import("@/components/path-config-dialog").then((module) => ({ default: module.PathConfigDialog }))
+);
+const TrackerSettingsDialog = lazy(() =>
+    import("@/features/tracker-integration/tracker-settings-dialog")
+        .then((module) => ({ default: module.TrackerSettingsDialog }))
 );
 const DocumentationBrowser = lazy(() =>
     import("@/components/documentation-browser").then((module) => ({ default: module.DocumentationBrowser }))
@@ -125,6 +129,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [syncing, setSyncing] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [pathConfigOpen, setPathConfigOpen] = useState(false);
+    const [trackerSettingsOpen, setTrackerSettingsOpen] = useState(false);
     const [branches, setBranches] = useState<ProjectBranch[]>([]);
     const [branchesLoading, setBranchesLoading] = useState(false);
     const [branchError, setBranchError] = useState<string | null>(null);
@@ -564,6 +569,18 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </Button>
                 )}
 
+                {projectId && (
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setTrackerSettingsOpen(true)}
+                        title="Issue publishing settings"
+                        aria-label="Issue publishing settings"
+                    >
+                        <Link2 className="h-4 w-4" />
+                    </Button>
+                )}
+
                 {canMutateProject && (
                     <Button
                         variant="outline"
@@ -581,6 +598,16 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             projectId={projectId}
                             open={pathConfigOpen}
                             onOpenChange={setPathConfigOpen}
+                        />
+                    </Suspense>
+                )}
+                {projectId && trackerSettingsOpen && (
+                    <Suspense fallback={null}>
+                        <TrackerSettingsDialog
+                            projectId={projectId}
+                            isAdmin={user?.role === "admin"}
+                            open={trackerSettingsOpen}
+                            onOpenChange={setTrackerSettingsOpen}
                         />
                     </Suspense>
                 )}

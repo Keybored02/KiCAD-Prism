@@ -7,10 +7,11 @@ Configuration can be set via:
 
 See .env.example for available configuration options.
 """
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 from typing import List
 import os
+import re
 
 
 # Placeholders that appear in this repository's examples and in copy-pasted guides.
@@ -24,6 +25,7 @@ _WEAK_SESSION_SECRETS = {
     "your-session-secret",
     "replace-with-a-long-random-string",
 }
+_TRACKER_KEY_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
 class Settings(BaseSettings):
@@ -307,6 +309,11 @@ class Settings(BaseSettings):
         default=True,
         description="Enable the comment WebSocket gateway; disable during staged rollout to use HTTP refresh fallback.",
     )
+
+    TRACKER_CREDENTIAL_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
+    TRACKER_CREDENTIAL_ROOT_KEY_ID: str = Field(default="v1")
+    TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
+    TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID: str = Field(default="")
 
     PUBLIC_BASE_URL: str = Field(
         default="",
@@ -779,7 +786,56 @@ class Settings(BaseSettings):
                 "password, so a bootstrap secret is not left in the environment."
             )
 
+        status = self.tracker_credential_status()
+        if status == "disabled":
+            warnings.append("TRACKER_CREDENTIAL_ROOT_KEY is unset: tracker tokens cannot be stored.")
+        elif status == "locked":
+            warnings.extend(self.tracker_credential_key_errors())
+
         return warnings
+
+    @staticmethod
+    def _tracker_secret_text(value: SecretStr | str | None) -> str:
+        return value.get_secret_value() if isinstance(value, SecretStr) else str(value or "")
+
+    def tracker_credential_key_errors(self) -> List[str]:
+        from app.services.trackers.secrets import root_key_problem
+
+        errors: List[str] = []
+        current = self._tracker_secret_text(self.TRACKER_CREDENTIAL_ROOT_KEY).strip()
+        previous = self._tracker_secret_text(self.TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY).strip()
+        current_id = self.TRACKER_CREDENTIAL_ROOT_KEY_ID.strip()
+        previous_id = self.TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID.strip()
+        for label, value, key_id in (
+            ("TRACKER_CREDENTIAL_ROOT_KEY", current, current_id),
+            ("TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY", previous, previous_id),
+        ):
+            if value:
+                problem = root_key_problem(value)
+                if problem:
+                    errors.append(f"{label} is locked: {problem}")
+                if not _TRACKER_KEY_ID_RE.fullmatch(key_id):
+                    errors.append(f"{label}_ID must be 1–64 characters [A-Za-z0-9._-]")
+            elif key_id and (label != "TRACKER_CREDENTIAL_ROOT_KEY" or key_id != "v1"):
+                errors.append(f"{label}_ID is set without {label}")
+        if previous and previous_id == current_id:
+            errors.append("TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID must differ from the current key id")
+        return errors
+
+    def tracker_credential_status(self) -> str:
+        if self.tracker_credential_key_errors():
+            return "locked"
+        return "ready" if self._tracker_secret_text(self.TRACKER_CREDENTIAL_ROOT_KEY).strip() else "disabled"
+
+    @staticmethod
+    def tracker_deployment_env_keys() -> tuple[str, ...]:
+        return (
+            "PUBLIC_BASE_URL",
+            "TRACKER_CREDENTIAL_ROOT_KEY",
+            "TRACKER_CREDENTIAL_ROOT_KEY_ID",
+            "TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY",
+            "TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID",
+        )
 
     def auth_configuration_errors(self) -> List[str]:
         """Return every reason this deployment must not serve authenticated traffic."""

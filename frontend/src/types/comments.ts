@@ -43,10 +43,23 @@ export interface CommentLocation {
     bounds?: [number, number, number, number];
 }
 
+export interface ReplySync {
+    /** ``unsynced_local``: saved in Prism only; ``confirmed``: posted on the issue. */
+    state: string;
+    reason?: string | null;
+    externalCommentId?: string | null;
+    externalUrl?: string | null;
+}
+
 export interface CommentReply {
+    id?: string;
     author: string;
     timestamp: string;
     content: string;
+    /** ``remote`` replies were imported from the linked issue. */
+    origin?: "prism" | "remote" | string;
+    sync?: ReplySync | null;
+    permissions?: { canEdit?: boolean; canDelete?: boolean; canShare?: boolean };
 }
 
 export interface Comment {
@@ -77,8 +90,17 @@ export interface Comment {
     forgeIssueId?: string;
     forgeIssueUrl?: string;
     forgeSyncState?: string;
+    tracker?: {
+        linkState?: string | null;
+        provider?: string | null;
+        externalUrl?: string | null;
+        syncState?: string | null;
+        lastError?: { message?: string; retryable?: boolean } | null;
+        notPromotableReason?: string | null;
+    };
     revision?: number;
-    permissions?: { canReply?: boolean; canEdit?: boolean; canDelete?: boolean; canResolve?: boolean };
+    permissions?: { canReply?: boolean; canEdit?: boolean; canDelete?: boolean; canResolve?: boolean;
+        canPublish?: boolean; canRetry?: boolean };
     anchor?: { state: string; commit?: string | null; source?: string | null };
     anchorResolution?:
         | { state: "candidate"; binding: {

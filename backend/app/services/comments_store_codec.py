@@ -45,7 +45,8 @@ _COMMENT_COLUMNS = """
 
 _REPLY_COLUMNS = """
     id, comment_id, author, timestamp, content,
-    author_user_id, author_kind, revision, updated_at, deleted_at, origin
+    author_user_id, author_kind, revision, updated_at, deleted_at, origin,
+    sync_state
 """
 
 COMMENT_CLASSES = ("general", "observation", "question", "task")
@@ -179,6 +180,11 @@ def _row_to_reply_dict(row) -> Dict:
     }
     if row.get("deleted_at"):
         reply["deletedAt"] = _iso_timestamp(row["deleted_at"])
+    # A viewer's reply on a linked thread stays Prism-local until shared;
+    # listings must keep saying so after a reload.
+    sync_state = _optional_str(row.get("sync_state"))
+    if sync_state:
+        reply["syncState"] = sync_state
     return reply
 
 
