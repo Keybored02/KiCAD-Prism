@@ -63,23 +63,18 @@ docker compose --env-file .env.example -f compose.yml config --quiet
 1. Configure authentication, PostgreSQL, and the tracker root key in `.env`.
 2. Start the stack and confirm `/api/health/ready` succeeds.
 3. Sign in as an administrator.
-4. Create a connector: **Settings → Code hosts → Add code host → GitHub**, or
-   `POST /api/admin/trackers/connectors`.
-5. Paste GitHub App credentials:
-   - App ID and private key PEM
-   - Installation ID for the destination organization or repository
-   - Webhook secret (even when polling-only; required for signature verification when webhooks arrive)
-   - OAuth client ID and secret for user account linking
-6. Register callback URLs at the forge (see below).
-7. Run **Test connection** (`POST /api/admin/trackers/connectors/{id}/test`).
-8. Configure each project's destination and publication policy under
-   **Issue publishing** (link icon in the project header).
-9. People link their accounts under **Settings → Connected accounts**. Linking
+4. Register a GitHub App and add it under **Settings → Code hosts**, following
+   [Connect Prism to GitHub](GITHUB_APP_SETUP.md). The API equivalent is
+   `POST /api/admin/trackers/connectors`, then
+   `POST /api/admin/trackers/connectors/{id}/test`.
+5. Choose each project's repository and publishing rules under
+   **Issue publishing** in the project header.
+6. People link their accounts under **Settings → Connected accounts**. Linking
    requests read-only profile access; it lets published issues credit them by
    @handle and turns Prism @mentions into forge mentions. Bot-backed
    publication works without it.
-10. Promote a comment and confirm the issue appears. With webhooks blocked,
-    expect synchronization within the polling budgets in the next section.
+7. Promote a comment and confirm the issue appears. With webhooks blocked,
+   expect synchronization within the polling budgets in the next section.
 
 ### Callback and webhook URLs
 
@@ -102,14 +97,14 @@ Use a dedicated GitHub App installation for Prism bot writes. Do not reuse
 `GITHUB_TOKEN` from `.env` for tracker promotion; that token is for repository
 import and Release publishing only.
 
-Minimum typical grants:
+Required grants:
 
 - Repository issues: read and write
 - Repository metadata: read
-- Organization or repository administration: read (for installation discovery)
 
-User OAuth linking uses a separate user token with `read:user` on github.com and
-the same scope on GHES.
+No other permission is needed; the connection test and repository picker use
+only the App and installation endpoints. Account linking uses the App's own
+OAuth client and reads only the signed-in user's profile.
 
 ## github.com and GHES
 
@@ -270,6 +265,7 @@ the full decision record (D1–D9).
 
 ## Related documentation
 
+- [Connect Prism to GitHub](GITHUB_APP_SETUP.md) — GitHub App registration, step by step
 - [Authentication and access](AUTHENTICATION_AND_ACCESS.md) — OIDC and sessions
 - [Operations](OPERATIONS.md) — backup, restore, and upgrades
 - [Architecture](ARCHITECTURE.md) — runtime services and schemas

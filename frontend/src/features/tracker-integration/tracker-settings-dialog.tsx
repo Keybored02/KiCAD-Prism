@@ -27,23 +27,13 @@ export function TrackerSettingsDialog({ projectId, isAdmin, open, onOpenChange }
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
                 <DialogTitle>Issue publishing</DialogTitle>
-                <DialogDescription>
-                    Publish this project's discussions to an issue tracker. Comments stay in Prism even when the tracker is unavailable.
-                </DialogDescription>
+                <DialogDescription className="sr-only">Where this project's comments are published as issues.</DialogDescription>
                 <ProjectTrackerSettingsPanel
                     projectId={projectId}
                     isAdmin={isAdmin}
                     chromeless
                     onManageCodeHosts={isAdmin ? openCodeHosts : undefined}
                 />
-                {isAdmin && (
-                    <p className="border-t pt-3 text-xs text-muted-foreground">
-                        GitHub, GitLab and Gitea connections are shared by every project and managed in{" "}
-                        <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={openCodeHosts}>
-                            Settings → Code hosts
-                        </button>.
-                    </p>
-                )}
             </DialogContent>
         </Dialog>
     );

@@ -10,11 +10,9 @@ import type { ConnectorTestResult, TrackerConnector } from "@/types/trackers";
 import type { ConnectorCredentialFields } from "./connector-settings";
 import { SectionHeading } from "./connector-settings-section";
 
+/** Placeholder for a secret field; stored values are never sent back to the browser. */
 export function credentialRotationHint(configured: boolean): string {
-    if (!configured) {
-        return "Enter GitHub App credentials. Values are sent once to Prism and never echoed back.";
-    }
-    return "Credentials are stored on the server. Leave fields blank to keep the current secret; fill them to rotate.";
+    return configured ? "Stored · type to replace" : "";
 }
 
 interface ConnectorInstallationSettingsProps {
@@ -42,8 +40,8 @@ export function ConnectorInstallationSettings({
             <legend className="sr-only">GitHub App installation</legend>
             <SectionHeading
                 step={2}
-                title="GitHub App installation"
-                description={credentialRotationHint(stored)}
+                title="GitHub App"
+                description="From the App's settings page on GitHub."
                 trailing={stored ? <Badge variant="success">Stored</Badge> : <Badge variant="secondary">Required</Badge>}
             />
             <div className="grid gap-3 sm:grid-cols-2">
@@ -53,7 +51,7 @@ export function ConnectorInstallationSettings({
                         id="tracker-app-id"
                         value={credentials.appId}
                         onChange={(event) => setCredentials((prev) => ({ ...prev, appId: event.target.value }))}
-                        placeholder={stored ? "Leave blank to keep stored value" : "123456"}
+                        placeholder={stored ? credentialRotationHint(true) : "123456"}
                         autoComplete="off"
                         inputMode="numeric"
                     />
@@ -66,7 +64,7 @@ export function ConnectorInstallationSettings({
                         onChange={(event) =>
                             setCredentials((prev) => ({ ...prev, installationId: event.target.value }))
                         }
-                        placeholder={stored ? "Leave blank to keep stored value" : "987654"}
+                        placeholder={stored ? credentialRotationHint(true) : "987654"}
                         autoComplete="off"
                         inputMode="numeric"
                     />
@@ -80,14 +78,12 @@ export function ConnectorInstallationSettings({
                     onChange={(event) =>
                         setCredentials((prev) => ({ ...prev, privateKey: event.target.value }))
                     }
-                    placeholder={stored ? "Leave blank to keep stored PEM" : "Paste the contents of the downloaded .pem file"}
+                    placeholder={stored ? credentialRotationHint(true) : "Paste the downloaded .pem file"}
                     className="min-h-24 font-mono text-[11px]"
                     autoComplete="off"
                     spellCheck={false}
                 />
-                <p className="text-[11px] text-muted-foreground">
-                    Generated under the App&apos;s settings on GitHub; the App needs Issues: read &amp; write and Metadata: read.
-                </p>
+                <p className="text-[11px] text-muted-foreground">Permissions: Issues read &amp; write · Metadata read</p>
             </div>
             {connector?.id ? (
                 <div className="flex flex-wrap items-center gap-2">
@@ -103,9 +99,8 @@ export function ConnectorInstallationSettings({
                     </Button>
                     {testResult ? (
                         <span className="text-xs" data-testid="connector-test-result" aria-live="polite">
-                            Test {testResult.ok ? "succeeded" : "failed"}
-                            {testResult.bot?.login ? ` — publishes as ${testResult.bot.login}` : ""}
-                            {testResult.visibility ? ` · ${testResult.visibility}` : ""}
+                            {testResult.ok ? "Connected" : "Test failed"}
+                            {testResult.bot?.login ? ` · publishes as ${testResult.bot.login}` : ""}
                         </span>
                     ) : null}
                 </div>

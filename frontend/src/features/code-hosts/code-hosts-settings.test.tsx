@@ -40,8 +40,8 @@ afterEach(() => {
 
 it("summarises what each host does and whether it is ready", async () => {
     render(<CodeHostsSettings />);
-    expect(await screen.findByText("Issue publishing · Account linking not set up")).toBeTruthy();
-    expect(screen.getByText("Account linking")).toBeTruthy();
+    expect(await screen.findByText("Issues")).toBeTruthy();
+    expect(screen.getByText("Accounts")).toBeTruthy();
     expect(screen.getAllByText("Ready")).toHaveLength(2);
 });
 

@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { KeyRound, Pause, Play, RefreshCw, ShieldAlert } from "lucide-react";
+import { ExternalLink, KeyRound, Pause, Play, RefreshCw, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -55,6 +55,9 @@ export interface ConnectorSettingsProps {
     className?: string;
     onConnectorChange?: (connector: TrackerConnector) => void;
 }
+
+/** Step-by-step GitHub App registration for deployers. */
+const GITHUB_APP_SETUP_GUIDE = "https://github.com/krishna-swaroop/KiCAD-Prism/blob/dev/docs/GITHUB_APP_SETUP.md";
 
 const EMPTY_CREDENTIALS: ConnectorCredentialFields = {
     appId: "",
@@ -331,10 +334,16 @@ export function ConnectorSettings({
                     {connector ? connector.displayName : "New GitHub connection"}
                     {connector?.paused ? <Badge variant="warning">Paused</Badge> : null}
                     {phase === "revoked" ? <Badge variant="destructive">Revoked</Badge> : null}
+                    <a
+                        href={GITHUB_APP_SETUP_GUIDE}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-auto inline-flex items-center gap-1 text-xs font-normal text-primary underline-offset-2 hover:underline"
+                    >
+                        Setup guide
+                        <ExternalLink className="size-3" aria-hidden="true" />
+                    </a>
                 </CardTitle>
-                <CardDescription>
-                    Credentials are encrypted on the server and never shown again. Leave a stored field blank to keep it.
-                </CardDescription>
             </CardHeader>
 
             <CardContent className="space-y-5 py-4">

@@ -26,11 +26,10 @@ export function ConnectorIdentitySettings({
         <FormSection
             step={1}
             title="Connection"
-            description="How this connection is shown in Prism and which GitHub it talks to."
         >
             <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                    <Label htmlFor="tracker-display-name">Display name</Label>
+                    <Label htmlFor="tracker-display-name">Name</Label>
                     <Input
                         id="tracker-display-name"
                         value={displayName}

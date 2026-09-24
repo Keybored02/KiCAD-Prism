@@ -16,19 +16,11 @@ type View =
     | { kind: "choose" }
     | { kind: "edit"; provider: CodeHostProvider; connectorId: string | null };
 
-const PROVIDER_PITCH: Record<CodeHostProvider, { what: string; needs: string }> = {
-    github: {
-        what: "Publish review threads as issues, sync replies both ways, and link accounts.",
-        needs: "A GitHub App installed on your repositories.",
-    },
-    gitlab: {
-        what: "Link accounts on GitLab.com or your own GitLab.",
-        needs: "An OAuth application on that GitLab. Issue publishing is not available yet.",
-    },
-    gitea: {
-        what: "Link accounts on Codeberg or your own Gitea or Forgejo server.",
-        needs: "An OAuth2 application on that server. Issue publishing is not available yet.",
-    },
+/** What each host can do in Prism today. */
+const PROVIDER_CAPABILITY: Record<CodeHostProvider, string> = {
+    github: "Issue publishing and account linking",
+    gitlab: "Account linking",
+    gitea: "Account linking",
 };
 
 function status(connector: TrackerConnector): { label: string; variant: "success" | "warning" | "destructive" | "outline" } {
@@ -58,7 +50,7 @@ function hostOf(connector: TrackerConnector): string {
  * issues, which people can link accounts on, and each one's setup.
  */
 // react-doctor-disable-next-line prefer-useReducer - list loading and the master/detail view are independent
-export function CodeHostsSettings({ onOpenConnectedAccounts }: { onOpenConnectedAccounts?: () => void }) {
+export function CodeHostsSettings() {
     const [view, setView] = useState<View>({ kind: "list" });
     const [connectors, setConnectors] = useState<TrackerConnector[]>([]);
     const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -113,27 +105,21 @@ export function CodeHostsSettings({ onOpenConnectedAccounts }: { onOpenConnected
         return (
             <div className="space-y-4">
                 {back}
-                <div>
-                    <h3 className="text-lg font-medium">Add a code host</h3>
-                    <p className="text-sm text-muted-foreground">Choose where your team's repositories and accounts live.</p>
-                </div>
+                <h3 className="text-lg font-medium">Add a code host</h3>
                 <div className="grid gap-3">
                     {CODE_HOST_PROVIDERS.map((provider) => (
                         <button
                             key={provider}
                             type="button"
                             onClick={() => setView({ kind: "edit", provider, connectorId: null })}
-                            className="flex items-start gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="flex items-center gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                             <CodeHostMark provider={provider} />
                             <span className="min-w-0 flex-1">
                                 <span className="block font-medium">{providerName(provider)}</span>
-                                <span className="block text-sm">{PROVIDER_PITCH[provider].what}</span>
-                                <span className="mt-1 block text-xs text-muted-foreground">
-                                    You will need: {PROVIDER_PITCH[provider].needs}
-                                </span>
+                                <span className="block text-sm text-muted-foreground">{PROVIDER_CAPABILITY[provider]}</span>
                             </span>
-                            <ChevronRight className="mt-2 size-4 text-muted-foreground" aria-hidden="true" />
+                            <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
                         </button>
                     ))}
                 </div>
@@ -165,15 +151,6 @@ export function CodeHostsSettings({ onOpenConnectedAccounts }: { onOpenConnected
                         onRemoved={removed}
                     />
                 )}
-                {onOpenConnectedAccounts && (connector?.capabilities?.accountLinking || connector?.oauthClientConfigured) && (
-                    <p className="text-sm text-muted-foreground">
-                        Check it end to end by{" "}
-                        <button type="button" className="text-primary underline-offset-2 hover:underline"
-                            onClick={onOpenConnectedAccounts}>
-                            connecting your own account
-                        </button>.
-                    </p>
-                )}
             </div>
         );
     }
@@ -183,9 +160,7 @@ export function CodeHostsSettings({ onOpenConnectedAccounts }: { onOpenConnected
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <h3 className="text-lg font-medium">Code hosts</h3>
-                    <p className="text-sm text-muted-foreground">
-                        Where this workspace publishes issues, and where people can link their accounts.
-                    </p>
+                    <p className="text-sm text-muted-foreground">Where issues are published and people link accounts.</p>
                 </div>
                 <Button size="sm" onClick={() => setView({ kind: "choose" })}>
                     <Plus className="mr-1.5 size-4" aria-hidden="true" /> Add code host
@@ -211,9 +186,6 @@ export function CodeHostsSettings({ onOpenConnectedAccounts }: { onOpenConnected
             {phase === "ready" && connectors.length === 0 && (
                 <div className="rounded-lg border border-dashed p-6 text-center text-sm">
                     <p className="font-medium">No code hosts yet</p>
-                    <p className="mt-1 text-muted-foreground">
-                        Add GitHub to publish review threads as issues, or any host so people can link their accounts.
-                    </p>
                     <Button className="mt-4" size="sm" onClick={() => setView({ kind: "choose" })}>Add code host</Button>
                 </div>
             )}
@@ -244,10 +216,7 @@ export function CodeHostsSettings({ onOpenConnectedAccounts }: { onOpenConnected
                                             </span>
                                         </span>
                                         <span className="block text-xs text-muted-foreground">
-                                            {[
-                                                issues ? "Issue publishing" : null,
-                                                linking ? "Account linking" : issues ? "Account linking not set up" : null,
-                                            ].filter(Boolean).join(" · ")}
+                                            {[issues ? "Issues" : null, linking ? "Accounts" : null].filter(Boolean).join(" · ")}
                                         </span>
                                     </span>
                                     <Badge variant={state.variant}>{state.label}</Badge>

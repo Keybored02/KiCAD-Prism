@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 interface SectionProps {
     step: number;
     title: string;
-    description: string;
+    description?: string;
     trailing?: ReactNode;
 }
 
@@ -16,12 +16,12 @@ export function SectionHeading({ step, title, description, trailing }: SectionPr
             >
                 {step}
             </span>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 space-y-0.5">
                 <div className="flex flex-wrap items-center gap-2">
                     <h4 className="text-sm font-medium">{title}</h4>
                     {trailing}
                 </div>
-                <p className="text-[11px] text-muted-foreground">{description}</p>
+                {description ? <p className="text-[11px] text-muted-foreground">{description}</p> : null}
             </div>
         </div>
     );

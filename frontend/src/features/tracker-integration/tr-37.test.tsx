@@ -55,8 +55,8 @@ describe("connector helpers", () => {
     });
 
     it("describes credential rotation without echoing secrets", () => {
-        expect(credentialRotationHint(false)).toMatch(/never echoed/i);
-        expect(credentialRotationHint(true)).toMatch(/leave fields blank/i);
+        expect(credentialRotationHint(false)).toBe("");
+        expect(credentialRotationHint(true)).toMatch(/stored/i);
         expect(credentialRotationHint(true)).not.toMatch(/privateKey|gho_/);
     });
 
@@ -99,7 +99,7 @@ describe("ConnectorSettings (F9.settings_states / C8)", () => {
         mockedFetch.mockResolvedValueOnce(respond(trackerUiMocks.connector));
         fireEvent.click(screen.getByRole("button", { name: /retry/i }));
         await waitFor(() => {
-            expect(screen.getByLabelText(/display name/i)).toBeTruthy();
+            expect(screen.getByLabelText(/^name$/i)).toBeTruthy();
         });
     });
 
@@ -115,15 +115,15 @@ describe("ConnectorSettings (F9.settings_states / C8)", () => {
             );
         render(<ConnectorSettings connectorId="cn_gh1" isAdmin={true} prismOrigin="https://prism.test" />);
         await waitFor(() => {
-            expect(screen.getByLabelText(/display name/i)).toHaveValue("GitHub.com");
+            expect(screen.getByLabelText(/^name$/i)).toHaveValue("GitHub.com");
         });
         expect(screen.getByLabelText(/private key/i)).toHaveValue("");
         const appCredentials = screen.getByRole("group", { name: /GitHub App installation/i });
-        expect(within(appCredentials).getByText(/leave fields blank/i)).toBeTruthy();
+        expect(within(appCredentials).getByLabelText(/private key/i)).toHaveAttribute("placeholder", "Stored · type to replace");
         expect(screen.queryByDisplayValue("leak")).toBeNull();
         expect(JSON.stringify(document.body.textContent)).not.toMatch(/credential_envelope|gho_/);
 
-        fireEvent.change(screen.getByLabelText(/display name/i), { target: { value: "GitHub prod" } });
+        fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: "GitHub prod" } });
         fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
         await waitFor(() => {
             expect(screen.getByLabelText(/private key/i)).toHaveValue("");
@@ -136,13 +136,13 @@ describe("ConnectorSettings (F9.settings_states / C8)", () => {
         mockedFetch.mockResolvedValue(respond(trackerUiMocks.connector));
         render(<ConnectorSettings connectorId="cn_gh1" isAdmin={true} prismOrigin="https://prism.test" />);
         await waitFor(() => {
-            expect(screen.getByText(/public webhook endpoint/i)).toBeTruthy();
+            expect(screen.getByText("Webhook URL")).toBeTruthy();
         });
         // The forge has to reach this URL, so the DTO's PUBLIC_BASE_URL-derived value wins over prismOrigin.
         expect(
             screen.getByText("https://prism.example/api/trackers/webhooks/github/cn_gh1"),
         ).toBeTruthy();
-        fireEvent.click(screen.getByRole("button", { name: /copy url/i }));
+        fireEvent.click(screen.getByRole("button", { name: /copy webhook url/i }));
         expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
             "https://prism.example/api/trackers/webhooks/github/cn_gh1",
         );
@@ -182,7 +182,7 @@ describe("ConnectorSettings (F9.settings_states / C8)", () => {
 
         fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
         await waitFor(() => {
-            expect(screen.getByTestId("connector-test-result")).toHaveTextContent(/succeeded/i);
+            expect(screen.getByTestId("connector-test-result")).toHaveTextContent(/connected/i);
         });
 
         fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
@@ -222,10 +222,10 @@ describe("ConnectorSettings (F9.settings_states / C8)", () => {
         mockedFetch.mockResolvedValue(respond(trackerUiMocks.connector));
         render(<ConnectorSettings connectorId="cn_gh1" isAdmin={true} />);
         await waitFor(() => {
-            expect(screen.getByLabelText(/display name/i)).toBeTruthy();
+            expect(screen.getByLabelText(/^name$/i)).toBeTruthy();
         });
-        screen.getByLabelText(/display name/i).focus();
-        expect(document.activeElement).toBe(screen.getByLabelText(/display name/i));
+        screen.getByLabelText(/^name$/i).focus();
+        expect(document.activeElement).toBe(screen.getByLabelText(/^name$/i));
         expect(document.documentElement.classList.contains("dark")).toBe(true);
     });
 });

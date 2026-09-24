@@ -155,8 +155,8 @@ describe("ProjectTrackerSettingsPanel (F8 / F9 / C8)", () => {
             settings: trackerUiMocks.projectSettings,
             setDraft: vi.fn(),
             projectRepoPath: "acme/openswitch",
-            connectors: [],
             isAdmin: true,
+            ackState: "not_required" as const,
         };
         const { rerender } = render(<ProjectTrackerDestinationSection key="old" {...common} draft={draft} />);
         await waitFor(() => expect(mockedFetch).toHaveBeenCalledWith(expect.stringContaining("/connectors/cn_old/repositories"), undefined));
@@ -170,11 +170,11 @@ describe("ProjectTrackerSettingsPanel (F8 / F9 / C8)", () => {
         mockedFetch.mockResolvedValue(respond(trackerUiMocks.projectSettings));
         render(<ProjectTrackerSettingsPanel projectId="prj_47c2551996d0" isAdmin={false} />);
         await waitFor(() => {
-            expect(screen.getByTestId("destination-line")).toHaveTextContent("repo · acme/openswitch · generation 2");
+            expect(screen.getByTestId("destination-line")).toHaveTextContent("acme/openswitch");
         });
         expect(screen.getByText(/read-only/i)).toBeTruthy();
         expect(screen.getByTestId("viewer-readonly-note")).toBeTruthy();
-        expect(screen.queryByRole("button", { name: /save publication settings/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
         expect(screen.getByText(promoteRoleExplanation("designer"))).toBeTruthy();
     });
 
@@ -186,18 +186,18 @@ describe("ProjectTrackerSettingsPanel (F8 / F9 / C8)", () => {
         await waitFor(() => {
             expect(screen.getByText(promoteRoleExplanation("viewer"))).toBeTruthy();
         });
-        expect(autoPromoteSummary(trackerUiMocks.projectSettings)).toMatch(/severity ≥ minor/i);
+        expect(autoPromoteSummary(trackerUiMocks.projectSettings)).toMatch(/minor and above/i);
     });
 
     it("offers the project's own repository as the default and lists the installation's repositories", async () => {
         routeFetch({ settings: { ...importedDefaultSettings, projectRepoPath: "acme/openswitch" }, repositories });
         render(<ProjectTrackerSettingsPanel projectId="prj_47c2551996d0" isAdmin={true} />);
         await waitFor(() => {
-            expect(screen.getByTestId("imported-default-note")).toHaveTextContent(/resolved on save: acme\/openswitch/i);
+            expect(screen.getByTestId("imported-default-note")).toHaveTextContent(/publishing to\s*acme\/openswitch/i);
         });
         expect(screen.getByRole("radio", { name: /this project's repository/i })).toBeChecked();
         expect(screen.getByTestId("project-repo-option")).toHaveTextContent("acme/openswitch");
-        expect(screen.queryByLabelText(/container path/i)).toBeNull();
+        expect(screen.queryByLabelText(/owner\/name/i)).toBeNull();
         expect(screen.queryByTestId("repository-picker")).toBeNull();
 
         fireEvent.click(screen.getByRole("radio", { name: /another repository/i }));
@@ -239,9 +239,9 @@ describe("ProjectTrackerSettingsPanel (F8 / F9 / C8)", () => {
         });
         fireEvent.click(screen.getByRole("radio", { name: /another repository/i }));
         await waitFor(() => {
-            expect(screen.getByLabelText(/container path/i)).toBeTruthy();
+            expect(screen.getByLabelText(/owner\/name/i)).toBeTruthy();
         });
-        expect(screen.getByText(/could not list the installation's repositories/i)).toBeTruthy();
+        expect(screen.getByText(/could not list the app's repositories/i)).toBeTruthy();
     });
 
     it("requires confirmation before changing destination and leaves policy unchanged when cancelled", async () => {
@@ -253,27 +253,27 @@ describe("ProjectTrackerSettingsPanel (F8 / F9 / C8)", () => {
 
         fireEvent.click(screen.getByRole("radio", { name: /another repository/i }));
         await waitFor(() => {
-            expect(screen.getByLabelText(/container path/i)).toBeTruthy();
+            expect(screen.getByLabelText(/owner\/name/i)).toBeTruthy();
         });
-        fireEvent.change(screen.getByLabelText(/container path/i), {
+        fireEvent.change(screen.getByLabelText(/owner\/name/i), {
             target: { value: "acme/hardware-issues" },
         });
-        fireEvent.change(screen.getByLabelText(/remote container id/i), {
+        fireEvent.change(screen.getByLabelText(/repository id/i), {
             target: { value: "111222333" },
         });
-        fireEvent.click(screen.getByRole("button", { name: /save publication settings/i }));
+        fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
         await waitFor(() => {
-            expect(screen.getByText(/change tracker destination/i)).toBeTruthy();
+            expect(screen.getByText(/change repository\?/i)).toBeTruthy();
         });
 
         fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
         await waitFor(() => {
-            expect(screen.queryByText(/change tracker destination/i)).toBeNull();
+            expect(screen.queryByText(/change repository\?/i)).toBeNull();
         });
 
         expect(mockedFetch.mock.calls.filter((call) => String(call[0]).includes("/tracker") && call[1]?.method === "PUT")).toHaveLength(0);
-        expect(screen.getByTestId("destination-line")).toHaveTextContent(/generation 1/);
+        expect(screen.getByTestId("destination-line")).toHaveTextContent("acme/openswitch");
     });
 
     it("saves destination override after confirmation and shows stale acknowledgement alerts", async () => {
@@ -301,24 +301,24 @@ describe("ProjectTrackerSettingsPanel (F8 / F9 / C8)", () => {
             expect(screen.getByTestId("repository-picker")).toBeTruthy();
         });
         // Radix Select is not driven in jsdom; hand entry exercises the same draft.
-        fireEvent.click(screen.getByRole("button", { name: /enter a repository id by hand/i }));
-        fireEvent.change(screen.getByLabelText(/container path/i), {
+        fireEvent.click(screen.getByRole("button", { name: /enter by hand/i }));
+        fireEvent.change(screen.getByLabelText(/owner\/name/i), {
             target: { value: "acme/hardware-issues" },
         });
-        fireEvent.change(screen.getByLabelText(/remote container id/i), {
+        fireEvent.change(screen.getByLabelText(/repository id/i), {
             target: { value: "111222333" },
         });
-        fireEvent.click(screen.getByRole("button", { name: /save publication settings/i }));
+        fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
         await waitFor(() => {
-            expect(screen.getByText(/change tracker destination/i)).toBeTruthy();
+            expect(screen.getByText(/change repository\?/i)).toBeTruthy();
         });
-        fireEvent.click(screen.getByRole("button", { name: /change destination/i }));
+        fireEvent.click(screen.getByRole("button", { name: /^change repository$/i }));
 
         await waitFor(() => {
-            expect(screen.getByTestId("destination-line")).toHaveTextContent("repo · acme/hardware-issues · generation 2");
+            expect(screen.getByTestId("destination-line")).toHaveTextContent("acme/hardware-issues");
         });
         expect(screen.getByTestId("policy-alerts-section")).toBeTruthy();
-        expect(screen.getByRole("button", { name: /acknowledge public visibility/i })).toBeTruthy();
+        expect(screen.getByRole("button", { name: /allow public issues/i })).toBeTruthy();
 
         const putCall = mockedFetch.mock.calls.find(
             (call) => String(call[0]).endsWith("/tracker") && call[1]?.method === "PUT",
@@ -346,11 +346,11 @@ describe("ProjectTrackerSettingsPanel (F8 / F9 / C8)", () => {
             expect(screen.getByRole("radio", { name: /another repository/i })).toBeChecked();
         });
         fireEvent.click(screen.getByRole("radio", { name: /this project's repository/i }));
-        fireEvent.click(screen.getByRole("button", { name: /save publication settings/i }));
+        fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
         await waitFor(() => {
-            expect(screen.getByText(/change tracker destination/i)).toBeTruthy();
+            expect(screen.getByText(/change repository\?/i)).toBeTruthy();
         });
-        fireEvent.click(screen.getByRole("button", { name: /change destination/i }));
+        fireEvent.click(screen.getByRole("button", { name: /^change repository$/i }));
         await waitFor(() => {
             const putCall = mockedFetch.mock.calls.find(
                 (call) => String(call[0]).endsWith("/tracker") && call[1]?.method === "PUT",
@@ -378,14 +378,14 @@ describe("ProjectTrackerSettingsPanel (F8 / F9 / C8)", () => {
         });
         render(<ProjectTrackerSettingsPanel projectId="prj_47c2551996d0" isAdmin={true} />);
         await waitFor(() => {
-            expect(screen.getByRole("button", { name: /acknowledge public visibility/i })).toBeTruthy();
+            expect(screen.getByRole("button", { name: /allow public issues/i })).toBeTruthy();
         });
 
-        fireEvent.click(screen.getByRole("button", { name: /acknowledge public visibility/i }));
+        fireEvent.click(screen.getByRole("button", { name: /allow public issues/i }));
         await waitFor(() => {
-            expect(screen.getByText(/acknowledge public destination/i)).toBeTruthy();
+            expect(screen.getByText(/allow public issues\?/i)).toBeTruthy();
         });
-        fireEvent.click(screen.getByRole("button", { name: /acknowledge public visibility/i }));
+        fireEvent.click(screen.getByRole("button", { name: /allow public issues/i }));
 
         await waitFor(() => {
             expect(screen.getByTestId("destination-ack-badge")).toHaveTextContent(/acknowledged/i);
@@ -423,7 +423,7 @@ describe("ProjectTrackerSettingsPanel (F8 / F9 / C8)", () => {
             new TrackerApiError(403, { detail: "admin only", code: "admin_required" }),
         );
         expect(message).toMatch(/administrator/i);
-        expect(promoteRoleExplanation("viewer")).toMatch(/opts in/i);
+        expect(promoteRoleExplanation("viewer")).toMatch(/including viewers/i);
     });
 });
 

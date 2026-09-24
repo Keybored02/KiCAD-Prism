@@ -179,31 +179,15 @@ export function ConnectedAccounts({ signInEnabled, isAdmin, onSetUpCodeHosts }: 
             <div>
                 <h3 className="text-lg font-medium">Connected accounts</h3>
                 <p className="text-sm text-muted-foreground">
-                    Link your accounts on the code hosts this workspace uses.
+                    Get credit for the issues you publish and @mentions on your code hosts.
                 </p>
-            </div>
-
-            <div className="flex gap-3 rounded-lg border bg-muted/20 p-4 text-sm">
-                <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
-                <div className="space-y-1.5">
-                    <p>When your account is linked:</p>
-                    <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
-                        <li>issues and replies Prism publishes credit you by your @handle;</li>
-                        <li>@mentions of you in Prism comments notify you on that host.</li>
-                    </ul>
-                    <p className="text-muted-foreground">
-                        Prism only reads your username and account ID. It never posts, pushes or reads code as you.
-                    </p>
-                </div>
             </div>
 
             {!signInEnabled && (
                 <Alert variant="info">
                     <TriangleAlert aria-hidden="true" />
                     <AlertTitle>Sign-in is off for this workspace</AlertTitle>
-                    <AlertDescription>
-                        Accounts are linked to a signed-in Prism user. Turn on sign-in to let people connect.
-                    </AlertDescription>
+                    <AlertDescription>Turn on sign-in to let people connect accounts.</AlertDescription>
                 </Alert>
             )}
 
@@ -233,12 +217,8 @@ export function ConnectedAccounts({ signInEnabled, isAdmin, onSetUpCodeHosts }: 
 
             {phase === "ready" && hosts.length === 0 && (
                 <div className="rounded-lg border border-dashed p-6 text-center text-sm">
-                    <p className="font-medium">No code hosts are ready for account linking</p>
-                    <p className="mt-1 text-muted-foreground">
-                        {isAdmin
-                            ? "Add GitHub, GitLab or a Gitea/Forgejo server and register Prism as an OAuth application there."
-                            : "Ask a workspace admin to set up GitHub, GitLab or Gitea/Forgejo for this workspace."}
-                    </p>
+                    <p className="font-medium">Nothing to connect yet</p>
+                    {!isAdmin && <p className="mt-1 text-muted-foreground">An admin needs to add a code host.</p>}
                     {isAdmin && onSetUpCodeHosts && (
                         <Button className="mt-4" size="sm" onClick={onSetUpCodeHosts}>Set up a code host</Button>
                     )}
@@ -306,6 +286,13 @@ export function ConnectedAccounts({ signInEnabled, isAdmin, onSetUpCodeHosts }: 
                 </ul>
             )}
 
+            {phase === "ready" && hosts.length > 0 && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <ShieldCheck className="size-3.5 shrink-0" aria-hidden="true" />
+                    Prism only reads your username. It never acts as you.
+                </p>
+            )}
+
             <ConfirmDialog
                 open={disconnect.open}
                 onOpenChange={(open) => { if (!open) disconnect.clear(); }}
@@ -327,17 +314,15 @@ function DisconnectDescription({ host, login }: { host: LinkableCodeHost; login:
     return (
         <span className="block space-y-2">
             <span className="block">
-                Issues and replies Prism publishes will credit you by name instead of @{login}, and @mentions in
-                Prism stop notifying you on {host.host}. You can connect again at any time.
+                Prism will credit you by name instead of @{login}. You can reconnect at any time.
             </span>
             {appsUrl && (
                 <span className="block">
-                    To also remove Prism from your {providerName(host.provider)} account,{" "}
                     <a href={appsUrl} target="_blank" rel="noopener noreferrer"
                         className="inline-flex items-center gap-0.5 text-primary underline-offset-2 hover:underline">
-                        revoke it in your {providerName(host.provider)} settings
+                        Also revoke Prism on {providerName(host.provider)}
                         <ExternalLink className="size-3" aria-hidden="true" />
-                    </a>.
+                    </a>
                 </span>
             )}
         </span>

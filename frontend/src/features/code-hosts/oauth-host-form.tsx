@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createConnector, deleteConnector, TrackerApiError, updateConnector } from "@/lib/trackers-client";
+import { CopyField } from "@/features/tracker-integration/copy-field";
 import { cn } from "@/lib/utils";
 import type { TrackerConnector } from "@/types/trackers";
 
@@ -46,7 +47,6 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
     const [error, setError] = useState<string | null>(null);
     const [confirmRemove, setConfirmRemove] = useState(false);
     const [removing, setRemoving] = useState(false);
-    const [copied, setCopied] = useState(false);
 
     const host = selfManaged ? hostFromUrl(baseUrl) : "gitlab.com";
     const registerUrl = host ? registerApplicationUrl(provider, host) : null;
@@ -55,17 +55,6 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
     const canSave = Boolean(host)
         && (credentialsRequired ? Boolean(clientId.trim() && clientSecret.trim()) : true)
         && (!existing || Boolean(clientId.trim() || clientSecret.trim() || displayName !== existing.displayName));
-
-    const copyCallback = async () => {
-        if (!callbackUrl) return;
-        try {
-            await navigator.clipboard.writeText(callbackUrl);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-        } catch {
-            toast.error("Copy failed; select the address and copy it.");
-        }
-    };
 
     const save = async () => {
         setSaving(true);
@@ -121,14 +110,12 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
                 <CodeHostMark provider={provider} />
                 <div>
                     <h4 className="font-medium">{existing ? existing.displayName : `Add ${name}`}</h4>
-                    <p className="text-sm text-muted-foreground">
-                        People sign in with {name} to link their accounts. Issue publishing is not available for {name} yet.
-                    </p>
+                    <p className="text-sm text-muted-foreground">Account linking</p>
                 </div>
             </div>
 
             <fieldset className="space-y-3" disabled={Boolean(existing)}>
-                <legend className="text-sm font-medium">Where it lives</legend>
+                <legend className="text-sm font-medium">Instance</legend>
                 {provider === "gitlab" && (
                     <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="GitLab instance">
                         {[
@@ -172,15 +159,13 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
                         </div>
                         {baseUrl.trim() && !host ? (
                             <p className="text-xs text-destructive">Enter the full https:// address.</p>
-                        ) : (
-                            <p className="text-xs text-muted-foreground">The address people open in their browser.</p>
-                        )}
+                        ) : null}
                     </div>
                 )}
             </fieldset>
 
             <div className="space-y-1.5">
-                <Label htmlFor="code-host-name">Name shown to people</Label>
+                <Label htmlFor="code-host-name">Name</Label>
                 <Input
                     id="code-host-name"
                     placeholder={selfManaged && host ? host : name}
@@ -190,62 +175,35 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
             </div>
 
             <section className="space-y-3 rounded-lg border bg-muted/20 p-4 text-sm" aria-labelledby="register-app">
-                <h5 id="register-app" className="font-medium">
-                    {existing ? "OAuth application" : `Register Prism on ${host ?? name}`}
-                </h5>
-                {!existing && (
-                    <ol className="list-decimal space-y-2 pl-5 text-muted-foreground">
-                        <li>
-                            Open{" "}
-                            {registerUrl ? (
-                                <a href={registerUrl} target="_blank" rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-0.5 text-primary underline-offset-2 hover:underline">
-                                    Applications on {host}<ExternalLink className="size-3" aria-hidden="true" />
-                                </a>
-                            ) : "the Applications page of your server"}
-                            {provider === "gitlab" && selfManaged && " (or Admin → Applications for an instance-wide app)"}
-                            {" "}and create a new application named <span className="text-foreground">Prism</span>.
-                        </li>
-                        <li>Use this redirect URI:</li>
-                    </ol>
-                )}
-                <div className="flex items-center gap-2">
-                    <code className="min-w-0 flex-1 truncate rounded border bg-background px-2 py-1.5 font-mono text-xs"
-                        title={callbackUrl ?? undefined}>
-                        {callbackUrl ?? "Loading…"}
-                    </code>
-                    <Button type="button" variant="outline" size="sm" disabled={!callbackUrl} onClick={() => void copyCallback()}
-                        aria-label="Copy redirect URI">
-                        {copied ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
-                    </Button>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h5 id="register-app" className="font-medium">OAuth application</h5>
+                    {!existing && registerUrl && (
+                        <a href={registerUrl} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-0.5 text-xs text-primary underline-offset-2 hover:underline">
+                            Applications on {host}<ExternalLink className="size-3" aria-hidden="true" />
+                        </a>
+                    )}
                 </div>
-                {!existing && (
-                    <ol start={3} className="list-decimal space-y-2 pl-5 text-muted-foreground">
-                        {provider === "gitlab" ? (
-                            <li>Keep <span className="text-foreground">Confidential</span> on and tick only the <code className="font-mono text-foreground">read_user</code> scope.</li>
-                        ) : (
-                            <li>Keep <span className="text-foreground">Confidential client</span> on.</li>
-                        )}
-                        <li>Paste the application ID and secret it shows you.</li>
-                    </ol>
-                )}
+                <CopyField
+                    label="Redirect URI"
+                    value={callbackUrl}
+                    copyLabel="Copy redirect URI"
+                    hint={provider === "gitlab" ? "Confidential · scope read_user" : "Confidential client"}
+                />
                 <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
                         <Label htmlFor="code-host-client-id">{provider === "gitlab" ? "Application ID" : "Client ID"}</Label>
                         <Input id="code-host-client-id" autoComplete="off" value={clientId}
-                            placeholder={existing?.oauthClientConfigured ? "Stored — enter to replace" : ""}
+                            placeholder={existing?.oauthClientConfigured ? "Stored · type to replace" : ""}
                             onChange={(event) => setClientId(event.target.value)} />
                     </div>
                     <div className="space-y-1.5">
-                        <Label htmlFor="code-host-client-secret">{provider === "gitlab" ? "Secret" : "Client secret"}</Label>
+                        <Label htmlFor="code-host-client-secret">{provider === "gitlab" ? "Secret" : "Client Secret"}</Label>
                         <Input id="code-host-client-secret" type="password" autoComplete="new-password" value={clientSecret}
-                            placeholder={existing?.oauthClientConfigured ? "Stored — enter to replace" : ""}
+                            placeholder={existing?.oauthClientConfigured ? "Stored · type to replace" : ""}
                             onChange={(event) => setClientSecret(event.target.value)} />
                     </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                    Stored encrypted on the server and never shown again.
-                </p>
             </section>
 
             {error && <p className="text-sm text-destructive" role="alert">{error}</p>}

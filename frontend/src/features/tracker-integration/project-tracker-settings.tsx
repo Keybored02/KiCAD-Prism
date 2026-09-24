@@ -5,11 +5,11 @@
  * receive a safe read-only projection.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, RefreshCw, Settings2, ShieldAlert } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { RefreshCw, Settings2, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -18,7 +18,9 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { destinationPolicyAlerts, visibilityAckState } from "./destination-disclosure";
+import { visibilityAckState } from "./destination-disclosure";
+import { FormSection } from "./connector-settings-section";
+import { ProjectTrackerChoice } from "./project-tracker-choice";
 import {
     TrackerApiError,
     acknowledgeDestination,
@@ -73,15 +75,11 @@ function IssuePublishingNotSetUp({ isAdmin, className, onManageCodeHosts }: {
 }) {
     return (
         <div className={cn("rounded-lg border border-dashed p-6 text-center text-sm", className)} data-tracker-phase="unconfigured">
-            <p className="font-medium">Issue publishing is not set up</p>
-            <p className="mt-1 text-muted-foreground">
-                {isAdmin
-                    ? "Add GitHub as a code host, then choose where this project's issues go."
-                    : "A workspace admin needs to add GitHub as a code host first."}
-            </p>
+            <p className="font-medium">No issue tracker connected</p>
+            {!isAdmin && <p className="mt-1 text-muted-foreground">An admin needs to connect GitHub first.</p>}
             {isAdmin && onManageCodeHosts && (
                 <Button type="button" size="sm" className="mt-4" onClick={onManageCodeHosts}>
-                    Open Settings → Code hosts
+                    Connect GitHub
                 </Button>
             )}
         </div>
@@ -156,11 +154,6 @@ export function ProjectTrackerSettingsPanel({
         void loadSettings();
     }, [loadSettings]);
 
-    const policyAlerts = useMemo(
-        () => (settings ? destinationPolicyAlerts(settings) : []),
-        [settings],
-    );
-
     const ackState = settings
         ? visibilityAckState(settings.destination, settings.acknowledgement)
         : "not_required";
@@ -171,7 +164,7 @@ export function ProjectTrackerSettingsPanel({
         try {
             const updated = await updateProjectTracker(projectId, payload);
             applySettings(updated);
-            toast.success("Publication settings saved.");
+            toast.success("Issue publishing saved.");
         } catch (error) {
             setFormError(describeProjectTrackerError(error));
         } finally {
@@ -199,7 +192,7 @@ export function ProjectTrackerSettingsPanel({
         try {
             const updated = await acknowledgeDestination(projectId, "public");
             applySettings(updated);
-            toast.success("Public destination acknowledged.");
+            toast.success("Public issues allowed.");
         } catch (error) {
             setFormError(describeProjectTrackerError(error, "Failed to acknowledge destination"));
         } finally {
@@ -257,56 +250,44 @@ export function ProjectTrackerSettingsPanel({
                 </Alert>
             ) : null}
 
-            {policyAlerts.length > 0 ? (
-                <Alert variant="warning" data-testid="policy-alerts-section">
-                    <AlertTriangle />
-                    <AlertTitle>Publishing is paused</AlertTitle>
-                    <AlertDescription>
-                        <ul className="list-disc space-y-0.5 pl-4">
-                            {policyAlerts.map((alert) => (
-                                <li key={alert}>{alert}</li>
-                            ))}
-                        </ul>
-                        {isAdmin && ackState !== "valid" && settings.destination.visibility === "public" ? (
-                            <PermissionHint blocked={!isAdmin} action="acknowledge public destination" allowedRoles={["admin"]}>
-                                <Button type="button" size="sm" variant="destructive" disabled={acking} onClick={() => setConfirmAckOpen(true)}>
-                                    Acknowledge public visibility
-                                </Button>
-                            </PermissionHint>
-                        ) : null}
-                    </AlertDescription>
-                </Alert>
-            ) : null}
-
-            <ProjectTrackerDestinationSection
-                key={`${projectId}:${draft.connectorId}`}
-                settings={settings}
-                draft={draft}
-                setDraft={setDraft}
-                projectRepoPath={projectRepoPath}
-                connectors={connectors}
-                isAdmin={isAdmin}
-            />
+            <FormSection step={1} title="Tracker">
+                <ProjectTrackerChoice draft={draft} setDraft={setDraft} connectors={connectors} isAdmin={isAdmin} />
+            </FormSection>
             <Separator />
-            <ProjectTrackerPolicySection settings={settings} draft={draft} setDraft={setDraft} isAdmin={isAdmin} />
+            <FormSection step={2} title="Repository">
+                <ProjectTrackerDestinationSection
+                    key={`${projectId}:${draft.connectorId}`}
+                    settings={settings}
+                    draft={draft}
+                    setDraft={setDraft}
+                    projectRepoPath={projectRepoPath}
+                    isAdmin={isAdmin}
+                    ackState={ackState}
+                    onAcknowledge={isAdmin && !acking ? () => setConfirmAckOpen(true) : undefined}
+                />
+            </FormSection>
+            <Separator />
+            <FormSection step={3} title="Rules">
+                <ProjectTrackerPolicySection settings={settings} draft={draft} setDraft={setDraft} isAdmin={isAdmin} />
+            </FormSection>
 
             {!isAdmin ? (
-                <Alert data-testid="viewer-readonly-note">
-                    <ShieldAlert />
-                    <AlertDescription>
-                        Destination and publishing rules are set by an administrator. You can see where comments will be
-                        published before promoting them.
-                    </AlertDescription>
-                </Alert>
+                <p className="text-xs text-muted-foreground" data-testid="viewer-readonly-note">Set by a workspace admin.</p>
             ) : null}
         </div>
     );
 
     const footer = isAdmin ? (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex w-full items-center gap-2">
+            {onManageCodeHosts ? (
+                <Button type="button" size="sm" variant="ghost" className="-ml-2 text-muted-foreground" onClick={onManageCodeHosts}>
+                    <Settings2 aria-hidden="true" />
+                    Connections
+                </Button>
+            ) : null}
             <PermissionHint blocked={!isAdmin} action="change project tracker settings" allowedRoles={["admin"]}>
-                <Button type="button" size="sm" disabled={saving || !isAdmin} onClick={handleSave}>
-                    {saving ? "Saving…" : "Save publication settings"}
+                <Button type="button" size="sm" className="ml-auto" disabled={saving || !isAdmin} onClick={handleSave}>
+                    {saving ? "Saving…" : "Save"}
                 </Button>
             </PermissionHint>
         </div>
@@ -332,9 +313,6 @@ export function ProjectTrackerSettingsPanel({
                             Issue publishing
                             {!isAdmin ? <Badge variant="secondary">Read-only</Badge> : null}
                         </CardTitle>
-                        <CardDescription>
-                            Where this project&apos;s review comments become GitHub issues, and which ones do.
-                        </CardDescription>
                     </CardHeader>
                     <CardContent className="py-4">{body}</CardContent>
                     {footer ? <CardFooter className="border-t py-3">{footer}</CardFooter> : null}
@@ -349,15 +327,9 @@ export function ProjectTrackerSettingsPanel({
                         pendingPayloadRef.current = null;
                     }
                 }}
-                title="Change tracker destination?"
-                description={
-                    <>
-                        Changing the destination bumps its generation and invalidates any stale visibility
-                        acknowledgement. Existing linked threads keep writing to their original destination; only new
-                        promotions use the updated container.
-                    </>
-                }
-                confirmLabel="Change destination"
+                title="Change repository?"
+                description="New issues go to the new repository. Issues already published stay where they are."
+                confirmLabel="Change repository"
                 destructive
                 busy={saving}
                 onConfirm={() => {
@@ -369,9 +341,9 @@ export function ProjectTrackerSettingsPanel({
             <ConfirmDialog
                 open={confirmAckOpen}
                 onOpenChange={setConfirmAckOpen}
-                title="Acknowledge public destination?"
-                description="Confirm that new promotions may create publicly visible issues in this repository. Queued writes remain paused until this acknowledgement is recorded."
-                confirmLabel="Acknowledge public visibility"
+                title="Allow public issues?"
+                description={`Published comments become issues anyone can read in ${settings.destination.containerPath}.`}
+                confirmLabel="Allow public issues"
                 destructive={false}
                 busy={acking}
                 onConfirm={() => void handleAcknowledge()}
