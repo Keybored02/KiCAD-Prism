@@ -654,6 +654,20 @@ class CommentsStoreService:
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 return self._get_comment_with_replies(conn, project_id, comment_id)
 
+    def get_thread(self, project_id: str, project_path: str, comment_id: str) -> Tuple[Optional[Dict], int]:
+        """One thread for a live refresh, with the stream cursor read before it.
+
+        ``None`` means the thread is gone (deleted or never existed), which the
+        client applies as a removal.
+        """
+        self.initialize()
+        with self._connect() as conn:
+            with conn.transaction():
+                self._bootstrap_project_if_needed(conn, project_id, project_path)
+                # Same ordering as the snapshot: cursor first, then the row.
+                cursor = comment_live_events.current_cursor(conn, project_id)
+                return self._get_comment_with_replies(conn, project_id, comment_id), cursor
+
     def _live_root_exists(self, conn, project_id: str, comment_id: str) -> bool:
         return bool(conn.execute(
             "SELECT 1 FROM comments WHERE project_id = %s AND id = %s AND deleted_at IS NULL",

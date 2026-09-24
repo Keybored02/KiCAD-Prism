@@ -68,6 +68,20 @@ class CommentStreamIntegrationTests(unittest.TestCase):
         self.assertEqual(final["cursor"], 5)
         self.assertEqual(final["comments"], [])
 
+    def test_thread_read_matches_listing_and_reports_deletion(self) -> None:
+        created = self.store.create_comment(
+            self.project_id, self.path.name, "PCB", {"x": 1, "y": 2}, "Original", "Author",
+        )
+        self.store.add_reply(self.project_id, self.path.name, created["id"], "Reply", "Author")
+        thread, cursor = self.store.get_thread(self.project_id, self.path.name, created["id"])
+        listing = self.store.get_comments_file(self.project_id, self.path.name)
+        self.assertEqual(thread, listing["comments"][0])
+        self.assertEqual(cursor, listing["cursor"])
+        self.store.delete_comment(self.project_id, self.path.name, created["id"], Editor("user:a", "user", "Author"))
+        gone, after = self.store.get_thread(self.project_id, self.path.name, created["id"])
+        self.assertIsNone(gone)
+        self.assertGreater(after, cursor)
+
     def test_reattach_preserves_origin_and_emits_anchor_event(self) -> None:
         origin = "a" * 40
         revision = "b" * 40

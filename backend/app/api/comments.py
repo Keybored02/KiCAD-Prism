@@ -423,6 +423,36 @@ async def get_comments(
         raise HTTPException(status_code=422, detail=exc.detail) from exc
 
 
+@router.get("/{project_id}/comments/{comment_id}/thread")
+async def get_comment_thread(
+    project_id: str,
+    comment_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+    revision: Optional[str] = None,
+):
+    """One thread, shaped like a listing entry, for applying a live change.
+
+    Returns ``{"comment": null}`` when the thread no longer exists. ``revision``
+    resolves a canvas anchor exactly as the listing does.
+    """
+    def read():
+        project = get_project_for_role_or_404(project_id, user.role)
+        comment, cursor = comments_store.get_thread(project.id, project.path, comment_id)
+        if comment is not None and revision and comment.get("scope") != "comparison":
+            displayed = _normalize_commit(revision, "revision")
+            bindings = comments_store.get_anchor_bindings(project.id, [comment_id])
+            [comment] = resolve_displayed_bindings(project, [comment], displayed, bindings)
+        actor = _read_actor(user)
+        if comment is not None and actor is not None:
+            comment = _with_permissions(comment, actor)
+        return {"comment": comment, "cursor": cursor}
+
+    try:
+        return await asyncio.to_thread(read)
+    except AnchorValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail) from exc
+
+
 @router.get("/{project_id}/comparison-comments")
 async def get_comparison_comments(
     project_id: str,
