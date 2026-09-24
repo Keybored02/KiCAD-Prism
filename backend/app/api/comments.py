@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_comment_writer, require_designer, require_viewer
+from app.core.roles import normalize_role
 from app.services import access_service, comment_permissions
 from app.services.comment_anchor_service import (
     AnchorValidationError,
@@ -34,6 +35,7 @@ from app.services.comments_store_service import (
     DEFAULT_COMMENT_SEVERITY,
     comments_store,
 )
+from app.services.trackers.projections import can_retry_projection
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 T = TypeVar("T")
@@ -237,8 +239,23 @@ def _authored(value: dict) -> AuthoredObject:
 
 
 def _with_permissions(comment: dict, actor: ActorIdentity) -> dict:
-    capabilities = comment_permissions.capabilities(actor, _authored(comment))
-    capabilities["canPublish"] = False  # A provider destination is not part of the comment foundation.
+    tracker = comment.get("tracker") or {}
+    promote_role = normalize_role(tracker.get("promoteMinRole")) or "designer"
+    linked = bool(tracker.get("linkState"))
+    capabilities = comment_permissions.capabilities(
+        actor, _authored(comment), linked=linked, promote_min_role=promote_role,
+    )
+    capabilities["canPublish"] = (
+        bool(tracker.get("promoteMinRole"))
+        and not linked
+        and (comment.get("anchor") or {}).get("state") == "pinned"
+        and comment_permissions.allowed(
+            CommentAction.PROMOTE, actor, promote_min_role=promote_role,
+        )
+    )
+    capabilities["canRetry"] = can_retry_projection(tracker) and comment_permissions.allowed(
+        CommentAction.RETRY, actor, linked=linked, promote_min_role=promote_role,
+    )
     comment["permissions"] = capabilities
     for reply in comment.get("replies", []):
         reply_caps = comment_permissions.capabilities(actor, _authored(reply))

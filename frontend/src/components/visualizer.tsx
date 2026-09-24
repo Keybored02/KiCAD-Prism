@@ -1365,6 +1365,31 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         }
     }, [projectId, setComments]);
 
+    const promoteComment = useCallback(async (commentId: string) => {
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}/promote`, {
+                method: "POST",
+            });
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to create issue"));
+            refreshComments();
+            toast.success("Issue publication queued.");
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to create issue");
+        }
+    }, [projectId, refreshComments]);
+
+    const retryCommentSync = useCallback(async (commentId: string) => {
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}/tracker/retry`, {
+                method: "POST",
+            });
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to retry issue sync"));
+            refreshComments();
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to retry issue sync");
+        }
+    }, [projectId, refreshComments]);
+
     const reattachComment = useCallback(async (comment: Comment) => {
         const selected = lastSelectionRef.current;
         if (!commit || !selected?.uuid || selected.x === undefined || selected.y === undefined
@@ -1820,6 +1845,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 highlightedId={selectedCommentId}
                                 anchorStatuses={commentMarkerResolutions}
                                 onReattach={reattachComment}
+                                onPromote={promoteComment}
+                                onRetrySync={retryCommentSync}
                                 embedded
                             />
                             </div>
@@ -1884,6 +1911,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
                     onReply={replyToComment}
                     onDelete={deleteComment}
+                    onPromote={promoteComment}
+                    onRetrySync={retryCommentSync}
                 />
             )}
         </div>

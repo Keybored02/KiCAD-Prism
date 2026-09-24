@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { commentClassLabel, type Comment } from "@/types/comments";
 import { CommentSeverityBadge } from "@/components/comment-severity-badge";
+import { TrackerIssueAction } from "@/features/tracker-integration/tracker-issue-action";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -31,6 +32,8 @@ interface CommentPanelProps {
     embedded?: boolean;
     anchorStatuses?: Record<string, EcadCommentAnchorResolution>;
     onReattach?: (comment: Comment) => Promise<void>;
+    onPromote?: (commentId: string) => Promise<void>;
+    onRetrySync?: (commentId: string) => Promise<void>;
 }
 
 export function CommentPanel({
@@ -45,6 +48,8 @@ export function CommentPanel({
     embedded = false,
     anchorStatuses = {},
     onReattach,
+    onPromote,
+    onRetrySync,
 }: CommentPanelProps) {
     const [filter, setFilter] = useState<"ALL" | "OPEN" | "RESOLVED">("ALL");
 
@@ -120,6 +125,8 @@ export function CommentPanel({
                                                 canModify={canModify}
                                                 anchorStatus={anchorStatuses[comment.id]}
                                                 onReattach={onReattach}
+                                                onPromote={onPromote}
+                                                onRetrySync={onRetrySync}
                                             />
                                         ))}
                                     </div>
@@ -143,6 +150,8 @@ function PanelCommentCard({
     canModify,
     anchorStatus,
     onReattach,
+    onPromote,
+    onRetrySync,
 }: {
     comment: Comment;
     highlighted: boolean;
@@ -153,6 +162,8 @@ function PanelCommentCard({
     canModify: boolean;
     anchorStatus?: EcadCommentAnchorResolution;
     onReattach?: (comment: Comment) => Promise<void>;
+    onPromote?: (commentId: string) => Promise<void>;
+    onRetrySync?: (commentId: string) => Promise<void>;
 }) {
     const [isReplying, setIsReplying] = useState(false);
     const [replyContent, setReplyContent] = useState("");
@@ -243,6 +254,12 @@ function PanelCommentCard({
                         <button type="button" className="text-primary underline"
                             onClick={() => void onReattach(comment)}>Reattach to selected object</button>
                     )}
+                </div>
+            )}
+
+            {(comment.tracker?.linkState || comment.permissions?.canPublish) && (
+                <div className="px-3 pb-2">
+                    <TrackerIssueAction comment={comment} onPromote={onPromote} onRetry={onRetrySync} />
                 </div>
             )}
 

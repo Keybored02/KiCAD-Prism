@@ -249,7 +249,11 @@ def _attach_one_tracker_projection(
     policy = ctx.policy
     thread = ctx.threads_by_comment.get(str(comment["id"]))
     if thread is None:
-        tracker: dict[str, Any] = {"linkState": None}
+        tracker: dict[str, Any] = {
+            "linkState": None,
+            "promoteMinRole": str(policy.get("promote_min_role") or "designer") if policy else None,
+            "provider": str(policy.get("connector_provider") or "github") if policy else None,
+        }
         if policy is not None:
             from app.services.trackers.promotion import should_auto_promote
 
@@ -274,6 +278,7 @@ def _attach_one_tracker_projection(
 
     comment["tracker"] = {
         "linkState": link_state,
+        "promoteMinRole": str(policy.get("promote_min_role") or "designer") if policy else None,
         "provider": str(policy.get("connector_provider") or "github") if policy else None,
         "externalId": external_id if linked else None,
         "externalNumber": str(external_number) if linked and external_number not in (None, "") else None,

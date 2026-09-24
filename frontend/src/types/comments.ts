@@ -77,8 +77,17 @@ export interface Comment {
     forgeIssueId?: string;
     forgeIssueUrl?: string;
     forgeSyncState?: string;
+    tracker?: {
+        linkState?: string | null;
+        provider?: string | null;
+        externalUrl?: string | null;
+        syncState?: string | null;
+        lastError?: { message?: string; retryable?: boolean } | null;
+        notPromotableReason?: string | null;
+    };
     revision?: number;
-    permissions?: { canReply?: boolean; canEdit?: boolean; canDelete?: boolean; canResolve?: boolean };
+    permissions?: { canReply?: boolean; canEdit?: boolean; canDelete?: boolean; canResolve?: boolean;
+        canPublish?: boolean; canRetry?: boolean };
     anchor?: { state: string; commit?: string | null; source?: string | null };
     anchorResolution?:
         | { state: "candidate"; binding: {

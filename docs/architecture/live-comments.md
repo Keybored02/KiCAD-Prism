@@ -61,6 +61,19 @@ Future KiCad V11 clients should use these authenticated HTTP/WS and anchor
 contracts; the browser overlay API is a presentation detail, not a second
 comment store. Forge webhooks remain separate inbound issue mechanisms.
 
+## Optional issue publication
+
+Prism comments remain authoritative after a reviewer publishes a thread to a
+configured tracker. The protected promotion endpoint queues an idempotent
+outbound operation; it does not wait for a forge HTTP request. A tracker link,
+operation state, or linked-reply change appends a `projection` event in the
+same PostgreSQL transaction through triggers on the tracker tables. Ordinary
+worker heartbeats and verification timestamps do not generate comment events.
+The browser then refetches authorized comment state and shows the issue link or
+retry state. GitHub is the first adapter; GitLab and Gitea are separate staged
+adapters behind the same provider-neutral tracker contracts. A webhook is an
+inbound hint, not a replacement for the outbound queue or the Prism comment DB.
+
 ## Rollout gate
 
 Enable the new backend/migrations before the new frontend bundle. Verify two

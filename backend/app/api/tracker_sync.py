@@ -22,6 +22,7 @@ from app.services.trackers.projections import (
     unlink_thread_sync,
 )
 from app.services.trackers.promotion import load_policy_row
+from app.services.trackers.promotion import PromotionActor
 from app.services.trackers.publication_policy import DispatchPause, PublicationDenied
 
 router = APIRouter(prefix="/api/projects", tags=["tracker-sync"])
@@ -119,6 +120,42 @@ async def thread_sync_status(
                 raise HTTPException(status_code=404, detail="Comment not found") from exc
 
     return await _run(read)
+
+
+@router.post(
+    "/{project_id}/comments/{comment_id}/promote",
+    dependencies=[Depends(require_comment_writer)],
+)
+async def promote_comment_to_tracker(
+    project_id: str,
+    comment_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+) -> dict[str, Any]:
+    """Queue one issue publication; retries reuse the existing tracked thread."""
+
+    def write() -> dict[str, Any]:
+        project = get_project_for_role_or_404(project_id, user.role)
+        actor = _actor(user)
+        promote_min_role = _promote_min_role(project.id)
+        comment_permissions.authorize(
+            CommentAction.PROMOTE, actor, promote_min_role=promote_min_role,
+        )
+        promoted = comments_store.promote_comment(
+            project.id, project.path, comment_id,
+            PromotionActor(user_id=actor.actor_id, role=actor.role, kind=actor.actor_kind),
+        )
+        if promoted is None:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        return promoted
+
+    try:
+        return await _run(write)
+    except CommentPermissionError as exc:
+        return _permission_response(exc)
+    except PublicationDenied as exc:
+        return _publication_response(exc)
+    except DispatchPause as exc:
+        return _dispatch_response(exc)
 
 
 @router.get("/{project_id}/comments/{comment_id}/tracker/history")

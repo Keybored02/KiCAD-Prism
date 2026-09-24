@@ -912,15 +912,16 @@ class CommentsStoreService:
                 current = self._get_comment_with_replies(conn, project_id, comment_id)
                 if current is None:
                     return None
-                manual_promote_root(
+                result = manual_promote_root(
                     conn, project_id=project_id, comment=current, actor=actor,
                     workspace_schema=self.workspace_schema,
                 )
-                comment_live_events.record_change(
-                    conn, project_id=project_id, comment_id=comment_id,
-                    scope=current.get("scope", "canvas"), change_kind="projection",
-                    base_commit=current.get("baseCommit"), compare_commit=current.get("compareCommit"),
-                )
+                if result.action == "denied":
+                    from app.services.trackers.publication_policy import PublicationDenied
+
+                    raise PublicationDenied(result.code or "publication_required", result.reason or "Publication denied")
+                # The tracked_threads/sync_ops trigger emits the durable
+                # projection event in this transaction for a newly queued op.
                 return self._get_comment_with_replies(conn, project_id, comment_id)
 
     def share_reply(
