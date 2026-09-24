@@ -91,6 +91,13 @@ export function CodeHostsSettings({ onOpenConnectedAccounts }: { onOpenConnected
             : [...current, next]);
     }, []);
 
+    const githubChanged = useCallback((next: TrackerConnector) => {
+        upsert(next);
+        setView((current) => current.kind === "edit" && current.provider === "github" && !current.connectorId
+            ? { kind: "edit", provider: "github", connectorId: next.id }
+            : current);
+    }, [upsert]);
+
     const removed = useCallback((connectorId: string) => {
         setConnectors((current) => current.filter((row) => row.id !== connectorId));
         setView({ kind: "list" });
@@ -143,10 +150,7 @@ export function CodeHostsSettings({ onOpenConnectedAccounts }: { onOpenConnected
                     <ConnectorSettings
                         connectorId={view.connectorId}
                         isAdmin
-                        onConnectorChange={(next) => {
-                            upsert(next);
-                            if (!view.connectorId) setView({ kind: "edit", provider: "github", connectorId: next.id });
-                        }}
+                        onConnectorChange={githubChanged}
                     />
                 ) : (
                     <OAuthHostForm

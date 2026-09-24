@@ -5,7 +5,7 @@
  * the typed tracker client barrel.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyRound, Pause, Play, RefreshCw, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
@@ -140,6 +140,14 @@ export function ConnectorSettings({
     const [formError, setFormError] = useState<string | null>(null);
     const phase = connectorPhase(isAdmin, connector, loading, offline);
 
+    // The host may pass a new callback on every render. Reading it through a
+    // ref keeps the load effect below from re-running (and re-notifying the
+    // host) each time, which otherwise loops forever.
+    const onConnectorChangeRef = useRef(onConnectorChange);
+    useEffect(() => {
+        onConnectorChangeRef.current = onConnectorChange;
+    }, [onConnectorChange]);
+
     const applyConnector = useCallback(
         (next: TrackerConnector, resetTest = false) => {
             setConnector(next);
@@ -150,9 +158,9 @@ export function ConnectorSettings({
             if (resetTest) {
                 setTestResult(null);
             }
-            onConnectorChange?.(next);
+            onConnectorChangeRef.current?.(next);
         },
-        [onConnectorChange],
+        [],
     );
 
     useEffect(() => {
