@@ -175,6 +175,22 @@ def _m009_anchor_binding_history(conn) -> None:
     )
 
 
+def _m011_comment_scope_columns(conn) -> None:
+    """Keep standalone schema migrations compatible with pre-comparison rows.
+
+    The main store also adds these columns during initialization, but tracker
+    workers and migration callers must not depend on that ordering.
+    """
+    conn.execute(
+        ";\n".join((
+            "ALTER TABLE comments ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'canvas'",
+            "ALTER TABLE comments ADD COLUMN IF NOT EXISTS base_commit TEXT",
+            "ALTER TABLE comments ADD COLUMN IF NOT EXISTS compare_commit TEXT",
+        )),
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "identity_revisions_tombstones", _m001_identity_revisions_tombstones),
     (2, "backfill_create_revisions", _m002_backfill_create_revisions),
@@ -186,6 +202,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (8, "durable_comment_change_stream", comment_live_events.apply_schema),
     (9, "anchor_binding_history", _m009_anchor_binding_history),
     (10, "tracker_projection_change_stream", apply_tracker_projection_events),
+    (11, "comment_scope_columns", _m011_comment_scope_columns),
 ]
 
 

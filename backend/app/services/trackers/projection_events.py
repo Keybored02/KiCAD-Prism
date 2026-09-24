@@ -71,8 +71,9 @@ def apply_schema(conn) -> None:
                 RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
             END IF;
             EXECUTE format(
-                'SELECT project_id, scope, base_commit, compare_commit FROM %I.comments '
-                || 'WHERE id = $1 AND deleted_at IS NULL', TG_TABLE_SCHEMA
+                'SELECT c.project_id, COALESCE(to_jsonb(c)->>''scope'', ''canvas''), '
+                || 'to_jsonb(c)->>''base_commit'', to_jsonb(c)->>''compare_commit'' '
+                || 'FROM %I.comments c WHERE c.id = $1 AND c.deleted_at IS NULL', TG_TABLE_SCHEMA
             ) INTO project_key, comment_scope, base_key, compare_key USING comment_key;
             IF project_key IS NULL THEN
                 RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
