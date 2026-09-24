@@ -25,6 +25,7 @@ from app.services.trackers.migrations import (
     migrate_tracked_threads_external_number,
 )
 from app.services.trackers.op_store import apply_schema as apply_op_schema
+from app.services.trackers.projection_events import apply_schema as apply_tracker_projection_events
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (7, "tracked_threads_container_path", migrate_tracked_threads_container_path),
     (8, "durable_comment_change_stream", comment_live_events.apply_schema),
     (9, "anchor_binding_history", _m009_anchor_binding_history),
+    (10, "tracker_projection_change_stream", apply_tracker_projection_events),
 ]
 
 

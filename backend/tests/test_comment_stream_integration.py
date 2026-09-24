@@ -93,6 +93,38 @@ class CommentStreamIntegrationTests(unittest.TestCase):
             events = comment_live_events.changes_after(conn, self.project_id, 0)
         self.assertEqual([event["changeKind"] for event in events], ["upsert", "anchor"])
 
+    def test_tracker_worker_projection_changes_are_transactional_and_live(self) -> None:
+        created = self.store.create_comment(
+            self.project_id, self.path.name, "PCB", {"x": 1, "y": 2}, "Original", "Author",
+        )
+        with self.store._connect() as conn:
+            with conn.transaction():
+                conn.execute(
+                    """INSERT INTO tracked_threads
+                       (id, comment_id, project_tracker_id, destination_generation,
+                        connector_id, remote_container_id, external_id, link_state)
+                       VALUES ('t1', %s, 'destination', 1, 'connector', 'repository', 'pending', 'linked')""",
+                    (created["id"],),
+                )
+                conn.execute(
+                    """INSERT INTO sync_ops
+                       (id, tracked_thread_id, op, state, destination_generation)
+                       VALUES ('op1', 't1', 'create_issue', 'pending', 1)"""
+                )
+                conn.execute("UPDATE tracked_threads SET external_id = 'node-id' WHERE id = 't1'")
+                conn.execute("UPDATE tracked_threads SET last_verified_at = NOW() WHERE id = 't1'")
+                conn.execute("UPDATE sync_ops SET state = 'confirmed' WHERE id = 'op1'")
+            changes = comment_live_events.changes_after(conn, self.project_id, 0)
+        self.assertEqual([event["changeKind"] for event in changes],
+                         ["upsert", "projection", "projection", "projection", "projection"])
+        self.assertTrue(all(event["commentId"] == created["id"] for event in changes))
+        with self.assertRaises(RuntimeError), self.store._connect() as conn:
+            with conn.transaction():
+                conn.execute("UPDATE tracked_threads SET link_state = 'deleted' WHERE id = 't1'")
+                raise RuntimeError("roll back worker transaction")
+        with self.store._connect() as conn:
+            self.assertEqual(len(comment_live_events.changes_after(conn, self.project_id, 0)), 5)
+
 
 if __name__ == "__main__":
     unittest.main()
