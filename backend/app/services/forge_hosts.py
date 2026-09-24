@@ -133,6 +133,17 @@ def resolve_forge_host(
     return hosts.get(hostname.casefold())
 
 
+def allowed_request_hosts(raw_extra: str) -> frozenset[str]:
+    """Hosts the tracker HTTP client may contact, including registered API roots."""
+    hosts = parse_forge_hosts(raw_extra)
+    allowed = set(hosts)
+    for item in hosts.values():
+        hostname = urlsplit(item.api_root).hostname
+        if hostname:
+            allowed.add(hostname.casefold())
+    return frozenset(allowed)
+
+
 def _parse_structured_entries(raw: str) -> list[dict[str, object]]:
     try:
         payload = json.loads(raw)

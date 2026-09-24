@@ -51,6 +51,9 @@ from app.services.comments_store_codec import (
     import_comments_payload,
 )
 from app.services.postgres_database import database
+from app.services.trackers.promotion import PromotionActor, manual_promote_root
+from app.services.trackers.projections import attach_tracker_projection, attach_tracker_projections
+from app.services.trackers.reply_mutations import share_reply as enqueue_share_reply
 
 
 
@@ -59,6 +62,7 @@ class CommentsStoreService:
 
     # Tests point a subclass at a disposable schema; production is "comments".
     schema = "comments"
+    workspace_schema = "workspace"
 
     def __init__(self) -> None:
         self._init_lock = threading.Lock()
@@ -262,6 +266,7 @@ class CommentsStoreService:
             _row_to_comment_dict(row, replies_by_comment.get(row["id"], []))
             for row in comment_rows
         ]
+        attach_tracker_projections(conn, project_id, comments, workspace_schema=self.workspace_schema)
 
         return {
             "meta": dict(COMMENTS_META),
@@ -298,6 +303,7 @@ class CommentsStoreService:
         ).fetchall()
 
         comment = _row_to_comment_dict(row, [_row_to_reply_dict(reply) for reply in reply_rows])
+        attach_tracker_projection(conn, project_id, comment, workspace_schema=self.workspace_schema)
         return comment
 
     def get_comments_file(self, project_id: str, project_path: str) -> Dict:
@@ -895,6 +901,55 @@ class CommentsStoreService:
                 created = self._live_reply(conn, project_id, comment_id, reply_id)
                 reply_payload = _row_to_reply_dict(created)
                 return (updated_comment, reply_payload)
+
+    def promote_comment(
+        self, project_id: str, project_path: str, comment_id: str, actor: PromotionActor,
+    ) -> Optional[Dict]:
+        self.initialize()
+        with self._connect() as conn:
+            with conn.transaction():
+                self._bootstrap_project_if_needed(conn, project_id, project_path)
+                current = self._get_comment_with_replies(conn, project_id, comment_id)
+                if current is None:
+                    return None
+                manual_promote_root(
+                    conn, project_id=project_id, comment=current, actor=actor,
+                    workspace_schema=self.workspace_schema,
+                )
+                comment_live_events.record_change(
+                    conn, project_id=project_id, comment_id=comment_id,
+                    scope=current.get("scope", "canvas"), change_kind="projection",
+                    base_commit=current.get("baseCommit"), compare_commit=current.get("compareCommit"),
+                )
+                return self._get_comment_with_replies(conn, project_id, comment_id)
+
+    def share_reply(
+        self, project_id: str, project_path: str, comment_id: str,
+        reply_id: str, actor: PromotionActor,
+    ) -> Optional[Dict]:
+        self.initialize()
+        with self._connect() as conn:
+            with conn.transaction():
+                self._bootstrap_project_if_needed(conn, project_id, project_path)
+                current = self._get_comment_with_replies(conn, project_id, comment_id)
+                reply = self._live_reply(conn, project_id, comment_id, reply_id)
+                if current is None or reply is None:
+                    return None
+                enqueue_share_reply(
+                    conn, project_id=project_id, comment=current,
+                    reply=_row_to_reply_dict(reply), actor=actor,
+                    workspace_schema=self.workspace_schema,
+                )
+                conn.execute(
+                    "UPDATE comment_replies SET sync_state = NULL WHERE project_id = %s AND id = %s",
+                    (project_id, reply_id),
+                )
+                comment_live_events.record_change(
+                    conn, project_id=project_id, comment_id=comment_id,
+                    scope=current.get("scope", "canvas"), change_kind="projection",
+                    base_commit=current.get("baseCommit"), compare_commit=current.get("compareCommit"),
+                )
+                return self._get_comment_with_replies(conn, project_id, comment_id)
 
 
 

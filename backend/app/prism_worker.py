@@ -86,9 +86,12 @@ class PrismWorker:
         self._catalog_maintenance_date = ""
         self._auto_sync_attempts: dict[str, datetime] = {}
         self._next_auto_sync_scan = 0.0
+        self._next_tracker_scan = 0.0
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
+        from app.services.trackers.scheduler import TRACKER_RESOURCE, TRACKER_RESOURCE_CAPACITY
+
         return {
             "prism_worker": settings.PRISM_WORKER_CONCURRENCY,
             "webgpu": settings.PRISM_WEBGPU_CONCURRENCY,
@@ -98,6 +101,7 @@ class PrismWorker:
             "semantic_compile": settings.PRISM_SEMANTIC_COMPILE_SLOTS,
             "catalog_worker": settings.CATALOG_WORKER_CONCURRENCY,
             "catalog_kicad": settings.CATALOG_KICAD_CONCURRENCY,
+            TRACKER_RESOURCE: TRACKER_RESOURCE_CAPACITY,
         }
 
     def request_stop(self, *_args: object) -> None:
@@ -516,7 +520,19 @@ class PrismWorker:
         )
         self._next_auto_sync_scan = now_mono + min(30, interval)
 
+    def schedule_tracker_jobs(self) -> None:
+        if self.worker_pool != "prism" or time.monotonic() < self._next_tracker_scan:
+            return
+        from app.services.trackers.scheduler import schedule_due_tracker_jobs
+
+        schedule_due_tracker_jobs()
+        self._next_tracker_scan = time.monotonic() + 5
+
     def run(self) -> None:
+        if self.worker_pool == "prism":
+            from app.services.trackers.composition import initialize_tracker_composition
+
+            initialize_tracker_composition()
         while not self.stopping:
             try:
                 jobs.initialize()
@@ -542,6 +558,10 @@ class PrismWorker:
                 self.schedule_project_fetches()
             except Exception:
                 self._log_database_error("schedule project fetches")
+            try:
+                self.schedule_tracker_jobs()
+            except Exception:
+                self._log_database_error("schedule tracker jobs")
             self.supervise()
             available_slots = self.concurrency - len(self.running) - len(self.pending_releases)
             while available_slots > 0:
