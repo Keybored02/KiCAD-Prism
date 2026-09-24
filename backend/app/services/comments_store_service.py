@@ -14,12 +14,10 @@ Design:
 
 from __future__ import annotations
 
-import functools
 import json
 import os
 import tempfile
 import threading
-import time
 import uuid
 from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
@@ -52,6 +50,8 @@ from app.services.comments_store_codec import (
     get_project_comments_json_path,
     import_comments_payload,
 )
+from app.services.comments_store_retry import _retry_on_deadlock
+from app.services.comments_store_schema import create_base_tables
 from app.services.postgres_database import database
 from app.services.trackers.promotion import (
     PromotionActor,
@@ -71,35 +71,6 @@ from app.services.trackers.reply_mutations import (
 from app.services.trackers.reply_mutations import share_reply as enqueue_share_reply
 from app.services.trackers.state_mutations import enqueue_set_state
 from app.services.trackers.thread_mutations import after_root_content_edited, after_root_deleted
-
-
-_DEADLOCK_ATTEMPTS = 3
-
-
-def _retry_on_deadlock(method):
-    """Re-run a whole store transaction that PostgreSQL chose as a deadlock victim.
-
-    Comment writes take the project's stream-head row lock in ``record_change``
-    and may then touch tracker rows; tracker triggers take the same head lock
-    after their row lock. No single lock order covers every HTTP and worker
-    path, so the victim retries. Each wrapped method owns one transaction and
-    has no side effect outside it, which makes the retry safe.
-    """
-
-    @functools.wraps(method)
-    def wrapper(*args, **kwargs):
-        from psycopg import errors
-
-        for attempt in range(_DEADLOCK_ATTEMPTS):
-            try:
-                return method(*args, **kwargs)
-            except (errors.DeadlockDetected, errors.SerializationFailure):
-                if attempt == _DEADLOCK_ATTEMPTS - 1:
-                    raise
-                time.sleep(0.05 * (attempt + 1))
-
-    return wrapper
-
 
 
 class CommentsStoreService:
@@ -126,88 +97,7 @@ class CommentsStoreService:
                 conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
                 conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{self.schema}"')
                 conn.execute(f'SET search_path TO "{self.schema}", public')
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS comments (
-                        id TEXT PRIMARY KEY,
-                        project_id TEXT NOT NULL,
-                        author TEXT NOT NULL,
-                        timestamp TIMESTAMPTZ NOT NULL,
-                        status TEXT NOT NULL,
-                        context TEXT NOT NULL,
-                        location_x REAL NOT NULL,
-                        location_y REAL NOT NULL,
-                        location_layer TEXT NOT NULL DEFAULT '',
-                        location_page TEXT NOT NULL DEFAULT '',
-                        content TEXT NOT NULL
-                    );
-
-                    CREATE TABLE IF NOT EXISTS comment_replies (
-                        id TEXT PRIMARY KEY,
-                        comment_id TEXT NOT NULL,
-                        project_id TEXT NOT NULL,
-                        author TEXT NOT NULL,
-                        timestamp TIMESTAMPTZ NOT NULL,
-                        content TEXT NOT NULL,
-                        FOREIGN KEY(comment_id) REFERENCES comments(id) ON DELETE CASCADE
-                    );
-
-                    CREATE TABLE IF NOT EXISTS project_comment_state (
-                        project_id TEXT PRIMARY KEY,
-                        imported_from_json BOOLEAN NOT NULL DEFAULT FALSE,
-                        imported_at TIMESTAMPTZ,
-                        last_exported_at TIMESTAMPTZ,
-                        last_export_commit TEXT
-                    );
-
-                    CREATE INDEX IF NOT EXISTS idx_comments_project
-                        ON comments(project_id, timestamp, id);
-                    CREATE INDEX IF NOT EXISTS idx_replies_project_comment
-                        ON comment_replies(project_id, comment_id, timestamp, id);
-                    """,
-                    prepare=False,
-                )
-                # Keep the additive migration idempotent while paying one remote
-                # database round trip instead of one for every column.
-                conn.execute(
-                    ";\n".join((
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_x REAL",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_y REAL",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_w REAL",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_h REAL",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_id TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_ref TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_type TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS comment_class TEXT NOT NULL DEFAULT 'general'",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS severity TEXT NOT NULL DEFAULT 'info'",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]'::jsonb",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'canvas'",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS base_commit TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS compare_commit TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS comparison_domain TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS file_path TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS semantic_item_id TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_kind TEXT",
-                        # Reserved for future GitHub/GitLab Issues projection (unused today).
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_provider TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_issue_id TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_issue_url TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_sync_state TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS selected_side TEXT",
-                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS project_relative_path TEXT",
-                    )),
-                    prepare=False,
-                )
-                conn.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_comments_comparison
-                    ON comments(
-                        project_id, scope, base_commit, compare_commit,
-                        comparison_domain, semantic_item_id
-                    )
-                    """
-                )
+                create_base_tables(conn)
                 comments_schema_migrations.apply_comments_migrations(conn)
                 conn.commit()
 
