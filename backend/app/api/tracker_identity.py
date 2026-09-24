@@ -123,8 +123,7 @@ async def begin_oauth(
 ) -> OAuthBeginResponse:
     if user.auth_type != "session":
         raise HTTPException(status_code=403, detail="Session required to link an account")
-    base = resolve_public_base_url(request)
-    callback_url = f"{base.rstrip('/')}/api/trackers/oauth/callback"
+    callback_url = oauth_callback_url(request)
     try:
         payload = service.begin_oauth(
             user_id=_actor(user),
@@ -180,6 +179,16 @@ async def unlink_identity(
         service.unlink(_actor(user), connector_id)
     except Exception as exc:
         raise _http_error(exc) from exc
+
+
+def oauth_callback_url(request: Request) -> str:
+    return f"{resolve_public_base_url(request).rstrip('/')}/api/trackers/oauth/callback"
+
+
+@admin_router.get("/oauth-callback-url")
+async def get_oauth_callback_url(request: Request) -> dict[str, str]:
+    """The redirect URI an admin registers on each code host's OAuth application."""
+    return {"callbackUrl": oauth_callback_url(request)}
 
 
 @admin_router.post("/connectors/{connector_id}/identities/{user_id}/revoke")

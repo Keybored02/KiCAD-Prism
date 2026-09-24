@@ -165,7 +165,9 @@ class IdentityService:
             raise OAuthStateError("identity_unresolved")
         self._require_connector(connector_id)
         safe_return_to = validate_relative_return_to(return_to)
-        oauth_app = self._oauth_app(connector_id)
+        # The forge must redirect to the origin this request came through; the
+        # token exchange later repeats the same value from the stored state.
+        oauth_app = self._oauth_app(connector_id, redirect_uri=callback_url)
         verifier = secrets.token_urlsafe(64)
         adapter = self._adapter(oauth_app, connector_id)
         challenge = adapter.pkce_challenge_s256(verifier)
@@ -232,7 +234,9 @@ class IdentityService:
                 "UPDATE tracker_oauth_states SET consumed_at = NOW() WHERE state_id = %s",
                 (state_id,),
             )
-            oauth_app = self._oauth_app(connector_id, conn=conn)
+            oauth_app = self._oauth_app(
+                connector_id, conn=conn, redirect_uri=str(row.get("callback_url") or "") or None,
+            )
             adapter = self._adapter(oauth_app, connector_id)
             token = adapter.exchange(code, str(row["pkce_verifier"]))
             forge_user = adapter.whoami(token)
@@ -482,10 +486,12 @@ class IdentityService:
         except ConnectorNotFound as exc:
             raise OAuthStateError("connector_not_found") from exc
 
-    def _oauth_app(self, connector_id: str, *, conn: Any | None = None) -> OAuthApp:
+    def _oauth_app(
+        self, connector_id: str, *, conn: Any | None = None, redirect_uri: str | None = None,
+    ) -> OAuthApp:
         if conn is None:
             with self.connection() as owned:
-                return self._oauth_app(connector_id, conn=owned)
+                return self._oauth_app(connector_id, conn=owned, redirect_uri=redirect_uri)
         try:
             client_id, secret = load_oauth_client(conn, connector_id, settings=self.settings)
         except KeyError:
@@ -496,7 +502,7 @@ class IdentityService:
         ).fetchone()
         if not connector:
             raise OAuthStateError("connector_not_found")
-        callback = self._callback_url(connector_id)
+        callback = redirect_uri or self._callback_url(connector_id)
         provider = str(connector.get("provider") or "github")
         if provider == "gitlab":
             return GitLabOAuthApp(

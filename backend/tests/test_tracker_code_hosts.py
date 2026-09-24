@@ -154,9 +154,15 @@ class CodeHostPostgresTests(unittest.TestCase):
         self.settings = _settings()
         self.connectors = ConnectorService(connect=self._factory, settings=self.settings,
                                            comments_schema=self.schema, workspace_schema=self.schema)
+        self.oauth_apps: list = []
+
+        def adapter_factory(app):
+            self.oauth_apps.append(app)
+            return _FakeGitLab()
+
         self.identities = IdentityService(connect=self._factory, settings=self.settings,
                                           connector_service=self.connectors,
-                                          adapter_factory=lambda app: _FakeGitLab(), workspace_schema=self.schema)
+                                          adapter_factory=adapter_factory, workspace_schema=self.schema)
         identity_api.service = self.identities
         self.addCleanup(lambda: setattr(identity_api, "service", IdentityService()))
 
@@ -220,6 +226,13 @@ class CodeHostPostgresTests(unittest.TestCase):
         run(identity_api.oauth_callback(request=_request(), code="code", state=state, user=user))
         [identity] = run(identity_api.list_identities(user=user))
         self.assertEqual((identity["provider"], identity["forgeLogin"], identity["status"]), ("gitlab", "ana", "active"))
+        # Authorize and token exchange must present the same redirect URI, taken
+        # from the request origin rather than a PUBLIC_BASE_URL fallback.
+        self.assertEqual(
+            {app.redirect_uri for app in self.oauth_apps},
+            {"https://prism.example/api/trackers/oauth/callback"},
+        )
+        self.assertTrue(all(isinstance(app, GitLabOAuthApp) for app in self.oauth_apps))
 
 
 if __name__ == "__main__":
