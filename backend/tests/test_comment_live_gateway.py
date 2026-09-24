@@ -169,5 +169,18 @@ class CommentLiveGatewayTests(unittest.IsolatedAsyncioTestCase):
                 await broker.stop()
 
 
+
+class RuntimeServesWebSocketsTests(unittest.TestCase):
+    def test_uvicorn_has_a_websocket_protocol_library(self) -> None:
+        # Starlette's TestClient passes without one, but plain uvicorn then
+        # answers every upgrade as HTTP (405) and live comments never connect.
+        import importlib.util
+
+        self.assertTrue(
+            importlib.util.find_spec("websockets") or importlib.util.find_spec("wsproto"),
+            "requirements/runtime.lock must include websockets (or wsproto) for uvicorn",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
