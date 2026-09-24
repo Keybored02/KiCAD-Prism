@@ -11,6 +11,7 @@ from app.api.projects import router as projects_router
 from app.api.project_variants import router as project_variants_router
 from app.api.project_import_followups import router as project_import_followups_router
 from app.api.comments import router as comments_router
+from app.api.comment_live import router as comment_live_router
 from app.api.design_compare import router as design_compare_router
 from app.api.release_studio import router as release_studio_router
 from app.api.folders import router as folders_router
@@ -25,6 +26,7 @@ from app.api.jobs import router as jobs_router
 from app.api.health import router as health_router
 from app.services import password_credential_service, rate_limit_service, session_store_service
 from app.services.comments_store_service import initialize_comments_store
+from app.services.comment_live_broker import broker as comment_live_broker
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
 from app.services.workspace_service import workspace
@@ -37,6 +39,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 import logging
+from urllib.parse import urlsplit
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -190,9 +193,22 @@ async def lifespan(app: FastAPI):
                 )
         except Exception:
             logger.exception("Failed to seed bootstrap admin password")
+    if settings.PRISM_COMMENT_LIVE_ENABLED:
+        live_origins = [*settings.CORS_ORIGINS, settings.PUBLIC_BASE_URL]
+        if not any(
+            urlsplit(origin).hostname not in {None, "localhost", "127.0.0.1", "::1"}
+            for origin in live_origins if origin
+        ):
+            logger.warning(
+                "Live comments accept only loopback browser origins. Set PUBLIC_BASE_URL "
+                "or CORS_ORIGINS_STR to the deployment's exact public origin; "
+                "otherwise remote browsers will use delayed HTTP refresh."
+            )
+        comment_live_broker.start()
     try:
         yield
     finally:
+        await comment_live_broker.stop()
         catalog_service.close()
         database.close()
 
@@ -231,6 +247,7 @@ app.include_router(
     project_import_followups_router, prefix="/api/projects", tags=["projects"]
 )
 app.include_router(comments_router, prefix="/api/projects", tags=["comments"])
+app.include_router(comment_live_router, prefix="/api/projects", tags=["comments-live"])
 app.include_router(project_variants_router, prefix="/api/projects", tags=["variants"])
 app.include_router(design_compare_router, prefix="/api/projects", tags=["design-compare"])
 app.include_router(release_studio_router, prefix="/api/projects", tags=["release-studio"])

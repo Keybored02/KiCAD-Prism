@@ -17,6 +17,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import type { EcadCommentAnchorResolution } from "@/types/ecad-viewer";
 
 interface CommentPanelProps {
     comments: Comment[];
@@ -28,6 +29,8 @@ interface CommentPanelProps {
     canModify: boolean;
     highlightedId?: string | null;
     embedded?: boolean;
+    anchorStatuses?: Record<string, EcadCommentAnchorResolution>;
+    onReattach?: (comment: Comment) => Promise<void>;
 }
 
 export function CommentPanel({
@@ -40,6 +43,8 @@ export function CommentPanel({
     canModify,
     highlightedId = null,
     embedded = false,
+    anchorStatuses = {},
+    onReattach,
 }: CommentPanelProps) {
     const [filter, setFilter] = useState<"ALL" | "OPEN" | "RESOLVED">("ALL");
 
@@ -113,6 +118,8 @@ export function CommentPanel({
                                                 onDelete={onDelete}
                                                 onClick={() => onCommentClick(comment)}
                                                 canModify={canModify}
+                                                anchorStatus={anchorStatuses[comment.id]}
+                                                onReattach={onReattach}
                                             />
                                         ))}
                                     </div>
@@ -134,6 +141,8 @@ function PanelCommentCard({
     onDelete,
     onClick,
     canModify,
+    anchorStatus,
+    onReattach,
 }: {
     comment: Comment;
     highlighted: boolean;
@@ -142,6 +151,8 @@ function PanelCommentCard({
     onDelete: (id: string) => Promise<void>;
     onClick: () => void;
     canModify: boolean;
+    anchorStatus?: EcadCommentAnchorResolution;
+    onReattach?: (comment: Comment) => Promise<void>;
 }) {
     const [isReplying, setIsReplying] = useState(false);
     const [replyContent, setReplyContent] = useState("");
@@ -155,6 +166,17 @@ function PanelCommentCard({
         if (isReplying && canModify) replyRef.current?.focus();
     }, [isReplying, canModify]);
     const isResolved = comment.status === "RESOLVED";
+    const anchorIssue = comment.anchorResolution?.state === "unresolved"
+        ? ({
+            unpinned: "Not pinned to a commit",
+            outside_history: "Outside this revision's history",
+            ambiguous_merge: "Two branch attachments conflict",
+            coordinate_review: "Area needs review on this revision",
+        } as Record<string, string>)[comment.anchorResolution.reason] ?? "Anchor needs review"
+        : anchorStatus?.state === "missing" ? "Object is missing on this revision" : null;
+    const creationCommit = comment.anchor?.commit;
+    const creationUrl = creationCommit ? new URL(window.location.href) : null;
+    creationUrl?.searchParams.set("commit", creationCommit ?? "");
 
     const handleReply = async () => {
         if (!replyContent.trim()) return;
@@ -197,6 +219,7 @@ function PanelCommentCard({
                 <div className="mb-2 flex flex-wrap gap-1">
                     <Badge variant="secondary">{commentClassLabel(comment.commentClass ?? "general")}</Badge>
                     <CommentSeverityBadge severity={comment.severity ?? "info"} />
+                    {anchorIssue && <Badge variant="outline">{anchorIssue}</Badge>}
                 </div>
 
                 <p className="mb-3 whitespace-pre-wrap text-sm">{comment.content}</p>
@@ -212,6 +235,16 @@ function PanelCommentCard({
                 )}
 
             </button>
+
+            {(creationUrl || (anchorIssue && comment.permissions?.canEdit && onReattach)) && (
+                <div className="flex flex-wrap items-center gap-2 px-3 pb-2 text-xs">
+                    {creationUrl && <a className="text-primary underline" href={creationUrl.toString()}>Creation revision</a>}
+                    {anchorIssue && comment.permissions?.canEdit && onReattach && (
+                        <button type="button" className="text-primary underline"
+                            onClick={() => void onReattach(comment)}>Reattach to selected object</button>
+                    )}
+                </div>
+            )}
 
             <div className="flex items-center justify-between px-3 pb-3 pt-2">
                 {canModify ? (

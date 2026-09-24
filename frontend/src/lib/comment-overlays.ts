@@ -63,13 +63,32 @@ export function commentsForView(
 ): Comment[] {
     return comments.filter((comment) => {
         if (comment.context !== context) return false;
-        if (context === "SCH" && activePage && comment.location.page) {
+        if (comment.anchorResolution?.state === "unresolved") return false;
+        const location = commentCurrentLocation(comment);
+        if (context === "SCH" && activePage && location.page) {
             return [activePage.projectPath, activePage.filename, activePage.page]
                 .filter(Boolean)
-                .includes(comment.location.page);
+                .includes(location.page);
         }
         return true;
     });
+}
+
+export function commentCurrentLocation(comment: Comment): CommentLocation {
+    return comment.anchorResolution?.state === "candidate"
+        ? comment.anchorResolution.binding.location
+        : comment.location;
+}
+
+function commentRelativePoint(comment: Comment): [number, number] | undefined {
+    const point = comment.anchorResolution?.state === "candidate"
+        ? comment.anchorResolution.binding.relativePoint
+        : comment.metadata?.anchorRelativePoint;
+    return Array.isArray(point) && point.length === 2
+        && point.every((value) => typeof value === "number" && Number.isFinite(value)
+            && value >= 0 && value <= 1)
+        ? point as [number, number]
+        : undefined;
 }
 
 /**
@@ -77,18 +96,24 @@ export function commentsForView(
  * when it has one, otherwise to the world coordinate it was left at.
  */
 export function commentAnchor(comment: Comment): EcadCommentAnchor {
-    const page = comment.location.page;
-    if (comment.elementId) {
-        return { kind: "source-item", uuid: comment.elementId, page };
+    const location = commentCurrentLocation(comment);
+    const page = location.page;
+    const elementId = comment.anchorResolution?.state === "candidate"
+        ? comment.anchorResolution.binding.elementId
+        : comment.elementId;
+    if (elementId) {
+        const relativePoint = commentRelativePoint(comment);
+        return { kind: "source-item", uuid: elementId, page,
+            ...(relativePoint ? { relativePoint } : {}) };
     }
-    return { kind: "world", x: comment.location.x, y: comment.location.y, page };
+    return { kind: "world", x: location.x, y: location.y, page };
 }
 
 export function commentOverlay(comment: Comment): EcadCommentOverlaySet["comments"][number] {
     return {
         id: comment.id,
         anchor: commentAnchor(comment),
-        areaBounds: comment.location.bounds,
+        areaBounds: commentCurrentLocation(comment).bounds,
         metadata: { commentId: comment.id },
         accessibilityLabel: comment.content.slice(0, 80),
     };

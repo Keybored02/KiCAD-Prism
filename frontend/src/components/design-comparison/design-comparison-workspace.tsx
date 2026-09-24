@@ -116,7 +116,7 @@ export function DesignComparisonWorkspace({
         base,
         head,
     );
-    const [comments, setComments] = useComparisonComments(
+    const [comments, setComments, commentConnection] = useComparisonComments(
         projectId,
         base,
         head,
@@ -943,8 +943,18 @@ export function DesignComparisonWorkspace({
                                             diagnosticsCount={
                                                 result.document_diff?.diagnostics.length ?? 0
                                             }
-                                            discussion={(
-                                                <ComparisonDiscussionRail
+                                                    discussion={(
+                                                        <>
+                                                        {(commentConnection.error || !commentConnection.hasLoaded || commentConnection.status !== "live") && (
+                                                            <div className="border-b px-3 py-2 text-xs text-muted-foreground" aria-live="polite">
+                                                                {commentConnection.error
+                                                                    ? `${commentConnection.error}${commentConnection.hasLoaded ? " Showing the last loaded comments." : ""}`
+                                                                    : !commentConnection.hasLoaded
+                                                                        ? "Loading comments…"
+                                                                        : "Live comments reconnecting; updates may be delayed."}
+                                                            </div>
+                                                        )}
+                                                        <ComparisonDiscussionRail
                                                     projectId={projectId}
                                                     base={base}
                                                     compare={head}
@@ -954,9 +964,10 @@ export function DesignComparisonWorkspace({
                                                     canComment={canComment}
                                                     onCommentsChange={setComments}
                                                     onClose={() => undefined}
-                                                    embedded
-                                                />
-                                            )}
+                                                            embedded
+                                                        />
+                                                        </>
+                                                    )}
                                         />
                                     </ResizablePanel>
                                 </div>

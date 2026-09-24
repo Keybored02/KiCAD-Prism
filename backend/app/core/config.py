@@ -303,6 +303,11 @@ class Settings(BaseSettings):
         ),
     )
 
+    PRISM_COMMENT_LIVE_ENABLED: bool = Field(
+        default=True,
+        description="Enable the comment WebSocket gateway; disable during staged rollout to use HTTP refresh fallback.",
+    )
+
     PUBLIC_BASE_URL: str = Field(
         default="",
         description=(

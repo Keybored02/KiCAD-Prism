@@ -146,6 +146,12 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const defaultBranch = currentBranch || branches[0] || null;
     const activeBranchRef = selectedBranchRef || defaultBranch?.ref || null;
     const activeCommit = currentCommit || selectedBranch?.commit || defaultBranch?.commit || null;
+    const viewerSelectionKey = `${projectId ?? ""}:${activeBranchRef ?? ""}:${currentCommit ?? ""}`;
+    const [viewerPin, setViewerPin] = useState<{ key: string; commit: string } | null>(null);
+    const viewerCommit = currentCommit
+        || (viewerPin?.key === viewerSelectionKey ? viewerPin.commit : activeCommit);
+    const newerViewerRevisionAvailable = activeSection === "visualizers" && !currentCommit
+        && !!activeCommit && !!viewerCommit && activeCommit !== viewerCommit;
     const comparisonUrl = useMemo(
         () => readComparisonUrlState(searchParams),
         [searchParams],
@@ -160,6 +166,10 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const visitedSections = useVisitedProjectSections(projectId, activeSection);
 
     const handleSectionChange = (section: ProjectSection) => {
+        if (section === "visualizers" && !currentCommit && activeCommit) {
+            setViewerPin((previous) => previous?.key === viewerSelectionKey
+                ? previous : { key: viewerSelectionKey, commit: activeCommit });
+        }
         setActiveSection(section);
         const next = new URLSearchParams(searchParams);
         next.set("section", section);
@@ -194,6 +204,14 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     };
 
     const handleBranchChange = (branchRef: string) => {
+        const branch = branches.find((entry) => entry.ref === branchRef)
+            || (branchRef ? null : defaultBranch);
+        if (activeSection === "visualizers" && branch?.commit) {
+            setViewerPin({
+                key: `${projectId ?? ""}:${branchRef || defaultBranch?.ref || ""}:`,
+                commit: branch.commit,
+            });
+        }
         const next = new URLSearchParams(searchParams);
         if (branchRef) next.set("branch", branchRef);
         else next.delete("branch");
@@ -258,7 +276,17 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     "Failed to load branches"
                 );
                 if (!cancelled) {
-                    setBranches(data.branches || []);
+                    const received = data.branches || [];
+                    setBranches(received);
+                    if (activeSection === "visualizers" && !currentCommit) {
+                        const chosen = received.find((branch) => branch.ref === selectedBranchRef)
+                            || received.find((branch) => branch.is_current) || received[0];
+                        if (chosen?.commit) {
+                            const key = `${projectId}:${selectedBranchRef || chosen.ref}:`;
+                            setViewerPin((previous) => previous?.key === key
+                                ? previous : { key, commit: chosen.commit });
+                        }
+                    }
                     setBranchError(null);
                 }
             } catch (err) {
@@ -288,7 +316,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
             window.clearInterval(timer);
             document.removeEventListener("visibilitychange", onVisible);
         };
-    }, [projectId, refreshKey]);
+    }, [projectId, refreshKey, activeSection, currentCommit, selectedBranchRef]);
 
     useEffect(() => {
         if (!projectId) {
@@ -514,6 +542,13 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </select>
                 </div>
 
+                {newerViewerRevisionAvailable && activeCommit && (
+                    <Button variant="outline" size="sm"
+                        onClick={() => setViewerPin({ key: viewerSelectionKey, commit: activeCommit })}>
+                        New revision available · View
+                    </Button>
+                )}
+
                 {/* Sync Button */}
                 {canMutateProject && (
                     <Button
@@ -725,15 +760,15 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             fill
                         >
                             {projectId && (
-                                <ErrorBoundary label="the visualizer" resetKeys={[projectId, activeCommit]}>
+                                <ErrorBoundary label="the visualizer" resetKeys={[projectId, viewerCommit]}>
                                     <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading visualizers...</div>}>
                                         <Visualizer
                                             // The identity the ErrorBoundary
                                             // beside it already resets on.
-                                            key={`${projectId}:${activeCommit ?? ""}`}
+                                            key={`${projectId}:${viewerCommit ?? ""}`}
                                             projectId={projectId}
                                             user={user}
-                                            commit={activeCommit}
+                                            commit={viewerCommit}
                                             active={!comparisonVisible && activeSection === "visualizers"}
                                         />
                                     </Suspense>

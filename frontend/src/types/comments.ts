@@ -77,6 +77,19 @@ export interface Comment {
     forgeIssueId?: string;
     forgeIssueUrl?: string;
     forgeSyncState?: string;
+    revision?: number;
+    permissions?: { canReply?: boolean; canEdit?: boolean; canDelete?: boolean; canResolve?: boolean };
+    anchor?: { state: string; commit?: string | null; source?: string | null };
+    anchorResolution?:
+        | { state: "candidate"; binding: {
+            commit: string;
+            elementId?: string | null;
+            location: CommentLocation;
+            relativePoint?: [number, number] | null;
+        } }
+        | { state: "unresolved"; reason: string; lastBinding?: {
+            commit: string; location: CommentLocation;
+        } };
 }
 
 export interface CommentsMeta {
@@ -87,6 +100,18 @@ export interface CommentsMeta {
 export interface CommentsFile {
     meta: CommentsMeta;
     comments: Comment[];
+    /** Last committed project comment event represented by this snapshot. */
+    cursor?: number;
+}
+
+export interface CommentChangeEvent {
+    type: "change";
+    cursor: number;
+    commentId: string;
+    scope: "canvas" | "comparison";
+    baseCommit?: string | null;
+    compareCommit?: string | null;
+    changeKind: string;
 }
 
 export interface CreateCommentRequest {
@@ -101,6 +126,8 @@ export interface CreateCommentRequest {
     severity?: CommentSeverity;
     mentions?: string[];
     metadata?: Record<string, unknown>;
+    /** Exact revision displayed when this canvas comment was created. */
+    revision?: { commit: string };
 }
 
 export interface CreateReplyRequest {

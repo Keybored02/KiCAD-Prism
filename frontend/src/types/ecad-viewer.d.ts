@@ -178,7 +178,13 @@ export type EcadCommentContext = "SCH" | "PCB";
 
 export type EcadCommentAnchor =
     | { kind: "world"; x: number; y: number; page?: string }
-    | { kind: "source-item"; uuid: string; page?: string };
+    | { kind: "source-item"; uuid: string; page?: string; relativePoint?: [number, number] };
+
+export interface EcadCommentAnchorResolution {
+    id: string;
+    state: "resolved" | "missing" | "not-loaded";
+    location?: { x: number; y: number; page?: string; bounds?: [number, number, number, number] };
+}
 
 export interface EcadCommentOverlaySet {
     context: EcadCommentContext;
@@ -414,7 +420,7 @@ export interface ECadViewerElement extends HTMLElement {
      */
     getNetStatistics?(ref: EcadNetStatisticsRef): EcadNetStatistics | null;
     setCommentMode?(enabled: boolean): void;
-    setCommentOverlays(request: EcadCommentOverlaySet): void;
+    setCommentOverlays(request: EcadCommentOverlaySet): EcadCommentAnchorResolution[];
     clearCommentOverlays(context?: EcadCommentContext): void;
     loadDocumentComparison(
         request: EcadDocumentComparisonRequest,
