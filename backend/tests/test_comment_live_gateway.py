@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -11,6 +12,7 @@ from fastapi import HTTPException
 from app.api import comment_live as api
 from app.core.security import AuthenticatedUser
 from app.services.comment_live_broker import CommentLiveBroker
+from app.services import comment_live_broker as broker_module
 
 
 def user(*, role: str = "viewer", auth_type: str = "session", scopes: list[str] | None = None):
@@ -146,6 +148,25 @@ class CommentLiveGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(second.empty())
         broker.unsubscribe("project-a", first)
         self.assertNotIn("project-a", broker._subscribers)
+
+    async def test_replay_fallback_checks_once_for_two_viewers_on_one_project(self) -> None:
+        broker = CommentLiveBroker()
+
+        async def idle_listener() -> None:
+            await asyncio.Event().wait()
+
+        with patch.object(broker, "_listen", new=idle_listener), patch.object(
+            broker_module, "_project_cursor", return_value=3,
+        ) as read_cursor, patch.object(broker_module, "_PROJECT_REPLAY_CHECK_SECONDS", 0.01):
+            broker.start()
+            first = broker.subscribe("project-a")
+            second = broker.subscribe("project-a")
+            try:
+                await asyncio.wait_for(asyncio.gather(first.get(), second.get()), 1)
+                self.assertEqual(read_cursor.call_count, 1)
+                self.assertEqual(len(broker._project_checks), 1)
+            finally:
+                await broker.stop()
 
 
 if __name__ == "__main__":

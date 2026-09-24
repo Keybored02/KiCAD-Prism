@@ -26,11 +26,16 @@ WebSocket frame as comment content or write comments through the socket; they
 refetch authorized HTTP state and deduplicate by cursor. All mutations, local
 and tracker-origin, must append a change event **inside the same database
 transaction** as the comment update. `NOTIFY` wakes workers; the event table
-is the replay source. Each API process has one PostgreSQL listener and a
-bounded per-socket wake queue, independent of its number of viewers.
+is the replay source. Each API process has one PostgreSQL listener and one
+five-second durable-cursor check per subscribed project, not per viewer. Each
+socket has a bounded wake queue and replays its own missing events after a
+wake; the periodic access check also runs if no event arrives.
 
 Cookie sockets require an allowed `Origin` from `CORS_ORIGINS_STR` or
 `PUBLIC_BASE_URL`; neither `Host` nor forwarded headers extend that allowlist.
+Startup warns when live comments are enabled but only loopback origins are
+configured. Set the exact externally visible origin before deploying; a
+rejected browser socket falls back to delayed HTTP refresh.
 Role and project access are checked on connection and periodically afterward.
 Remote-symbol tokens are not comment credentials. Browser clients retain the
 last good snapshot on read failure, reconnect with backoff, and poll HTTP
