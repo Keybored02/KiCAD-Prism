@@ -85,6 +85,13 @@ def _http_error(exc: Exception) -> HTTPException:
                     "code": "session_expired",
                 },
             )
+        if code == "oauth_client_not_configured":
+            return HTTPException(
+                status_code=409,
+                detail={"detail": "This code host has no OAuth application registered.", "code": code},
+            )
+        if code == "connector_not_found":
+            return HTTPException(status_code=404, detail={"detail": "Code host not found.", "code": code})
         if code in {"cross_user_callback", "user_mismatch"}:
             return HTTPException(status_code=403, detail="OAuth callback does not match the signed-in user")
         return HTTPException(status_code=400, detail="Invalid or expired OAuth state")
@@ -164,7 +171,7 @@ async def oauth_callback(
         target = build_oauth_return_url(return_to, linked=False, error_code=error_code)
         return RedirectResponse(target, status_code=302)
     return_to = str(identity.pop("returnTo", return_to))
-    target = build_oauth_return_url(return_to, linked=True)
+    target = build_oauth_return_url(return_to, linked=True, connector_id=str(identity.get("connectorId") or ""))
     return RedirectResponse(target, status_code=302)
 
 

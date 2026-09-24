@@ -273,7 +273,7 @@ class IdentityOAuthPostgresTests(unittest.TestCase):
         self.assertEqual(linked.status_code, 302)
         self.assertEqual(
             linked.headers["location"],
-            build_oauth_return_url("/workspace?tab=accounts", linked=True),
+            build_oauth_return_url("/workspace?tab=accounts", linked=True, connector_id="cn_gh1"),
         )
         listed = run(identity_api.list_identities(self.user))
         self.assertEqual(len(listed), 1)

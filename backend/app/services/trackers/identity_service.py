@@ -81,7 +81,9 @@ def validate_relative_return_to(path: str) -> str:
     return candidate
 
 
-def build_oauth_return_url(return_to: str, *, linked: bool, error_code: str | None = None) -> str:
+def build_oauth_return_url(
+    return_to: str, *, linked: bool, error_code: str | None = None, connector_id: str | None = None,
+) -> str:
     from urllib.parse import parse_qsl, urlencode
 
     safe = validate_relative_return_to(return_to)
@@ -90,9 +92,15 @@ def build_oauth_return_url(return_to: str, *, linked: bool, error_code: str | No
     else:
         base, query = safe, ""
     params = list(parse_qsl(query, keep_blank_values=True))
-    params = [(key, value) for key, value in params if key not in {"tracker_oauth", "tracker_oauth_error", "connector_id"}]
+    params = [
+        (key, value) for key, value in params
+        if key not in {"tracker_oauth", "tracker_oauth_error", "tracker_oauth_connector", "connector_id"}
+    ]
     if linked:
         params.append(("tracker_oauth", "linked"))
+        if connector_id:
+            # Lets Connected accounts name the host it just linked.
+            params.append(("tracker_oauth_connector", connector_id))
     else:
         params.append(("tracker_oauth", "error"))
         if error_code:
