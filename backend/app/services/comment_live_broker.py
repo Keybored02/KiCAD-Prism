@@ -14,16 +14,26 @@ from datetime import datetime, timezone
 from collections import defaultdict
 
 from app.services.comment_live_events import CHANNEL
+from app.services import comment_live_events
+from app.services.postgres_database import database
 from app.services.postgres_database import connection_kwargs, postgres_dsn
 
 
 logger = logging.getLogger(__name__)
+_PROJECT_REPLAY_CHECK_SECONDS = 5.0
+
+
+def _project_cursor(project_id: str) -> int:
+    with database.connection() as conn:
+        conn.execute('SET search_path TO "comments", public')
+        return comment_live_events.current_cursor(conn, project_id)
 
 
 class CommentLiveBroker:
     def __init__(self) -> None:
         self._subscribers: dict[str, set[asyncio.Queue[None]]] = defaultdict(set)
         self._listener: asyncio.Task[None] | None = None
+        self._project_checks: dict[str, asyncio.Task[None]] = {}
         self.ready = asyncio.Event()
         self._listener_reconnects = 0
         self._replay_failures = 0
@@ -62,6 +72,8 @@ class CommentLiveBroker:
         # additional NOTIFY messages cannot lose data.
         queue: asyncio.Queue[None] = asyncio.Queue(maxsize=1)
         self._subscribers[project_id].add(queue)
+        if self._listener is not None:
+            self._start_project_check(project_id)
         return queue
 
     def unsubscribe(self, project_id: str, queue: asyncio.Queue[None]) -> None:
@@ -70,6 +82,9 @@ class CommentLiveBroker:
             subscribers.discard(queue)
             if not subscribers:
                 self._subscribers.pop(project_id, None)
+                check = self._project_checks.pop(project_id, None)
+                if check is not None:
+                    check.cancel()
 
     def wake(self, project_id: str) -> None:
         for queue in tuple(self._subscribers.get(project_id, ())):
@@ -79,6 +94,31 @@ class CommentLiveBroker:
     def start(self) -> None:
         if self._listener is None:
             self._listener = asyncio.create_task(self._listen(), name="comment-live-listener")
+            for project_id in self._subscribers:
+                self._start_project_check(project_id)
+
+    def _start_project_check(self, project_id: str) -> None:
+        if project_id not in self._project_checks:
+            self._project_checks[project_id] = asyncio.create_task(
+                self._check_project(project_id), name=f"comment-live-check-{project_id}",
+            )
+
+    async def _check_project(self, project_id: str) -> None:
+        """One durable-log check per project and worker, regardless of tab count."""
+        last_cursor: int | None = None
+        while True:
+            await asyncio.sleep(_PROJECT_REPLAY_CHECK_SECONDS)
+            try:
+                cursor = await asyncio.to_thread(_project_cursor, project_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.record_replay_failure()
+                logger.exception("Comment project replay check failed for %s", project_id)
+                continue
+            if last_cursor is None or cursor != last_cursor:
+                self.wake(project_id)
+            last_cursor = cursor
 
     async def stop(self) -> None:
         listener = self._listener
@@ -89,6 +129,12 @@ class CommentLiveBroker:
                 await listener
             except asyncio.CancelledError:
                 pass
+        checks = list(self._project_checks.values())
+        self._project_checks.clear()
+        for check in checks:
+            check.cancel()
+        if checks:
+            await asyncio.gather(*checks, return_exceptions=True)
         self._subscribers.clear()
         self.ready.clear()
 

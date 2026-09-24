@@ -45,6 +45,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 import logging
+from urllib.parse import urlsplit
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -208,6 +209,16 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to seed bootstrap admin password")
     if settings.PRISM_COMMENT_LIVE_ENABLED:
+        live_origins = [*settings.CORS_ORIGINS, settings.PUBLIC_BASE_URL]
+        if not any(
+            urlsplit(origin).hostname not in {None, "localhost", "127.0.0.1", "::1"}
+            for origin in live_origins if origin
+        ):
+            logger.warning(
+                "Live comments accept only loopback browser origins. Set PUBLIC_BASE_URL "
+                "or CORS_ORIGINS_STR to the deployment's exact public origin; "
+                "otherwise remote browsers will use delayed HTTP refresh."
+            )
         comment_live_broker.start()
     try:
         yield

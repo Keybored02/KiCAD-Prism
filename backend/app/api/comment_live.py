@@ -21,7 +21,6 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 _BATCH_SIZE = 200
 _MAX_SOCKET_REPLAY = 1000
-_REPLAY_INTERVAL_SECONDS = 5.0
 _ACCESS_RECHECK_SECONDS = 30.0
 _SEND_TIMEOUT_SECONDS = 10.0
 
@@ -123,8 +122,8 @@ async def live_comments(websocket: WebSocket, project_id: str, after: int = 0) -
     next_access_check = time.monotonic() + _ACCESS_RECHECK_SECONDS
     try:
         while True:
-            # A notification can be lost, coalesced, or received by another
-            # API worker. The bounded periodic replay is always authoritative.
+            # A notification can be lost or coalesced. The broker checks the
+            # durable cursor once per project and worker and wakes subscribers.
             replayed = 0
             while True:
                 try:
@@ -160,7 +159,7 @@ async def live_comments(websocket: WebSocket, project_id: str, after: int = 0) -
             incoming = asyncio.create_task(websocket.receive())
             try:
                 done, _ = await asyncio.wait(
-                    {wake, incoming}, timeout=_REPLAY_INTERVAL_SECONDS,
+                    {wake, incoming}, timeout=max(0.0, next_access_check - time.monotonic()),
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if incoming in done:

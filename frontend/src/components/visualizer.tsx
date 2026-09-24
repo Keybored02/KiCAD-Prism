@@ -396,7 +396,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // never on screen.
     const pendingElementRef = useRef<PendingCommentElement | null>(null);
     const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
-    const [pendingCommentFocusId, setPendingCommentFocusId] = useState<string | null>(null);
+    // Focus is an imperative viewer request, not render state. It is retried
+    // when a tab/page change publishes the next set of overlay resolutions.
+    const pendingCommentFocusRef = useRef<string | null>(null);
     const [commentCardScreenPosition, setCommentCardScreenPosition] = useState<{ x: number; y: number } | null>(null);
     const [isSubmittingComment, setIsSubmittingComment] = useState(false);
     const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
@@ -1183,6 +1185,42 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         return () => viewer.removeEventListener("ecad-viewer:view-state-change", refresh);
     }, [schematicViewerElement]);
 
+    const focusPendingComment = useCallback((
+        resolutions: Record<string, EcadCommentAnchorResolution>,
+        tab: VisualizerTab,
+        page: ActiveSchematicPage | null,
+    ) => {
+        const id = pendingCommentFocusRef.current;
+        if (!id) return;
+        const comment = comments.find((entry) => entry.id === id);
+        if (!comment) {
+            pendingCommentFocusRef.current = null;
+            return;
+        }
+        const expectedTab = comment.context === "SCH" ? "sch" : "pcb";
+        if (tab !== expectedTab) return;
+        if (expectedTab === "sch") {
+            const targetPage = commentCurrentLocation(comment).page;
+            const current = [page?.projectPath, page?.filename, page?.page];
+            if (targetPage && !current.includes(targetPage)) {
+                schematicViewerRef.current?.switchPage(targetPage);
+                return;
+            }
+        }
+        const resolution = resolutions[id];
+        if (!resolution || resolution.state === "not-loaded") return;
+        pendingCommentFocusRef.current = null;
+        if (resolution.state === "missing" || !resolution.location) {
+            toast.message("This comment's source object is missing on this revision.");
+            return;
+        }
+        const viewer = expectedTab === "sch" ? schematicViewerRef.current : pcbViewerRef.current;
+        if (!viewer) return;
+        if (resolution.location.page) viewer.switchPage(resolution.location.page);
+        viewer.zoomToLocation(resolution.location.x, resolution.location.y);
+        setCommentCardScreenPosition(worldToViewportScreen(viewer, resolution.location.x, resolution.location.y));
+    }, [comments]);
+
     // Publish comment markers to the ecad-viewer overlay layer. This never
     // touches replaceSources/appendSources - overlays are a separate render pass.
     useEffect(() => {
@@ -1197,9 +1235,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             schematicViewerElement?.clearCommentOverlays("SCH");
             pcbViewerElement?.clearCommentOverlays("PCB");
         }
-        setCommentMarkerResolutions(Object.fromEntries(resolutions.map((resolution) => [resolution.id, resolution])));
+        const byId = Object.fromEntries(resolutions.map((resolution) => [resolution.id, resolution]));
+        setCommentMarkerResolutions(byId);
+        focusPendingComment(byId, activeTab, activeSchematicPage);
     }, [activeTab, activeSchematicPage, comments, pcbReadyGeneration, pcbViewerElement,
-        schematicReadyGeneration, schematicViewerElement]);
+        schematicReadyGeneration, schematicViewerElement, focusPendingComment]);
 
     // Mirror comment mode onto whichever viewer is currently active.
     useEffect(() => {
@@ -1369,39 +1409,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         const viewer = targetTab === "sch" ? schematicViewerRef.current : pcbViewerRef.current;
         const location = commentCurrentLocation(comment);
         if (location.page) viewer?.switchPage(location.page);
-        setPendingCommentFocusId(comment.id);
-    }, []);
-
-    useEffect(() => {
-        if (!pendingCommentFocusId) return;
-        const comment = comments.find((entry) => entry.id === pendingCommentFocusId);
-        if (!comment) {
-            setPendingCommentFocusId(null);
-            return;
-        }
-        const expectedTab = comment.context === "SCH" ? "sch" : "pcb";
-        if (activeTab !== expectedTab) return;
-        if (expectedTab === "sch") {
-            const page = commentCurrentLocation(comment).page;
-            const current = [activeSchematicPage?.projectPath, activeSchematicPage?.filename, activeSchematicPage?.page];
-            if (page && !current.includes(page)) {
-                schematicViewerRef.current?.switchPage(page);
-                return;
-            }
-        }
-        const resolution = commentMarkerResolutions[comment.id];
-        if (!resolution || resolution.state === "not-loaded") return;
-        setPendingCommentFocusId(null);
-        if (resolution.state === "missing" || !resolution.location) {
-            toast.message("This comment's source object is missing on this revision.");
-            return;
-        }
-        const viewer = expectedTab === "sch" ? schematicViewerRef.current : pcbViewerRef.current;
-        if (!viewer) return;
-        if (resolution.location.page) viewer.switchPage(resolution.location.page);
-        viewer.zoomToLocation(resolution.location.x, resolution.location.y);
-        setCommentCardScreenPosition(worldToViewportScreen(viewer, resolution.location.x, resolution.location.y));
-    }, [activeSchematicPage, activeTab, commentMarkerResolutions, comments, pendingCommentFocusId]);
+        pendingCommentFocusRef.current = comment.id;
+        focusPendingComment(commentMarkerResolutions, activeTab, activeSchematicPage);
+    }, [activeSchematicPage, activeTab, commentMarkerResolutions, focusPendingComment]);
 
     const selectedComment = useMemo(
         () => comments.find((entry) => entry.id === selectedCommentId) ?? null,
