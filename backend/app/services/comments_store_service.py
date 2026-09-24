@@ -14,10 +14,12 @@ Design:
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import tempfile
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
@@ -51,9 +53,52 @@ from app.services.comments_store_codec import (
     import_comments_payload,
 )
 from app.services.postgres_database import database
-from app.services.trackers.promotion import PromotionActor, manual_promote_root
+from app.services.trackers.promotion import (
+    PromotionActor,
+    _live_thread,
+    after_root_severity_change,
+    evaluate_dispatch,
+    manual_promote_root,
+    maybe_auto_promote_root,
+)
 from app.services.trackers.projections import attach_tracker_projection, attach_tracker_projections
+from app.services.trackers.publication_policy import DispatchPause
+from app.services.trackers.reply_mutations import (
+    after_reply_added,
+    after_reply_deleted,
+    after_reply_edited,
+)
 from app.services.trackers.reply_mutations import share_reply as enqueue_share_reply
+from app.services.trackers.state_mutations import enqueue_set_state
+from app.services.trackers.thread_mutations import after_root_content_edited, after_root_deleted
+
+
+_DEADLOCK_ATTEMPTS = 3
+
+
+def _retry_on_deadlock(method):
+    """Re-run a whole store transaction that PostgreSQL chose as a deadlock victim.
+
+    Comment writes take the project's stream-head row lock in ``record_change``
+    and may then touch tracker rows; tracker triggers take the same head lock
+    after their row lock. No single lock order covers every HTTP and worker
+    path, so the victim retries. Each wrapped method owns one transaction and
+    has no side effect outside it, which makes the retry safe.
+    """
+
+    @functools.wraps(method)
+    def wrapper(*args, **kwargs):
+        from psycopg import errors
+
+        for attempt in range(_DEADLOCK_ATTEMPTS):
+            try:
+                return method(*args, **kwargs)
+            except (errors.DeadlockDetected, errors.SerializationFailure):
+                if attempt == _DEADLOCK_ATTEMPTS - 1:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+
+    return wrapper
 
 
 
@@ -171,7 +216,9 @@ class CommentsStoreService:
     @contextmanager
     def _connect(self):
         with database.connection() as conn:
-            conn.execute(f'SET search_path TO "{self.schema}", public')
+            # Tracker projections and outbound hooks read workspace tables
+            # (connectors, project destinations) through this connection.
+            conn.execute(f'SET search_path TO "{self.schema}", "{self.workspace_schema}", public')
             yield conn
 
     def _bootstrap_project_if_needed(self, conn, project_id: str, project_path: str) -> None:
@@ -279,6 +326,8 @@ class CommentsStoreService:
         conn,
         project_id: str,
         comment_id: str,
+        *,
+        unsynced_reply_ids: Optional[set[str]] = None,
     ) -> Optional[Dict]:
         row = conn.execute(
             f"""
@@ -303,7 +352,10 @@ class CommentsStoreService:
         ).fetchall()
 
         comment = _row_to_comment_dict(row, [_row_to_reply_dict(reply) for reply in reply_rows])
-        attach_tracker_projection(conn, project_id, comment, workspace_schema=self.workspace_schema)
+        attach_tracker_projection(
+            conn, project_id, comment,
+            workspace_schema=self.workspace_schema, unsynced_reply_ids=unsynced_reply_ids,
+        )
         return comment
 
     def get_comments_file(self, project_id: str, project_path: str) -> Dict:
@@ -313,6 +365,7 @@ class CommentsStoreService:
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 return self._build_snapshot(conn, project_id)
 
+    @_retry_on_deadlock
     def create_comment(
         self,
         project_id: str,
@@ -342,6 +395,7 @@ class CommentsStoreService:
         anchor_source: Optional[str] = None,
         selected_side: Optional[str] = None,
         project_relative_path: Optional[str] = None,
+        promotion_actor: Optional[PromotionActor] = None,
     ) -> Dict:
         """Insert a root comment at revision 1 and record its creation.
 
@@ -448,6 +502,17 @@ class CommentsStoreService:
                 if not created:
                     raise RuntimeError("Failed to fetch created comment.")
 
+                if promotion_actor is not None:
+                    outcome = maybe_auto_promote_root(
+                        conn, project_id=project_id, comment=created, actor=promotion_actor,
+                        workspace_schema=self.workspace_schema,
+                    )
+                    created = self._get_comment_with_replies(conn, project_id, comment_id)
+                    if not created:
+                        raise RuntimeError("Failed to fetch created comment.")
+                    if outcome.action == "denied" and outcome.code:
+                        created.setdefault("tracker", {}).setdefault("notPromotableReason", outcome.code)
+
                 return created
 
     def get_comparison_comments(
@@ -501,6 +566,58 @@ class CommentsStoreService:
                     ],
                 }
 
+    def _authorize_linked_status(self, conn, project_id: str, comment_id: str, actor: PromotionActor) -> None:
+        """A role below the project's promote role may not move a linked thread.
+
+        A paused connector only means no ``set_state`` op is queued; the local
+        status still changes.
+        """
+        thread = _live_thread(conn, comment_id)
+        if thread is None or str(thread.get("external_id") or "") in ("", "pending"):
+            return
+        try:
+            evaluate_dispatch(conn, project_id, actor.role, workspace_schema=self.workspace_schema)
+        except DispatchPause:
+            pass
+
+    def _enqueue_status(self, conn, project_id: str, comment_id: str, actor: PromotionActor) -> Optional[Dict]:
+        updated = self._get_comment_with_replies(conn, project_id, comment_id)
+        if updated is not None:
+            enqueue_set_state(
+                conn, project_id=project_id, comment_id=comment_id, actor=actor,
+                local_revision=int(updated.get("revision") or 1),
+                workspace_schema=self.workspace_schema,
+            )
+            updated = self._get_comment_with_replies(conn, project_id, comment_id)
+        return updated
+
+    def _after_root_edit(
+        self, conn, project_id: str, comment_id: str, actor: PromotionActor,
+        *, previous_severity: str, severity_changed: bool, content_changed: bool,
+    ) -> None:
+        updated = self._get_comment_with_replies(conn, project_id, comment_id)
+        if updated is None:
+            return
+        if severity_changed:
+            after_root_severity_change(
+                conn, project_id=project_id, comment=updated, previous_severity=previous_severity,
+                actor=actor, workspace_schema=self.workspace_schema,
+            )
+            updated = self._get_comment_with_replies(conn, project_id, comment_id)
+        if content_changed and updated is not None:
+            after_root_content_edited(
+                conn, project_id=project_id, comment=updated, actor=actor,
+                workspace_schema=self.workspace_schema,
+            )
+
+    def _current_severity(self, conn, project_id: str, comment_id: str) -> str:
+        row = conn.execute(
+            "SELECT severity FROM comments WHERE project_id = %s AND id = %s AND deleted_at IS NULL",
+            (project_id, comment_id),
+        ).fetchone()
+        return str((row or {}).get("severity") or DEFAULT_COMMENT_SEVERITY)
+
+    @_retry_on_deadlock
     def update_comment_status(
         self,
         project_id: str,
@@ -509,6 +626,7 @@ class CommentsStoreService:
         status: str,
         editor: Optional[Editor] = None,
         expected_revision: Optional[int] = None,
+        promotion_actor: Optional[PromotionActor] = None,
     ) -> Optional[Dict]:
         """Resolve or reopen; raises RevisionConflict when the thread moved on."""
         self.initialize()
@@ -518,12 +636,15 @@ class CommentsStoreService:
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 if not self._live_root_exists(conn, project_id, comment_id):
                     return None
+                if promotion_actor is not None:
+                    self._authorize_linked_status(conn, project_id, comment_id, promotion_actor)
                 comments_revisions.set_root_status(
                     conn, project_id=project_id, comment_id=comment_id, status=status,
                     editor=editor or _SYSTEM_EDITOR, expected_revision=expected_revision,
                 )
-                updated = self._get_comment_with_replies(conn, project_id, comment_id)
-                return updated
+                if promotion_actor is not None:
+                    return self._enqueue_status(conn, project_id, comment_id, promotion_actor)
+                return self._get_comment_with_replies(conn, project_id, comment_id)
 
     def get_comment(self, project_id: str, project_path: str, comment_id: str) -> Optional[Dict]:
         """One live root with its live replies, or None."""
@@ -550,6 +671,7 @@ class CommentsStoreService:
             (project_id, comment_id),
         ).fetchone())
 
+    @_retry_on_deadlock
     def edit_comment(
         self,
         project_id: str,
@@ -561,6 +683,7 @@ class CommentsStoreService:
         severity: Optional[str] = None,
         comment_class: Optional[str] = None,
         mentions: Optional[List[str]] = None,
+        promotion_actor: Optional[PromotionActor] = None,
     ) -> Optional[Dict]:
         """Edit a root's prose/severity/class/mentions as one revision.
 
@@ -572,6 +695,7 @@ class CommentsStoreService:
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 if not self._live_root_exists(conn, project_id, comment_id):
                     return None
+                previous_severity = self._current_severity(conn, project_id, comment_id)
                 comments_revisions.edit_root(
                     conn, project_id=project_id, comment_id=comment_id, editor=editor,
                     expected_revision=expected_revision, content=content,
@@ -579,9 +703,15 @@ class CommentsStoreService:
                     comment_class=_normalize_comment_class(comment_class) if comment_class is not None else None,
                     mentions=_normalize_mentions(mentions) if mentions is not None else None,
                 )
-                updated = self._get_comment_with_replies(conn, project_id, comment_id)
-                return updated
+                if promotion_actor is not None:
+                    self._after_root_edit(
+                        conn, project_id, comment_id, promotion_actor,
+                        previous_severity=previous_severity,
+                        severity_changed=severity is not None, content_changed=content is not None,
+                    )
+                return self._get_comment_with_replies(conn, project_id, comment_id)
 
+    @_retry_on_deadlock
     def patch_comment(
         self,
         project_id: str,
@@ -595,14 +725,23 @@ class CommentsStoreService:
         comment_class: Optional[str] = None,
         mentions: Optional[List[str]] = None,
         status: Optional[str] = None,
+        promotion_actor: Optional[PromotionActor] = None,
     ) -> Optional[Dict]:
-        """Apply an HTTP patch atomically, even when it edits prose and status."""
+        """Apply an HTTP patch atomically, even when it edits prose and status.
+
+        With ``promotion_actor`` a linked thread queues the matching forge
+        update (issue body, severity label, open/closed) in the same
+        transaction; without it the patch stays Prism-local.
+        """
         self.initialize()
         with self._connect() as conn:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 if not self._live_root_exists(conn, project_id, comment_id):
                     return None
+                if status is not None and promotion_actor is not None:
+                    self._authorize_linked_status(conn, project_id, comment_id, promotion_actor)
+                previous_severity = self._current_severity(conn, project_id, comment_id)
                 has_edit = any(value is not None for value in (content, severity, comment_class, mentions))
                 if has_edit:
                     expected_revision = comments_revisions.edit_root(
@@ -612,13 +751,22 @@ class CommentsStoreService:
                         comment_class=_normalize_comment_class(comment_class) if comment_class is not None else None,
                         mentions=_normalize_mentions(mentions) if mentions is not None else None,
                     )
+                    if promotion_actor is not None:
+                        self._after_root_edit(
+                            conn, project_id, comment_id, promotion_actor,
+                            previous_severity=previous_severity,
+                            severity_changed=severity is not None, content_changed=content is not None,
+                        )
                 if status is not None:
                     comments_revisions.set_root_status(
                         conn, project_id=project_id, comment_id=comment_id, status=status,
                         editor=editor, expected_revision=expected_revision,
                     )
+                    if promotion_actor is not None:
+                        return self._enqueue_status(conn, project_id, comment_id, promotion_actor)
                 return self._get_comment_with_replies(conn, project_id, comment_id)
 
+    @_retry_on_deadlock
     def pin_comment_anchor(
         self,
         project_id: str,
@@ -687,6 +835,7 @@ class CommentsStoreService:
                 )
                 return self._get_comment_with_replies(conn, project_id, comment_id)
 
+    @_retry_on_deadlock
     def edit_reply(
         self,
         project_id: str,
@@ -696,6 +845,7 @@ class CommentsStoreService:
         content: str,
         editor: Editor,
         expected_revision: Optional[int],
+        promotion_actor: Optional[PromotionActor] = None,
     ) -> Optional[Dict]:
         self.initialize()
         with self._connect() as conn:
@@ -708,8 +858,18 @@ class CommentsStoreService:
                     editor=editor, expected_revision=expected_revision,
                 )
                 updated = self._get_comment_with_replies(conn, project_id, comment_id)
+                if updated is not None and promotion_actor is not None:
+                    edited = self._live_reply(conn, project_id, comment_id, reply_id)
+                    if edited:
+                        after_reply_edited(
+                            conn, project_id=project_id, comment=updated,
+                            reply=_row_to_reply_dict(edited), actor=promotion_actor,
+                            workspace_schema=self.workspace_schema,
+                        )
+                        updated = self._get_comment_with_replies(conn, project_id, comment_id)
                 return updated
 
+    @_retry_on_deadlock
     def delete_reply(
         self,
         project_id: str,
@@ -718,6 +878,7 @@ class CommentsStoreService:
         reply_id: str,
         editor: Editor,
         expected_revision: Optional[int] = None,
+        promotion_actor: Optional[PromotionActor] = None,
     ) -> Optional[Dict]:
         """Tombstone one reply; history and the row itself are kept."""
         self.initialize()
@@ -727,10 +888,17 @@ class CommentsStoreService:
                 live_reply = self._live_reply(conn, project_id, comment_id, reply_id)
                 if not live_reply:
                     return None
+                reply_snapshot = _row_to_reply_dict(live_reply)
                 comments_revisions.tombstone_reply(
                     conn, project_id=project_id, reply_id=reply_id, editor=editor, expected_revision=expected_revision,
                 )
                 updated = self._get_comment_with_replies(conn, project_id, comment_id)
+                if updated is not None and promotion_actor is not None:
+                    after_reply_deleted(
+                        conn, project_id=project_id, comment=updated, reply=reply_snapshot,
+                        actor=promotion_actor, workspace_schema=self.workspace_schema,
+                    )
+                    updated = self._get_comment_with_replies(conn, project_id, comment_id)
                 return updated
 
     def _live_reply(self, conn, project_id: str, comment_id: str, reply_id: str):
@@ -782,6 +950,7 @@ class CommentsStoreService:
             })
         return bindings
 
+    @_retry_on_deadlock
     def reattach_comment(
         self,
         project_id: str,
@@ -843,6 +1012,7 @@ class CommentsStoreService:
                 )
                 return self._get_comment_with_replies(conn, project_id, comment_id)
 
+    @_retry_on_deadlock
     def add_reply(
         self,
         project_id: str,
@@ -853,6 +1023,7 @@ class CommentsStoreService:
         author_user_id: Optional[str] = None,
         author_kind: Optional[str] = None,
         origin: str = comments_revisions.ORIGIN_PRISM,
+        promotion_actor: Optional[PromotionActor] = None,
     ) -> Optional[Tuple[Dict, Dict]]:
         self.initialize()
         timestamp = _utc_now_iso()
@@ -894,14 +1065,36 @@ class CommentsStoreService:
                     content=content,
                 )
 
-                updated_comment = self._get_comment_with_replies(conn, project_id, comment_id)
+                unsynced_reply_ids: set[str] = set()
+                if promotion_actor is not None:
+                    parent = self._get_comment_with_replies(conn, project_id, comment_id)
+                    created_reply = self._live_reply(conn, project_id, comment_id, reply_id)
+                    if parent and created_reply:
+                        outcome = after_reply_added(
+                            conn, project_id=project_id, comment=parent,
+                            reply=_row_to_reply_dict(created_reply), actor=promotion_actor,
+                            workspace_schema=self.workspace_schema,
+                        )
+                        if outcome.action == "unsynced":
+                            unsynced_reply_ids.add(reply_id)
+                            conn.execute(
+                                "UPDATE comment_replies SET sync_state = %s WHERE project_id = %s AND id = %s",
+                                ("unsynced_local", project_id, reply_id),
+                            )
+
+                updated_comment = self._get_comment_with_replies(
+                    conn, project_id, comment_id, unsynced_reply_ids=unsynced_reply_ids or None,
+                )
                 if not updated_comment:
                     return None
 
                 created = self._live_reply(conn, project_id, comment_id, reply_id)
                 reply_payload = _row_to_reply_dict(created)
+                if reply_id in unsynced_reply_ids:
+                    reply_payload["sync"] = {"state": "unsynced_local", "reason": "publication_required"}
                 return (updated_comment, reply_payload)
 
+    @_retry_on_deadlock
     def promote_comment(
         self, project_id: str, project_path: str, comment_id: str, actor: PromotionActor,
     ) -> Optional[Dict]:
@@ -924,6 +1117,7 @@ class CommentsStoreService:
                 # projection event in this transaction for a newly queued op.
                 return self._get_comment_with_replies(conn, project_id, comment_id)
 
+    @_retry_on_deadlock
     def share_reply(
         self, project_id: str, project_path: str, comment_id: str,
         reply_id: str, actor: PromotionActor,
@@ -972,6 +1166,7 @@ class CommentsStoreService:
                     (project_id,),
                 )
 
+    @_retry_on_deadlock
     def delete_comment(
         self,
         project_id: str,
@@ -979,10 +1174,11 @@ class CommentsStoreService:
         comment_id: str,
         editor: Optional[Editor] = None,
         expected_revision: Optional[int] = None,
+        promotion_actor: Optional[PromotionActor] = None,
     ) -> bool:
         """Tombstone a root and its live replies.
 
-        The rows stay for history;
+        The rows stay for history and for the tracker's unlink lineage;
         every read path filters ``deleted_at``. ``delete_project_comments``
         remains the one hard delete, used when the project itself goes.
         """
@@ -997,6 +1193,11 @@ class CommentsStoreService:
                     conn, project_id=project_id, comment_id=comment_id,
                     editor=editor or _SYSTEM_EDITOR, expected_revision=expected_revision,
                 )
+                if promotion_actor is not None:
+                    after_root_deleted(
+                        conn, project_id=project_id, comment_id=comment_id, actor=promotion_actor,
+                        workspace_schema=self.workspace_schema,
+                    )
                 return True
 
     def export_comments_json(self, project_id: str, project_path: str) -> str:

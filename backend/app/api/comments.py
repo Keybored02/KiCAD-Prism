@@ -36,6 +36,8 @@ from app.services.comments_store_service import (
     comments_store,
 )
 from app.services.trackers.projections import can_retry_projection
+from app.services.trackers.promotion import PromotionActor
+from app.services.trackers.publication_policy import PublicationDenied
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 T = TypeVar("T")
@@ -63,7 +65,6 @@ class CreateCommentRequest(BaseModel):
     context: str  # "PCB" or "SCH"
     location: CommentLocation
     content: str
-    author: Optional[str] = "anonymous"
     elementId: Optional[str] = None
     elementRef: Optional[str] = None
     elementType: Optional[str] = None
@@ -76,7 +77,6 @@ class CreateCommentRequest(BaseModel):
 
 class CreateReplyRequest(BaseModel):
     content: str
-    author: Optional[str] = "anonymous"
 
 
 class UpdateReplyRequest(BaseModel):
@@ -201,7 +201,6 @@ class CreateComparisonCommentRequest(BaseModel):
     compareCommit: str
     domain: str
     content: str
-    author: Optional[str] = "anonymous"
     filePath: Optional[str] = None
     semanticItemId: Optional[str] = None
     semanticItemRef: Optional[str] = None
@@ -210,10 +209,6 @@ class CreateComparisonCommentRequest(BaseModel):
     severity: Optional[str] = DEFAULT_COMMENT_SEVERITY
     mentions: Optional[List[str]] = None
     selectedSide: Optional[str] = None
-
-
-def _normalize_author(author: Optional[str]) -> str:
-    return (author or "anonymous").strip() or "anonymous"
 
 
 def _actor(user: AuthenticatedUser) -> ActorIdentity:
@@ -229,6 +224,11 @@ def _read_actor(user: AuthenticatedUser) -> Optional[ActorIdentity]:
 
 def _editor(actor: ActorIdentity) -> Editor:
     return Editor(user_id=actor.actor_id, kind=actor.actor_kind, display=actor.display_name)
+
+
+def _promotion_actor(actor: ActorIdentity) -> PromotionActor:
+    """The actor whose role decides whether a linked thread's change reaches the forge."""
+    return PromotionActor(user_id=actor.actor_id, role=actor.role, kind=actor.actor_kind)
 
 
 def _authored(value: dict) -> AuthoredObject:
@@ -257,27 +257,45 @@ def _with_permissions(comment: dict, actor: ActorIdentity) -> dict:
         CommentAction.RETRY, actor, linked=linked, promote_min_role=promote_role,
     )
     comment["permissions"] = capabilities
+    can_share = linked and comment_permissions.allowed(
+        CommentAction.SHARE, actor, promote_min_role=promote_role,
+    )
     for reply in comment.get("replies", []):
         reply_caps = comment_permissions.capabilities(actor, _authored(reply))
         reply_caps["canPublish"] = False
+        reply_caps["canShare"] = can_share and (reply.get("sync") or {}).get("state") == "unsynced_local"
         reply["permissions"] = reply_caps
     return comment
+
+
+def _permission_response(exc: CommentPermissionError) -> JSONResponse:
+    body = {"detail": exc.detail, "code": exc.code}
+    if exc.required_role:
+        body["requiredRole"] = exc.required_role
+    return JSONResponse(status_code=exc.status_code, content=body)
+
+
+def _conflict_response(exc: RevisionConflict) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "Comment changed since the revision you edited", "code": "revision_conflict",
+                 "currentRevision": exc.current_revision},
+    )
 
 
 async def _run_mutation(write: Callable[[], T]):
     try:
         return await asyncio.to_thread(write)
     except CommentPermissionError as exc:
-        body = {"detail": exc.detail, "code": exc.code}
+        return _permission_response(exc)
+    except PublicationDenied as exc:
+        # A ValueError subclass: map it before the generic ValueError branch.
+        body = {"detail": str(exc), "code": exc.code}
         if exc.required_role:
             body["requiredRole"] = exc.required_role
-        return JSONResponse(status_code=exc.status_code, content=body)
+        return JSONResponse(status_code=403, content=body)
     except RevisionConflict as exc:
-        return JSONResponse(
-            status_code=409,
-            content={"detail": "Comment changed since the revision you edited", "code": "revision_conflict",
-                     "currentRevision": exc.current_revision},
-        )
+        return _conflict_response(exc)
     except AnchorValidationError as exc:
         return JSONResponse(status_code=422, content={"detail": exc.detail, "code": exc.code})
     except ValueError as exc:
@@ -473,6 +491,7 @@ async def create_comparison_comment(
             author=actor.display_name,
             author_user_id=actor.actor_id,
             author_kind=actor.actor_kind,
+            promotion_actor=_promotion_actor(actor),
             element_id=request.semanticItemId,
             element_ref=request.semanticItemRef,
             element_type=anchor_kind,
@@ -555,6 +574,7 @@ async def create_comment(
             anchor_revision_key=anchor.source_revision_key,
             anchor_source=anchor.source,
             project_relative_path=anchor.project_relative_path,
+            promotion_actor=_promotion_actor(actor),
         )
         return _with_permissions(created, actor)
 
@@ -596,6 +616,7 @@ async def update_comment(
             project.id, project.path, comment_id, _editor(actor),
             expected_revision=request.expectedRevision, content=content, severity=severity,
             comment_class=comment_class, mentions=request.mentions, status=status,
+            promotion_actor=_promotion_actor(actor),
         )
         return _with_permissions(updated, actor) if updated else None
 
@@ -710,6 +731,7 @@ async def add_reply(
             author=actor.display_name,
             author_user_id=actor.actor_id,
             author_kind=actor.actor_kind,
+            promotion_actor=_promotion_actor(actor),
         )
         if result is None:
             return None
@@ -749,7 +771,7 @@ async def update_reply(
         comment_permissions.authorize(CommentAction.EDIT, actor, target=_authored(current))
         updated = comments_store.edit_reply(
             project.id, project.path, comment_id, reply_id, content, _editor(actor),
-            expected_revision=request.expectedRevision,
+            expected_revision=request.expectedRevision, promotion_actor=_promotion_actor(actor),
         )
         return _with_permissions(updated, actor) if updated else None
 
@@ -778,7 +800,7 @@ async def delete_reply(
         comment_permissions.authorize(CommentAction.DELETE, actor, target=_authored(current))
         updated = comments_store.delete_reply(
             project.id, project.path, comment_id, reply_id, _editor(actor),
-            expected_revision=expectedRevision,
+            expected_revision=expectedRevision, promotion_actor=_promotion_actor(actor),
         )
         return _with_permissions(updated, actor) if updated else None
 
@@ -813,6 +835,7 @@ async def delete_comment(
             comment_id=comment_id,
             editor=_editor(actor),
             expected_revision=expectedRevision,
+            promotion_actor=_promotion_actor(actor),
         )
 
     deleted = await _run_mutation(write)

@@ -158,6 +158,44 @@ async def promote_comment_to_tracker(
         return _dispatch_response(exc)
 
 
+@router.post(
+    "/{project_id}/comments/{comment_id}/replies/{reply_id}/share",
+    dependencies=[Depends(require_comment_writer)],
+)
+async def share_reply_to_tracker(
+    project_id: str,
+    comment_id: str,
+    reply_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+) -> dict[str, Any]:
+    """Queue a Prism-local reply on a linked thread (a viewer's) for the issue."""
+
+    def write() -> dict[str, Any]:
+        project = get_project_for_role_or_404(project_id, user.role)
+        actor = _actor(user)
+        if comments_store.get_reply(project.id, comment_id, reply_id) is None:
+            raise HTTPException(status_code=404, detail="Reply not found")
+        comment_permissions.authorize(
+            CommentAction.SHARE, actor, promote_min_role=_promote_min_role(project.id),
+        )
+        shared = comments_store.share_reply(
+            project.id, project.path, comment_id, reply_id,
+            PromotionActor(user_id=actor.actor_id, role=actor.role, kind=actor.actor_kind),
+        )
+        if shared is None:
+            raise HTTPException(status_code=404, detail="Reply not found")
+        return shared
+
+    try:
+        return await _run(write)
+    except CommentPermissionError as exc:
+        return _permission_response(exc)
+    except PublicationDenied as exc:
+        return _publication_response(exc)
+    except DispatchPause as exc:
+        return _dispatch_response(exc)
+
+
 @router.get("/{project_id}/comments/{comment_id}/tracker/history")
 async def thread_sync_history(
     project_id: str,

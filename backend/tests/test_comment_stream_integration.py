@@ -113,6 +113,10 @@ class CommentStreamIntegrationTests(unittest.TestCase):
                 )
                 conn.execute("UPDATE tracked_threads SET external_id = 'node-id' WHERE id = 't1'")
                 conn.execute("UPDATE tracked_threads SET last_verified_at = NOW() WHERE id = 't1'")
+                # Backoff bookkeeping alone is not a viewer-visible change.
+                conn.execute(
+                    "UPDATE sync_ops SET attempts = attempts + 1, next_attempt_at = NOW() WHERE id = 'op1'"
+                )
                 conn.execute("UPDATE sync_ops SET state = 'confirmed' WHERE id = 'op1'")
             changes = comment_live_events.changes_after(conn, self.project_id, 0)
         self.assertEqual([event["changeKind"] for event in changes],
@@ -124,6 +128,74 @@ class CommentStreamIntegrationTests(unittest.TestCase):
                 raise RuntimeError("roll back worker transaction")
         with self.store._connect() as conn:
             self.assertEqual(len(comment_live_events.changes_after(conn, self.project_id, 0)), 5)
+
+
+    def test_status_change_survives_deadlock_with_tracker_worker(self) -> None:
+        """HTTP takes the stream head, then the tracker row; a worker's trigger
+        takes them the other way round. PostgreSQL aborts one; the store's
+        transaction must retry rather than surface a 500."""
+        import threading
+        from unittest.mock import patch
+
+        from app.services import comments_store_service as css
+        from app.services.trackers.promotion import PromotionActor
+
+        created = self.store.create_comment(
+            self.project_id, self.path.name, "PCB", {"x": 1, "y": 2}, "Original", "Author",
+        )
+        cid = created["id"]
+        with self.store._connect() as conn, conn.transaction():
+            conn.execute(
+                """INSERT INTO tracked_threads
+                   (id, comment_id, project_tracker_id, destination_generation,
+                    connector_id, remote_container_id, external_id, link_state)
+                   VALUES ('t1', %s, 'destination', 1, 'connector', 'repository', 'node-id', 'linked')""",
+                (cid,),
+            )
+
+        http_holds_head = threading.Event()
+        worker_holds_row = threading.Event()
+        attempts: list[int] = []
+        worker_errors: list[BaseException] = []
+
+        def enqueue(conn, **_kwargs):
+            attempts.append(1)
+            if len(attempts) == 1:
+                http_holds_head.set()
+                worker_holds_row.wait(5)
+            conn.execute("UPDATE tracked_threads SET pending_op_id = 'op-http' WHERE id = 't1'")
+
+        def worker() -> None:
+            http_holds_head.wait(5)
+            try:
+                with self.store._connect() as conn, conn.transaction():
+                    conn.execute("SELECT id FROM tracked_threads WHERE id = 't1' FOR UPDATE")
+                    worker_holds_row.set()
+                    # Let the HTTP update start waiting first so PostgreSQL
+                    # picks the HTTP transaction as the deadlock victim.
+                    threading.Event().wait(0.3)
+                    conn.execute("UPDATE tracked_threads SET remote_state = 'closed' WHERE id = 't1'")
+            except BaseException as exc:  # pragma: no cover - reported below
+                worker_errors.append(exc)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        with patch.object(css, "enqueue_set_state", side_effect=enqueue), \
+                patch.object(css, "evaluate_dispatch", return_value=None):
+            updated = self.store.update_comment_status(
+                self.project_id, self.path.name, cid, "RESOLVED",
+                editor=Editor("user:a", "user", "Author"),
+                promotion_actor=PromotionActor(user_id="user:a", role="designer", kind="user"),
+            )
+        thread.join(10)
+        self.assertEqual(worker_errors, [])
+        self.assertEqual(updated["status"], "RESOLVED")
+        self.assertGreaterEqual(len(attempts), 2, "the HTTP transaction should have been retried")
+        with self.store._connect() as conn:
+            row = conn.execute("SELECT pending_op_id, remote_state FROM tracked_threads WHERE id = 't1'").fetchone()
+            events = comment_live_events.changes_after(conn, self.project_id, 0)
+        self.assertEqual((row["pending_op_id"], row["remote_state"]), ("op-http", "closed"))
+        self.assertEqual([event["cursor"] for event in events], list(range(1, len(events) + 1)))
 
 
 if __name__ == "__main__":

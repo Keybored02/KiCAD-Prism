@@ -3,6 +3,10 @@
 The tracker has HTTP, webhook, poll, sweep, and recovery writers. A database
 trigger covers all of them in their existing transaction, including a worker
 that crashes after commit but before it could send a process-local signal.
+
+Retry bookkeeping (``attempts``, ``next_attempt_at``) is not a visible change:
+a failing op backing off would otherwise make every open viewer refetch on
+each attempt. State and error changes still stream.
 """
 
 from __future__ import annotations
@@ -43,10 +47,10 @@ def apply_schema(conn) -> None:
                 comment_key := CASE WHEN TG_OP = 'DELETE' THEN OLD.comment_id ELSE NEW.comment_id END;
             ELSIF TG_TABLE_NAME = 'sync_ops' THEN
                 IF TG_OP = 'UPDATE' AND
-                   ROW(OLD.state, OLD.sent_at, OLD.attempts, OLD.next_attempt_at,
+                   ROW(OLD.state, OLD.sent_at,
                        OLD.external_result_id, OLD.last_error, OLD.expected_remote_state)
                    IS NOT DISTINCT FROM
-                   ROW(NEW.state, NEW.sent_at, NEW.attempts, NEW.next_attempt_at,
+                   ROW(NEW.state, NEW.sent_at,
                        NEW.external_result_id, NEW.last_error, NEW.expected_remote_state) THEN
                     RETURN NEW;
                 END IF;

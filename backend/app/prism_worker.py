@@ -528,11 +528,23 @@ class PrismWorker:
         schedule_due_tracker_jobs()
         self._next_tracker_scan = time.monotonic() + 5
 
-    def run(self) -> None:
-        if self.worker_pool == "prism":
-            from app.services.trackers.composition import initialize_tracker_composition
+    def mount_tracker_composition(self) -> None:
+        """The scheduling loop needs the same mounts as the API and job runner.
 
+        Without them ``schedule_due_tracker_jobs`` treats the hint applier as
+        unmounted and webhook hints wait for the next poll or an unrelated
+        outbound op instead of getting a dispatch job of their own.
+        """
+        if self.worker_pool != "prism":
+            return
+        from app.services.trackers.composition import initialize_tracker_composition
+
+        try:
             initialize_tracker_composition()
+        except Exception:
+            logger.exception("Tracker composition failed to mount in the worker")
+
+    def run(self) -> None:
         while not self.stopping:
             try:
                 jobs.initialize()
@@ -543,6 +555,7 @@ class PrismWorker:
                 time.sleep(min(1.0, self.poll_seconds))
         if self.stopping:
             return
+        self.mount_tracker_composition()
         logger.info(
             "Worker %s started pool=%s concurrency=%s",
             self.worker_id,

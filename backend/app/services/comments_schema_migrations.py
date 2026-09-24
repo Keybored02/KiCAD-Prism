@@ -203,6 +203,8 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (9, "anchor_binding_history", _m009_anchor_binding_history),
     (10, "tracker_projection_change_stream", apply_tracker_projection_events),
     (11, "comment_scope_columns", _m011_comment_scope_columns),
+    # Re-installs the v10 trigger function without retry-bookkeeping columns.
+    (12, "tracker_projection_ignores_retry_bookkeeping", apply_tracker_projection_events),
 ]
 
 
