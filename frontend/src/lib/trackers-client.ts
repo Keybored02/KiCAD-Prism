@@ -21,6 +21,7 @@ import type {
     UpdateConnectorRequest,
     UpdateProjectTrackerRequest,
     UserIdentity,
+    LinkableCodeHost,
 } from "@/types/trackers";
 
 const SECRET_KEYS = new Set([
@@ -85,6 +86,8 @@ export const TRACKER_ROUTES = {
     connectorHealth: (id: string) => `/api/admin/trackers/connectors/${encodeURIComponent(id)}/health`,
     connectorRepositories: (id: string) => `/api/admin/trackers/connectors/${encodeURIComponent(id)}/repositories`,
     identities: "/api/trackers/identities",
+    linkableCodeHosts: "/api/trackers/linkable-connectors",
+    oauthCallbackUrl: "/api/admin/trackers/oauth-callback-url",
     identityBegin: (connectorId: string) =>
         `/api/trackers/connectors/${encodeURIComponent(connectorId)}/oauth/begin`,
     identityUnlink: (connectorId: string) =>
@@ -123,13 +126,19 @@ function stripSecrets<T>(value: T): T {
 async function parseError(response: Response, fallback: string): Promise<TrackerApiError> {
     let payload: TrackerErrorPayload = { detail: fallback };
     try {
-        const raw = (await response.json()) as Partial<TrackerErrorPayload> & { detail?: unknown };
+        let raw = (await response.json()) as Partial<TrackerErrorPayload> & { detail?: unknown };
+        // HTTPException(detail={...}) arrives as {"detail": {"detail", "code", ...}}.
+        if (raw.detail && typeof raw.detail === "object" && !Array.isArray(raw.detail)) {
+            raw = { ...raw, ...(raw.detail as Partial<TrackerErrorPayload>) };
+        }
         const detail = raw.detail;
         payload = {
             detail:
                 typeof detail === "string" && detail.trim()
                     ? detail
-                    : fallback,
+                    : typeof (raw as { message?: unknown }).message === "string"
+                        ? String((raw as { message?: unknown }).message)
+                        : fallback,
             code: typeof raw.code === "string" ? raw.code : undefined,
             requiredRole: typeof raw.requiredRole === "string" ? raw.requiredRole : undefined,
             currentRevision:
@@ -227,6 +236,18 @@ export function acknowledgeDestination(
         json("POST", { visibility }),
         "Failed to acknowledge destination visibility",
     );
+}
+
+export function listLinkableCodeHosts(): Promise<LinkableCodeHost[]> {
+    return request(TRACKER_ROUTES.linkableCodeHosts, undefined, "Failed to list code hosts");
+}
+
+/** Redirect URI to register on every code host's OAuth application (admin). */
+export async function getOAuthCallbackUrl(): Promise<string> {
+    const payload = await request<{ callbackUrl: string }>(
+        TRACKER_ROUTES.oauthCallbackUrl, undefined, "Failed to load the redirect URI",
+    );
+    return payload.callbackUrl;
 }
 
 export function listIdentities(): Promise<UserIdentity[]> {

@@ -36,7 +36,7 @@ export { autoPromoteSummary, promoteRoleExplanation } from "./project-tracker-po
 
 export { destinationIsProjectRepo } from "./project-tracker-settings-model";
 
-export type ProjectTrackerSettingsPhase = "loading" | "ready" | "offline";
+export type ProjectTrackerSettingsPhase = "loading" | "ready" | "offline" | "unconfigured";
 
 export interface ProjectTrackerSettingsPanelProps {
     projectId: string;
@@ -45,6 +45,8 @@ export interface ProjectTrackerSettingsPanelProps {
     chromeless?: boolean;
     className?: string;
     onSettingsChange?: (settings: ProjectTrackerSettings) => void;
+    /** Opens Settings → Code hosts, where connections are managed. */
+    onManageCodeHosts?: () => void;
 }
 
 export function describeProjectTrackerError(error: unknown, fallback = "Project tracker request failed"): string {
@@ -63,12 +65,36 @@ export function describeProjectTrackerError(error: unknown, fallback = "Project 
     return fallback;
 }
 
+/** No destination yet and no GitHub host to default to. */
+function IssuePublishingNotSetUp({ isAdmin, className, onManageCodeHosts }: {
+    isAdmin: boolean;
+    className?: string;
+    onManageCodeHosts?: () => void;
+}) {
+    return (
+        <div className={cn("rounded-lg border border-dashed p-6 text-center text-sm", className)} data-tracker-phase="unconfigured">
+            <p className="font-medium">Issue publishing is not set up</p>
+            <p className="mt-1 text-muted-foreground">
+                {isAdmin
+                    ? "Add GitHub as a code host, then choose where this project's issues go."
+                    : "A workspace admin needs to add GitHub as a code host first."}
+            </p>
+            {isAdmin && onManageCodeHosts && (
+                <Button type="button" size="sm" className="mt-4" onClick={onManageCodeHosts}>
+                    Open Settings → Code hosts
+                </Button>
+            )}
+        </div>
+    );
+}
+
 export function ProjectTrackerSettingsPanel({
     projectId,
     isAdmin,
     chromeless = false,
     className,
     onSettingsChange,
+    onManageCodeHosts,
 }: ProjectTrackerSettingsPanelProps) {
     const [settings, setSettings] = useState<ProjectTrackerSettings | null>(null);
     const projectRepoPath = settings?.projectRepoPath ?? null;
@@ -76,6 +102,7 @@ export function ProjectTrackerSettingsPanel({
     const [draft, setDraft] = useState<TrackerSettingsDraft | null>(null);
     const [loading, setLoading] = useState(true);
     const [offline, setOffline] = useState(false);
+    const [unconfigured, setUnconfigured] = useState(false);
     const [saving, setSaving] = useState(false);
     const [acking, setAcking] = useState(false);
     const [formError, setFormError] = useState<string | null>(null);
@@ -83,7 +110,8 @@ export function ProjectTrackerSettingsPanel({
     const [confirmAckOpen, setConfirmAckOpen] = useState(false);
     const pendingPayloadRef = useRef<UpdateProjectTrackerRequest | null>(null);
 
-    const phase: ProjectTrackerSettingsPhase = loading ? "loading" : offline ? "offline" : "ready";
+    const phase: ProjectTrackerSettingsPhase = loading
+        ? "loading" : unconfigured ? "unconfigured" : offline ? "offline" : "ready";
 
     const applySettings = useCallback(
         (next: ProjectTrackerSettings) => {
@@ -97,6 +125,7 @@ export function ProjectTrackerSettingsPanel({
     const loadSettings = useCallback(async () => {
         setLoading(true);
         setOffline(false);
+        setUnconfigured(false);
         setFormError(null);
         try {
             const [loaded, connectorList] = await Promise.all([
@@ -104,8 +133,16 @@ export function ProjectTrackerSettingsPanel({
                 isAdmin ? listConnectors().catch(() => []) : Promise.resolve([]),
             ]);
             applySettings(loaded);
-            setConnectors(connectorList);
+            // Only hosts that can publish issues belong in a project destination.
+            setConnectors(connectorList.filter((row) => row.capabilities?.issues ?? row.provider === "github"));
         } catch (error) {
+            // 404: no destination yet and no GitHub host to default to.
+            if (error instanceof TrackerApiError && error.status === 404) {
+                setSettings(null);
+                setDraft(null);
+                setUnconfigured(true);
+                return;
+            }
             setSettings(null);
             setDraft(null);
             setOffline(true);
@@ -185,6 +222,10 @@ export function ProjectTrackerSettingsPanel({
                 </CardContent>
             </Card>
         );
+    }
+
+    if (phase === "unconfigured") {
+        return <IssuePublishingNotSetUp isAdmin={isAdmin} className={className} onManageCodeHosts={onManageCodeHosts} />;
     }
 
     if (phase === "offline" || !settings || !draft) {

@@ -16,6 +16,9 @@ export default defineConfig({
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
         ws: true,
+        // Forward the browser's origin so absolute URLs the API builds (the
+        // OAuth redirect URI) point at the dev server, not the proxied port.
+        xfwd: true,
       },
     },
   },

@@ -97,6 +97,26 @@ export interface TrackerConnector {
     pausedReason?: string | null;
     writesEnabled?: boolean;
     auditCount?: number;
+    /** Hostname people recognise, e.g. ``gitlab.acme.io``. */
+    host?: string;
+    capabilities?: CodeHostCapabilities;
+}
+
+/** What a code host can do in Prism today. */
+export interface CodeHostCapabilities {
+    /** Promote threads to issues (GitHub only for now). */
+    issues: boolean;
+    /** An OAuth app is registered, so people can link accounts. */
+    accountLinking: boolean;
+}
+
+/** A code host a signed-in person can link under Connected accounts. */
+export interface LinkableCodeHost {
+    id: string;
+    provider: string;
+    instanceKind: string;
+    displayName: string;
+    host: string;
 }
 
 /** A repository the connector's installation can publish to (destination picker). */

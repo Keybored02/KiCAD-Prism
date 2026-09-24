@@ -10,6 +10,7 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { useWorkspaceData, workspaceSessionKey } from "@/hooks/use-workspace-data";
 import { useWorkspaceSearch } from "@/hooks/use-workspace-search";
 import { canManageProjects as roleCanManageProjects, canOpenLibraryManager } from "@/lib/roles";
+import { settingsTabFromParam } from "@/lib/settings-tabs";
 import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
 import { fetchApi, readApiError } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -97,7 +98,21 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   // replaces both a reset effect and the clamp effect chained behind it.
   const [pageState, setPageState] = useState({ scope: "", page: 1 });
   const canManageProjects = roleCanManageProjects(user?.role);
-  const canOpenSettings = user?.role === "admin";
+  // Everyone has personal settings (connected accounts, password); the
+  // dialog itself hides workspace pages from non-admins.
+  const canOpenSettings = Boolean(user);
+  const requestedSettingsTab = settingsTabFromParam(searchParams.get("settings"));
+  const settingsOpen = canOpenSettings && (isSettingsOpen || requestedSettingsTab !== null);
+  const setSettingsOpen = useCallback((open: boolean) => {
+    setIsSettingsOpen(open);
+    if (!open && searchParams.has("settings")) {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete("settings");
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const canOpenLibrary = canOpenLibraryManager(user?.role);
 
   const folderFromUrl = searchParams.get("folder");
@@ -731,9 +746,15 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
           <ImportDialog open={isImportOpen} onOpenChange={setIsImportOpen} onImportComplete={refresh} />
         </Suspense>
       )}
-      {isSettingsOpen && (
+      {settingsOpen && (
         <Suspense fallback={null}>
-          <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} user={user} />
+          <SettingsDialog
+            key={requestedSettingsTab ?? "settings"}
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            user={user}
+            initialTab={requestedSettingsTab ?? undefined}
+          />
         </Suspense>
       )}
 

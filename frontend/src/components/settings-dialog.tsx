@@ -6,19 +6,22 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { GitBranch, Copy, FileCode, Shield, Plus, Trash2, KeyRound } from "lucide-react";
+import { GitBranch, Copy, Shield, Plus, Trash2, KeyRound, Link2, Server, type LucideIcon } from "lucide-react";
+import { CodeHostsSettings } from "@/features/code-hosts/code-hosts-settings";
+import { ConnectedAccounts } from "@/features/code-hosts/connected-accounts";
 import { User, UserRole } from "@/types/auth";
 import { fetchApi, readApiError } from "@/lib/api";
 import { changeOwnPassword, fetchAuthConfig } from "@/lib/auth";
 import { ROLE_OPTIONS, roleLabel } from "@/lib/roles";
+import type { SettingsTab } from "@/lib/settings-tabs";
 
 interface SettingsDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     user: User | null;
+    /** Page to show first, e.g. from a ``?settings=`` deep link. */
+    initialTab?: SettingsTab;
 }
-
-type SettingsTab = "git" | "access" | "general";
 
 interface RoleAssignment {
     email: string;
@@ -27,55 +30,95 @@ interface RoleAssignment {
     has_password?: boolean;
 }
 
-export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps) {
-    const [activeTab, setActiveTab] = useState<SettingsTab>("git");
+interface NavItem {
+    tab: SettingsTab;
+    label: string;
+    icon: LucideIcon;
+    adminOnly?: boolean;
+}
+
+const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
+    {
+        title: "Account",
+        items: [
+            { tab: "accounts", label: "Connected accounts", icon: Link2 },
+            { tab: "password", label: "Password", icon: KeyRound },
+        ],
+    },
+    {
+        title: "Workspace",
+        items: [
+            { tab: "code-hosts", label: "Code hosts", icon: Server, adminOnly: true },
+            { tab: "git", label: "Git & SSH", icon: GitBranch, adminOnly: true },
+            { tab: "access", label: "Access control", icon: Shield, adminOnly: true },
+        ],
+    },
+];
+
+export function SettingsDialog({ open, onOpenChange, user, initialTab }: SettingsDialogProps) {
     const isAdmin = user?.role === "admin";
+    const allowed = (tab: SettingsTab | undefined): tab is SettingsTab =>
+        Boolean(tab) && NAV_GROUPS.some((group) => group.items.some((item) => item.tab === tab && (!item.adminOnly || isAdmin)));
+    const [activeTab, setActiveTab] = useState<SettingsTab>(allowed(initialTab) ? initialTab : "accounts");
+    // Unknown until the auth config arrives; Connected accounts waits for it.
+    const [signInEnabled, setSignInEnabled] = useState<boolean | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        void fetchAuthConfig()
+            .then((config) => { if (!cancelled) setSignInEnabled(Boolean(config.auth_enabled)); })
+            .catch(() => { if (!cancelled) setSignInEnabled(true); });
+        return () => { cancelled = true; };
+    }, []);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl p-0 overflow-hidden flex h-[600px]">
-                <DialogTitle className="sr-only">Workspace Settings</DialogTitle>
+            <DialogContent className="max-w-4xl p-0 overflow-hidden flex h-[640px]">
+                <DialogTitle className="sr-only">Settings</DialogTitle>
                 <DialogDescription className="sr-only">
-                    Manage Git, SSH, access control, and password settings for this workspace.
+                    Manage your connected accounts and password, and the workspace's code hosts, Git access and roles.
                 </DialogDescription>
-                <div className="w-64 bg-muted/30 border-r p-4 flex flex-col gap-2">
-                    <div className="mb-4 px-2">
-                        <h2 className="text-lg font-semibold tracking-tight">Settings</h2>
-                        <p className="text-sm text-muted-foreground">Manage your workspace</p>
-                    </div>
-
-                    <Button
-                        variant={activeTab === "git" ? "secondary" : "ghost"}
-                        className="justify-start"
-                        onClick={() => setActiveTab("git")}
-                    >
-                        <GitBranch className="mr-2 h-4 w-4" />
-                        Git & SSH
-                    </Button>
-
-                    <Button
-                        variant={activeTab === "access" ? "secondary" : "ghost"}
-                        className="justify-start"
-                        onClick={() => setActiveTab("access")}
-                    >
-                        <Shield className="mr-2 h-4 w-4" />
-                        Access Control
-                    </Button>
-
-                    <Button
-                        variant={activeTab === "general" ? "secondary" : "ghost"}
-                        className="justify-start"
-                        onClick={() => setActiveTab("general")}
-                    >
-                        <FileCode className="mr-2 h-4 w-4" />
-                        General
-                    </Button>
-                </div>
+                <nav className="w-60 shrink-0 bg-muted/30 border-r p-4 flex flex-col gap-4" aria-label="Settings sections">
+                    <h2 className="px-2 text-lg font-semibold tracking-tight">Settings</h2>
+                    {NAV_GROUPS.map((group) => {
+                        const items = group.items.filter((item) => !item.adminOnly || isAdmin);
+                        if (!items.length) return null;
+                        return (
+                            <div key={group.title} className="flex flex-col gap-1">
+                                <p className="px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                    {group.title}
+                                </p>
+                                {items.map((item) => (
+                                    <Button
+                                        key={item.tab}
+                                        variant={activeTab === item.tab ? "secondary" : "ghost"}
+                                        className="justify-start"
+                                        aria-current={activeTab === item.tab ? "page" : undefined}
+                                        onClick={() => setActiveTab(item.tab)}
+                                    >
+                                        <item.icon className="mr-2 h-4 w-4" />
+                                        {item.label}
+                                    </Button>
+                                ))}
+                            </div>
+                        );
+                    })}
+                </nav>
 
                 <div className="flex-1 overflow-y-auto p-6">
-                    {activeTab === "git" && <GitSettings user={user} />}
-                    {activeTab === "access" && <AccessControlSettings isAdmin={isAdmin} />}
-                    {activeTab === "general" && <PasswordSettings />}
+                    {activeTab === "accounts" && signInEnabled !== null && (
+                        <ConnectedAccounts
+                            signInEnabled={signInEnabled}
+                            isAdmin={isAdmin}
+                            onSetUpCodeHosts={isAdmin ? () => setActiveTab("code-hosts") : undefined}
+                        />
+                    )}
+                    {activeTab === "password" && <PasswordSettings />}
+                    {activeTab === "code-hosts" && isAdmin && (
+                        <CodeHostsSettings onOpenConnectedAccounts={() => setActiveTab("accounts")} />
+                    )}
+                    {activeTab === "git" && isAdmin && <GitSettings user={user} />}
+                    {activeTab === "access" && isAdmin && <AccessControlSettings isAdmin={isAdmin} />}
                 </div>
             </DialogContent>
         </Dialog>

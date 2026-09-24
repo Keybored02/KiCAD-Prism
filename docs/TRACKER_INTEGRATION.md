@@ -63,8 +63,8 @@ docker compose --env-file .env.example -f compose.yml config --quiet
 1. Configure authentication, PostgreSQL, and the tracker root key in `.env`.
 2. Start the stack and confirm `/api/health/ready` succeeds.
 3. Sign in as an administrator.
-4. Create a connector: open any project, choose **Issue publishing** (link icon
-   in the project header) → **Connections**, or `POST /api/admin/trackers/connectors`.
+4. Create a connector: **Settings → Code hosts → Add code host → GitHub**, or
+   `POST /api/admin/trackers/connectors`.
 5. Paste GitHub App credentials:
    - App ID and private key PEM
    - Installation ID for the destination organization or repository
@@ -73,10 +73,11 @@ docker compose --env-file .env.example -f compose.yml config --quiet
 6. Register callback URLs at the forge (see below).
 7. Run **Test connection** (`POST /api/admin/trackers/connectors/{id}/test`).
 8. Configure each project's destination and publication policy under
-   **Issue publishing** → **This project**.
-9. When promotion requires user-scoped writes, link a GitHub account through
-   the identity API (`/api/trackers/identities`). This release has no browser
-   screen for account linking; bot-backed publication needs none.
+   **Issue publishing** (link icon in the project header).
+9. People link their accounts under **Settings → Connected accounts**. Linking
+   requests read-only profile access; it lets published issues credit them by
+   @handle and turns Prism @mentions into forge mentions. Bot-backed
+   publication works without it.
 10. Promote a comment and confirm the issue appears. With webhooks blocked,
     expect synchronization within the polling budgets in the next section.
 
@@ -202,7 +203,7 @@ the new PEM, run **Test connection**, and confirm health returns to `ready`.
 
 **User OAuth revocation**
 
-Users unlink through `DELETE /api/trackers/identities/{connector_id}`.
+Users disconnect under **Settings → Connected accounts** (`DELETE /api/trackers/identities/{connector_id}`).
 Administrators can revoke all identities for a connector. Bot-backed threads
 continue; user-scoped writes that require a linked account pause with a clear
 error until the user links again.
@@ -273,3 +274,23 @@ the full decision record (D1–D9).
 - [Operations](OPERATIONS.md) — backup, restore, and upgrades
 - [Architecture](ARCHITECTURE.md) — runtime services and schemas
 - [tracker-integration/CONTRACTS.md](tracker-integration/CONTRACTS.md) — API and behavior contract
+
+## Account linking on GitLab and Gitea/Forgejo
+
+GitLab (gitlab.com or self-managed) and Gitea/Forgejo servers, including
+Codeberg, can be added under **Settings → Code hosts** so people can link
+their accounts there. Issue publishing is GitHub-only for now; connection
+tests, repository pickers and project destinations refuse these hosts.
+
+For each host, register Prism as an OAuth application on that server with the
+redirect URI shown on the setup screen (`<PUBLIC_BASE_URL>/api/trackers/oauth/callback`,
+also returned by `GET /api/admin/trackers/oauth-callback-url`):
+
+| Host | Where to register | Scopes |
+|---|---|---|
+| GitLab | User settings → Applications, or Admin → Applications for an instance-wide app | `read_user`, confidential |
+| Gitea / Forgejo | User settings → Applications → OAuth2 applications | confidential client |
+
+The redirect URI follows the origin the browser used when `PUBLIC_BASE_URL` is
+unset, so register the address people actually open.
+

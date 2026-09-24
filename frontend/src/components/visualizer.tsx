@@ -1350,7 +1350,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to add reply");
         }
-    }, [projectId, setComments, user?.name]);
+    }, [projectId, setComments]);
 
     const deleteComment = useCallback(async (commentId: string) => {
         try {
