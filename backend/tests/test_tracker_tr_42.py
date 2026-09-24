@@ -48,7 +48,15 @@ class HostMountSourceTests(unittest.TestCase):
         self.assertIn("TrackerSettingsDialog", page)
         self.assertIn('isAdmin={user?.role === "admin"}', page)
         self.assertIn("ProjectTrackerSettingsPanel", dialog)
-        self.assertIn("ConnectorSettings", dialog)
+        self.assertIn('settingsHref("code-hosts")', dialog)
+
+    def test_settings_mounts_connected_accounts_and_code_hosts(self) -> None:
+        settings = (FRONTEND / "components" / "settings-dialog.tsx").read_text(encoding="utf-8")
+        hosts = (FRONTEND / "features" / "code-hosts" / "code-hosts-settings.tsx").read_text(encoding="utf-8")
+        self.assertIn("<ConnectedAccounts", settings)
+        self.assertIn("<CodeHostsSettings", settings)
+        self.assertIn("<ConnectorSettings", hosts)
+        self.assertIn("<OAuthHostForm", hosts)
 
     def test_comment_hosts_mount_issue_action_and_reply_state(self) -> None:
         card = (FRONTEND / "components" / "comment-card.tsx").read_text(encoding="utf-8")
