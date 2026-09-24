@@ -32,8 +32,17 @@ from app.services.trackers.store import TrackerStore
 
 CREDENTIAL_FIELD = "github_app"
 BOOTSTRAP_ENV_FIELDS = ("GITHUB_TOKEN",)
-ALLOWED_PROVIDERS = {"github"}
-ALLOWED_INSTANCE_KINDS = {"github.com", "ghes"}
+# GitHub publishes issues through a GitHub App. GitLab and Gitea/Forgejo hosts
+# currently exist so people can link their accounts; their issue adapters are
+# separate work, so ``capabilities.issues`` stays false for them.
+INSTANCE_KINDS_BY_PROVIDER = {
+    "github": {"github.com", "ghes"},
+    "gitlab": {"gitlab.com", "self-hosted"},
+    "gitea": {"self-hosted"},
+}
+ALLOWED_PROVIDERS = set(INSTANCE_KINDS_BY_PROVIDER)
+ALLOWED_INSTANCE_KINDS = set().union(*INSTANCE_KINDS_BY_PROVIDER.values())
+ISSUE_PROVIDERS = {"github"}
 
 
 class ConnectorNotFound(KeyError):
@@ -173,7 +182,7 @@ class ConnectorService:
         self._validate_identity(provider, instance_kind, base_url)
         cid = (connector_id or f"cn_{uuid4().hex[:12]}").strip()
         envelope = None
-        if credentials and self._has_app_fields(credentials):
+        if credentials and provider in ISSUE_PROVIDERS and self._has_app_fields(credentials):
             envelope = self._encrypt(cid, credentials)
         with self.connection() as conn:
             store = TrackerStore(conn)
@@ -226,7 +235,7 @@ class ConnectorService:
             url = base_url if base_url is not None else str(current.get("base_url") or "")
             self._validate_identity(str(current["provider"]), kind, url)
             envelope = None
-            if credentials:
+            if credentials and str(current["provider"]) in ISSUE_PROVIDERS:
                 envelope = self._merge_app_envelope(
                     connector_id, credentials, envelope_row["credential_envelope"]
                 )
@@ -433,9 +442,20 @@ class ConnectorService:
             "remoteContainerId": str(container.remoteContainerId),
         }
 
+    def require_issue_capable(self, conn: Any, connector_id: str) -> None:
+        """Issue publication, tests and repository pickers exist for GitHub only."""
+
+        provider = str(self._require(conn, connector_id)["provider"])
+        if provider not in ISSUE_PROVIDERS:
+            raise ProviderError(
+                "capability_missing",
+                f"Issue publishing is not available for {provider} yet; this host is for account linking.",
+            )
+
     def test_connection(self, connector_id: str, *, actor_user_id: str) -> dict[str, Any]:
         # Never hold a database connection open during a provider request.
         with self.connection() as conn:
+            self.require_issue_capable(conn, connector_id)
             row, blob, material = self._installation_material(conn, connector_id)
             if material is None:
                 raise ProviderError("auth_lost", "Connector has no installation credentials.")
@@ -515,6 +535,7 @@ class ConnectorService:
         """Repositories the connector's installation can publish to (admin picker)."""
 
         with self.connection() as conn:
+            self.require_issue_capable(conn, connector_id)
             row, _, material = self._installation_material(conn, connector_id)
             if material is None:
                 raise ProviderError("auth_lost", "Connector has no installation credentials.")
@@ -609,10 +630,18 @@ class ConnectorService:
     def _validate_identity(self, provider: str, instance_kind: str, base_url: str) -> None:
         if provider not in ALLOWED_PROVIDERS:
             raise ProviderError("invalid_request", "Unsupported tracker provider.")
-        if instance_kind not in ALLOWED_INSTANCE_KINDS:
-            raise ProviderError("invalid_request", "Unsupported GitHub instance kind.")
+        if instance_kind not in INSTANCE_KINDS_BY_PROVIDER[provider]:
+            raise ProviderError("invalid_request", f"Unsupported {provider} instance kind.")
         if instance_kind == "ghes" and not (base_url or "").strip():
             raise ProviderError("invalid_request", "GHES connectors require a base URL.")
+        if provider == "gitlab":
+            from app.services.trackers.gitlab_auth import api_root_for
+
+            api_root_for(instance_kind=instance_kind, base_url=base_url)
+        if provider == "gitea":
+            from app.services.trackers.gitea_identity import web_root_for
+
+            web_root_for(base_url)
 
     def _require(self, conn: Any, connector_id: str) -> dict[str, Any]:
         try:
@@ -693,7 +722,23 @@ class ConnectorService:
             "oauthClientConfigured": oauth_client_configured(conn, str(row["id"])),
             "writesEnabled": writes_enabled,
             "auditCount": int((audit_count or {}).get("n") or 0),
+            "host": connector_host(row),
+            "capabilities": {
+                "issues": str(row["provider"]) in ISSUE_PROVIDERS,
+                "accountLinking": oauth_client_configured(conn, str(row["id"])),
+            },
         }
+
+
+def connector_host(row: Mapping[str, Any]) -> str:
+    """The hostname people recognise, e.g. ``github.com`` or ``gitlab.acme.io``."""
+
+    from urllib.parse import urlsplit
+
+    base = str(row.get("base_url") or "").strip()
+    if base:
+        return urlsplit(base).hostname or base
+    return {"github": "github.com", "gitlab": "gitlab.com"}.get(str(row.get("provider")), "")
 
 
 def _context(connector_id: str) -> dict[str, str]:

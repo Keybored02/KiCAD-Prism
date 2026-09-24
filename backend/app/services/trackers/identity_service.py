@@ -21,7 +21,20 @@ from uuid import uuid4
 from app.core.config import Settings, settings as default_settings
 from app.services.trackers.connector_service import ConnectorNotFound, ConnectorService
 from app.services.trackers.errors import ProviderError
+from app.services.trackers.gitea_identity import GiteaIdentityAdapter, GiteaOAuthApp
 from app.services.trackers.github_identity import GitHubIdentityAdapter, GitHubOAuthApp
+from app.services.trackers.gitlab_identity import GitLabIdentityAdapter, GitLabOAuthApp
+
+OAuthApp = GitHubOAuthApp | GitLabOAuthApp | GiteaOAuthApp
+IdentityAdapter = GitHubIdentityAdapter | GitLabIdentityAdapter | GiteaIdentityAdapter
+
+
+def _provider_of(app: OAuthApp) -> str:
+    if isinstance(app, GitLabOAuthApp):
+        return "gitlab"
+    if isinstance(app, GiteaOAuthApp):
+        return "gitea"
+    return "github"
 from app.services.trackers.credential_sidecars import load_oauth_client, store_oauth_client
 from app.services.trackers.secrets import SecretStoreLocked, decrypt_secret, encrypt_secret
 
@@ -99,7 +112,7 @@ class IdentityService:
         connect: Callable[[], Any] | None = None,
         settings: Settings | None = None,
         connector_service: ConnectorService | None = None,
-        adapter_factory: Callable[[GitHubOAuthApp], GitHubIdentityAdapter] | None = None,
+        adapter_factory: Callable[[Any], Any] | None = None,
         workspace_schema: str = "workspace",
     ) -> None:
         self._connect = connect
@@ -227,7 +240,7 @@ class IdentityService:
                 conn,
                 user_id=actor_user_id,
                 connector_id=connector_id,
-                provider="github",
+                provider=_provider_of(oauth_app),
                 forge_user_id=str(forge_user.id),
                 forge_login=str(forge_user.login),
                 token=token,
@@ -259,6 +272,35 @@ class IdentityService:
                 (user_id,),
             ).fetchall()
             return [self._public_identity(row) for row in rows]
+
+    def list_linkable(self) -> list[dict]:
+        """Code hosts a signed-in person can link: an OAuth app is registered and the host is not revoked.
+
+        Carries only what the Connected accounts screen shows; no credential
+        or delivery detail reaches non-admin users.
+        """
+        from app.services.trackers.connector_service import connector_host
+
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT tc.id, tc.provider, tc.instance_kind, tc.display_name, tc.base_url
+                FROM tracker_connectors tc
+                JOIN tracker_oauth_clients oc ON oc.connector_id = tc.id
+                WHERE COALESCE(tc.paused_reason, '') <> 'revoked'
+                ORDER BY tc.created_at ASC, tc.id ASC
+                """,
+            ).fetchall()
+        return [
+            {
+                "id": str(row["id"]),
+                "provider": str(row["provider"]),
+                "instanceKind": str(row["instance_kind"]),
+                "displayName": str(row.get("display_name") or ""),
+                "host": connector_host(row),
+            }
+            for row in rows
+        ]
 
     def unlink(self, user_id: str, connector_id: str) -> None:
         with self.connection() as conn:
@@ -440,7 +482,7 @@ class IdentityService:
         except ConnectorNotFound as exc:
             raise OAuthStateError("connector_not_found") from exc
 
-    def _oauth_app(self, connector_id: str, *, conn: Any | None = None) -> GitHubOAuthApp:
+    def _oauth_app(self, connector_id: str, *, conn: Any | None = None) -> OAuthApp:
         if conn is None:
             with self.connection() as owned:
                 return self._oauth_app(connector_id, conn=owned)
@@ -449,12 +491,28 @@ class IdentityService:
         except KeyError:
             raise OAuthStateError("oauth_client_not_configured") from None
         connector = conn.execute(
-            "SELECT instance_kind, base_url FROM tracker_connectors WHERE id = %s",
+            "SELECT provider, instance_kind, base_url FROM tracker_connectors WHERE id = %s",
             (connector_id,),
         ).fetchone()
         if not connector:
             raise OAuthStateError("connector_not_found")
         callback = self._callback_url(connector_id)
+        provider = str(connector.get("provider") or "github")
+        if provider == "gitlab":
+            return GitLabOAuthApp(
+                client_id=client_id,
+                client_secret=secret,
+                instance_kind=str(connector["instance_kind"]),
+                base_url=str(connector.get("base_url") or ""),
+                redirect_uri=callback,
+            )
+        if provider == "gitea":
+            return GiteaOAuthApp(
+                client_id=client_id,
+                client_secret=secret,
+                base_url=str(connector.get("base_url") or ""),
+                redirect_uri=callback,
+            )
         return GitHubOAuthApp(
             client_id=client_id,
             client_secret=secret,
@@ -469,10 +527,15 @@ class IdentityService:
             base = "http://localhost:8000"
         return f"{base}/api/trackers/oauth/callback"
 
-    def _adapter(self, app: GitHubOAuthApp, connector_id: str) -> GitHubIdentityAdapter:
+    def _adapter(self, app: OAuthApp, connector_id: str) -> IdentityAdapter:
         if self._adapter_factory is not None:
             return self._adapter_factory(app)
-        return GitHubIdentityAdapter(app, forge_hosts_raw=str(getattr(self.settings, "PRISM_FORGE_HOSTS", "") or ""))
+        hosts = str(getattr(self.settings, "PRISM_FORGE_HOSTS", "") or "")
+        if isinstance(app, GitLabOAuthApp):
+            return GitLabIdentityAdapter(app, forge_hosts_raw=hosts)
+        if isinstance(app, GiteaOAuthApp):
+            return GiteaIdentityAdapter(app, forge_hosts_raw=hosts)
+        return GitHubIdentityAdapter(app, forge_hosts_raw=hosts)
 
     def _encode_state(self, state_id: str, connector_id: str, user_id: str) -> str:
         payload = {

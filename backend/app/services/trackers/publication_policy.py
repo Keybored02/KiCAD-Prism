@@ -123,7 +123,8 @@ class PublicationPolicyService:
                 return self._public_settings(conn, row)
             if not connector_id:
                 connectors = conn.execute(
-                    "SELECT id FROM tracker_connectors WHERE paused = FALSE ORDER BY created_at ASC LIMIT 1"
+                    "SELECT id FROM tracker_connectors WHERE paused = FALSE AND provider = 'github' "
+                    "ORDER BY created_at ASC LIMIT 1"
                 ).fetchall()
                 connector_id = str(connectors[0]["id"]) if connectors else None
             if not connector_id:
@@ -180,6 +181,7 @@ class PublicationPolicyService:
         # Resolve destination visibility before the write transaction so forge
         # I/O is not held under a DB lock (R3-M10).
         with self.connection() as conn:
+            self.connector_service.require_issue_capable(conn, connector_id)
             current = self._row(conn, project_id)
             generation = int((current or {}).get("destination_generation") or 1)
             connector_changed = current is None or str(current["connector_id"]) != connector_id

@@ -106,6 +106,14 @@ async def list_identities(user: AuthenticatedUser = Depends(get_current_user)) -
     return service.list_identities(_actor(user))
 
 
+@router.get("/linkable-connectors")
+async def list_linkable_connectors(user: AuthenticatedUser = Depends(get_current_user)) -> list[dict[str, Any]]:
+    """Code hosts shown under Settings → Connected accounts."""
+    if user.auth_type == "kicad_provider":
+        raise HTTPException(status_code=403, detail="Remote-symbol tokens cannot list code hosts")
+    return service.list_linkable()
+
+
 @router.post("/connectors/{connector_id}/oauth/begin")
 async def begin_oauth(
     connector_id: str,
