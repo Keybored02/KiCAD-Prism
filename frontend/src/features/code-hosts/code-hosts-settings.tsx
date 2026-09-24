@@ -157,14 +157,9 @@ export function CodeHostsSettings() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-start justify-between gap-4">
-                <div>
-                    <h3 className="text-lg font-medium">Code hosts</h3>
-                    <p className="text-sm text-muted-foreground">Where issues are published and people link accounts.</p>
-                </div>
-                <Button size="sm" onClick={() => setView({ kind: "choose" })}>
-                    <Plus className="mr-1.5 size-4" aria-hidden="true" /> Add code host
-                </Button>
+            <div>
+                <h3 className="text-lg font-medium">Code hosts</h3>
+                <p className="text-sm text-muted-foreground">Where issues are published and people link accounts.</p>
             </div>
 
             {phase === "loading" && (
@@ -226,6 +221,12 @@ export function CodeHostsSettings() {
                         );
                     })}
                 </ul>
+            )}
+
+            {phase === "ready" && connectors.length > 0 && (
+                <Button size="sm" variant="outline" onClick={() => setView({ kind: "choose" })}>
+                    <Plus className="mr-1.5 size-4" aria-hidden="true" /> Add code host
+                </Button>
             )}
         </div>
     );

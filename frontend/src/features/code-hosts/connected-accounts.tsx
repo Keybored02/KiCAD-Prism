@@ -176,12 +176,7 @@ export function ConnectedAccounts({ signInEnabled, isAdmin, onSetUpCodeHosts }: 
 
     return (
         <div className="space-y-6">
-            <div>
-                <h3 className="text-lg font-medium">Connected accounts</h3>
-                <p className="text-sm text-muted-foreground">
-                    Get credit for the issues you publish and @mentions on your code hosts.
-                </p>
-            </div>
+            <h3 className="text-lg font-medium">Connected accounts</h3>
 
             {!signInEnabled && (
                 <Alert variant="info">
