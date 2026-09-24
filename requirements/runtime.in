@@ -9,6 +9,8 @@ fastapi>=0.141
 starlette>=1.0
 bcrypt>=4.2,<5
 uvicorn
+# uvicorn serves WebSocket upgrades (live comments) only with a protocol library.
+websockets
 gitpython
 pydantic
 pydantic-settings
