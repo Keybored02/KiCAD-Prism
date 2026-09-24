@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { commentClassLabel, type Comment } from "@/types/comments";
 import { CommentSeverityBadge } from "@/components/comment-severity-badge";
+import { ReplyTrackerState } from "@/features/tracker-integration/reply-tracker-state";
 import { TrackerIssueAction } from "@/features/tracker-integration/tracker-issue-action";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -34,6 +35,7 @@ interface CommentPanelProps {
     onReattach?: (comment: Comment) => Promise<void>;
     onPromote?: (commentId: string) => Promise<void>;
     onRetrySync?: (commentId: string) => Promise<void>;
+    onShareReply?: (commentId: string, replyId: string) => Promise<void>;
 }
 
 export function CommentPanel({
@@ -50,6 +52,7 @@ export function CommentPanel({
     onReattach,
     onPromote,
     onRetrySync,
+    onShareReply,
 }: CommentPanelProps) {
     const [filter, setFilter] = useState<"ALL" | "OPEN" | "RESOLVED">("ALL");
 
@@ -127,6 +130,7 @@ export function CommentPanel({
                                                 onReattach={onReattach}
                                                 onPromote={onPromote}
                                                 onRetrySync={onRetrySync}
+                                                onShareReply={onShareReply}
                                             />
                                         ))}
                                     </div>
@@ -152,6 +156,7 @@ function PanelCommentCard({
     onReattach,
     onPromote,
     onRetrySync,
+    onShareReply,
 }: {
     comment: Comment;
     highlighted: boolean;
@@ -164,6 +169,7 @@ function PanelCommentCard({
     onReattach?: (comment: Comment) => Promise<void>;
     onPromote?: (commentId: string) => Promise<void>;
     onRetrySync?: (commentId: string) => Promise<void>;
+    onShareReply?: (commentId: string, replyId: string) => Promise<void>;
 }) {
     const [isReplying, setIsReplying] = useState(false);
     const [replyContent, setReplyContent] = useState("");
@@ -329,7 +335,7 @@ function PanelCommentCard({
                             </button>
                             {expanded &&
                                 comment.replies.map((reply) => (
-                                    <div key={`${reply.timestamp}-${reply.author}-${reply.content}`} className="relative border-l-2 border-muted pl-2 text-sm">
+                                    <div key={reply.id ?? `${reply.timestamp}-${reply.author}-${reply.content}`} className="relative border-l-2 border-muted pl-2 text-sm">
                                         <div className="mb-1 flex items-center justify-between">
                                             <span className="text-xs font-medium">{reply.author}</span>
                                             <span className="text-[10px] text-muted-foreground">
@@ -337,6 +343,13 @@ function PanelCommentCard({
                                             </span>
                                         </div>
                                         <p className="text-muted-foreground">{reply.content}</p>
+                                        <ReplyTrackerState
+                                            reply={reply}
+                                            provider={comment.tracker?.provider}
+                                            onShare={onShareReply
+                                                ? (replyId) => onShareReply(comment.id, replyId)
+                                                : undefined}
+                                        />
                                     </div>
                                 ))}
                         </div>

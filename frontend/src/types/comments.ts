@@ -43,10 +43,23 @@ export interface CommentLocation {
     bounds?: [number, number, number, number];
 }
 
+export interface ReplySync {
+    /** ``unsynced_local``: saved in Prism only; ``confirmed``: posted on the issue. */
+    state: string;
+    reason?: string | null;
+    externalCommentId?: string | null;
+    externalUrl?: string | null;
+}
+
 export interface CommentReply {
+    id?: string;
     author: string;
     timestamp: string;
     content: string;
+    /** ``remote`` replies were imported from the linked issue. */
+    origin?: "prism" | "remote" | string;
+    sync?: ReplySync | null;
+    permissions?: { canEdit?: boolean; canDelete?: boolean; canShare?: boolean };
 }
 
 export interface Comment {

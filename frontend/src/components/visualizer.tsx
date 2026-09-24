@@ -1341,7 +1341,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         try {
             const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}/replies`, {
                 method: "POST",
-                body: JSON.stringify({ content, author: user?.name }),
+                body: JSON.stringify({ content }),
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to add reply"));
             const payload = await response.json() as { comment: Comment };
@@ -1387,6 +1387,20 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             refreshComments();
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to retry issue sync");
+        }
+    }, [projectId, refreshComments]);
+
+    const shareReply = useCallback(async (commentId: string, replyId: string) => {
+        try {
+            const response = await fetchApi(
+                `/api/projects/${projectId}/comments/${commentId}/replies/${replyId}/share`,
+                { method: "POST" },
+            );
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to share reply"));
+            refreshComments();
+            toast.success("Reply queued for the linked issue.");
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to share reply");
         }
     }, [projectId, refreshComments]);
 
@@ -1847,6 +1861,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 onReattach={reattachComment}
                                 onPromote={promoteComment}
                                 onRetrySync={retryCommentSync}
+                                onShareReply={shareReply}
                                 embedded
                             />
                             </div>

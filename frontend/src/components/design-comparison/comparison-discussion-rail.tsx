@@ -2,6 +2,8 @@ import { useState } from "react";
 import { CheckCircle2, MessageSquare, Reply, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ReplyTrackerState } from "@/features/tracker-integration/reply-tracker-state";
+import { TrackerIssueAction } from "@/features/tracker-integration/tracker-issue-action";
 import { fetchApi, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Comment, CommentContext } from "@/types/comments";
@@ -89,6 +91,24 @@ export function ComparisonDiscussionRail({
             onCommentsChange(comments.map((item) => item.id === updated.id ? updated : item));
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : "Failed to update discussion");
+        }
+    };
+
+    /**
+     * Issue actions queue forge work; the comment stream refreshes this rail
+     * when the worker links the issue, so only a returned thread is applied.
+     */
+    const trackerAction = async (path: string, fallback: string) => {
+        setError(null);
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments/${path}`, { method: "POST" });
+            if (!response.ok) throw new Error(await readApiError(response, fallback));
+            const payload = (await response.json()) as Partial<Comment>;
+            if (payload.id && Array.isArray(payload.replies)) {
+                onCommentsChange(comments.map((item) => item.id === payload.id ? payload as Comment : item));
+            }
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : fallback);
         }
     };
 
@@ -181,12 +201,26 @@ export function ComparisonDiscussionRail({
                             )}
                         </div>
                         <p className="mt-2 whitespace-pre-wrap leading-relaxed">{comment.content}</p>
+                        <div className="mt-2">
+                            <TrackerIssueAction
+                                comment={comment}
+                                onPromote={(id) => trackerAction(`${id}/promote`, "Failed to create issue")}
+                                onRetry={(id) => trackerAction(`${id}/tracker/retry`, "Failed to retry issue sync")}
+                            />
+                        </div>
                         {!!comment.replies.length && (
                             <div className="mt-2 space-y-2 border-l pl-2">
                                 {comment.replies.map((item) => (
-                                    <div key={`${item.timestamp}-${item.author}-${item.content}`}>
+                                    <div key={item.id ?? `${item.timestamp}-${item.author}-${item.content}`}>
                                         <span className="font-medium">{item.author}: </span>
                                         {item.content}
+                                        <ReplyTrackerState
+                                            reply={item}
+                                            provider={comment.tracker?.provider}
+                                            onShare={(replyId) => trackerAction(
+                                                `${comment.id}/replies/${replyId}/share`, "Failed to share reply",
+                                            )}
+                                        />
                                     </div>
                                 ))}
                             </div>
