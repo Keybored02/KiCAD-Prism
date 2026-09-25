@@ -30,9 +30,11 @@ async def _read_body_with_limit(request: Request, max_bytes: int) -> bytes:
 
 @router.post("/github/{connector_id}")
 async def github_webhook(connector_id: str, request: Request) -> JSONResponse:
-    raw = await _read_body_with_limit(request, MAX_BODY_BYTES)
     headers = dict(request.headers)
     try:
+        # The size limit raises WebhookRejected while streaming; it must be
+        # inside this block to answer 413 rather than escape as a 500.
+        raw = await _read_body_with_limit(request, MAX_BODY_BYTES)
         # Secret decryption and the hint insert are blocking DB work; keep them
         # off the event loop like every other tracker route.
         result = await asyncio.to_thread(service.ingest, connector_id, headers, raw)
