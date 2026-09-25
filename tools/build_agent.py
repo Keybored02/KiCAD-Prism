@@ -67,12 +67,22 @@ def _check_requirements_installed() -> None:
         except PackageNotFoundError:
             missing.append(name)
 
+    # Not a pip package, so requirements.txt can't say it: every agent dialog (the
+    # prism:// results, errors, the uninstall prompts) is tkinter. A distro Python
+    # without it (Debian's, unless python3-tk is installed) builds a binary that
+    # works in every other way and silently shows no message at all. Found live.
+    try:
+        import tkinter  # noqa: F401
+    except ImportError:
+        missing.append("tkinter (a system package: python3-tk on Debian/Ubuntu)")
+
     if missing:
         raise SystemExit(
             "This interpreter is missing packages requirements.txt declares: %s\n"
             "The build would succeed anyway (PyInstaller only bundles what it can "
             "see imported, and the agent degrades some of these at runtime rather "
-            "than crash), producing a binary that's silently missing them. Run:\n"
+            "than crash), producing a binary that's silently missing them. Install "
+            "any system package named above, then:\n"
             "    %s -m pip install -r %s"
             % (", ".join(missing), sys.executable, REQUIREMENTS)
         )
