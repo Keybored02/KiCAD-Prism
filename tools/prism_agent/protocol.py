@@ -181,6 +181,18 @@ def is_stale() -> bool:
     if not is_registered():
         return False  # not registered at all is not "stale", it is "off"
 
+    if sys.platform == "darwin":
+        # There is no text command to read back from a compiled applet, unlike
+        # Windows' registry value, so staleness is tracked by version instead: does
+        # this bundle carry the marker the agent that built it would have written.
+        from .server import VERSION
+
+        marker = _mac_version_marker(_mac_app_bundle())
+        try:
+            return marker.read_text(encoding="utf-8").strip() != VERSION
+        except OSError:
+            return True  # a bundle from before this marker existed: rebuild it once
+
     current = registered_command()
     if not current:
         return False  # cannot read it back on this platform: do not guess
@@ -287,6 +299,19 @@ def _mac_app_bundle() -> Path:
     return Path.home() / "Applications" / "KiCad-Prism Agent.app"
 
 
+def _mac_version_marker(bundle: Path) -> Path:
+    """Where the bundle records which agent version built it.
+
+    is_registered() only answers whether the .app exists, and registered_command()
+    cannot read anything back from it (osacompile's applet is compiled, there is no
+    text command to compare against, unlike Windows' registry value). Without this,
+    a version that changes what the applet should run (see _open_location_applescript)
+    ships with no way to tell an old bundle apart from a current one, and the fix
+    only takes effect after the user manually toggles the setting off and back on.
+    """
+    return bundle / "Contents" / "Resources" / "prism-agent-version.txt"
+
+
 def _open_location_applescript(command: list[str]) -> str:
     """The applet source: receive the URL via `on open location`, run `command` with
     it appended as the final argument.
@@ -357,6 +382,10 @@ def _register_macos() -> None:
                 timeout=10,
                 check=False,
             )
+
+        from .server import VERSION
+
+        _mac_version_marker(bundle).write_text(VERSION, encoding="utf-8")
     except OSError as exc:
         raise RegistrationError("Couldn't write %s: %s" % (bundle, exc)) from exc
 

@@ -57,6 +57,13 @@ class Settings:
     # are installed the OS picks one, often the wrong one, so this pins the exact
     # executable the user chose. See kicad_versions.py for discovery.
     kicad_command: str = ""
+    # KiCad refuses a remote symbol provider whose URL isn't HTTPS or a literal
+    # loopback address (localhost/127.0.0.1/::1), with no config override, so a plain
+    # LAN server fails its check outright. This opts into a local proxy (see
+    # library_bridge.py) that gives KiCad a genuine loopback URL to satisfy that check
+    # while still ultimately talking to server_url. Opt-in: it changes what gets
+    # written into the user's eeschema.json and runs an extra listener.
+    library_bridge_enabled: bool = False
 
     def to_dict(self, redact: bool = False) -> dict:
         d = asdict(self)

@@ -189,6 +189,12 @@ def _prism_config() -> PrismConfig:
 def _shutdown(server) -> None:
     server.shutdown()
     discovery.clear_endpoint()
+    try:
+        from . import library_bridge
+
+        library_bridge.stop()
+    except Exception:
+        log.debug("couldn't stop the library bridge on shutdown", exc_info=True)
 
 
 def _handle_url(url: str) -> int:
@@ -1011,6 +1017,18 @@ def main() -> int:
             log.info("Rewrote a stale autostart entry")
     except Exception as exc:
         log.warning("Couldn't refresh the autostart entry: %s", exc)
+
+    # Runs for the life of the agent, same as autostart: it exists so KiCad's own
+    # HTTPS-or-loopback check passes for a plain-HTTP server, which is the common
+    # case, not something to leave off until the user happens to open Settings.
+    saved_settings = settings_store.load()
+    if saved_settings.library_bridge_enabled:
+        try:
+            from . import library_bridge
+
+            library_bridge.start(saved_settings.server_url)
+        except OSError as exc:
+            log.warning("Couldn't start the library bridge: %s", exc)
 
     config = _prism_config()
     server, _thread, state = serve(config)

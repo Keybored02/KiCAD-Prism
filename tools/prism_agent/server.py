@@ -77,6 +77,7 @@ from . import (
     discovery,
     gitignore,
     identity,
+    library_bridge,
     merge_session,
     merge_tokens,
     protocol,
@@ -88,7 +89,7 @@ from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
 from .worktree_diff import uncommitted_changes
 
-VERSION = "0.5.5"
+VERSION = "0.5.6"
 
 # The oldest plugin this agent can serve.
 #
@@ -1117,6 +1118,19 @@ class _Handler(BaseHTTPRequestHandler):
             "autostart": {"enabled": autostart.is_enabled(), "supported": True},
         }
 
+    def _relink_after_bridge_change(self, server_url: str) -> None:
+        """If Prism was already linked, re-link so eeschema.json's metadata_url
+        follows the bridge's new on/off state, rather than pointing at whatever it
+        said before this save (an old bridge port, or a raw server_url the bridge
+        has now replaced)."""
+        was_linked = remote_library.status(server_url).get("linked")
+        if not was_linked:
+            return
+        try:
+            remote_library.link(server_url)
+        except remote_library.RemoteLibraryError:
+            log.warning("Couldn't re-link after a bridge change", exc_info=True)
+
     def _save_settings(self, body: dict) -> dict:
         changes = {
             k: body[k]
@@ -1127,6 +1141,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "autostart",
                 "first_run_done",
                 "projects_roots",
+                "library_bridge_enabled",
             )
             if k in body
         }
@@ -1173,6 +1188,27 @@ class _Handler(BaseHTTPRequestHandler):
                 changes.pop(key, None)
                 errors.append(str(exc))
 
+        # A third toggle, kept out of the tuple loop above because starting it needs
+        # server_url, which can be changing in this very save, not just a bool. Same
+        # principle as the other two: if it fails, do not persist "enabled" for a
+        # bridge that is not actually listening.
+        current_settings = settings_store.load()
+        bridge_want = changes.get("library_bridge_enabled", current_settings.library_bridge_enabled)
+        target_server = changes.get("server_url", current_settings.server_url)
+        # Not just "did the on/off state change": if it's already on and server_url
+        # changed in this save, the bridge is still forwarding to the OLD address
+        # until it restarts, so treat a URL change the same as a fresh start.
+        bridge_url_changed = library_bridge.is_running() and "server_url" in changes
+        if bridge_want != library_bridge.is_running() or bridge_url_changed:
+            try:
+                if bridge_want:
+                    library_bridge.start(target_server)
+                else:
+                    library_bridge.stop()
+            except OSError as exc:
+                changes.pop("library_bridge_enabled", None)
+                errors.append("Couldn't start the local bridge: %s" % exc)
+
         saved, ignored = settings_store.apply(**changes)
 
         # A setting this agent is too old to know about. It was dropped, so saying
@@ -1185,6 +1221,9 @@ class _Handler(BaseHTTPRequestHandler):
                 "Restart the agent to pick up the new version."
                 % ", ".join(sorted(ignored))
             )
+
+        if "library_bridge_enabled" in changes or "server_url" in changes:
+            self._relink_after_bridge_change(saved.server_url)
 
         # Re-point the backend client, or the new URL/token wouldn't take effect
         # until the agent restarted.
