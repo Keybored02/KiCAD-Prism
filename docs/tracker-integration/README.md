@@ -27,7 +27,8 @@ live here. Order of delivery:
 2. GitHub end to end (TR-09 … TR-46): connector, identities, promotion, durable
    operations, two-way sync, webhooks, polling, verification sweeps,
    publication policy, UI, deployment.
-3. GitLab (TR-47 … TR-50), then Gitea/Forgejo (TR-51 … TR-53).
+3. GitLab (TR-47 … TR-50): shipped for GitLab.com and self-managed GitLab.
+   Then Gitea/Forgejo (TR-51 … TR-53).
 4. Personal dashboard (TR-54 … TR-57).
 5. Deferred: Jira, Linear, marker-crop images, KiCad plugin.
 
