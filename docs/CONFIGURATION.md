@@ -44,6 +44,7 @@ password auth), or if required secret or database settings are incomplete.
 | `PRISM_DATABASE_URL` | authoritative PostgreSQL connection URL |
 | `PRISM_DATABASE_POOL_*` | connection pool bounds per process |
 | `UVICORN_WORKERS` | API worker processes |
+| `PRISM_AUTO_SYNC_INTERVAL_SECONDS` | background remote fetch interval; 300 seconds by default, 0 disables it |
 | `PRISM_WORKER_CONCURRENCY` | general queued-job concurrency |
 | `CATALOG_WORKER_CONCURRENCY` | catalog queued-job concurrency |
 | `PRISM_*_CONCURRENCY` | fenced slots for heavy job classes |
@@ -106,6 +107,31 @@ default; override at build time with
 `docker compose build --build-arg KICAD_BASE_IMAGE=...`. The public
 source-build and release targets are Linux AMD64.
 
+### Experimental PCB geometry
+
+`PRISM_PCB_GEOMETRY_BACKEND=legacy` is the normal release and source default.
+The image containing a Rust helper does not activate it. Select `rust` only
+for a deliberate experiment; `python-copper` is also experimental. Rust rejects
+missing helpers, identity mismatches, unsupported geometry, and helper errors
+instead of silently falling back. Set `PRISM_KICAD_NATIVE_TIMEOUT_SECONDS` to
+bound helper execution (default 300 seconds).
+
+Rollback by setting the backend to `legacy` and recreating the API and general
+worker containers so they receive the new environment. Direct host experiments
+should also unset the old `PRISM_COPPER_EMIT_ENABLED` compatibility switch.
+See [Rust geometry](PCB_RUST_GEOMETRY.md) for build identity and coverage limits.
+
+### Live comments and issue trackers
+
+`PRISM_COMMENT_LIVE_ENABLED=true` enables live comment delivery; set it to
+`false` to use the HTTP refresh fallback. Set the public origin correctly in
+`PUBLIC_BASE_URL` and `CORS_ORIGINS_STR` for authenticated WebSockets.
+
+Issue publication is opt-in through an administrator-configured code host and
+project destination. It requires the tracker credential root key on both API
+and general workers. See [Tracker integration](TRACKER_INTEGRATION.md) for
+`TRACKER_CREDENTIAL_ROOT_KEY*`, rotation, webhooks, and recovery.
+
 ## Project-level `.prism.json`
 
 Place `.prism.json` in a KiCad project root when auto-detection does not find the
@@ -148,7 +174,7 @@ fallbacks. Paths are relative to the registered project root.
 
 The schema currently accepts `workflows`, `portfolio`, and additional fields for
 forward compatibility. Arbitrary `workflows` entries are not executed as
-first-class custom workflows in V3 alpha; the product currently exposes its
+first-class custom workflows in this alpha; the product currently exposes its
 fixed workflow types.
 
 ## Safe change procedure

@@ -96,6 +96,15 @@ the component detail, part manifest, inline bundle, and signed asset download
 flows. Unknown and incomplete IDs are rejected rather than silently falling
 back.
 
+## Search and recovery
+
+The finder pages through the catalog rather than truncating it to the first
+page. Changing the query cancels superseded searches. Detail and preview errors
+are retryable; reauthenticate when the panel reports an expired session.
+Placement is dispatched once per request. If an attempt fails, inspect its
+status before explicitly retrying. Transfer logs are bounded and redact
+credentials.
+
 ## Parts payload contract (parts_v1)
 
 Clients must read `provider_version` from the discovery metadata before

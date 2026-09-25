@@ -101,7 +101,19 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 `backend/app/services/comments_url_service.py` →
 `frontend/src/components/comment-panel.tsx` →
 `frontend/src/lib/comment-overlays.ts` (overlay shaping) →
-`frontend/src/components/visualizer.tsx` (overlay attachment)
+`frontend/src/components/visualizer.tsx` (overlay attachment).
+Live updates use `backend/app/services/comment_live_events.py` and
+`backend/app/services/comment_live_broker.py`; revision binding history lives
+in `backend/app/services/comment_anchor_bindings.py`. Read
+`docs/architecture/live-comments.md` before changing those contracts.
+
+**Publish a comment as a tracker issue**
+`backend/app/services/trackers/promotion.py` →
+`backend/app/services/trackers/op_store.py` →
+`backend/app/services/trackers/jobs.py` →
+`backend/app/services/trackers/provider_registry.py`. GitHub and GitLab issue
+publication are available; Gitea/Forgejo is account-linking only. See
+`docs/TRACKER_INTEGRATION.md` for credentials, destinations, and recovery.
 
 **Select a design variant**
 `backend/app/services/variant_catalog_service.py` →
@@ -177,6 +189,17 @@ load the relevant ranges rather than reading them end to end.
   Extract pure shaping logic before splitting the orchestration blindly.
 - New feature components belong in a feature directory, not loose at
   `frontend/src/components/`.
+
+## Release and experimental boundaries
+
+Release promotion requires reviewed `dev` to `main`, the main commit Quality
+gate, and checked-in `docs/releases/<tag>.md`; see `docs/RELEASES.md`.
+The next tag is `v4.0.0-alpha`, superseding the unpublished v3.1 plan.
+
+`PRISM_PCB_GEOMETRY_BACKEND=legacy` is the supported default. Rust and
+Python-copper require explicit experimental selection; never infer activation
+from an installed helper or replace the published Python toolchain with a
+sibling checkout. See `docs/PCB_RUST_GEOMETRY.md` and `docs/DEPENDENCIES.md`.
 
 ## Generated and vendored boundaries
 

@@ -1,7 +1,6 @@
 # Architecture
 
-KiCAD Prism is a five-service Docker Compose application with two persistent
-storage domains.
+KiCAD Prism is a five-service Docker Compose application with PostgreSQL, project/asset storage, and SSH identity persistence.
 
 ## Runtime services
 
@@ -83,7 +82,8 @@ expensive. Include them in routine backups when recovery time matters.
 
 ## Trust boundaries
 
-- The browser receives a signed, opaque session cookie after OIDC login.
+- The browser receives a signed, opaque session cookie after OIDC or enabled
+  local password login.
 - KiCad Remote Symbol Provider access uses a separate OAuth2 authorization-code
   and PKCE flow with `remote_symbols.read`.
 - Service clients use scoped bearer tokens and should be stored in a secret
