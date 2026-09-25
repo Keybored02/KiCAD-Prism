@@ -111,6 +111,13 @@ def _load_tray():
     Linux it tries appindicator -> gtk -> xorg, raising ImportError if all three
     fail. That makes the "no tray available" case detectable rather than silent,
     we don't have to know anything about individual distros.
+
+    Except when it doesn't raise ImportError. The xorg backend imports Xlib fine,
+    then Xlib itself raises trying to open a display (DisplayNameError, a plain
+    Exception, not an ImportError) when there's no DISPLAY at all, a headless
+    service or an SSH session with no X forwarding. Narrowing this to ImportError
+    let that crash the whole agent instead of falling back; any failure importing
+    pystray, whatever its type, means the same thing here: no tray, try headless.
     """
     try:
         from PIL import Image, ImageDraw
@@ -122,7 +129,7 @@ def _load_tray():
 
     try:
         import pystray
-    except ImportError as exc:
+    except Exception as exc:  # noqa: BLE001 - see the docstring: not just ImportError
         # Distinguish "not installed" from "installed but unusable here".
         try:
             import importlib.util
@@ -137,10 +144,10 @@ def _load_tray():
                 "    pip install -r tools/prism_agent/requirements.txt"
             )
         return None, (
-            "No system tray is available here (%s).\n"
+            "No system tray is available here (%s: %s).\n"
             "On Linux the tray needs an AppIndicator backend:\n"
             "    sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi\n"
-            "The agent works fine without it, see below." % exc
+            "The agent works fine without it, see below." % (type(exc).__name__, exc)
         )
 
     return (pystray, Image, ImageDraw), None
@@ -672,6 +679,31 @@ def _relaunch() -> None:
     )
 
 
+class _DockFailureWatch(logging.Handler):
+    """Catches pystray's own "Failed to dock icon" log line.
+
+    pystray's X11 backend (_xorg.py) deliberately swallows a missing systray
+    manager: no exception reaches us, no exit code changes, it just logs and
+    waits to retry if one ever appears. On a desktop with no systray host at
+    all (stock GNOME Shell, confirmed on Debian 13: no crash, no error the
+    agent itself could see, just a silently undocked icon forever), that retry
+    never comes and the user is left thinking the agent isn't running.
+
+    We can't ask pystray "did you actually dock" through any public API, so
+    this watches for the one symptom it does surface, its own log message, and
+    treats "it complained about docking, and never later logged success" as
+    good enough evidence to fall back rather than promise an icon nobody sees.
+    """
+
+    def __init__(self):
+        super().__init__(level=logging.ERROR)
+        self.failed = threading.Event()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if "Failed to dock icon" in record.getMessage():
+            self.failed.set()
+
+
 def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
     pystray, Image, ImageDraw = tray_mods
 
@@ -859,11 +891,43 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
 
     threading.Thread(target=_watch_for_api_quit, daemon=True).start()
 
+    # pystray's own X11 backend logs "Failed to dock icon" and silently waits to
+    # retry, rather than raising. On a desktop with no systray host at all that
+    # retry never comes, so watch for the same symptom and fall back to headless:
+    # keep the agent running, just say plainly that there's no icon to look for.
+    dock_watch = _DockFailureWatch()
+    pystray_log = logging.getLogger("pystray")
+    pystray_log.addHandler(dock_watch)
+
+    def _watch_for_dock_failure():
+        # Give it a moment to actually try before giving up on it: the first
+        # attempt happens as the mainloop starts, not the instant run() is called.
+        if dock_watch.failed.wait(timeout=3) and not stop.is_set():
+            log.warning(
+                "No system tray is available on this desktop (pystray couldn't "
+                "dock an icon); continuing without one. The agent's HTTP API is "
+                "the control surface either way, see --no-tray's own message."
+            )
+            icon.stop()
+
+    threading.Thread(
+        target=_watch_for_dock_failure, name="prism-tray-dock-watch", daemon=True
+    ).start()
+
     try:
         icon.run()  # blocks on the platform's tray loop
     finally:
-        if not stop.is_set():
+        pystray_log.removeHandler(dock_watch)
+        if not stop.is_set() and not dock_watch.failed.is_set():
             _shutdown(server)
+
+    if dock_watch.failed.is_set() and not stop.is_set():
+        # icon.run() returned because we called icon.stop() above, not because
+        # anyone asked to quit. Same server, same port, same discovery file:
+        # just keep serving without a tray loop blocking on nothing.
+        return _run_headless(
+            server, stop, port, "No system tray available; continuing headless."
+        )
     return 0
 
 

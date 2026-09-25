@@ -19,6 +19,7 @@ one on Linux. Run this on each target (CI does exactly that), see
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,52 @@ BUILD = TOOLS / "build"
 
 NAME = "prism-agent"
 
+REQUIREMENTS = TOOLS / "prism_agent" / "requirements.txt"
+
+
+def _check_requirements_installed() -> None:
+    """Refuse to build from an interpreter missing a declared runtime dependency.
+
+    Found the hard way: a binary built from a venv that predated truststore being
+    added to requirements.txt still built successfully (PyInstaller only bundles what
+    the entry script actually imports, and __main__.py's import is wrapped in a
+    try/except specifically so a MISSING truststore degrades gracefully at runtime,
+    see _use_os_trust_store). The result looked completely normal, right version
+    string, no error anywhere, and simply couldn't verify any HTTPS certificate.
+    Nothing about that build step said so. This does, before PyInstaller ever runs.
+
+    Checks by distribution name (importlib.metadata, what pip itself tracks), not by
+    import name, so this stays correct as dependencies are added: pystray/Pillow/
+    truststore's import names already don't all match their package names.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    names = []
+    for line in REQUIREMENTS.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        name = re.split(r"[<>=!~\s]", line, maxsplit=1)[0]
+        if name:
+            names.append(name)
+
+    missing = []
+    for name in names:
+        try:
+            version(name)
+        except PackageNotFoundError:
+            missing.append(name)
+
+    if missing:
+        raise SystemExit(
+            "This interpreter is missing packages requirements.txt declares: %s\n"
+            "The build would succeed anyway (PyInstaller only bundles what it can "
+            "see imported, and the agent degrades some of these at runtime rather "
+            "than crash), producing a binary that's silently missing them. Run:\n"
+            "    %s -m pip install -r %s"
+            % (", ".join(missing), sys.executable, REQUIREMENTS)
+        )
+
 
 def _sep() -> str:
     """PyInstaller's --add-data separator: ';' on Windows, ':' elsewhere."""
@@ -37,6 +84,8 @@ def _sep() -> str:
 
 
 def build(clean: bool = True, console: bool = False) -> Path:
+    _check_requirements_installed()
+
     if clean:
         for d in (DIST, BUILD):
             shutil.rmtree(d, ignore_errors=True)
