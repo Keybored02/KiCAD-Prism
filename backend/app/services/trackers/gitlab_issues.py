@@ -42,6 +42,7 @@ from app.services.trackers.contracts import (
     assert_no_owner_repo,
 )
 from app.services.trackers.errors import ProviderError
+from app.services.trackers.github_updates import parse_iso8601
 from app.services.trackers.gitlab_auth import GitLabBotAuth, _visibility
 from app.services.trackers.http import ForgeHttpResponse, TrackerHttp
 
@@ -168,7 +169,9 @@ class GitLabIssueAdapter:
                     observedUpdatedAt=updated or None,
                 )
             )
-            if updated > latest:
+            # Compare as times: GitLab's millisecond stamps do not sort as text
+            # against second-precision cursors ("…59.092Z" < "…59Z").
+            if updated and (not latest or parse_iso8601(updated) > parse_iso8601(latest)):
                 latest = updated
         return changes, UpdateCursor(since=latest or since_cursor.since, page=response.next_page())
 
@@ -207,8 +210,8 @@ class GitLabIssueAdapter:
 
     # --- recovery -------------------------------------------------------------
 
-    def bot_issue_pages(self, dest: Destination, *, since: Optional[str] = None):
-        """Yield pages of issues the bot authored, oldest update first."""
+    def bot_issue_query(self, dest: Destination, *, since: Optional[str] = None) -> tuple[str, dict[str, Any]]:
+        """First-page URL and parameters for issues the bot authored, oldest update first."""
 
         params: dict[str, Any] = {"scope": "all", "order_by": "updated_at", "sort": "asc", "per_page": 100}
         if self.bot_user_id:
@@ -217,7 +220,12 @@ class GitLabIssueAdapter:
             params["author_username"] = self.bot_login
         if since:
             params["updated_after"] = since
-        url: Optional[str] = self._project_url(dest, "/issues")
+        return self._project_url(dest, "/issues"), params
+
+    def bot_issue_pages(self, dest: Destination, *, since: Optional[str] = None):
+        """Yield pages of issues the bot authored, oldest update first."""
+
+        url, params = self.bot_issue_query(dest, since=since)
         while url:
             response = self._request("GET", url, params=params)
             params = None

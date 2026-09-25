@@ -265,6 +265,7 @@ export function ProjectTrackerSettingsPanel({
                     setDraft={setDraft}
                     connectors={connectors}
                     savedProvider={settings.provider}
+                    onRestoreSaved={() => setDraft(draftFromSettings(settings))}
                     isAdmin={isAdmin}
                 />
             </FormSection>

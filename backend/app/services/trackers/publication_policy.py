@@ -106,10 +106,15 @@ def project_repo_path(conn: Any, repo_url: str | None, connector_id: str) -> str
 
 
 def _default_connector(conn: Any, repo_url: str | None) -> tuple[str | None, str]:
-    """The connection that hosts the project's remote, else the oldest usable one."""
+    """The connection that hosts the project's remote, else the oldest one that can publish.
+
+    A connection without credentials exists only for account linking and is
+    never a destination.
+    """
 
     rows = conn.execute(
-        "SELECT * FROM tracker_connectors WHERE paused = FALSE ORDER BY created_at ASC, id ASC"
+        "SELECT * FROM tracker_connectors WHERE paused = FALSE AND credential_envelope IS NOT NULL "
+        "ORDER BY created_at ASC, id ASC"
     ).fetchall()
     usable = [dict(row) for row in rows if is_issue_provider(str(row["provider"]))]
     for row in usable:

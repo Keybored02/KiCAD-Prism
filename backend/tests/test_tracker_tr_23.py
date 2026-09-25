@@ -242,6 +242,26 @@ class PublicationPolicyPostgresTests(unittest.TestCase):
         unresolved = self.service.get_or_default("prj_seed_2", repo_url="https://github.com/acme/other")
         self.assertEqual(unresolved["destination"]["remoteContainerId"], "pending:acme/other")
 
+    def test_default_destination_follows_the_host_that_serves_the_remote(self) -> None:
+        admin = ConnectorService(connect=self._factory, settings=self.settings, workspace_schema=self.schema)
+        admin.create(actor_user_id="u_admin", provider="gitlab", instance_kind="self-hosted",
+                     display_name="Link only", base_url="https://gitlab.linkonly.io", connector_id="cn_link")
+        admin.create(actor_user_id="u_admin", provider="gitlab", instance_kind="self-hosted",
+                     display_name="Pixxel GitLab", base_url="https://gitlab.pixxel.io",
+                     credentials={"accessToken": "glpat-fixture"}, connector_id="cn_gl")
+
+        on_gitlab = self.service.get_or_default("prj_gl", repo_url="https://gitlab.pixxel.io/hw/boards/openswitch.git")
+        self.assertEqual((on_gitlab["connectorId"], on_gitlab["provider"]), ("cn_gl", "gitlab"))
+        self.assertEqual(on_gitlab["destination"]["containerPath"], "hw/boards/openswitch")
+
+        on_github = self.service.get_or_default("prj_gh", repo_url="git@github.com:acme/openswitch.git")
+        self.assertEqual((on_github["connectorId"], on_github["provider"]), ("cn_gh1", "github"))
+
+        # A host that only links accounts cannot publish, so it is never the default.
+        on_link_only = self.service.get_or_default("prj_link", repo_url="https://gitlab.linkonly.io/hw/x")
+        self.assertEqual(on_link_only["connectorId"], "cn_gh1")
+        self.assertEqual(on_link_only["destination"]["containerPath"], "")
+
     def _set_observed_visibility(self, remote_container_id: str, visibility: str) -> None:
         self._observed_visibility[remote_container_id] = visibility
 

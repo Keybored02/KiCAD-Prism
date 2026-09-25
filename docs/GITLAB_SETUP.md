@@ -40,8 +40,8 @@ Prism publishes as a bot. Pick one:
 For every kind:
 
 - **Name:** `Prism`. Issues and replies show this bot as their author.
-- **Role:** Developer (Reporter is the minimum that can close issues; Developer
-  avoids surprises).
+- **Role:** Developer. Prism checks for it before publishing, and the project
+  picker lists only projects where the bot has it.
 - **Scope:** `api`.
 - **Expiration:** your policy. Prism stops publishing and asks for a new token
   when it expires.

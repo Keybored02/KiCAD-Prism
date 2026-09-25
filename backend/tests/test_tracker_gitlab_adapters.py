@@ -204,7 +204,9 @@ class GitLabAdapterTests(unittest.TestCase):
     def test_recovery_finds_a_lost_issue_by_its_marker(self) -> None:
         op = {"id": "op_91a4c0de", "sent_at": None}
         marker = build_marker(connector_id="cn_gl", container_id="77", comment_id="c_1", op_id="op_91a4c0de")
-        self.forge.on("GET", f"{PROJECT}/issues", 200, [_issue(3, description=f"Body\n\n{marker}")])
+        page_two = f"{PROJECT}/issues?page=2"
+        self.forge.on("GET", f"{PROJECT}/issues", 200, [_issue(1)], headers={"link": f'<{page_two}>; rel="next"'})
+        self.forge.on("GET", page_two, 200, [_issue(3, description=f"Body\n\n{marker}")])
         outcome = recover_create_issue(
             op,
             dest=DEST,

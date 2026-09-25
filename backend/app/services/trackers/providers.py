@@ -221,13 +221,12 @@ def _gitlab_issue_pages(adapter: Any, dest: Destination, *, since: str | None = 
     the scanner and its marker validation stay shared.
     """
 
-    pages = adapter.bot_issue_pages(dest, since=since)
+    first_url, first_params = adapter.bot_issue_query(dest, since=since)
 
     def fetch(cursor: Optional[str]) -> Any:
-        del cursor
-        page = next(pages, None)
-        if page is None:
-            return [], None
+        # The cursor is GitLab's next-page URL, so a scan can resume or restart.
+        response = adapter._request("GET", cursor or first_url, params=None if cursor else first_params)
+        page = [item for item in adapter._json_list(response) if isinstance(item, dict)]
         items = [
             {
                 "id": item.get("id"),
@@ -238,9 +237,7 @@ def _gitlab_issue_pages(adapter: Any, dest: Destination, *, since: str | None = 
             }
             for item in page
         ]
-        # A non-empty token asks the scanner for the next page; the generator
-        # ends the walk by returning an empty page with no token.
-        return items, "next"
+        return items, response.next_page()
 
     return fetch
 
@@ -263,7 +260,8 @@ def _gitlab_repositories(connector: Mapping[str, Any], material: Mapping[str, An
     url: Optional[str] = auth.url("/projects")
     params: Optional[dict[str, Any]] = {
         "membership": "true",
-        "min_access_level": 20,
+        # Developer, the level the connection test requires to publish.
+        "min_access_level": 30,
         "archived": "false",
         "simple": "true",
         "order_by": "path",

@@ -36,6 +36,15 @@ it("switching to GitLab asks for a project on that host", () => {
     expect(next).toMatchObject({ connectorId: "cn_gl", useOverride: true, containerPath: "", remoteContainerId: "" });
 });
 
+it("switching back to the saved tracker restores the saved destination", () => {
+    const onRestoreSaved = vi.fn();
+    const gitlab = { ...github, id: "cn_gl", provider: "gitlab", displayName: "Pixxel GitLab" };
+    render(<ProjectTrackerChoice draft={{ ...draft, connectorId: "cn_gl" }} setDraft={vi.fn()}
+        connectors={[github, gitlab]} savedProvider="github" onRestoreSaved={onRestoreSaved} isAdmin />);
+    fireEvent.click(screen.getByRole("radio", { name: /GitHub Issues/ }));
+    expect(onRestoreSaved).toHaveBeenCalled();
+});
+
 it("shows people who cannot manage connections which tracker is used", () => {
     render(<ProjectTrackerChoice draft={{ ...draft, connectorId: "cn_gl" }} setDraft={vi.fn()} connectors={[]}
         savedProvider="gitlab" isAdmin={false} />);

@@ -34,10 +34,19 @@ interface ProjectTrackerChoiceProps {
     connectors: TrackerConnector[];
     /** Provider of the saved connection, for people who cannot list connections. */
     savedProvider?: string;
+    /** Puts the saved connection and destination back in the draft. */
+    onRestoreSaved?: () => void;
     isAdmin: boolean;
 }
 
-export function ProjectTrackerChoice({ draft, setDraft, connectors, savedProvider, isAdmin }: ProjectTrackerChoiceProps) {
+export function ProjectTrackerChoice({
+    draft,
+    setDraft,
+    connectors,
+    savedProvider,
+    onRestoreSaved,
+    isAdmin,
+}: ProjectTrackerChoiceProps) {
     const current = connectors.find((connector) => connector.id === draft.connectorId);
     const selectedProvider = current?.provider ?? savedProvider ?? "github";
     const sameProvider = connectors.filter((connector) => connector.provider === selectedProvider);
@@ -45,6 +54,10 @@ export function ProjectTrackerChoice({ draft, setDraft, connectors, savedProvide
     const choose = (provider: string) => {
         const first = connectors.find((connector) => connector.provider === provider);
         if (!first || provider === selectedProvider) return;
+        if (provider === savedProvider && onRestoreSaved) {
+            onRestoreSaved();
+            return;
+        }
         // A repository on one host means nothing on another, and the project's
         // own repository is only known for the saved host: pick one explicitly.
         setDraft((prev) => prev && { ...prev, connectorId: first.id, useOverride: true, containerPath: "", remoteContainerId: "" });
