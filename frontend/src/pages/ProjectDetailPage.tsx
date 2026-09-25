@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from
 import { Button } from "@/components/ui/button";
 import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, ExternalLink } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, ExternalLink, Link2 } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -27,6 +27,10 @@ const AssetsPortal = lazy(() =>
 );
 const PathConfigDialog = lazy(() =>
     import("@/components/path-config-dialog").then((module) => ({ default: module.PathConfigDialog }))
+);
+const TrackerSettingsDialog = lazy(() =>
+    import("@/features/tracker-integration/tracker-settings-dialog")
+        .then((module) => ({ default: module.TrackerSettingsDialog }))
 );
 const DocumentationBrowser = lazy(() =>
     import("@/components/documentation-browser").then((module) => ({ default: module.DocumentationBrowser }))
@@ -125,6 +129,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [syncing, setSyncing] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [pathConfigOpen, setPathConfigOpen] = useState(false);
+    const [trackerSettingsOpen, setTrackerSettingsOpen] = useState(false);
     const [branches, setBranches] = useState<ProjectBranch[]>([]);
     const [branchesLoading, setBranchesLoading] = useState(false);
     const [branchError, setBranchError] = useState<string | null>(null);
@@ -151,7 +156,15 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         () => branches.find((branch) => branch.is_current) || null,
         [branches]
     );
-    const activeCommit = currentCommit || selectedBranch?.commit || null;
+    const defaultBranch = currentBranch || branches[0] || null;
+    const activeBranchRef = selectedBranchRef || defaultBranch?.ref || null;
+    const activeCommit = currentCommit || selectedBranch?.commit || defaultBranch?.commit || null;
+    const viewerSelectionKey = `${projectId ?? ""}:${activeBranchRef ?? ""}:${currentCommit ?? ""}`;
+    const [viewerPin, setViewerPin] = useState<{ key: string; commit: string } | null>(null);
+    const viewerCommit = currentCommit
+        || (viewerPin?.key === viewerSelectionKey ? viewerPin.commit : activeCommit);
+    const newerViewerRevisionAvailable = activeSection === "visualizers" && !currentCommit
+        && !!activeCommit && !!viewerCommit && activeCommit !== viewerCommit;
     const comparisonUrl = useMemo(
         () => readComparisonUrlState(searchParams),
         [searchParams],
@@ -166,6 +179,10 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const visitedSections = useVisitedProjectSections(projectId, activeSection);
 
     const handleSectionChange = (section: ProjectSection) => {
+        if (section === "visualizers" && !currentCommit && activeCommit) {
+            setViewerPin((previous) => previous?.key === viewerSelectionKey
+                ? previous : { key: viewerSelectionKey, commit: activeCommit });
+        }
         setActiveSection(section);
         const next = new URLSearchParams(searchParams);
         next.set("section", section);
@@ -200,6 +217,14 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     };
 
     const handleBranchChange = (branchRef: string) => {
+        const branch = branches.find((entry) => entry.ref === branchRef)
+            || (branchRef ? null : defaultBranch);
+        if (activeSection === "visualizers" && branch?.commit) {
+            setViewerPin({
+                key: `${projectId ?? ""}:${branchRef || defaultBranch?.ref || ""}:`,
+                commit: branch.commit,
+            });
+        }
         const next = new URLSearchParams(searchParams);
         if (branchRef) next.set("branch", branchRef);
         else next.delete("branch");
@@ -249,10 +274,14 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
         const controller = new AbortController();
         let cancelled = false;
+        let inFlight = false;
+        let firstLoad = true;
         setBranchesLoading(true);
         setBranchError(null);
 
         const fetchBranches = async () => {
+            if (inFlight) return;
+            inFlight = true;
             try {
                 const data = await fetchJson<ProjectBranchesResponse>(
                     `/api/projects/${projectId}/branches`,
@@ -260,26 +289,47 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     "Failed to load branches"
                 );
                 if (!cancelled) {
-                    setBranches(data.branches || []);
+                    const received = data.branches || [];
+                    setBranches(received);
+                    if (activeSection === "visualizers" && !currentCommit) {
+                        const chosen = received.find((branch) => branch.ref === selectedBranchRef)
+                            || received.find((branch) => branch.is_current) || received[0];
+                        if (chosen?.commit) {
+                            const key = `${projectId}:${selectedBranchRef || chosen.ref}:`;
+                            setViewerPin((previous) => previous?.key === key
+                                ? previous : { key, commit: chosen.commit });
+                        }
+                    }
+                    setBranchError(null);
                 }
             } catch (err) {
                 if (!cancelled) {
-                    setBranches([]);
                     setBranchError(err instanceof Error ? err.message : "Failed to load branches");
                 }
             } finally {
                 if (!cancelled) {
-                    setBranchesLoading(false);
+                    if (firstLoad) setBranchesLoading(false);
                 }
+                firstLoad = false;
+                inFlight = false;
             }
         };
 
         void fetchBranches();
+        const timer = window.setInterval(() => {
+            if (document.visibilityState === "visible") void fetchBranches();
+        }, 30_000);
+        const onVisible = () => {
+            if (document.visibilityState === "visible") void fetchBranches();
+        };
+        document.addEventListener("visibilitychange", onVisible);
         return () => {
             cancelled = true;
             controller.abort();
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", onVisible);
         };
-    }, [projectId, refreshKey]);
+    }, [projectId, refreshKey, activeSection, currentCommit, selectedBranchRef]);
 
     useEffect(() => {
         if (!projectId) {
@@ -345,7 +395,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
             }
 
             try {
-                const refQuery = selectedBranchRef ? `&ref=${encodeURIComponent(selectedBranchRef)}` : "";
+                const refQuery = activeBranchRef ? `&ref=${encodeURIComponent(activeBranchRef)}` : "";
                 const data = await fetchJson<CommitDistanceResponse>(
                     `/api/projects/${projectId}/commits/distance?commit=${encodeURIComponent(currentCommit)}${refQuery}`,
                     { signal: controller.signal },
@@ -367,7 +417,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
         void calculateCommitsBehind();
         return () => controller.abort();
-    }, [currentCommit, projectId, selectedBranchRef]);
+    }, [activeBranchRef, currentCommit, projectId]);
 
     if (loading) {
         return <div className="flex items-center justify-center h-app-viewport">Loading...</div>;
@@ -497,13 +547,20 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             !branch.is_current
                                 ? [
                                     <option key={branch.ref} value={branch.ref}>
-                                        {branch.source === "remote" ? branch.ref : branch.name}
+                                        {branch.name}
                                     </option>,
                                 ]
                                 : []
                         ))}
                     </select>
                 </div>
+
+                {newerViewerRevisionAvailable && activeCommit && (
+                    <Button variant="outline" size="sm"
+                        onClick={() => setViewerPin({ key: viewerSelectionKey, commit: activeCommit })}>
+                        New revision available · View
+                    </Button>
+                )}
 
                 {/* Open in KiCad. Fires a prism:// link the local Prism agent
                     handles: it finds the project by its marker, clones it if this
@@ -536,6 +593,18 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </Button>
                 )}
 
+                {projectId && (
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setTrackerSettingsOpen(true)}
+                        title="Issue publishing settings"
+                        aria-label="Issue publishing settings"
+                    >
+                        <Link2 className="h-4 w-4" />
+                    </Button>
+                )}
+
                 {canMutateProject && (
                     <Button
                         variant="outline"
@@ -553,6 +622,16 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             projectId={projectId}
                             open={pathConfigOpen}
                             onOpenChange={setPathConfigOpen}
+                        />
+                    </Suspense>
+                )}
+                {projectId && trackerSettingsOpen && (
+                    <Suspense fallback={null}>
+                        <TrackerSettingsDialog
+                            projectId={projectId}
+                            isAdmin={user?.role === "admin"}
+                            open={trackerSettingsOpen}
+                            onOpenChange={setTrackerSettingsOpen}
                         />
                     </Suspense>
                 )}
@@ -705,14 +784,14 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         >
                             <h2 className="mb-6 text-2xl font-bold">History</h2>
                             {projectId && (
-                                <ErrorBoundary label="the history viewer" resetKeys={[projectId, selectedBranchRef, refreshKey]}>
+                                <ErrorBoundary label="the history viewer" resetKeys={[projectId, activeBranchRef, refreshKey]}>
                                     <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
                                         <HistoryViewer
                                             // The identity the ErrorBoundary
                                             // above already resets on.
-                                            key={`${projectId}:${selectedBranchRef}:${refreshKey}`}
+                                            key={`${projectId}:${activeBranchRef}:${refreshKey}`}
                                             projectId={projectId}
-                                            branchRef={selectedBranchRef}
+                                            branchRef={activeBranchRef}
                                             onViewCommit={handleViewCommit}
                                             onOpenVisualizer={handleOpenCommitVisualizer}
                                             canCompareDiffs
@@ -732,15 +811,15 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             fill
                         >
                             {projectId && (
-                                <ErrorBoundary label="the visualizer" resetKeys={[projectId, activeCommit]}>
+                                <ErrorBoundary label="the visualizer" resetKeys={[projectId, viewerCommit]}>
                                     <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading visualizers...</div>}>
                                         <Visualizer
                                             // The identity the ErrorBoundary
                                             // beside it already resets on.
-                                            key={`${projectId}:${activeCommit ?? ""}`}
+                                            key={`${projectId}:${viewerCommit ?? ""}`}
                                             projectId={projectId}
                                             user={user}
-                                            commit={activeCommit}
+                                            commit={viewerCommit}
                                             active={!comparisonVisible && activeSection === "visualizers"}
                                         />
                                     </Suspense>

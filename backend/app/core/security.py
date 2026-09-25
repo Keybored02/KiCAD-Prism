@@ -1,6 +1,7 @@
 import asyncio
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException
+from starlette.requests import HTTPConnection
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -52,7 +53,7 @@ def _resolve_allowed_user_role(email: str) -> Role | None:
     return normalize_role(role)
 
 
-async def get_current_user(request: Request) -> AuthenticatedUser:
+async def get_current_user(request: HTTPConnection) -> AuthenticatedUser:
     """Resolve the caller from the session cookie or a bearer token.
 
     Every store this consults is synchronous (session rows, role rows, provider
@@ -169,6 +170,14 @@ async def require_designer(user: AuthenticatedUser = Depends(get_current_user)) 
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
     if not role_meets_minimum(user.role, "designer"):
         raise HTTPException(status_code=403, detail="Designer role required")
+    return user
+
+
+async def require_comment_writer(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    """Permit project participants to comment, but refuse read-only tokens."""
+    if user.auth_type == "kicad_provider":
+        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
+    _require_bearer_scope(user, "api:write")
     return user
 
 

@@ -143,6 +143,7 @@ def build_release_bundle(
     metadata = parse_release_tag(tag)
     repository_root = template_dir.resolve().parents[1]
     source_files = [
+        (repository_root / "docs" / "releases" / f"{tag}.md", "RELEASE_NOTES.md"),
         *((template_dir / name, name) for name in TEMPLATE_FILES),
         *((repository_root / source, destination) for source, destination in REPOSITORY_FILES),
     ]

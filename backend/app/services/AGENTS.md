@@ -75,3 +75,18 @@ to get it wrong are visible on the frontend side.
 
 One backend rule: the viewer must never infer the old route from the comparison
 object (`design_compare_nodes.py`). Each revision carries its own geometry.
+
+## Comments and issue publication
+
+`comments_store_service.py` owns local discussion writes; `comments_revisions.py`
+and `comment_anchor_bindings.py` preserve revision and binding history.
+`comment_live_events.py` appends durable metadata in the same transaction as a
+mutation; `comment_live_broker.py` wakes socket readers. Keep HTTP snapshots as
+content authority and never let a tracker failure prevent local discussion.
+
+`trackers/provider_registry.py` selects provider capabilities. Promotion,
+reply/thread/state executors, webhook inboxes, and polling live under
+`trackers/`; provider-specific operations must not be hard-coded in generic
+handlers. Read `docs/TRACKER_INTEGRATION.md` and
+`docs/tracker-integration/CONTRACTS.md` before changing credential, idempotency,
+remote recovery, or authorization behavior.

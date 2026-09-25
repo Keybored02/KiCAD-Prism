@@ -15,6 +15,10 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
+        ws: true,
+        // Forward the browser's origin so absolute URLs the API builds (the
+        // OAuth redirect URI) point at the dev server, not the proxied port.
+        xfwd: true,
       },
       // The OAuth surface is on the backend too: the provider flow KiCad's Remote
       // Symbols panel uses, and the session handoff behind "Continue as <user>".

@@ -12,11 +12,14 @@ import {
 } from "lucide-react";
 import { commentClassLabel, type Comment } from "@/types/comments";
 import { CommentSeverityBadge } from "@/components/comment-severity-badge";
+import { ReplyTrackerState } from "@/features/tracker-integration/reply-tracker-state";
+import { TrackerIssueAction } from "@/features/tracker-integration/tracker-issue-action";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import type { EcadCommentAnchorResolution } from "@/types/ecad-viewer";
 
 interface CommentPanelProps {
     comments: Comment[];
@@ -28,6 +31,11 @@ interface CommentPanelProps {
     canModify: boolean;
     highlightedId?: string | null;
     embedded?: boolean;
+    anchorStatuses?: Record<string, EcadCommentAnchorResolution>;
+    onReattach?: (comment: Comment) => Promise<void>;
+    onPromote?: (commentId: string) => Promise<void>;
+    onRetrySync?: (commentId: string) => Promise<void>;
+    onShareReply?: (commentId: string, replyId: string) => Promise<void>;
 }
 
 export function CommentPanel({
@@ -40,6 +48,11 @@ export function CommentPanel({
     canModify,
     highlightedId = null,
     embedded = false,
+    anchorStatuses = {},
+    onReattach,
+    onPromote,
+    onRetrySync,
+    onShareReply,
 }: CommentPanelProps) {
     const [filter, setFilter] = useState<"ALL" | "OPEN" | "RESOLVED">("ALL");
 
@@ -113,6 +126,11 @@ export function CommentPanel({
                                                 onDelete={onDelete}
                                                 onClick={() => onCommentClick(comment)}
                                                 canModify={canModify}
+                                                anchorStatus={anchorStatuses[comment.id]}
+                                                onReattach={onReattach}
+                                                onPromote={onPromote}
+                                                onRetrySync={onRetrySync}
+                                                onShareReply={onShareReply}
                                             />
                                         ))}
                                     </div>
@@ -134,6 +152,11 @@ function PanelCommentCard({
     onDelete,
     onClick,
     canModify,
+    anchorStatus,
+    onReattach,
+    onPromote,
+    onRetrySync,
+    onShareReply,
 }: {
     comment: Comment;
     highlighted: boolean;
@@ -142,6 +165,11 @@ function PanelCommentCard({
     onDelete: (id: string) => Promise<void>;
     onClick: () => void;
     canModify: boolean;
+    anchorStatus?: EcadCommentAnchorResolution;
+    onReattach?: (comment: Comment) => Promise<void>;
+    onPromote?: (commentId: string) => Promise<void>;
+    onRetrySync?: (commentId: string) => Promise<void>;
+    onShareReply?: (commentId: string, replyId: string) => Promise<void>;
 }) {
     const [isReplying, setIsReplying] = useState(false);
     const [replyContent, setReplyContent] = useState("");
@@ -155,6 +183,17 @@ function PanelCommentCard({
         if (isReplying && canModify) replyRef.current?.focus();
     }, [isReplying, canModify]);
     const isResolved = comment.status === "RESOLVED";
+    const anchorIssue = comment.anchorResolution?.state === "unresolved"
+        ? ({
+            unpinned: "Not pinned to a commit",
+            outside_history: "Outside this revision's history",
+            ambiguous_merge: "Two branch attachments conflict",
+            coordinate_review: "Area needs review on this revision",
+        } as Record<string, string>)[comment.anchorResolution.reason] ?? "Anchor needs review"
+        : anchorStatus?.state === "missing" ? "Object is missing on this revision" : null;
+    const creationCommit = comment.anchor?.commit;
+    const creationUrl = creationCommit ? new URL(window.location.href) : null;
+    creationUrl?.searchParams.set("commit", creationCommit ?? "");
 
     const handleReply = async () => {
         if (!replyContent.trim()) return;
@@ -197,6 +236,7 @@ function PanelCommentCard({
                 <div className="mb-2 flex flex-wrap gap-1">
                     <Badge variant="secondary">{commentClassLabel(comment.commentClass ?? "general")}</Badge>
                     <CommentSeverityBadge severity={comment.severity ?? "info"} />
+                    {anchorIssue && <Badge variant="outline">{anchorIssue}</Badge>}
                 </div>
 
                 <p className="mb-3 whitespace-pre-wrap text-sm">{comment.content}</p>
@@ -212,6 +252,22 @@ function PanelCommentCard({
                 )}
 
             </button>
+
+            {(creationUrl || (anchorIssue && comment.permissions?.canEdit && onReattach)) && (
+                <div className="flex flex-wrap items-center gap-2 px-3 pb-2 text-xs">
+                    {creationUrl && <a className="text-primary underline" href={creationUrl.toString()}>Creation revision</a>}
+                    {anchorIssue && comment.permissions?.canEdit && onReattach && (
+                        <button type="button" className="text-primary underline"
+                            onClick={() => void onReattach(comment)}>Reattach to selected object</button>
+                    )}
+                </div>
+            )}
+
+            {(comment.tracker?.linkState || comment.permissions?.canPublish) && (
+                <div className="px-3 pb-2">
+                    <TrackerIssueAction comment={comment} onPromote={onPromote} onRetry={onRetrySync} />
+                </div>
+            )}
 
             <div className="flex items-center justify-between px-3 pb-3 pt-2">
                 {canModify ? (
@@ -279,7 +335,7 @@ function PanelCommentCard({
                             </button>
                             {expanded &&
                                 comment.replies.map((reply) => (
-                                    <div key={`${reply.timestamp}-${reply.author}-${reply.content}`} className="relative border-l-2 border-muted pl-2 text-sm">
+                                    <div key={reply.id ?? `${reply.timestamp}-${reply.author}-${reply.content}`} className="relative border-l-2 border-muted pl-2 text-sm">
                                         <div className="mb-1 flex items-center justify-between">
                                             <span className="text-xs font-medium">{reply.author}</span>
                                             <span className="text-[10px] text-muted-foreground">
@@ -287,6 +343,13 @@ function PanelCommentCard({
                                             </span>
                                         </div>
                                         <p className="text-muted-foreground">{reply.content}</p>
+                                        <ReplyTrackerState
+                                            reply={reply}
+                                            provider={comment.tracker?.provider}
+                                            onShare={onShareReply
+                                                ? (replyId) => onShareReply(comment.id, replyId)
+                                                : undefined}
+                                        />
                                     </div>
                                 ))}
                         </div>

@@ -82,7 +82,7 @@ const { JOB } = vi.hoisted(() => {
 
 vi.mock("./use-design-compare-job", () => ({ useDesignCompareJob: () => JOB }));
 vi.mock("./use-comparison-comments", () => ({
-    useComparisonComments: () => [[], vi.fn()],
+    useComparisonComments: () => [[], vi.fn(), { status: "live", error: null, hasLoaded: true }],
 }));
 // The shell hosts a custom element jsdom cannot instantiate, and has its own
 // suite. What is under test here is the workspace around it.

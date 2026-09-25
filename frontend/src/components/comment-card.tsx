@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { CommentSeverityBadge } from "@/components/comment-severity-badge";
+import { TrackerIssueAction } from "@/features/tracker-integration/tracker-issue-action";
+import { formatCommentTimestamp } from "@/components/comment-date";
 import { cn } from "@/lib/utils";
 import { commentClassLabel, type Comment } from "@/types/comments";
 
@@ -21,6 +23,8 @@ interface CommentCardProps {
     onResolve: (commentId: string, resolved: boolean) => void;
     onReply: (commentId: string, content: string) => Promise<void>;
     onDelete: (commentId: string) => Promise<void>;
+    onPromote?: (commentId: string) => Promise<void>;
+    onRetrySync?: (commentId: string) => Promise<void>;
 }
 
 /**
@@ -34,6 +38,8 @@ export function CommentCard({
     onResolve,
     onReply,
     onDelete,
+    onPromote,
+    onRetrySync,
 }: CommentCardProps) {
     const [replyOpen, setReplyOpen] = useState(false);
     const [replyContent, setReplyContent] = useState("");
@@ -86,7 +92,7 @@ export function CommentCard({
                 <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{comment.author}</div>
                     <div className="text-[10px] text-muted-foreground">
-                        {new Date(comment.timestamp).toLocaleString()}
+                        {formatCommentTimestamp(comment.timestamp)}
                         {comment.elementRef ? ` · ${comment.elementRef}` : ""}
                     </div>
                 </div>
@@ -109,6 +115,12 @@ export function CommentCard({
             </div>
 
             <p className="whitespace-pre-wrap px-3 py-2 text-sm">{comment.content}</p>
+
+            {(comment.tracker?.linkState || comment.permissions?.canPublish) && (
+                <div className="px-3 pb-2">
+                    <TrackerIssueAction comment={comment} onPromote={onPromote} onRetry={onRetrySync} />
+                </div>
+            )}
 
             {comment.mentions && comment.mentions.length > 0 && (
                 <div className="flex flex-wrap gap-1 px-3 pb-2">
