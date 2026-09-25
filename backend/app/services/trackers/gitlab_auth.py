@@ -102,11 +102,12 @@ def gitlab_com_capabilities(*, api_version: str = "v4") -> ProviderCapabilities:
         canEditOwnComment=True,
         canDeleteOwnComment=True,
         canEditIssueBody=True,
-        # resource_state_events when the instance exposes them (F10 / TR-48).
+        # resource_state_events, GitLab 13.2+.
         hasStateEvents=True,
         # Project transfer identity is not claimed until a fixture proves it.
         hasTransferEvents=False,
-        supportsConditionalGet=True,
+        # GitLab answers If-None-Match, but the adapters do not send it yet.
+        supportsConditionalGet=False,
         # Free tier historically one assignee; Premium may differ — do not claim 10.
         maxAssignees=1,
         apiVersion=api_version,
@@ -115,14 +116,15 @@ def gitlab_com_capabilities(*, api_version: str = "v4") -> ProviderCapabilities:
 
 
 def self_hosted_capabilities(*, api_version: str = "v4") -> ProviderCapabilities:
-    """Conservative self-hosted defaults — features are probed, not assumed."""
+    """Self-managed defaults. Verified against GitLab CE 19.4; every supported
+    self-managed release (13.2+) exposes ``resource_state_events``."""
 
     return ProviderCapabilities(
         provider="gitlab",
         canEditOwnComment=True,
         canDeleteOwnComment=True,
         canEditIssueBody=True,
-        hasStateEvents=False,
+        hasStateEvents=True,
         hasTransferEvents=False,
         supportsConditionalGet=False,
         maxAssignees=1,
@@ -259,8 +261,8 @@ class GitLabBotAuth:
         gitlab_com = kind in {"gitlab.com", "gitlab", ""}
         return GitLabAuthCapabilities(
             supportsPersonalAccessTokenSelf=gitlab_com,
-            # Self-hosted and older CE may lack token webhook secrets / PAT self.
-            supportsWebhookTokenAuth=gitlab_com,
+            # Self-hosted may lack PAT self; every supported release sends hook tokens.
+            supportsWebhookTokenAuth=True,
             supportsProjectAccessTokens=True,
             supportsGroupAccessTokens=gitlab_com,
             groupIssuesRequireProject=True,
@@ -497,19 +499,11 @@ class GitLabBotAuth:
         return scopes, True
 
     def _probe_webhook_token_support(self, headers: Mapping[str, str]) -> bool:
-        """Do not assume token-based webhook auth on every deployment.
+        """Project hooks send their secret as ``X-Gitlab-Token`` on every GitLab
+        Prism supports (gitlab.com and self-managed); the webhook codec requires it."""
 
-        gitlab.com documents token secrets on project hooks. Self-hosted and
-        older CE builds may only support URL query secrets or none — callers
-        must read ``authCapabilities.supportsWebhookTokenAuth``.
-        """
-
-        kind = (self.credentials.instance_kind or "").strip().casefold()
-        if kind in {"gitlab.com", "gitlab", ""}:
-            return True
-        # Self-hosted: treat as unknown/unsupported until a later ticket proves it.
         del headers
-        return False
+        return True
 
     def _get_json(self, method: str, path: str, *, headers: Mapping[str, str]) -> dict:
         response = self.http.request(method, self.url(path), headers=headers)
