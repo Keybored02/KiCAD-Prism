@@ -89,12 +89,14 @@ def _http_error(exc: Exception) -> HTTPException:
     raise exc
 
 
-def _with_project_repo(settings_payload: dict[str, Any], repo_url: str | None) -> dict[str, Any]:
-    """Attach the project's own GitHub path so the destination picker can offer it (TR-46)."""
+async def _with_project_repo(settings_payload: dict[str, Any], repo_url: str | None) -> dict[str, Any]:
+    """Attach the project's own repository path on the connection's host, so the
+    destination picker can offer it (TR-46)."""
 
-    from app.services.trackers.publication_policy import _github_repo_path
-
-    settings_payload["projectRepoPath"] = _github_repo_path(repo_url or "")
+    connector_id = str(settings_payload.get("connectorId") or "")
+    settings_payload["projectRepoPath"] = (
+        await _run_service(lambda: service.project_repo_path(repo_url, connector_id)) if connector_id else None
+    )
     return settings_payload
 
 
@@ -110,7 +112,7 @@ async def get_project_tracker(
         payload = await _run_service(
             lambda: service.get_or_default(project_id, repo_url=project.repo_url)
         )
-    return _with_project_repo(payload, project.repo_url)
+    return await _with_project_repo(payload, project.repo_url)
 
 
 @router.put("/{project_id}/tracker")
@@ -135,7 +137,7 @@ async def update_project_tracker(
         )
     except Exception as exc:
         raise _http_error(exc) from exc
-    return _with_project_repo(payload, project.repo_url)
+    return await _with_project_repo(payload, project.repo_url)
 
 
 @router.post("/{project_id}/tracker/acknowledge")

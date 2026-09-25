@@ -1,10 +1,13 @@
 # Tracker integration operations
 
 This guide covers deployment configuration and day-two operations for Prism's
-GitHub issue tracker connector. It complements the frozen contract in
-[tracker-integration/CONTRACTS.md](tracker-integration/CONTRACTS.md).
+issue tracker connectors: GitHub (github.com and GitHub Enterprise Server) and
+GitLab (GitLab.com and self-managed). It complements the frozen contract in
+[tracker-integration/CONTRACTS.md](tracker-integration/CONTRACTS.md). Setting up
+a connection step by step is in [Connect Prism to GitHub](GITHUB_APP_SETUP.md)
+and [Connect Prism to GitLab](GITLAB_SETUP.md).
 
-Prism promotes design comments to GitHub issues, mirrors replies and edits, and
+Prism promotes design comments to issues, mirrors replies and edits, and
 reconciles remote changes through webhooks plus polling. Tracker credentials are
 never stored in PostgreSQL plaintext; they are envelope-encrypted with a root key
 that stays outside the database.
@@ -63,8 +66,9 @@ docker compose --env-file .env.example -f compose.yml config --quiet
 1. Configure authentication, PostgreSQL, and the tracker root key in `.env`.
 2. Start the stack and confirm `/api/health/ready` succeeds.
 3. Sign in as an administrator.
-4. Register a GitHub App and add it under **Settings → Code hosts**, following
-   [Connect Prism to GitHub](GITHUB_APP_SETUP.md). The API equivalent is
+4. Add a code host under **Settings → Code hosts**, following
+   [Connect Prism to GitHub](GITHUB_APP_SETUP.md) or
+   [Connect Prism to GitLab](GITLAB_SETUP.md). The API equivalent is
    `POST /api/admin/trackers/connectors`, then
    `POST /api/admin/trackers/connectors/{id}/test`.
 5. Choose each project's repository and publishing rules under
@@ -84,6 +88,7 @@ Derive all URLs from `PUBLIC_BASE_URL`:
 | --- | --- |
 | User OAuth callback | `{PUBLIC_BASE_URL}/api/trackers/oauth/callback` |
 | GitHub App webhook | `{PUBLIC_BASE_URL}/api/trackers/webhooks/github/{connectorId}` |
+| GitLab project webhook | `{PUBLIC_BASE_URL}/api/trackers/webhooks/gitlab/{connectorId}` |
 
 Register the OAuth callback on the GitHub App. Register the webhook URL on the
 App or repository, matching the connector id Prism assigned.
@@ -266,26 +271,24 @@ the full decision record (D1–D9).
 ## Related documentation
 
 - [Connect Prism to GitHub](GITHUB_APP_SETUP.md) — GitHub App registration, step by step
+- [Connect Prism to GitLab](GITLAB_SETUP.md) — bot token, webhook and account linking, step by step
 - [Authentication and access](AUTHENTICATION_AND_ACCESS.md) — OIDC and sessions
 - [Operations](OPERATIONS.md) — backup, restore, and upgrades
 - [Architecture](ARCHITECTURE.md) — runtime services and schemas
 - [tracker-integration/CONTRACTS.md](tracker-integration/CONTRACTS.md) — API and behavior contract
 
-## Account linking on GitLab and Gitea/Forgejo
+## Account linking on Gitea/Forgejo
 
-GitLab (gitlab.com or self-managed) and Gitea/Forgejo servers, including
-Codeberg, can be added under **Settings → Code hosts** so people can link
-their accounts there. Issue publishing is GitHub-only for now; connection
-tests, repository pickers and project destinations refuse these hosts.
+Gitea/Forgejo servers, including Codeberg, can be added under **Settings → Code
+hosts** so people can link their accounts there. Issue publishing is not
+available for them yet; connection tests, repository pickers and project
+destinations refuse these hosts.
 
-For each host, register Prism as an OAuth application on that server with the
-redirect URI shown on the setup screen (`<PUBLIC_BASE_URL>/api/trackers/oauth/callback`,
-also returned by `GET /api/admin/trackers/oauth-callback-url`):
-
-| Host | Where to register | Scopes |
-|---|---|---|
-| GitLab | User settings → Applications, or Admin → Applications for an instance-wide app | `read_user`, confidential |
-| Gitea / Forgejo | User settings → Applications → OAuth2 applications | confidential client |
+Register Prism as an OAuth2 application on the server (**User settings →
+Applications → OAuth2 applications**, confidential client) with the redirect
+URI shown on the setup screen (`<PUBLIC_BASE_URL>/api/trackers/oauth/callback`,
+also returned by `GET /api/admin/trackers/oauth-callback-url`). GitLab account
+linking is part of [Connect Prism to GitLab](GITLAB_SETUP.md).
 
 The redirect URI follows the origin the browser used when `PUBLIC_BASE_URL` is
 unset, so register the address people actually open.

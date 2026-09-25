@@ -30,7 +30,11 @@ import {
 } from "@/lib/trackers-client";
 import { cn } from "@/lib/utils";
 import type { ProjectTrackerSettings, TrackerConnector, UpdateProjectTrackerRequest } from "@/types/trackers";
-import { ProjectTrackerDestinationSection } from "./project-tracker-destination";
+import { ProjectTrackerDestinationSection, hostWords } from "./project-tracker-destination";
+
+function capitalize(text: string): string {
+    return text.charAt(0).toUpperCase() + text.slice(1);
+}
 import { buildUpdatePayload, destinationChanged, draftFromSettings, type TrackerSettingsDraft } from "./project-tracker-settings-model";
 import { ProjectTrackerPolicySection } from "./project-tracker-policy";
 
@@ -76,10 +80,10 @@ function IssuePublishingNotSetUp({ isAdmin, className, onManageCodeHosts }: {
     return (
         <div className={cn("rounded-lg border border-dashed p-6 text-center text-sm", className)} data-tracker-phase="unconfigured">
             <p className="font-medium">No issue tracker connected</p>
-            {!isAdmin && <p className="mt-1 text-muted-foreground">An admin needs to connect GitHub first.</p>}
+            {!isAdmin && <p className="mt-1 text-muted-foreground">An admin needs to connect GitHub or GitLab first.</p>}
             {isAdmin && onManageCodeHosts && (
                 <Button type="button" size="sm" className="mt-4" onClick={onManageCodeHosts}>
-                    Connect GitHub
+                    Connect a code host
                 </Button>
             )}
         </div>
@@ -95,7 +99,6 @@ export function ProjectTrackerSettingsPanel({
     onManageCodeHosts,
 }: ProjectTrackerSettingsPanelProps) {
     const [settings, setSettings] = useState<ProjectTrackerSettings | null>(null);
-    const projectRepoPath = settings?.projectRepoPath ?? null;
     const [connectors, setConnectors] = useState<TrackerConnector[]>([]);
     const [draft, setDraft] = useState<TrackerSettingsDraft | null>(null);
     const [loading, setLoading] = useState(true);
@@ -131,8 +134,8 @@ export function ProjectTrackerSettingsPanel({
                 isAdmin ? listConnectors().catch(() => []) : Promise.resolve([]),
             ]);
             applySettings(loaded);
-            // Only hosts that can publish issues belong in a project destination.
-            setConnectors(connectorList.filter((row) => row.capabilities?.issues ?? row.provider === "github"));
+            // Only hosts set up to publish belong in a project destination.
+            setConnectors(connectorList.filter((row) => Boolean(row.capabilities?.issues && row.credentialConfigured)));
         } catch (error) {
             // 404: no destination yet and no GitHub host to default to.
             if (error instanceof TrackerApiError && error.status === 404) {
@@ -153,6 +156,12 @@ export function ProjectTrackerSettingsPanel({
     useEffect(() => {
         void loadSettings();
     }, [loadSettings]);
+
+    // The project's own repository was resolved for the saved connection's host.
+    const draftProvider = connectors.find((row) => row.id === draft?.connectorId)?.provider;
+    const projectRepoPath = draftProvider && settings?.provider && draftProvider !== settings.provider
+        ? null
+        : settings?.projectRepoPath ?? null;
 
     const ackState = settings
         ? visibilityAckState(settings.destination, settings.acknowledgement)
@@ -251,16 +260,24 @@ export function ProjectTrackerSettingsPanel({
             ) : null}
 
             <FormSection step={1} title="Tracker">
-                <ProjectTrackerChoice draft={draft} setDraft={setDraft} connectors={connectors} isAdmin={isAdmin} />
+                <ProjectTrackerChoice
+                    draft={draft}
+                    setDraft={setDraft}
+                    connectors={connectors}
+                    savedProvider={settings.provider}
+                    onRestoreSaved={() => setDraft(draftFromSettings(settings))}
+                    isAdmin={isAdmin}
+                />
             </FormSection>
             <Separator />
-            <FormSection step={2} title="Repository">
+            <FormSection step={2} title={capitalize(hostWords(draftProvider ?? settings.provider).noun)}>
                 <ProjectTrackerDestinationSection
                     key={`${projectId}:${draft.connectorId}`}
                     settings={settings}
                     draft={draft}
                     setDraft={setDraft}
                     projectRepoPath={projectRepoPath}
+                    provider={draftProvider ?? settings.provider}
                     isAdmin={isAdmin}
                     ackState={ackState}
                     onAcknowledge={isAdmin && !acking ? () => setConfirmAckOpen(true) : undefined}

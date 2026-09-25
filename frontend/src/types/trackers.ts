@@ -164,6 +164,8 @@ export interface DestinationAcknowledgement {
 export interface ProjectTrackerSettings {
     projectId: string;
     connectorId: string;
+    /** Provider of that connection, e.g. ``github`` or ``gitlab``. */
+    provider?: string;
     /** `owner/name` of the project's own GitHub remote, or null; offered as the default destination. */
     projectRepoPath?: string | null;
     destination: Omit<TrackerDestination, "connectorId"> & { connectorId?: string };

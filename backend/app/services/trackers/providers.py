@@ -46,7 +46,7 @@ class WebhookCodec:
     the forge sent. ``parse`` returns durable hint dicts for ``InboxStore``.
     """
 
-    delivery_id: Callable[[Mapping[str, str]], str]
+    delivery_id: Callable[[Mapping[str, str], bytes], str]
     event_type: Callable[[Mapping[str, str]], str]
     verify: Callable[[Mapping[str, str], bytes, str], bool]
     parse: Callable[..., list[dict]]
@@ -152,7 +152,7 @@ def _github_webhook() -> WebhookCodec:
     from app.services.trackers import github_webhooks as hooks
 
     return WebhookCodec(
-        delivery_id=lambda headers: headers.get(hooks.DELIVERY_HEADER, "").strip(),
+        delivery_id=lambda headers, _body: headers.get(hooks.DELIVERY_HEADER, "").strip(),
         event_type=lambda headers: headers.get(hooks.EVENT_HEADER, "").strip(),
         verify=hooks.verify_signature,
         parse=hooks.parse_github_event,
@@ -173,10 +173,152 @@ GITHUB = ProviderKit(
 )
 
 
+# --- GitLab (gitlab.com and self-managed) ------------------------------------
+
+GITLAB_REPOSITORY_LIMIT = 1000
+
+
+def _gitlab_auth(connector: Mapping[str, Any], material: Mapping[str, Any], http: Any = None) -> Any:
+    from app.services.trackers.gitlab_auth import AUTH_BOT, GitLabBotAuth, GitLabBotCredentials
+
+    creds = GitLabBotCredentials(
+        access_token=str(material.get("accessToken") or material.get("access_token") or ""),
+        instance_kind=str(connector.get("instance_kind") or "gitlab.com"),
+        base_url=str(connector.get("base_url") or ""),
+        token_kind=str(material.get("tokenKind") or AUTH_BOT),
+    )
+    return GitLabBotAuth(creds, http=http) if http is not None else GitLabBotAuth(creds)
+
+
+def _gitlab_issue_adapter(connector: Mapping[str, Any], material: Mapping[str, Any], http: Any = None) -> Any:
+    from app.services.trackers.gitlab_issues import GitLabIssueAdapter
+
+    auth = _gitlab_auth(connector, material, http)
+    return GitLabIssueAdapter(
+        auth,
+        http=auth.http,
+        bot_user_id=str(connector.get("bot_forge_user_id") or ""),
+        bot_login=str(connector.get("bot_login") or ""),
+    )
+
+
+def _gitlab_comment_adapter(issue_adapter: Any, connector: Mapping[str, Any]) -> Any:
+    from app.services.trackers.gitlab_comments import GitLabCommentAdapter
+
+    return GitLabCommentAdapter(
+        issue_adapter.auth,
+        http=issue_adapter.http,
+        bot_user_id=str(connector.get("bot_forge_user_id") or ""),
+        bot_login=str(connector.get("bot_login") or ""),
+    )
+
+
+def _gitlab_issue_pages(adapter: Any, dest: Destination, *, since: str | None = None) -> Any:
+    """Recovery pages of bot-authored issues.
+
+    The recovery scanner reads GitHub's issue fields (``body``, ``user.id``,
+    ``number``, ``html_url``); each GitLab issue is presented in that shape so
+    the scanner and its marker validation stay shared.
+    """
+
+    first_url, first_params = adapter.bot_issue_query(dest, since=since)
+
+    def fetch(cursor: Optional[str]) -> Any:
+        # The cursor is GitLab's next-page URL, so a scan can resume or restart.
+        response = adapter._request("GET", cursor or first_url, params=None if cursor else first_params)
+        page = [item for item in adapter._json_list(response) if isinstance(item, dict)]
+        items = [
+            {
+                "id": item.get("id"),
+                "number": item.get("iid"),
+                "body": item.get("description") or "",
+                "user": {"id": (item.get("author") or {}).get("id")},
+                "html_url": item.get("web_url") or "",
+            }
+            for item in page
+        ]
+        return items, response.next_page()
+
+    return fetch
+
+
+def _gitlab_comment_pages(adapter: Any, dest: Destination, issue: str) -> Any:
+    from app.services.trackers.github_recovery import make_comment_page_fetcher
+
+    # Provider-neutral: it walks ``adapter.list_comments``.
+    return make_comment_page_fetcher(adapter, dest, issue)
+
+
+def _gitlab_test(connector: Mapping[str, Any], material: Mapping[str, Any]) -> dict[str, Any]:
+    return _gitlab_auth(connector, material).test_connection()
+
+
+def _gitlab_repositories(connector: Mapping[str, Any], material: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Projects the bot can write issues in (Reporter or above), for the picker."""
+
+    auth = _gitlab_auth(connector, material)
+    url: Optional[str] = auth.url("/projects")
+    params: Optional[dict[str, Any]] = {
+        "membership": "true",
+        # Developer, the level the connection test requires to publish.
+        "min_access_level": 30,
+        "archived": "false",
+        "simple": "true",
+        "order_by": "path",
+        "sort": "asc",
+        "per_page": 100,
+    }
+    repositories: list[dict[str, Any]] = []
+    while url and len(repositories) < GITLAB_REPOSITORY_LIMIT:
+        response = auth.http.outcome(auth.http.request("GET", url, headers=auth.bot_headers(), params=params))
+        params = None
+        payload = response.json() if response.content else []
+        for item in payload if isinstance(payload, list) else []:
+            if not isinstance(item, dict) or item.get("id") is None:
+                continue
+            repositories.append(
+                {
+                    "id": str(item["id"]),
+                    "fullName": str(item.get("path_with_namespace") or ""),
+                    # ``simple`` omits visibility; the destination probe reports it on save.
+                    "private": str(item.get("visibility") or "private") != "public",
+                    "archived": bool(item.get("archived")),
+                    "htmlUrl": str(item.get("web_url") or ""),
+                }
+            )
+        url = response.next_page()
+    return repositories
+
+
+def _gitlab_webhook() -> WebhookCodec:
+    from app.services.trackers import gitlab_webhooks as hooks
+
+    return WebhookCodec(
+        delivery_id=hooks.delivery_id,
+        event_type=lambda headers: hooks.event_type(headers),
+        verify=hooks.verify_token,
+        parse=hooks.parse_gitlab_event,
+    )
+
+
+GITLAB = ProviderKit(
+    provider="gitlab",
+    credential_fields=("accessToken",),
+    credential_aliases={"accessToken": "access_token"},
+    credential_error="A GitLab bot access token is required.",
+    issue_adapter=_gitlab_issue_adapter,
+    comment_adapter=_gitlab_comment_adapter,
+    issue_page_fetcher=_gitlab_issue_pages,
+    comment_page_fetcher=_gitlab_comment_pages,
+    test_connection=_gitlab_test,
+    list_repositories=_gitlab_repositories,
+)
+
+
 # --- Registry ---------------------------------------------------------------
 
-_KITS: dict[str, ProviderKit] = {GITHUB.provider: GITHUB}
-_WEBHOOK_FACTORIES: dict[str, Callable[[], WebhookCodec]] = {"github": _github_webhook}
+_KITS: dict[str, ProviderKit] = {GITHUB.provider: GITHUB, GITLAB.provider: GITLAB}
+_WEBHOOK_FACTORIES: dict[str, Callable[[], WebhookCodec]] = {"github": _github_webhook, "gitlab": _gitlab_webhook}
 
 
 def is_issue_provider(provider: str | None) -> bool:
@@ -221,6 +363,7 @@ def comment_page_fetcher_for(adapter: Any, dest: Destination, issue: str) -> Any
 __all__ = [
     "DISPLAY_NAMES",
     "GITHUB",
+    "GITLAB",
     "ProviderKit",
     "WebhookCodec",
     "comment_adapter_for",

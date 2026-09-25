@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import type { TrackerConnector } from "@/types/trackers";
-import type { ConnectorCredentialFields } from "./connector-settings";
+import type { ConnectorCredentialFields, IssueHostProvider } from "./connector-settings";
 import { FormSection, SectionHeading } from "./connector-settings-section";
 import { credentialRotationHint } from "./connector-installation-settings";
 import { CopyField } from "./copy-field";
@@ -20,7 +20,37 @@ export function connectorWebhookPublicUrl(connectorId: string, origin = "", prov
     return `${base}/api/trackers/webhooks/${encodeURIComponent(provider)}/${encodeURIComponent(connectorId)}`;
 }
 
+/** What each host calls these fields, and which events its webhook needs. */
+const HOST_TERMS: Record<IssueHostProvider, {
+    name: string;
+    events: string;
+    callback: string;
+    clientId: string;
+    clientSecret: string;
+    clientHint?: string;
+    clientIdPlaceholder: string;
+}> = {
+    github: {
+        name: "GitHub",
+        events: "Events: Issues, Issue comment",
+        callback: "Callback URL",
+        clientId: "OAuth Client ID",
+        clientSecret: "OAuth Client Secret",
+        clientIdPlaceholder: "Iv23li…",
+    },
+    gitlab: {
+        name: "GitLab",
+        events: "Triggers: Issues events, Comments",
+        callback: "Redirect URI",
+        clientId: "Application ID",
+        clientSecret: "Secret",
+        clientHint: "Confidential · scope read_user",
+        clientIdPlaceholder: "",
+    },
+};
+
 interface ConnectorDeliverySettingsProps {
+    provider?: IssueHostProvider;
     connector: TrackerConnector | null;
     credentials: ConnectorCredentialFields;
     setCredentials: Dispatch<SetStateAction<ConnectorCredentialFields>>;
@@ -28,11 +58,13 @@ interface ConnectorDeliverySettingsProps {
 }
 
 export function ConnectorDeliverySettings({
+    provider = "github",
     connector,
     credentials,
     setCredentials,
     prismOrigin,
 }: ConnectorDeliverySettingsProps) {
+    const terms = HOST_TERMS[provider];
     const [oauthOpen, setOauthOpen] = useState(Boolean(connector?.oauthClientConfigured));
 
     const webhookUrl = useMemo(() => {
@@ -62,7 +94,7 @@ export function ConnectorDeliverySettings({
                         label="Webhook URL"
                         value={webhookUrl}
                         copyLabel="Copy webhook URL"
-                        hint="Events: Issues, Issue comment"
+                        hint={terms.events}
                     />
                 ) : (
                     <p className="text-[11px] text-muted-foreground">Available after the connection is created.</p>
@@ -76,7 +108,7 @@ export function ConnectorDeliverySettings({
                         onChange={(event) =>
                             setCredentials((prev) => ({ ...prev, webhookSecret: event.target.value }))
                         }
-                        placeholder={connector?.webhookConfigured ? credentialRotationHint(true) : "The same secret as on GitHub"}
+                        placeholder={connector?.webhookConfigured ? credentialRotationHint(true) : `The same secret as on ${terms.name}`}
                         autoComplete="off"
                     />
                 </div>
@@ -89,7 +121,7 @@ export function ConnectorDeliverySettings({
                     <SectionHeading
                         step={4}
                         title="Account linking"
-                        description="Optional. Lets people connect their GitHub account."
+                        description={`Optional. Lets people connect their ${terms.name} account.`}
                         trailing={connector?.oauthClientConfigured ? <Badge variant="success">Enabled</Badge> : <Badge variant="secondary">Optional</Badge>}
                     />
                     <CollapsibleTrigger asChild>
@@ -99,22 +131,27 @@ export function ConnectorDeliverySettings({
                     </CollapsibleTrigger>
                 </div>
                 <CollapsibleContent className="mt-3 space-y-3">
-                    <CopyField label="Callback URL" value={oauthCallbackUrl} copyLabel="Copy callback URL" />
+                    <CopyField
+                        label={terms.callback}
+                        value={oauthCallbackUrl}
+                        copyLabel={`Copy ${terms.callback.toLowerCase()}`}
+                        hint={terms.clientHint}
+                    />
                     <div className="grid gap-3 sm:grid-cols-2">
                         <div className="space-y-1.5">
-                            <Label htmlFor="tracker-oauth-client-id">OAuth Client ID</Label>
+                            <Label htmlFor="tracker-oauth-client-id">{terms.clientId}</Label>
                             <Input
                                 id="tracker-oauth-client-id"
                                 value={credentials.oauthClientId}
                                 onChange={(event) =>
                                     setCredentials((prev) => ({ ...prev, oauthClientId: event.target.value }))
                                 }
-                                placeholder={connector?.oauthClientConfigured ? credentialRotationHint(true) : "Iv23li…"}
+                                placeholder={connector?.oauthClientConfigured ? credentialRotationHint(true) : terms.clientIdPlaceholder}
                                 autoComplete="off"
                             />
                         </div>
                         <div className="space-y-1.5">
-                            <Label htmlFor="tracker-oauth-client-secret">OAuth Client Secret</Label>
+                            <Label htmlFor="tracker-oauth-client-secret">{terms.clientSecret}</Label>
                             <Input
                                 id="tracker-oauth-client-secret"
                                 type="password"

@@ -17,7 +17,8 @@ from uuid import uuid4
 
 from app.core.config import Settings, settings as default_settings
 from app.core.roles import Role, normalize_role, role_meets_minimum
-from app.services.trackers.connector_service import ConnectorNotFound, ConnectorService
+from app.services.trackers.connector_service import ConnectorNotFound, ConnectorService, connector_host
+from app.services.trackers.providers import is_issue_provider
 from app.services.trackers.store import TrackerStore
 
 DEFAULT_LABELS = {
@@ -65,22 +66,62 @@ class DispatchPause(Exception):
         self.reason = reason
 
 
-def _github_repo_path(repo_url: str) -> str | None:
+_PATH_SEGMENT = r"[A-Za-z0-9_.-]+"
+
+
+def repo_path_for_host(repo_url: str, host: str, *, provider: str = "github") -> str | None:
+    """``owner/repo`` (GitHub) or ``group[/subgroup]/project`` (GitLab) from a
+    remote URL on ``host``; ``None`` when the URL is on another host."""
+
     text = (repo_url or "").strip()
-    if not text:
+    wanted = (host or "").strip().casefold().removeprefix("www.")
+    if not text or not wanted:
         return None
-    if text.startswith("git@github.com:"):
-        path = text.split(":", 1)[1]
+    if text.startswith("git@"):
+        remote_host, _, path = text[len("git@"):].partition(":")
     else:
         parsed = urlparse(text)
-        host = (parsed.hostname or "").casefold()
-        if host not in {"github.com", "www.github.com"}:
-            return None
-        path = parsed.path.lstrip("/")
-    path = path.removesuffix(".git")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", path):
+        remote_host, path = parsed.hostname or "", parsed.path
+    if remote_host.casefold().removeprefix("www.") != wanted:
         return None
-    return path
+    path = path.strip("/").removesuffix(".git")
+    if provider == "gitlab":
+        pattern = rf"{_PATH_SEGMENT}(/{_PATH_SEGMENT})+"
+    else:
+        pattern = rf"{_PATH_SEGMENT}/{_PATH_SEGMENT}"
+    return path if re.fullmatch(pattern, path) else None
+
+
+def _github_repo_path(repo_url: str) -> str | None:
+    return repo_path_for_host(repo_url, "github.com")
+
+
+def project_repo_path(conn: Any, repo_url: str | None, connector_id: str) -> str | None:
+    """The project's own repository on this connector's host, if it lives there."""
+
+    row = conn.execute("SELECT * FROM tracker_connectors WHERE id = %s", (connector_id,)).fetchone()
+    if row is None:
+        return None
+    return repo_path_for_host(repo_url or "", connector_host(row), provider=str(row["provider"]))
+
+
+def _default_connector(conn: Any, repo_url: str | None) -> tuple[str | None, str]:
+    """The connection that hosts the project's remote, else the oldest one that can publish.
+
+    A connection without credentials exists only for account linking and is
+    never a destination.
+    """
+
+    rows = conn.execute(
+        "SELECT * FROM tracker_connectors WHERE paused = FALSE AND credential_envelope IS NOT NULL "
+        "ORDER BY created_at ASC, id ASC"
+    ).fetchall()
+    usable = [dict(row) for row in rows if is_issue_provider(str(row["provider"]))]
+    for row in usable:
+        path = repo_path_for_host(repo_url or "", connector_host(row), provider=str(row["provider"]))
+        if path:
+            return str(row["id"]), path
+    return (str(usable[0]["id"]) if usable else None), ""
 
 
 class PublicationPolicyService:
@@ -116,20 +157,21 @@ class PublicationPolicyService:
                 raise ProjectTrackerNotFound(project_id)
             return self._public_settings(conn, row)
 
+    def project_repo_path(self, repo_url: str | None, connector_id: str) -> str | None:
+        with self.connection() as conn:
+            return project_repo_path(conn, repo_url, connector_id)
+
     def get_or_default(self, project_id: str, *, repo_url: str | None = None, connector_id: str | None = None) -> dict:
         with self.connection() as conn:
             row = self._row(conn, project_id)
             if row is not None:
                 return self._public_settings(conn, row)
-            if not connector_id:
-                connectors = conn.execute(
-                    "SELECT id FROM tracker_connectors WHERE paused = FALSE AND provider = 'github' "
-                    "ORDER BY created_at ASC LIMIT 1"
-                ).fetchall()
-                connector_id = str(connectors[0]["id"]) if connectors else None
+            if connector_id:
+                container_path = project_repo_path(conn, repo_url, connector_id) or ""
+            else:
+                connector_id, container_path = _default_connector(conn, repo_url)
             if not connector_id:
                 raise ProjectTrackerNotFound(project_id)
-            container_path = _github_repo_path(repo_url or "") or ""
             remote_id = f"pending:{container_path or project_id}"
             store = TrackerStore(conn)
             visibility = "unknown"
@@ -414,9 +456,14 @@ class PublicationPolicyService:
                 else str(acknowledged_at),
                 "valid": str(ack_row["observed_visibility"]) == str(visibility),
             }
+        connector = conn.execute(
+            "SELECT provider FROM tracker_connectors WHERE id = %s", (row["connector_id"],)
+        ).fetchone()
         return {
             "projectId": row["project_id"],
             "connectorId": row["connector_id"],
+            # Lets people without connector access see which tracker a project uses.
+            "provider": str((connector or {}).get("provider") or "github"),
             "destination": {
                 "containerKind": row["container_kind"],
                 "containerPath": row["container_path"],

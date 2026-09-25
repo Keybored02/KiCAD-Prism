@@ -320,9 +320,10 @@ class GitLabBotAuthTests(unittest.TestCase):
         )
         self.assertTrue(result["writesEnabled"])
         self.assertFalse(result["authCapabilities"]["supportsPersonalAccessTokenSelf"])
-        self.assertFalse(result["authCapabilities"]["supportsWebhookTokenAuth"])
+        # Verified live on GitLab CE 19.4: hook tokens and resource_state_events.
+        self.assertTrue(result["authCapabilities"]["supportsWebhookTokenAuth"])
         caps = self_hosted_capabilities()
-        self.assertFalse(caps.hasStateEvents)
+        self.assertTrue(caps.hasStateEvents)
         self.assertFalse(caps.hasTransferEvents)
         com = gitlab_com_capabilities()
         self.assertTrue(com.hasStateEvents)

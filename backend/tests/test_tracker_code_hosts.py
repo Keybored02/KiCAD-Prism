@@ -186,15 +186,19 @@ class CodeHostPostgresTests(unittest.TestCase):
         args.update(overrides)
         return self.connectors.create(**args)
 
-    def test_gitlab_and_gitea_hosts_link_accounts_but_do_not_publish(self) -> None:
+    def test_gitlab_publishes_issues_and_gitea_only_links_accounts(self) -> None:
         gitlab = self._gitlab()
         gitea = self.connectors.create(actor_user_id="u_admin", provider="gitea", instance_kind="self-hosted",
                                        display_name="Codeberg", base_url=CODEBERG)
         self.assertEqual(gitlab["host"], "gitlab.acme.io")
-        self.assertEqual(gitlab["capabilities"], {"issues": False, "accountLinking": True})
+        self.assertEqual(gitlab["capabilities"], {"issues": True, "accountLinking": True})
         self.assertEqual(gitea["capabilities"], {"issues": False, "accountLinking": False})
+        # Without a bot token there is nothing to test yet.
         with self.assertRaises(ProviderError) as raised:
             self.connectors.test_connection(gitlab["id"], actor_user_id="u_admin")
+        self.assertEqual(raised.exception.class_, "auth_lost")
+        with self.assertRaises(ProviderError) as raised:
+            self.connectors.test_connection(gitea["id"], actor_user_id="u_admin")
         self.assertEqual(raised.exception.class_, "capability_missing")
 
     def test_invalid_hosts_are_rejected(self) -> None:

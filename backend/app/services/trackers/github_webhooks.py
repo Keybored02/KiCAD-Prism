@@ -230,7 +230,7 @@ class TrackerWebhookService:
         if codec is None:
             raise WebhookRejected("unknown_provider")
         normalized = {key.casefold(): value for key, value in headers.items()}
-        delivery_id = codec.delivery_id(normalized)
+        delivery_id = codec.delivery_id(normalized, raw_body)
         if not delivery_id:
             raise WebhookRejected("missing_delivery_id")
         event_type = codec.event_type(normalized)

@@ -20,8 +20,9 @@ testers of unreleased behavior work from `dev`.
   settings plus project-level `.prism.json`.
 - [Authentication and access](AUTHENTICATION_AND_ACCESS.md) covers OIDC,
   sessions, roles, and service clients.
-- [Connect Prism to GitHub](GITHUB_APP_SETUP.md) walks through registering the
-  GitHub App that publishes comments as issues.
+- [Connect Prism to GitHub](GITHUB_APP_SETUP.md) and
+  [Connect Prism to GitLab](GITLAB_SETUP.md) walk through setting up the
+  connection that publishes comments as issues.
 - [Tracker integration](TRACKER_INTEGRATION.md) covers the issue tracker's
   environment, webhooks, polling, credential rotation, and recovery.
 - [Operations](OPERATIONS.md) covers backup, restore, bundle upgrades, rollback,

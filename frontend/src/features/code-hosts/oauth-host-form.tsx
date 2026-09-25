@@ -8,15 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createConnector, deleteConnector, TrackerApiError, updateConnector } from "@/lib/trackers-client";
 import { CopyField } from "@/features/tracker-integration/copy-field";
-import { cn } from "@/lib/utils";
 import type { TrackerConnector } from "@/types/trackers";
 
 import { CodeHostMark, hostFromUrl, providerName, registerApplicationUrl } from "./code-host-meta";
 
-type OAuthProvider = "gitlab" | "gitea";
 
 interface OAuthHostFormProps {
-    provider: OAuthProvider;
+    provider: "gitea";
     /** Omitted when adding a new host. */
     connector?: TrackerConnector | null;
     callbackUrl: string | null;
@@ -30,15 +28,12 @@ function describe(error: unknown, fallback: string): string {
 }
 
 /**
- * Account linking on GitLab or Gitea/Forgejo: where the host lives, and the
+ * Account linking on Gitea/Forgejo: where the host lives, and the
  * OAuth application an admin registers there so people can sign in with it.
  */
 // react-doctor-disable-next-line prefer-useReducer - each field is edited independently; save/remove are separate async states
 export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRemoved }: OAuthHostFormProps) {
     const existing = connector ?? null;
-    const [selfManaged, setSelfManaged] = useState(
-        provider === "gitea" || (existing ? existing.instanceKind !== "gitlab.com" : false),
-    );
     const [baseUrl, setBaseUrl] = useState(existing?.baseUrl ?? "");
     const [displayName, setDisplayName] = useState(existing?.displayName ?? "");
     const [clientId, setClientId] = useState("");
@@ -48,7 +43,7 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
     const [confirmRemove, setConfirmRemove] = useState(false);
     const [removing, setRemoving] = useState(false);
 
-    const host = selfManaged ? hostFromUrl(baseUrl) : "gitlab.com";
+    const host = hostFromUrl(baseUrl);
     const registerUrl = host ? registerApplicationUrl(provider, host) : null;
     const name = providerName(provider);
     const credentialsRequired = !existing?.oauthClientConfigured;
@@ -70,9 +65,9 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
                 })
                 : await createConnector({
                     provider,
-                    instanceKind: selfManaged ? "self-hosted" : "gitlab.com",
-                    baseUrl: selfManaged ? baseUrl.trim() : "",
-                    displayName: displayName.trim() || (selfManaged && host ? host : name),
+                    instanceKind: "self-hosted",
+                    baseUrl: baseUrl.trim(),
+                    displayName: displayName.trim() || host || name,
                     credentials,
                 });
             setClientId("");
@@ -116,59 +111,34 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
 
             <fieldset className="space-y-3" disabled={Boolean(existing)}>
                 <legend className="text-sm font-medium">Instance</legend>
-                {provider === "gitlab" && (
-                    <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="GitLab instance">
-                        {[
-                            { value: false, title: "GitLab.com", hint: "The hosted service" },
-                            { value: true, title: "Self-managed", hint: "Your organisation's GitLab" },
-                        ].map((option) => (
-                            <button
-                                key={option.title}
-                                type="button"
-                                role="radio"
-                                aria-checked={selfManaged === option.value}
-                                onClick={() => setSelfManaged(option.value)}
-                                className={cn(
-                                    "rounded-lg border p-3 text-left text-sm transition-colors disabled:opacity-60",
-                                    selfManaged === option.value ? "border-primary bg-primary/5" : "hover:bg-muted/50",
-                                )}
-                            >
-                                <span className="block font-medium">{option.title}</span>
-                                <span className="text-muted-foreground">{option.hint}</span>
-                            </button>
-                        ))}
+                <div className="space-y-1.5">
+                    <Label htmlFor="code-host-url">Server address</Label>
+                    <div className="flex gap-2">
+                        <Input
+                            id="code-host-url"
+                            inputMode="url"
+                            placeholder="https://codeberg.org"
+                            value={baseUrl}
+                            onChange={(event) => setBaseUrl(event.target.value)}
+                            aria-invalid={Boolean(baseUrl.trim()) && !host}
+                        />
+                        {!existing && (
+                            <Button type="button" variant="outline" onClick={() => setBaseUrl("https://codeberg.org")}>
+                                Codeberg
+                            </Button>
+                        )}
                     </div>
-                )}
-                {selfManaged && (
-                    <div className="space-y-1.5">
-                        <Label htmlFor="code-host-url">Server address</Label>
-                        <div className="flex gap-2">
-                            <Input
-                                id="code-host-url"
-                                inputMode="url"
-                                placeholder={provider === "gitea" ? "https://codeberg.org" : "https://gitlab.example.com"}
-                                value={baseUrl}
-                                onChange={(event) => setBaseUrl(event.target.value)}
-                                aria-invalid={Boolean(baseUrl.trim()) && !host}
-                            />
-                            {provider === "gitea" && !existing && (
-                                <Button type="button" variant="outline" onClick={() => setBaseUrl("https://codeberg.org")}>
-                                    Codeberg
-                                </Button>
-                            )}
-                        </div>
-                        {baseUrl.trim() && !host ? (
-                            <p className="text-xs text-destructive">Enter the full https:// address.</p>
-                        ) : null}
-                    </div>
-                )}
+                    {baseUrl.trim() && !host ? (
+                        <p className="text-xs text-destructive">Enter the full https:// address.</p>
+                    ) : null}
+                </div>
             </fieldset>
 
             <div className="space-y-1.5">
                 <Label htmlFor="code-host-name">Name</Label>
                 <Input
                     id="code-host-name"
-                    placeholder={selfManaged && host ? host : name}
+                    placeholder={host ?? name}
                     value={displayName}
                     onChange={(event) => setDisplayName(event.target.value)}
                 />
@@ -188,17 +158,17 @@ export function OAuthHostForm({ provider, connector, callbackUrl, onSaved, onRem
                     label="Redirect URI"
                     value={callbackUrl}
                     copyLabel="Copy redirect URI"
-                    hint={provider === "gitlab" ? "Confidential · scope read_user" : "Confidential client"}
+                    hint="Confidential client"
                 />
                 <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
-                        <Label htmlFor="code-host-client-id">{provider === "gitlab" ? "Application ID" : "Client ID"}</Label>
+                        <Label htmlFor="code-host-client-id">Client ID</Label>
                         <Input id="code-host-client-id" autoComplete="off" value={clientId}
                             placeholder={existing?.oauthClientConfigured ? "Stored · type to replace" : ""}
                             onChange={(event) => setClientId(event.target.value)} />
                     </div>
                     <div className="space-y-1.5">
-                        <Label htmlFor="code-host-client-secret">{provider === "gitlab" ? "Secret" : "Client Secret"}</Label>
+                        <Label htmlFor="code-host-client-secret">Client Secret</Label>
                         <Input id="code-host-client-secret" type="password" autoComplete="new-password" value={clientSecret}
                             placeholder={existing?.oauthClientConfigured ? "Stored · type to replace" : ""}
                             onChange={(event) => setClientSecret(event.target.value)} />

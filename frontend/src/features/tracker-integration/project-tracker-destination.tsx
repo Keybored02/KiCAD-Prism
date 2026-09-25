@@ -22,6 +22,37 @@ import {
 } from "./destination-disclosure";
 import { destinationIsProjectRepo, type TrackerSettingsDraft } from "./project-tracker-settings-model";
 
+/** How each host names its containers and what fixes Prism's access. */
+export const HOST_WORDS: Record<string, {
+    noun: string;
+    noRemote: string;
+    notReachable: (path: string) => string;
+    listFailed: string;
+    listEmpty: string;
+    grantAccess: string;
+}> = {
+    github: {
+        noun: "repository",
+        noRemote: "This project has no GitHub remote",
+        notReachable: (path) => `The GitHub App is not installed on ${path}.`,
+        listFailed: "Could not list the App's repositories. ",
+        listEmpty: "The GitHub App is not installed on any repository yet. ",
+        grantAccess: "Install the GitHub App on it.",
+    },
+    gitlab: {
+        noun: "project",
+        noRemote: "This project has no remote on this GitLab",
+        notReachable: (path) => `Prism's bot is not a member of ${path}.`,
+        listFailed: "Could not list the bot's projects. ",
+        listEmpty: "The bot is not a member of any project yet. ",
+        grantAccess: "Add the bot to it as a Developer.",
+    },
+};
+
+export function hostWords(provider: string | undefined) {
+    return HOST_WORDS[provider ?? "github"] ?? HOST_WORDS.github;
+}
+
 type RepositoryState =
     | { status: "loading"; repositories: null }
     | { status: "ready"; repositories: TrackerRepository[] }
@@ -33,12 +64,15 @@ interface DestinationSectionProps {
     setDraft: Dispatch<SetStateAction<TrackerSettingsDraft | null>>;
     projectRepoPath: string | null;
     isAdmin: boolean;
+    /** Provider of the connection being edited. */
+    provider?: string;
     ackState: VisibilityAckState;
     onAcknowledge?: () => void;
 }
 
 /** Key this section by project and connector so an old repository response cannot replace the new selection. */
-export function ProjectTrackerDestinationSection({ settings, draft, setDraft, projectRepoPath, isAdmin, ackState, onAcknowledge }: DestinationSectionProps) {
+export function ProjectTrackerDestinationSection({ settings, draft, setDraft, projectRepoPath, isAdmin, provider, ackState, onAcknowledge }: DestinationSectionProps) {
+    const words = hostWords(provider);
     const [repositoryState, setRepositoryState] = useState<RepositoryState>({ status: "loading", repositories: null });
     const [manualRepository, setManualRepository] = useState(false);
 
@@ -75,7 +109,7 @@ export function ProjectTrackerDestinationSection({ settings, draft, setDraft, pr
                     <span className="font-medium" data-testid="destination-line">{savedPath || "Not set"}</span>
                     <Badge variant={visibilityBadgeVariant(visibility)}>{visibilityLabel(visibility)}</Badge>
                     <span className="text-xs text-muted-foreground">
-                        {destinationIsProjectRepo(settings.destination, projectRepoPath) ? "This project's repository" : "Separate repository"}
+                        {destinationIsProjectRepo(settings.destination, projectRepoPath) ? `This project's ${words.noun}` : `Separate ${words.noun}`}
                     </span>
                 </p>
             ) : (
@@ -95,17 +129,17 @@ export function ProjectTrackerDestinationSection({ settings, draft, setDraft, pr
                     })}
                     className="gap-2"
                 >
-                    <RepositoryOption value="project" selected={!draft.useOverride} disabled={!projectRepoPath} label="This project's repository" description={
-                        <span data-testid="project-repo-option">{projectRepoPath ?? "This project has no GitHub remote"}</span>
+                    <RepositoryOption value="project" selected={!draft.useOverride} disabled={!projectRepoPath} label={`This project's ${words.noun}`} description={
+                        <span data-testid="project-repo-option">{projectRepoPath ?? words.noRemote}</span>
                     }>
                         {projectRepoInstalled === false ? (
                             <Alert variant="warning" className="mt-2" data-testid="project-repo-not-installed">
                                 <AlertTriangle />
-                                <AlertDescription>The GitHub App is not installed on {projectRepoPath}.</AlertDescription>
+                                <AlertDescription>{words.notReachable(projectRepoPath ?? "")}</AlertDescription>
                             </Alert>
                         ) : null}
                     </RepositoryOption>
-                    <RepositoryOption value="other" selected={draft.useOverride} label="Another repository" description="A dedicated issues repository">
+                    <RepositoryOption value="other" selected={draft.useOverride} label={`Another ${words.noun}`} description={`A dedicated issues ${words.noun}`}>
                         {draft.useOverride ? (
                             <div className="mt-2 space-y-2">
                                 {!manualRepository && repositoryState.status === "loading" ? <Skeleton className="h-8 w-full max-w-md" /> : null}
@@ -115,7 +149,7 @@ export function ProjectTrackerDestinationSection({ settings, draft, setDraft, pr
                                         setDraft((prev) => prev && picked ? { ...prev, containerPath: picked.fullName, remoteContainerId: picked.id } : prev);
                                     }}>
                                         <SelectTrigger className="w-full max-w-md" aria-label="Repository" data-testid="repository-picker">
-                                            <SelectValue placeholder="Choose a repository" />
+                                            <SelectValue placeholder={`Choose a ${words.noun}`} />
                                         </SelectTrigger>
                                         <SelectContent>
                                             {repositories.map((repository) => (
@@ -139,8 +173,8 @@ export function ProjectTrackerDestinationSection({ settings, draft, setDraft, pr
                                     </div>
                                 ) : null}
                                 <p className="text-[11px] text-muted-foreground">
-                                    {repositoryState.status === "failed" ? "Could not list the App's repositories. " : null}
-                                    {repositoryState.status === "ready" && repositories.length === 0 ? "The GitHub App is not installed on any repository yet. " : null}
+                                    {repositoryState.status === "failed" ? words.listFailed : null}
+                                    {repositoryState.status === "ready" && repositories.length === 0 ? words.listEmpty : null}
                                     {repositoryState.status === "ready" && repositories.length > 0 ? (
                                         <Button type="button" variant="link" size="xs" className="h-auto p-0 text-[11px]" onClick={() => setManualRepository((value) => !value)}>
                                             {manualRepository ? "Choose from the list" : "Enter by hand"}
@@ -168,6 +202,7 @@ export function ProjectTrackerDestinationSection({ settings, draft, setDraft, pr
                 ackState={ackState}
                 imported={isImportedDefaultDestination(settings.destination)}
                 isAdmin={isAdmin}
+                words={words}
                 onAcknowledge={onAcknowledge}
             />
         </div>
@@ -175,11 +210,12 @@ export function ProjectTrackerDestinationSection({ settings, draft, setDraft, pr
 }
 
 /** Why publishing is held, right under the repository it is about. */
-function DestinationStatus({ visibility, ackState, imported, isAdmin, onAcknowledge }: {
+function DestinationStatus({ visibility, ackState, imported, isAdmin, words, onAcknowledge }: {
     visibility: TrackerVisibility | null | undefined;
     ackState: VisibilityAckState;
     imported: boolean;
     isAdmin: boolean;
+    words: ReturnType<typeof hostWords>;
     onAcknowledge?: () => void;
 }) {
     if (imported) return null;
@@ -187,7 +223,7 @@ function DestinationStatus({ visibility, ackState, imported, isAdmin, onAcknowle
         return (
             <Alert variant="warning" data-testid="policy-alerts-section">
                 <AlertTriangle />
-                <AlertDescription>Paused: Prism can't see this repository. Install the GitHub App on it.</AlertDescription>
+                <AlertDescription>Paused: Prism can't see this {words.noun}. {words.grantAccess}</AlertDescription>
             </Alert>
         );
     }
@@ -206,8 +242,8 @@ function DestinationStatus({ visibility, ackState, imported, isAdmin, onAcknowle
             <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
                 <span data-testid="destination-ack-badge">
                     {ackState === "stale"
-                        ? "Paused: the destination changed and this repository is public."
-                        : "Paused: this repository is public."}
+                        ? `Paused: the destination changed and this ${words.noun} is public.`
+                        : `Paused: this ${words.noun} is public.`}
                 </span>
                 {isAdmin && onAcknowledge ? (
                     <Button type="button" size="sm" variant="outline" onClick={onAcknowledge}>Allow public issues</Button>
