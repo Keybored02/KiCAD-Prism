@@ -9,16 +9,55 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.trackers import providers  # noqa: E402
+from app.services.trackers.contracts import Destination  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
+from app.services.trackers.inbound import CallableFetcher  # noqa: E402
+from app.services.trackers.provider_registry import (  # noqa: E402
+    ContextInboundFetcher,
+    DestinationContext,
+    TrackerProviderBundle,
+)
 from app.services.trackers.provenance import resolve_editor  # noqa: E402
 from app.services.trackers.state_mutations import supersession_message  # noqa: E402
 
 
+_DEST = Destination(
+    connectorId="cn_1", containerKind="repo", containerPath="acme/board", remoteContainerId="1", generation=1,
+)
+
+
 class ProviderRegistryTests(unittest.TestCase):
     def test_github_is_the_only_issue_provider_today(self) -> None:
-        self.assertEqual(providers.issue_providers(), frozenset({"github"}))
         self.assertTrue(providers.is_issue_provider("github"))
         self.assertFalse(providers.is_issue_provider("gitea"))
+        self.assertFalse(providers.is_issue_provider(""))
+
+    def test_unknown_provider_is_a_data_error_not_account_linking(self) -> None:
+        with self.assertRaises(ProviderError) as caught:
+            providers.kit_for("")
+        self.assertEqual(caught.exception.class_, "invalid_request")
+        self.assertNotIn("account linking", str(caught.exception))
+
+    def test_recovery_pages_follow_the_adapters_own_forge(self) -> None:
+        class _Adapter:
+            kind = "gitea"
+
+        with self.assertRaises(ProviderError):
+            providers.issue_page_fetcher_for(_Adapter(), _DEST)
+        with self.assertRaises(ProviderError):
+            providers.comment_page_fetcher_for(_Adapter(), _DEST, "1")
+
+    def test_inbound_fetcher_carries_the_destination_provider(self) -> None:
+        bundle = TrackerProviderBundle(
+            connector_id="cn_1", provider="github", issue=object(), comment=object(),
+            bot_user_id="", bot_login="",
+        )
+        ctx = DestinationContext(
+            connector_id="cn_1", remote_container_id="1", container_path="acme/board",
+            destination_generation=1, paused=False, provider="github", writes_enabled=True,
+        )
+        self.assertEqual(ContextInboundFetcher(bundle, ctx).provider, "github")
+        self.assertEqual(CallableFetcher(provider="gitlab").provider, "gitlab")
 
     def test_account_linking_hosts_are_refused_by_name(self) -> None:
         with self.assertRaises(ProviderError) as caught:

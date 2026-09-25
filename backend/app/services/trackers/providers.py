@@ -14,7 +14,7 @@ need a display name.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional
 
 from app.services.trackers.contracts import Destination
 from app.services.trackers.errors import ProviderError
@@ -71,10 +71,6 @@ class ProviderKit:
     comment_page_fetcher: Callable[[Any, Destination, str], Any]
     test_connection: Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]]
     list_repositories: Callable[[Mapping[str, Any], Mapping[str, Any]], list[dict[str, Any]]]
-
-    @property
-    def display_name(self) -> str:
-        return display_name(self.provider)
 
     def credential_payload(self, credentials: Mapping[str, Any]) -> dict[str, str]:
         """Envelope fields from an admin request, accepting snake_case aliases."""
@@ -183,24 +179,20 @@ _KITS: dict[str, ProviderKit] = {GITHUB.provider: GITHUB}
 _WEBHOOK_FACTORIES: dict[str, Callable[[], WebhookCodec]] = {"github": _github_webhook}
 
 
-def issue_providers() -> frozenset[str]:
-    """Providers that can publish issues. Others only link accounts."""
-
-    return frozenset(_KITS)
-
-
 def is_issue_provider(provider: str | None) -> bool:
     return (provider or "") in _KITS
 
 
 def kit_for(provider: str | None) -> ProviderKit:
     kit = _KITS.get(provider or "")
-    if kit is None:
+    if kit is not None:
+        return kit
+    if (provider or "") in DISPLAY_NAMES:
         raise ProviderError(
             "capability_missing",
             f"Issue publishing is not available for {display_name(provider)} yet; this host is for account linking.",
         )
-    return kit
+    raise ProviderError("invalid_request", f"Unknown tracker provider {provider!r}.")
 
 
 def webhook_codec(provider: str | None) -> Optional[WebhookCodec]:
@@ -216,24 +208,14 @@ def comment_adapter_for(connector: Mapping[str, Any], issue_adapter: Any) -> Any
     return kit_for(str(connector.get("provider") or "")).comment_adapter(issue_adapter, connector)
 
 
-def issue_page_fetcher_for(provider: str, adapter: Any, dest: Destination, *, since: str | None = None) -> Any:
-    return kit_for(provider).issue_page_fetcher(adapter, dest, since=since)
+# Recovery pages are read with the adapter that will act on the result, so the
+# adapter's own ``kind`` picks the kit; callers cannot pair it with another forge.
+def issue_page_fetcher_for(adapter: Any, dest: Destination, *, since: str | None = None) -> Any:
+    return kit_for(adapter.kind).issue_page_fetcher(adapter, dest, since=since)
 
 
-def comment_page_fetcher_for(provider: str, adapter: Any, dest: Destination, issue: str) -> Any:
-    return kit_for(provider).comment_page_fetcher(adapter, dest, issue)
-
-
-def register_kit(kit: ProviderKit, *, webhook: Callable[[], WebhookCodec] | None = None) -> None:
-    """Add a provider. Used by provider modules and by tests with fakes."""
-
-    _KITS[kit.provider] = kit
-    if webhook is not None:
-        _WEBHOOK_FACTORIES[kit.provider] = webhook
-
-
-def registered_kits() -> Sequence[ProviderKit]:
-    return tuple(_KITS.values())
+def comment_page_fetcher_for(adapter: Any, dest: Destination, issue: str) -> Any:
+    return kit_for(adapter.kind).comment_page_fetcher(adapter, dest, issue)
 
 
 __all__ = [
@@ -247,9 +229,6 @@ __all__ = [
     "is_issue_provider",
     "issue_adapter_for",
     "issue_page_fetcher_for",
-    "issue_providers",
     "kit_for",
-    "register_kit",
-    "registered_kits",
     "webhook_codec",
 ]

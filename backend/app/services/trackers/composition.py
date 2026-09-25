@@ -237,6 +237,7 @@ class TrackerRuntime:
             list_comments=bundle.comment.list_comments,
             get_comment=bundle.comment.get_comment,
             destination_generation=ctx.destination_generation,
+            provider=bundle.provider,
         )
         applied = 0
         if outcome.reply_hints_enqueued > 0:
@@ -311,12 +312,12 @@ class TrackerRuntime:
                 reply_id = str(link["reply_id"])
         sent_at = claimed.get("sent_at")
         since = recovery_since(sent_at) if sent_at is not None else None
-        issue_fetch = issue_page_fetcher_for(bundle.provider, bundle.issue, dest, since=since)
+        issue_fetch = issue_page_fetcher_for(bundle.issue, dest, since=since)
         comment_fetch = None
         if op_kind == "add_comment":
             issue_ref = str(thread_row.get("external_number") or thread_row.get("external_id") or "")
             if issue_ref:
-                comment_fetch = comment_page_fetcher_for(bundle.provider, bundle.comment, dest, issue_ref)
+                comment_fetch = comment_page_fetcher_for(bundle.comment, dest, issue_ref)
         outcome = recover_op(
             claimed,
             dest=dest,

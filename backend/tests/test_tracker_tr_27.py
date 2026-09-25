@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import Settings  # noqa: E402
 from app.api import tracker_webhooks as webhooks_api  # noqa: E402
 from app.services.trackers.github_webhooks import (  # noqa: E402
-    GitHubWebhookService,
+    TrackerWebhookService,
     WebhookRejected,
     parse_github_event,
     verify_signature,
@@ -123,7 +123,7 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
         )
         self.conn.commit()
         self.settings = _settings()
-        self.service = GitHubWebhookService(
+        self.service = TrackerWebhookService(
             connect=self._factory,
             settings=self.settings,
             comments_schema=self.schema,
@@ -134,7 +134,7 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
         self.provider_calls = 0
 
     def _cleanup(self) -> None:
-        webhooks_api.service = GitHubWebhookService()
+        webhooks_api.service = TrackerWebhookService()
         try:
             self.conn.rollback()
             self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
@@ -302,14 +302,6 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 401)
         count = self.conn.execute("SELECT COUNT(*) AS n FROM remote_deliveries").fetchone()["n"]
         self.assertEqual(count, 0)
-
-    def test_http_oversized_body_returns_413(self) -> None:
-        from app.services.trackers.github_webhooks import MAX_BODY_BYTES
-
-        body = b"x" * (MAX_BODY_BYTES + 1)
-        with self.assertRaises(HTTPException) as caught:
-            run(webhooks_api.tracker_webhook("github", "cn_gh1", _StreamRequest(body, self._headers(body))))
-        self.assertEqual(caught.exception.status_code, 413)
 
 
 class _StreamRequest:

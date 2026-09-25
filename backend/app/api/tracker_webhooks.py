@@ -12,6 +12,7 @@ from app.services.trackers.github_webhooks import (
     TrackerWebhookService,
     WebhookRejected,
 )
+from app.services.trackers.providers import webhook_codec
 
 router = APIRouter(prefix="/api/trackers/webhooks", tags=["tracker-webhooks"])
 service = TrackerWebhookService()
@@ -30,8 +31,10 @@ async def _read_body_with_limit(request: Request, max_bytes: int) -> bytes:
 
 @router.post("/{provider}/{connector_id}")
 async def tracker_webhook(provider: str, connector_id: str, request: Request) -> JSONResponse:
+    if webhook_codec(provider) is None:
+        raise HTTPException(status_code=404, detail="Unknown webhook provider")
+    raw = await _read_body_with_limit(request, MAX_BODY_BYTES)
     try:
-        raw = await _read_body_with_limit(request, MAX_BODY_BYTES)
         # Secret decryption and the hint insert are blocking DB work; keep them
         # off the event loop like every other tracker route.
         result = await asyncio.to_thread(
@@ -43,7 +46,5 @@ async def tracker_webhook(provider: str, connector_id: str, request: Request) ->
             raise HTTPException(status_code=401, detail="Webhook signature verification failed") from exc
         if reason == "payload_too_large":
             raise HTTPException(status_code=413, detail="Webhook payload too large") from exc
-        if reason == "unknown_provider":
-            raise HTTPException(status_code=404, detail="Unknown webhook provider") from exc
         raise HTTPException(status_code=400, detail="Invalid webhook delivery") from exc
     return JSONResponse({"ok": True, **result})

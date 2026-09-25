@@ -63,6 +63,7 @@ class ContextInboundFetcher(InboundFetcher):
     def __init__(self, bundle: TrackerProviderBundle, ctx: DestinationContext) -> None:
         self._bundle = bundle
         self._ctx = ctx
+        self.provider = bundle.provider
 
     def fetch_issue(self, connector_id: str, container_id: str, external_id: str) -> IssueRead:
         del connector_id, container_id
@@ -158,10 +159,6 @@ def build_bundle(
     )
 
 
-# Kept for callers and tests written before providers were pluggable.
-build_github_bundle = build_bundle
-
-
 class ProviderRegistry:
     """Resolve connector credentials into concrete provider adapters."""
 
@@ -213,6 +210,5 @@ __all__ = [
     "ProviderRegistry",
     "TrackerProviderBundle",
     "build_bundle",
-    "build_github_bundle",
     "resolve_destination_context",
 ]

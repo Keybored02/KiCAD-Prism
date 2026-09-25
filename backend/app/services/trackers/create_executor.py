@@ -450,7 +450,6 @@ def _run_create_io(prepared: Mapping[str, Any]) -> Any:
         dest=prepared["destination"],
         comment_id=str(prepared["thread"]["comment_id"]),
         fetch_page=issue_page_fetcher_for(
-            str(prepared["connector"].get("provider") or ""),
             adapter,
             prepared["destination"],
             since=recovery_since(prepared.get("sent_at")),

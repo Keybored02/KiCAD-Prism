@@ -527,9 +527,7 @@ def _recover_add(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
         op,
         dest=ctx.destination,
         reply_id=ctx.reply_id,
-        fetch_page=comment_page_fetcher_for(
-            str(ctx.connector.get("provider") or ""), adapter, ctx.destination, issue_ref
-        ),
+        fetch_page=comment_page_fetcher_for(adapter, ctx.destination, issue_ref),
         bot_user_id=str(ctx.connector.get("bot_forge_user_id") or ""),
     )
     if outcome.kind == RecoveryKind.FOUND and outcome.match is not None:

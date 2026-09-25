@@ -899,19 +899,9 @@ def install_fake_provider(
         patch("app.services.trackers.reply_executor._comment_adapter", _adapter),
         patch("app.services.trackers.state_executor._issue_adapter", _adapter),
         patch("app.services.trackers.thread_executor._issue_adapter", _adapter),
-        # The runtime passes the provider first; the fake forge ignores it.
-        patch(
-            "app.services.trackers.create_executor.issue_page_fetcher_for",
-            lambda _provider, *args, **kwargs: _issue_pages(*args, **kwargs),
-        ),
-        patch(
-            "app.services.trackers.reply_executor.comment_page_fetcher_for",
-            lambda _provider, *args, **kwargs: _comment_pages(*args, **kwargs),
-        ),
-        patch(
-            "app.services.trackers.thread_executor.comment_page_fetcher_for",
-            lambda _provider, *args, **kwargs: _comment_pages(*args, **kwargs),
-        ),
+        patch("app.services.trackers.create_executor.issue_page_fetcher_for", _issue_pages),
+        patch("app.services.trackers.reply_executor.comment_page_fetcher_for", _comment_pages),
+        patch("app.services.trackers.thread_executor.comment_page_fetcher_for", _comment_pages),
     ]
     for item in patches:
         item.start()

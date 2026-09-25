@@ -368,7 +368,7 @@ def _recover_post_note(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
     sent_at = op.get("sent_at")
     if isinstance(sent_at, datetime) and sent_at.tzinfo is None:
         sent_at = sent_at.replace(tzinfo=timezone.utc)
-    fetch_page = comment_page_fetcher_for(str(ctx.connector.get("provider") or ""), adapter, ctx.destination, issue_ref)
+    fetch_page = comment_page_fetcher_for(adapter, ctx.destination, issue_ref)
     cursor: str | None = None
     while True:
         try:

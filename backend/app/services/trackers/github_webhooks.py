@@ -273,10 +273,6 @@ class TrackerWebhookService:
                 raise WebhookRejected("webhook_not_configured") from None
 
 
-# Kept for callers and tests written before providers were pluggable.
-GitHubWebhookService = TrackerWebhookService
-
-
 def initialize_tracker_webhook_service() -> None:
     from app.services.postgres_database import database
     from app.services.workspace_schema_migrations import apply_workspace_migrations
@@ -288,7 +284,6 @@ def initialize_tracker_webhook_service() -> None:
 
 
 __all__ = [
-    "GitHubWebhookService",
     "TrackerWebhookService",
     "WebhookRejected",
     "initialize_tracker_webhook_service",

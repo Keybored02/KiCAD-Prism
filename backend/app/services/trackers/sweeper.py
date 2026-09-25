@@ -40,7 +40,7 @@ from app.services.trackers.github_updates import (
 )
 from app.services.trackers.inbox_store import InboxStore
 from app.services.trackers.link_lifecycle import apply_moved_issue
-from app.services.trackers.provenance import provider_for_thread, resolve_editor
+from app.services.trackers.provenance import resolve_editor
 from app.services.trackers.scheduler import sweep_interval_seconds
 from app.services.trackers.store import issue_number_for_api
 
@@ -351,10 +351,10 @@ def _handle_issue_absence(
     return "inaccessible"
 
 
-def _tombstone_missing_reply(conn: Any, link: Mapping[str, Any]) -> None:
+def _tombstone_missing_reply(conn: Any, link: Mapping[str, Any], *, provider: str = "github") -> None:
     if link.get("deleted_at"):
         return
-    editor = resolve_editor(provider=provider_for_thread(conn, str(link.get("tracked_thread_id") or "")))
+    editor = resolve_editor(provider=provider)
     tombstone_reply(
         conn,
         project_id=str(link["project_id"]),
@@ -385,6 +385,7 @@ def _verify_replies(
     get_comment: GetCommentFn,
     start_page: str | None,
     allow_partial: bool,
+    provider: str = "github",
 ) -> tuple[int, int, str | None, bool, int]:
     """Return replies_checked, tombstoned, resume_page, listing_complete, hints_enqueued."""
 
@@ -456,7 +457,7 @@ def _verify_replies(
         if isinstance(fetched, ForbiddenRead):
             continue
         if isinstance(fetched, (GoneConfirmed, UncertainAbsence)):
-            _tombstone_missing_reply(conn, link)
+            _tombstone_missing_reply(conn, link, provider=provider)
             tombstoned += 1
     return checked, tombstoned, None, True, hints_enqueued
 
@@ -474,6 +475,7 @@ def sweep_destination_links(
     destination_generation: int = 1,
     max_threads: int | None = DEFAULT_MAX_THREADS,
     now: datetime | None = None,
+    provider: str = "github",
 ) -> SweepOutcome:
     """Sweep one destination's linked issues and replies with durable checkpoints."""
 
@@ -632,6 +634,7 @@ def sweep_destination_links(
                 get_comment=get_comment,
                 start_page=start_page,
                 allow_partial=True,
+                provider=provider,
             )
             outcome.replies_checked += checked
             outcome.replies_tombstoned += tombstoned

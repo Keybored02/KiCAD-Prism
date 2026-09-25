@@ -9,7 +9,6 @@ from typing import Any, Mapping
 from app.services.trackers.contracts import Destination, RemoteEvent, RemoteIssue
 from app.services.trackers.errors import ProviderError
 from app.services.trackers.op_store import OpStore
-from app.services.trackers.provenance import provider_for_connector
 from app.services.trackers.state_mutations import (
     analyze_state_events,
     apply_observed_remote_state,
@@ -84,6 +83,7 @@ def execute_set_state_op(op: Mapping[str, Any], conn: Any) -> None:
             project_id=project_id,
             comment_id=comment_id,
             local_intent_state=target_state,
+            provider=str(ctx.connector.get("provider") or "github"),
         )
         return
     if preflight_mismatch(thread, fetched):
@@ -256,11 +256,12 @@ def _supersede_preflight(
     project_id: str,
     comment_id: str,
     local_intent_state: str,
+    provider: str = "github",
 ) -> None:
     note = supersession_message(
         remote_state=issue.state,
         local_intent_state=local_intent_state,
-        provider=provider_for_connector(conn, str(thread.get("connector_id") or "")),
+        provider=provider,
     )
     apply_observed_remote_state(
         conn,

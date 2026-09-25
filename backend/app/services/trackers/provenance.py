@@ -79,22 +79,6 @@ def resolve_editor(
     )
 
 
-def provider_for_connector(conn: Any, connector_id: str | None) -> str:
-    """Provider of a connector, for wording; ``github`` when it cannot be read."""
-
-    if not connector_id:
-        return "github"
-    row = conn.execute("SELECT provider FROM tracker_connectors WHERE id = %s", (connector_id,)).fetchone()
-    return str((row or {}).get("provider") or "github")
-
-
-def provider_for_thread(conn: Any, thread_id: str | None) -> str:
-    if not thread_id:
-        return "github"
-    row = conn.execute("SELECT connector_id FROM tracked_threads WHERE id = %s", (thread_id,)).fetchone()
-    return provider_for_connector(conn, str((row or {}).get("connector_id") or ""))
-
-
 def remote_reply_author(user: ForgeUser, *, provider: str = "github") -> tuple[str, str, str]:
     """Return author display, author_kind and origin for a fetched remote user."""
 
