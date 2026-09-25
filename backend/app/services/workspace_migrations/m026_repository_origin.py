@@ -1,4 +1,4 @@
-"""Workspace schema migration 23: repository_origin.
+"""Workspace schema migration 26: repository_origin.
 
 Frozen. Applied deployments recorded this body in ``ws_schema_migrations``;
 edit nothing here, add a new migration instead.
