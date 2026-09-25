@@ -288,6 +288,7 @@ def _apply_issue_observation(
     event_actor_login: str | None,
     bot_user_id: str | None,
     bot_login: str | None,
+    provider: str = "github",
 ) -> str:
     thread_ops = _thread_ops(conn, str(thread["id"]))
     _, echo = classify_issue_state(
@@ -311,7 +312,7 @@ def _apply_issue_observation(
     if echo is not None:
         _confirm_echo_op(ops, echo)
         return "ignored_echo"
-    _follow_observed_state(conn, thread=thread, issue=issue, actor_login=event_actor_login)
+    _follow_observed_state(conn, thread=thread, issue=issue, actor_login=event_actor_login, provider=provider)
     return "applied"
 
 
@@ -321,6 +322,7 @@ def _follow_observed_state(
     thread: Mapping[str, Any],
     issue: RemoteIssue,
     actor_login: str | None,
+    provider: str = "github",
 ) -> None:
     """A forge close/reopen resolves/reopens the Prism root (TR-31, C6).
 
@@ -354,7 +356,7 @@ def _follow_observed_state(
         issue=issue,
         project_id=project_id,
         comment_id=comment_id,
-        editor=resolve_editor(actor_login=actor_login) if actor_login else None,
+        editor=resolve_editor(actor_login=actor_login, provider=provider) if actor_login else None,
     )
 
 
@@ -450,6 +452,7 @@ def _editor_from_hint(
     actor_login: str | None,
     bot_user_id: str | None,
     bot_login: str | None,
+    provider: str = "github",
 ) -> Editor:
     if actor_is_bot(
         actor_id=actor_id,
@@ -457,8 +460,8 @@ def _editor_from_hint(
         bot_user_id=bot_user_id,
         bot_login=bot_login,
     ):
-        return resolve_editor()
-    return resolve_editor(actor_id=actor_id, actor_login=actor_login)
+        return resolve_editor(provider=provider)
+    return resolve_editor(actor_id=actor_id, actor_login=actor_login, provider=provider)
 
 
 def _apply_comment_to_thread(
@@ -472,6 +475,7 @@ def _apply_comment_to_thread(
     bot_user_id: str | None,
     bot_login: str | None,
     audit: AuditFn | None = None,
+    provider: str = "github",
 ) -> str:
     actor_id = hint.get("actor_id") or (hint.get("actor") or {}).get("id")
     actor_login = hint.get("actor_login") or (hint.get("actor") or {}).get("login")
@@ -518,6 +522,7 @@ def _apply_comment_to_thread(
             actor_login=str(actor_login) if actor_login else None,
             bot_user_id=bot_user_id,
             bot_login=bot_login,
+            provider=provider,
         )
         edit_reply(
             conn,
@@ -577,6 +582,9 @@ def fetch_then_apply_hint(
     finish: bool = True,
 ) -> ApplyResult:
     """Fetch authoritative remote state and apply one durable hint."""
+
+    # Only wording depends on it; fetchers built from a destination carry it.
+    provider = str(getattr(fetcher, "provider", "") or "github")
 
     inbox = inbox or InboxStore(conn)
     ops = ops or OpStore(conn)
@@ -649,6 +657,7 @@ def fetch_then_apply_hint(
                     bot_user_id=bot_user_id,
                     bot_login=bot_login,
                     audit=audit,
+                    provider=provider,
                 )
             )
         outcome = "applied"
@@ -730,6 +739,7 @@ def fetch_then_apply_hint(
                 event_actor_login=str(actor_login) if actor_login else None,
                 bot_user_id=bot_user_id,
                 bot_login=bot_login,
+                provider=provider,
             )
         )
     outcome = "applied"
@@ -795,9 +805,11 @@ class CallableFetcher:
         *,
         issue: IssueFetcher | None = None,
         comment: CommentFetcher | None = None,
+        provider: str = "github",
     ) -> None:
         self._issue = issue
         self._comment = comment
+        self.provider = provider
 
     def fetch_issue(self, connector_id: str, container_id: str, external_id: str) -> IssueRead:
         if self._issue is None:

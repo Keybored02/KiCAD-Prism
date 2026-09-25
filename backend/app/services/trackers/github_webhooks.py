@@ -1,4 +1,4 @@
-"""GitHub webhook verification and hint parsing (TR-27, C3/C6).
+"""Inbound tracker webhooks, and GitHub's verification and hint parsing (TR-27, C3/C6).
 
 Verification uses the raw request bytes. Parsed hints carry object references
 only; authoritative state is fetched later by the worker. Delivery ids dedupe
@@ -180,7 +180,9 @@ def _actor(sender: Any) -> dict | None:
     }
 
 
-class GitHubWebhookService:
+class TrackerWebhookService:
+    """Authenticates and records deliveries for any provider with a webhook codec."""
+
     def __init__(
         self,
         *,
@@ -212,16 +214,30 @@ class GitHubWebhookService:
             store_webhook_secret(conn, connector_id, secret, settings=self.settings)
             conn.commit()
 
-    def ingest(self, connector_id: str, headers: Mapping[str, str], raw_body: bytes) -> dict:
+    def ingest(
+        self,
+        connector_id: str,
+        headers: Mapping[str, str],
+        raw_body: bytes,
+        *,
+        provider: str = "github",
+    ) -> dict:
+        from app.services.trackers.providers import webhook_codec
+
         if len(raw_body) > MAX_BODY_BYTES:
             raise WebhookRejected("payload_too_large")
+        codec = webhook_codec(provider)
+        if codec is None:
+            raise WebhookRejected("unknown_provider")
         normalized = {key.casefold(): value for key, value in headers.items()}
-        delivery_id = normalized.get(DELIVERY_HEADER, "").strip()
+        delivery_id = codec.delivery_id(normalized)
         if not delivery_id:
             raise WebhookRejected("missing_delivery_id")
-        event_type = normalized.get(EVENT_HEADER, "").strip()
-        secret = self._secret(connector_id)
-        if not verify_signature(normalized, raw_body, secret):
+        event_type = codec.event_type(normalized)
+        # The URL names the provider; the connector must agree, or a body signed
+        # the way one forge signs could be replayed at another forge's path.
+        secret = self._secret(connector_id, provider)
+        if not codec.verify(normalized, raw_body, secret):
             raise WebhookRejected("invalid_signature")
         try:
             payload = json.loads(raw_body.decode("utf-8"))
@@ -229,7 +245,7 @@ class GitHubWebhookService:
             raise WebhookRejected("invalid_json") from exc
         if not isinstance(payload, dict):
             raise WebhookRejected("invalid_json")
-        hints = parse_github_event(event_type, payload, connector_id=connector_id, delivery_id=delivery_id)
+        hints = codec.parse(event_type, payload, connector_id=connector_id, delivery_id=delivery_id)
         with self.connection() as conn:
             result = InboxStore(conn).enqueue(
                 connector_id=connector_id,
@@ -244,8 +260,13 @@ class GitHubWebhookService:
                 "hintCount": len(result["hints"]),
             }
 
-    def _secret(self, connector_id: str) -> str:
+    def _secret(self, connector_id: str, provider: str = "github") -> str:
         with self.connection() as conn:
+            row = conn.execute(
+                "SELECT provider FROM tracker_connectors WHERE id = %s", (connector_id,)
+            ).fetchone()
+            if row is None or str(row["provider"]) != provider:
+                raise WebhookRejected("webhook_not_configured")
             try:
                 return load_webhook_secret(conn, connector_id, settings=self.settings)
             except KeyError:
@@ -263,7 +284,7 @@ def initialize_tracker_webhook_service() -> None:
 
 
 __all__ = [
-    "GitHubWebhookService",
+    "TrackerWebhookService",
     "WebhookRejected",
     "initialize_tracker_webhook_service",
     "parse_github_event",

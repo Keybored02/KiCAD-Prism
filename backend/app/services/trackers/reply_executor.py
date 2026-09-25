@@ -26,10 +26,8 @@ from app.services.trackers.executor_support import (
     apply_provider_error,
     policy_check,
 )
-from app.services.trackers.github_comments import GitHubCommentAdapter
 from app.services.trackers.github_recovery import (
     RecoveryKind,
-    make_comment_page_fetcher,
     next_quarantine_at,
     recover_add_comment,
     recovery_since,
@@ -38,6 +36,7 @@ from app.services.trackers.markers import build_marker
 from app.services.trackers.op_store import EXECUTE_DISPATCH, RECOVERY_DISPATCH, OpStore
 from app.services.trackers.promotion import DispatchPause, PublicationDenied, evaluate_dispatch
 from app.services.trackers.provenance import body_hash, stored_hash_matches
+from app.services.trackers.providers import comment_adapter_for, comment_page_fetcher_for
 from app.services.trackers.reply_mutations import REPLY_OPS, decode_reply_target
 from app.services.trackers.store import TrackerStore, issue_number_for_api
 
@@ -178,16 +177,10 @@ def recover_reply_op(conn: Any, op: Mapping[str, Any]) -> None:
 
 
 
-def _comment_adapter(connector: Mapping[str, Any], *, http: Any | None = None) -> GitHubCommentAdapter:
+def _comment_adapter(connector: Mapping[str, Any], *, http: Any | None = None) -> Any:
     from app.services.trackers.create_executor import _issue_adapter
 
-    issue_adapter = _issue_adapter(connector, http=http)
-    return GitHubCommentAdapter(
-        issue_adapter.auth,
-        http=issue_adapter.http,
-        bot_user_id=str(connector.get("bot_forge_user_id") or ""),
-        bot_login=str(connector.get("bot_login") or ""),
-    )
+    return comment_adapter_for(connector, _issue_adapter(connector, http=http))
 
 
 
@@ -534,7 +527,7 @@ def _recover_add(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
         op,
         dest=ctx.destination,
         reply_id=ctx.reply_id,
-        fetch_page=make_comment_page_fetcher(adapter, ctx.destination, issue_ref),
+        fetch_page=comment_page_fetcher_for(adapter, ctx.destination, issue_ref),
         bot_user_id=str(ctx.connector.get("bot_forge_user_id") or ""),
     )
     if outcome.kind == RecoveryKind.FOUND and outcome.match is not None:

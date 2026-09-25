@@ -21,20 +21,17 @@ from app.services.trackers.credential_sidecars import (
     store_webhook_secret,
     webhook_configured,
 )
-from app.services.trackers.connector_provider import github_auth_for_connector
 from app.services.trackers.errors import ProviderError
-from app.services.trackers.secrets import (
-    SecretStoreLocked,
-    decrypt_secret,
-    encrypt_secret,
-)
+from app.services.trackers.providers import is_issue_provider, issue_adapter_for, kit_for
+from app.services.trackers.secrets import decrypt_secret, encrypt_secret
 from app.services.trackers.store import TrackerStore
 
+# Part of every stored envelope's authenticated data, for every provider.
 CREDENTIAL_FIELD = "github_app"
 BOOTSTRAP_ENV_FIELDS = ("GITHUB_TOKEN",)
-# GitHub publishes issues through a GitHub App. GitLab and Gitea/Forgejo hosts
-# currently exist so people can link their accounts; their issue adapters are
-# separate work, so ``capabilities.issues`` stays false for them.
+# Which providers can publish issues comes from ``providers`` (one kit each).
+# Hosts without a kit exist so people can link their accounts, and report
+# ``capabilities.issues`` false.
 INSTANCE_KINDS_BY_PROVIDER = {
     "github": {"github.com", "ghes"},
     "gitlab": {"gitlab.com", "self-hosted"},
@@ -42,7 +39,6 @@ INSTANCE_KINDS_BY_PROVIDER = {
 }
 ALLOWED_PROVIDERS = set(INSTANCE_KINDS_BY_PROVIDER)
 ALLOWED_INSTANCE_KINDS = set().union(*INSTANCE_KINDS_BY_PROVIDER.values())
-ISSUE_PROVIDERS = {"github"}
 
 
 class ConnectorNotFound(KeyError):
@@ -182,8 +178,8 @@ class ConnectorService:
         self._validate_identity(provider, instance_kind, base_url)
         cid = (connector_id or f"cn_{uuid4().hex[:12]}").strip()
         envelope = None
-        if credentials and provider in ISSUE_PROVIDERS and self._has_app_fields(credentials):
-            envelope = self._encrypt(cid, credentials)
+        if credentials and is_issue_provider(provider) and kit_for(provider).has_credentials(credentials):
+            envelope = self._encrypt(provider, cid, credentials)
         with self.connection() as conn:
             store = TrackerStore(conn)
             if connector_id:
@@ -235,9 +231,9 @@ class ConnectorService:
             url = base_url if base_url is not None else str(current.get("base_url") or "")
             self._validate_identity(str(current["provider"]), kind, url)
             envelope = None
-            if credentials and str(current["provider"]) in ISSUE_PROVIDERS:
-                envelope = self._merge_app_envelope(
-                    connector_id, credentials, envelope_row["credential_envelope"]
+            if credentials and is_issue_provider(str(current["provider"])):
+                envelope = self._merge_envelope(
+                    str(current["provider"]), connector_id, credentials, envelope_row["credential_envelope"]
                 )
             if credentials:
                 self._apply_credential_sidecars(conn, connector_id, credentials)
@@ -411,15 +407,8 @@ class ConnectorService:
                 "remoteContainerId": remote_container_id,
             }
         from app.services.trackers.contracts import Destination
-        from app.services.trackers.github_issues import GitHubIssueAdapter
 
-        auth = github_auth_for_connector(row, material)
-        adapter = GitHubIssueAdapter(
-            auth,
-            http=auth.http,
-            bot_user_id=str(row.get("bot_forge_user_id") or ""),
-            bot_login=str(row.get("bot_login") or ""),
-        )
+        adapter = issue_adapter_for(row, material)
         dest = Destination(
             connectorId=connector_id,
             containerKind=container_kind,  # type: ignore[arg-type]
@@ -443,14 +432,9 @@ class ConnectorService:
         }
 
     def require_issue_capable(self, conn: Any, connector_id: str) -> None:
-        """Issue publication, tests and repository pickers exist for GitHub only."""
+        """Issue publication, tests and repository pickers need an issue-capable provider."""
 
-        provider = str(self._require(conn, connector_id)["provider"])
-        if provider not in ISSUE_PROVIDERS:
-            raise ProviderError(
-                "capability_missing",
-                f"Issue publishing is not available for {provider} yet; this host is for account linking.",
-            )
+        kit_for(str(self._require(conn, connector_id)["provider"]))
 
     def test_connection(self, connector_id: str, *, actor_user_id: str) -> dict[str, Any]:
         # Never hold a database connection open during a provider request.
@@ -541,12 +525,12 @@ class ConnectorService:
                 raise ProviderError("auth_lost", "Connector has no installation credentials.")
         if self._repository_lister is not None:
             return self._repository_lister(row, material)
-        return github_auth_for_connector(row, material).list_repositories()
+        return kit_for(str(row["provider"])).list_repositories(row, material)
 
     def _run_test(self, row: Mapping[str, Any], material: Mapping[str, str]) -> dict[str, Any]:
         if self._tester is not None:
             return self._tester(row, material)
-        return github_auth_for_connector(row, material).test_connection()
+        return kit_for(str(row["provider"])).test_connection(row, material)
 
     def _installation_material(
         self, conn: Any, connector_id: str
@@ -562,48 +546,36 @@ class ConnectorService:
         material = json.loads(decrypt_secret(blob, _context(connector_id), settings=self.settings).decode())
         return row, blob, material
 
-    def _app_payload(self, credentials: Mapping[str, str]) -> dict[str, str]:
-        return {
-            "appId": str(credentials.get("appId") or credentials.get("app_id") or ""),
-            "installationId": str(credentials.get("installationId") or credentials.get("installation_id") or ""),
-            "privateKey": str(credentials.get("privateKey") or credentials.get("private_key") or ""),
-        }
-
-    def _has_app_fields(self, credentials: Mapping[str, str]) -> bool:
-        payload = self._app_payload(credentials)
-        return any(payload.values())
-
-    def _encrypt(self, connector_id: str, credentials: Mapping[str, str]) -> str:
-        payload = self._app_payload(credentials)
-        if not payload["appId"] or not payload["installationId"] or not payload["privateKey"]:
-            raise ProviderError("invalid_request", "GitHub App id, installation id and private key are required.")
+    def _encrypt(self, provider: str, connector_id: str, credentials: Mapping[str, str]) -> str:
+        kit = kit_for(provider)
+        payload = kit.credential_payload(credentials)
+        kit.require_complete(payload)
         if self._uses_env_bootstrap(payload):
             raise ProviderError("invalid_request", "Do not store process environment tokens as connector credentials.")
-        try:
-            return encrypt_secret(json.dumps(payload), _context(connector_id), settings=self.settings)
-        except SecretStoreLocked:
-            raise
+        return encrypt_secret(json.dumps(payload), _context(connector_id), settings=self.settings)
 
-    def _merge_app_envelope(
+    def _merge_envelope(
         self,
+        provider: str,
         connector_id: str,
         credentials: Mapping[str, str],
         existing_blob: str | None,
     ) -> str | None:
-        if not self._has_app_fields(credentials):
+        """Rotate only the envelope fields the admin filled in; keep the rest."""
+
+        kit = kit_for(provider)
+        if not kit.has_credentials(credentials):
             return None
-        payload = self._app_payload(credentials)
+        payload = kit.credential_payload(credentials)
         if existing_blob:
             merged = json.loads(
                 decrypt_secret(existing_blob, _context(connector_id), settings=self.settings).decode()
             )
-            for key in ("appId", "installationId", "privateKey"):
+            for key in kit.credential_fields:
                 if payload[key]:
                     merged[key] = payload[key]
             payload = merged
-        if not payload["appId"] or not payload["installationId"] or not payload["privateKey"]:
-            raise ProviderError("invalid_request", "GitHub App id, installation id and private key are required.")
-        return self._encrypt(connector_id, payload)
+        return self._encrypt(provider, connector_id, payload)
 
     def _apply_credential_sidecars(self, conn: Any, connector_id: str, credentials: Mapping[str, str]) -> None:
         webhook_secret = str(credentials.get("webhookSecret") or credentials.get("webhook_secret") or "").strip()
@@ -623,9 +595,10 @@ class ConnectorService:
             )
 
     def _uses_env_bootstrap(self, material: Mapping[str, str]) -> bool:
+        """True when an envelope secret is the process's own GITHUB_TOKEN."""
+
         token = str(getattr(self.settings, "GITHUB_TOKEN", "") or "")
-        secret = material.get("privateKey") or material.get("private_key") or ""
-        return bool(token) and secret == token
+        return bool(token) and any(str(value) == token for value in material.values())
 
     def _validate_identity(self, provider: str, instance_kind: str, base_url: str) -> None:
         if provider not in ALLOWED_PROVIDERS:
@@ -724,7 +697,7 @@ class ConnectorService:
             "auditCount": int((audit_count or {}).get("n") or 0),
             "host": connector_host(row),
             "capabilities": {
-                "issues": str(row["provider"]) in ISSUE_PROVIDERS,
+                "issues": is_issue_provider(str(row["provider"])),
                 "accountLinking": oauth_client_configured(conn, str(row["id"])),
             },
         }

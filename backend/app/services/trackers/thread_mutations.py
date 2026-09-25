@@ -303,6 +303,7 @@ def apply_inbound_root_prose(
     event_actor_login: str | None = None,
     bot_user_id: str | None = None,
     bot_login: str | None = None,
+    provider: str = "github",
 ) -> str:
     """Mirror inbound prose-block edits; never mutate anchor/severity (D5/C6)."""
 
@@ -357,7 +358,7 @@ def apply_inbound_root_prose(
     if str(current.get("content") or "") == blocks.prose:
         return "unchanged"
 
-    editor = resolve_editor(actor_id=event_actor_id, actor_login=event_actor_login)
+    editor = resolve_editor(actor_id=event_actor_id, actor_login=event_actor_login, provider=provider)
     edit_root(
         conn,
         project_id=project_id,
