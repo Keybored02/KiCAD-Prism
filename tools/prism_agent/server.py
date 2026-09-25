@@ -89,7 +89,7 @@ from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
 from .worktree_diff import uncommitted_changes
 
-VERSION = "0.5.6"
+VERSION = "0.5.7"
 
 # The oldest plugin this agent can serve.
 #

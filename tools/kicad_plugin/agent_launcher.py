@@ -294,3 +294,83 @@ def start_agent() -> str:
         raise LaunchError("Couldn't start the agent: %s" % exc) from exc
 
     return exe
+
+
+# -- restart, the one true version --------------------------------------------
+#
+# There are two places in the plugin that need to take an old agent down and bring
+# a new one up: the outdated-agent card, and the Settings dialog's own restart
+# button. They used to disagree: the dialog did this stop-then-start sequence, and
+# Settings just POSTed /restart and hoped, which asks the OLD, possibly-outdated
+# process to re-exec ITSELF. When the running agent is what needs replacing, that
+# is exactly backwards, at best it relaunches the same old version, having done
+# nothing; the user then has to notice it didn't work and stop/start by hand, the
+# "two clicks" this was written to stop. One implementation, both call sites.
+
+
+def restart_agent(on_status=lambda _text: None) -> bool:
+    """Stop whatever agent is running, then start the one that shipped with THIS
+    plugin. Returns True if the new agent answered within the wait; False (not an
+    exception) if it never came up, so the caller can say so without guessing at
+    what "returned False" means.
+
+    Deliberately not /restart: see the module comment above. The plugin always
+    knows its own bundled binary's path; the already-running process might not,
+    especially right after an update replaced the file on disk.
+
+    `on_status(text)` is called with a short phrase for each phase, so a caller with
+    a status line can show one; a caller with nothing to show can pass the default
+    and ignore it. Callers on the UI thread still need their own wx.Yield()/
+    wx.MilliSleep() around this, this function only knows about the agent, not wx.
+    """
+    from .agent_client import AgentClient, AgentUnavailable
+
+    on_status("Stopping the old agent...")
+    try:
+        AgentClient().quit()
+    except AgentUnavailable:
+        pass  # already gone is the state we wanted
+
+    # Wait for the port and the discovery file to be released, or the new agent's
+    # single-instance guard sees the old one and politely refuses to start.
+    for _ in range(20):
+        _wait_tick()
+        try:
+            AgentClient().health()
+        except AgentUnavailable:
+            break
+
+    on_status("Starting the new agent...")
+    start_agent()  # LaunchError propagates; the caller shows it
+
+    # A cold PyInstaller binary can take a while to bind its port, longer still
+    # right after an update replaced the file on disk (antivirus scanning, a cold
+    # disk cache). 30s: a shorter wait used to give up silently and re-render as if
+    # nothing had happened, when the agent came up seconds later on its own.
+    for _ in range(120):
+        _wait_tick()
+        try:
+            AgentClient().health()
+            return True
+        except AgentUnavailable:
+            continue
+    return False
+
+
+def _wait_tick() -> None:
+    """One quarter-second, pumping wx's event loop if wx is running.
+
+    A plain time.sleep() here would freeze the dialog for the whole wait; wx.Yield
+    keeps it painting and responsive. Only wx's own dialogs call this, but the
+    import stays local and best-effort so this module has no hard wx dependency
+    for callers (tests, a future non-wx caller) that never will.
+    """
+    try:
+        import wx
+
+        wx.MilliSleep(250)
+        wx.Yield()
+    except ImportError:
+        import time
+
+        time.sleep(0.25)

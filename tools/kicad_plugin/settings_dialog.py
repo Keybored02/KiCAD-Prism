@@ -855,21 +855,29 @@ class SettingsDialog(wx.Dialog):
         self._relayout()
 
     def _restart(self):
-        try:
-            AgentClient().restart()
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
-            return
+        """Stop whatever agent is running, then start the one that shipped with
+        THIS plugin. See agent_launcher.restart_agent: not the agent's own
+        /restart, which asks the (possibly outdated) running process to re-exec
+        ITSELF, and at worst just relaunches the same old version having changed
+        nothing, the two-click "restart didn't work, now stop and start by hand"
+        this replaces.
+        """
+        from . import agent_launcher
 
-        # It takes a moment to come back on a new port; poll rather than guess.
-        for _ in range(40):
-            wx.MilliSleep(250)
-            wx.Yield()
+        with wx.BusyCursor():
             try:
-                AgentClient().health()
-                break
-            except AgentUnavailable:
-                continue
+                came_up = agent_launcher.restart_agent()
+            except agent_launcher.LaunchError as exc:
+                prompts.tell(self, str(exc), "Prism")
+                return
+
+        if not came_up:
+            prompts.tell(
+                self,
+                "The new agent hasn't responded yet. It may still be starting, "
+                "try again in a moment.",
+                "Prism",
+            )
         self._load()
 
     def _stop(self):

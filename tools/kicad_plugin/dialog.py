@@ -762,13 +762,8 @@ class PrismDialog(wx.Dialog):
         self.open_btn.Enable(False)
 
     def _restart_agent(self):
-        """Stop the old agent, then start the one that shipped with THIS plugin.
-
-        Deliberately not /restart: that makes the agent re-execute *itself*, from
-        the path it was launched from. That path belongs to the old install, after
-        an update it may have been replaced (fine), but it may also be gone
-        entirely, and then the agent quietly fails to come back. The plugin knows
-        where its own binary is; use that.
+        """Stop whatever agent is running, then start the one that shipped with
+        THIS plugin. See agent_launcher.restart_agent for why this, not /restart.
 
         The whole thing can take several seconds (waiting for the old agent's port
         to free up, a cold PyInstaller binary spinning up, the new agent's own
@@ -777,50 +772,19 @@ class PrismDialog(wx.Dialog):
         closed it. So the status line and cursor stay busy for the full wait, not
         just around the launch call, and each phase says what it is doing.
         """
-        with wx.BusyCursor():
-            self.status.SetLabel("Stopping the old agent...")
+        def status(text):
+            self.status.SetLabel(text)
             self.status.SetForegroundColour(_c(self.pal["muted_fg"]))
             wx.Yield()
 
+        with wx.BusyCursor():
             try:
-                AgentClient().quit()
-            except AgentUnavailable:
-                pass  # already gone is the state we wanted
-
-            # Wait for the port and the discovery file to be released, or the new
-            # agent's single-instance guard sees the old one and politely refuses.
-            for _ in range(20):
-                wx.MilliSleep(250)
-                wx.Yield()
-                try:
-                    AgentClient().health()
-                except AgentUnavailable:
-                    break
-
-            self.status.SetLabel("Starting the new agent...")
-            wx.Yield()
-
-            try:
-                agent_launcher.start_agent()
+                came_up = agent_launcher.restart_agent(on_status=status)
             except agent_launcher.LaunchError as exc:
                 prompts.tell(self, str(exc), "Prism")
                 return
 
-            # A cold PyInstaller binary can take a while to bind its port, longer
-            # still right after an update replaced the file on disk (antivirus
-            # scanning, cold disk cache). This used to give up after 10s with no
-            # error and just re-render, which looked like the restart had silently
-            # failed, it had not, the agent came up seconds later on its own. 30s,
-            # and say so if even that isn't enough, rather than pretending success.
-            for _ in range(120):
-                wx.MilliSleep(250)
-                wx.Yield()
-                try:
-                    AgentClient().health()
-                    break
-                except AgentUnavailable:
-                    continue
-            else:
+            if not came_up:
                 prompts.tell(
                     self,
                     "The new agent hasn't responded yet. It may still be "
