@@ -8,7 +8,10 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.comments_url_service import resolve_comments_base_url  # noqa: E402
-from app.services.public_url_service import resolve_public_base_url  # noqa: E402
+from app.services.public_url_service import (  # noqa: E402
+    resolve_provider_base_url,
+    resolve_public_base_url,
+)
 
 
 def _request(
@@ -114,6 +117,76 @@ class PublicUrlServiceTests(unittest.TestCase):
                 resolve_public_base_url(request),
                 "http://127.0.0.1:8000",
             )
+
+
+class ProviderUrlOriginTests(unittest.TestCase):
+    """KiCad rejects provider URLs that are plain HTTP on anything but loopback."""
+
+    def _resolve(self, public_base_url: str, headers: dict[str, str]) -> str:
+        request = _request(base_url="http://127.0.0.1:8000/", headers=headers)
+        with patch("app.services.public_url_service.settings") as settings:
+            settings.PUBLIC_BASE_URL = public_base_url
+            return resolve_provider_base_url(request)
+
+    def test_https_public_url_is_always_used(self) -> None:
+        self.assertEqual(
+            self._resolve(
+                "https://prism.example.com",
+                {"x-prism-loopback-origin": "http://127.0.0.1:5555", "host": "localhost:5173"},
+            ),
+            "https://prism.example.com",
+        )
+
+    def test_loopback_public_url_is_used(self) -> None:
+        self.assertEqual(
+            self._resolve("http://localhost:5173", {"host": "127.0.0.1:8000"}),
+            "http://localhost:5173",
+        )
+
+    def test_http_lan_public_url_with_a_localhost_caller(self) -> None:
+        # The dev proxy rewrites Host but keeps the caller's in X-Forwarded-Host.
+        self.assertEqual(
+            self._resolve(
+                "http://192.168.1.17:5173",
+                {"host": "127.0.0.1:8000", "x-forwarded-host": "localhost:5173"},
+            ),
+            "http://localhost:5173",
+        )
+
+    def test_http_lan_public_url_through_the_agent_bridge(self) -> None:
+        # A proxy in front has overwritten X-Forwarded-Host with the LAN address.
+        self.assertEqual(
+            self._resolve(
+                "http://192.168.1.17:5173",
+                {
+                    "host": "127.0.0.1:8000",
+                    "x-forwarded-host": "192.168.1.17:5173",
+                    "x-prism-loopback-origin": "http://127.0.0.1:61234",
+                },
+            ),
+            "http://127.0.0.1:61234",
+        )
+
+    def test_http_lan_public_url_with_a_lan_caller_keeps_the_public_url(self) -> None:
+        self.assertEqual(
+            self._resolve(
+                "http://192.168.1.17:5173",
+                {"host": "127.0.0.1:8000", "x-forwarded-host": "192.168.1.17:5173"},
+            ),
+            "http://192.168.1.17:5173",
+        )
+
+    def test_a_non_loopback_bridge_header_is_ignored(self) -> None:
+        self.assertEqual(
+            self._resolve(
+                "http://192.168.1.17:5173",
+                {
+                    "x-forwarded-host": "192.168.1.17:5173",
+                    "x-prism-loopback-origin": "http://evil.example.com",
+                },
+            ),
+            "http://192.168.1.17:5173",
+        )
 
 
 class CommentsUrlOriginTests(unittest.TestCase):

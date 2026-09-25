@@ -103,6 +103,22 @@ def test_forwards_the_path_unchanged():
         up.shutdown()
 
 
+def test_tells_the_server_its_own_loopback_origin():
+    # The server builds api_base_url, the OAuth endpoints and the panel URL from this,
+    # so KiCad gets URLs on the bridge rather than the LAN address it would reject.
+    up, handler, upstream_url = _fake_upstream()
+    try:
+        bridge_url = library_bridge.start(upstream_url)
+        req = urllib.request.Request(
+            bridge_url + "/x", headers={"X-Prism-Loopback-Origin": "http://evil:1"}
+        )
+        urllib.request.urlopen(req)
+        received = {k.lower(): v for k, v in handler.received["headers"].items()}
+        assert received["x-prism-loopback-origin"] == bridge_url
+    finally:
+        up.shutdown()
+
+
 def test_forwards_a_post_body():
     up, handler, upstream_url = _fake_upstream()
     try:

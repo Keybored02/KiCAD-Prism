@@ -31,6 +31,9 @@ log = logging.getLogger(__name__)
 
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
+# Must match the backend's public_url_service.LOOPBACK_ORIGIN_HEADER.
+LOOPBACK_ORIGIN_HEADER = "X-Prism-Loopback-Origin"
+
 
 def is_insecure_remote(url: str) -> bool:
     """Would KiCad's own check reject this as a provider URL?
@@ -68,8 +71,13 @@ class _ProxyHandler(BaseHTTPRequestHandler):
             # Host and Content-Length are rebuilt by urllib for the new target;
             # forwarding the client's own values would name the wrong host or a
             # length that no longer matches a body urllib may re-encode.
-            if k.lower() not in ("host", "content-length")
+            if k.lower() not in ("host", "content-length", LOOPBACK_ORIGIN_HEADER.lower())
         }
+        # Tell the server which origin KiCad is really on, so the URLs it hands back
+        # (api_base_url, OAuth endpoints, panel) point here and not at the LAN address
+        # KiCad would reject. A dedicated header: proxies in front of Prism overwrite
+        # X-Forwarded-Host with their own. See the backend's resolve_provider_base_url.
+        headers[LOOPBACK_ORIGIN_HEADER] = "http://127.0.0.1:%d" % self.server.server_address[1]
 
         req = urllib.request.Request(target, data=body, headers=headers, method=method)
         try:
