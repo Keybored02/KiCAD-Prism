@@ -281,6 +281,21 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
             ))
         self.assertEqual(caught.exception.status_code, 401)
 
+    def test_http_oversized_body_returns_413(self) -> None:
+        from app.services.trackers.github_webhooks import MAX_BODY_BYTES
+
+        body = b"x" * (MAX_BODY_BYTES + 1)
+
+        class _Request:
+            headers = {"X-GitHub-Delivery": "big-1", "X-GitHub-Event": "issues"}
+
+            async def stream(self):
+                yield body
+
+        with self.assertRaises(HTTPException) as caught:
+            run(webhooks_api.github_webhook("cn_gh1", _Request()))
+        self.assertEqual(caught.exception.status_code, 413)
+
 
 if __name__ == "__main__":
     unittest.main()
