@@ -19,13 +19,14 @@ type View =
 /** What each host can do in Prism today. */
 const PROVIDER_CAPABILITY: Record<CodeHostProvider, string> = {
     github: "Issue publishing and account linking",
-    gitlab: "Account linking",
+    gitlab: "Issue publishing and account linking",
     gitea: "Account linking",
 };
 
 function status(connector: TrackerConnector): { label: string; variant: "success" | "warning" | "destructive" | "outline" } {
     if (connector.pausedReason === "revoked") return { label: "Credentials revoked", variant: "destructive" };
-    if (connector.provider !== "github") {
+    // Without publishing credentials a host is only for linking accounts.
+    if (connector.provider !== "github" && !connector.credentialConfigured) {
         return connector.capabilities?.accountLinking || connector.oauthClientConfigured
             ? { label: "Ready", variant: "success" }
             : { label: "Needs OAuth app", variant: "warning" };
@@ -83,10 +84,10 @@ export function CodeHostsSettings() {
             : [...current, next]);
     }, []);
 
-    const githubChanged = useCallback((next: TrackerConnector) => {
+    const issueHostChanged = useCallback((next: TrackerConnector) => {
         upsert(next);
-        setView((current) => current.kind === "edit" && current.provider === "github" && !current.connectorId
-            ? { kind: "edit", provider: "github", connectorId: next.id }
+        setView((current) => current.kind === "edit" && current.provider !== "gitea" && !current.connectorId
+            ? { kind: "edit", provider: current.provider, connectorId: next.id }
             : current);
     }, [upsert]);
 
@@ -132,11 +133,12 @@ export function CodeHostsSettings() {
         return (
             <div className="space-y-4">
                 {back}
-                {view.provider === "github" ? (
+                {view.provider !== "gitea" ? (
                     <ConnectorSettings
                         connectorId={view.connectorId}
+                        provider={view.provider}
                         isAdmin
-                        onConnectorChange={githubChanged}
+                        onConnectorChange={issueHostChanged}
                     />
                 ) : (
                     <OAuthHostForm
@@ -189,7 +191,8 @@ export function CodeHostsSettings() {
                 <ul className="divide-y rounded-lg border" aria-label="Code hosts">
                     {connectors.map((connector) => {
                         const state = status(connector);
-                        const issues = connector.capabilities?.issues ?? connector.provider === "github";
+                        // Issues only once the host can publish: GitHub's App, GitLab's bot token.
+                        const issues = Boolean(connector.capabilities?.issues && connector.credentialConfigured);
                         const linking = connector.capabilities?.accountLinking ?? Boolean(connector.oauthClientConfigured);
                         return (
                             <li key={connector.id}>

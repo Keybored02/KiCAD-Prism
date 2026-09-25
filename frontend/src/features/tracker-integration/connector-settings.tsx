@@ -6,17 +6,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, KeyRound, Pause, Play, RefreshCw, ShieldAlert } from "lucide-react";
+import { ExternalLink, KeyRound, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { HoldToConfirmButton } from "@/components/ui/hold-to-confirm-button";
-import { PermissionHint } from "@/components/ui/permission-hint";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import {
@@ -31,14 +27,25 @@ import {
 } from "@/lib/trackers-client";
 import type { ConnectorTestResult, TrackerConnector } from "@/types/trackers";
 import { ConnectorDeliverySettings } from "./connector-delivery-settings";
-import { ConnectorIdentitySettings } from "./connector-identity-settings";
+import { ConnectorIdentitySettings, isSelfHostedInstance } from "./connector-identity-settings";
 import { ConnectorInstallationSettings } from "./connector-installation-settings";
+import { ConnectorTokenSettings } from "./connector-token-settings";
+import {
+    ConnectorForbiddenCard,
+    ConnectorLifecycleFooter,
+    ConnectorLoadingCard,
+    ConnectorOfflineCard,
+} from "./connector-settings-parts";
 
 export { connectorWebhookPublicUrl } from "./connector-delivery-settings";
 
 export type ConnectorSettingsPhase = "loading" | "ready" | "empty" | "forbidden" | "offline" | "revoked";
 
+/** Code hosts that publish issues and share this editor. */
+export type IssueHostProvider = "github" | "gitlab";
+
 export interface ConnectorCredentialFields {
+    accessToken: string;
     appId: string;
     installationId: string;
     privateKey: string;
@@ -49,6 +56,8 @@ export interface ConnectorCredentialFields {
 
 export interface ConnectorSettingsProps {
     connectorId: string | null;
+    /** Which host a new connection is for; an existing one reports its own. */
+    provider?: IssueHostProvider;
     isAdmin: boolean;
     /** Origin used to build the public webhook URL guidance (defaults to window.location.origin). */
     prismOrigin?: string;
@@ -57,9 +66,16 @@ export interface ConnectorSettingsProps {
 }
 
 /** Step-by-step GitHub App registration for deployers. */
-const GITHUB_APP_SETUP_GUIDE = "https://github.com/krishna-swaroop/KiCAD-Prism/blob/dev/docs/GITHUB_APP_SETUP.md";
+const DOCS = "https://github.com/krishna-swaroop/KiCAD-Prism/blob/dev/docs";
+const SETUP_GUIDE: Record<IssueHostProvider, string> = {
+    github: `${DOCS}/GITHUB_APP_SETUP.md`,
+    gitlab: `${DOCS}/GITLAB_SETUP.md`,
+};
+const DEFAULT_INSTANCE: Record<IssueHostProvider, string> = { github: "github.com", gitlab: "gitlab.com" };
+const PROVIDER_NAME: Record<IssueHostProvider, string> = { github: "GitHub", gitlab: "GitLab" };
 
 const EMPTY_CREDENTIALS: ConnectorCredentialFields = {
+    accessToken: "",
     appId: "",
     installationId: "",
     privateKey: "",
@@ -86,24 +102,13 @@ export function describeConnectorSettingsError(error: unknown, fallback = "Conne
     return fallback;
 }
 
+/** Only the fields the admin filled in; blank fields keep their stored values. */
 function credentialsPayload(fields: ConnectorCredentialFields): Record<string, string> | undefined {
-    const appId = fields.appId.trim();
-    const installationId = fields.installationId.trim();
-    const privateKey = fields.privateKey.trim();
-    const webhookSecret = fields.webhookSecret.trim();
-    const oauthClientId = fields.oauthClientId.trim();
-    const oauthClientSecret = fields.oauthClientSecret.trim();
-    if (!appId && !installationId && !privateKey && !webhookSecret && !oauthClientId && !oauthClientSecret) {
-        return undefined;
-    }
     const payload: Record<string, string> = {};
-    if (appId) payload.appId = appId;
-    if (installationId) payload.installationId = installationId;
-    if (privateKey) payload.privateKey = privateKey;
-    if (webhookSecret) payload.webhookSecret = webhookSecret;
-    if (oauthClientId) payload.oauthClientId = oauthClientId;
-    if (oauthClientSecret) payload.oauthClientSecret = oauthClientSecret;
-    return payload;
+    for (const [key, value] of Object.entries(fields)) {
+        if (value.trim()) payload[key] = value.trim();
+    }
+    return Object.keys(payload).length ? payload : undefined;
 }
 
 function connectorPhase(
@@ -116,12 +121,15 @@ function connectorPhase(
     if (loading) return "loading";
     if (offline) return "offline";
     if (!connector) return "empty";
-    if (!connector.credentialConfigured || connector.pausedReason === "auth") return "revoked";
+    if (connector.pausedReason === "auth" || connector.pausedReason === "revoked") return "revoked";
+    // A GitHub connection is its App; a GitLab one may exist for account linking alone.
+    if (connector.provider === "github" && !connector.credentialConfigured) return "revoked";
     return "ready";
 }
 
 export function ConnectorSettings({
     connectorId,
+    provider: requestedProvider = "github",
     isAdmin,
     prismOrigin,
     className,
@@ -131,7 +139,7 @@ export function ConnectorSettings({
     const [connector, setConnector] = useState<TrackerConnector | null>(null);
     const [displayName, setDisplayName] = useState("");
     const [baseUrl, setBaseUrl] = useState("");
-    const [instanceKind, setInstanceKind] = useState("github.com");
+    const [instanceKind, setInstanceKind] = useState(DEFAULT_INSTANCE[requestedProvider]);
     const [credentials, setCredentials] = useState<ConnectorCredentialFields>(EMPTY_CREDENTIALS);
     const [loading, setLoading] = useState(Boolean(connectorId));
     const [offline, setOffline] = useState(false);
@@ -142,6 +150,8 @@ export function ConnectorSettings({
     const [testResult, setTestResult] = useState<ConnectorTestResult | null>(null);
     const [formError, setFormError] = useState<string | null>(null);
     const phase = connectorPhase(isAdmin, connector, loading, offline);
+    const provider: IssueHostProvider = connector?.provider === "gitlab" ? "gitlab" : connector ? "github" : requestedProvider;
+    const selfHosted = isSelfHostedInstance(provider, instanceKind);
 
     // The host may pass a new callback on every render. Reading it through a
     // ref keeps the load effect below from re-running (and re-notifying the
@@ -208,15 +218,11 @@ export function ConnectorSettings({
             const saved = connector?.id
                 ? await updateConnector(connector.id, payload)
                 : await createConnector({
-                      provider: "github",
-                      instanceKind: instanceKind.trim() || "github.com",
-                      displayName: displayName.trim() || "GitHub",
-                      baseUrl: baseUrl.trim(),
-                      credentials: credentialsPayload(credentials) ?? {
-                          appId: credentials.appId,
-                          installationId: credentials.installationId,
-                          privateKey: credentials.privateKey,
-                      },
+                      provider,
+                      instanceKind: instanceKind.trim() || DEFAULT_INSTANCE[provider],
+                      displayName: displayName.trim() || PROVIDER_NAME[provider],
+                      baseUrl: selfHosted ? baseUrl.trim() : "",
+                      credentials: credentialsPayload(credentials) ?? {},
                   });
             applyConnector(saved, true);
             toast.success(connector?.id ? "Connector updated." : "Connector created.");
@@ -269,73 +275,35 @@ export function ConnectorSettings({
         }
     };
 
-    if (phase === "forbidden") {
-        return (
-            <Card className={cn("border-dashed", className)} data-tracker-phase="forbidden">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <ShieldAlert className="h-4 w-4" aria-hidden="true" />
-                        Tracker connectors
-                    </CardTitle>
-                    <CardDescription>Administrator access is required to configure forge connectors.</CardDescription>
-                </CardHeader>
-            </Card>
-        );
-    }
-
-    if (phase === "loading") {
-        return (
-            <Card className={className} data-tracker-phase="loading" aria-busy="true">
-                <CardHeader>
-                    <Skeleton className="h-5 w-48" />
-                    <Skeleton className="mt-2 h-4 w-full max-w-md" />
-                </CardHeader>
-                <CardContent className="space-y-3">
-                    <Skeleton className="h-9 w-full" />
-                    <Skeleton className="h-9 w-full" />
-                    <Skeleton className="h-24 w-full" />
-                </CardContent>
-            </Card>
-        );
-    }
-
+    if (phase === "forbidden") return <ConnectorForbiddenCard className={className} />;
+    if (phase === "loading") return <ConnectorLoadingCard className={className} />;
     if (phase === "offline") {
         return (
-            <Card className={className} data-tracker-phase="offline">
-                <CardHeader>
-                    <CardTitle>Tracker connector</CardTitle>
-                    <CardDescription>Could not reach Prism. Check your network and try again.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-sm text-destructive" role="alert">{formError}</p>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        className="mt-3"
-                        onClick={() => setRetryVersion((version) => version + 1)}
-                    >
-                        <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-                        Retry
-                    </Button>
-                </CardContent>
-            </Card>
+            <ConnectorOfflineCard
+                className={className}
+                error={formError}
+                onRetry={() => setRetryVersion((version) => version + 1)}
+            />
         );
     }
 
     const readyToSave = connector
         ? true
-        : Boolean(credentials.appId.trim() && credentials.installationId.trim() && credentials.privateKey.trim());
+        : provider === "gitlab"
+          // A GitLab connection can start with account linking only; the token can come later.
+          ? !selfHosted || /^https:\/\/[^/]+/.test(baseUrl.trim())
+          : Boolean(credentials.appId.trim() && credentials.installationId.trim() && credentials.privateKey.trim());
 
     return (
         <Card className={cn("gap-0 py-0", className)} data-tracker-phase={phase}>
             <CardHeader className="border-b py-3">
                 <CardTitle className="flex flex-wrap items-center gap-2">
                     <KeyRound className="size-4" aria-hidden="true" />
-                    {connector ? connector.displayName : "New GitHub connection"}
+                    {connector ? connector.displayName : `New ${PROVIDER_NAME[provider]} connection`}
                     {connector?.paused ? <Badge variant="warning">Paused</Badge> : null}
                     {phase === "revoked" ? <Badge variant="destructive">Revoked</Badge> : null}
                     <a
-                        href={GITHUB_APP_SETUP_GUIDE}
+                        href={SETUP_GUIDE[provider]}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="ml-auto inline-flex items-center gap-1 text-xs font-normal text-primary underline-offset-2 hover:underline"
@@ -355,6 +323,7 @@ export function ConnectorSettings({
                 ) : null}
 
                 <ConnectorIdentitySettings
+                    provider={provider}
                     connectorId={connector?.id}
                     displayName={displayName}
                     setDisplayName={setDisplayName}
@@ -366,20 +335,33 @@ export function ConnectorSettings({
 
                 <Separator />
 
-                <ConnectorInstallationSettings
-                    connector={connector}
-                    credentials={credentials}
-                    setCredentials={setCredentials}
-                    testing={testing}
-                    lifecycleBusy={lifecycleBusy}
-                    testResult={testResult}
-                    onTest={runTest}
-                />
+                {provider === "gitlab" ? (
+                    <ConnectorTokenSettings
+                        connector={connector}
+                        credentials={credentials}
+                        setCredentials={setCredentials}
+                        testing={testing}
+                        lifecycleBusy={lifecycleBusy}
+                        testResult={testResult}
+                        onTest={runTest}
+                    />
+                ) : (
+                    <ConnectorInstallationSettings
+                        connector={connector}
+                        credentials={credentials}
+                        setCredentials={setCredentials}
+                        testing={testing}
+                        lifecycleBusy={lifecycleBusy}
+                        testResult={testResult}
+                        onTest={runTest}
+                    />
+                )}
 
                 <Separator />
 
                 <ConnectorDeliverySettings
                     key={`${connector?.id ?? "new"}:${Boolean(connector?.oauthClientConfigured)}`}
+                    provider={provider}
                     connector={connector}
                     credentials={credentials}
                     setCredentials={setCredentials}
@@ -387,36 +369,15 @@ export function ConnectorSettings({
                 />
             </CardContent>
 
-            <CardFooter className="flex flex-wrap items-center gap-2 border-t py-3">
-                <PermissionHint blocked={!isAdmin} action="manage tracker connectors" allowedRoles={["admin"]}>
-                    <Button type="button" size="sm" disabled={saving || !isAdmin || !readyToSave} onClick={() => void saveConnector()}>
-                        {saving ? "Saving…" : connector ? "Save changes" : "Create connection"}
-                    </Button>
-                </PermissionHint>
-                {connector?.id ? (
-                    <span className="ml-auto inline-flex items-center gap-2">
-                        {connector.paused ? (
-                            <Button type="button" size="sm" variant="outline" disabled={lifecycleBusy} onClick={() => void runLifecycle("resume")}>
-                                <Play aria-hidden="true" />
-                                Resume
-                            </Button>
-                        ) : (
-                            <Button type="button" size="sm" variant="outline" disabled={lifecycleBusy} onClick={() => void runLifecycle("pause")}>
-                                <Pause aria-hidden="true" />
-                                Pause
-                            </Button>
-                        )}
-                        <HoldToConfirmButton
-                            type="button"
-                            size="sm"
-                            disabled={lifecycleBusy}
-                            onConfirm={() => void runLifecycle("revoke")}
-                        >
-                            Revoke credentials
-                        </HoldToConfirmButton>
-                    </span>
-                ) : null}
-            </CardFooter>
+            <ConnectorLifecycleFooter
+                connector={connector}
+                isAdmin={isAdmin}
+                saving={saving}
+                readyToSave={readyToSave}
+                lifecycleBusy={lifecycleBusy}
+                onSave={() => void saveConnector()}
+                onLifecycle={(action) => void runLifecycle(action)}
+            />
         </Card>
     );
 }

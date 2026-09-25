@@ -12,59 +12,80 @@ interface TrackerOption {
     id: string;
     name: string;
     icon: LucideIcon;
-    available: boolean;
+    /** Prism can publish there once a connection exists. */
+    supported: boolean;
 }
 
 /**
- * Issue trackers a project can publish to. Only GitHub Issues works today;
- * the rest are listed so nobody reads this dialog as "git hosts only".
+ * Issue trackers a project can publish to. Jira and Linear are listed so the
+ * dialog does not read as "git hosts only"; they are not available yet.
  */
 const TRACKERS: TrackerOption[] = [
-    { id: "github", name: "GitHub Issues", icon: Github, available: true },
-    { id: "gitlab", name: "GitLab Issues", icon: Gitlab, available: false },
-    { id: "jira", name: "Jira", icon: SquareKanban, available: false },
-    { id: "linear", name: "Linear", icon: Workflow, available: false },
+    { id: "github", name: "GitHub Issues", icon: Github, supported: true },
+    { id: "gitlab", name: "GitLab Issues", icon: Gitlab, supported: true },
+    { id: "jira", name: "Jira", icon: SquareKanban, supported: false },
+    { id: "linear", name: "Linear", icon: Workflow, supported: false },
 ];
 
 interface ProjectTrackerChoiceProps {
     draft: TrackerSettingsDraft;
     setDraft: Dispatch<SetStateAction<TrackerSettingsDraft | null>>;
+    /** Connections that can publish; empty for people who cannot manage them. */
     connectors: TrackerConnector[];
+    /** Provider of the saved connection, for people who cannot list connections. */
+    savedProvider?: string;
     isAdmin: boolean;
 }
 
-export function ProjectTrackerChoice({ draft, setDraft, connectors, isAdmin }: ProjectTrackerChoiceProps) {
+export function ProjectTrackerChoice({ draft, setDraft, connectors, savedProvider, isAdmin }: ProjectTrackerChoiceProps) {
     const current = connectors.find((connector) => connector.id === draft.connectorId);
+    const selectedProvider = current?.provider ?? savedProvider ?? "github";
+    const sameProvider = connectors.filter((connector) => connector.provider === selectedProvider);
+
+    const choose = (provider: string) => {
+        const first = connectors.find((connector) => connector.provider === provider);
+        if (!first || provider === selectedProvider) return;
+        // A repository on one host means nothing on another, and the project's
+        // own repository is only known for the saved host: pick one explicitly.
+        setDraft((prev) => prev && { ...prev, connectorId: first.id, useOverride: true, containerPath: "", remoteContainerId: "" });
+    };
+
     return (
         <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Issue tracker">
                 {TRACKERS.map((tracker) => {
-                    const selected = tracker.id === "github";
+                    const selected = tracker.id === selectedProvider;
+                    const connected = connectors.some((connector) => connector.provider === tracker.id);
+                    const selectable = isAdmin && tracker.supported && connected;
                     const Icon = tracker.icon;
+                    const note = !tracker.supported ? "Soon" : !connected && !selected ? "Not set up" : null;
                     return (
-                        <div
+                        <button
                             key={tracker.id}
+                            type="button"
                             role="radio"
                             aria-checked={selected}
-                            aria-disabled={!tracker.available}
+                            disabled={!selectable && !selected}
+                            onClick={() => choose(tracker.id)}
                             data-tracker-option={tracker.id}
                             className={cn(
-                                "relative flex flex-col gap-1.5 px-3 py-2.5 ring-1 ring-foreground/10",
+                                "relative flex flex-col gap-1.5 px-3 py-2.5 text-left ring-1 ring-foreground/10 transition-colors",
                                 selected && "bg-primary/5 ring-primary/40",
-                                !tracker.available && "text-muted-foreground",
+                                selectable && !selected && "hover:bg-muted/40",
+                                !selectable && !selected && "cursor-default text-muted-foreground",
                             )}
                         >
                             <span className="flex items-center justify-between">
                                 <Icon className="size-4" aria-hidden="true" />
                                 {selected ? <Check className="size-3.5 text-primary" aria-hidden="true" /> : null}
-                                {!tracker.available ? <span className="text-[10px] uppercase tracking-wide">Soon</span> : null}
+                                {note ? <span className="text-[10px] uppercase tracking-wide">{note}</span> : null}
                             </span>
                             <span className="text-xs font-medium">{tracker.name}</span>
-                        </div>
+                        </button>
                     );
                 })}
             </div>
-            {isAdmin && connectors.length > 1 ? (
+            {isAdmin && sameProvider.length > 1 ? (
                 <div className="flex items-center gap-3">
                     <Label htmlFor="tracker-connector" className="shrink-0 text-xs text-muted-foreground">Connection</Label>
                     <Select value={draft.connectorId} onValueChange={(connectorId) => setDraft((prev) => {
@@ -76,7 +97,7 @@ export function ProjectTrackerChoice({ draft, setDraft, connectors, isAdmin }: P
                     })}>
                         <SelectTrigger id="tracker-connector" size="sm" className="w-full max-w-64"><SelectValue placeholder="Select a connection" /></SelectTrigger>
                         <SelectContent>
-                            {connectors.map((connector) => <SelectItem key={connector.id} value={connector.id}>{connector.displayName}</SelectItem>)}
+                            {sameProvider.map((connector) => <SelectItem key={connector.id} value={connector.id}>{connector.displayName}</SelectItem>)}
                         </SelectContent>
                     </Select>
                 </div>
