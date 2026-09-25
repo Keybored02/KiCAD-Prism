@@ -70,8 +70,8 @@ operation state, or linked-reply change appends a `projection` event in the
 same PostgreSQL transaction through triggers on the tracker tables. Ordinary
 worker heartbeats and verification timestamps do not generate comment events.
 The browser then refetches authorized comment state and shows the issue link or
-retry state. GitHub is the first adapter; GitLab and Gitea are separate staged
-adapters behind the same provider-neutral tracker contracts. A webhook is an
+retry state. GitHub and GitLab issue adapters are shipped behind the same provider-neutral
+tracker contracts. Gitea/Forgejo currently supports account linking only. A webhook is an
 inbound hint, not a replacement for the outbound queue or the Prism comment DB.
 
 ## Rollout gate

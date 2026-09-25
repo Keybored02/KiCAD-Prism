@@ -26,12 +26,13 @@ a general alpha compatibility guarantee. Read the release notes for the exact
 release before relying on an image-only rollback; if the release changed data
 incompatibly, restoring the matching backup is required.
 
-Prism enforces its half of this. Both schemas carry numbered ledgers applied at
+Workspace, catalog, and comment schemas carry numbered ledgers applied at
 startup under an advisory lock:
 
 | Schema | Ledger | Migrations |
 | --- | --- | --- |
 | `workspace` | `workspace.ws_schema_migrations` | [`workspace_schema_migrations.py`](../backend/app/services/workspace_schema_migrations.py) (registry), bodies under [`workspace_migrations/`](../backend/app/services/workspace_migrations/) |
+| `comments` | `comments.comment_schema_migrations` | [`comments_schema_migrations.py`](../backend/app/services/comments_schema_migrations.py) |
 | `catalog` | `catalog.catalog_schema_versions` | [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py) |
 
 Derived state sits outside those ledgers on purpose. Component-head projections,
@@ -154,13 +155,16 @@ in the active directory.
 **Do not copy the old `.env` over the new one.** It carries the old image
 digests, and the stack will start on the old code while everything appears to
 have upgraded. Start from the new `.env.example` and carry your site values
-across. If you deployed with the installer, it does that for you:
+across. For source deployments configured with the installer, regenerate their
+settings:
 
 ```bash
 python3 -m scripts.prism_deploy
 ```
 
-It reads your existing answers, keeps your secrets, and takes the new defaults.
+The installer reads existing answers, keeps secrets, and takes new defaults.
+It generates source Compose overlays; do not run it against a pull-only release
+bundle. Bundle users should carry values into the new `.env.example` manually.
 
 ## 6. Validate before you switch
 
@@ -305,8 +309,8 @@ The component-as-part catalog is an intentional destructive catalog boundary.
 The backend refuses a populated pre-epoch-2 catalog and leaves every
 non-catalog PostgreSQL schema untouched. Use this rollout order:
 
-1. Create and verify a Prism backup, then rotate any exposed InvenTree token.
-2. Stop the backend and catalog workers.
+1. Create and verify a Prism backup.
+2. Stop frontend, backend, and both worker services before catalog migration.
 3. If the legacy catalog contains non-CERN work, export and verify the survivor
    archive described below.
 4. Run `import_database_library.py --dry-run --report-json …` and archive the report.

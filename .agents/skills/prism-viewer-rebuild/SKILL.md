@@ -27,6 +27,8 @@ This updates:
 
 - `frontend/public/ecad-viewer.js`;
 - `frontend/public/parser.worker.js`;
+- `frontend/public/ecad-renderer.js` and its generated cache key in
+  `frontend/src/lib/ecad-renderer-build.ts`;
 - `frontend/public/ecad-viewer.manifest.json`; and
 - the artifact digest in `frontend/index.html`.
 

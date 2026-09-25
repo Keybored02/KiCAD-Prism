@@ -3,6 +3,11 @@
 Stable operators should start from the latest GitHub Release. Contributors and
 testers of unreleased behavior work from `dev`.
 
+## Release notes
+
+- [v4.0.0-alpha](releases/v4.0.0-alpha.md) covers the next major alpha and its
+  catalog migration requirements; it supersedes the unpublished v3.1 plan.
+
 ## Evaluate Prism
 
 - [Platform overview](OVERVIEW.md) explains capabilities and current boundaries.
@@ -40,8 +45,21 @@ testers of unreleased behavior work from `dev`.
   release, KLC checks, and DBL export.
 - [Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md) covers connecting desktop
   KiCad and placing released components.
+- [Design variants](PROJECT_WORKFLOWS.md#design-variants) describes assembly
+  selection, effective BOM data, and DNP visibility.
+- [PCB review tools](PROJECT_WORKFLOWS.md#pcb-labels-and-net-review) covers
+  labels, multiple highlighted nets, and routing statistics.
+- [Live comments](architecture/live-comments.md) describes revision anchors,
+  reconnect behavior, and transport rollback.
 - [Release Studio](release-studio/README.md) covers committed-revision
   manufacturing documents, dual sign-off, and GitHub/GitLab publish.
+
+## Contributor references
+
+- [Dependency identity](DEPENDENCIES.md) covers Python, JavaScript, and native pins.
+- [Experimental Rust PCB geometry](PCB_RUST_GEOMETRY.md) covers explicit
+  opt-in, limitations, verification, and rollback.
+- [Design comparison](design-comparison/README.md) maps comparison contracts.
 
 ## Participate
 

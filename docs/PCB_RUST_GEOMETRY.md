@@ -1,6 +1,6 @@
 # Rust PCB geometry backend
 
-Prism has an opt-in Linux source-build path for PCB copper geometry. The
+Prism has an experimental, opt-in Linux path for PCB copper geometry. The
 default remains `legacy`; set `PRISM_PCB_GEOMETRY_BACKEND=rust` to use it. An
 explicit Rust selection fails closed if the helper is missing, the schema or
 source digest is wrong, the pinned upstream revision differs, or the helper
@@ -96,9 +96,13 @@ PRISM_KICAD_NATIVE_TIMEOUT_SECONDS=300
 ```
 
 `python-copper` is retained only as an experimental compatibility surface. It
-is not selected automatically. Rollback is immediate: set the backend to
-`legacy` and restart workers. There is no silent fallback from an explicitly
+is not selected automatically. Rollback: set the backend to
+`legacy` and recreate the API and general worker containers to reload their
+environment. There is no silent fallback from an explicitly
 selected Rust backend.
+
+The legacy backend is the release default. Corpus performance results do not
+establish full legacy geometry parity; the native path remains experimental.
 
 ## Verification and benchmarking
 

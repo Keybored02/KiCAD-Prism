@@ -78,6 +78,18 @@ evidence, previews, and placement.
 Use a new revision for any released-part change, including metadata that affects
 selection or manufacturing.
 
+## Live previews and representation selection
+
+The component workspace can render symbol and footprint source assets directly.
+Choose a representation to inspect its symbol/footprint pair, then select a
+symbol pin or footprint pad to cross-probe the matching item. Pan and zoom
+inside the preview. Stored SVG thumbnails and revision evidence remain separate
+views; a live preview is not approval evidence by itself.
+
+Downloads from a released revision follow the selected representation, including
+non-default pairs. A stale edit reports a revision conflict rather than silently
+overwriting newer work; reload the component before retrying.
+
 ## KLC validation
 
 Enable:
