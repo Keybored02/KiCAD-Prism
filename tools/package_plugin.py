@@ -77,11 +77,19 @@ def resolve_version() -> str:
 
 IDENTIFIER = "com.github.keybored02.kicad-prism"
 
-# The binary each platform's package carries, keyed by the artifact name CI uses.
+# The binary each package carries, keyed by the artifact name CI uses. `platform`
+# is what metadata.json declares to PCM (its schema only knows OS, not arch, so
+# both macOS entries say "macos"); `label` is what tells the two macOS zips apart
+# on disk, since they'd otherwise both be kicad-prism-<version>-macos.zip and the
+# second build would silently overwrite the first.
 PLATFORMS = {
-    "prism-agent-windows": ("windows", "prism-agent.exe"),
-    "prism-agent-macos": ("macos", "prism-agent"),
-    "prism-agent-linux": ("linux", "prism-agent"),
+    "prism-agent-windows": ("windows", "prism-agent.exe", "windows"),
+    # PyInstaller only builds for the arch it runs on; there is no single macOS
+    # binary that works on both, see build-plugin.yml for why. Two thin binaries,
+    # the user picks the one matching their Mac.
+    "prism-agent-macos-arm64": ("macos", "prism-agent", "macos-arm64"),
+    "prism-agent-macos-x86_64": ("macos", "prism-agent", "macos-intel"),
+    "prism-agent-linux": ("linux", "prism-agent", "linux"),
 }
 
 # Files in kicad_plugin/ that are ours to ship. Everything else (caches, the dev
@@ -155,10 +163,10 @@ def _find_binary(binaries: Path, artifact: str, name: str) -> Path:
 
 
 def build_package(version: str, binaries: Path, out: Path, artifact: str) -> Path:
-    platform, binary_name = PLATFORMS[artifact]
+    platform, binary_name, label = PLATFORMS[artifact]
     binary = _find_binary(binaries, artifact, binary_name)
 
-    staging = out / f"_stage-{platform}"
+    staging = out / f"_stage-{label}"
     shutil.rmtree(staging, ignore_errors=True)
 
     plugins = staging / "plugins"
@@ -181,7 +189,7 @@ def build_package(version: str, binaries: Path, out: Path, artifact: str) -> Pat
     )
 
     out.mkdir(parents=True, exist_ok=True)
-    zip_path = out / f"kicad-prism-{version}-{platform}.zip"
+    zip_path = out / f"kicad-prism-{version}-{label}.zip"
     zip_path.unlink(missing_ok=True)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:

@@ -39,8 +39,17 @@ jobs:
           - os: windows-latest
             artifact: prism-agent-windows
             binary: prism-agent.exe
+          # Two macOS legs: macos-latest is an Apple Silicon (arm64) runner as of
+          # 2024, and PyInstaller builds only for the arch it runs on, no flag
+          # produces a universal2 binary without a universal2 Python and fused
+          # (delocate) wheels for every compiled dependency (Pillow, here), which
+          # is real CI machinery for one platform. Two thin binaries, each built
+          # the same way Windows/Linux already are, is the boring reliable answer.
           - os: macos-latest
-            artifact: prism-agent-macos
+            artifact: prism-agent-macos-arm64
+            binary: prism-agent
+          - os: macos-13 # Intel
+            artifact: prism-agent-macos-x86_64
             binary: prism-agent
           - os: ubuntu-latest
             artifact: prism-agent-linux
