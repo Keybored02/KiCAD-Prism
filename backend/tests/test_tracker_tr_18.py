@@ -27,6 +27,7 @@ from app.services.trackers.github_recovery import (  # noqa: E402
     next_quarantine_at,
     quarantine_delay_minutes,
     recover_create_issue,
+    recover_add_comment,
     recover_op,
     scan_issue_pages,
 )
@@ -332,6 +333,37 @@ class RecoveryScanTests(unittest.TestCase):
             bot_user_id=BOT_ID,
         )
         self.assertEqual(second.kind, RecoveryKind.FOUND)
+
+    def test_reply_recovery_matches_the_comment_not_its_issue(self) -> None:
+        from app.services.trackers.contracts import ForgeUser, RemoteComment, RemoteVersion
+        from app.services.trackers.markers import build_marker as reply_marker
+
+        op = {"id": OP_ID}
+        body = "designer reply\n\n" + reply_marker(
+            connector_id=DEST.connectorId,
+            container_id=DEST.remoteContainerId,
+            reply_id=REPLY_ID,
+            op_id=OP_ID,
+        )
+        remote = RemoteComment(
+            externalCommentId="777001",
+            externalId="9001",
+            externalNumber=412,
+            url="https://github.com/acme/openswitch/issues/412#issuecomment-777001",
+            body=body,
+            author=ForgeUser(id=BOT_ID, login="prism[bot]", isBot=True),
+            version=RemoteVersion(updatedAt="2026-09-20T15:00:00Z"),
+        )
+        outcome = recover_add_comment(
+            op,
+            dest=DEST,
+            reply_id=REPLY_ID,
+            fetch_page=lambda _cursor: ([remote], None),
+            bot_user_id=BOT_ID,
+        )
+        self.assertEqual(outcome.kind, RecoveryKind.FOUND)
+        # Recovery confirms the reply by this id and re-reads the comment with it.
+        self.assertEqual(outcome.match.external_id, "777001")
 
     def test_quarantine_schedule_matches_d2(self) -> None:
         self.assertEqual(quarantine_delay_minutes(0), 1)
