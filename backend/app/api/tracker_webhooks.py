@@ -33,8 +33,10 @@ async def _read_body_with_limit(request: Request, max_bytes: int) -> bytes:
 async def tracker_webhook(provider: str, connector_id: str, request: Request) -> JSONResponse:
     if webhook_codec(provider) is None:
         raise HTTPException(status_code=404, detail="Unknown webhook provider")
-    raw = await _read_body_with_limit(request, MAX_BODY_BYTES)
     try:
+        # The size limit raises WebhookRejected while streaming; it must be
+        # inside this block to answer 413 rather than escape as a 500.
+        raw = await _read_body_with_limit(request, MAX_BODY_BYTES)
         # Secret decryption and the hint insert are blocking DB work; keep them
         # off the event loop like every other tracker route.
         result = await asyncio.to_thread(
