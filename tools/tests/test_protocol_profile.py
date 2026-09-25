@@ -248,5 +248,68 @@ def test_a_quote_in_the_command_does_not_break_the_applescript_string():
     assert script.count('do shell script "') == 1
 
 
+def test_the_applet_runs_the_handler_in_the_background_inside_try():
+    """`do shell script` blocks until the handler exits (a dialog included), queueing
+    every further click; an uncaught failure is a raw AppleScript error dialog."""
+    script = protocol._open_location_applescript(["/usr/bin/prism-agent", "--open-url"])
+    assert "    try\n" in script and "    end try\n" in script
+    assert '" > /dev/null 2>&1 &"' in script
+
+
+# -- macOS: building the bundle --------------------------------------------
+
+
+@pytest.fixture
+def fake_mac_tools(tmp_path, monkeypatch):
+    """osacompile and PlistBuddy, simulated: this runs on any OS."""
+    bundle = tmp_path / "Applications" / "KiCad-Prism Agent.app"
+    monkeypatch.setattr(protocol, "_mac_app_bundle", lambda: bundle)
+    monkeypatch.setattr(protocol, "_launch_command", lambda: ["/usr/bin/prism-agent"])
+    monkeypatch.setitem(sys.modules, "prism_agent.server", type(sys)("prism_agent.server"))
+    sys.modules["prism_agent.server"].VERSION = "0.5.10"
+    state = {"plist_fails": False}
+
+    def run(cmd, **_kwargs):
+        if cmd[0] == "osacompile":
+            out = Path(cmd[2])
+            (out / "Contents" / "Resources").mkdir(parents=True)
+            (out / "Contents" / "Info.plist").write_text("<plist/>")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0].endswith("PlistBuddy"):
+            code = 1 if state["plist_fails"] else 0
+            return subprocess.CompletedProcess(cmd, code, "", "Entry Already Exists")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(protocol.subprocess, "run", run)
+    return bundle, state
+
+
+def test_a_rebuild_replaces_the_bundle_and_marks_its_version(fake_mac_tools):
+    bundle, _state = fake_mac_tools
+    (bundle / "Contents").mkdir(parents=True)
+    (bundle / "Contents" / "old.txt").write_text("previous build")
+
+    protocol._register_macos()
+
+    assert not (bundle / "Contents" / "old.txt").exists()
+    assert protocol._mac_version_marker(bundle).read_text() == "0.5.10"
+    assert not bundle.with_name(bundle.name + ".old").exists()
+
+
+def test_a_failed_plist_edit_keeps_the_working_bundle_and_writes_no_marker(fake_mac_tools):
+    """The old code deleted the bundle first and wrote the marker regardless, so a
+    failed edit left a bundle claiming no scheme that is_stale() called current."""
+    bundle, state = fake_mac_tools
+    marker = protocol._mac_version_marker(bundle)
+    marker.parent.mkdir(parents=True)
+    marker.write_text("0.5.9")
+    state["plist_fails"] = True
+
+    with pytest.raises(protocol.RegistrationError):
+        protocol._register_macos()
+
+    assert marker.read_text() == "0.5.9"  # the working one, untouched
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

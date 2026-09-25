@@ -13,6 +13,7 @@ import http.server
 import json
 import sys
 import threading
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -64,6 +65,39 @@ def test_a_redirect_to_a_different_host_is_rewritten_back(monkeypatch):
         assert result == [{"id": "abc"}]
     finally:
         server.shutdown()
+
+
+def _followed(base_url: str, location: str) -> str:
+    """Where the client's redirect handler would go for this Location."""
+    opener = PrismClient(PrismConfig(base_url=base_url))._opener()
+    handler = next(
+        h for h in opener.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)
+    )
+    req = urllib.request.Request(base_url + "/api/health")
+    return handler.redirect_request(req, None, 308, "Permanent Redirect", {}, location).full_url
+
+
+def test_an_https_upgrade_is_followed_as_given():
+    """Caddy answers a plain-HTTP URL with a redirect to https on the same host. Forcing
+    the scheme back to the configured http looped until urllib gave up."""
+    assert (
+        _followed("http://192.168.1.17", "https://192.168.1.17/api/health")
+        == "https://192.168.1.17/api/health"
+    )
+
+
+def test_a_redirect_to_another_real_host_is_followed_as_given():
+    assert (
+        _followed("https://old.example.com", "https://new.example.com/api/health")
+        == "https://new.example.com/api/health"
+    )
+
+
+def test_a_leaked_loopback_location_is_rewritten_to_the_configured_server():
+    assert (
+        _followed("https://192.168.1.17", "http://127.0.0.1:8000/api/health/")
+        == "https://192.168.1.17/api/health/"
+    )
 
 
 def test_a_same_host_redirect_still_works(monkeypatch):

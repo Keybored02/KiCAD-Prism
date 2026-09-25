@@ -23,6 +23,8 @@ from . import identity
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 TIMEOUT = 10
 
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
 
 @dataclass
 class PrismConfig:
@@ -52,18 +54,25 @@ class PrismClient:
         "connection refused" against its own loopback, and the request silently fails,
         the caller only ever sees an unreachable backend and cannot tell why.
 
-        So redirects are re-pointed at the configured base_url's own host before being
-        followed, same as the original request. The server only ever gets to say WHERE
-        on itself to look, never WHICH machine to ask.
+        So a redirect to a loopback address we did not ask for is re-pointed at the
+        configured base_url before being followed. Only that case: any other redirect
+        is the server's real answer and is followed as given. Rewriting those too broke
+        the http -> https upgrade a TLS proxy (Caddy) answers a plain-HTTP URL with:
+        forcing the scheme back to http looped until urllib gave up.
         """
         base = urllib.parse.urlsplit(self.config.base_url)
 
         class _RewriteHost(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, req, fp, code, msg, headers, newurl):
                 parts = urllib.parse.urlsplit(newurl)
-                fixed = parts._replace(scheme=base.scheme, netloc=base.netloc)
+                leaked = (
+                    (parts.hostname or "").lower() in _LOOPBACK_HOSTS
+                    and parts.netloc.lower() != base.netloc.lower()
+                )
+                if leaked:
+                    parts = parts._replace(scheme=base.scheme, netloc=base.netloc)
                 return super().redirect_request(
-                    req, fp, code, msg, headers, urllib.parse.urlunsplit(fixed)
+                    req, fp, code, msg, headers, urllib.parse.urlunsplit(parts)
                 )
 
         return urllib.request.build_opener(_RewriteHost)

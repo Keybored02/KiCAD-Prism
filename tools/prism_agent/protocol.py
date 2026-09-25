@@ -322,43 +322,53 @@ def _open_location_applescript(command: list[str]) -> str:
     the link, so it is concatenated as its own shell-quoted word via AppleScript's own
     `quoted form of` rather than spliced into the string, and can never break out of
     the argument it belongs in.
+
+    The handler runs in the background (`> /dev/null 2>&1 &`), so the applet returns at
+    once: `do shell script` otherwise blocks until the handler exits, including while it
+    shows a dialog, and every further link click queues behind it. And it runs inside
+    `try`: an uncaught failure in an applet is a raw AppleScript error dialog. The
+    handler reports its own problems in its own dialogs.
     """
     joined = " ".join('"%s"' % part for part in command)
     literal = joined.replace("\\", "\\\\").replace('"', '\\"')
     return (
         "on open location theURL\n"
-        '    do shell script "%s" & " " & quoted form of theURL\n'
+        "    try\n"
+        '        do shell script "%s" & " " & quoted form of theURL'
+        ' & " > /dev/null 2>&1 &"\n'
+        "    end try\n"
         "end open location\n"
     ) % literal
 
 
 def _register_macos() -> None:
     """Build the .app LaunchServices needs to claim prism://. See the module comment
-    above _mac_app_bundle for why this has to be an AppleScript applet."""
+    above _mac_app_bundle for why this has to be an AppleScript applet.
+
+    Built in a temporary folder and swapped in only once complete. Building in place
+    meant deleting the working bundle first, so a failed rebuild left no handler at
+    all; and a failed plist edit still got the version marker, so is_stale() called the
+    broken bundle current and never retried.
+    """
+    import shutil
+    import tempfile
+
     bundle = _mac_app_bundle()
     script = _open_location_applescript(_launch_command())
+    workdir = Path(tempfile.mkdtemp(prefix="prism-applet-"))
+    staged = workdir / bundle.name
 
     try:
-        import shutil
-        import tempfile
-
-        shutil.rmtree(bundle, ignore_errors=True)
-        with tempfile.NamedTemporaryFile(
-            "w", suffix=".applescript", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(script)
-            source = f.name
-        try:
-            result = subprocess.run(
-                ["osacompile", "-o", str(bundle), source],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-        finally:
-            os.unlink(source)
-        if result.returncode != 0 or not bundle.is_dir():
+        source = workdir / "handler.applescript"
+        source.write_text(script, encoding="utf-8")
+        result = subprocess.run(
+            ["osacompile", "-o", str(staged), str(source)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0 or not staged.is_dir():
             raise RegistrationError(
                 "osacompile couldn't build %s: %s"
                 % (bundle, (result.stderr or "").strip())
@@ -367,7 +377,8 @@ def _register_macos() -> None:
         # osacompile writes its own Info.plist (a real applet's: CFBundleExecutable
         # is its compiled runner, not anything we name). Add only what it doesn't
         # already have: the scheme claim, and keeping it out of the Dock/app switcher.
-        plist = bundle / "Contents" / "Info.plist"
+        # Every step is checked: a bundle missing CFBundleURLTypes claims nothing.
+        plist = staged / "Contents" / "Info.plist"
         for args in (
             ["Add", ":LSUIElement", "bool", "true"],
             ["Add", ":CFBundleURLTypes", "array"],
@@ -376,18 +387,29 @@ def _register_macos() -> None:
             ["Add", ":CFBundleURLTypes:0:CFBundleURLSchemes", "array"],
             ["Add", ":CFBundleURLTypes:0:CFBundleURLSchemes:0", "string", SCHEME],
         ):
-            subprocess.run(
+            step = subprocess.run(
                 ["/usr/libexec/PlistBuddy", "-c", " ".join(args), str(plist)],
                 capture_output=True,
+                text=True,
                 timeout=10,
                 check=False,
             )
+            if step.returncode != 0:
+                raise RegistrationError(
+                    "Couldn't set %s in %s: %s"
+                    % (args[1], plist, (step.stderr or step.stdout or "").strip())
+                )
 
         from .server import VERSION
 
-        _mac_version_marker(bundle).write_text(VERSION, encoding="utf-8")
+        _mac_version_marker(staged).write_text(VERSION, encoding="utf-8")
+        _swap_bundle(staged, bundle)
     except OSError as exc:
         raise RegistrationError("Couldn't write %s: %s" % (bundle, exc)) from exc
+    except subprocess.SubprocessError as exc:
+        raise RegistrationError("Couldn't build %s: %s" % (bundle, exc)) from exc
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
     # Tell LaunchServices the bundle exists. Without this it may not notice until the
     # next login, which would make the opt-in look like it silently failed.
@@ -401,6 +423,26 @@ def _register_macos() -> None:
             )
         except (OSError, subprocess.SubprocessError):
             log.debug("lsregister unavailable while registering the scheme")
+
+
+def _swap_bundle(staged: Path, bundle: Path) -> None:
+    """Replace `bundle` with the finished `staged` one, keeping the old bundle until the
+    new one is in place, and putting it back if the move fails."""
+    import shutil
+
+    bundle.parent.mkdir(parents=True, exist_ok=True)
+    old = bundle.with_name(bundle.name + ".old")
+    shutil.rmtree(old, ignore_errors=True)
+    if bundle.exists():
+        bundle.rename(old)
+    try:
+        shutil.move(str(staged), str(bundle))
+    except OSError:
+        shutil.rmtree(bundle, ignore_errors=True)
+        if old.exists():
+            old.rename(bundle)
+        raise
+    shutil.rmtree(old, ignore_errors=True)
 
 
 def _unregister_macos() -> None:

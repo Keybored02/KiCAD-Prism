@@ -19,23 +19,19 @@ from __future__ import annotations
 # This plugin's version, and the source of truth for the package's. package_plugin.py
 # reads it rather than taking one as an argument, and refuses to build unless the
 # agent's VERSION matches, so a zip cannot claim a version its code disagrees with.
-VERSION = "0.5.9"
+VERSION = "0.5.10"
 
-# The oldest agent this plugin can work with.
+# The oldest agent this plugin can work with: the last release that actually changed
+# what the plugin needs, not the current one. Pinning it to VERSION forces a restart
+# after every update, even when the running agent serves this plugin perfectly well.
 #
-# TESTING: pinned to this release so the outdated-agent card and the restart path can
-# be exercised. A 0.5.1 agent serves a 0.5.2 plugin perfectly well, so this is NOT an
-# honest compatibility claim and must come back down before anyone else installs this.
-# There are no users yet; that is the only reason it is acceptable.
-#
-# What it should say: the last release that actually changed what the plugin needs,
-# which is 0.5.0. Switching a branch changed shape there rather than merely gaining a
-# route. In 0.4.0 /switch was a GET reporting the pending deferred switch; from 0.5.0
-# it is a POST that performs the checkout, so a 0.4.0 agent answers this plugin's
-# switch with a 404, and /remotes does not exist there at all.
+# 0.5.0: switching a branch changed shape rather than merely gaining a route. In 0.4.0
+# /switch was a GET reporting the pending deferred switch; from 0.5.0 it is a POST that
+# performs the checkout, so a 0.4.0 agent answers this plugin's switch with a 404, and
+# /remotes does not exist there at all.
 #
 # (0.3.0 was the floor before that, for /settings and /restart.)
-AGENT_MIN = "0.5.9"
+AGENT_MIN = "0.5.0"
 
 
 def parse(v: str) -> tuple:
