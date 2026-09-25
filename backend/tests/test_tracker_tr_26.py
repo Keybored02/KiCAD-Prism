@@ -370,7 +370,7 @@ class CreateExecutorPostgresTests(unittest.TestCase):
 
         with patch("app.services.trackers.create_executor._issue_adapter", return_value=FakeAdapter()):
             with patch(
-                "app.services.trackers.create_executor.make_issue_page_fetcher",
+                "app.services.trackers.create_executor.issue_page_fetcher_for",
                 return_value=fetch_page,
             ):
                 execute_claimed_op(sent)
@@ -394,7 +394,7 @@ class CreateExecutorPostgresTests(unittest.TestCase):
 
         with patch("app.services.trackers.create_executor._issue_adapter", return_value=object()):
             with patch(
-                "app.services.trackers.create_executor.make_issue_page_fetcher",
+                "app.services.trackers.create_executor.issue_page_fetcher_for",
                 return_value=lambda _cursor: ([], None),
             ):
                 execute_claimed_op(sent)

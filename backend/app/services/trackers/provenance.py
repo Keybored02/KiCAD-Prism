@@ -13,6 +13,7 @@ from typing import Any, Mapping, Optional, Sequence
 from app.services.comments_revisions import ORIGIN_REMOTE, Editor
 from app.services.trackers.contracts import ForgeUser, RemoteComment, RemoteIssue
 from app.services.trackers.github_comments import comment_body_hash
+from app.services.trackers.providers import display_name
 
 ECHO_STATES = ("sent", "confirmed")
 BODY_OPS = ("add_comment", "edit_comment", "update_issue", "post_note")
@@ -61,21 +62,19 @@ def resolve_editor(
 ) -> Editor:
     """Map event actor evidence to a revision editor (D3)."""
 
+    name = display_name(provider)
     login = (actor_login or "").strip()
     if login:
-        label = provider.casefold()
-        if label == "github.com":
-            label = "github"
         return Editor(
             user_id=None,
             kind="remote_actor",
-            display=f"{login} ({label.title()})",
+            display=f"{login} ({name})",
             origin=ORIGIN_REMOTE,
         )
     return Editor(
         user_id=None,
         kind="remote_unknown",
-        display="edited on GitHub",
+        display=f"edited on {name}",
         origin=ORIGIN_REMOTE,
     )
 

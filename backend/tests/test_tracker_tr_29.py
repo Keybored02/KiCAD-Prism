@@ -415,7 +415,7 @@ class ReplyExecutorPostgresTests(unittest.TestCase):
 
         with patch("app.services.trackers.reply_executor._comment_adapter", return_value=FakeAdapter()):
             with patch(
-                "app.services.trackers.reply_executor.make_comment_page_fetcher",
+                "app.services.trackers.reply_executor.comment_page_fetcher_for",
                 return_value=fetch_page,
             ):
                 execute_reply_claimed_op(sent)

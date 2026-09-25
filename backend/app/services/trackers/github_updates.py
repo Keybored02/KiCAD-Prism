@@ -1,6 +1,6 @@
 """GitHub destination update listing for poll paths (TR-32, C7).
 
-Wraps ``GitHubIssueAdapter.list_updates`` with overlap windows and stable
+Wraps any issue adapter's ``list_updates`` with overlap windows and stable
 hint identity. Poll actors are absent; authoritative state is fetched later by
 the inbound reducer (D3/C6).
 """
@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
 
 from app.services.trackers.contracts import Destination, RemoteChange, UpdateCursor
-from app.services.trackers.github_issues import DEFAULT_SINCE, GitHubIssueAdapter
+from app.services.trackers.github_issues import DEFAULT_SINCE
 
 POLL_OVERLAP_SECONDS = 5 * 60
 
@@ -117,7 +117,7 @@ def change_to_hint(change: RemoteChange, *, connector_id: str) -> dict[str, Any]
 
 
 def list_destination_updates(
-    adapter: GitHubIssueAdapter,
+    adapter: Any,
     dest: Destination,
     since_cursor: UpdateCursor,
 ) -> tuple[list[RemoteChange], UpdateCursor]:
