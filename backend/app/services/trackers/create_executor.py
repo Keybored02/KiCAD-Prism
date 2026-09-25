@@ -29,16 +29,14 @@ from app.services.trackers.executor_support import (
     apply_provider_error,
     policy_check,
 )
-from app.services.trackers.github_comments import GitHubCommentAdapter
-from app.services.trackers.github_issues import GitHubIssueAdapter
 from app.services.trackers.github_recovery import (
     RecoveryKind,
-    make_issue_page_fetcher,
     next_quarantine_at,
     recover_create_issue,
     recovery_since,
 )
 from app.services.trackers.op_store import EXECUTE_DISPATCH, RECOVERY_DISPATCH, OpStore
+from app.services.trackers.providers import issue_adapter_for, issue_page_fetcher_for
 from app.services.trackers.secrets import decrypt_secret
 
 _mounted = False
@@ -299,8 +297,8 @@ def _encrypt_context(connector_id: str) -> dict[str, str]:
     return _context(connector_id)
 
 
-def _issue_adapter(connector: Mapping[str, Any], *, http: Any | None = None) -> GitHubIssueAdapter:
-    from app.services.trackers.github_auth import GitHubAppAuth, GitHubAppCredentials
+def _issue_adapter(connector: Mapping[str, Any], *, http: Any | None = None) -> Any:
+    """The connector provider's issue adapter, built from its decrypted envelope."""
 
     blob = connector.get("credential_envelope")
     if not blob:
@@ -308,20 +306,7 @@ def _issue_adapter(connector: Mapping[str, Any], *, http: Any | None = None) -> 
     material = json.loads(
         decrypt_secret(blob, _encrypt_context(str(connector["id"])), settings=settings).decode()
     )
-    creds = GitHubAppCredentials(
-        app_id=str(material.get("appId") or material.get("app_id") or ""),
-        installation_id=str(material.get("installationId") or material.get("installation_id") or ""),
-        private_key_pem=str(material.get("privateKey") or material.get("private_key") or ""),
-        instance_kind=str(connector.get("instance_kind") or "github.com"),
-        base_url=str(connector.get("base_url") or ""),
-    )
-    auth = GitHubAppAuth(creds, http=http) if http is not None else GitHubAppAuth(creds)
-    return GitHubIssueAdapter(
-        auth,
-        http=auth.http,
-        bot_user_id=str(connector.get("bot_forge_user_id") or ""),
-        bot_login=str(connector.get("bot_login") or ""),
-    )
+    return issue_adapter_for(connector, material, http=http)
 
 
 def _policy_check(conn: Any, ctx: _ExecutionContext) -> None:
@@ -464,7 +449,8 @@ def _run_create_io(prepared: Mapping[str, Any]) -> Any:
         prepared["op"],
         dest=prepared["destination"],
         comment_id=str(prepared["thread"]["comment_id"]),
-        fetch_page=make_issue_page_fetcher(
+        fetch_page=issue_page_fetcher_for(
+            str(prepared["connector"].get("provider") or ""),
             adapter,
             prepared["destination"],
             since=recovery_since(prepared.get("sent_at")),

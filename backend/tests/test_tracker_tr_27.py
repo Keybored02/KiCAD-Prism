@@ -93,7 +93,7 @@ class RoutingContractTests(unittest.TestCase):
         self.assertIn("initialize_tracker_webhook_service", source)
         app = FastAPI()
         app.include_router(webhooks_api.router)
-        self.assertIn("/api/trackers/webhooks/github/{connector_id}", set(app.openapi()["paths"]))
+        self.assertIn("/api/trackers/webhooks/{provider}/{connector_id}", set(app.openapi()["paths"]))
 
     def test_fixture_cases_are_present(self) -> None:
         ids = {case["id"] for case in F7["cases"]}
@@ -205,7 +205,7 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
             async def stream(self):
                 yield self._raw
 
-        response = run(webhooks_api.github_webhook("cn_gh1", _Request(body, headers)))
+        response = run(webhooks_api.tracker_webhook("github", "cn_gh1", _Request(body, headers)))
         self.assertEqual(response.status_code, 200)
         row = self.conn.execute(
             "SELECT delivery_id FROM remote_deliveries WHERE connector_id = 'cn_gh1'"
@@ -271,7 +271,8 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
                 yield self._raw
 
         with self.assertRaises(HTTPException) as caught:
-            run(webhooks_api.github_webhook(
+            run(webhooks_api.tracker_webhook(
+                "github",
                 "cn_gh1",
                 _Request(body, {
                     "X-GitHub-Delivery": "bad-1",
@@ -280,6 +281,44 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
                 }),
             ))
         self.assertEqual(caught.exception.status_code, 401)
+
+    def test_http_unknown_provider_returns_404(self) -> None:
+        body = self._payload()
+        with self.assertRaises(HTTPException) as caught:
+            run(webhooks_api.tracker_webhook("bitbucket", "cn_gh1", _StreamRequest(body, self._headers(body))))
+        self.assertEqual(caught.exception.status_code, 404)
+
+    def test_delivery_to_another_providers_path_is_refused(self) -> None:
+        """A correctly signed GitHub body sent to another forge's path must not land."""
+
+        from app.services.trackers import providers
+
+        codec = providers.webhook_codec("github")
+        providers._WEBHOOK_FACTORIES["otherforge"] = lambda: codec
+        self.addCleanup(providers._WEBHOOK_FACTORIES.pop, "otherforge", None)
+        body = self._payload()
+        with self.assertRaises(HTTPException) as caught:
+            run(webhooks_api.tracker_webhook("otherforge", "cn_gh1", _StreamRequest(body, self._headers(body))))
+        self.assertEqual(caught.exception.status_code, 401)
+        count = self.conn.execute("SELECT COUNT(*) AS n FROM remote_deliveries").fetchone()["n"]
+        self.assertEqual(count, 0)
+
+    def test_http_oversized_body_returns_413(self) -> None:
+        from app.services.trackers.github_webhooks import MAX_BODY_BYTES
+
+        body = b"x" * (MAX_BODY_BYTES + 1)
+        with self.assertRaises(HTTPException) as caught:
+            run(webhooks_api.tracker_webhook("github", "cn_gh1", _StreamRequest(body, self._headers(body))))
+        self.assertEqual(caught.exception.status_code, 413)
+
+
+class _StreamRequest:
+    def __init__(self, raw: bytes, hdrs: dict[str, str]) -> None:
+        self._raw = raw
+        self.headers = hdrs
+
+    async def stream(self):
+        yield self._raw
 
 
 if __name__ == "__main__":

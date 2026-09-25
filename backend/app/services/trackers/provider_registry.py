@@ -1,6 +1,6 @@
 """Provider registry for tracker runtime composition (TR-62, C3).
 
-Builds GitHub adapters and inbound fetchers from admin connector records.
+Builds provider adapters and inbound fetchers from admin connector records.
 Credentials stay in encrypted envelopes; this module never logs tokens or PEMs.
 """
 
@@ -13,13 +13,13 @@ from typing import Any, Callable, Mapping, Optional
 from app.core.config import Settings, settings as default_settings
 from app.services.trackers.contracts import CommentRead, Destination, IssueRead
 from app.services.trackers.errors import ProviderError
-from app.services.trackers.github_auth import GitHubAppAuth, GitHubAppCredentials
-from app.services.trackers.github_comments import GitHubCommentAdapter
-from app.services.trackers.github_issues import GitHubIssueAdapter
 from app.services.trackers.github_updates import destination_for, list_destination_updates
 from app.services.trackers.inbound import InboundFetcher
+from app.services.trackers.providers import comment_adapter_for, is_issue_provider, issue_adapter_for
 from app.services.trackers.secrets import decrypt_secret
 
+# Part of every stored envelope's authenticated data, for every provider.
+# Renaming it would make existing credentials undecryptable.
 CREDENTIAL_FIELD = "github_app"
 
 
@@ -40,8 +40,8 @@ class TrackerProviderBundle:
 
     connector_id: str
     provider: str
-    issue: GitHubIssueAdapter
-    comment: GitHubCommentAdapter
+    issue: Any
+    comment: Any
     bot_user_id: str
     bot_login: str
 
@@ -136,32 +136,30 @@ def resolve_destination_context(
     )
 
 
-def build_github_bundle(
+def build_bundle(
     connector: Mapping[str, Any],
     material: Mapping[str, Any],
     *,
     settings: Settings | None = None,
 ) -> TrackerProviderBundle:
-    creds = GitHubAppCredentials(
-        app_id=str(material.get("appId") or material.get("app_id") or ""),
-        installation_id=str(material.get("installationId") or material.get("installation_id") or ""),
-        private_key_pem=str(material.get("privateKey") or material.get("private_key") or ""),
-        instance_kind=str(connector.get("instance_kind") or "github.com"),
-        base_url=str(connector.get("base_url") or ""),
-    )
-    auth = GitHubAppAuth(creds)
-    bot_user_id = str(connector.get("bot_forge_user_id") or "")
-    bot_login = str(connector.get("bot_login") or "")
-    issue = GitHubIssueAdapter(auth, http=auth.http, bot_user_id=bot_user_id, bot_login=bot_login)
-    comment = GitHubCommentAdapter(auth, http=auth.http, bot_user_id=bot_user_id, bot_login=bot_login)
+    """Issue and comment adapters for a connector, from its provider's kit."""
+
+    del settings
+    provider = str(connector.get("provider") or "")
+    issue = issue_adapter_for(connector, material)
+    comment = comment_adapter_for(connector, issue)
     return TrackerProviderBundle(
         connector_id=str(connector["id"]),
-        provider="github",
+        provider=provider,
         issue=issue,
         comment=comment,
-        bot_user_id=bot_user_id,
-        bot_login=bot_login,
+        bot_user_id=str(connector.get("bot_forge_user_id") or ""),
+        bot_login=str(connector.get("bot_login") or ""),
     )
+
+
+# Kept for callers and tests written before providers were pluggable.
+build_github_bundle = build_bundle
 
 
 class ProviderRegistry:
@@ -174,14 +172,13 @@ class ProviderRegistry:
         loader: Callable[[Mapping[str, Any], Mapping[str, Any]], TrackerProviderBundle] | None = None,
     ) -> None:
         self.settings = settings or default_settings
-        self._loader = loader or build_github_bundle
+        self._loader = loader or build_bundle
 
     def bundle_for_connector(self, conn: Any, connector_id: str) -> Optional[TrackerProviderBundle]:
         connector = _load_connector(conn, connector_id)
         if connector is None:
             return None
-        provider = str(connector.get("provider") or "")
-        if provider != "github":
+        if not is_issue_provider(str(connector.get("provider") or "")):
             return None
         envelope = connector.get("credential_envelope")
         if not envelope:
@@ -215,6 +212,7 @@ __all__ = [
     "DestinationContext",
     "ProviderRegistry",
     "TrackerProviderBundle",
+    "build_bundle",
     "build_github_bundle",
     "resolve_destination_context",
 ]

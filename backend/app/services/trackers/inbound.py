@@ -26,6 +26,7 @@ from app.services.trackers.inbox_store import InboxStore, StaleHintFence
 from app.services.trackers.markers import extract_markers, validate_marker
 from app.services.trackers.op_store import OpStore
 from app.services.trackers.provenance import (
+    provider_for_connector,
     EchoMatch,
     actor_is_bot,
     classify_comment_change,
@@ -354,7 +355,14 @@ def _follow_observed_state(
         issue=issue,
         project_id=project_id,
         comment_id=comment_id,
-        editor=resolve_editor(actor_login=actor_login) if actor_login else None,
+        editor=(
+            resolve_editor(
+                actor_login=actor_login,
+                provider=provider_for_connector(conn, str(thread.get("connector_id") or "")),
+            )
+            if actor_login
+            else None
+        ),
     )
 
 
@@ -450,6 +458,7 @@ def _editor_from_hint(
     actor_login: str | None,
     bot_user_id: str | None,
     bot_login: str | None,
+    provider: str = "github",
 ) -> Editor:
     if actor_is_bot(
         actor_id=actor_id,
@@ -457,8 +466,8 @@ def _editor_from_hint(
         bot_user_id=bot_user_id,
         bot_login=bot_login,
     ):
-        return resolve_editor()
-    return resolve_editor(actor_id=actor_id, actor_login=actor_login)
+        return resolve_editor(provider=provider)
+    return resolve_editor(actor_id=actor_id, actor_login=actor_login, provider=provider)
 
 
 def _apply_comment_to_thread(
@@ -518,6 +527,7 @@ def _apply_comment_to_thread(
             actor_login=str(actor_login) if actor_login else None,
             bot_user_id=bot_user_id,
             bot_login=bot_login,
+            provider=provider_for_connector(conn, str(thread.get("connector_id") or "")),
         )
         edit_reply(
             conn,

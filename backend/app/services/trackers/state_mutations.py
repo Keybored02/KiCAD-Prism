@@ -29,6 +29,7 @@ from app.services.trackers.promotion import (
 )
 from app.services.trackers.publication_policy import DispatchPause, PublicationDenied
 from app.services.trackers.provenance import resolve_editor
+from app.services.trackers.providers import display_name
 
 WORKSPACE_SCHEMA = "workspace"
 _SYSTEM_EDITOR = Editor(user_id=None, kind="system", display="System")
@@ -165,19 +166,21 @@ def supersession_message(
     remote_state: str,
     local_intent_state: str,
     actor_login: str | None = None,
+    provider: str = "github",
 ) -> str:
+    forge = display_name(provider)
     remote_label = "closed" if remote_state.casefold() == "closed" else "open"
     local_label = "resolved" if local_intent_state == "closed" else "reopened"
     if actor_login:
         return (
-            f"{remote_label.capitalize()} on GitHub by {actor_login} after this thread was "
+            f"{remote_label.capitalize()} on {forge} by {actor_login} after this thread was "
             f"{local_label} in Prism"
         )
     if remote_state.casefold() == "open" and local_intent_state == "closed":
-        return "Reopened on GitHub after this thread was resolved in Prism"
+        return f"Reopened on {forge} after this thread was resolved in Prism"
     if remote_state.casefold() == "closed" and local_intent_state == "open":
-        return "Closed on GitHub after this thread was reopened in Prism"
-    return f"Issue is {remote_label} on GitHub; the local {local_label} intent was not applied"
+        return f"Closed on {forge} after this thread was reopened in Prism"
+    return f"Issue is {remote_label} on {forge}; the local {local_label} intent was not applied"
 
 
 def apply_observed_remote_state(
@@ -305,6 +308,7 @@ def analyze_state_events(
     bot_user_id: str | None,
     bot_login: str | None,
     observed_updated_at: str | None = None,
+    provider: str = "github",
 ) -> tuple[str, Optional[Editor], Optional[str]]:
     """Order state events by list position (D1); timestamps are not used to order.
 
@@ -369,7 +373,7 @@ def analyze_state_events(
     actor_login = getattr(actor, "login", None) if actor is not None else None
     return (
         "human_precedes",
-        resolve_editor(actor_login=str(actor_login) if actor_login else None),
+        resolve_editor(actor_login=str(actor_login) if actor_login else None, provider=provider),
         _event_to_remote_state(str(getattr(human_event, "event", "") or "")),
     )
 

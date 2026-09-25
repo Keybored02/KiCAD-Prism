@@ -8,8 +8,8 @@ from typing import Any, Mapping
 
 from app.services.trackers.contracts import Destination, RemoteEvent, RemoteIssue
 from app.services.trackers.errors import ProviderError
-from app.services.trackers.github_issues import GitHubIssueAdapter
 from app.services.trackers.op_store import OpStore
+from app.services.trackers.provenance import provider_for_connector
 from app.services.trackers.state_mutations import (
     analyze_state_events,
     apply_observed_remote_state,
@@ -113,6 +113,7 @@ def execute_set_state_op(op: Mapping[str, Any], conn: Any) -> None:
         bot_user_id=str(ctx.connector.get("bot_forge_user_id") or ""),
         bot_login=str(ctx.connector.get("bot_login") or ""),
         observed_updated_at=str((observed_version or {}).get("updatedAt") or "") or None,
+        provider=str(ctx.connector.get("provider") or "github"),
     )
 
     if postflight.status == "human_precedes" and postflight.restore_state:
@@ -187,7 +188,7 @@ def execute_set_state_op(op: Mapping[str, Any], conn: Any) -> None:
 
 
 def _same_state_without_human_transition(
-    adapter: GitHubIssueAdapter,
+    adapter: Any,
     dest: Destination,
     issue_ref: str,
     *,
@@ -259,6 +260,7 @@ def _supersede_preflight(
     note = supersession_message(
         remote_state=issue.state,
         local_intent_state=local_intent_state,
+        provider=provider_for_connector(conn, str(thread.get("connector_id") or "")),
     )
     apply_observed_remote_state(
         conn,
@@ -272,7 +274,7 @@ def _supersede_preflight(
 
 
 def _run_postflight(
-    adapter: GitHubIssueAdapter,
+    adapter: Any,
     dest: Destination,
     issue_ref: str,
     *,
@@ -281,6 +283,7 @@ def _run_postflight(
     bot_user_id: str,
     bot_login: str,
     observed_updated_at: str | None = None,
+    provider: str = "github",
 ) -> PostflightOutcome:
     if not has_state_events:
         return PostflightOutcome(status="unsupported", postflight="unsupported")
@@ -291,6 +294,7 @@ def _run_postflight(
         bot_user_id=bot_user_id or None,
         bot_login=bot_login or None,
         observed_updated_at=observed_updated_at,
+        provider=provider,
     )
     if outcome != "human_precedes" or human_state is None:
         return PostflightOutcome(status="confirmed", postflight="events")
@@ -302,6 +306,7 @@ def _run_postflight(
         remote_state=human_state,
         local_intent_state=target_state,
         actor_login=actor_login,
+        provider=provider,
     )
     return PostflightOutcome(
         status="human_precedes",

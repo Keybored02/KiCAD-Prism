@@ -33,6 +33,7 @@ from app.services.trackers.promotion import (
     load_policy_row,
 )
 from app.services.trackers.provenance import (
+    provider_for_connector,
     body_hash,
     find_body_echo,
     resolve_editor,
@@ -357,7 +358,11 @@ def apply_inbound_root_prose(
     if str(current.get("content") or "") == blocks.prose:
         return "unchanged"
 
-    editor = resolve_editor(actor_id=event_actor_id, actor_login=event_actor_login)
+    editor = resolve_editor(
+        actor_id=event_actor_id,
+        actor_login=event_actor_login,
+        provider=provider_for_connector(conn, str(thread.get("connector_id") or "")),
+    )
     edit_root(
         conn,
         project_id=project_id,

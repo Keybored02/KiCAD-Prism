@@ -32,7 +32,8 @@ from app.services.trackers.executor_support import (
     apply_provider_error,
     policy_check,
 )
-from app.services.trackers.github_recovery import make_comment_page_fetcher, next_quarantine_at
+from app.services.trackers.github_recovery import next_quarantine_at
+from app.services.trackers.providers import comment_page_fetcher_for
 from app.services.trackers.markers import build_marker
 from app.services.trackers.op_store import EXECUTE_DISPATCH, RECOVERY_DISPATCH, OpStore
 from app.services.trackers.promotion import DispatchPause, PublicationDenied, evaluate_dispatch
@@ -367,7 +368,7 @@ def _recover_post_note(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
     sent_at = op.get("sent_at")
     if isinstance(sent_at, datetime) and sent_at.tzinfo is None:
         sent_at = sent_at.replace(tzinfo=timezone.utc)
-    fetch_page = make_comment_page_fetcher(adapter, ctx.destination, issue_ref)
+    fetch_page = comment_page_fetcher_for(str(ctx.connector.get("provider") or ""), adapter, ctx.destination, issue_ref)
     cursor: str | None = None
     while True:
         try:

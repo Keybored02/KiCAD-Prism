@@ -40,7 +40,7 @@ from app.services.trackers.github_updates import (
 )
 from app.services.trackers.inbox_store import InboxStore
 from app.services.trackers.link_lifecycle import apply_moved_issue
-from app.services.trackers.provenance import resolve_editor
+from app.services.trackers.provenance import provider_for_thread, resolve_editor
 from app.services.trackers.scheduler import sweep_interval_seconds
 from app.services.trackers.store import issue_number_for_api
 
@@ -354,7 +354,7 @@ def _handle_issue_absence(
 def _tombstone_missing_reply(conn: Any, link: Mapping[str, Any]) -> None:
     if link.get("deleted_at"):
         return
-    editor = resolve_editor()
+    editor = resolve_editor(provider=provider_for_thread(conn, str(link.get("tracked_thread_id") or "")))
     tombstone_reply(
         conn,
         project_id=str(link["project_id"]),
