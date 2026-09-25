@@ -40,6 +40,34 @@ class PrismClient:
 
     # -- plumbing ---------------------------------------------------------
 
+    def _opener(self) -> urllib.request.OpenerDirector:
+        """An opener that trusts a redirect's PATH but never its HOST.
+
+        A dev setup routes the agent through Vite's proxy (changeOrigin: true), which
+        rewrites the Host header to its own target (127.0.0.1:8000) before forwarding
+        to the backend. When the backend then 307s a trailing-slash mismatch, it builds
+        Location from the request it actually received, so the redirect points at
+        127.0.0.1:8000, meaningless to anyone but the machine running the backend. A
+        remote agent (this machine's own PC, a laptop on the LAN) follows that and gets
+        "connection refused" against its own loopback, and the request silently fails,
+        the caller only ever sees an unreachable backend and cannot tell why.
+
+        So redirects are re-pointed at the configured base_url's own host before being
+        followed, same as the original request. The server only ever gets to say WHERE
+        on itself to look, never WHICH machine to ask.
+        """
+        base = urllib.parse.urlsplit(self.config.base_url)
+
+        class _RewriteHost(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                parts = urllib.parse.urlsplit(newurl)
+                fixed = parts._replace(scheme=base.scheme, netloc=base.netloc)
+                return super().redirect_request(
+                    req, fp, code, msg, headers, urllib.parse.urlunsplit(fixed)
+                )
+
+        return urllib.request.build_opener(_RewriteHost)
+
     def _request(
         self, method: str, path: str, body: dict | None = None
     ) -> dict | list | None:
@@ -54,7 +82,7 @@ class PrismClient:
         if self.config.token:
             req.add_header("Authorization", f"Bearer {self.config.token}")
         try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            with self._opener().open(req, timeout=TIMEOUT) as resp:
                 raw = resp.read()
             return json.loads(raw) if raw else None
         except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError):

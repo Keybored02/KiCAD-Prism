@@ -100,19 +100,33 @@ def _discover_macos() -> list[KiCadInstall]:
     A versioned bundle (``KiCad 9.0.app``) carries its version in the name; the
     unversioned ``KiCad.app`` does not, so its version is read from the bundle's
     Info.plist when possible and left blank otherwise.
+
+    The official installer's .dmg is a suite folder, not a bare bundle: dragging
+    it to Applications gives you ``/Applications/KiCad/KiCad.app``, one level
+    deeper than a flat ``KiCad*.app``. Homebrew's cask installs the same layout.
+    Checked first, since it is what a normal install actually looks like; a flat
+    ``KiCad*.app`` at the root is kept as a fallback for anything that puts it
+    there directly.
     """
     installs: list[KiCadInstall] = []
-    roots = [Path("/Applications"), Path.home() / "Applications"]
-    for root in roots:
+    patterns = ("KiCad*/KiCad*.app", "KiCad*.app")
+    for root in _macos_app_roots():
         if not root.is_dir():
             continue
-        for app in root.glob("KiCad*.app"):
-            exe = app / "Contents" / "MacOS" / "kicad"
-            if not exe.is_file():
-                continue
-            version = _mac_version(app)
-            installs.append(KiCadInstall(version=version, path=str(app)))
+        for pattern in patterns:
+            for app in root.glob(pattern):
+                exe = app / "Contents" / "MacOS" / "kicad"
+                if not exe.is_file():
+                    continue
+                version = _mac_version(app)
+                installs.append(KiCadInstall(version=version, path=str(app)))
     return installs
+
+
+def _macos_app_roots() -> list[Path]:
+    """Where a macOS install could put an Applications folder. Split out so a
+    test can point it at a fake tree instead of the real filesystem."""
+    return [Path("/Applications"), Path.home() / "Applications"]
 
 
 def _mac_version(app: Path) -> str:

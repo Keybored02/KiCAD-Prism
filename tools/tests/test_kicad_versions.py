@@ -123,6 +123,39 @@ def test_a_mac_app_is_opened_with_open_dash_a(tmp_path, monkeypatch):
     assert launched[0][:3] == ["open", "-a", "/Applications/KiCad 9.0.app"]
 
 
+def _make_mac_bundle(path):
+    """A minimal fake .app bundle: just enough for _discover_macos to find it."""
+    exe = path / "Contents" / "MacOS" / "kicad"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("")
+
+
+def test_finds_the_real_installers_suite_layout(tmp_path, monkeypatch):
+    """The official .dmg and Homebrew's cask both give you
+    /Applications/KiCad/KiCad.app, a suite folder, not a bare bundle at the
+    Applications root. Missing this is exactly what sent someone hunting for
+    why a real install wasn't found."""
+    apps = tmp_path / "Applications"
+    _make_mac_bundle(apps / "KiCad" / "KiCad.app")
+    monkeypatch.setattr(kicad_versions, "_macos_app_roots", lambda: [apps])
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    found = kicad_versions.discover()
+
+    assert [i.path for i in found] == [str(apps / "KiCad" / "KiCad.app")]
+
+
+def test_still_finds_a_flat_bundle_at_the_applications_root(tmp_path, monkeypatch):
+    apps = tmp_path / "Applications"
+    _make_mac_bundle(apps / "KiCad 9.0.app")
+    monkeypatch.setattr(kicad_versions, "_macos_app_roots", lambda: [apps])
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    found = kicad_versions.discover()
+
+    assert [i.version for i in found] == ["9.0"]
+
+
 def test_no_pinned_command_uses_the_os_default(tmp_path, monkeypatch):
     monkeypatch.setattr(
         open_project.settings_store, "load", lambda: FakeSettings("")
