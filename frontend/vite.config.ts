@@ -11,14 +11,10 @@ export default defineConfig({
     },
   },
   server: {
-    // changeOrigin rewrites Host to the backend's; xfwd keeps the host the caller
-    // really used in X-Forwarded-Host. The backend needs it to tell a localhost
-    // caller from a LAN one (public_url_service.resolve_provider_base_url).
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
-        xfwd: true,
       },
       // The OAuth surface is on the backend too: the provider flow KiCad's Remote
       // Symbols panel uses, and the session handoff behind "Continue as <user>".
@@ -27,7 +23,6 @@ export default defineConfig({
       "/oauth": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
-        xfwd: true,
       },
       // The Remote Symbols panel is a separate app the backend serves, and the
       // provider metadata points KiCad at PUBLIC_BASE_URL, which in dev is this
@@ -36,14 +31,12 @@ export default defineConfig({
       "/remote-provider": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
-        xfwd: true,
       },
       // The discovery document KiCad reads before anything else, to find
       // panel_url and the auth metadata. It is on the backend as well.
       "/.well-known": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
-        xfwd: true,
       },
     },
   },

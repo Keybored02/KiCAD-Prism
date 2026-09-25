@@ -17,23 +17,13 @@ from app.core.session import (
 from app.services import rate_limit_service, session_store_service
 from app.core.security import get_current_user
 from app.services import provider_auth_service
-from app.services.public_url_service import (
-    resolve_provider_base_url,
-    resolve_public_base_url,
-)
+from app.services.public_url_service import resolve_public_base_url
 
 router = APIRouter()
 
 
 def _base_url(request: Request) -> str:
     return resolve_public_base_url(request)
-
-
-def _provider_base_url(request: Request) -> str:
-    """For URLs KiCad itself validates or the panel runs on; see
-    resolve_provider_base_url. Browser sign-in stays on _base_url, where web sessions
-    and the IdP callback live."""
-    return resolve_provider_base_url(request)
 
 
 def _require_provider_auth() -> None:
@@ -43,7 +33,7 @@ def _require_provider_auth() -> None:
 
 def _oauth_metadata_payload(request: Request):
     _require_provider_auth()
-    return provider_auth_service.build_oauth_metadata(_provider_base_url(request))
+    return provider_auth_service.build_oauth_metadata(_base_url(request))
 
 
 @router.get("/oauth/.well-known/oauth-authorization-server", include_in_schema=False)
@@ -81,13 +71,8 @@ async def authorize(
     try:
         user = await get_current_user(request)
     except HTTPException:
-        # Sign in, and come back, on the public origin: that is where the browser's
-        # session cookie lives, even when KiCad opened this via a loopback origin.
-        base = _base_url(request).rstrip("/")
-        next_url = f"{base}{request.url.path}"
-        if request.url.query:
-            next_url += f"?{request.url.query}"
-        login_url = f"{base}/?next={quote(next_url, safe='')}"
+        next_url = str(request.url)
+        login_url = f"{_base_url(request).rstrip('/')}/?next={quote(next_url, safe='')}"
         return RedirectResponse(login_url, status_code=302)
 
     code = provider_auth_service.issue_authorization_code(
@@ -170,7 +155,7 @@ async def session_bootstrap(request: Request):
     body = await request.json()
     access_token = str(body.get("access_token") or "")
     next_url = str(body.get("next_url") or "")
-    base_url = _provider_base_url(request)
+    base_url = _base_url(request)
 
     if not next_url.startswith(f"{base_url}/"):
         raise HTTPException(status_code=400, detail="next_url must stay on the provider origin")

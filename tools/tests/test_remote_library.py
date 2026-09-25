@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from prism_agent import kicad_versions, library_bridge, remote_library  # noqa: E402
+from prism_agent import kicad_versions, remote_library  # noqa: E402
 from prism_agent.kicad_versions import KiCadInstall  # noqa: E402
 
 
@@ -107,79 +107,6 @@ def test_a_version_is_read_from_a_pinned_path_only_when_it_has_one(kicad_home):
     assert v(r"C:\Program Files\KiCad\9.0\bin\kicad.exe") == "9.0"
     assert v("/usr/bin/kicad") == ""
     assert v("") == ""
-
-
-# -- KiCad's HTTPS-or-loopback check, and the bridge that works around it --
-#
-# KiCad refuses a provider URL that isn't HTTPS or a literal loopback host
-# (localhost/127.0.0.1/::1), with no config override anywhere, so most real Prism
-# deployments (plain HTTP on the LAN) fail outright. The bridge (library_bridge.py)
-# gives KiCad a genuine 127.0.0.1 URL to satisfy that instead; remote_library's job
-# is making sure link/status/unlink all agree about which URL is actually in play.
-
-
-def test_is_insecure_remote_matches_kicads_own_rule():
-    assert library_bridge.is_insecure_remote("http://192.168.1.17:5173") is True
-    assert library_bridge.is_insecure_remote("http://example.com") is True
-    assert library_bridge.is_insecure_remote("https://192.168.1.17:5173") is False
-    assert library_bridge.is_insecure_remote("http://localhost:5173") is False
-    assert library_bridge.is_insecure_remote("http://127.0.0.1:5173") is False
-    assert library_bridge.is_insecure_remote("HTTP://LOCALHOST:5173") is False
-
-
-def test_status_reports_insecure_for_a_lan_server(kicad_home, monkeypatch):
-    _installs(monkeypatch, "10.0")
-    monkeypatch.setattr(remote_library, "_bridge_enabled", lambda: False)
-    state = remote_library.status("http://192.168.1.17:5173")
-    assert state["insecure"] is True
-    assert state["bridge_active"] is False
-
-
-def test_link_writes_the_bridge_url_when_enabled(kicad_home, monkeypatch):
-    """With the bridge on, eeschema.json must get the LOOPBACK url, not the raw
-    LAN server_url KiCad would refuse."""
-    _installs(monkeypatch, "10.0")
-    monkeypatch.setattr(library_bridge, "is_running", lambda: True)
-    monkeypatch.setattr(library_bridge, "url", lambda: "http://127.0.0.1:54321")
-    monkeypatch.setattr(remote_library, "_bridge_enabled", lambda: True)
-
-    result = remote_library.link("http://192.168.1.17:5173")
-
-    written = json.loads((kicad_home / "10.0" / "eeschema.json").read_text(encoding="utf-8"))
-    providers = written["remote_symbols"]["providers"]
-    assert [p["metadata_url"] for p in providers] == ["http://127.0.0.1:54321"]
-    # The caller-facing result still names the real server, not the bridge's port.
-    assert result["server_url"] == "http://192.168.1.17:5173"
-
-
-def test_status_is_linked_through_the_bridge_not_stale(kicad_home, monkeypatch):
-    """Once linked via the bridge, status() must compare against the SAME bridge
-    url it wrote, or a working link reads as permanently "stale"."""
-    _installs(monkeypatch, "10.0")
-    monkeypatch.setattr(library_bridge, "is_running", lambda: True)
-    monkeypatch.setattr(library_bridge, "url", lambda: "http://127.0.0.1:54321")
-    monkeypatch.setattr(remote_library, "_bridge_enabled", lambda: True)
-
-    remote_library.link("http://192.168.1.17:5173")
-    state = remote_library.status("http://192.168.1.17:5173")
-
-    assert state["linked"] is True
-    assert state["stale"] is False
-    assert state["bridge_active"] is True
-
-
-def test_unlink_removes_a_bridged_entry(kicad_home, monkeypatch):
-    _installs(monkeypatch, "10.0")
-    monkeypatch.setattr(library_bridge, "is_running", lambda: True)
-    monkeypatch.setattr(library_bridge, "url", lambda: "http://127.0.0.1:54321")
-    monkeypatch.setattr(remote_library, "_bridge_enabled", lambda: True)
-
-    remote_library.link("http://192.168.1.17:5173")
-    result = remote_library.unlink("http://192.168.1.17:5173")
-
-    assert result["removed"] is True
-    written = json.loads((kicad_home / "10.0" / "eeschema.json").read_text(encoding="utf-8"))
-    assert not written["remote_symbols"]["providers"]
 
 
 if __name__ == "__main__":

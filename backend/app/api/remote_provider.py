@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from app.core.security import AuthenticatedUser, require_remote_symbol_reader
 from app.services import provider_auth_service
 from app.services.component_catalog_service import catalog_service
-from app.services.public_url_service import resolve_provider_base_url
+from app.services.public_url_service import resolve_public_base_url
 
 router = APIRouter()
 
@@ -20,7 +20,7 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static" / "remote_provide
 
 
 def _provider_origin(request: Request) -> str:
-    return resolve_provider_base_url(request)
+    return resolve_public_base_url(request)
 
 
 def _component_payload(component: dict, origin: str, representation_id: str = "") -> dict:

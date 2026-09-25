@@ -25,15 +25,6 @@ write survives. (Verified the hard way: written with KiCad open, survived a full
 
 KiCad reads the providers at startup, so the user has to restart KiCad to *see* a change.
 That's the only caveat, and it's the one the UI should state.
-
-`metadata_url` is not always `server_url` verbatim. KiCad refuses a provider URL that
-isn't HTTPS or a literal loopback host, no config escape hatch, so a plain HTTP server
-on the LAN, which is most of what this project is actually deployed as, fails outright.
-When the user opts into the local bridge (settings.library_bridge_enabled), what gets
-written is the bridge's own 127.0.0.1 URL instead, see library_bridge.py and
-_metadata_url below. Every comparison against what is already in eeschema.json goes
-through the same function, or a bridge left running from a previous link would show as
-permanently "stale" against the raw server_url.
 """
 
 from __future__ import annotations
@@ -159,35 +150,6 @@ def _same_server(a: str, b: str) -> bool:
     return a.rstrip("/").lower() == b.rstrip("/").lower()
 
 
-def _bridge_enabled() -> bool:
-    try:
-        from . import settings as settings_store
-
-        return bool(settings_store.load().library_bridge_enabled)
-    except Exception:
-        return False
-
-
-def _metadata_url(server_url: str) -> str:
-    """What actually goes into (or is compared against) eeschema.json's
-    metadata_url: the bridge's loopback URL when the user opted into it, otherwise
-    server_url unchanged.
-
-    Does not itself decide whether to start/stop the bridge; the agent's settings
-    save path owns that lifecycle (see server.py), this only has to agree with
-    whatever is currently running so link/status/unlink see the same value.
-    """
-    if not _bridge_enabled():
-        return server_url
-    from . import library_bridge
-
-    if library_bridge.is_running():
-        return library_bridge.url()
-    # Bridge wanted but not (yet) running: fall back to the real URL rather than
-    # silently comparing against nothing, or every check would read as "stale".
-    return server_url
-
-
 def _providers(cfg: Path) -> list[dict]:
     try:
         data = json.loads((cfg / "eeschema.json").read_text(encoding="utf-8"))
@@ -206,10 +168,6 @@ def status(server_url: str) -> dict:
         linked       a provider whose metadata_url is our server
         stale        a provider is registered, but for a DIFFERENT server
     """
-    from . import library_bridge
-
-    insecure = library_bridge.is_insecure_remote(server_url)
-
     cfg = kicad_config_dir(_pinned_kicad_command())
     if cfg is None:
         return {
@@ -219,14 +177,11 @@ def status(server_url: str) -> dict:
             "stale": False,
             "linked_url": "",
             "server_url": server_url,
-            "insecure": insecure,
-            "bridge_active": False,
         }
 
-    expected = _metadata_url(server_url)
     providers = _providers(cfg)
     ours = next(
-        (p for p in providers if _same_server(p.get("metadata_url", ""), expected)),
+        (p for p in providers if _same_server(p.get("metadata_url", ""), server_url)),
         None,
     )
 
@@ -237,7 +192,7 @@ def status(server_url: str) -> dict:
             p
             for p in providers
             if p.get("display_name_override") == PROVIDER_NAME
-            and not _same_server(p.get("metadata_url", ""), expected)
+            and not _same_server(p.get("metadata_url", ""), server_url)
         ),
         None,
     )
@@ -249,8 +204,6 @@ def status(server_url: str) -> dict:
         "stale": ours is None and other is not None,
         "linked_url": (other or {}).get("metadata_url", ""),
         "server_url": server_url,
-        "insecure": insecure,
-        "bridge_active": expected != server_url,
     }
 
 
@@ -284,13 +237,11 @@ def link(server_url: str) -> dict:
         raise RemoteLibraryError(f"Couldn't read {path}: {exc}") from exc
 
     server_url = server_url.rstrip("/")
-    metadata_url = _metadata_url(server_url)
     remote = data.setdefault("remote_symbols", {})
     providers = remote.setdefault("providers", [])
 
-    # Drop any previous Prism entry, including one pointing at an old server (or the
-    # bridge's old port, which changes every agent restart), exactly the stale case
-    # we're here to fix. Leave other people's providers alone.
+    # Drop any previous Prism entry, including one pointing at an old server, which is
+    # exactly the stale case we're here to fix. Leave other people's providers alone.
     providers = [
         p
         for p in providers
@@ -298,7 +249,7 @@ def link(server_url: str) -> dict:
             isinstance(p, dict)
             and (
                 p.get("display_name_override") == PROVIDER_NAME
-                or _same_server(p.get("metadata_url", ""), metadata_url)
+                or _same_server(p.get("metadata_url", ""), server_url)
             )
         )
     ]
@@ -307,7 +258,7 @@ def link(server_url: str) -> dict:
         # KiCad's own ids look like provider-<12 hex>; match the shape so nothing
         # downstream is surprised by it.
         "provider_id": "provider-%s" % uuid.uuid4().hex[:12],
-        "metadata_url": metadata_url,
+        "metadata_url": server_url,
         "display_name_override": PROVIDER_NAME,
         "last_account_label": "",
         "last_auth_status": "signed_out",
@@ -333,7 +284,6 @@ def unlink(server_url: str) -> dict:
     except (OSError, ValueError) as exc:
         raise RemoteLibraryError(f"Couldn't read {path}: {exc}") from exc
 
-    metadata_url = _metadata_url(server_url)
     remote = data.get("remote_symbols") or {}
     providers = remote.get("providers") or []
     keep = [
@@ -343,7 +293,7 @@ def unlink(server_url: str) -> dict:
             isinstance(p, dict)
             and (
                 p.get("display_name_override") == PROVIDER_NAME
-                or _same_server(p.get("metadata_url", ""), metadata_url)
+                or _same_server(p.get("metadata_url", ""), server_url)
             )
         )
     ]

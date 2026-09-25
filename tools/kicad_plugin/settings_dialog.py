@@ -139,7 +139,7 @@ class SettingsDialog(wx.Dialog):
         account = self._render_account(settings, identity)
         self.content.Add(account, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
-        library = self._render_library(settings)
+        library = self._render_library()
         server = self._render_server(settings, identity)
         self.content.Add(
             self._two_col(library, server), 0, wx.EXPAND | wx.BOTTOM, th.SP_MD
@@ -449,7 +449,7 @@ class SettingsDialog(wx.Dialog):
         server.body.Add(row, 0, wx.EXPAND)
         return server
 
-    def _render_library(self, settings):
+    def _render_library(self):
         """Is Prism KiCad's remote symbol provider, and does it point at our server?
 
         Three states worth distinguishing:
@@ -458,12 +458,6 @@ class SettingsDialog(wx.Dialog):
                           than the one above. You'd be browsing the wrong catalog with
                           nothing to tell you.
             Not linked    never registered; Prism's parts aren't in the Symbol Chooser.
-
-        A fourth thing lives here too: KiCad refuses a provider URL that isn't HTTPS
-        or a literal loopback address, no setting of KiCad's own works around it, and
-        most Prism servers are exactly the case that fails, plain HTTP on the LAN. See
-        library_bridge.py for the actual fix (a local proxy at 127.0.0.1); this is
-        just where the user is told about it and opts in.
         """
         card = Card(self.scroll, "Symbol library", self.pal)
 
@@ -482,8 +476,6 @@ class SettingsDialog(wx.Dialog):
 
         linked = state.get("linked")
         stale = state.get("stale")
-        insecure = state.get("insecure")
-        bridge_on = bool(settings.get("library_bridge_enabled"))
 
         if linked:
             label, tone = "Linked", "success"
@@ -493,14 +485,6 @@ class SettingsDialog(wx.Dialog):
             label, tone = "Not linked", "warning"
         card.row("Prism", label, badge=True, tone=tone)
         card.row("KiCad", state.get("kicad_version") or ", ", tone="muted_fg")
-
-        if insecure:
-            card.row(
-                "Server",
-                "Bridged" if bridge_on else "Needs HTTPS",
-                badge=True,
-                tone="success" if bridge_on else "warning",
-            )
 
         if stale:
             card.body.Add(
@@ -527,58 +511,6 @@ class SettingsDialog(wx.Dialog):
                 th.SP_XS,
             )
 
-        if insecure and not bridge_on:
-            card.body.Add(
-                card.label(
-                    "KiCad only accepts a remote library over HTTPS, or a server "
-                    "that's actually localhost. This one is neither, so linking "
-                    "won't work as-is.",
-                    tone="muted_fg",
-                    small=True,
-                    wrap=True,
-                ),
-                0,
-                wx.TOP | wx.BOTTOM,
-                th.SP_XS,
-            )
-            card.body.Add(
-                Button(
-                    card,
-                    "Set up a local bridge",
-                    self.pal,
-                    variant="secondary",
-                    on_click=self._enable_library_bridge,
-                ),
-                0,
-                wx.BOTTOM,
-                th.SP_XS,
-            )
-        elif insecure and bridge_on:
-            card.body.Add(
-                card.label(
-                    "Prism runs through a local bridge so KiCad accepts it. "
-                    "Restart the agent if the server address changes.",
-                    tone="muted_fg",
-                    small=True,
-                    wrap=True,
-                ),
-                0,
-                wx.TOP | wx.BOTTOM,
-                th.SP_XS,
-            )
-            card.body.Add(
-                Button(
-                    card,
-                    "Remove the bridge",
-                    self.pal,
-                    variant="ghost",
-                    on_click=self._disable_library_bridge,
-                ),
-                0,
-                wx.BOTTOM,
-                th.SP_XS,
-            )
-
         card.body.Add(
             Button(
                 card,
@@ -593,40 +525,6 @@ class SettingsDialog(wx.Dialog):
         )
 
         return card
-
-    def _enable_library_bridge(self):
-        if not prompts.ask(
-            self,
-            "Run a local bridge so KiCad accepts this server?\n\n"
-            "The agent will listen on 127.0.0.1 and forward everything to your "
-            "configured Prism server. KiCad only ever talks to the loopback "
-            "address; nothing about your server URL changes.",
-            "Prism",
-            yes="Set up",
-        ):
-            return
-        self._save_library_bridge(True)
-
-    def _disable_library_bridge(self):
-        self._save_library_bridge(False)
-
-    def _save_library_bridge(self, enabled: bool):
-        try:
-            with wx.BusyCursor():
-                result = AgentClient().save_settings(
-                    {"library_bridge_enabled": enabled}
-                )
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
-            return
-
-        if result.get("error"):
-            prompts.tell(self, result["error"], "Prism")
-
-        self.data = result
-        self.content.Clear(delete_windows=True)
-        self._render()
-        self._relayout()
 
     def _link_library(self):
         """Register Prism as KiCad's symbol provider.
