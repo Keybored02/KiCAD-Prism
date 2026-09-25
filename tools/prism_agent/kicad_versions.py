@@ -181,7 +181,16 @@ def _discover_linux() -> list[KiCadInstall]:
     return installs
 
 
+_flatpak_has_kicad_cache: dict[str, bool] = {}
+
+
 def _flatpak_has_kicad(flatpak: str) -> bool:
+    """Cached for the life of the process, same reason as _cli_version: discover()
+    runs on every /project request via remote_library.kicad_config_dir, so this
+    would otherwise shell out to flatpak that often too."""
+    if flatpak in _flatpak_has_kicad_cache:
+        return _flatpak_has_kicad_cache[flatpak]
+
     try:
         result = subprocess.run(
             [flatpak, "info", "org.kicad.KiCad"],
@@ -189,28 +198,57 @@ def _flatpak_has_kicad(flatpak: str) -> bool:
             timeout=10,
             check=False,
         )
-        return result.returncode == 0
+        found = result.returncode == 0
     except (OSError, subprocess.SubprocessError):
-        return False
+        found = False
+
+    _flatpak_has_kicad_cache[flatpak] = found
+    return found
+
+
+_cli_version_cache: dict[tuple[str, ...], str] = {}
 
 
 def _cli_version(command: list[str]) -> str:
-    """Best-effort ``<kicad> --version`` -> "9.0". "" if it does not answer cleanly."""
+    """Best-effort ``<kicad> --version`` -> "9.0". "" if it does not answer cleanly.
+
+    Cached for the life of the process, keyed by the exact command: found the hard
+    way, this is called on every /project request (kicad_config_dir ->
+    _installed_config_names -> discover(), see remote_library.py), so an
+    uncooperative "kicad" a few seconds slow to answer becomes a few seconds added
+    to every single dialog load, not a one-time cost.
+
+    A short timeout on top of the cache, not instead of it: a real KiCad answers
+    --version in well under a second, and an AppImage-mounted build that doesn't
+    recognise the flag at all was seen launching its GUI instead of erroring, which
+    means "no output yet" here can mean "this is about to open a window", not "still
+    thinking". 15s of that on every request was the actual bug; 3s once, cached thereafter, is not.
+    """
+    key = tuple(command)
+    if key in _cli_version_cache:
+        return _cli_version_cache[key]
+
     try:
         result = subprocess.run(
             [*command, "--version"],
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=3,
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
+        _cli_version_cache[key] = ""
         return ""
+
     text = (result.stdout or result.stderr or "").strip()
+    version = ""
     # KiCad prints something like "9.0.1" or "KiCad 9.0.1"; take the first x.y.
     for token in text.replace("KiCad", "").split():
         parts = token.split(".")
         if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
-            return f"{parts[0]}.{parts[1]}"
-    return ""
+            version = f"{parts[0]}.{parts[1]}"
+            break
+
+    _cli_version_cache[key] = version
+    return version
