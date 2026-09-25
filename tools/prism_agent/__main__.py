@@ -896,6 +896,23 @@ def _run_headless(server, stop: threading.Event, port, reason: str | None) -> in
     return 0
 
 
+def _use_os_trust_store() -> None:
+    """Verify HTTPS against the OS's certificate store, not OpenSSL's.
+
+    The frozen macOS agent's OpenSSL looks for CAs under the build machine's
+    Python.framework path, which doesn't exist on a user's Mac, so it could verify no
+    certificate at all, public ones included. truststore routes verification through
+    the Keychain / Windows certificate store instead: the agent trusts exactly what the
+    browser and KiCad trust, a private CA the user installed included.
+    """
+    try:
+        import truststore
+    except ImportError:
+        log.warning("truststore isn't installed; HTTPS uses OpenSSL's own CA paths")
+        return
+    truststore.inject_into_ssl()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="prism_agent", description=__doc__)
     ap.add_argument(
@@ -954,6 +971,7 @@ def main() -> int:
         discovery.PROFILE = args.profile if is_known(args.profile) else discovery.PROFILE
 
     _setup_logging()
+    _use_os_trust_store()
 
     if args.open_url:
         return _handle_url(args.open_url)
