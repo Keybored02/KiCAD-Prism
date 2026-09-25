@@ -216,26 +216,90 @@ def _env() -> dict:
     """
     from .agent_client import profile
 
-    env = {**os.environ}
+    env = _without_appimage({**os.environ})
     p = profile()
     if p:
         env["PRISM_PROFILE"] = p
+    # The one piece of the AppImage worth passing on: the .AppImage file itself, a
+    # stable way to launch this KiCad after the mount is gone. The agent records it
+    # (prism_agent/linux_env.remember_kicad_appimage) to open projects with.
+    appimage = os.environ.get("APPIMAGE", "")
+    if sys.platform.startswith("linux") and appimage:
+        env["PRISM_KICAD_APPIMAGE"] = appimage
     return env
+
+
+def _without_appimage(env: dict) -> dict:
+    """On Linux, `env` minus what KiCad's AppImage runtime injected. Anything else,
+    unchanged.
+
+    This plugin runs inside KiCad, so when KiCad is an AppImage its whole runtime is
+    in our environment: PATH with the AppImage's bin/ first, LD_PRELOAD of a library
+    inside it, PYTHONHOME/PYTHONPATH at KiCad's bundled Python, GIO/GdkPixbuf module
+    paths. The agent is a separate program that outlives KiCad, and that mount
+    (/tmp/.mount_*) vanishes when KiCad closes; handing all of it on meant the agent
+    ran `kicad` from the mount, and everything the agent started got the rest.
+
+    Same rule as prism_agent/linux_env.py (the agent applies it too, for agents
+    started some other way): anything pointing inside APPDIR came from the AppImage.
+    A path list loses those entries, a single value is dropped. Kept as a copy
+    because the installed plugin does not ship the agent's Python package.
+    """
+    appdir = env.get("APPDIR", "")
+    if not sys.platform.startswith("linux") or not appdir:
+        return env
+
+    out = {}
+    for key, value in env.items():
+        if key in ("APPDIR", "APPIMAGE", "ARGV0", "OWD"):
+            continue
+        if appdir not in value:
+            out[key] = value
+            continue
+        kept = [p for p in value.split(":") if p and not p.startswith(appdir)]
+        if ":" in value and kept:
+            out[key] = ":".join(kept)
+    return out
+
+
+def _spawn(args: list[str], cwd: str, env: dict) -> None:
+    """Start the agent, detached. Raises OSError if it can't be started.
+
+    On Linux the agent goes through a throwaway /bin/sh that backgrounds it and exits
+    at once, and we wait for that shell. Started directly, the agent is KiCad's child,
+    and KiCad never reaps it: found live, every agent that exited (a restart, a quit)
+    stayed behind as a <defunct> process until KiCad closed. Via the shell, the agent
+    is re-parented to init, which does reap it, and it is not tied to KiCad at all.
+    Windows and macOS keep the direct launch they have always had.
+    """
+    if sys.platform.startswith("linux"):
+        shell = subprocess.Popen(
+            ["/bin/sh", "-c", '"$@" </dev/null >/dev/null 2>&1 &', "sh", *args],
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+            start_new_session=True,
+        )
+        shell.wait(timeout=10)
+        return
+    subprocess.Popen(
+        args,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+        **_detached(),
+    )
 
 
 def _start_binary(binary: Path) -> str:
     _clear_quarantine(binary)
     try:
-        subprocess.Popen(
-            [str(binary)],
-            cwd=str(binary.parent),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=_env(),
-            **_detached(),
-        )
-    except OSError as exc:
+        _spawn([str(binary)], cwd=str(binary.parent), env=_env())
+    except (OSError, subprocess.SubprocessError) as exc:
         raise LaunchError("Couldn't start %s: %s" % (binary.name, exc)) from exc
     return str(binary)
 
@@ -281,16 +345,12 @@ def start_agent() -> str:
         raise LaunchError("\n".join(lines))
 
     try:
-        subprocess.Popen(
+        _spawn(
             [exe, "-m", "prism_agent"],
             cwd=str(root),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
             env={**_env(), "PYTHONPATH": str(root)},
-            **_detached(),
         )
-    except OSError as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         raise LaunchError("Couldn't start the agent: %s" % exc) from exc
 
     return exe

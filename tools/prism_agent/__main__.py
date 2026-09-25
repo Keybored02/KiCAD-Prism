@@ -925,10 +925,27 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
         # icon.run() returned because we called icon.stop() above, not because
         # anyone asked to quit. Same server, same port, same discovery file:
         # just keep serving without a tray loop blocking on nothing.
+        #
+        # pystray leaves a non-daemon setup thread stuck on the icon it never
+        # docked, and the interpreter waits on it forever at exit: found live,
+        # /quit and SIGTERM both stopped the server and left the process running,
+        # which also broke the plugin's Restart (the old agent never went away).
+        # main() exits hard once everything real is cleaned up. See
+        # _hard_exit_after_run.
+        global _hard_exit_after_run
+        _hard_exit_after_run = True
         return _run_headless(
             server, stop, port, "No system tray available; continuing headless."
         )
     return 0
+
+
+# Set when the tray fell back to headless after pystray failed to dock (only its X11
+# backend does that, so Linux in practice). main() then ends with os._exit rather
+# than a normal interpreter shutdown, which would wait forever on pystray's stuck
+# thread. Everything that matters (server stopped, discovery file removed, relaunch
+# on restart) has already happened by then.
+_hard_exit_after_run = False
 
 
 def _run_headless(server, stop: threading.Event, port, reason: str | None) -> int:
@@ -978,6 +995,11 @@ def _use_os_trust_store() -> None:
 
 
 def main() -> int:
+    # First, before anything can launch a program: see linux_env. No-op off Linux.
+    from . import linux_env
+
+    linux_env.clean_process_environment()
+
     ap = argparse.ArgumentParser(prog="prism_agent", description=__doc__)
     ap.add_argument(
         "--no-tray",
@@ -1036,6 +1058,8 @@ def main() -> int:
 
     _setup_logging()
     _use_os_trust_store()
+    # After the profile is known: the settings file it writes to depends on it.
+    linux_env.remember_kicad_appimage()
 
     if args.open_url:
         return _handle_url(args.open_url)
@@ -1129,6 +1153,13 @@ def main() -> int:
     finally:
         if restarting.is_set():
             _relaunch()
+        if _hard_exit_after_run:
+            import os
+
+            logging.shutdown()
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(0)
 
 
 def _run_with_tray(server, stop, config, port) -> int:

@@ -73,7 +73,19 @@ def launch_kicad(project_dir: str | Path) -> None:
     if not pro:
         raise OpenError("No KiCad project file (.kicad_pro) in %s" % project_dir)
 
-    command = settings_store.load().kicad_command.strip()
+    settings = settings_store.load()
+    command = settings.kicad_command.strip()
+    # Linux only: no KiCad pinned, but the plugin runs inside a KiCad AppImage.
+    # Opening that beats the desktop association, which an AppImage usually does
+    # not set: on the Debian test machine .kicad_pro was associated with LibreOffice.
+    appimage = settings.kicad_appimage.strip()
+    if (
+        not command
+        and sys.platform.startswith("linux")
+        and appimage
+        and os.path.isfile(appimage)
+    ):
+        command = appimage
     try:
         if command:
             _launch_with(command, pro)

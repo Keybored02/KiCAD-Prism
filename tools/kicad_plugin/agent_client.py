@@ -11,6 +11,7 @@ open. This is just the UI's transport.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
@@ -164,9 +165,17 @@ class AgentClient:
             _codes.value = ""
             message = _http_message(exc, path)
             raise AgentUnavailable(message, getattr(_codes, "value", "")) from exc
-        except urllib.error.URLError as exc:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
             # Nothing answered: the agent really is gone, or the endpoint file is stale
             # (it quit without cleaning up).
+            #
+            # Not only URLError: a connection that opened and then broke never becomes
+            # one. The agent exiting mid-request is a ConnectionResetError, a slow
+            # answer past our timeout is a bare TimeoutError from the read, and a
+            # half-closed socket is http.client.RemoteDisconnected. All three escaped
+            # before, found live on Linux: the restart's "is the old agent gone yet"
+            # poll crashed on the reset, and a timed-out dialog load left the dialog
+            # stuck on "Contacting agent" instead of saying the agent didn't answer.
             raise AgentUnavailable(
                 "Couldn't reach the Prism agent at %s.\n\n"
                 "It may have stopped. Restart it from the tray." % self.base

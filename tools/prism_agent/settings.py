@@ -57,6 +57,13 @@ class Settings:
     # are installed the OS picks one, often the wrong one, so this pins the exact
     # executable the user chose. See kicad_versions.py for discovery.
     kicad_command: str = ""
+    # Linux only: the KiCad AppImage the plugin last ran inside, so the agent can open
+    # projects in it. An AppImage is usually not registered with the desktop (on the
+    # Debian test machine a .kicad_pro opened in LibreOffice), not on PATH, and the
+    # path it runs from (/tmp/.mount_*) is gone once KiCad closes; the .AppImage file
+    # itself is the one stable handle. Recorded, never chosen by the user: see
+    # linux_env.remember_kicad_appimage.
+    kicad_appimage: str = ""
 
     def to_dict(self, redact: bool = False) -> dict:
         d = asdict(self)
