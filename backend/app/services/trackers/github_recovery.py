@@ -214,14 +214,16 @@ def scan_comment_pages(
                     _audit_rejection(
                         outcome,
                         validation,
-                        external_id=comment.externalId,
+                        external_id=comment.externalCommentId,
                         audit=audit,
                         connector_id=connector_id,
                     )
                     continue
+                # The comment's own id: ``externalId`` on a comment names its
+                # issue, and recovery confirms the reply by this value.
                 matches.append(
                     RecoveryMatch(
-                        external_id=comment.externalId,
+                        external_id=comment.externalCommentId,
                         url=comment.url,
                     )
                 )
