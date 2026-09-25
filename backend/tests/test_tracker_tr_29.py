@@ -564,7 +564,8 @@ class RecoveryScanUnitTests(unittest.TestCase):
             bot_user_id=BOT_ID,
         )
         self.assertEqual(second.kind, RecoveryKind.FOUND)
-        self.assertEqual(second.match.external_id, ISSUE_ID)
+        # The reply's own id, as the normal confirm path records it.
+        self.assertEqual(second.match.external_id, EXT_COMMENT)
 
 
 if __name__ == "__main__":
