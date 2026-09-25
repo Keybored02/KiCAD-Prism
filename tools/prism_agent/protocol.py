@@ -263,10 +263,20 @@ def _unregister_windows() -> None:
 # LaunchServices only reads CFBundleURLTypes from an app bundle's Info.plist, so a bare
 # `python -m prism_agent` genuinely cannot claim a scheme. That is a real OS rule.
 #
-# But an .app is just a DIRECTORY with a plist and an executable in it. Nothing about it
-# is privileged: no Apple account, no signing, no notarisation, no App Store. So we build
-# one, in the user's own ~/Applications, at the moment they opt in. It is a shim: a shell
-# script that hands the URL back to the agent.
+# It also does not deliver a scheme invocation as argv. It sends a kAEGetURL Apple
+# Event, over the Mach-port channel a Cocoa run loop listens on, so the bundle needs a
+# real Apple-Event-capable process behind it, not just a plist and any executable. An
+# earlier version of this used a `#!/bin/sh` shim as CFBundleExecutable: LaunchServices
+# launched it without complaint, but a bare shell script has no run loop and no Apple
+# Event handler, so the URL arrived at a process with nowhere to put it and was
+# silently dropped every time (see _register_macos). An AppleScript applet, built with
+# `osacompile`, is the smallest thing macOS ships that has both: `on open location` is
+# wired to kAEGetURL for free, no Xcode, no compiled binary of our own to maintain
+# across three architectures.
+#
+# Nothing about the bundle is privileged: no Apple account, no signing, no
+# notarisation, no App Store. We build it in the user's own ~/Applications, at the
+# moment they opt in.
 #
 # (This is separate from Gatekeeper. Gatekeeper only inspects files carrying
 # com.apple.quarantine, which is set by the app that DOWNLOADS a file. Nothing here is
@@ -277,27 +287,76 @@ def _mac_app_bundle() -> Path:
     return Path.home() / "Applications" / "KiCad-Prism Agent.app"
 
 
-def _register_macos() -> None:
-    bundle = _mac_app_bundle()
-    macos_dir = bundle / "Contents" / "MacOS"
-    launcher = macos_dir / "prism-url-handler"
+def _open_location_applescript(command: list[str]) -> str:
+    """The applet source: receive the URL via `on open location`, run `command` with
+    it appended as the final argument.
 
-    # The shim. LaunchServices passes the URL as an argument, and we hand it straight
-    # to the agent, whatever the agent happens to be (a frozen binary or a checkout).
-    command = " ".join('"%s"' % part for part in _launch_command())
+    `do shell script` runs under /bin/sh, so `command` is baked in as one AppleScript
+    string literal (its only escaping need is a literal double quote or backslash).
+    `theURL` is different: it is untrusted, handed to us by whatever page or app sent
+    the link, so it is concatenated as its own shell-quoted word via AppleScript's own
+    `quoted form of` rather than spliced into the string, and can never break out of
+    the argument it belongs in.
+    """
+    joined = " ".join('"%s"' % part for part in command)
+    literal = joined.replace("\\", "\\\\").replace('"', '\\"')
+    return (
+        "on open location theURL\n"
+        '    do shell script "%s" & " " & quoted form of theURL\n'
+        "end open location\n"
+    ) % literal
+
+
+def _register_macos() -> None:
+    """Build the .app LaunchServices needs to claim prism://. See the module comment
+    above _mac_app_bundle for why this has to be an AppleScript applet."""
+    bundle = _mac_app_bundle()
+    script = _open_location_applescript(_launch_command())
 
     try:
-        macos_dir.mkdir(parents=True, exist_ok=True)
-        launcher.write_text(
-            '#!/bin/sh\nexec %s "$@"\n' % command,
-            encoding="utf-8",
-        )
-        launcher.chmod(0o755)
+        import shutil
+        import tempfile
 
-        (bundle / "Contents" / "Info.plist").write_text(
-            _MAC_INFO_PLIST.format(scheme=SCHEME, executable=launcher.name),
-            encoding="utf-8",
-        )
+        shutil.rmtree(bundle, ignore_errors=True)
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".applescript", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(script)
+            source = f.name
+        try:
+            result = subprocess.run(
+                ["osacompile", "-o", str(bundle), source],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        finally:
+            os.unlink(source)
+        if result.returncode != 0 or not bundle.is_dir():
+            raise RegistrationError(
+                "osacompile couldn't build %s: %s"
+                % (bundle, (result.stderr or "").strip())
+            )
+
+        # osacompile writes its own Info.plist (a real applet's: CFBundleExecutable
+        # is its compiled runner, not anything we name). Add only what it doesn't
+        # already have: the scheme claim, and keeping it out of the Dock/app switcher.
+        plist = bundle / "Contents" / "Info.plist"
+        for args in (
+            ["Add", ":LSUIElement", "bool", "true"],
+            ["Add", ":CFBundleURLTypes", "array"],
+            ["Add", ":CFBundleURLTypes:0", "dict"],
+            ["Add", ":CFBundleURLTypes:0:CFBundleURLName", "string", "Prism"],
+            ["Add", ":CFBundleURLTypes:0:CFBundleURLSchemes", "array"],
+            ["Add", ":CFBundleURLTypes:0:CFBundleURLSchemes:0", "string", SCHEME],
+        ):
+            subprocess.run(
+                ["/usr/libexec/PlistBuddy", "-c", " ".join(args), str(plist)],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
     except OSError as exc:
         raise RegistrationError("Couldn't write %s: %s" % (bundle, exc)) from exc
 
@@ -322,31 +381,6 @@ def _unregister_macos() -> None:
         shutil.rmtree(_mac_app_bundle())
     except OSError:
         pass
-
-
-_MAC_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
- "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key>              <string>KiCad-Prism Agent</string>
-  <key>CFBundleIdentifier</key>        <string>com.kicad-prism.agent</string>
-  <key>CFBundleVersion</key>           <string>1.0</string>
-  <key>CFBundlePackageType</key>       <string>APPL</string>
-  <key>CFBundleExecutable</key>        <string>{executable}</string>
-  <!-- A handler, not something to show in the Dock. -->
-  <key>LSBackgroundOnly</key>          <true/>
-  <key>CFBundleURLTypes</key>
-  <array>
-    <dict>
-      <key>CFBundleURLName</key>       <string>Prism</string>
-      <key>CFBundleURLSchemes</key>
-      <array><string>{scheme}</string></array>
-    </dict>
-  </array>
-</dict>
-</plist>
-"""
 
 
 # -- Linux ----------------------------------------------------------------

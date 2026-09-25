@@ -156,5 +156,39 @@ def test_a_command_we_cannot_read_back_is_not_stale(monkeypatch):
     assert protocol.is_stale() is False
 
 
+# -- macOS: the AppleScript applet source ----------------------------------
+#
+# LaunchServices delivers a prism:// invocation as a kAEGetURL Apple Event, not argv;
+# a bare shell script has no run loop to catch it, so the URL was silently dropped
+# every time (confirmed against a real Mac: the process launched, checked in, and
+# exited with nothing having reached protocol.parse()). The fix, an AppleScript applet
+# built by osacompile, has one thing worth pinning down without a Mac to test on: the
+# generated script must still be valid AppleScript, and the URL it hands to the shell
+# must be genuinely shell-quoted, not spliced into our own trusted command string.
+
+
+def test_the_applet_source_shells_out_to_the_launch_command():
+    script = protocol._open_location_applescript(["/usr/bin/prism-agent", "--open-url"])
+    assert "on open location theURL" in script
+    assert "end open location" in script
+    # The shell command, with its own quoting escaped for the AppleScript literal
+    # that wraps it.
+    assert '\\"/usr/bin/prism-agent\\" \\"--open-url\\"' in script
+    # theURL is concatenated as its own shell-quoted word, not embedded in the command
+    # string: a URL is untrusted input, and the command string is not.
+    assert "quoted form of theURL" in script
+
+
+def test_a_quote_in_the_command_does_not_break_the_applescript_string():
+    """The launch command embeds a real filesystem path (see _launch_command's
+    bootstrap script, itself full of quotes); one that happened to carry a double
+    quote or backslash must not terminate the AppleScript string literal early."""
+    script = protocol._open_location_applescript(['/Applications/Weird "Path"/agent'])
+    # Every embedded quote is escaped, so the whole path stays inside ONE AppleScript
+    # string literal rather than closing it early partway through.
+    assert '\\"/Applications/Weird \\"Path\\"/agent\\"' in script
+    assert script.count('do shell script "') == 1
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

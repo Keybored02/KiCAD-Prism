@@ -287,8 +287,18 @@ class PrismDialog(wx.Dialog):
         up front hands the screen back immediately; the destroy then happens behind
         nothing. A stale background fetch can't paint into a hidden window either (its
         guard already checks `if not self`), so there's nothing to cancel.
+
+        NOT on macOS. Cocoa's modal loop (NSApp runModalForWindow) ties its session to
+        the window's show/hide state; hiding the dialog while that session is still
+        active is exactly the pattern wxPython's maintainer warns against ("the
+        destruction of modal dialogs should only be done after ShowModal returns"), and
+        it left PcbFrame itself wedged as if still blocked by a modal child, on Mac
+        only. GTK and MSW tolerate it; Cocoa does not. So on macOS this just ends the
+        modal loop and leaves the brief teardown-covers-the-canvas cost in place, which
+        is the lesser problem of the two.
         """
-        self.Hide()
+        if sys.platform != "darwin":
+            self.Hide()
         if self.IsModal():
             self.EndModal(wx.ID_CANCEL)
         else:
