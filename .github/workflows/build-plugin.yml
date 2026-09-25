@@ -48,7 +48,10 @@ jobs:
           - os: macos-latest
             artifact: prism-agent-macos-arm64
             binary: prism-agent
-          - os: macos-13 # Intel
+          - os: macos-15-intel # Intel. GitHub retired macos-13 in Dec 2025; this
+            # is the current x86_64 label (see actions/runner-images#13045). Expected
+            # to be GitHub's last Intel macOS image, planned to retire ~Fall 2027,
+            # after which hosted macOS runners are arm64-only.
             artifact: prism-agent-macos-x86_64
             binary: prism-agent
           - os: ubuntu-latest
