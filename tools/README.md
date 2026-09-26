@@ -61,14 +61,17 @@ launching, which handles most cases; if macOS still objects, allow it in
 xattr -d com.apple.quarantine <plugin dir>/prism-agent
 ```
 
-### Linux: the tray icon needs a system package
+### Linux (GNOME): showing the tray icon
 
-The agent works regardless — the tray is a convenience, not the architecture (see
-below) — but to actually *see* an icon you need an AppIndicator backend:
+GNOME has no system tray of its own. The agent runs fine without one, but to see its
+icon install the AppIndicator extension, enable it, then log out and back in:
 
 ```bash
-sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi
+sudo apt install gnome-shell-extension-appindicator
+gnome-extensions enable ubuntu-appindicators@ubuntu.com
 ```
+
+KDE, XFCE and most other desktops show the icon with nothing to install.
 
 ## Running the agent by hand
 
@@ -88,10 +91,10 @@ python -m prism_agent    # from the tools/ directory
 
 **The tray icon is a convenience, not the architecture.** The agent's real control
 surface is its HTTP API, which behaves identically on every OS. That matters,
-because the tray is the one part that *doesn't*: on Linux pystray needs an
-AppIndicator backend (`sudo apt install gir1.2-ayatanaappindicator3-0.1
-python3-gi`), and under Wayland — the default on current GNOME — the X11 fallback
-doesn't work. On a headless box or over SSH there's no tray at all.
+because the tray is the one part that *doesn't*: on GNOME it needs the AppIndicator
+extension (see above), and on a headless box or over SSH there's no tray at all.
+When no tray can host the icon, the agent says so in its log and carries on
+without one.
 
 So when no tray can be drawn the agent **says so and keeps serving** rather than
 exiting (which would take the plugin down with it) or running invisibly with no way

@@ -145,8 +145,8 @@ def _load_tray():
             )
         return None, (
             "No system tray is available here (%s: %s).\n"
-            "On Linux the tray needs an AppIndicator backend:\n"
-            "    sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi\n"
+            "On GNOME, the icon needs the AppIndicator extension:\n"
+            "    sudo apt install gnome-shell-extension-appindicator\n"
             "The agent works fine without it, see below." % (type(exc).__name__, exc)
         )
 
@@ -180,6 +180,26 @@ def _make_icon(Image, ImageDraw):
             fill=PRIMARY,
         )
         return icon
+
+
+# GNOME's top bar, and the usual dark panel elsewhere. See _flatten_for_xembed.
+_XEMBED_PANEL_RGB = (0, 0, 0)
+
+
+def _flatten_for_xembed(icon, Image):
+    """`icon` blended onto the panel colour, for pystray's X11 backend only.
+
+    A legacy (XEmbed) tray icon has no transparency, so pystray's _xorg backend pastes
+    our RGBA image into a plain RGB one and drops the alpha channel. Fully clear
+    pixels are black underneath and pass for background, but the half-transparent
+    anti-aliased edge keeps its full-strength colour: on GNOME (via the AppIndicator
+    extension, which hosts these icons) the gem came out jagged, with a light-blue
+    ring. Compositing it onto the panel colour first turns those edge pixels into
+    the blend they were meant to be. Windows, macOS and the AppIndicator backend
+    all honour alpha and never see this.
+    """
+    background = Image.new("RGBA", icon.size, _XEMBED_PANEL_RGB + (255,))
+    return Image.alpha_composite(background, icon.convert("RGBA")).convert("RGB")
 
 
 def _prism_config() -> PrismConfig:
@@ -850,9 +870,14 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
             )
         return pystray.Menu(*items)
 
+    icon_image = _make_icon(Image, ImageDraw)
+    # pystray.Icon is the backend's own class; only the X11 one drops alpha.
+    if getattr(pystray.Icon, "__module__", "").endswith("_xorg"):
+        icon_image = _flatten_for_xembed(icon_image, Image)
+
     icon = pystray.Icon(
         "kicad-prism",
-        _make_icon(Image, ImageDraw),
+        icon_image,
         f"KiCad-Prism agent {VERSION}",
         menu=pystray.Menu(
             pystray.MenuItem(status_text, None, enabled=False),
@@ -905,8 +930,8 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
         if dock_watch.failed.wait(timeout=3) and not stop.is_set():
             log.warning(
                 "No system tray is available on this desktop (pystray couldn't "
-                "dock an icon); continuing without one. The agent's HTTP API is "
-                "the control surface either way, see --no-tray's own message."
+                "dock an icon); continuing without one. On GNOME, install and "
+                "enable gnome-shell-extension-appindicator, then log in again."
             )
             icon.stop()
 
