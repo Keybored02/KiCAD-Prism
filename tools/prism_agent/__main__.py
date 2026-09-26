@@ -18,6 +18,7 @@ Run:  python -m prism_agent
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import signal
 import subprocess
@@ -870,16 +871,59 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
             )
         return pystray.Menu(*items)
 
+    # pystray.Icon is the backend's own class. The X11 one drops alpha and has no
+    # menus at all (see tray_menu.py); every other backend does both itself.
+    x11_backend = getattr(pystray.Icon, "__module__", "").endswith("_xorg")
+
     icon_image = _make_icon(Image, ImageDraw)
-    # pystray.Icon is the backend's own class; only the X11 one drops alpha.
-    if getattr(pystray.Icon, "__module__", "").endswith("_xorg"):
+    if x11_backend:
         icon_image = _flatten_for_xembed(icon_image, Image)
+
+    menu_open = threading.Lock()
+
+    def on_click_open_menu(icon, _item):
+        # The X11 backend's only click: it runs the default item. Show the rest of
+        # this same menu ourselves, off the tray thread (the helper waits on the user).
+        def run():
+            if not menu_open.acquire(blocking=False):
+                return  # one menu at a time; a second click while open is a no-op
+            try:
+                from . import tray_menu
+
+                spec, items = tray_menu.describe(icon.menu, pystray.Menu.SEPARATOR)
+                cwd = None if is_frozen() else str(Path(__file__).resolve().parent.parent)
+                result = subprocess.run(
+                    self_command("--tray-menu", json.dumps(spec)),
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                    check=False,
+                )
+                lines = (result.stdout or "").strip().splitlines()
+                chosen = items.get(lines[-1]) if lines else None
+                if chosen is not None:
+                    chosen(icon)
+            except Exception:  # noqa: BLE001 - a menu must never take the agent down
+                log.warning("couldn't show the tray menu", exc_info=True)
+            finally:
+                menu_open.release()
+
+        threading.Thread(target=run, name="prism-tray-menu", daemon=True).start()
+
+    # Hidden: never listed, only fired by a click, and only on the X11 backend.
+    click_menu = (
+        (pystray.MenuItem("Menu", on_click_open_menu, default=True, visible=False),)
+        if x11_backend
+        else ()
+    )
 
     icon = pystray.Icon(
         "kicad-prism",
         icon_image,
         f"KiCad-Prism agent {VERSION}",
         menu=pystray.Menu(
+            *click_menu,
             pystray.MenuItem(status_text, None, enabled=False),
             pystray.MenuItem(server_text, None, enabled=False),
             pystray.Menu.SEPARATOR,
@@ -1055,6 +1099,8 @@ def main() -> int:
         help="show one themed message and exit (the agent spawns us for this so a "
         "background thread never touches a GUI toolkit directly)",
     )
+    # Internal, like --notify: the tray's click menu on Linux, see tray_menu.py.
+    ap.add_argument("--tray-menu", metavar="SPEC", help=argparse.SUPPRESS)
     from .profiles import PROFILES, is_known
 
     ap.add_argument(
@@ -1095,6 +1141,11 @@ def main() -> int:
         # its own event loop, which is not safe.
         _show_dialog(args.notify[0], args.notify[1])
         return 0
+
+    if args.tray_menu:
+        from . import tray_menu
+
+        return tray_menu.run_helper(args.tray_menu)
 
     if args.uninstall:
         # Deliberately does NOT stop a running agent: this process is a separate,

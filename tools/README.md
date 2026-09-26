@@ -73,6 +73,14 @@ gnome-extensions enable ubuntu-appindicators@ubuntu.com
 
 KDE, XFCE and most other desktops show the icon with nothing to install.
 
+On Linux the icon uses the legacy X11 tray protocol (XEmbed), so two limits apply:
+
+- **Left-click opens the menu; right-click does nothing.** The X11 tray passes on
+  only a plain click, so the agent draws its own menu on it.
+- **Desktops without X11 tray support show no icon at all**: Sway, Hyprland and
+  others that only speak the newer StatusNotifierItem protocol. The agent still runs
+  there, and everything the menu offers is also in the KiCad plugin.
+
 ## Running the agent by hand
 
 Normally the plugin starts it. To run it yourself — from a release:
