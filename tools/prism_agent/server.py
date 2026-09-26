@@ -11,7 +11,6 @@ Endpoints
     GET  /library                    -> is Prism KiCad's remote symbol provider, and
                                         does it point at the server we're configured for?
     GET  /locate?id=<id>             -> where this machine keeps a project, by marker
-    GET  /publish?path=<path>        -> what publishing this folder would involve
     GET  /branches?path=<path>       -> local + remote branches, for a switch picker
     GET  /checkout?path=&ref=        -> could we check this ref out, and if not, why not
     GET  /stash?path=<path>          -> what the user has set aside
@@ -19,7 +18,6 @@ Endpoints
     POST /signin {label?}            -> browser loopback sign-in; saves the token
     POST /signout                    -> clears the token, revokes it server-side
     POST /open-in-prism {project_id} -> opens the web app in the browser
-    POST /publish {path, name}       -> commit if needed, reserve a repo, push, register
     POST /checkout {path, ref, stash_message?}
                                      -> move the working tree to a commit/branch/tag
     POST /pull {path, stash_message?}
@@ -71,7 +69,6 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from . import (
-    adopt,
     autostart,
     checkout,
     discovery,
@@ -88,7 +85,7 @@ from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
 from .worktree_diff import uncommitted_changes
 
-VERSION = "0.5.14"
+VERSION = "0.5.15"
 
 # The oldest plugin this agent can serve.
 #
@@ -397,17 +394,6 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, self._locate_payload(project_id))
             return
 
-        if route.path == "/publish":
-            # What publishing this folder WOULD involve. Read-only, so the UI can say
-            # the right thing (and show what a first commit would sweep up) before the
-            # user agrees to anything.
-            path = (query.get("path") or [""])[0]
-            if not path:
-                self._send(400, {"error": "path is required"})
-                return
-            self._send(200, adopt.status(path))
-            return
-
         if route.path == "/branches":
             # Local and remote branches for a switch picker. Read-only.
             path = (query.get("path") or [""])[0]
@@ -587,25 +573,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(exc)})
                 return
             self._send(200, {"ok": True, **result})
-            return
-
-        if route.path == "/publish":
-            # Publish a project this machine has, into a repo Prism hosts.
-            #
-            # The server cannot do this itself: it cannot read a folder on somebody
-            # else's laptop. We can, so we init/commit if needed, ask the server to
-            # reserve an origin, push into it, and tell the server the push landed.
-            path = body.get("path") or ""
-            name = (body.get("name") or "").strip()
-            if not path or not name:
-                self._send(400, {"error": "path and name are required"})
-                return
-            try:
-                self._send(
-                    200, self._publish(path, name, body.get("description") or "")
-                )
-            except adopt.AdoptError as exc:
-                self._send(400, {"error": str(exc)})
             return
 
         if route.path == "/checkout":
@@ -1232,55 +1199,6 @@ class _Handler(BaseHTTPRequestHandler):
             "project": project.to_dict(),
             "prism": prism,
         }
-
-    def _publish(self, path: str, name: str, description: str) -> dict:
-        """init (if needed) -> reserve -> push -> tell the server it landed.
-
-        Ordered so a failure never leaves a project registered with an empty repo. The
-        server registers nothing until the push has actually arrived.
-        """
-        state = adopt.status(path)
-
-        if state["has_origin"]:
-            raise adopt.AdoptError(
-                f"This folder already pushes to {state['origin']}. "
-                "Adopting would replace it."
-            )
-
-        if not state["is_repo"] or not state["has_commits"]:
-            adopt.initialise(path)
-
-        reserved = self.state.prism.reserve_project(name, description)
-        if not reserved:
-            raise adopt.AdoptError(
-                "The server would not reserve a repository. Check that Prism is "
-                "reachable and that you are signed in."
-            )
-
-        origin = reserved.get("origin_url") or ""
-        if not origin:
-            raise adopt.AdoptError("The server gave no URL to push to.")
-
-        adopt.publish(path, origin)
-
-        registered = self.state.prism.adopt_pushed(reserved["id"], name, description)
-        if not registered:
-            # The push succeeded, so their work is safe on the server even though the
-            # project did not register. Say exactly that rather than implying data loss.
-            raise adopt.AdoptError(
-                "Pushed, but the server did not register the project. Your work is "
-                "safe in the repository; try again from Prism."
-            )
-
-        # Stamp the marker so the agent can find this checkout by id from now on,
-        # exactly as it would for one that was cloned.
-        identity.write(
-            path,
-            registered.get("id") or reserved["id"],
-            settings_store.load().server_url,
-        )
-
-        return {"ok": True, **registered}
 
     def _locate_payload(self, project_id: str) -> dict:
         """Where this machine keeps a given Prism project, if anywhere.

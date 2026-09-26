@@ -1,8 +1,8 @@
 """Adding a KiCad .gitignore to a project that hasn't got one.
 
-`adopt` writes one when it publishes a folder, so anything Prism created or adopted is
-fine. A project that was IMPORTED never got one, and then git reports KiCad's churn as
-uncommitted work forever: caches, lock files, backups, fetched libraries. That is not
+A project that was imported, or started outside Prism, often has none, and then git
+reports KiCad's churn as uncommitted work forever: caches, lock files, backups, fetched
+libraries. That is not
 cosmetic. It makes "you have uncommitted changes" meaningless, so the user learns to
 ignore the warning for the one time it matters, and it makes "discard my changes"
 ill-defined, because the pile is churn and design work mixed together.
@@ -199,7 +199,7 @@ def test_the_gitignore_is_the_shared_one_not_a_copy(repo):
     """The patterns live beside the noise filter that hides the same files from the
     history. Two copies would drift the first time KiCad changes a suffix, and then
     Prism would hide a file in the history while git kept reporting it as your work."""
-    from prism_agent.adopt import gitignore as agent_gitignore
+    from prism_agent.gitignore import gitignore as agent_gitignore
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
     from app.services.kicad_noise_service import GITIGNORE as canonical

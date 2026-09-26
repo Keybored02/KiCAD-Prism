@@ -93,8 +93,6 @@ class PrismDialog(wx.Dialog):
         self._stashes = []
         # Likewise: whether a KiCad .gitignore would help here.
         self._gitignore = {}
-        # Likewise: what publishing this project to Prism would involve.
-        self._publish = {}
         self.verdict = "ok"  # this plugin vs the server: ok | update | required
         self.download_url = ""
         # Which files the user has expanded, by path. Kept across a re-render so
@@ -343,7 +341,6 @@ class PrismDialog(wx.Dialog):
         self.changes = _CHANGES_LOADING
         self._stashes = []
         self._gitignore = {}
-        self._publish = {}
         self._render_contacting()
         self._relayout()
 
@@ -373,7 +370,6 @@ class PrismDialog(wx.Dialog):
                 # each time a section is toggled.
                 stashes = []
                 gitignore = {}
-                publish = {}
                 if project and (project.get("project") or {}).get("path"):
                     project_path = (project["project"])["path"]
                     try:
@@ -386,19 +382,11 @@ class PrismDialog(wx.Dialog):
                         gitignore = client.gitignore_status(project_path) or {}
                     except AgentUnavailable:
                         gitignore = {}
-                    # Only when Prism does not already have the project: that is the
-                    # only case _render_publish draws anything for.
-                    if not project.get("prism"):
-                        try:
-                            publish = client.publish_status(project_path) or {}
-                        except AgentUnavailable as exc:
-                            publish = {"error": str(exc)}
                 payload = {
                     "health": health,
                     "project": project,
                     "stashes": stashes,
                     "gitignore": gitignore,
-                    "publish": publish,
                 }
                 error = None
             except AgentUnavailable as exc:
@@ -471,7 +459,6 @@ class PrismDialog(wx.Dialog):
         self.data = payload["project"]
         self._stashes = payload.get("stashes") or []
         self._gitignore = payload.get("gitignore") or {}
-        self._publish = payload.get("publish") or {}
 
         # The diff parses every changed board, so it can take a second or two on a big
         # one. Don't block on it either: render everything else now with the changes card
@@ -912,11 +899,6 @@ class PrismDialog(wx.Dialog):
         self.status.SetToolTip("Open this folder")
         self.Layout()
 
-        if not prism:
-            # Prism doesn't know this project. That is the moment to offer to add it,
-            # not to make the user go and find the web UI.
-            self._render_publish(project)
-
         self._render_detached_banner(git)
         self._render_git(git, prism)
         self._render_changes()
@@ -973,126 +955,6 @@ class PrismDialog(wx.Dialog):
         card.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
 
     # -- publishing ---------------------------------------------------------
-
-    def _render_publish(self, project):
-        """Offer to put this project in Prism.
-
-        Shown only when Prism does not already have it. The card says what will happen
-        before anything does, because publishing writes to the user's folder (a first
-        commit) and to the network (a push).
-        """
-        card = Card(self.scroll, "Not in Prism", self.pal)
-
-        # From the payload, for the same reason as the other cards: this runs on every
-        # render, and _rebuild re-renders on every collapse/expand.
-        state = self._publish or {}
-        if state.get("error"):
-            card.body.Add(card.label(state["error"], tone="muted_fg"), 0)
-            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
-            return
-
-        if state.get("has_origin"):
-            origin = state.get("origin") or ""
-            server = (self.data or {}).get("library", {}).get("server_url") or ""
-
-            # It already pushes somewhere, so publishing would repoint it away from the
-            # upstream it collaborates through. But WHICH somewhere changes the advice
-            # entirely, and telling a user their Prism remote is "another remote" would
-            # be a confusing lie.
-            if server and origin.startswith(server.rstrip("/")):
-                message = (
-                    "This project already pushes to Prism, but the server does not "
-                    "list it. It may have been deleted there."
-                )
-            else:
-                message = (
-                    "This project pushes to another remote. Import it in Prism instead."
-                )
-
-            card.body.Add(
-                card.label(message, tone="muted_fg", small=True),
-                0,
-                wx.BOTTOM,
-                th.SP_XS,
-            )
-            card.row("Remote", origin, mono=True)
-            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
-            return
-
-        needs_commit = not state.get("is_repo") or not state.get("has_commits")
-        files = state.get("will_commit") or []
-
-        if needs_commit and not files:
-            card.body.Add(
-                card.label("There is nothing to commit here.", tone="muted_fg"),
-                0,
-            )
-            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
-            return
-
-        summary = (
-            "Prism will host the git repository for this project."
-            if not needs_commit
-            else "This folder is not in git yet. Prism will set it up and host it."
-        )
-        card.body.Add(
-            card.label(summary, tone="muted_fg", small=True), 0, wx.BOTTOM, th.SP_XS
-        )
-
-        if needs_commit:
-            # Say exactly what a first commit takes. "Trust me" is not good enough for
-            # a list the user cannot see: this is how a private key ends up in a repo's
-            # history forever.
-            card.body.Add(
-                card.label(
-                    "%d file%s will be committed. Backups and caches are excluded."
-                    % (len(files), "" if len(files) == 1 else "s"),
-                    tone="muted_fg",
-                    small=True,
-                ),
-                0,
-                wx.BOTTOM,
-                th.SP_SM,
-            )
-
-        card.body.Add(
-            Button(
-                card,
-                "Add to Prism",
-                self.pal,
-                variant="primary",
-                on_click=lambda: self._publish(project, files if needs_commit else []),
-            ),
-            0,
-        )
-        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
-
-    def _publish(self, project, files):
-        """Confirm, then publish. Writes to the user's folder and to the network."""
-        if files:
-            preview = "\n".join("  " + f for f in files[:15])
-            if len(files) > 15:
-                preview += "\n  ... and %d more" % (len(files) - 15)
-            message = "Commit %d file%s and push %s to Prism?\n\n%s" % (
-                len(files),
-                "" if len(files) == 1 else "s",
-                project["name"],
-                preview,
-            )
-        else:
-            message = "Push %s to Prism?" % project["name"]
-
-        if not prompts.ask(self, message, "Add to Prism", yes="Publish"):
-            return
-
-        try:
-            with wx.BusyCursor():
-                AgentClient().publish(project["path"], project["name"])
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
-            return
-
-        self._load()  # it is in Prism now; the whole dialog says something different
 
     def _render_detached_banner(self, git):
         """When HEAD is detached, a persistent banner with the two ways forward.

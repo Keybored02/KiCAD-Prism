@@ -1,9 +1,8 @@
 """Adding a KiCad .gitignore to a project that hasn't got one.
 
-`adopt` writes one when it publishes a folder, so anything Prism created or adopted is
-fine. A project that was IMPORTED never got one, and the result is a repo that reports
-KiCad's churn as uncommitted work forever: caches, lock files, backups and fetched
-libraries, none of which anyone chose to have.
+A project that was imported, or started outside Prism, often has none, and the result
+is a repo that reports KiCad's churn as uncommitted work forever: caches, lock files,
+backups and fetched libraries, none of which anyone chose to have.
 
 That is not cosmetic. It makes "you have uncommitted changes" meaningless, so the user
 learns to ignore the warning for the one time it matters, and it makes "discard my
@@ -29,6 +28,40 @@ import subprocess
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+# Last-resort .gitignore, used only if the shared one cannot be loaded.
+#
+# The real one lives in the backend's kicad_noise_service, beside the patterns it
+# mirrors, and rides along with the module the agent already loads for noise
+# classification (see worktree_diff). This copy exists so a broken load degrades to a
+# workable ignore file rather than to none at all.
+_FALLBACK_GITIGNORE = """\
+# KiCad-Prism
+*-backups/
+*.kicad_pcb-bak
+*.kicad_sch-bak
+*.bak
+_autosave-*
+*.lck
+~*.lck
+fp-info-cache
+*-cache.lib
+*-cache.dcm
+RemoteLibrary/
+"""
+
+
+def gitignore() -> str:
+    """The KiCad .gitignore to write. Shared with the backend so the file we write and
+    the filter the history uses cannot disagree about what counts as churn."""
+    from .worktree_diff import _load_noise_classifier
+
+    mod = _load_noise_classifier()
+    text = getattr(mod, "GITIGNORE", "") if mod else ""
+    if not text:
+        log.warning("Using the fallback .gitignore; the shared one wasn't loadable")
+        return _FALLBACK_GITIGNORE
+    return text
 
 
 class IgnoreError(Exception):
@@ -89,8 +122,6 @@ def _would_ignore(path: Path) -> list[str]:
     than it looks, and a second implementation of it would be wrong in ways nobody
     notices until a real file goes missing from a change list.
     """
-    from .adopt import gitignore
-
     ignore = path / ".gitignore"
     try:
         ignore.write_text(gitignore(), encoding="utf-8")
@@ -139,8 +170,6 @@ def add(project_dir: str | Path) -> dict:
 
     Does not commit. The user reviews and commits like any other edit.
     """
-    from .adopt import gitignore
-
     path = Path(project_dir)
     if not (path / ".git").is_dir():
         raise IgnoreError(f"{path} is not a git repository.")
