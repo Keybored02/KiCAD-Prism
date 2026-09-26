@@ -19,7 +19,7 @@ from __future__ import annotations
 # This plugin's version, and the source of truth for the package's. package_plugin.py
 # reads it rather than taking one as an argument, and refuses to build unless the
 # agent's VERSION matches, so a zip cannot claim a version its code disagrees with.
-VERSION = "0.5.16"
+VERSION = "0.5.17"
 
 # The oldest agent this plugin can work with: the last release that actually changed
 # what the plugin needs, not the current one. Pinning it to VERSION forces a restart

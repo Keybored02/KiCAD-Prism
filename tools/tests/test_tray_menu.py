@@ -85,6 +85,19 @@ def test_a_picked_id_runs_that_items_own_action():
     assert ran == ["kicad10", "quit"]
 
 
+def test_the_menu_sits_under_a_top_bar_at_the_right_edge():
+    # GNOME on the test VM: 1280x800, a 32 px top bar.
+    assert tray_menu.anchor((200, 300), (1280, 800), (0, 32, 1280, 768)) == (1080, 32)
+
+
+def test_the_menu_sits_above_a_bottom_panel():
+    assert tray_menu.anchor((200, 300), (1920, 1080), (0, 0, 1920, 1040)) == (1720, 740)
+
+
+def test_without_panels_the_menu_takes_the_top_right_corner():
+    assert tray_menu.anchor((200, 300), (1920, 1080), (0, 0, 1920, 1080)) == (1720, 0)
+
+
 def test_a_menu_that_cannot_open_prints_no_choice(monkeypatch, capsys):
     def boom(_spec):
         raise RuntimeError("no display")

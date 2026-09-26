@@ -880,33 +880,44 @@ def _run_tray(tray_mods, server, stop: threading.Event, config, port) -> int:
         icon_image = _flatten_for_xembed(icon_image, Image)
 
     menu_open = threading.Lock()
+    menu_helper: dict = {"proc": None}
 
     def on_click_open_menu(icon, _item):
         # The X11 backend's only click: it runs the default item. Show the rest of
         # this same menu ourselves, off the tray thread (the helper waits on the user).
         def run():
             if not menu_open.acquire(blocking=False):
-                return  # one menu at a time; a second click while open is a no-op
+                # A second click while it's open closes it, like a real tray menu.
+                proc = menu_helper["proc"]
+                if proc is not None:
+                    proc.terminate()
+                return
             try:
                 from . import tray_menu
 
                 spec, items = tray_menu.describe(icon.menu, pystray.Menu.SEPARATOR)
                 cwd = None if is_frozen() else str(Path(__file__).resolve().parent.parent)
-                result = subprocess.run(
+                proc = subprocess.Popen(
                     self_command("--tray-menu", json.dumps(spec)),
                     cwd=cwd,
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
                     text=True,
-                    timeout=180,
-                    check=False,
                 )
-                lines = (result.stdout or "").strip().splitlines()
+                menu_helper["proc"] = proc
+                try:
+                    stdout, _ = proc.communicate(timeout=180)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    stdout, _ = proc.communicate()
+                lines = (stdout or "").strip().splitlines()
                 chosen = items.get(lines[-1]) if lines else None
                 if chosen is not None:
                     chosen(icon)
             except Exception:  # noqa: BLE001 - a menu must never take the agent down
                 log.warning("couldn't show the tray menu", exc_info=True)
             finally:
+                menu_helper["proc"] = None
                 menu_open.release()
 
         threading.Thread(target=run, name="prism-tray-menu", daemon=True).start()

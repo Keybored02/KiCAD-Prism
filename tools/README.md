@@ -76,7 +76,9 @@ KDE, XFCE and most other desktops show the icon with nothing to install.
 On Linux the icon uses the legacy X11 tray protocol (XEmbed), so two limits apply:
 
 - **Left-click opens the menu; right-click does nothing.** The X11 tray passes on
-  only a plain click, so the agent draws its own menu on it.
+  only a plain click, so the agent draws its own menu on it. It opens in the
+  corner next to the panel, not at the pointer. Close it with "Close menu",
+  Escape, or another click on the icon.
 - **Desktops without X11 tray support show no icon at all**: Sway, Hyprland and
   others that only speak the newer StatusNotifierItem protocol. The agent still runs
   there, and everything the menu offers is also in the KiCad plugin.

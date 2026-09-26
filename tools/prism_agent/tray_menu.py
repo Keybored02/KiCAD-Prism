@@ -14,6 +14,9 @@ duplicated: the pystray menu stays the single definition of what the tray offers
 A separate process for the same reason as `--notify`: tkinter must not run on a
 background thread while pystray owns the tray's event loop.
 
+It opens in the corner by the panel, not at the pointer (see anchor), and closes on
+its own "Close menu" item, Escape, or a second click on the icon.
+
 Limits, worth knowing: only a left click reaches us (the X11 backend ignores the
 others), and it only helps where the legacy (XEmbed) icon can be shown at all, see
 the Linux section of tools/README.md.
@@ -62,8 +65,43 @@ def describe(menu, separator, prefix: str = "") -> tuple[list[dict], dict]:
     return spec, items
 
 
+def anchor(menu_size, screen_size, workarea) -> tuple[int, int]:
+    """Where the menu goes: the corner of the usable area nearest the panel.
+
+    Not at the pointer: under Wayland an X client only sees the pointer while it is
+    over one of its own windows, so the menu landed mid-screen. The usable area
+    (_NET_WORKAREA) excludes the panels, so its top right is just under a top bar
+    (GNOME), and its bottom right just above a bottom panel.
+    """
+    menu_w, menu_h = menu_size
+    _, screen_h = screen_size
+    wx, wy, ww, wh = workarea
+    x = max(wx, wx + ww - menu_w)
+    if wy == 0 and wy + wh < screen_h:  # the panel is at the bottom
+        return x, max(0, wy + wh - menu_h)
+    return x, wy
+
+
+def _workarea(screen_size) -> tuple[int, int, int, int]:
+    """The desktop's usable area, or the whole screen if it doesn't say."""
+    try:
+        from Xlib import Xatom, display
+
+        d = display.Display()
+        try:
+            root = d.screen().root
+            prop = root.get_full_property(d.intern_atom("_NET_WORKAREA"), Xatom.CARDINAL)
+            if prop is not None and len(prop.value) >= 4:
+                return tuple(int(v) for v in prop.value[:4])
+        finally:
+            d.close()
+    except Exception:  # noqa: BLE001 - no workarea just means the screen corner
+        log.debug("no _NET_WORKAREA", exc_info=True)
+    return (0, 0, *screen_size)
+
+
 def show(spec: list[dict]) -> str:
-    """Pop the menu up at the pointer and return the chosen id, or "" if dismissed.
+    """Pop the menu up by the panel and return the chosen id, or "" if dismissed.
 
     Runs in the `--tray-menu` helper process, never in the agent itself.
     """
@@ -128,7 +166,14 @@ def show(spec: list[dict]) -> str:
         return menu
 
     menu = build(root, spec)
-    x, y = root.winfo_pointerxy()
+    # Clicking outside doesn't reliably close it under Wayland, so say how.
+    menu.add_separator()
+    menu.add_command(label="Close menu", command=lambda: pick(""))
+    menu.bind("<Escape>", lambda _e: pick(""))
+
+    menu.update_idletasks()
+    screen = (root.winfo_screenwidth(), root.winfo_screenheight())
+    x, y = anchor((menu.winfo_reqwidth(), menu.winfo_reqheight()), screen, _workarea(screen))
 
     def closed_without_a_choice():
         # tk_popup returns at once; a menu dismissed by clicking elsewhere just unmaps.
