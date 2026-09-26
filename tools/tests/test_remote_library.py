@@ -56,14 +56,14 @@ def test_the_newest_installed_version_wins(kicad_home, monkeypatch):
 def test_the_pinned_executable_beats_discovery(kicad_home, monkeypatch):
     """The user chose a KiCad explicitly; that is better evidence than a scan."""
     _installs(monkeypatch, "10.0")
-    chosen = remote_library.kicad_config_dir(r"C:\Program Files\KiCad\8.0\bin\kicad.exe")
+    chosen = remote_library.kicad_config_dir("C:/Program Files/KiCad/8.0/bin/kicad.exe")
     assert chosen.name == "8.0"
 
 
 def test_a_pinned_install_discovery_cannot_see_is_still_honoured(kicad_home, monkeypatch):
     """A portable or nightly build is not in the usual place, but it is still theirs."""
     _installs(monkeypatch, "10.0")
-    chosen = remote_library.kicad_config_dir(r"C:\nightly\KiCad\10.99\bin\kicad.exe")
+    chosen = remote_library.kicad_config_dir("C:/nightly/KiCad/10.99/bin/kicad.exe")
     assert chosen.name == "10.99"
 
 
@@ -102,9 +102,11 @@ def test_status_reports_the_installed_version(kicad_home, monkeypatch):
 
 
 def test_a_version_is_read_from_a_pinned_path_only_when_it_has_one(kicad_home):
+    # Forward slashes, so the same paths parse on the Linux CI runner; Windows' Path
+    # reads them exactly as it reads backslashes.
     v = remote_library._version_of_command
-    assert v(r"C:\Program Files\KiCad\10.0\bin\kicad.exe") == "10.0"
-    assert v(r"C:\Program Files\KiCad\9.0\bin\kicad.exe") == "9.0"
+    assert v("C:/Program Files/KiCad/10.0/bin/kicad.exe") == "10.0"
+    assert v("C:/Program Files/KiCad/9.0/bin/kicad.exe") == "9.0"
     assert v("/usr/bin/kicad") == ""
     assert v("") == ""
 

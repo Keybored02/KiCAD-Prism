@@ -267,10 +267,10 @@ jobs:
           python-version-file: .python-version
 
       - name: Install test dependencies
-        # The agent and plugin are stdlib-only at runtime; only the test runner is
-        # needed here. The GUI stacks (pystray, wx, pcbnew) are never imported by
-        # the tests, so no GTK or KiCad is required to run them.
-        run: python -m pip install pytest
+        # The plugin is stdlib-only; the agent's own requirements (pystray, Pillow,
+        # truststore) are needed by the tray tests. Those run pystray's dummy backend,
+        # so no display is needed. wx and pcbnew are never imported by the tests.
+        run: python -m pip install pytest -r tools/prism_agent/requirements.txt
 
       - name: Compile agent and plugin sources
         run: python -m compileall -q tools/prism_agent tools/kicad_plugin

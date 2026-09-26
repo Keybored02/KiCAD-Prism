@@ -7,10 +7,15 @@ translation is faithful: only visible items, live text and checkmarks, submenus,
 that a picked id runs that item's own action.
 """
 
+import os
 import sys
 from pathlib import Path
 
-import pystray
+# pystray picks a real backend on import, and on Linux that connects to X, which a
+# headless CI runner doesn't have. Menu and MenuItem are the same in every backend.
+os.environ.setdefault("PYSTRAY_BACKEND", "dummy")
+
+import pystray  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
