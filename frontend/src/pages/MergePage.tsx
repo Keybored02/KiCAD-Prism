@@ -16,7 +16,7 @@ import { AlertTriangle, Check, GitMerge, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { CATEGORY_META, categoryFor, type Category } from "@/lib/diff-grouping";
+import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
 import { MergePanes, type PaneContent } from "@/components/merge-panes";
 import {
     claim,
@@ -59,6 +59,63 @@ function orderResolutions(decision: MergeDecision): string[] {
         if (b === "drop") return 1;
         return 0;
     });
+}
+
+/** Map a raw KiCad item type to its category. Lived in diff-grouping.ts until that
+ * dropped it as unused; this page is its only caller. */
+function categoryFor(type: string | undefined): Category {
+    if (!type) return "other";
+    switch (type) {
+        case "board_constraint":
+        case "drc_severity":
+        case "routing_preset":
+        case "board_default":
+        case "teardrop_setting":
+        case "zone_setting":
+        case "drc_exclusion":
+        case "erc_exclusion":
+        case "erc_pin_rule":
+        case "fabrication_output":
+        case "custom_rule":
+        case "net_class":
+        case "net_class_assignment": return "rules";
+        case "project_metadata": return "text";
+        // PCB
+        case "footprint": return "components";
+        case "segment":
+        case "arc":
+        case "via":       return "nets";
+        case "zone":      return "zones";
+        // Board graphics (gr_*) and footprint graphics (fp_*: silkscreen, fab,
+        // courtyard) both group under "graphics", itemised per element.
+        case "gr_text":
+        case "gr_line":
+        case "gr_circle":
+        case "gr_rect":
+        case "gr_arc":
+        case "gr_poly":
+        case "fp_text":
+        case "fp_line":
+        case "fp_circle":
+        case "fp_rect":
+        case "fp_arc":
+        case "fp_poly":   return "graphics";
+        // Schematic
+        case "symbol":              return "symbols";
+        case "label":
+        case "global_label":
+        case "hierarchical_label":
+        case "net_label":
+        case "wire":
+        case "bus":
+        case "bus_alias":
+        case "bus_entry":
+        case "junction":
+        case "no_connect":          return "nets";
+        case "sheet":               return "sheets";
+        case "text":                return "text";
+        default:                    return "other";
+    }
 }
 
 export default function MergePage() {

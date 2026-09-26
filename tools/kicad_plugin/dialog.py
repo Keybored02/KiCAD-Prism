@@ -45,6 +45,12 @@ LOGO = os.path.join(os.path.dirname(__file__), "assets", "prism-64.png")
 # dialog stays responsive, and say so rather than silently truncating.
 MAX_ROWS_PER_FILE = 60
 
+# The object-level merge editor is alpha and not ready to ship. This hides its only
+# entry point, the "Merge in Prism" button on a diverged branch; the engine and the
+# agent routes stay in place. The web route is dev-only too (MERGE_EDITOR_ENABLED
+# in frontend/src/App.tsx).
+MERGE_EDITOR_ENABLED = False
+
 # Distinguishes "the diff is still computing in the background" from None
 # ("couldn't read") and [] ("nothing to commit"), so the changes card can show a
 # transient loading state while the rest of the dialog is already up.
@@ -1824,6 +1830,23 @@ class PrismDialog(wx.Dialog):
         """
         behind = git.get("behind") or 0
         ahead = git.get("ahead") or 0
+
+        if ahead and behind and not MERGE_EDITOR_ENABLED:
+            # Diverged, and the merge editor is off: say what's going on, and that the
+            # merge has to happen outside Prism for now.
+            card.body.Add(
+                card.label(
+                    "This branch and the remote have both moved on "
+                    "(%d here, %d there). Merge them with git before pulling."
+                    % (ahead, behind),
+                    tone="warning",
+                    small=True,
+                ),
+                0,
+                wx.TOP,
+                th.SP_XS,
+            )
+            return
 
         if ahead and behind:
             # Diverged. A textual merge would produce a board neither author drew, so
