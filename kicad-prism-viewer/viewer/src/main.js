@@ -212,6 +212,7 @@ let activeViewerToken = 0;
 let animationFrameId = 0;
 let selectionChangeCallback = null;
 let viewStateChangeCallback = null;
+let contextMenuCallback = null;
 let viewStateChangeQueued = false;
 let suppressSelectionChange = false;
 let viewerIsActive = () => true;
@@ -336,6 +337,7 @@ export async function mountStandaloneViewer(options = {}) {
   selectionChangeCallback = typeof options.onSelectionChange === "function"
     ? options.onSelectionChange
     : null;
+  contextMenuCallback = typeof options.onContextMenu === "function" ? options.onContextMenu : null;
   viewStateChangeCallback = typeof options.onViewStateChange === "function"
     ? options.onViewStateChange
     : null;
@@ -2657,9 +2659,9 @@ function bindInteractions() {
   canvas.addEventListener("pointerup", async (event) => {
     state.dragging = false;
     canvas.releasePointerCapture(event.pointerId);
-    if (Math.hypot(event.clientX - state.pointerStartX, event.clientY - state.pointerStartY) < 3) {
-      await pickAt(event);
-    }
+    if (Math.hypot(event.clientX - state.pointerStartX, event.clientY - state.pointerStartY) >= 3) return;
+    if (event.button === 0) await pickAt(event);
+    else if (event.button === 2) await contextPickAt(event);
   });
   canvas.addEventListener("dblclick", async (event) => {
     await pickAt(event);
@@ -2873,13 +2875,37 @@ function bindSchematicInteractions() {
 async function pickAt(event) {
   if (!panel) return;
   const rect = canvas.getBoundingClientRect();
-  const x = (event.clientX - rect.left) * canvas.width / rect.width;
-  const y = (event.clientY - rect.top) * canvas.height / rect.height;
   state.selectionAnchor = {
     x: event.clientX - rect.left,
     y: event.clientY - rect.top,
   };
-  const featureId = await renderer.pick(panel, x, y, {
+  const featureId = await pickFeatureAt(event);
+  if (featureId) selectFeature(featureId, true);
+  else clearSelection();
+}
+
+/**
+ * Right-click without a drag: report what is under the cursor to the host,
+ * which owns the menu. The selection is left alone.
+ */
+async function contextPickAt(event) {
+  if (!panel || !contextMenuCallback) return;
+  const feature = scene.features.get(await pickFeatureAt(event));
+  const reference = componentReferenceFromFeature(feature);
+  const component = reference ? findTopologyComponent(reference) : null;
+  contextMenuCallback({
+    clientX: event.clientX,
+    clientY: event.clientY,
+    reference: reference || undefined,
+    value: String(component?.value || feature?.value || "") || undefined,
+  });
+}
+
+async function pickFeatureAt(event) {
+  const rect = canvas.getBoundingClientRect();
+  const x = (event.clientX - rect.left) * canvas.width / rect.width;
+  const y = (event.clientY - rect.top) * canvas.height / rect.height;
+  return renderer.pick(panel, x, y, {
     activeNetId: state.activeNetId,
     selectedFeatureId: state.selectedFeatureId,
     layerOffsets: stackupOffsets(),
@@ -2893,8 +2919,6 @@ async function pickAt(event) {
     compareOffsets,
     visibleTileIds: state.mode === "3d" ? state.visibleTileIds : null,
   });
-  if (featureId) selectFeature(featureId, true);
-  else clearSelection();
 }
 
 function handleKey(event) {

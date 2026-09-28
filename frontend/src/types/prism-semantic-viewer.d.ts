@@ -35,6 +35,15 @@ export interface PrismSemanticViewState {
     hasSelection: boolean;
 }
 
+/** `prism-semantic-viewer:contextmenu`: a right-click without a drag. */
+export interface PrismSemanticContextMenuDetail {
+    clientX: number;
+    clientY: number;
+    /** Component under the cursor, if any. */
+    reference?: string;
+    value?: string;
+}
+
 export type PrismSemanticLayerPreset = "all" | "none" | "outer" | "inner";
 
 export interface PrismSemanticSearchResults {
