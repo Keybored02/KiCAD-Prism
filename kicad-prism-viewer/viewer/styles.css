@@ -1056,10 +1056,6 @@ h2 {
   white-space: nowrap;
 }
 
-.camera-toolbar {
-  margin-bottom: 14px;
-}
-
 .toggle-list {
   display: grid;
   gap: 2px;
