@@ -15,6 +15,7 @@ import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
 import { dnpVisibilityNotice } from "./design-variants/dnp-visibility";
+import { Semantic3dControls } from "./semantic-3d-controls";
 import type { User } from "@/types/auth";
 import type { PrismSelection } from "@/types/prism-selection";
 import type { HighlightedNet } from "@/lib/net-highlights";
@@ -152,6 +153,7 @@ export function WebGpu3dTab({
     const [jobId, setJobId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [viewerRevision, setViewerRevision] = useState(0);
+    const [leftInset, setLeftInset] = useState(0);
     const canGenerate = user?.role === "admin" || user?.role === "designer";
     const isStackup = workspace === "stackup";
 
@@ -506,6 +508,7 @@ export function WebGpu3dTab({
                 "--prism-border": "hsl(var(--border))",
                 "--prism-primary": "hsl(var(--primary))",
                 "--prism-primary-foreground": "hsl(var(--primary-foreground))",
+                "--prism-viewport-inset-left": `${isStackup ? 0 : leftInset}px`,
             } as CSSProperties}
         >
             <prism-semantic-viewer
@@ -514,12 +517,16 @@ export function WebGpu3dTab({
                 bundle-url={bundleUrl}
                 workspace={workspace}
                 active={active && !isStackup ? "true" : undefined}
+                hide-panel={isStackup ? undefined : "true"}
                 className="block h-full min-h-0 w-full"
             />
+            {!isStackup && (
+                <Semantic3dControls viewer={viewerElement} onVisibleWidthChange={setLeftInset} />
+            )}
             <div className={cn(
                 "pointer-events-none absolute flex items-center gap-2",
-                isStackup ? "right-5 top-5" : "left-3 top-3",
-            )}>
+                isStackup ? "right-5 top-5" : "top-3",
+            )} style={isStackup ? undefined : { left: leftInset + 12 }}>
                 {readinessStage !== "semantic-ready" && (
                     <Badge variant="secondary" className="pointer-events-auto gap-1 shadow-sm">
                         <Loader2 className="h-3 w-3 animate-spin" />

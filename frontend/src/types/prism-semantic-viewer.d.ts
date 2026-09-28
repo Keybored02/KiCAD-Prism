@@ -14,6 +14,34 @@ export interface PrismRendererSelection {
     featureId?: number;
 }
 
+export interface PrismSemanticLayerState {
+    id: number;
+    name: string;
+    color: string;
+    visible: boolean;
+}
+
+/** PCB 3D controls the host renders when it sets `hide-panel`. */
+export interface PrismSemanticViewState {
+    /** "layer" is the stacked flat layer view. */
+    mode: "3d" | "layer";
+    layers: PrismSemanticLayerState[];
+    showBoard: boolean;
+    showComponents: boolean;
+    /** 0..1 */
+    separation: number;
+    isolateNet: boolean;
+    hasNet: boolean;
+    hasSelection: boolean;
+}
+
+export type PrismSemanticLayerPreset = "all" | "none" | "outer" | "inner";
+
+export interface PrismSemanticSearchResults {
+    nets: { id: number; name: string; netClass: string }[];
+    components: { featureId: number; designator: string; value: string }[];
+}
+
 export interface PrismSemanticViewerElement extends HTMLElement {
     setSelection: (selection: PrismRendererSelection | null) => void;
     /**
@@ -27,6 +55,21 @@ export interface PrismSemanticViewerElement extends HTMLElement {
      */
     setHiddenComponents: (references: string[]) => void;
     resize: () => void;
+    /** Null until the viewer is ready. Changes arrive as `prism-semantic-viewer:viewstatechange`. */
+    getViewState?: () => PrismSemanticViewState | null;
+    setViewMode?: (mode: PrismSemanticViewState["mode"]) => void;
+    setLayerVisible?: (layerId: number, visible: boolean) => void;
+    applyLayerPreset?: (preset: PrismSemanticLayerPreset) => void;
+    setShowBoard?: (visible: boolean) => void;
+    setShowComponents?: (visible: boolean) => void;
+    setSeparation?: (value: number) => void;
+    search?: (query: string) => PrismSemanticSearchResults;
+    selectNet?: (netId: number) => void;
+    selectFeature?: (featureId: number) => void;
+    frameSelection?: () => void;
+    showNetLayers?: () => void;
+    setNetIsolation?: (enabled: boolean) => void;
+    clearSelection?: () => void;
 }
 
 declare global {
@@ -41,6 +84,7 @@ declare global {
                     "bundle-url"?: string;
                     workspace?: "pcb" | "stackup";
                     active?: string;
+                    "hide-panel"?: string;
                 },
                 PrismSemanticViewerElement
             >;

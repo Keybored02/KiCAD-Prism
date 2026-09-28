@@ -211,6 +211,8 @@ let lastFrame = performance.now();
 let activeViewerToken = 0;
 let animationFrameId = 0;
 let selectionChangeCallback = null;
+let viewStateChangeCallback = null;
+let viewStateChangeQueued = false;
 let suppressSelectionChange = false;
 let viewerIsActive = () => true;
 let legacyWorkspacesEnabled = true;
@@ -334,6 +336,9 @@ export async function mountStandaloneViewer(options = {}) {
   selectionChangeCallback = typeof options.onSelectionChange === "function"
     ? options.onSelectionChange
     : null;
+  viewStateChangeCallback = typeof options.onViewStateChange === "function"
+    ? options.onViewStateChange
+    : null;
   viewerIsActive = typeof options.isActive === "function" ? options.isActive : () => true;
   legacyWorkspacesEnabled = options.workspaceScope !== "3d";
   resolveDom(options.root || document);
@@ -374,9 +379,59 @@ export async function mountStandaloneViewer(options = {}) {
     setHighlightedNets(refs) {
       return applyHighlightedNets(refs);
     },
+    getViewState: pcbViewState,
+    setViewMode,
+    setLayerVisible,
+    applyLayerPreset,
+    setShowBoard,
+    setShowComponents,
+    setSeparation,
+    search: searchEntities,
+    selectNet(netId) {
+      selectNet(Number(netId), true);
+    },
+    selectFeature(featureId) {
+      selectFeature(Number(featureId), true);
+    },
+    frameSelection,
+    showNetLayers,
+    setNetIsolation,
+    clearSelection,
     dispose() {
       disposeViewerSession(token);
     },
+  };
+}
+
+/**
+ * The PCB 3D controls a host renders in place of the built-in panel. Coalesced
+ * to one callback per task: a single click can touch several of these fields.
+ */
+function notifyViewStateChange() {
+  if (!viewStateChangeCallback || viewStateChangeQueued) return;
+  viewStateChangeQueued = true;
+  queueMicrotask(() => {
+    viewStateChangeQueued = false;
+    viewStateChangeCallback?.(pcbViewState());
+  });
+}
+
+function pcbViewState() {
+  const selected = state.mode === "3d" ? state.visible3dLayers : state.desiredCompareLayers;
+  return {
+    mode: state.mode,
+    layers: scene.copperLayers.map((layer) => ({
+      id: Number(layer.id),
+      name: String(layer.name),
+      color: rgbCss(layerColor(layer)),
+      visible: selected.has(Number(layer.id)),
+    })),
+    showBoard: state.showBoard,
+    showComponents: state.showComponents,
+    separation: state.separation,
+    isolateNet: state.isolateNet,
+    hasNet: Boolean(state.activeNetId) || emphasizedNetIds().size > 0,
+    hasSelection: Boolean(state.activeNetId || state.selectedFeatureId),
   };
 }
 
@@ -1768,6 +1823,7 @@ function syncNetIsolationControls() {
   if (boardToggle) boardToggle.checked = state.showBoard;
   const componentsToggle = viewControlsEl?.querySelector?.("#show-components");
   if (componentsToggle) componentsToggle.checked = state.showComponents;
+  notifyViewStateChange();
 }
 
 function layersForActiveNet() {
@@ -1882,57 +1938,83 @@ function refreshControls() {
       <span>${escapeHtml(layer.name)}</span><small>${index + 1}</small>
     </label>`).join("");
   list.querySelectorAll("[data-layer]").forEach((input) => input.addEventListener("change", () => {
-    const layerId = Number(input.dataset.layer);
-    if (state.mode === "3d") {
-      input.checked ? state.visible3dLayers.add(layerId) : state.visible3dLayers.delete(layerId);
-      scheduleTileResidency(performance.now(), { force: true });
-    } else {
-      const target = new Set(state.desiredCompareLayers);
-      input.checked ? target.add(layerId) : target.delete(layerId);
-      beginCompareLayerTransition(target);
-    }
+    setLayerVisible(Number(input.dataset.layer), input.checked);
   }));
   syncNetIsolationControls();
 }
 
+function setViewMode(mode) {
+  if (mode === "layer") {
+    activatePcbLayerMode();
+  } else {
+    state.mode = "3d";
+    camera.frame(sceneRuntimeBounds());
+    camera.snap();
+    state.visibleTileIds = new Set();
+    scheduleTileResidency(performance.now(), { force: true });
+  }
+  refreshControls();
+}
+
+function setLayerVisible(layerId, visible) {
+  if (state.mode === "3d") {
+    visible ? state.visible3dLayers.add(layerId) : state.visible3dLayers.delete(layerId);
+    scheduleTileResidency(performance.now(), { force: true });
+  } else {
+    const target = new Set(state.desiredCompareLayers);
+    visible ? target.add(layerId) : target.delete(layerId);
+    beginCompareLayerTransition(target);
+  }
+  refreshControls();
+}
+
+function applyLayerPreset(preset) {
+  const target = state.mode === "3d" ? state.visible3dLayers : new Set();
+  target.clear();
+  for (const [index, layer] of scene.copperLayers.entries()) {
+    const include = preset === "all"
+      || (preset === "outer" && (index === 0 || index === scene.copperLayers.length - 1))
+      || (preset === "inner" && index > 0 && index < scene.copperLayers.length - 1);
+    if (include) target.add(Number(layer.id));
+  }
+  if (state.mode === "3d") scheduleTileResidency(performance.now(), { force: true });
+  else beginCompareLayerTransition(target);
+  refreshControls();
+}
+
+function setShowBoard(visible) {
+  state.showBoard = Boolean(visible);
+  state.savedShowBoard = state.showBoard;
+  if (state.showBoard && state.isolateNet) setNetIsolation(false);
+  else syncNetIsolationControls();
+}
+
+function setShowComponents(visible) {
+  state.showComponents = Boolean(visible);
+  state.savedShowComponents = state.showComponents;
+  syncNetIsolationControls();
+}
+
+function setSeparation(value) {
+  state.separation = clamp(Number(value) || 0, 0, 1);
+  notifyViewStateChange();
+}
+
 function bindControlEvents() {
   (modeSwitchEl || layersEl).querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", () => {
-    if (button.dataset.mode === "layer") {
-      activatePcbLayerMode();
-    } else {
-      state.mode = "3d";
-      camera.frame(sceneRuntimeBounds());
-      camera.snap();
-      state.visibleTileIds = new Set();
-      scheduleTileResidency(performance.now(), { force: true });
-    }
-    refreshControls();
+    setViewMode(button.dataset.mode);
   }));
   layersEl.querySelectorAll("[data-preset]").forEach((button) => button.addEventListener("click", () => {
-    const target = state.mode === "3d" ? state.visible3dLayers : new Set();
-    target.clear();
-    const preset = button.dataset.preset;
-    for (const [index, layer] of scene.copperLayers.entries()) {
-      const include = preset === "all"
-        || (preset === "outer" && (index === 0 || index === scene.copperLayers.length - 1))
-        || (preset === "inner" && index > 0 && index < scene.copperLayers.length - 1);
-      if (include) target.add(Number(layer.id));
-    }
-    if (state.mode === "3d") scheduleTileResidency(performance.now(), { force: true });
-    else beginCompareLayerTransition(target);
-    refreshControls();
+    applyLayerPreset(button.dataset.preset);
   }));
   viewControlsEl.querySelector("#show-board").addEventListener("change", (event) => {
-    state.showBoard = event.target.checked;
-    state.savedShowBoard = state.showBoard;
-    if (state.showBoard && state.isolateNet) setNetIsolation(false);
+    setShowBoard(event.target.checked);
   });
   viewControlsEl.querySelector("#show-components").addEventListener("change", (event) => {
-    state.showComponents = event.target.checked;
-    state.savedShowComponents = state.showComponents;
+    setShowComponents(event.target.checked);
   });
   viewControlsEl.querySelector("#separation").addEventListener("input", (event) => {
-    state.separation = Number(event.target.value);
+    setSeparation(event.target.value);
   });
   searchControlsEl.querySelector("#clear-selection").addEventListener("click", clearSelection);
   searchControlsEl.querySelector("#isolate-net").addEventListener("click", () => {
@@ -1973,17 +2055,30 @@ function showNetLayers() {
   refreshControls();
 }
 
-function renderSearch(query) {
-  const container = searchControlsEl.querySelector("#search-results");
-  const value = query.trim().toLowerCase();
-  if (!value) {
-    container.innerHTML = "";
-    return;
-  }
+function searchEntities(query) {
+  const value = String(query || "").trim().toLowerCase();
+  if (!value) return { nets: [], components: [] };
   const nets = scene.nets.filter((net) => String(net.name).toLowerCase().includes(value)).slice(0, 8);
   const components = [...scene.componentFeatures.values()].filter((item) =>
     !state.hiddenComponents.has(String(item.designator || ""))
     && `${item.designator} ${item.value} ${item.footprint}`.toLowerCase().includes(value)).slice(0, 6);
+  return {
+    nets: nets.map((net) => ({ id: Number(net.id), name: String(net.name), netClass: String(net.netClass || "") })),
+    components: components.map((item) => ({
+      featureId: Number(item.featureId),
+      designator: String(item.designator || ""),
+      value: String(item.value || ""),
+    })),
+  };
+}
+
+function renderSearch(query) {
+  const container = searchControlsEl.querySelector("#search-results");
+  const { nets, components } = searchEntities(query);
+  if (!nets.length && !components.length) {
+    container.innerHTML = "";
+    return;
+  }
   container.innerHTML = [
     ...nets.map((net) => `<button data-net="${net.id}"><b>${escapeHtml(net.name)}</b><span>${escapeHtml(net.netClass || "")}</span></button>`),
     ...components.map((item) => `<button data-feature="${item.featureId}"><b>${escapeHtml(item.designator)}</b><span>${escapeHtml(item.value)}</span></button>`),
@@ -2395,6 +2490,7 @@ function schematicFeatureSelectionContent(feature, page) {
 }
 
 function updateSelectionCard() {
+  notifyViewStateChange();
   if (state.workspace === "bom") {
     selectionCardEl.hidden = true;
     selectionCardEl.innerHTML = "";
