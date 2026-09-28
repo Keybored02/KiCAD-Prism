@@ -11,6 +11,7 @@ import { loadGltf } from "./gltf-loader.js";
 import { clamp } from "./math.js";
 import { Renderer } from "./renderer.js";
 import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
+import { layoutStackup, naturalStackupHeight, stackupDiagramMarkup } from "./stackup-diagram.js";
 import { collectStackupViaData } from "./stackup-vias.js";
 import { SvgDomSchematicRenderer } from "./svg-dom-schematic-renderer.js";
 
@@ -214,6 +215,7 @@ let selectionChangeCallback = null;
 let viewStateChangeCallback = null;
 let contextMenuCallback = null;
 let viewStateChangeQueued = false;
+let stackupDiagramObserver = null;
 let suppressSelectionChange = false;
 let viewerIsActive = () => true;
 let legacyWorkspacesEnabled = true;
@@ -3359,11 +3361,7 @@ function renderStackupWorkspace() {
   buriedCount = viaData.counts.buried;
   const uniqueSpans = viaData.spans;
 
-  // --- SVG cross-section diagram ---
-  const svgTopPadding = 30;
-  let svgHeight = svgTopPadding;
-  const svgLayersData = [];
-
+  // --- SVG cross-section diagram (laid out per size by stackup-diagram.js) ---
   const originalOrder = new Map(physicalLayers.map((layer, index) => [layer, index]));
   const fallbackDisplayOrder = fallbackStackupDisplayOrder(physicalLayers);
   const stackOrder = (layer, fallbackIndex) => {
@@ -3380,115 +3378,35 @@ function renderStackupWorkspace() {
     return (b.z_mm || 0) - (a.z_mm || 0);
   });
 
-  sortedLayers.forEach((layer) => {
-    let layerHeight = 12;
-    if (layer.role === "dielectric") {
-      layerHeight = Math.max(160, Math.min(360, (layer.thickness_mm || 0.1) * 140));
-    } else if (layer.role === "copper") {
-      layerHeight = 22;
-    } else if (layer.role === "soldermask") {
-      layerHeight = 14;
-    }
-    svgLayersData.push({
-      ...layer,
-      svgY: svgHeight,
-      svgHeight: layerHeight
-    });
-    svgHeight += layerHeight;
-  });
-
-  const svgWidth = 800;
-  const boardX = 130;
-  const boardWidth = 240;
-  const dimensionX = boardX + boardWidth + 16;
-  const labelX = dimensionX + 84;
-
-  let svgRectsHtml = "";
-  svgLayersData.forEach((layer) => {
+  const diagramLayers = sortedLayers.map((layer) => {
     let color = layer.color || "#7f7f7f";
     if (layer.role === "copper") color = layer.color || "#f97316";
     else if (layer.role === "dielectric") color = "#a98d5c";
     else if (layer.role === "paste") color = "#cbd5e1";
     else if (layer.role === "soldermask") color = "#1b4332";
     else if (layer.role === "silkscreen") color = "#e2e8f0";
-
-    const copperIdx = copperLayers.findIndex(cl => cl.name === layer.name);
     const details = layerGraphicDetails(layer);
-    const centerY = layer.svgY + layer.svgHeight / 2;
-    const showSecondary = Boolean(details.secondary) && layer.svgHeight >= 38;
-    const primaryY = showSecondary ? centerY - 5 : centerY + 3;
-    const layerId = escapeHtml(layer.id);
-    const layerName = escapeHtml(layer.name);
     const hasThickness = Number.isFinite(Number(layer.thickness_mm)) && Number(layer.thickness_mm) > 0;
-    const thickness = escapeHtml(hasThickness ? layerThicknessLabel(layer) : "—");
-    const fullDescription = escapeHtml([
-      details.primary,
-      details.secondary,
-      `Thickness ${layerThicknessLabel(layer)}`,
-    ].filter(Boolean).join("; "));
-
-    svgRectsHtml += `
-      <g class="stackup-svg-layer" data-layer-id="${layerId}" data-layer-name="${layerName}">
-        <title>${fullDescription}</title>
-        <rect x="${boardX}" y="${layer.svgY}" width="${boardWidth}" height="${layer.svgHeight}" fill="${color}" opacity="0.85" rx="1"/>
-        <text x="${boardX - 8}" y="${layer.svgY + layer.svgHeight / 2 + 3}" fill="var(--muted)" font-size="9px" text-anchor="end" font-weight="700">
-          ${layer.role === "copper" ? (copperIdx + 1) : ""}
-        </text>
-        <path class="stackup-layer-dimension" d="M ${dimensionX + 6} ${layer.svgY + 1} H ${dimensionX} V ${layer.svgY + layer.svgHeight - 1} H ${dimensionX + 6}" />
-        <text class="stackup-layer-thickness" x="${dimensionX + 10}" y="${centerY + 3}" fill="var(--muted)" font-size="8.5px" font-weight="650">
-          ${thickness}
-        </text>
-        <text class="stackup-layer-name" x="${labelX}" y="${primaryY}" fill="var(--foreground)" font-size="9px" font-weight="650">
-          ${escapeHtml(details.primary)}
-        </text>
-        ${showSecondary ? `<text class="stackup-layer-metadata" x="${labelX}" y="${centerY + 10}" fill="var(--muted)" font-size="8px">${escapeHtml(details.secondary)}</text>` : ""}
-      </g>
-    `;
-  });
-
-  // Via span lines in SVG
-  let svgViasHtml = "";
-  const copperSvgLayers = svgLayersData.filter(l => l.role === "copper");
-
-  uniqueSpans.forEach((span, spanIdx) => {
-    const topL = svgLayersData.find(l => l.name === span.startName);
-    const botL = svgLayersData.find(l => l.name === span.endName);
-    if (!topL || !botL) return;
-
-    const yStart = topL.svgY;
-    const yEnd = botL.svgY + botL.svgHeight;
-    const xPos = boardX + ((spanIdx + 1) * boardWidth) / (uniqueSpans.length + 1);
-    const viaLabel = span.type === "thru" ? "Thru" : span.type === "blind" ? "Blind" : "Buried";
-    const viaColor = `var(--stackup-via-${span.type})`;
-
-    svgViasHtml += `
-      <g class="stackup-svg-via" data-via-type="${span.type}">
-        <title>${viaLabel}: ${span.startName} → ${span.endName}</title>
-        ${copperSvgLayers.map(cl => {
-          if (cl.svgY >= topL.svgY && cl.svgY <= botL.svgY) {
-            return `<rect x="${xPos - 5}" y="${cl.svgY}" width="10" height="${cl.svgHeight}" fill="${viaColor}" rx="0.5" />`;
-          }
-          return "";
-        }).join("")}
-        <rect x="${xPos - 2}" y="${yStart}" width="4" height="${yEnd - yStart}" fill="${viaColor}" opacity="0.95" />
-        <rect x="${xPos - 0.75}" y="${yStart - 1}" width="1.5" height="${yEnd - yStart + 2}" fill="var(--panel)" opacity="0.9" />
-      </g>
-    `;
+    return {
+      id: String(layer.id),
+      name: String(layer.name),
+      role: layer.role,
+      color,
+      thicknessMm: Number(layer.thickness_mm) || 0,
+      thicknessLabel: hasThickness ? layerThicknessLabel(layer) : "-",
+      primary: details.primary,
+      secondary: details.secondary,
+      copperIndex: copperLayers.findIndex((cl) => cl.name === layer.name) + 1,
+      description: [
+        details.primary,
+        details.secondary,
+        `Thickness ${layerThicknessLabel(layer)}`,
+      ].filter(Boolean).join("; "),
+    };
   });
 
   const svgMarkup = `
-    <svg class="stackup-visual-svg" viewBox="0 0 ${svgWidth} ${svgHeight + 10}" width="${svgWidth}" height="${svgHeight + 10}">
-      <g class="stackup-svg-column-headings" aria-hidden="true">
-        <text x="${dimensionX + 10}" y="15">Thickness</text>
-        <text x="${labelX}" y="15">Layer / material properties</text>
-      </g>
-      <g class="stackup-total-dimension" aria-label="Total board thickness ${totalThickness.toFixed(4)} millimetres">
-        <path d="M 76 ${svgTopPadding} H 68 V ${svgHeight} H 76" />
-        <text x="68" y="15">Total ${totalThickness.toFixed(4)} mm</text>
-      </g>
-      ${svgRectsHtml}
-      ${svgViasHtml}
-    </svg>
+    <svg class="stackup-visual-svg" aria-label="Board cross-section, total thickness ${totalThickness.toFixed(4)} mm"></svg>
     <div class="stackup-via-legend" aria-label="Via span legend">
       <span><i data-via-type="thru"></i>Thru</span>
       <span><i data-via-type="blind"></i>Blind</span>
@@ -3704,8 +3622,47 @@ function renderStackupWorkspace() {
     });
   };
 
-  addLayerListeners(stackupWorkspaceViewEl.querySelectorAll(".stackup-svg-layer"));
   addLayerListeners(stackupWorkspaceViewEl.querySelectorAll(".stackup-table tbody tr[data-layer-id]"), { revealDiagram: true });
+  mountStackupDiagram(stackupWorkspaceViewEl.querySelector(".stackup-visual-svg"), {
+    layers: diagramLayers,
+    spans: uniqueSpans,
+    totalLabel: `Total ${totalThickness.toFixed(4)} mm`,
+    onLayerHover: (layerId) => syncLayerSelection(layerId, Boolean(layerId)),
+  });
+}
+
+/**
+ * Lay the diagram out for the size it is shown at, and again on every resize.
+ * The stacked narrow layout gives the card no height, so it takes its natural one.
+ */
+function mountStackupDiagram(svg, { layers, spans, totalLabel, onLayerHover }) {
+  stackupDiagramObserver?.disconnect();
+  stackupDiagramObserver = null;
+  if (!svg) return;
+  const stacked = () => window.matchMedia?.("(max-width: 1180px)")?.matches;
+  let lastSize = "";
+  const render = () => {
+    const width = svg.clientWidth;
+    const height = stacked() ? naturalStackupHeight(layers) : svg.clientHeight;
+    if (!width || !height) return;
+    const size = `${width}x${height}`;
+    if (size === lastSize) return;
+    lastSize = size;
+    if (stacked()) svg.style.height = `${height}px`;
+    else svg.style.removeProperty("height");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.innerHTML = stackupDiagramMarkup(layoutStackup(layers, { width, height }), { spans, totalLabel });
+  };
+  svg.addEventListener("mouseover", (event) => {
+    const layer = event.target.closest?.(".stackup-svg-layer");
+    onLayerHover(layer ? layer.dataset.layerId : null);
+  });
+  svg.addEventListener("mouseleave", () => onLayerHover(null));
+  if (typeof ResizeObserver !== "undefined") {
+    stackupDiagramObserver = new ResizeObserver(render);
+    stackupDiagramObserver.observe(svg);
+  }
+  render();
 }
 
 function fallbackStackupDisplayOrder(layers) {

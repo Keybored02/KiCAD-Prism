@@ -1331,17 +1331,16 @@ pre {
   border-radius: 6px;
   min-height: 0;
   height: 100%;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 32px;
+  overflow: hidden;
+  padding: 20px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .stackup-visual-svg {
-  width: 96%;
-  max-width: 720px;
-  height: auto;
-  flex: none;
+  display: block;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
   overflow: visible;
 }
 
@@ -1396,7 +1395,7 @@ pre {
 
 .stackup-svg-column-headings text {
   fill: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1412,7 +1411,7 @@ pre {
 
 .stackup-total-dimension text {
   fill: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-anchor: middle;
@@ -1423,6 +1422,47 @@ pre {
 .stackup-layer-thickness,
 .stackup-layer-metadata {
   transition: fill 120ms ease, font-weight 120ms ease;
+}
+
+.stackup-layer-index,
+.stackup-layer-name,
+.stackup-layer-thickness,
+.stackup-layer-metadata {
+  dominant-baseline: central;
+}
+
+.stackup-layer-name {
+  fill: var(--foreground);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.stackup-layer-index,
+.stackup-layer-thickness {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.stackup-layer-index {
+  font-weight: 700;
+}
+
+.stackup-layer-metadata {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.stackup-layer-leader {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.stackup-svg-layer.active .stackup-layer-leader {
+  stroke: var(--primary);
+  opacity: 1;
 }
 
 .stackup-svg-layer:hover {
@@ -1596,6 +1636,10 @@ pre {
     min-height: auto;
     height: auto;
     overflow: visible;
+  }
+
+  .stackup-visual-svg {
+    flex: none;
   }
 
   .stackup-side-panel {
