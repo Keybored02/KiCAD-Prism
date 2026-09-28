@@ -1253,51 +1253,34 @@ pre {
   display: none !important;
 }
 
-.stackup-header {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--border);
-}
 
-.stackup-header-title {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
-.stackup-header-title h1 {
-  font-size: clamp(22px, 2vw, 30px);
-  font-weight: 700;
-  margin: 0;
-  color: var(--foreground);
-}
 
-.stackup-header-title p {
-  font-size: 13px;
-  color: var(--muted);
-  margin: 0;
-}
 
 .stackup-summary-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 4px;
+}
+
+.stackup-summary-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .stackup-summary-card {
   background: color-mix(in srgb, var(--panel-raised) 54%, var(--panel));
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 12px 16px;
+  border-radius: 4px;
+  padding: 5px 10px;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
 }
 
 .stackup-summary-card label {
+  flex: none;
   font-size: 9px;
   color: var(--muted);
   text-transform: uppercase;
@@ -1306,9 +1289,14 @@ pre {
 }
 
 .stackup-summary-card span {
-  font-size: 16px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
   font-weight: 650;
   color: var(--foreground);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stackup-workspace-body {
@@ -1577,10 +1565,6 @@ pre {
 
 .stackup-table tr:hover td {
   background: var(--control-hover);
-}
-
-.stackup-table tbody tr[data-layer-id] {
-  cursor: crosshair;
 }
 
 .stackup-table tbody tr[data-layer-id]:focus-visible {

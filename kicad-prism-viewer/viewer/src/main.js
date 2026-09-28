@@ -3472,20 +3472,13 @@ function renderStackupWorkspace() {
 
   // --- Build full-screen layout ---
   stackupWorkspaceViewEl.innerHTML = `
-    <div class="stackup-header">
-      <div class="stackup-header-title">
-        <h1>Layer Stackup</h1>
-        <p>Board cross-section profile, layer properties & design rules</p>
-      </div>
-    </div>
-
     <div class="stackup-workspace-body">
       <div class="stackup-diagram-card">
         <span class="stackup-section-title">Cross-Section Profile</span>
         ${svgMarkup}
       </div>
       <aside class="stackup-side-panel">
-      <div class="stackup-summary-grid">
+      <div class="stackup-summary-grid stackup-summary-grid-3">
         <div class="stackup-summary-card">
           <label>Total Thickness</label>
           <span>${totalThickness.toFixed(4)} mm</span>
