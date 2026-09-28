@@ -602,7 +602,7 @@ export function WebGpu3dTab({
                 )}
                 {!isStackup && ambiguityNotice && (
                     <Badge
-                        variant="outline"
+                        variant="secondary"
                         className="pointer-events-auto shadow-sm"
                         title={ambiguityNotice}
                     >
