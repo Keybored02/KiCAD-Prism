@@ -388,17 +388,8 @@ export async function mountStandaloneViewer(options = {}) {
     setShowBoard,
     setShowComponents,
     setSeparation,
-    search: searchEntities,
-    selectNet(netId) {
-      selectNet(Number(netId), true);
-    },
-    selectFeature(featureId) {
-      selectFeature(Number(featureId), true);
-    },
-    frameSelection,
     showNetLayers,
     setNetIsolation,
-    clearSelection,
     dispose() {
       disposeViewerSession(token);
     },
@@ -433,7 +424,6 @@ function pcbViewState() {
     separation: state.separation,
     isolateNet: state.isolateNet,
     hasNet: Boolean(state.activeNetId) || emphasizedNetIds().size > 0,
-    hasSelection: Boolean(state.activeNetId || state.selectedFeatureId),
   };
 }
 
@@ -2057,30 +2047,17 @@ function showNetLayers() {
   refreshControls();
 }
 
-function searchEntities(query) {
-  const value = String(query || "").trim().toLowerCase();
-  if (!value) return { nets: [], components: [] };
+function renderSearch(query) {
+  const container = searchControlsEl.querySelector("#search-results");
+  const value = query.trim().toLowerCase();
+  if (!value) {
+    container.innerHTML = "";
+    return;
+  }
   const nets = scene.nets.filter((net) => String(net.name).toLowerCase().includes(value)).slice(0, 8);
   const components = [...scene.componentFeatures.values()].filter((item) =>
     !state.hiddenComponents.has(String(item.designator || ""))
     && `${item.designator} ${item.value} ${item.footprint}`.toLowerCase().includes(value)).slice(0, 6);
-  return {
-    nets: nets.map((net) => ({ id: Number(net.id), name: String(net.name), netClass: String(net.netClass || "") })),
-    components: components.map((item) => ({
-      featureId: Number(item.featureId),
-      designator: String(item.designator || ""),
-      value: String(item.value || ""),
-    })),
-  };
-}
-
-function renderSearch(query) {
-  const container = searchControlsEl.querySelector("#search-results");
-  const { nets, components } = searchEntities(query);
-  if (!nets.length && !components.length) {
-    container.innerHTML = "";
-    return;
-  }
   container.innerHTML = [
     ...nets.map((net) => `<button data-net="${net.id}"><b>${escapeHtml(net.name)}</b><span>${escapeHtml(net.netClass || "")}</span></button>`),
     ...components.map((item) => `<button data-feature="${item.featureId}"><b>${escapeHtml(item.designator)}</b><span>${escapeHtml(item.value)}</span></button>`),

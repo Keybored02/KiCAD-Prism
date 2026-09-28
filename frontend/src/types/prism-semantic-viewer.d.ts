@@ -32,7 +32,6 @@ export interface PrismSemanticViewState {
     separation: number;
     isolateNet: boolean;
     hasNet: boolean;
-    hasSelection: boolean;
 }
 
 /** `prism-semantic-viewer:contextmenu`: a right-click without a drag. */
@@ -45,11 +44,6 @@ export interface PrismSemanticContextMenuDetail {
 }
 
 export type PrismSemanticLayerPreset = "all" | "none" | "outer" | "inner";
-
-export interface PrismSemanticSearchResults {
-    nets: { id: number; name: string; netClass: string }[];
-    components: { featureId: number; designator: string; value: string }[];
-}
 
 export interface PrismSemanticViewerElement extends HTMLElement {
     setSelection: (selection: PrismRendererSelection | null) => void;
@@ -72,13 +66,8 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     setShowBoard?: (visible: boolean) => void;
     setShowComponents?: (visible: boolean) => void;
     setSeparation?: (value: number) => void;
-    search?: (query: string) => PrismSemanticSearchResults;
-    selectNet?: (netId: number) => void;
-    selectFeature?: (featureId: number) => void;
-    frameSelection?: () => void;
     showNetLayers?: () => void;
     setNetIsolation?: (enabled: boolean) => void;
-    clearSelection?: () => void;
 }
 
 declare global {

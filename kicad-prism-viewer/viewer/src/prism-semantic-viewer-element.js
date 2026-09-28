@@ -341,32 +341,12 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.controller?.setSeparation?.(value);
   }
 
-  search(query) {
-    return this.controller?.search?.(query) ?? { nets: [], components: [] };
-  }
-
-  selectNet(netId) {
-    this.controller?.selectNet?.(netId);
-  }
-
-  selectFeature(featureId) {
-    this.controller?.selectFeature?.(featureId);
-  }
-
-  frameSelection() {
-    this.controller?.frameSelection?.();
-  }
-
   showNetLayers() {
     this.controller?.showNetLayers?.();
   }
 
   setNetIsolation(enabled) {
     this.controller?.setNetIsolation?.(enabled);
-  }
-
-  clearSelection() {
-    this.controller?.clearSelection?.();
   }
 }
 
