@@ -244,6 +244,40 @@ class RealRepositories(unittest.TestCase):
                 check_cancelled=cancel,
             )
 
+    def test_history_context_moves_into_the_submodule(self) -> None:
+        checkout = self.clone()
+        args = dict(parent_url="", env=self.env, policy=POLICY, lfs=service.LfsSettings())
+        # Not initialised yet: the caller keeps the parent, so nothing breaks.
+        self.assertEqual(
+            service.resolve_history_context(checkout, "libs/library/sub"),
+            (str(checkout), "libs/library/sub"),
+        )
+        service.hydrate_checkout(checkout, **args)
+        self.assertEqual(
+            service.resolve_history_context(checkout, "libs/library/sub/board"),
+            (str(checkout / "libs/library"), "sub/board"),
+        )
+        # The submodule root itself has no inner path.
+        self.assertEqual(
+            service.resolve_history_context(checkout, "libs/library"),
+            (str(checkout / "libs/library"), None),
+        )
+        # Anything outside a submodule is untouched.
+        self.assertEqual(
+            service.resolve_history_context(checkout, "docs"), (str(checkout), "docs")
+        )
+        self.assertEqual(service.resolve_history_context(checkout, None), (str(checkout), None))
+
+    def test_history_in_the_submodule_repo_finds_project_commits(self) -> None:
+        # The reason for the resolver: the parent sees nothing under the gitlink.
+        checkout = self.clone()
+        service.hydrate_checkout(
+            checkout, parent_url="", env=self.env, policy=POLICY, lfs=service.LfsSettings()
+        )
+        self.assertEqual(git(checkout, "log", "--oneline", "--", "libs/library/a.kicad_sym"), "")
+        repo, inner = service.resolve_history_context(checkout, "libs/library")
+        self.assertEqual(len(git(Path(repo), "log", "--oneline").splitlines()), 1)
+
     def test_detects_lfs_tracking_without_git_lfs(self) -> None:
         repo = make_repo(
             self.root / "lfs", {".gitattributes": "*.step filter=lfs diff=lfs merge=lfs -text\n"}

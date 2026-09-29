@@ -1445,6 +1445,10 @@ def run_project_metadata_job_v3(context: JobContext) -> JobResult:
     repo_path = str(row.get("parent_repo_path") or project_path)
     raw_relative = str(row.get("relative_path") or ".").strip()
     relative_path = None if raw_relative in (".", "", "/") else raw_relative.strip("/")
+    # A project inside a submodule keeps its history in the submodule.
+    repo_path, relative_path = git_checkout_service.resolve_history_context(
+        repo_path, relative_path
+    )
     context.check_cancelled()
 
     computed = project_metadata_service.refresh_project_metadata(

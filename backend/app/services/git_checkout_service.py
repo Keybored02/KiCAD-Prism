@@ -19,6 +19,7 @@ environment, the URL policy and the LFS settings.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -40,6 +41,7 @@ __all__ = [
     "tracks_lfs",
     "vet_submodule",
     "read_submodules",
+    "resolve_history_context",
     "resolve_submodule_url",
 ]
 
@@ -202,6 +204,66 @@ def read_submodules(repo_path: Path | str, env: dict, *, ref: Optional[str] = No
     except (OSError, subprocess.SubprocessError):
         return []
     return _parse_gitmodules(result.stdout)
+
+
+_SUBMODULE_PATH_CACHE: dict[str, tuple[int, tuple[str, ...]]] = {}
+
+
+def _submodule_paths(repo_path: Path) -> tuple[str, ...]:
+    """Submodule paths declared by a worktree, cached until ``.gitmodules`` changes.
+
+    History endpoints call this on every request, so it must not spawn Git each
+    time.
+    """
+    gitmodules = repo_path / ".gitmodules"
+    try:
+        stamp = gitmodules.stat().st_mtime_ns
+    except OSError:
+        return ()
+    key = str(gitmodules)
+    cached = _SUBMODULE_PATH_CACHE.get(key)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    paths = tuple(
+        sorted(
+            (item.path for item in read_submodules(repo_path, os.environ.copy())),
+            key=len,
+            reverse=True,
+        )
+    )
+    _SUBMODULE_PATH_CACHE[key] = (stamp, paths)
+    return paths
+
+
+def resolve_history_context(
+    repo_path: Path | str, sub_path: Optional[str]
+) -> tuple[str, Optional[str]]:
+    """Point Git history at the repository that actually holds ``sub_path``.
+
+    The parent repository records a submodule as one entry, so ``git log`` and
+    ``commit.tree / path`` find nothing beneath it. A project that lives inside a
+    submodule has to ask the submodule's own repository, at the path inside it.
+    Returns the inputs unchanged when ``sub_path`` is not inside an initialised
+    submodule.
+    """
+    current = Path(repo_path)
+    remaining = (sub_path or "").strip("/")
+    if not remaining:
+        return str(repo_path), sub_path
+    moved = False
+    while True:
+        for path in _submodule_paths(current):
+            if remaining == path or remaining.startswith(f"{path}/"):
+                worktree = current / path
+                if not (worktree / ".git").exists():
+                    return (str(current), remaining or None) if moved else (str(repo_path), sub_path)
+                current = worktree
+                remaining = remaining[len(path):].strip("/")
+                moved = True
+                break
+        else:
+            break
+    return (str(current), remaining or None) if moved else (str(repo_path), sub_path)
 
 
 def list_gitlinks(repo_path: Path | str, env: dict, *, ref: str = "HEAD") -> dict[str, str]:
