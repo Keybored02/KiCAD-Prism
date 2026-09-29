@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  importNotices,
   importReviewTitle,
   isProjectAlreadyImported,
   projectKeyOf,
@@ -100,5 +101,28 @@ describe("projects registered before Prism recorded project files", () => {
   it("falls back to the directory when the backend sends no key", () => {
     const legacy = project({ name: "board", relative_path: "hardware/board" });
     expect(projectKeyOf(legacy)).toBe("hardware/board");
+  });
+});
+
+describe("importNotices", () => {
+  it("says nothing for a plain repository", () => {
+    expect(importNotices({ projects: [project({ name: "A" })] })).toEqual([]);
+  });
+
+  it("mentions LFS, unsearched submodules and submodule projects", () => {
+    const notices = importNotices({
+      uses_lfs: true,
+      projects: [project({ name: "Main", relative_path: "hw/board", submodule: "hw/board" })],
+      submodules: [
+        { path: "hw/board", status: "searched", project_count: 1 },
+        { path: "libs/x", status: "skipped", reason: "host not allowed" },
+      ],
+    });
+    expect(notices).toHaveLength(3);
+    expect(notices[0]).toMatch(/Git LFS/);
+    expect(notices[1]).toBe(
+      "Submodule libs/x was not searched for projects: host not allowed.",
+    );
+    expect(notices[2]).toMatch(/inside a submodule/);
   });
 });

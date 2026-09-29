@@ -29,6 +29,16 @@ export interface DiscoveredProject {
   has_schematic: boolean;
   has_pcb: boolean;
   has_project_file?: boolean;
+  /** Path of the submodule this project lives in. Absent for the repository itself. */
+  submodule?: string;
+}
+
+/** A submodule Prism looked at while analyzing the repository. */
+export interface SubmoduleReport {
+  path: string;
+  status: "searched" | "skipped";
+  reason?: string;
+  project_count?: number;
 }
 
 /** The key a project is selected by, falling back to pre-`project_key` behaviour. */
@@ -89,6 +99,33 @@ interface AnalysisResult {
   already_imported?: boolean;
   /** Project keys already registered, so they can be shown as done. */
   imported_paths?: string[];
+  submodules?: SubmoduleReport[];
+  uses_lfs?: boolean;
+}
+
+/** Things worth knowing before importing, beyond the project list itself. */
+export function importNotices(
+  analysis: Pick<AnalysisResult, "projects" | "submodules" | "uses_lfs">,
+): string[] {
+  const notices: string[] = [];
+  if (analysis.uses_lfs) {
+    notices.push(
+      "This repository uses Git LFS. Large files are downloaded during import unless the server has LFS turned off.",
+    );
+  }
+  for (const submodule of analysis.submodules ?? []) {
+    if (submodule.status === "skipped") {
+      notices.push(
+        `Submodule ${submodule.path} was not searched for projects: ${submodule.reason || "unknown reason"}.`,
+      );
+    }
+  }
+  if (analysis.projects.some((project) => project.submodule)) {
+    notices.push(
+      "Projects inside a submodule are imported with it. Their history in Prism follows the submodule's own commits.",
+    );
+  }
+  return notices;
 }
 
 export function importReviewTitle(
@@ -120,6 +157,7 @@ const STAGE_LABELS: Record<string, string> = {
   "discover-projects": "Looking for KiCad projects",
   "validate-import": "Checking the repository",
   "clone-repository": "Cloning repository",
+  "hydrate-checkout": "Fetching submodules and LFS files",
   "register-projects": "Registering projects",
   "queue-thumbnails": "Queueing board renders",
 };
@@ -738,6 +776,12 @@ export function ImportDialog({
               </p>
             )}
 
+            {importNotices(state.analysis).map((notice) => (
+              <p key={notice} className="text-sm text-muted-foreground">
+                {notice}
+              </p>
+            ))}
+
             {state.analysis.import_type === "type2" && (
               <div className="flex items-center justify-between py-2">
                 <span className="text-sm text-muted-foreground">
@@ -812,6 +856,14 @@ export function ImportDialog({
                         title="No .kicad_pro committed. KiCad will recreate it on first open."
                       >
                         No .kicad_pro
+                      </span>
+                    )}
+                    {project.submodule && (
+                      <span
+                        className="px-2 py-1 bg-secondary rounded"
+                        title={`In submodule ${project.submodule}`}
+                      >
+                        Submodule
                       </span>
                     )}
                     {alreadyImported && (
