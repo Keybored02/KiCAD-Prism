@@ -199,7 +199,7 @@ def read_submodules(repo_path: Path | str, env: dict, *, ref: Optional[str] = No
             return []
     try:
         result = _run(args, cwd=repo_path, env=env)
-    except subprocess.CalledProcessError:
+    except (OSError, subprocess.SubprocessError):
         return []
     return _parse_gitmodules(result.stdout)
 
@@ -208,7 +208,7 @@ def list_gitlinks(repo_path: Path | str, env: dict, *, ref: str = "HEAD") -> dic
     """Map each submodule path in ``ref``'s tree to the commit it pins."""
     try:
         result = _run(["ls-tree", "-r", "-z", ref], cwd=repo_path, env=env)
-    except subprocess.CalledProcessError:
+    except (OSError, subprocess.SubprocessError):
         return {}
     links: dict[str, str] = {}
     for record in result.stdout.split("\0"):
