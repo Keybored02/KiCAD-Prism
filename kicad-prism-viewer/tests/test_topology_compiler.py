@@ -216,6 +216,36 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(len(topology["terminals"]), 2)
         self.assertEqual(topology["indexes"]["net_name_to_net"]["VBUS"], "net_vbus")
 
+    def test_footprint_body_prefers_the_courtyard_then_the_pads(self) -> None:
+        design = {"components": [{"designator": "U1"}, {"designator": "J1"}, {"designator": "TP1"}], "nets": []}
+        pcb_metadata = {
+            "board": {"bbox_mm": [0.0, 0.0, 50.0, 50.0]},
+            "components": [
+                {"designator": "U1", "layer": "F.Cu", "x_mm": 40.0, "y_mm": 40.0,
+                 "bbox_mm": [39.0, 39.0, 41.0, 41.0], "body_bbox_mm": [37.5, 38.0, 42.5, 42.0]},
+                {"designator": "J1", "layer": "B.Cu", "x_mm": 15.0, "y_mm": 12.0,
+                 "bbox_mm": [10.0, 10.0, 20.0, 14.0]},
+                {"designator": "TP1", "layer": "F.Cu", "x_mm": 30.0, "y_mm": 30.0},
+            ],
+        }
+        topology = compile_topology(design, [], pcb_metadata, {})
+        bodies = {
+            item["designator"]: item
+            for item in topology["physical_objects"]
+            if item["kind"] == "footprint_body"
+        }
+
+        def rounded(bbox: list[float]) -> list[float]:
+            return [round(value, 6) for value in bbox]
+
+        # Courtyard or fab outline, as given.
+        self.assertEqual(rounded(bodies["U1"]["bbox_mm"]), [37.5, 38.0, 42.5, 42.0])
+        # Pads only: their extent plus a margin.
+        self.assertEqual(rounded(bodies["J1"]["bbox_mm"]), [9.65, 9.65, 20.35, 14.35])
+        self.assertEqual(bodies["J1"]["layer"], "B.Cu")
+        # No pad extent: a small box around the position.
+        self.assertEqual(rounded(bodies["TP1"]["bbox_mm"]), [28.05, 29.0, 31.95, 31.0])
+
     def test_board_net_names_reconcile_with_the_schematic_netlist(self) -> None:
         # A bus member crossing sheet pins: the board calls it /SIG, the
         # netlist splits it into two sheet-local nets. A pad-only net and a
