@@ -40,6 +40,9 @@ def _compute_build_fingerprint() -> str:
             "pipeline/topology_compiler/semantic_gltf.py",
             "pipeline/topology_compiler/kicad_cli_export.py",
             "pipeline/topology_compiler/exporter.py",
+            "pipeline/topology_compiler/soldermask.py",
+            # Builds the copper tile meshes from the compiler output.
+            "tools/semantic-gltf/build.mjs",
             "package.json",
             "package-lock.json",
             "requirements-runtime.txt",
