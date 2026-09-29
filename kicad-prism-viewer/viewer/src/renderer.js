@@ -17,6 +17,8 @@ const VERTEX_STRIDE = 40;
 // WebGPU dynamic uniform offsets require 256-byte alignment; each draw buffer is padded to that size.
 const DRAW_UNIFORM_SIZE = 256;
 const GLOBAL_UNIFORM_SIZE = 112;
+const DRAW_FLOATS = DRAW_UNIFORM_SIZE / 4;
+const MIN_DRAW_SLOTS = 256;
 // Stencil marks: outer copper writes 1 where it is the nearest opaque surface,
 // anything else opaque writes 0. The mask then draws lighter where it is 1.
 const STENCIL_OPAQUE = { compare: "always", passOp: "zero" };
@@ -316,6 +318,8 @@ export class Renderer {
     this.stencil = Boolean(options.stencil);
     // Reversed depth (see math.js): cleared to 0, nearer fragments are greater.
     this.depthFormat = this.stencil ? "depth32float-stencil8" : "depth32float";
+    // Bumped by every change that alters the picture outside the per-frame inputs.
+    this.version = 0;
     this.barrelColor = [0.55, 0.35, 0.16, 0.78];
     device.addEventListener("uncapturederror", (event) => {
       console.error(`Uncaptured WebGPU error: ${event.error?.message || event.error}`);
@@ -328,6 +332,13 @@ export class Renderer {
     this.context.configure({ device, format: this.format, alphaMode: "opaque" });
     this.entries = [];
     this.barrels = null;
+    // All draw uniforms live in one buffer, one 256-byte slot per entry, and go
+    // up in one write per pass.
+    this.drawSlotCapacity = MIN_DRAW_SLOTS;
+    this.drawSlotBuffer = this.createDrawSlotBuffer(this.drawSlotCapacity);
+    this.drawStaging = new Float32Array(this.drawSlotCapacity * DRAW_FLOATS);
+    this.freeDrawSlots = [];
+    this.nextDrawSlot = 0;
     this.globalBuffer = device.createBuffer({ size: GLOBAL_UNIFORM_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layerOffsetBuffer = device.createBuffer({ size: 1024, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.bindGroupLayout = device.createBindGroupLayout({
@@ -375,7 +386,6 @@ export class Renderer {
     this.globalScratch = new ArrayBuffer(GLOBAL_UNIFORM_SIZE);
     this.globalScratchF32 = new Float32Array(this.globalScratch);
     this.globalScratchView = new DataView(this.globalScratch);
-    this.drawScratch = new Float32Array(DRAW_UNIFORM_SIZE / 4);
     this.barrelDrawScratch = new Float32Array(DRAW_UNIFORM_SIZE / 4);
     this.nextEntryId = 1;
     // Feature-visibility mask: default-visible, indexed by component feature
@@ -422,11 +432,12 @@ export class Renderer {
       this.rebindAll();
     }
     this.uploadNetMask();
+    this.invalidate();
   }
 
   rebindAll() {
     for (const entry of this.entries) {
-      entry.bindGroup = this.makeBindGroup(entry.drawBuffer);
+      entry.bindGroup = this.makeBindGroup(this.drawSlotBuffer, entry.drawSlot * DRAW_UNIFORM_SIZE);
     }
     if (this.barrels) {
       this.barrels.bindGroup = this.makeBindGroup(this.barrels.drawBuffer);
@@ -442,8 +453,55 @@ export class Renderer {
     });
   }
 
+  createDrawSlotBuffer(capacity) {
+    return this.device.createBuffer({
+      label: "draw-uniforms",
+      size: capacity * DRAW_UNIFORM_SIZE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+  }
+
+  allocateDrawSlot() {
+    if (this.freeDrawSlots.length) return this.freeDrawSlots.pop();
+    if (this.nextDrawSlot >= this.drawSlotCapacity) {
+      const capacity = this.drawSlotCapacity * 2;
+      const staging = new Float32Array(capacity * DRAW_FLOATS);
+      staging.set(this.drawStaging);
+      this.drawSlotBuffer.destroy?.();
+      this.drawSlotCapacity = capacity;
+      this.drawSlotBuffer = this.createDrawSlotBuffer(capacity);
+      this.drawStaging = staging;
+      this.rebindAll();
+    }
+    return this.nextDrawSlot++;
+  }
+
+  /** Upload the draw uniforms of the given entries in one write. */
+  flushDraws(entries) {
+    if (!entries.length) return;
+    let first = Infinity;
+    let last = -1;
+    for (const entry of entries) {
+      first = Math.min(first, entry.drawSlot);
+      last = Math.max(last, entry.drawSlot);
+    }
+    this.device.queue.writeBuffer(
+      this.drawSlotBuffer,
+      first * DRAW_UNIFORM_SIZE,
+      this.drawStaging,
+      first * DRAW_FLOATS,
+      (last - first + 1) * DRAW_FLOATS,
+    );
+  }
+
+  /** Mark the picture stale after a change the per-frame inputs do not show. */
+  invalidate() {
+    this.version += 1;
+  }
+
   setBarrelColor(color) {
     this.barrelColor = [...color];
+    this.invalidate();
   }
 
   makeBindGroup(drawBuffer, drawOffset = 0) {
@@ -487,6 +545,7 @@ export class Renderer {
     }
     this.uploadFeatureMask();
     this.bundleCache.clear();
+    this.invalidate();
   }
 
   depthStencilState(stencil = null) {
@@ -619,8 +678,8 @@ export class Renderer {
     const indices = primitive.indices instanceof Uint32Array ? primitive.indices : new Uint32Array(primitive.indices);
     const indexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(indexBuffer, 0, indices);
-    const drawBuffer = this.device.createBuffer({ size: DRAW_UNIFORM_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    const bindGroup = this.makeBindGroup(drawBuffer);
+    const drawSlot = this.allocateDrawSlot();
+    const bindGroup = this.makeBindGroup(this.drawSlotBuffer, drawSlot * DRAW_UNIFORM_SIZE);
     const entry = {
       ...metadata,
       bounds: primitive.bounds || metadata.bounds || null,
@@ -628,11 +687,12 @@ export class Renderer {
       vertexBuffer,
       indexBuffer,
       indexCount: indices.length,
-      drawBuffer,
+      drawSlot,
       bindGroup,
     };
     this.entries.push(entry);
     this.bundleCache.clear();
+    this.invalidate();
     return entry;
   }
 
@@ -642,10 +702,11 @@ export class Renderer {
     for (const entry of entries) {
       entry.vertexBuffer?.destroy?.();
       entry.indexBuffer?.destroy?.();
-      entry.drawBuffer?.destroy?.();
+      this.freeDrawSlots.push(entry.drawSlot);
     }
     this.entries = this.entries.filter((entry) => !removeIds.has(entry.id));
     this.bundleCache.clear();
+    this.invalidate();
   }
 
   dispose() {
@@ -660,6 +721,7 @@ export class Renderer {
     this.depth?.destroy();
     this.pickTexture?.destroy();
     this.featureMaskBuffer?.destroy?.();
+    this.drawSlotBuffer?.destroy?.();
     this.depth = null;
     this.pickTexture = null;
     this.featureMaskBuffer = null;
@@ -712,6 +774,7 @@ export class Renderer {
     const drawBuffer = this.device.createBuffer({ size: DRAW_UNIFORM_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const bindGroup = this.makeBindGroup(drawBuffer);
     this.barrels = { records, vertexBuffer, indexBuffer, instanceBuffer, indexCount: indexArray.length, instanceCount: records.length, drawBuffer, bindGroup };
+    this.invalidate();
   }
 
   render({
@@ -778,6 +841,7 @@ export class Renderer {
           layerAlphas?.get(entry.layerId) ?? 1,
         );
       }
+      this.flushDraws(visibleEntries);
       if (opaqueEntries.length > 64) {
         pass.executeBundles([this.renderBundle(opaqueEntries, panel.layerId)]);
       } else {
@@ -844,6 +908,7 @@ export class Renderer {
   /** Show or hide the boxes standing in for footprints without a 3D model. */
   setPlaceholdersVisible(visible) {
     this.showPlaceholders = Boolean(visible);
+    this.invalidate();
   }
 
   visible(entry, panelLayer, visibleLayers, showBoard, showComponents, componentOpacity, compareMode = false, visibleTileIds = null) {
@@ -883,7 +948,7 @@ export class Renderer {
     compareOffset = null,
     layerAlpha = 1,
   ) {
-    const data = this.drawScratch;
+    const data = this.drawStaging.subarray(entry.drawSlot * DRAW_FLOATS, (entry.drawSlot + 1) * DRAW_FLOATS);
     data.fill(0);
     const color = entry.color || entry.material.baseColor;
     data.set(color, 0);
@@ -908,7 +973,6 @@ export class Renderer {
         : layerAlpha;
     const kind = entry.kind === "copper" ? 1 : entry.kind === "component" ? 2 : 0;
     data.set([kind, opacity, isolateNet ? 1 : 0, compareMode ? 1 : 0], 12);
-    this.device.queue.writeBuffer(entry.drawBuffer, 0, data);
   }
 
   writeBarrelDraw(isolateNet = false) {
@@ -986,6 +1050,7 @@ export class Renderer {
       );
       pickEntries.push(entry);
     }
+    this.flushDraws(pickEntries);
     for (const entry of pickEntries) this.drawEntry(pass, entry);
     if (!options.compareMode && this.barrels) {
       this.writeBarrelDraw(options.isolateNet);

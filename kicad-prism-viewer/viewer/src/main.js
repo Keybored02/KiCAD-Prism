@@ -1398,7 +1398,7 @@ function frame(now, token = activeViewerToken) {
   };
   scheduleTileResidency(now);
   const visibleLayers = state.mode === "3d" ? state.visible3dLayers : compareRenderLayers();
-  renderer.render({
+  const inputs = {
     panels: [panel],
     activeNetId: state.activeNetId,
     selectedFeatureId: state.selectedFeatureId,
@@ -1416,12 +1416,75 @@ function frame(now, token = activeViewerToken) {
     compareOffsets,
     layerAlphas: compareAlphas,
     visibleTileIds: state.mode === "3d" ? state.visibleTileIds : null,
-  });
-  drawGizmo();
-  updateLayerLabels();
+  };
+  if (frameNeedsRender(now, inputs)) {
+    renderer.render(inputs);
+    drawGizmo();
+    updateLayerLabels();
+  }
   recordFrameSample(frameInterval, performance.now() - frameStarted);
   updateDiagnostics(now);
   scheduleFrame(token);
+}
+
+// The picture only changes with its inputs, so an idle view skips the GPU work.
+// Highlights pulse, so they keep drawing; a slow refresh covers anything missed.
+const IDLE_REFRESH_MS = 1000;
+const lastRender = { key: "", matrix: new Float32Array(16), tiles: null, at: 0 };
+
+function frameNeedsRender(now, inputs) {
+  const matrix = inputs.panels[0].matrix;
+  let moved = false;
+  for (let index = 0; index < 16; index += 1) {
+    if (matrix[index] !== lastRender.matrix[index]) {
+      moved = true;
+      break;
+    }
+  }
+  if (moved) {
+    // While the camera moves nothing else needs comparing.
+    lastRender.matrix.set(matrix);
+    lastRender.key = "";
+    lastRender.at = now;
+    return true;
+  }
+  const key = [
+    canvas.width,
+    canvas.height,
+    renderer.version,
+    state.workspace,
+    state.mode,
+    inputs.activeNetId,
+    inputs.selectedFeatureId,
+    inputs.showBoard,
+    inputs.showComponents,
+    inputs.showPaste,
+    inputs.componentOpacity,
+    inputs.boardOpacity,
+    inputs.isolateNet,
+    scene.layerZOffsetSignature,
+    [...inputs.visibleLayers].join(","),
+    [...inputs.compareOffsets].map(([id, offset]) => `${id}:${offset}`).join(";"),
+    inputs.layerAlphas ? [...inputs.layerAlphas].join(";") : "",
+  ].join("|");
+  const animating = Boolean(inputs.activeNetId || inputs.selectedFeatureId || renderer.emphasizedNetIds.size);
+  const stale = animating
+    || key !== lastRender.key
+    || !sameSet(inputs.visibleTileIds, lastRender.tiles)
+    || now - lastRender.at > IDLE_REFRESH_MS;
+  if (!stale) return false;
+  lastRender.key = key;
+  // The tile set is replaced, never mutated, so keeping the reference is enough.
+  lastRender.tiles = inputs.visibleTileIds;
+  lastRender.at = now;
+  return true;
+}
+
+function sameSet(a, b) {
+  if (!a || !b) return a === b;
+  if (a.size !== b.size) return false;
+  for (const value of a) if (!b.has(value)) return false;
+  return true;
 }
 
 function schematicPageScreenMetrics(page) {
@@ -2391,7 +2454,7 @@ function framePcbFeature(feature, forceComponent = false) {
     // Compare against the destination orientation as well as the current
     // interpolated camera. Repeated cross-probes during an in-progress flip
     // must not cancel or reverse the requested board side.
-    const isCameraBottom = camera.targetPolar > Math.PI / 2;
+    const isCameraBottom = camera.isBelow();
     if (isBottomComponent !== isCameraBottom) {
       camera.setAxis("z", isBottomComponent);
     }
