@@ -14,7 +14,7 @@ from typing import List, Optional, Sequence
 from dataclasses import dataclass
 from git import Git, Repo, RemoteProgress
 from app.core.config import settings
-from app.services import derived_assets, project_service, path_config_service
+from app.services import derived_assets, git_checkout_service, project_service, path_config_service
 from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult
@@ -152,6 +152,35 @@ def git_env() -> dict:
     env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=yes -o BatchMode=yes"
     _inject_github_token(env)
     return env
+
+
+def _lfs_settings() -> git_checkout_service.LfsSettings:
+    return git_checkout_service.LfsSettings(
+        mode=settings.PRISM_GIT_LFS_MODE, max_mb=settings.PRISM_GIT_LFS_MAX_MB
+    )
+
+
+def hydrate_checkout(
+    checkout_path: str | Path,
+    parent_url: str,
+    context: Optional[JobContext] = None,
+) -> git_checkout_service.CheckoutReport:
+    """Fill in a checkout's submodules and LFS files under this deployment's policy."""
+
+    def progress(message: str) -> None:
+        print(f"[git] {message}", flush=True)
+        if context is not None:
+            context.progress(stage="hydrate-checkout", message=message, percent=76)
+
+    return git_checkout_service.hydrate_checkout(
+        checkout_path,
+        parent_url=parent_url,
+        env=git_env(),
+        policy=remote_url_policy(),
+        lfs=_lfs_settings(),
+        progress=progress,
+        check_cancelled=context.check_cancelled if context is not None else None,
+    )
 
 
 def list_remote_branches(parsed: ParsedRemote) -> tuple[List[str], Optional[str]]:
@@ -1141,7 +1170,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                     repo_url,
                     str(target_path),
                     progress=V3CloneProgress(context, stage="clone-repository"),
-                    env=git_env(),
+                    env=git_checkout_service.hardened_env(git_env()),
                     **clone_options,
                 )
             except GitAccessError:
@@ -1152,6 +1181,8 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 ) from error
             cloned_in_job = True
 
+        context.check_cancelled()
+        checkout_report = hydrate_checkout(target_path, repo_url, context)
         context.check_cancelled()
         context.progress(
             stage="register-projects",
@@ -1196,6 +1227,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 "import_type": import_type,
                 "thumbnail_job_ids": thumbnail_job_ids,
                 "follow_ups": follow_ups,
+                "checkout": checkout_report.to_dict(),
             },
         )
     except Exception:
@@ -1477,6 +1509,13 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
     )
 
 
+def _remote_url(origin) -> str:
+    try:
+        return str(origin.url)
+    except Exception:
+        return ""
+
+
 def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
     """
     Sync a project with its remote repository.
@@ -1502,7 +1541,7 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
         origin = repo.remote('origin')
 
         # Reuse the clone's pinned-host-key and noninteractive Git policy.
-        env = git_env()
+        env = git_checkout_service.hardened_env(git_env())
 
         if not fetch_only:
             derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)
@@ -1527,7 +1566,13 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
                 repo.git.merge("--ff-only", tracking.name)
                 message = f"Synced {len(fetch_info)} ref(s)"
 
+        checkout = None
         if not fetch_only:
+            # A fast-forward moves submodule pins and LFS pointers; bring the
+            # files they name along so the tree is usable, not just current.
+            checkout = hydrate_checkout(sync_path, _remote_url(origin)).to_dict()
+            if checkout["warnings"]:
+                message = f"{message}. {checkout['warnings'][0]}"
             path_config_service.clear_config_cache()
             project_path = row.get('path', '')
             if project_path and os.path.isdir(project_path):
@@ -1535,11 +1580,14 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
 
         workspace.update_repository_synced(row.get('repo_id', ''))
 
-        return {
+        result = {
             "status": "success",
             "message": message,
             "path": sync_path
         }
+        if checkout is not None:
+            result["checkout"] = checkout
+        return result
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
