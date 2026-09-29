@@ -45,6 +45,29 @@ reach the Git host.
 Prism rejects local filesystem URLs, credentials embedded in URLs, and dangerous
 remote-helper protocols.
 
+### Submodules and Git LFS
+
+Import and sync fill in submodules and Git LFS files, so the checkout is usable
+and Release Studio can build from it.
+
+- **Submodules.** Import analysis also searches submodules for KiCad projects,
+  one level deep and up to `PRISM_GIT_SUBMODULE_MAX` (default 20). Projects found
+  there are marked **Submodule** and are imported with it. Their history follows
+  the submodule's own commits. A submodule whose URL breaks the workspace's
+  remote rules, or cannot be reached, is skipped and the dialog says why. The
+  import still succeeds.
+- **Git LFS.** LFS files are downloaded after clone and after each sync.
+  `PRISM_GIT_LFS_MODE=off` leaves them as pointer files and never contacts an LFS
+  server. `pointers-only` does the same without warnings. `PRISM_GIT_LFS_MAX_MB`
+  skips the download for a repository over that size.
+- **Failures are warnings.** A submodule or LFS failure is reported in the job
+  message and does not undo the import or sync. Fix access, then sync again.
+- **History.** A committed LFS file is read from the server's LFS store. If it
+  was never downloaded, the file reads as not found, with an LFS message.
+
+Private submodules use the same SSH key or GitHub token as the parent. Prism
+never follows `file://` submodule URLs.
+
 ## Synchronize
 
 Synchronization is a queued worker job. It fetches the configured remote and

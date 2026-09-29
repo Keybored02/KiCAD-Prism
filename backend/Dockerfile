@@ -90,7 +90,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make \
     curl \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \n    && git lfs install --system --skip-repo
 
 COPY --from=uv-bin /uv /uvx /usr/local/bin/
 
