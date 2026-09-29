@@ -73,7 +73,7 @@ export function Semantic3dControls({
         >
             <div className="shrink-0 space-y-2 border-b p-3">
                 <div className="grid grid-cols-2 gap-1">
-                    {([["3d", "3D"], ["layer", "Layers"]] as const).map(([mode, label]) => (
+                    {([["3d", "3D"], ["layer", "2D"]] as const).map(([mode, label]) => (
                         <Button
                             key={mode}
                             variant={viewState?.mode === mode ? "secondary" : "ghost"}
@@ -119,12 +119,16 @@ export function Semantic3dControls({
 
             {section === "layers" ? (
                 <>
-                    <div className="space-y-3 border-b p-3">
-                        <RailSlider
-                            label="Stackup separation"
-                            value={viewState?.separation ?? 0}
-                            onChange={(value) => viewer?.setSeparation?.(value)}
-                        />
+                    {viewState?.mode !== "layer" && (
+                        <div className="border-b p-3">
+                            <RailSlider
+                                label="Stackup separation"
+                                value={viewState?.separation ?? 0}
+                                onChange={(value) => viewer?.setSeparation?.(value)}
+                            />
+                        </div>
+                    )}
+                    <div className="border-b p-3">
                         <Select
                             onValueChange={(value) => viewer?.applyLayerPreset?.(value as PrismSemanticLayerPreset)}
                         >
@@ -165,6 +169,16 @@ export function Semantic3dControls({
                             label="Components"
                             checked={viewState?.showComponents ?? true}
                             onChange={(checked) => viewer?.setShowComponents?.(checked)}
+                        />
+                        <RailCheckbox
+                            label="Model placeholders"
+                            checked={viewState?.showPlaceholders ?? true}
+                            onChange={(checked) => viewer?.setShowPlaceholders?.(checked)}
+                        />
+                        <RailCheckbox
+                            label="Realistic colours"
+                            checked={viewState?.realisticColors ?? true}
+                            onChange={(checked) => viewer?.setRealisticColors?.(checked)}
                         />
                     </div>
                 </ScrollArea>
