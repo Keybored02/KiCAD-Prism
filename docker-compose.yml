@@ -104,6 +104,9 @@ services:
       # GitHub Token for private repository access and Release publishing (optional)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GITLAB_TOKEN=${GITLAB_TOKEN:-}
+      - PRISM_GIT_LFS_MODE=${PRISM_GIT_LFS_MODE:-auto}
+      - PRISM_GIT_LFS_MAX_MB=${PRISM_GIT_LFS_MAX_MB:-0}
+      - PRISM_GIT_SUBMODULE_MAX=${PRISM_GIT_SUBMODULE_MAX:-20}
       # Custom token_name variables in PRISM_FORGE_HOSTS need a local env_file
       # override; see docs/FORGE_HOSTS.md.
       - PRISM_FORGE_HOSTS=${PRISM_FORGE_HOSTS:-}

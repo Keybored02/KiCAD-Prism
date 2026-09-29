@@ -286,6 +286,38 @@ class Settings(BaseSettings):
             "the workspace SSH key can clone but cannot publish."
         ),
     )
+    PRISM_GIT_LFS_MODE: str = Field(
+        default="auto",
+        description=(
+            "Git LFS handling for imported and synced checkouts. 'auto' downloads LFS "
+            "files; 'off' leaves them as pointer files and never contacts an LFS "
+            "server; 'pointers-only' does the same but treats it as intended, so the "
+            "UI does not warn."
+        ),
+    )
+    PRISM_GIT_LFS_MAX_MB: int = Field(
+        default=0,
+        description=(
+            "Skip LFS downloads for a repository whose LFS files total more than this "
+            "many MB. 0 means no limit."
+        ),
+    )
+    PRISM_GIT_SUBMODULE_MAX: int = Field(
+        default=20,
+        description=(
+            "Most submodules Prism will search for KiCad projects while analyzing an "
+            "import. 0 disables searching inside submodules."
+        ),
+    )
+
+    @field_validator("PRISM_GIT_LFS_MODE", mode="before")
+    @classmethod
+    def _validate_lfs_mode(cls, value: object) -> str:
+        mode = str(value or "auto").strip().lower()
+        if mode not in {"auto", "off", "pointers-only"}:
+            raise ValueError("PRISM_GIT_LFS_MODE must be auto, off or pointers-only")
+        return mode
+
     PRISM_FORGE_HOSTS: str = Field(
         default="",
         description=(
