@@ -382,6 +382,9 @@ export async function mountStandaloneViewer(options = {}) {
     setHiddenComponents(references) {
       return applyHiddenComponents(references);
     },
+    getComponentReferences() {
+      return [...scene.componentFeatures.keys()];
+    },
     setHighlightedNets(refs) {
       return applyHighlightedNets(refs);
     },

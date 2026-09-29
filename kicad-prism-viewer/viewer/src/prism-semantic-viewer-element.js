@@ -308,6 +308,11 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.controller?.setHiddenComponents?.(this.pendingHiddenComponents);
   }
 
+  /** Every component reference on the board; empty until the viewer is ready. */
+  getComponentReferences() {
+    return this.controller?.getComponentReferences?.() ?? [];
+  }
+
   resize() {
     this.controller?.resize?.();
   }

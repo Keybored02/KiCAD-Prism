@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Box, Eye, EyeOff, Layers3, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import { Box, Eye, EyeOff, Focus, Layers3, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -163,6 +163,8 @@ export function WebGpu3dTab({
     const [leftInset, setLeftInset] = useState(0);
     /** Models the reviewer hid from the 3D context menu, on top of the DNP set. */
     const [userHidden, setUserHidden] = useState<string[]>([]);
+    /** The one model left visible by "Show only", or null. */
+    const [isolated, setIsolated] = useState<string | null>(null);
     const [contextMenu, setContextMenu] = useState<PrismSemanticContextMenuDetail | null>(null);
     const canGenerate = user?.role === "admin" || user?.role === "designer";
     const isStackup = workspace === "stackup";
@@ -375,10 +377,15 @@ export function WebGpu3dTab({
         let cancelled = false;
         void customElements.whenDefined("prism-semantic-viewer").then(() => {
             if (cancelled) return;
-            node.setHiddenComponents([...new Set([...hiddenComponents, ...userHidden])]);
+            // "Show only" hides every other reference; alternate-footprint parts
+            // stay visible, as they do for DNP and Hide.
+            const hidden = isolated
+                ? (node.getComponentReferences?.() ?? []).filter((reference) => reference !== isolated)
+                : [...hiddenComponents, ...userHidden];
+            node.setHiddenComponents([...new Set(hidden)]);
         });
         return () => { cancelled = true; };
-    }, [hiddenComponents, isStackup, userHidden, viewerElement, viewerReady]);
+    }, [hiddenComponents, isStackup, isolated, userHidden, viewerElement, viewerReady]);
 
     const ambiguityNotice = dnpVisibilityNotice({
         hidden: [],
@@ -548,18 +555,25 @@ export function WebGpu3dTab({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-auto" sideOffset={2}>
                     {contextMenu?.reference ? (
-                        <DropdownMenuItem
-                            onSelect={() => {
-                                const reference = contextMenu.reference!;
-                                setUserHidden((current) => current.includes(reference) ? current : [...current, reference]);
-                            }}
-                        >
-                            <EyeOff className="size-3.5" />
-                            Hide {contextMenu.reference}
-                            {contextMenu.value && (
-                                <span className="text-muted-foreground">{contextMenu.value}</span>
-                            )}
-                        </DropdownMenuItem>
+                        <>
+                            <DropdownMenuItem
+                                onSelect={() => {
+                                    const reference = contextMenu.reference!;
+                                    setIsolated(null);
+                                    setUserHidden((current) => current.includes(reference) ? current : [...current, reference]);
+                                }}
+                            >
+                                <EyeOff className="size-3.5" />
+                                Hide {contextMenu.reference}
+                                {contextMenu.value && (
+                                    <span className="text-muted-foreground">{contextMenu.value}</span>
+                                )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => setIsolated(contextMenu.reference!)}>
+                                <Focus className="size-3.5" />
+                                Show only {contextMenu.reference}
+                            </DropdownMenuItem>
+                        </>
                     ) : (
                         <DropdownMenuItem disabled>No model here</DropdownMenuItem>
                     )}
@@ -588,16 +602,19 @@ export function WebGpu3dTab({
                         {showDnp ? "Showing DNP" : "Show DNP"}
                     </Button>
                 )}
-                {!isStackup && userHidden.length > 0 && (
+                {!isStackup && (isolated || userHidden.length > 0) && (
                     <Button
                         className="pointer-events-auto shadow-sm"
                         size="sm"
                         variant="secondary"
-                        onClick={() => setUserHidden([])}
-                        title={`Hidden: ${userHidden.join(", ")}`}
+                        onClick={() => {
+                            setIsolated(null);
+                            setUserHidden([]);
+                        }}
+                        title={isolated ? `Showing only ${isolated}` : `Hidden: ${userHidden.join(", ")}`}
                     >
                         <Eye className="mr-2 h-3.5 w-3.5" />
-                        Show all ({userHidden.length} hidden)
+                        {isolated ? `Show all (only ${isolated} shown)` : `Show all (${userHidden.length} hidden)`}
                     </Button>
                 )}
                 {!isStackup && ambiguityNotice && (

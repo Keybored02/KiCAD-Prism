@@ -60,6 +60,8 @@ export interface PrismSemanticViewerElement extends HTMLElement {
      * reloads; ambiguous or unknown references stay visible.
      */
     setHiddenComponents: (references: string[]) => void;
+    /** Every component reference on the board; empty until the viewer is ready. */
+    getComponentReferences?: () => string[];
     resize: () => void;
     /** Null until the viewer is ready. Changes arrive as `prism-semantic-viewer:viewstatechange`. */
     getViewState?: () => PrismSemanticViewState | null;
