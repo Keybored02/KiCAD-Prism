@@ -33,8 +33,12 @@ __all__ = [
     "Submodule",
     "hardened_env",
     "hydrate_checkout",
+    "describe_failure",
+    "fetch_tree_only",
     "lfs_available",
     "list_gitlinks",
+    "tracks_lfs",
+    "vet_submodule",
     "read_submodules",
     "resolve_submodule_url",
 ]
@@ -142,7 +146,7 @@ def _run(
     )
 
 
-def _failure_text(error: Exception) -> str:
+def describe_failure(error: Exception) -> str:
     if isinstance(error, subprocess.CalledProcessError):
         text = (error.stderr or error.stdout or "").strip()
         if text:
@@ -263,6 +267,27 @@ def vet_submodule(
     return None
 
 
+def fetch_tree_only(dest: Path | str, url: str, commit: str, env: dict) -> str:
+    """Fetch just the tree of ``commit`` from ``url`` into a new bare repository.
+
+    Depth one and no blobs: enough to list file names, cheap against a large
+    library. Returns the ref to list. Servers that refuse to serve an arbitrary
+    commit fall back to the remote's default branch, which is close enough to
+    tell whether the submodule holds a KiCad project.
+    """
+    target = Path(dest)
+    target.mkdir(parents=True, exist_ok=True)
+    _run(["init", "-q", "--bare"], cwd=target, env=env)
+    _run(["remote", "add", "origin", url], cwd=target, env=env)
+    base = ["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin"]
+    try:
+        _run([*base, commit], cwd=target, env=env)
+        return "FETCH_HEAD"
+    except subprocess.CalledProcessError:
+        _run([*base, "HEAD"], cwd=target, env=env)
+        return "FETCH_HEAD"
+
+
 # --- hydration --------------------------------------------------------------
 
 
@@ -300,8 +325,8 @@ def _hydrate_submodules(
             _run(["submodule", "sync", "--", submodule.path], cwd=repo_path, env=env)
             _run(["submodule", "update", "--init", "--", submodule.path], cwd=repo_path, env=env)
         except (OSError, subprocess.SubprocessError) as error:
-            report.submodules_skipped.append({"path": shown, "reason": _failure_text(error)})
-            report.warnings.append(f"Could not fetch submodule {shown}: {_failure_text(error)}")
+            report.submodules_skipped.append({"path": shown, "reason": describe_failure(error)})
+            report.warnings.append(f"Could not fetch submodule {shown}: {describe_failure(error)}")
             continue
         report.submodules_initialized += 1
         worktree = repo_path / submodule.path
@@ -335,19 +360,19 @@ def _lfs_files(worktree: Path, env: dict) -> Optional[list[dict]]:
         return None
 
 
-def _tracks_lfs(worktree: Path, env: dict) -> bool:
+def tracks_lfs(worktree: Path | str, env: dict, *, ref: Optional[str] = None) -> bool:
     """Whether any ``.gitattributes`` in the tree routes files through LFS.
 
     This works without ``git-lfs`` installed, which is the case that matters:
     a deployment missing the binary should say so rather than hand out pointers.
+    ``ref`` searches a commit instead of the worktree, for no-checkout clones.
     """
+    args = ["grep", "-l", "-e", "filter=lfs"]
+    if ref:
+        args.append(ref)
+    args += ["--", ":(glob)**/.gitattributes"]
     try:
-        result = _run(
-            ["grep", "-l", "-e", "filter=lfs", "--", ":(glob)**/.gitattributes"],
-            cwd=worktree,
-            env=env,
-            check=False,
-        )
+        result = _run(args, cwd=worktree, env=env, check=False)
     except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0 and bool(result.stdout.strip())
@@ -362,7 +387,7 @@ def _hydrate_lfs(
     progress: Optional[ProgressCallback],
     check_cancelled: Optional[Callable[[], None]],
 ) -> None:
-    tracking = [tree for tree in worktrees if _tracks_lfs(tree, env)]
+    tracking = [tree for tree in worktrees if tracks_lfs(tree, env)]
     if not tracking:
         return
     report.uses_lfs = True
@@ -413,7 +438,7 @@ def _hydrate_lfs(
             _run(["lfs", "pull"], cwd=tree, env=pull_env)
         except (OSError, subprocess.SubprocessError) as error:
             failed = True
-            report.warnings.append(f"LFS download failed: {_failure_text(error)}")
+            report.warnings.append(f"LFS download failed: {describe_failure(error)}")
 
     missing = 0
     for tree in tracking:

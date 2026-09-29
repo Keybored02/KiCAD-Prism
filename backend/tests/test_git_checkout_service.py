@@ -248,8 +248,8 @@ class RealRepositories(unittest.TestCase):
         repo = make_repo(
             self.root / "lfs", {".gitattributes": "*.step filter=lfs diff=lfs merge=lfs -text\n"}
         )
-        self.assertTrue(service._tracks_lfs(repo, self.env))
-        self.assertFalse(service._tracks_lfs(self.library, self.env))
+        self.assertTrue(service.tracks_lfs(repo, self.env))
+        self.assertFalse(service.tracks_lfs(self.library, self.env))
 
 
 class LfsPolicy(unittest.TestCase):
@@ -257,7 +257,7 @@ class LfsPolicy(unittest.TestCase):
 
     def setUp(self) -> None:
         patchers = [
-            mock.patch.object(service, "_tracks_lfs", return_value=True),
+            mock.patch.object(service, "tracks_lfs", return_value=True),
             mock.patch.object(service, "lfs_available", return_value=True),
         ]
         for patcher in patchers:

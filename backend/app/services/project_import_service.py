@@ -11,7 +11,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from git import Git, Repo, RemoteProgress
 from app.core.config import settings
 from app.services import derived_assets, git_checkout_service, project_service, path_config_service
@@ -68,6 +68,9 @@ class DiscoveredProject:
     # board/schematic KiCad would regenerate one from. This is what tells two
     # projects in the same directory apart.
     project_file: str = ""
+    # Path of the submodule this project lives in, or "" for the repository
+    # itself. The checkout holds the project at ``relative_path`` either way.
+    submodule: str = ""
 
     @property
     def project_key(self) -> str:
@@ -335,7 +338,7 @@ def _directory_depth(relative_path: str) -> int:
     return 0 if relative_path == "." else len(relative_path.split("/"))
 
 
-def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
+def discover_projects_from_repo(repo: Repo, ref: str = "HEAD") -> List[DiscoveredProject]:
     """
     Discover KiCAD projects by inspecting the Git tree directly (no-checkout).
     Returns list of DiscoveredProject.
@@ -347,7 +350,7 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
     """
     # Get all files in the repo recursively
     try:
-        all_files = repo.git.ls_tree('-r', 'HEAD', '--name-only').splitlines()
+        all_files = repo.git.ls_tree('-r', ref, '--name-only').splitlines()
     except Exception:
         # Fallback for empty repos or other issues
         return []
@@ -894,13 +897,14 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
         raise ValueError(f"Branch '{requested_ref}' does not exist on this remote")
     selected_ref = requested_ref or default_branch
 
-    projects, import_type = _discover_remote_projects(
+    discovery = _discover_remote_projects(
         context,
         parsed,
         stage="clone-metadata",
         percent_ceiling=85.0,
         ref=requested_ref,
     )
+    projects, import_type = discovery.projects, discovery.import_type
 
     # An already-imported repository is not an error any more: the dialog uses
     # this to offer the projects that are not registered yet.
@@ -931,6 +935,8 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
         "ref": selected_ref,
         "already_imported": bool(existing_repo),
         "imported_paths": imported_paths,
+        "submodules": discovery.submodules,
+        "uses_lfs": discovery.uses_lfs,
         "projects": [
             {
                 "name": project.name,
@@ -940,6 +946,7 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
                 "has_schematic": project.has_schematic,
                 "has_pcb": project.has_pcb,
                 "has_project_file": project.has_project_file,
+                "submodule": project.submodule,
             }
             for project in projects
         ],
@@ -967,6 +974,99 @@ def classify_import_type(projects: List[DiscoveredProject]) -> str:
     return "type2"
 
 
+@dataclass
+class RemoteDiscovery:
+    projects: List[DiscoveredProject]
+    import_type: str
+    # One record per submodule Prism looked at: path, status (searched or
+    # skipped), reason and how many projects it held.
+    submodules: list[dict] = field(default_factory=list)
+    uses_lfs: bool = False
+
+
+def _discover_submodule_projects(
+    context: JobContext,
+    repo: Repo,
+    parent_url: str,
+    *,
+    env: dict,
+    stage: str,
+) -> tuple[List[DiscoveredProject], list[dict]]:
+    """Find KiCad projects inside the repository's submodules.
+
+    One level only, and at most ``PRISM_GIT_SUBMODULE_MAX`` submodules: every one
+    is another remote to contact, and the names come from the repository being
+    analyzed. A submodule that cannot be reached is reported, not fatal.
+    """
+    root = repo.working_tree_dir
+    submodules = git_checkout_service.read_submodules(root, env, ref="HEAD")
+    if not submodules:
+        return [], []
+    links = git_checkout_service.list_gitlinks(root, env)
+    limit = max(int(settings.PRISM_GIT_SUBMODULE_MAX), 0)
+    policy = remote_url_policy()
+
+    projects: List[DiscoveredProject] = []
+    records: list[dict] = []
+    for index, submodule in enumerate(submodules):
+        record = {"path": submodule.path, "status": "skipped", "reason": "", "project_count": 0}
+        records.append(record)
+        commit = links.get(submodule.path)
+        if not commit:
+            record["reason"] = "not pinned to a commit"
+            continue
+        if index >= limit:
+            record["reason"] = (
+                "searching submodules is turned off"
+                if limit == 0
+                else f"more than {limit} submodules; the rest are not searched"
+            )
+            continue
+        reason = git_checkout_service.vet_submodule(parent_url, submodule, policy)
+        if reason:
+            record["reason"] = reason
+            continue
+        context.check_cancelled()
+        context.progress(
+            stage=stage,
+            message=f"Searching submodule {submodule.path}",
+            percent=5,
+            force=True,
+        )
+        url = git_checkout_service.resolve_submodule_url(parent_url, submodule.url)
+        temp_dir = tempfile.mkdtemp(prefix="kicad_submodule_")
+        try:
+            ref = git_checkout_service.fetch_tree_only(
+                Path(temp_dir) / "repo", url, commit, env
+            )
+            found = discover_projects_from_repo(Repo(str(Path(temp_dir) / "repo")), ref)
+        except Exception as error:
+            record["reason"] = git_checkout_service.describe_failure(error)
+            continue
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        for project in found:
+            projects.append(
+                DiscoveredProject(
+                    name=project.name,
+                    relative_path=(
+                        submodule.path
+                        if project.relative_path == "."
+                        else f"{submodule.path}/{project.relative_path}"
+                    ),
+                    full_path="",
+                    has_schematic=project.has_schematic,
+                    has_pcb=project.has_pcb,
+                    has_project_file=project.has_project_file,
+                    project_file=project.project_file,
+                    submodule=submodule.path,
+                )
+            )
+        record["status"] = "searched"
+        record["project_count"] = len(found)
+    return projects, records
+
+
 def _discover_remote_projects(
     context: JobContext,
     parsed: ParsedRemote,
@@ -974,7 +1074,7 @@ def _discover_remote_projects(
     stage: str,
     percent_ceiling: float,
     ref: Optional[str] = None,
-) -> tuple[List[DiscoveredProject], str]:
+) -> "RemoteDiscovery":
     """Clone just enough of a remote to enumerate the KiCad projects inside it.
 
     Blobless, single-branch, no-checkout: the tree listing is all that is
@@ -1019,7 +1119,21 @@ def _discover_remote_projects(
             force=True,
         )
         projects = discover_projects_from_repo(repo)
-        return projects, classify_import_type(projects)
+        env = git_checkout_service.hardened_env(git_env())
+        submodule_projects, submodules = _discover_submodule_projects(
+            context, repo, parsed.url, env=env, stage=stage
+        )
+        if submodule_projects:
+            projects = sorted(
+                [*projects, *submodule_projects],
+                key=lambda p: (_directory_depth(p.relative_path), p.name.lower()),
+            )
+        return RemoteDiscovery(
+            projects=projects,
+            import_type=classify_import_type(projects),
+            submodules=submodules,
+            uses_lfs=git_checkout_service.tracks_lfs(repo.working_tree_dir, env, ref="HEAD"),
+        )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -1092,9 +1206,10 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
     # the repository itself before choosing a target directory, so a crafted
     # request cannot pick the on-disk layout or escape the checkout with a
     # relative path like "../../etc".
-    discovered, import_type = _discover_remote_projects(
+    discovery = _discover_remote_projects(
         context, parsed, stage="validate-import", percent_ceiling=8.0, ref=ref
     )
+    discovered, import_type = discovery.projects, discovery.import_type
     if not discovered:
         raise ValueError(
             f"No KiCad projects found in '{repo_name}'. Prism looks for "
