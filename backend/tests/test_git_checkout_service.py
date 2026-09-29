@@ -369,5 +369,63 @@ class LfsPolicy(unittest.TestCase):
         self.assertEqual(self.report.lfs_status, "unavailable")
 
 
+POINTER = (
+    "version https://git-lfs.github.com/spec/v1\n"
+    "oid sha256:{oid}\n"
+    "size 5\n"
+)
+OID = "a" * 64
+
+
+class LfsPointersInHistory(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = make_repo(
+            Path(self._tmp.name) / "repo", {"model.step": POINTER.format(oid=OID), "a.txt": "plain"}
+        )
+        self.git_dir = self.repo / ".git"
+
+    def store(self, data: bytes) -> None:
+        target = self.git_dir / "lfs" / "objects" / OID[:2] / OID[2:4]
+        target.mkdir(parents=True)
+        (target / OID).write_bytes(data)
+
+    def test_non_pointers_pass_through(self) -> None:
+        self.assertEqual(service.resolve_lfs_content(b"plain", self.git_dir), b"plain")
+        big = service._LFS_POINTER_PREFIX + b"\n" + b"x" * 2000
+        self.assertEqual(service.resolve_lfs_content(big, self.git_dir), big)
+
+    def test_pointer_resolves_to_the_stored_object(self) -> None:
+        self.store(b"hello")
+        pointer = POINTER.format(oid=OID).encode()
+        self.assertEqual(service.resolve_lfs_content(pointer, self.git_dir), b"hello")
+
+    def test_missing_object_is_reported_not_returned_as_pointer_text(self) -> None:
+        pointer = POINTER.format(oid=OID).encode()
+        with self.assertRaises(service.LfsObjectMissing):
+            service.resolve_lfs_content(pointer, self.git_dir)
+
+    def test_commit_file_reader_uses_it(self) -> None:
+        from fastapi import HTTPException
+
+        from app.services import file_service
+
+        head = git(self.repo, "rev-parse", "HEAD").strip()
+        with self.assertRaises(HTTPException) as caught:
+            file_service.read_file_from_commit(str(self.repo), head, "model.step")
+        self.assertEqual(caught.exception.status_code, 404)
+        self.assertIn("LFS", caught.exception.detail)
+
+        self.store(b"hello")
+        self.assertEqual(
+            file_service.read_file_from_commit(str(self.repo), head, "model.step").content,
+            b"hello",
+        )
+        self.assertEqual(
+            file_service.read_file_from_commit(str(self.repo), head, "a.txt").content, b"plain"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

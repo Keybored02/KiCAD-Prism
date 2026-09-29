@@ -40,7 +40,9 @@ __all__ = [
     "list_gitlinks",
     "tracks_lfs",
     "vet_submodule",
+    "LfsObjectMissing",
     "read_submodules",
+    "resolve_lfs_content",
     "resolve_history_context",
     "resolve_submodule_url",
 ]
@@ -164,6 +166,43 @@ def lfs_available(env: dict) -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     return True
+
+
+# --- LFS pointers in history -------------------------------------------------
+
+_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+_LFS_POINTER_MAX_BYTES = 1024
+_LFS_OID_RE = re.compile(rb"^oid sha256:(?P<oid>[0-9a-f]{64})$", re.MULTILINE)
+
+
+class LfsObjectMissing(Exception):
+    """A committed LFS pointer whose file was never downloaded to this server."""
+
+    def __init__(self, oid: str) -> None:
+        super().__init__(f"LFS object {oid[:12]} is not downloaded")
+        self.oid = oid
+
+
+def resolve_lfs_content(content: bytes, git_dir: Path | str) -> bytes:
+    """Swap a committed LFS pointer for the file it names.
+
+    History readers see the blob Git stores, which for an LFS file is a short
+    pointer. Returns ``content`` unchanged when it is not a pointer, and raises
+    :class:`LfsObjectMissing` when it is one but the object is not in the
+    repository's LFS store. Never contacts a server: history views must stay
+    fast, and download policy belongs to import and sync.
+    """
+    if len(content) > _LFS_POINTER_MAX_BYTES or not content.startswith(_LFS_POINTER_PREFIX):
+        return content
+    match = _LFS_OID_RE.search(content)
+    if not match:
+        return content
+    oid = match["oid"].decode("ascii")
+    stored = Path(git_dir) / "lfs" / "objects" / oid[:2] / oid[2:4] / oid
+    try:
+        return stored.read_bytes()
+    except OSError:
+        raise LfsObjectMissing(oid) from None
 
 
 # --- .gitmodules ------------------------------------------------------------
