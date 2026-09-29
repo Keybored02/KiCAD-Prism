@@ -416,7 +416,7 @@ export function RailCheckbox({
     );
 }
 
-export function ControlHeading({ children }: { children: ReactNode }) {
+function ControlHeading({ children }: { children: ReactNode }) {
     return <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</h3>;
 }
 
