@@ -11,7 +11,7 @@ from git import Repo
 from git.exc import BadName
 from pydantic import BaseModel
 
-from app.services import path_config_service
+from app.services import git_checkout_service, path_config_service
 
 class FileItem(BaseModel):
     name: str
@@ -159,10 +159,24 @@ def read_file_from_commit(
     if entry.type != "blob":
         raise HTTPException(status_code=404, detail=not_found_detail)
 
+    try:
+        content = git_checkout_service.resolve_lfs_content(
+            entry.data_stream.read(), commit.repo.git_dir
+        )
+    except git_checkout_service.LfsObjectMissing as error:
+        raise HTTPException(
+            status_code=404,
+            detail="This file is stored in Git LFS and has not been downloaded to the server.",
+        ) from error
+    except git_checkout_service.LfsObjectTooLarge as error:
+        raise HTTPException(
+            status_code=413,
+            detail="This file is stored in Git LFS and is too large to read from history.",
+        ) from error
     return CommitFile(
         name=posixpath.basename(normalized_file_path),
         path=normalized_file_path,
-        content=entry.data_stream.read(),
+        content=content,
     )
 
 

@@ -9,6 +9,7 @@ from git.exc import BadName, GitCommandError
 from typing import Dict, Any
 import datetime
 
+from app.services import git_checkout_service
 from app.services.git_read_cache_service import git_read_cache
 
 logger = logging.getLogger(__name__)
@@ -336,6 +337,24 @@ def get_releases_filtered(
     )
 
 
+def _read_blob(commit, blob) -> bytes:
+    """Blob bytes, with a committed LFS pointer replaced by the file it names."""
+    try:
+        return git_checkout_service.resolve_lfs_content(
+            blob.data_stream.read(), commit.repo.git_dir
+        )
+    except git_checkout_service.LfsObjectMissing as error:
+        raise HTTPException(
+            status_code=404,
+            detail="This file is stored in Git LFS and has not been downloaded to the server.",
+        ) from error
+    except git_checkout_service.LfsObjectTooLarge as error:
+        raise HTTPException(
+            status_code=413,
+            detail="This file is stored in Git LFS and is too large to read from history.",
+        ) from error
+
+
 def get_file_from_commit_with_prefix(repo_path: str, commit_hash: str, file_path: str, relative_prefix: str = None) -> str:
     """
     Get file content from a specific commit.
@@ -352,7 +371,7 @@ def get_file_from_commit_with_prefix(repo_path: str, commit_hash: str, file_path
         
         try:
             blob = commit.tree / full_path
-            content = blob.data_stream.read()
+            content = _read_blob(commit, blob)
             return content.decode('utf-8')
         except KeyError:
             raise HTTPException(status_code=404, detail=f"File {file_path} not found in commit")
@@ -566,7 +585,7 @@ def get_file_from_commit(repo_path: str, commit_hash: str, file_path: str) -> st
         
         try:
             blob = commit.tree / file_path
-            content = blob.data_stream.read()
+            content = _read_blob(commit, blob)
             return content.decode('utf-8')
         except KeyError:
             raise HTTPException(status_code=404, detail=f"File {file_path} not found in commit")

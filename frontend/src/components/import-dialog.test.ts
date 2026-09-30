@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  importNotices,
   importReviewTitle,
   isProjectAlreadyImported,
   projectKeyOf,
@@ -100,5 +101,17 @@ describe("projects registered before Prism recorded project files", () => {
   it("falls back to the directory when the backend sends no key", () => {
     const legacy = project({ name: "board", relative_path: "hardware/board" });
     expect(projectKeyOf(legacy)).toBe("hardware/board");
+  });
+});
+
+describe("importNotices", () => {
+  it("says nothing for a repository without LFS", () => {
+    expect(importNotices({})).toEqual([]);
+  });
+
+  it("mentions LFS", () => {
+    const notices = importNotices({ uses_lfs: true });
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatch(/Git LFS/);
   });
 });
