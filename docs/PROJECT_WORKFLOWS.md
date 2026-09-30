@@ -55,11 +55,21 @@ and Release Studio can build from it.
   there are marked **Submodule** and are imported with it. Their history follows
   the submodule's own commits. A submodule whose URL breaks the workspace's
   remote rules, or cannot be reached, is skipped and the dialog says why. The
-  import still succeeds.
+  import still succeeds, without the projects that lived in a submodule it could not download.
 - **Git LFS.** LFS files are downloaded after clone and after each sync.
   `PRISM_GIT_LFS_MODE=off` leaves them as pointer files and never contacts an LFS
   server. `pointers-only` does the same without warnings. `PRISM_GIT_LFS_MAX_MB`
   skips the download for a repository over that size.
+- **Changes upstream.** Sync picks up submodules and LFS files added later. A
+  submodule the remote removes is deleted from the checkout, unless it has local
+  changes or the path is now a regular directory, in which case it is kept and
+  the sync says so. A project whose folder disappears is reported on the next
+  sync.
+- **Submodule branches.** A project inside a submodule is shown at the commit
+  its parent pins, listed as **Pinned commit**. The submodule's own branches are
+  refreshed by sync and by the background fetch.
+- **Release Studio.** It cannot build a project that lives inside a submodule
+  yet, and says so when a build is requested.
 - **Failures are warnings.** A submodule or LFS failure is reported in the job
   message and does not undo the import or sync. Fix access, then sync again.
 - **History.** A committed LFS file is read from the server's LFS store. If it
