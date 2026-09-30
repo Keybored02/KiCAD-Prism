@@ -4,6 +4,7 @@ Project Import Service for KiCAD Prism
 Handles Type-1 (single project) and Type-2 (multiple projects) imports.
 """
 import os
+import dataclasses
 import hashlib
 import mimetypes
 import subprocess
@@ -1138,6 +1139,41 @@ def _discover_remote_projects(
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def _drop_unavailable_projects(
+    plan: ProjectImportPlan, report: git_checkout_service.CheckoutReport
+) -> tuple[ProjectImportPlan, list[dict]]:
+    """Leave out projects whose submodule could not be downloaded.
+
+    Registering one would give a project with an empty folder. Fails the import
+    when nothing is left, so the user is told rather than handed an empty result.
+    """
+    unavailable = [entry["path"] for entry in report.submodules_skipped]
+    if not unavailable:
+        return plan, []
+    kept, dropped = [], []
+    for project in plan.selected:
+        blocker = next(
+            (
+                path
+                for path in unavailable
+                if project.relative_path == path or project.relative_path.startswith(f"{path}/")
+            ),
+            None,
+        )
+        if blocker is None:
+            kept.append(project)
+        else:
+            dropped.append({"name": project.key, "submodule": blocker})
+    if not dropped:
+        return plan, []
+    if not kept:
+        raise ValueError(
+            "None of the selected projects could be imported: submodule "
+            f"{dropped[0]['submodule']} could not be downloaded."
+        )
+    return dataclasses.replace(plan, selected=tuple(kept)), dropped
+
+
 def _register_planned_projects(
     plan: ProjectImportPlan,
     target_path: Path,
@@ -1299,6 +1335,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
         context.check_cancelled()
         checkout_report = hydrate_checkout(target_path, repo_url, context)
         context.check_cancelled()
+        plan, skipped_projects = _drop_unavailable_projects(plan, checkout_report)
         context.progress(
             stage="register-projects",
             message="Registering imported projects",
@@ -1343,6 +1380,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 "thumbnail_job_ids": thumbnail_job_ids,
                 "follow_ups": follow_ups,
                 "checkout": checkout_report.to_dict(),
+                "skipped_projects": skipped_projects,
             },
         )
     except Exception:
@@ -1669,12 +1707,14 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
         fetch_info = origin.fetch(env=env, prune=True)
 
         if fetch_only:
+            git_checkout_service.fetch_submodule_refs(sync_path, git_env())
             message = f"Fetched {len(fetch_info)} ref(s)"
         elif repo.head.is_detached:
             message = "Fetched refs; checkout is on a detached HEAD so nothing was advanced"
-        elif repo.is_dirty(untracked_files=False):
+        elif repo.is_dirty(untracked_files=False, submodules=False):
             # Prism never writes into the tree, so a dirty checkout means someone
-            # edited it directly. Report rather than clobber their work.
+            # edited it directly. Submodules are not counted: one that could not
+            # move to its new pin would otherwise block the parent for good. Report rather than clobber their work.
             message = "Fetched refs; local changes in the checkout block a fast-forward"
         else:
             branch = repo.active_branch
@@ -1682,7 +1722,9 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
             if tracking is None:
                 message = f"Fetched refs; '{branch.name}' has no upstream to fast-forward from"
             else:
-                repo.git.merge("--ff-only", tracking.name)
+                # The hardened environment keeps LFS files out of the merge: they
+                # are downloaded afterwards, under the LFS mode and size limit.
+                repo.git.merge("--ff-only", tracking.name, env=env)
                 message = f"Synced {len(fetch_info)} ref(s)"
 
         checkout = None
@@ -1694,6 +1736,8 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
                 message = f"{message}. {checkout['warnings'][0]}"
             path_config_service.clear_config_cache()
             project_path = row.get('path', '')
+            if project_path and not os.path.isdir(project_path):
+                message = f"{message}. This project's folder no longer exists in the repository"
             if project_path and os.path.isdir(project_path):
                 refresh_project_assets(project_id)
 

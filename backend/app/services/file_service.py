@@ -168,6 +168,11 @@ def read_file_from_commit(
             status_code=404,
             detail="This file is stored in Git LFS and has not been downloaded to the server.",
         ) from error
+    except git_checkout_service.LfsObjectTooLarge as error:
+        raise HTTPException(
+            status_code=413,
+            detail="This file is stored in Git LFS and is too large to read from history.",
+        ) from error
     return CommitFile(
         name=posixpath.basename(normalized_file_path),
         path=normalized_file_path,

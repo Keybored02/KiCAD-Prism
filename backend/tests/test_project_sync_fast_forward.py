@@ -67,7 +67,9 @@ class SyncFastForwardsOnly(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         # `pull` fetches *and merges*; a mirror must not merge.
         self.origin.pull.assert_not_called()
-        self.repo.git.merge.assert_called_once_with("--ff-only", "origin/main")
+        self.repo.git.merge.assert_called_once_with(
+            "--ff-only", "origin/main", env=mock.ANY
+        )
 
     def test_sync_prunes_deleted_remote_branches(self) -> None:
         project_import_service.sync_project("prj_1")

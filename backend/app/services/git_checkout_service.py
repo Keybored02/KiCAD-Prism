@@ -21,6 +21,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import stat
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +43,9 @@ __all__ = [
     "tracks_lfs",
     "vet_submodule",
     "LfsObjectMissing",
+    "LfsObjectTooLarge",
+    "fetch_submodule_refs",
+    "is_inside_submodule",
     "read_submodules",
     "resolve_lfs_content",
     "resolve_history_context",
@@ -51,6 +56,11 @@ __all__ = [
 # chain them, and each level is another remote to contact.
 MAX_SUBMODULE_DEPTH = 4
 COMMAND_TIMEOUT_SECONDS = 1800
+# Analysis runs while a person waits, and may contact up to
+# PRISM_GIT_SUBMODULE_MAX remotes. A stuck one must not hold the dialog open.
+DISCOVERY_TIMEOUT_SECONDS = 60
+# History views read a file into memory per request; refuse to load a huge one.
+MAX_HISTORY_LFS_BYTES = 50 * 1024 * 1024
 
 LFS_AUTO = "auto"
 LFS_OFF = "off"
@@ -84,8 +94,10 @@ class CheckoutReport:
     submodules_initialized: int = 0
     # Each entry is {"path": ..., "reason": ...}.
     submodules_skipped: list[dict] = field(default_factory=list)
+    # Paths of submodules the remote removed and Prism cleaned up.
+    submodules_removed: list[str] = field(default_factory=list)
     uses_lfs: bool = False
-    # ok | not-used | disabled | unavailable | too-large | partial | failed
+    # ok | not-used | disabled | unavailable | too-large | partial
     lfs_status: str = "not-used"
     lfs_missing: int = 0
     warnings: list[str] = field(default_factory=list)
@@ -100,6 +112,7 @@ class CheckoutReport:
             "submodules_total": self.submodules_total,
             "submodules_initialized": self.submodules_initialized,
             "submodules_skipped": list(self.submodules_skipped),
+            "submodules_removed": list(self.submodules_removed),
             "uses_lfs": self.uses_lfs,
             "lfs_status": self.lfs_status,
             "lfs_missing": self.lfs_missing,
@@ -136,6 +149,7 @@ def _run(
     cwd: Path | str,
     env: dict,
     check: bool = True,
+    timeout: int = COMMAND_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", *args],
@@ -145,7 +159,7 @@ def _run(
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=COMMAND_TIMEOUT_SECONDS,
+        timeout=timeout,
         check=check,
     )
 
@@ -183,13 +197,25 @@ class LfsObjectMissing(Exception):
         self.oid = oid
 
 
+class LfsObjectTooLarge(Exception):
+    """A committed LFS file too big to read into memory for a history view."""
+
+    def __init__(self, size: int) -> None:
+        super().__init__(f"LFS object is {size} bytes")
+        self.size = size
+
+
+_LFS_SIZE_RE = re.compile(rb"^size (?P<size>\d+)$", re.MULTILINE)
+
+
 def resolve_lfs_content(content: bytes, git_dir: Path | str) -> bytes:
     """Swap a committed LFS pointer for the file it names.
 
     History readers see the blob Git stores, which for an LFS file is a short
     pointer. Returns ``content`` unchanged when it is not a pointer, and raises
     :class:`LfsObjectMissing` when it is one but the object is not in the
-    repository's LFS store. Never contacts a server: history views must stay
+    repository's LFS store, and :class:`LfsObjectTooLarge` past
+    ``MAX_HISTORY_LFS_BYTES``. Never contacts a server: history views must stay
     fast, and download policy belongs to import and sync.
     """
     if len(content) > _LFS_POINTER_MAX_BYTES or not content.startswith(_LFS_POINTER_PREFIX):
@@ -198,6 +224,9 @@ def resolve_lfs_content(content: bytes, git_dir: Path | str) -> bytes:
     if not match:
         return content
     oid = match["oid"].decode("ascii")
+    size_match = _LFS_SIZE_RE.search(content)
+    if size_match and int(size_match["size"]) > MAX_HISTORY_LFS_BYTES:
+        raise LfsObjectTooLarge(int(size_match["size"]))
     stored = Path(git_dir) / "lfs" / "objects" / oid[:2] / oid[2:4] / oid
     try:
         return stored.read_bytes()
@@ -292,6 +321,8 @@ def resolve_history_context(
     moved = False
     while True:
         for path in _submodule_paths(current):
+            if not _submodule_path_is_safe(path):
+                continue
             if remaining == path or remaining.startswith(f"{path}/"):
                 worktree = current / path
                 if not (worktree / ".git").exists():
@@ -382,11 +413,86 @@ def fetch_tree_only(dest: Path | str, url: str, commit: str, env: dict) -> str:
     _run(["remote", "add", "origin", url], cwd=target, env=env)
     base = ["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin"]
     try:
-        _run([*base, commit], cwd=target, env=env)
-        return "FETCH_HEAD"
+        _run([*base, commit], cwd=target, env=env, timeout=DISCOVERY_TIMEOUT_SECONDS)
     except subprocess.CalledProcessError:
-        _run([*base, "HEAD"], cwd=target, env=env)
-        return "FETCH_HEAD"
+        # A timeout is not retried: the remote is slow, not refusing the commit.
+        _run([*base, "HEAD"], cwd=target, env=env, timeout=DISCOVERY_TIMEOUT_SECONDS)
+    return "FETCH_HEAD"
+
+
+# --- removed submodules -----------------------------------------------------
+
+
+def _remove_tree(path: Path) -> None:
+    def make_writable(function, target, _info):
+        os.chmod(target, stat.S_IWRITE)
+        function(target)
+
+    shutil.rmtree(path, onerror=make_writable)
+
+
+def _prune_stale_submodules(root: Path, env: dict, report: CheckoutReport) -> None:
+    """Remove submodules the remote deleted.
+
+    A fast-forward that deletes a gitlink leaves the submodule's directory and
+    its ``.git/modules`` store behind, so registered projects would keep showing
+    stale files. Only a clean directory is removed: local changes stay, with a
+    warning, and so does a path that is now a regular tracked directory.
+    """
+    try:
+        git_dir = Path(_run(["rev-parse", "--absolute-git-dir"], cwd=root, env=env).stdout.strip())
+        registered = _run(
+            ["config", "--local", "--name-only", "--get-regexp", r"^submodule\..*\.url$"],
+            cwd=root,
+            env=env,
+            check=False,
+        ).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return
+    declared = {item.name for item in read_submodules(root, env)}
+    linked = set(list_gitlinks(root, env))
+    for line in registered:
+        match = re.match(r"^submodule\.(?P<name>.+)\.url$", line.strip())
+        if not match or match["name"] in declared:
+            continue
+        name = match["name"]
+        modules = git_dir / "modules" / name
+        worktree = root / name
+        try:
+            configured = _run(
+                ["config", "-f", str(modules / "config"), "core.worktree"],
+                cwd=root,
+                env=env,
+                check=False,
+            ).stdout.strip()
+            if configured:
+                worktree = (modules / configured).resolve()
+            relative = worktree.resolve().relative_to(root.resolve()).as_posix()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+        if not relative or relative == "." or relative == ".git" or relative.startswith(".git/") or relative in linked:
+            continue
+        tracked = _run(["ls-files", "--", relative], cwd=root, env=env, check=False).stdout.strip()
+        if tracked:
+            report.warnings.append(f"{relative} was a submodule and is now a regular directory")
+            continue
+        if worktree.exists():
+            status = _run(
+                ["status", "--porcelain", "--untracked-files=no"],
+                cwd=worktree,
+                env=env,
+                check=False,
+            )
+            if status.returncode != 0 or status.stdout.strip():
+                report.warnings.append(
+                    f"Submodule {relative} was removed upstream but has local changes, so it was kept"
+                )
+                continue
+            _remove_tree(worktree)
+        _run(["config", "--local", "--remove-section", f"submodule.{name}"], cwd=root, env=env, check=False)
+        if modules.is_dir():
+            _remove_tree(modules)
+        report.submodules_removed.append(relative)
 
 
 # --- hydration --------------------------------------------------------------
@@ -424,14 +530,28 @@ def _hydrate_submodules(
             progress(f"Fetching submodule {shown}")
         try:
             _run(["submodule", "sync", "--", submodule.path], cwd=repo_path, env=env)
-            _run(["submodule", "update", "--init", "--", submodule.path], cwd=repo_path, env=env)
+            # `--checkout` overrides a repository's own `update = merge`, `rebase`
+            # or `none`: the first two would create commits in the server's
+            # mirror, and `none` would leave the directory empty.
+            _run(
+                ["submodule", "update", "--init", "--checkout", "--", submodule.path],
+                cwd=repo_path,
+                env=env,
+            )
         except (OSError, subprocess.SubprocessError) as error:
             report.submodules_skipped.append({"path": shown, "reason": describe_failure(error)})
             report.warnings.append(f"Could not fetch submodule {shown}: {describe_failure(error)}")
             continue
-        report.submodules_initialized += 1
         worktree = repo_path / submodule.path
+        if not (worktree / ".git").exists():
+            report.submodules_skipped.append({"path": shown, "reason": "not populated"})
+            report.warnings.append(f"Submodule {shown} was not populated")
+            continue
+        report.submodules_initialized += 1
         worktrees.append(worktree)
+        # `submodule update` only fetches when the pinned commit is missing, so
+        # the submodule's branch list would otherwise go stale.
+        _fetch_refs(worktree, env)
         try:
             child_url = resolve_submodule_url(parent_url, submodule.url) if parent_url else submodule.url
         except RemoteUrlError:
@@ -450,6 +570,36 @@ def _hydrate_submodules(
             )
         )
     return worktrees
+
+
+def _fetch_refs(worktree: Path, env: dict) -> None:
+    """Best effort: refresh a submodule's remote branches. Failure is not news."""
+    try:
+        _run(["fetch", "-q", "--prune", "origin"], cwd=worktree, env=env)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def fetch_submodule_refs(repo_path: Path | str, env: dict, *, depth: int = 1) -> None:
+    """Refresh remote branches in every populated submodule, without checking out.
+
+    For the background fetch, which must not change the checkout.
+    """
+    if depth > MAX_SUBMODULE_DEPTH:
+        return
+    safe_env = hardened_env(env)
+    for submodule in read_submodules(repo_path, safe_env):
+        if not _submodule_path_is_safe(submodule.path):
+            continue
+        worktree = Path(repo_path) / submodule.path
+        if (worktree / ".git").exists():
+            _fetch_refs(worktree, safe_env)
+            fetch_submodule_refs(worktree, env, depth=depth + 1)
+
+
+def is_inside_submodule(repo_path: Path | str, sub_path: Optional[str]) -> bool:
+    """Whether ``sub_path`` lives in an initialised submodule of ``repo_path``."""
+    return resolve_history_context(repo_path, sub_path)[0] != str(repo_path)
 
 
 def _lfs_files(worktree: Path, env: dict) -> Optional[list[dict]]:
@@ -586,6 +736,7 @@ def hydrate_checkout(
         progress=progress,
         check_cancelled=check_cancelled,
     )
+    _prune_stale_submodules(root, safe_env, report)
     _hydrate_lfs(
         [root, *submodule_trees],
         env=safe_env,

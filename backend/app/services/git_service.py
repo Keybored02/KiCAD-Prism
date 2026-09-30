@@ -347,6 +347,11 @@ def _read_blob(commit, blob) -> bytes:
             status_code=404,
             detail="This file is stored in Git LFS and has not been downloaded to the server.",
         ) from error
+    except git_checkout_service.LfsObjectTooLarge as error:
+        raise HTTPException(
+            status_code=413,
+            detail="This file is stored in Git LFS and is too large to read from history.",
+        ) from error
 
 
 def get_file_from_commit_with_prefix(repo_path: str, commit_hash: str, file_path: str, relative_prefix: str = None) -> str:
@@ -519,6 +524,11 @@ def get_branches(repo_path: str, relative_path: str = None) -> dict[str, Any]:
                 "message": commit.message.strip(),
             }
         )
+
+    # A submodule sits on the commit its parent pins, not on a branch. Offer that
+    # commit as the current view instead of leaving the viewer with no current one.
+    if repo.head.is_detached:
+        add_branch(name="Pinned commit", ref="HEAD", source="pinned", is_current=True)
 
     origin = next((remote for remote in repo.remotes if remote.name == "origin"), None)
     remotes = [origin] if origin else repo.remotes
