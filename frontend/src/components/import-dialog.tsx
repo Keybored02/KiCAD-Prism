@@ -89,6 +89,18 @@ interface AnalysisResult {
   already_imported?: boolean;
   /** Project keys already registered, so they can be shown as done. */
   imported_paths?: string[];
+  uses_lfs?: boolean;
+}
+
+/** Things worth knowing before importing, beyond the project list itself. */
+export function importNotices(analysis: Pick<AnalysisResult, "uses_lfs">): string[] {
+  const notices: string[] = [];
+  if (analysis.uses_lfs) {
+    notices.push(
+      "This repository uses Git LFS. Large files are downloaded during import unless the server has LFS turned off.",
+    );
+  }
+  return notices;
 }
 
 export function importReviewTitle(
@@ -120,6 +132,7 @@ const STAGE_LABELS: Record<string, string> = {
   "discover-projects": "Looking for KiCad projects",
   "validate-import": "Checking the repository",
   "clone-repository": "Cloning repository",
+  "hydrate-checkout": "Downloading LFS files",
   "register-projects": "Registering projects",
   "queue-thumbnails": "Queueing board renders",
 };
@@ -737,6 +750,12 @@ export function ImportDialog({
                 the workspace are marked below; select any others to add them.
               </p>
             )}
+
+            {importNotices(state.analysis).map((notice) => (
+              <p key={notice} className="text-sm text-muted-foreground">
+                {notice}
+              </p>
+            ))}
 
             {state.analysis.import_type === "type2" && (
               <div className="flex items-center justify-between py-2">
