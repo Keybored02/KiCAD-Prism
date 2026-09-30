@@ -32,6 +32,7 @@ from app.services.workspace_migrations import m022_project_metadata_repository
 from app.services.workspace_migrations import m024_tracker_connector_delete_cascade
 from app.services.workspace_migrations import m025_tracker_webhook_oauth
 from app.services.trackers import migrations as tracker_migrations
+from app.services.workspace_migrations import m026_repository_origin
 
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (23, tracker_migrations.WORKSPACE_MIGRATION_NAME, tracker_migrations.migrate),
     (24, tracker_migrations.WORKSPACE_FK_CASCADE_NAME, m024_tracker_connector_delete_cascade.migrate),
     (25, tracker_migrations.WORKSPACE_WEBHOOK_OAUTH_NAME, m025_tracker_webhook_oauth.migrate),
+    (26, "repository_origin", m026_repository_origin.migrate),
 )
 
 

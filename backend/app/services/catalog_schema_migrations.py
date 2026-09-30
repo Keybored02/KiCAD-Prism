@@ -78,9 +78,35 @@ def _import_proposal_draft_column(conn: Any) -> None:
     )
 
 
+def _agent_tokens_registry(conn: Any) -> None:
+    """Track issued KiCad agent sign-in tokens so they can be listed and revoked.
+
+    The token value is never stored; the jti is the handle the revocation list
+    keys on when a row is revoked from the web console.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_tokens (
+            jti TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            scopes TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            last_used_at TEXT,
+            revoked_at TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS agent_tokens_email_idx ON agent_tokens (email)"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "portable_column_types", _portable_column_types),
     (2, "import_proposal_draft_column", _import_proposal_draft_column),
+    (3, "agent_tokens_registry", _agent_tokens_registry),
 )
 
 
