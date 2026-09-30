@@ -61,6 +61,31 @@ Studio can build from it.
   history. If it was never downloaded, it reads as not found, with an LFS
   message. Files over 50 MB are not read from history.
 
+### Git submodules
+
+Import and sync fill in submodules, so libraries and boards kept in another
+repository are present in the checkout.
+
+- Import analysis also searches submodules for KiCad projects, one level deep and
+  up to `PRISM_GIT_SUBMODULE_MAX` (default 20). Projects found there are marked
+  **Submodule** and are imported with it. Their history follows the submodule's
+  own commits.
+- A submodule whose URL breaks the workspace's remote rules, or cannot be
+  reached, is skipped and the dialog says why. The import still succeeds,
+  without the projects that lived in that submodule.
+- Sync picks up submodules added later. A submodule the remote removes is
+  deleted from the checkout, unless it has local changes or the path is now a
+  regular directory. Then it is kept and the sync says so. A project whose
+  folder disappears is reported on the next sync.
+- A project inside a submodule is shown at the commit its parent pins, listed as
+  **Pinned commit**. The submodule's own branches are refreshed by sync and by
+  the background fetch.
+- Release Studio cannot build a project that lives inside a submodule yet, and
+  says so when a build is requested.
+
+Private submodules use the same SSH key or GitHub token as the parent. Prism
+never follows `file://` submodule URLs.
+
 ## Synchronize
 
 Synchronization is a queued worker job. It fetches the configured remote and
