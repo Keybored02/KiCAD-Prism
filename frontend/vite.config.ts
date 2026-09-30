@@ -15,6 +15,10 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
+        ws: true,
+        // Forward the browser's origin so absolute URLs the API builds (the
+        // OAuth redirect URI) point at the dev server, not the proxied port.
+        xfwd: true,
       },
     },
   },
@@ -41,10 +45,20 @@ export default defineConfig({
           if (
             id.includes("node_modules/@radix-ui/") ||
             id.includes("node_modules/radix-ui/") ||
-            id.includes("node_modules/@base-ui/") ||
             id.includes("node_modules/sonner")
           ) {
             return "ui-runtime"
+          }
+          if (
+            id.includes("node_modules/@tiptap/") ||
+            id.includes("node_modules/prosemirror-") ||
+            id.includes("node_modules/linkifyjs") ||
+            id.includes("node_modules/marked") ||
+            id.includes("node_modules/orderedmap") ||
+            id.includes("node_modules/rope-sequence") ||
+            id.includes("node_modules/w3c-keyname")
+          ) {
+            return "editor-runtime"
           }
           if (id.includes("node_modules/lucide-react")) {
             return "icons-runtime"

@@ -40,6 +40,7 @@ import {
     selectRevisionSlot,
     type RevisionRef,
 } from "./history-comparison-selection";
+import { historyFileOpenAction, visualizerTabForFile } from "./history-file-open";
 
 interface Release {
     tag: string;
@@ -195,21 +196,6 @@ function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string 
     return { Icon: FileText, color: "text-muted-foreground" };
 }
 
-// Files the browser can display on its own (PDFs, images). These open in a new
-// tab against their raw bytes rather than the visualizer, which has no view for
-// them and would otherwise just fall back to the commit view.
-function opensInBrowser(filename: string): boolean {
-    return /\.(pdf|png|jpe?g|gif|svg|webp|bmp)$/i.test(filename);
-}
-
-// Which visualizer tab a changed file opens onto. Board and schematic have their
-// own views; anything else (project, libraries) just opens the visualizer on its
-// default tab, since there is no dedicated viewer for it.
-function visualizerTabForFile(filename: string): string | undefined {
-    if (filename.endsWith(".kicad_pcb")) return "pcb";
-    if (filename.endsWith(".kicad_sch")) return "sch";
-    return undefined;
-}
 
 // Small chip indicating that a commit (or file) touched N items of a given
 // kind. Renders nothing when count is 0 so rows without that kind of change
@@ -609,45 +595,59 @@ function CommitItem({
                         .sort((a, b) => fileSortRank(a.filename) - fileSortRank(b.filename))
                         .map((file) => {
                             const { Icon: TypeIcon, color: typeColor } = fileTypeIcon(file.filename);
+                            const openAction = historyFileOpenAction(file.filename);
+                            const rowClassName = "flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs";
+                            const rowBody = (
+                                <>
+                                    <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
+                                        {STATUS_ICON[file.status]}
+                                    </span>
+                                    <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
+                                    <span className="font-medium truncate">{file.filename}</span>
+                                    <span className="text-muted-foreground truncate hidden sm:block">
+                                        {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
+                                    </span>
+                                    {(file.additions !== null || file.deletions !== null) && (
+                                        <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
+                                            {file.additions !== null && file.additions > 0 && (
+                                                <span className="text-success">+{file.additions}</span>
+                                            )}
+                                            {file.deletions !== null && file.deletions > 0 && (
+                                                <span className="text-destructive">-{file.deletions}</span>
+                                            )}
+                                        </span>
+                                    )}
+                                </>
+                            );
                             const tab = visualizerTabForFile(file.filename);
+                            const row = openAction === "none" ? (
+                                <div className={rowClassName}>
+                                    {rowBody}
+                                </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className={`${rowClassName} hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                                    onClick={() => {
+                                        if (openAction === "browser") {
+                                            const url = `/api/projects/${projectId}/commits/${commit.full_hash}/file?path=${encodeURIComponent(file.path)}`;
+                                            window.open(url, "_blank", "noopener");
+                                            return;
+                                        }
+                                        onOpenVisualizer(commit.full_hash, tab);
+                                    }}
+                                    title={
+                                        openAction === "browser"
+                                            ? `Open ${file.filename} in a new tab`
+                                            : `Open ${file.filename} at this commit`
+                                    }
+                                >
+                                    {rowBody}
+                                </button>
+                            );
                             return (
                                 <div key={file.path}>
-                                    <button
-                                        type="button"
-                                        className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                        onClick={() => {
-                                            if (opensInBrowser(file.filename)) {
-                                                const url = `/api/projects/${projectId}/commits/${commit.full_hash}/file?path=${encodeURIComponent(file.path)}`;
-                                                window.open(url, "_blank", "noopener");
-                                                return;
-                                            }
-                                            onOpenVisualizer(commit.full_hash, tab);
-                                        }}
-                                        title={
-                                            opensInBrowser(file.filename)
-                                                ? `Open ${file.filename} in a new tab`
-                                                : `Open ${file.filename} at this commit`
-                                        }
-                                    >
-                                        <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
-                                            {STATUS_ICON[file.status]}
-                                        </span>
-                                        <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
-                                        <span className="font-medium truncate">{file.filename}</span>
-                                        <span className="text-muted-foreground truncate hidden sm:block">
-                                            {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
-                                        </span>
-                                        {(file.additions !== null || file.deletions !== null) && (
-                                            <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
-                                                {file.additions !== null && file.additions > 0 && (
-                                                    <span className="text-success">+{file.additions}</span>
-                                                )}
-                                                {file.deletions !== null && file.deletions > 0 && (
-                                                    <span className="text-destructive">-{file.deletions}</span>
-                                                )}
-                                            </span>
-                                        )}
-                                    </button>
+                                    {row}
                                     <FileElementList
                                         file={file}
                                         onFocus={(focus) => onOpenVisualizer(commit.full_hash, tab, focus)}
@@ -661,6 +661,7 @@ function CommitItem({
     );
 }
 
+// react-doctor-disable-next-line no-giant-component - virtualized list with inline filter and preview wiring
 export function HistoryViewer({
     projectId,
     branchRef,
@@ -782,12 +783,6 @@ export function HistoryViewer({
             console.warn("Failed to copy release hash", error);
         }
     }, []);
-
-    useEffect(() => {
-        setCommitsPage(0);
-        setReleasesPage(0);
-        setBranchTipSha(null);
-    }, [projectId, branchRef]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -1123,10 +1118,10 @@ export function HistoryViewer({
                     <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
                     <div className="min-w-0 flex-1 text-xs">
                         <span className="text-muted-foreground">Base: </span>
-                        <span className="font-medium">{baseRevision?.label ?? "Choose revision"}</span>
+                        <span className="font-medium">{baseRevision?.label ?? "Choose Base below"}</span>
                         <span className="mx-2 text-muted-foreground">→</span>
                         <span className="text-muted-foreground">Compare: </span>
-                        <span className="font-medium">{compareRevision?.label ?? "Choose revision"}</span>
+                        <span className="font-medium">{compareRevision?.label ?? "Choose Compare below"}</span>
                     </div>
                     <Button
                         variant="outline"
@@ -1149,7 +1144,7 @@ export function HistoryViewer({
                             }
                         }}
                     >
-                        Compare
+                        Open comparison
                     </Button>
                     <Button
                         variant="ghost"
