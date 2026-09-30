@@ -525,11 +525,6 @@ def get_branches(repo_path: str, relative_path: str = None) -> dict[str, Any]:
             }
         )
 
-    # A submodule sits on the commit its parent pins, not on a branch. Offer that
-    # commit as the current view instead of leaving the viewer with no current one.
-    if repo.head.is_detached:
-        add_branch(name="Pinned commit", ref="HEAD", source="pinned", is_current=True)
-
     origin = next((remote for remote in repo.remotes if remote.name == "origin"), None)
     remotes = [origin] if origin else repo.remotes
     remote_branches = []

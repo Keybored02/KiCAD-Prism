@@ -11,10 +11,10 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from git import Git, Repo, RemoteProgress
 from app.core.config import settings
-from app.services import derived_assets, project_service, path_config_service
+from app.services import derived_assets, git_checkout_service, project_service, path_config_service
 from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult
@@ -152,6 +152,32 @@ def git_env() -> dict:
     env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=yes -o BatchMode=yes"
     _inject_github_token(env)
     return env
+
+
+def _lfs_settings() -> git_checkout_service.LfsSettings:
+    return git_checkout_service.LfsSettings(
+        mode=settings.PRISM_GIT_LFS_MODE, max_mb=settings.PRISM_GIT_LFS_MAX_MB
+    )
+
+
+def hydrate_checkout(
+    checkout_path: str | Path,
+    context: Optional[JobContext] = None,
+) -> git_checkout_service.CheckoutReport:
+    """Download a checkout's LFS files under this deployment's settings."""
+
+    def progress(message: str) -> None:
+        print(f"[git] {message}", flush=True)
+        if context is not None:
+            context.progress(stage="hydrate-checkout", message=message, percent=76)
+
+    return git_checkout_service.hydrate_checkout(
+        checkout_path,
+        env=git_env(),
+        lfs=_lfs_settings(),
+        progress=progress,
+        check_cancelled=context.check_cancelled if context is not None else None,
+    )
 
 
 def list_remote_branches(parsed: ParsedRemote) -> tuple[List[str], Optional[str]]:
@@ -865,13 +891,14 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
         raise ValueError(f"Branch '{requested_ref}' does not exist on this remote")
     selected_ref = requested_ref or default_branch
 
-    projects, import_type = _discover_remote_projects(
+    discovery = _discover_remote_projects(
         context,
         parsed,
         stage="clone-metadata",
         percent_ceiling=85.0,
         ref=requested_ref,
     )
+    projects, import_type = discovery.projects, discovery.import_type
 
     # An already-imported repository is not an error any more: the dialog uses
     # this to offer the projects that are not registered yet.
@@ -902,6 +929,7 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
         "ref": selected_ref,
         "already_imported": bool(existing_repo),
         "imported_paths": imported_paths,
+        "uses_lfs": discovery.uses_lfs,
         "projects": [
             {
                 "name": project.name,
@@ -938,6 +966,13 @@ def classify_import_type(projects: List[DiscoveredProject]) -> str:
     return "type2"
 
 
+@dataclass
+class RemoteDiscovery:
+    projects: List[DiscoveredProject]
+    import_type: str
+    uses_lfs: bool = False
+
+
 def _discover_remote_projects(
     context: JobContext,
     parsed: ParsedRemote,
@@ -945,7 +980,7 @@ def _discover_remote_projects(
     stage: str,
     percent_ceiling: float,
     ref: Optional[str] = None,
-) -> tuple[List[DiscoveredProject], str]:
+) -> "RemoteDiscovery":
     """Clone just enough of a remote to enumerate the KiCad projects inside it.
 
     Blobless, single-branch, no-checkout: the tree listing is all that is
@@ -990,7 +1025,13 @@ def _discover_remote_projects(
             force=True,
         )
         projects = discover_projects_from_repo(repo)
-        return projects, classify_import_type(projects)
+        return RemoteDiscovery(
+            projects=projects,
+            import_type=classify_import_type(projects),
+            uses_lfs=git_checkout_service.tracks_lfs(
+                repo.working_tree_dir, git_env(), ref="HEAD"
+            ),
+        )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -1063,9 +1104,10 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
     # the repository itself before choosing a target directory, so a crafted
     # request cannot pick the on-disk layout or escape the checkout with a
     # relative path like "../../etc".
-    discovered, import_type = _discover_remote_projects(
+    discovery = _discover_remote_projects(
         context, parsed, stage="validate-import", percent_ceiling=8.0, ref=ref
     )
+    discovered, import_type = discovery.projects, discovery.import_type
     if not discovered:
         raise ValueError(
             f"No KiCad projects found in '{repo_name}'. Prism looks for "
@@ -1141,7 +1183,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                     repo_url,
                     str(target_path),
                     progress=V3CloneProgress(context, stage="clone-repository"),
-                    env=git_env(),
+                    env=git_checkout_service.hardened_env(git_env()),
                     **clone_options,
                 )
             except GitAccessError:
@@ -1152,6 +1194,8 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 ) from error
             cloned_in_job = True
 
+        context.check_cancelled()
+        checkout_report = hydrate_checkout(target_path, context)
         context.check_cancelled()
         context.progress(
             stage="register-projects",
@@ -1196,6 +1240,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 "import_type": import_type,
                 "thumbnail_job_ids": thumbnail_job_ids,
                 "follow_ups": follow_ups,
+                "checkout": checkout_report.to_dict(),
             },
         )
     except Exception:
@@ -1502,7 +1547,7 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
         origin = repo.remote('origin')
 
         # Reuse the clone's pinned-host-key and noninteractive Git policy.
-        env = git_env()
+        env = git_checkout_service.hardened_env(git_env())
 
         if not fetch_only:
             derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)
@@ -1524,10 +1569,18 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
             if tracking is None:
                 message = f"Fetched refs; '{branch.name}' has no upstream to fast-forward from"
             else:
-                repo.git.merge("--ff-only", tracking.name)
+                # The hardened environment keeps LFS files out of the merge: they
+                # are downloaded afterwards, under the LFS mode and size limit.
+                repo.git.merge("--ff-only", tracking.name, env=env)
                 message = f"Synced {len(fetch_info)} ref(s)"
 
+        checkout = None
         if not fetch_only:
+            # A fast-forward moves LFS pointers; download the files they name so
+            # the tree is usable, not just current.
+            checkout = hydrate_checkout(sync_path).to_dict()
+            if checkout["warnings"]:
+                message = f"{message}. {checkout['warnings'][0]}"
             path_config_service.clear_config_cache()
             project_path = row.get('path', '')
             if project_path and os.path.isdir(project_path):
@@ -1535,11 +1588,14 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
 
         workspace.update_repository_synced(row.get('repo_id', ''))
 
-        return {
+        result = {
             "status": "success",
             "message": message,
             "path": sync_path
         }
+        if checkout is not None:
+            result["checkout"] = checkout
+        return result
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
