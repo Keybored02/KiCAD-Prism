@@ -31,7 +31,7 @@ from typing import Any, Optional
 
 from git import Actor, Repo
 
-from app.services import project_import_service, project_service
+from app.services import git_checkout_service, project_import_service, project_service
 from app.services.workspace_service import workspace
 
 logger = logging.getLogger(__name__)
@@ -191,6 +191,9 @@ def inspect_session(session_id: str) -> dict[str, Any]:
         import_type = project_import_service.classify_import_type(discovered) if discovered else "type1"
     finally:
         staged_repo.close()
+    uses_lfs = git_checkout_service.tracks_lfs(
+        content, project_import_service.git_env(), ref="HEAD"
+    )
 
     return {
         "session_id": session_id,
@@ -198,6 +201,7 @@ def inspect_session(session_id: str) -> dict[str, Any]:
         "was_initialised": not was_git,
         "repo_name": _folder_name(content),
         "import_type": import_type,
+        "uses_lfs": uses_lfs,
         "projects": [
             {
                 "name": project.name,
@@ -340,7 +344,13 @@ def _clone_and_register(
     # orphaned directory behind, or the next attempt fails with "already exists"
     # about a repo the database never knew. On any error, remove the clone (and
     # unwind any rows registered so far) before re-raising.
-    cloned = Repo.clone_from(str(content), str(target_path))
+    # Same environment as a remote import: LFS files are not smudged by the
+    # clone, only by hydrate_checkout below, so the LFS settings apply.
+    cloned = Repo.clone_from(
+        str(content),
+        str(target_path),
+        env=git_checkout_service.hardened_env(project_import_service.git_env()),
+    )
     # A clone from a local path sets origin to that path, which we are about to
     # delete. Converge with a remote import instead: point origin at the folder's
     # real remote when it had one, or drop origin entirely when it did not, so the
@@ -352,6 +362,8 @@ def _clone_and_register(
     cloned.close()
     repo_id = ""
     try:
+        # Download LFS files from the restored origin, as a remote import does.
+        checkout_report = project_import_service.hydrate_checkout(target_path)
         repo_id, imported_ids = _register(
             target_path, repo_name, import_type, discovered, origin_url=source_origin
         )
@@ -372,6 +384,7 @@ def _clone_and_register(
         "import_type": import_type,
         "project_ids": imported_ids,
         "repo_name": repo_name,
+        "checkout": checkout_report.to_dict(),
     }
 
 

@@ -397,6 +397,7 @@ export function ImportDialog({
         import_type: inspection.import_type,
         projects: inspection.projects || [],
         empty_reason: inspection.empty_reason || undefined,
+        uses_lfs: Boolean(inspection.uses_lfs),
       };
       // Type-1 is one project; preselect it. Type-2 starts empty so the user
       // picks the boards they want, exactly like a remote import.
