@@ -64,7 +64,7 @@ hop usually requires checking its consumers and tests.
 `backend/app/services/project_import_service.py` (`run_project_analyze_job_v3`
 then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 `backend/app/services/git_access_service.py` ·
-`backend/app/services/git_checkout_service.py` (submodules, LFS) → worker →
+`backend/app/services/git_checkout_service.py` (LFS) → worker →
 `frontend/src/components/import-dialog.tsx` →
 `frontend/src/components/workspace.tsx`
 

@@ -45,6 +45,22 @@ reach the Git host.
 Prism rejects local filesystem URLs, credentials embedded in URLs, and dangerous
 remote-helper protocols.
 
+### Git LFS
+
+Import and sync download Git LFS files, so the checkout is usable and Release
+Studio can build from it.
+
+- LFS files are downloaded after clone and after each sync. Files added to LFS
+  later are picked up by the next sync.
+- `PRISM_GIT_LFS_MODE=off` leaves them as pointer files and never contacts an
+  LFS server. `pointers-only` does the same without warnings.
+  `PRISM_GIT_LFS_MAX_MB` skips the download for a repository over that size.
+- A failed download is a warning in the job message. It does not undo the
+  import or sync. Fix access, then sync again.
+- A committed LFS file is read from the server's LFS store when viewing
+  history. If it was never downloaded, it reads as not found, with an LFS
+  message. Files over 50 MB are not read from history.
+
 ## Synchronize
 
 Synchronization is a queued worker job. It fetches the configured remote and
