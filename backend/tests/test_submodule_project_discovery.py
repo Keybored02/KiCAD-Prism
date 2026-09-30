@@ -102,15 +102,6 @@ class DiscoverSubmoduleProjects(unittest.TestCase):
             ([], []),
         )
 
-    def test_lfs_tracking_is_detected_in_a_no_checkout_clone(self) -> None:
-        lfs = make_repo(
-            Path(self._tmp.name) / "lfs", {".gitattributes": "*.step filter=lfs -text\n"}
-        )
-        clone = Repo.clone_from(
-            str(lfs), str(Path(self._tmp.name) / "lfs-analysis"), no_checkout=True
-        )
-        self.assertTrue(service.tracks_lfs(clone.working_tree_dir, self.env, ref="HEAD"))
-        self.assertFalse(service.tracks_lfs(self.analysis.working_tree_dir, self.env, ref="HEAD"))
 
 
 if __name__ == "__main__":

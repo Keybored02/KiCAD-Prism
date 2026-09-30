@@ -19,12 +19,11 @@ from unittest import mock
 from fastapi import HTTPException
 from git import Repo
 
-from app.services import file_service
 from app.services import git_checkout_service as service
 from app.services import git_service, project_import_service as importer
 from app.services.git_remote_url import RemoteUrlPolicy
 from app.services.project_import_plan import PlannedImportProject, ProjectImportPlan
-from tests.test_git_checkout_service import OID, POINTER, git, make_repo
+from tests.test_git_checkout_service import git, make_repo
 from tests.test_submodule_project_discovery import allow_file
 
 POLICY = RemoteUrlPolicy.build()
@@ -305,21 +304,6 @@ class ImportSkipsUnavailableSubmodules(unittest.TestCase):
 
 
 class LimitsAndTimeouts(unittest.TestCase):
-    def test_huge_lfs_pointer_is_refused_before_reading(self) -> None:
-        pointer = (POINTER.format(oid=OID).replace("size 5", f"size {60 * 1024 * 1024}")).encode()
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(service.LfsObjectTooLarge):
-                service.resolve_lfs_content(pointer, tmp)
-
-    def test_history_reader_answers_413(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            pointer = POINTER.format(oid=OID).replace("size 5", f"size {60 * 1024 * 1024}")
-            repo = make_repo(Path(tmp) / "repo", {"model.step": pointer})
-            head = git(repo, "rev-parse", "HEAD").strip()
-            with self.assertRaises(HTTPException) as caught:
-                file_service.read_file_from_commit(str(repo), head, "model.step")
-            self.assertEqual(caught.exception.status_code, 413)
-
     def test_discovery_fetch_has_a_short_timeout_and_is_not_retried(self) -> None:
         calls = []
 

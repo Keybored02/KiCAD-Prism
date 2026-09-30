@@ -1713,8 +1713,9 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
             message = "Fetched refs; checkout is on a detached HEAD so nothing was advanced"
         elif repo.is_dirty(untracked_files=False, submodules=False):
             # Prism never writes into the tree, so a dirty checkout means someone
-            # edited it directly. Submodules are not counted: one that could not
-            # move to its new pin would otherwise block the parent for good. Report rather than clobber their work.
+            # edited it directly. Report rather than clobber their work.
+            # Submodules are not counted: one that could not move to its new pin
+            # would otherwise block the parent for good.
             message = "Fetched refs; local changes in the checkout block a fast-forward"
         else:
             branch = repo.active_branch

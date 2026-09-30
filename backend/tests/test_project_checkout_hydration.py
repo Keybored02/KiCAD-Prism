@@ -57,10 +57,12 @@ class SyncHydratesCheckout(unittest.TestCase):
         names = [call[0] for call in self.repo.git.method_calls]
         self.assertEqual(names, ["merge"])
 
-    def test_sync_fetch_is_hardened(self) -> None:
+    def test_sync_fetch_and_merge_are_hardened(self) -> None:
         project_import_service.sync_project("prj_1")
         env = self.origin.fetch.call_args.kwargs["env"]
         self.assertEqual(env["GIT_LFS_SKIP_SMUDGE"], "1")
+        merge_env = self.repo.git.merge.call_args.kwargs["env"]
+        self.assertEqual(merge_env["GIT_LFS_SKIP_SMUDGE"], "1")
 
     def test_background_fetch_does_not_hydrate(self) -> None:
         result = project_import_service.sync_project("prj_1", fetch_only=True)
