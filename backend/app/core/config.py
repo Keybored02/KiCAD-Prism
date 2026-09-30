@@ -302,6 +302,13 @@ class Settings(BaseSettings):
             "many MB. 0 means no limit."
         ),
     )
+    PRISM_GIT_SUBMODULE_MAX: int = Field(
+        default=20,
+        description=(
+            "Most submodules Prism will search for KiCad projects while analyzing an "
+            "import. 0 disables searching inside submodules."
+        ),
+    )
 
     @field_validator("PRISM_GIT_LFS_MODE", mode="before")
     @classmethod

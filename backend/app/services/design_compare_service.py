@@ -25,6 +25,7 @@ from app.services import (
     bom_diff_service,
     document_diff_service,
     fabrication_compare_service,
+    git_checkout_service,
     semantic_index_service,
 )
 from app.services.design_compare_benchmark import DesignCompareBenchmark
@@ -138,9 +139,13 @@ def _repo_paths(project_id: str) -> Tuple[Path, Optional[str], Path]:
     parent = row.get("parent_repo_path")
     sub = row.get("sub_path")
     if parent and sub:
-        return Path(parent), sub, checkout
+        repo, inner = git_checkout_service.resolve_history_context(parent, sub)
+        return Path(repo), inner, checkout
     if import_type == "type2_subproject":
-        return Path(parent or checkout.parent), sub, checkout
+        repo, inner = git_checkout_service.resolve_history_context(
+            parent or checkout.parent, sub
+        )
+        return Path(repo), inner, checkout
     return checkout, None, checkout
 
 

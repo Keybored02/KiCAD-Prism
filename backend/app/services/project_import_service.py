@@ -4,6 +4,7 @@ Project Import Service for KiCAD Prism
 Handles Type-1 (single project) and Type-2 (multiple projects) imports.
 """
 import os
+import dataclasses
 import hashlib
 import mimetypes
 import subprocess
@@ -68,6 +69,9 @@ class DiscoveredProject:
     # board/schematic KiCad would regenerate one from. This is what tells two
     # projects in the same directory apart.
     project_file: str = ""
+    # Path of the submodule this project lives in, or "" for the repository
+    # itself. The checkout holds the project at ``relative_path`` either way.
+    submodule: str = ""
 
     @property
     def project_key(self) -> str:
@@ -162,9 +166,10 @@ def _lfs_settings() -> git_checkout_service.LfsSettings:
 
 def hydrate_checkout(
     checkout_path: str | Path,
+    parent_url: str,
     context: Optional[JobContext] = None,
 ) -> git_checkout_service.CheckoutReport:
-    """Download a checkout's LFS files under this deployment's settings."""
+    """Fill in a checkout's submodules and LFS files under this deployment's policy."""
 
     def progress(message: str) -> None:
         print(f"[git] {message}", flush=True)
@@ -173,7 +178,9 @@ def hydrate_checkout(
 
     return git_checkout_service.hydrate_checkout(
         checkout_path,
+        parent_url=parent_url,
         env=git_env(),
+        policy=remote_url_policy(),
         lfs=_lfs_settings(),
         progress=progress,
         check_cancelled=context.check_cancelled if context is not None else None,
@@ -332,7 +339,7 @@ def _directory_depth(relative_path: str) -> int:
     return 0 if relative_path == "." else len(relative_path.split("/"))
 
 
-def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
+def discover_projects_from_repo(repo: Repo, ref: str = "HEAD") -> List[DiscoveredProject]:
     """
     Discover KiCAD projects by inspecting the Git tree directly (no-checkout).
     Returns list of DiscoveredProject.
@@ -344,7 +351,7 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
     """
     # Get all files in the repo recursively
     try:
-        all_files = repo.git.ls_tree('-r', 'HEAD', '--name-only').splitlines()
+        all_files = repo.git.ls_tree('-r', ref, '--name-only').splitlines()
     except Exception:
         # Fallback for empty repos or other issues
         return []
@@ -929,6 +936,7 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
         "ref": selected_ref,
         "already_imported": bool(existing_repo),
         "imported_paths": imported_paths,
+        "submodules": discovery.submodules,
         "uses_lfs": discovery.uses_lfs,
         "projects": [
             {
@@ -939,6 +947,7 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
                 "has_schematic": project.has_schematic,
                 "has_pcb": project.has_pcb,
                 "has_project_file": project.has_project_file,
+                "submodule": project.submodule,
             }
             for project in projects
         ],
@@ -970,7 +979,93 @@ def classify_import_type(projects: List[DiscoveredProject]) -> str:
 class RemoteDiscovery:
     projects: List[DiscoveredProject]
     import_type: str
+    # One record per submodule Prism looked at: path, status (searched or
+    # skipped), reason and how many projects it held.
+    submodules: list[dict] = field(default_factory=list)
     uses_lfs: bool = False
+
+
+def _discover_submodule_projects(
+    context: JobContext,
+    repo: Repo,
+    parent_url: str,
+    *,
+    env: dict,
+    stage: str,
+) -> tuple[List[DiscoveredProject], list[dict]]:
+    """Find KiCad projects inside the repository's submodules.
+
+    One level only, and at most ``PRISM_GIT_SUBMODULE_MAX`` submodules: every one
+    is another remote to contact, and the names come from the repository being
+    analyzed. A submodule that cannot be reached is reported, not fatal.
+    """
+    root = repo.working_tree_dir
+    submodules = git_checkout_service.read_submodules(root, env, ref="HEAD")
+    if not submodules:
+        return [], []
+    links = git_checkout_service.list_gitlinks(root, env)
+    limit = max(int(settings.PRISM_GIT_SUBMODULE_MAX), 0)
+    policy = remote_url_policy()
+
+    projects: List[DiscoveredProject] = []
+    records: list[dict] = []
+    for index, submodule in enumerate(submodules):
+        record = {"path": submodule.path, "status": "skipped", "reason": "", "project_count": 0}
+        records.append(record)
+        commit = links.get(submodule.path)
+        if not commit:
+            record["reason"] = "not pinned to a commit"
+            continue
+        if index >= limit:
+            record["reason"] = (
+                "searching submodules is turned off"
+                if limit == 0
+                else f"more than {limit} submodules; the rest are not searched"
+            )
+            continue
+        reason = git_checkout_service.vet_submodule(parent_url, submodule, policy)
+        if reason:
+            record["reason"] = reason
+            continue
+        context.check_cancelled()
+        context.progress(
+            stage=stage,
+            message=f"Searching submodule {submodule.path}",
+            percent=5,
+            force=True,
+        )
+        url = git_checkout_service.resolve_submodule_url(parent_url, submodule.url)
+        temp_dir = tempfile.mkdtemp(prefix="kicad_submodule_")
+        try:
+            ref = git_checkout_service.fetch_tree_only(
+                Path(temp_dir) / "repo", url, commit, env
+            )
+            found = discover_projects_from_repo(Repo(str(Path(temp_dir) / "repo")), ref)
+        except Exception as error:
+            record["reason"] = git_checkout_service.describe_failure(error)
+            continue
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        for project in found:
+            projects.append(
+                DiscoveredProject(
+                    name=project.name,
+                    relative_path=(
+                        submodule.path
+                        if project.relative_path == "."
+                        else f"{submodule.path}/{project.relative_path}"
+                    ),
+                    full_path="",
+                    has_schematic=project.has_schematic,
+                    has_pcb=project.has_pcb,
+                    has_project_file=project.has_project_file,
+                    project_file=project.project_file,
+                    submodule=submodule.path,
+                )
+            )
+        record["status"] = "searched"
+        record["project_count"] = len(found)
+    return projects, records
 
 
 def _discover_remote_projects(
@@ -1025,15 +1120,58 @@ def _discover_remote_projects(
             force=True,
         )
         projects = discover_projects_from_repo(repo)
+        env = git_checkout_service.hardened_env(git_env())
+        submodule_projects, submodules = _discover_submodule_projects(
+            context, repo, parsed.url, env=env, stage=stage
+        )
+        if submodule_projects:
+            projects = sorted(
+                [*projects, *submodule_projects],
+                key=lambda p: (_directory_depth(p.relative_path), p.name.lower()),
+            )
         return RemoteDiscovery(
             projects=projects,
             import_type=classify_import_type(projects),
-            uses_lfs=git_checkout_service.tracks_lfs(
-                repo.working_tree_dir, git_env(), ref="HEAD"
-            ),
+            submodules=submodules,
+            uses_lfs=git_checkout_service.tracks_lfs(repo.working_tree_dir, env, ref="HEAD"),
         )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _drop_unavailable_projects(
+    plan: ProjectImportPlan, report: git_checkout_service.CheckoutReport
+) -> tuple[ProjectImportPlan, list[dict]]:
+    """Leave out projects whose submodule could not be downloaded.
+
+    Registering one would give a project with an empty folder. Fails the import
+    when nothing is left, so the user is told rather than handed an empty result.
+    """
+    unavailable = [entry["path"] for entry in report.submodules_skipped]
+    if not unavailable:
+        return plan, []
+    kept, dropped = [], []
+    for project in plan.selected:
+        blocker = next(
+            (
+                path
+                for path in unavailable
+                if project.relative_path == path or project.relative_path.startswith(f"{path}/")
+            ),
+            None,
+        )
+        if blocker is None:
+            kept.append(project)
+        else:
+            dropped.append({"name": project.key, "submodule": blocker})
+    if not dropped:
+        return plan, []
+    if not kept:
+        raise ValueError(
+            "None of the selected projects could be imported: submodule "
+            f"{dropped[0]['submodule']} could not be downloaded."
+        )
+    return dataclasses.replace(plan, selected=tuple(kept)), dropped
 
 
 def _register_planned_projects(
@@ -1195,8 +1333,9 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             cloned_in_job = True
 
         context.check_cancelled()
-        checkout_report = hydrate_checkout(target_path, context)
+        checkout_report = hydrate_checkout(target_path, repo_url, context)
         context.check_cancelled()
+        plan, skipped_projects = _drop_unavailable_projects(plan, checkout_report)
         context.progress(
             stage="register-projects",
             message="Registering imported projects",
@@ -1241,6 +1380,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 "thumbnail_job_ids": thumbnail_job_ids,
                 "follow_ups": follow_ups,
                 "checkout": checkout_report.to_dict(),
+                "skipped_projects": skipped_projects,
             },
         )
     except Exception:
@@ -1343,6 +1483,10 @@ def run_project_metadata_job_v3(context: JobContext) -> JobResult:
     repo_path = str(row.get("parent_repo_path") or project_path)
     raw_relative = str(row.get("relative_path") or ".").strip()
     relative_path = None if raw_relative in (".", "", "/") else raw_relative.strip("/")
+    # A project inside a submodule keeps its history in the submodule.
+    repo_path, relative_path = git_checkout_service.resolve_history_context(
+        repo_path, relative_path
+    )
     context.check_cancelled()
 
     computed = project_metadata_service.refresh_project_metadata(
@@ -1522,6 +1666,13 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
     )
 
 
+def _remote_url(origin) -> str:
+    try:
+        return str(origin.url)
+    except Exception:
+        return ""
+
+
 def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
     """
     Sync a project with its remote repository.
@@ -1556,12 +1707,14 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
         fetch_info = origin.fetch(env=env, prune=True)
 
         if fetch_only:
+            git_checkout_service.fetch_submodule_refs(sync_path, git_env())
             message = f"Fetched {len(fetch_info)} ref(s)"
         elif repo.head.is_detached:
             message = "Fetched refs; checkout is on a detached HEAD so nothing was advanced"
-        elif repo.is_dirty(untracked_files=False):
+        elif repo.is_dirty(untracked_files=False, submodules=False):
             # Prism never writes into the tree, so a dirty checkout means someone
-            # edited it directly. Report rather than clobber their work.
+            # edited it directly. Submodules are not counted: one that could not
+            # move to its new pin would otherwise block the parent for good. Report rather than clobber their work.
             message = "Fetched refs; local changes in the checkout block a fast-forward"
         else:
             branch = repo.active_branch
@@ -1576,13 +1729,15 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
 
         checkout = None
         if not fetch_only:
-            # A fast-forward moves LFS pointers; download the files they name so
-            # the tree is usable, not just current.
-            checkout = hydrate_checkout(sync_path).to_dict()
+            # A fast-forward moves submodule pins and LFS pointers; bring the
+            # files they name along so the tree is usable, not just current.
+            checkout = hydrate_checkout(sync_path, _remote_url(origin)).to_dict()
             if checkout["warnings"]:
                 message = f"{message}. {checkout['warnings'][0]}"
             path_config_service.clear_config_cache()
             project_path = row.get('path', '')
+            if project_path and not os.path.isdir(project_path):
+                message = f"{message}. This project's folder no longer exists in the repository"
             if project_path and os.path.isdir(project_path):
                 refresh_project_assets(project_id)
 

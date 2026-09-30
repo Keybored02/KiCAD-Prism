@@ -26,7 +26,9 @@ class SyncHydratesCheckout(unittest.TestCase):
         self.origin.url = "https://github.com/org/main.git"
         self.origin.fetch.return_value = ["ref"]
 
-        self.report = git_checkout_service.CheckoutReport(uses_lfs=True, lfs_status="ok")
+        self.report = git_checkout_service.CheckoutReport(
+            submodules_total=1, submodules_initialized=1
+        )
         self.hydrate = mock.Mock(return_value=self.report)
         for patch in (
             mock.patch.object(
@@ -49,18 +51,16 @@ class SyncHydratesCheckout(unittest.TestCase):
     def test_sync_hydrates_after_fast_forward(self) -> None:
         result = project_import_service.sync_project("prj_1")
         self.assertEqual(result["status"], "success")
-        self.hydrate.assert_called_once_with(str(self.checkout))
-        self.assertTrue(result["checkout"]["uses_lfs"])
+        self.hydrate.assert_called_once_with(str(self.checkout), "https://github.com/org/main.git")
+        self.assertTrue(result["checkout"]["has_submodules"])
         # Hydration must come after the fast-forward, not before.
         names = [call[0] for call in self.repo.git.method_calls]
         self.assertEqual(names, ["merge"])
 
-    def test_sync_fetch_and_merge_are_hardened(self) -> None:
+    def test_sync_fetch_is_hardened(self) -> None:
         project_import_service.sync_project("prj_1")
         env = self.origin.fetch.call_args.kwargs["env"]
         self.assertEqual(env["GIT_LFS_SKIP_SMUDGE"], "1")
-        merge_env = self.repo.git.merge.call_args.kwargs["env"]
-        self.assertEqual(merge_env["GIT_LFS_SKIP_SMUDGE"], "1")
 
     def test_background_fetch_does_not_hydrate(self) -> None:
         result = project_import_service.sync_project("prj_1", fetch_only=True)
@@ -81,9 +81,10 @@ class HydrateWrapper(unittest.TestCase):
         ) as inner, mock.patch.object(
             project_import_service.settings, "PRISM_GIT_LFS_MODE", "off"
         ), mock.patch.object(project_import_service.settings, "PRISM_GIT_LFS_MAX_MB", 5):
-            project_import_service.hydrate_checkout("/tmp/x", context)
+            project_import_service.hydrate_checkout("/tmp/x", "https://h/o/r.git", context)
         kwargs = inner.call_args.kwargs
         self.assertEqual(kwargs["lfs"], git_checkout_service.LfsSettings(mode="off", max_mb=5))
+        self.assertEqual(kwargs["parent_url"], "https://h/o/r.git")
         self.assertEqual(kwargs["check_cancelled"], context.check_cancelled)
         self.assertEqual(kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
 

@@ -60,6 +60,7 @@ Database capacity must cover all API and worker pools, not only one process.
 | `GITLAB_TOKEN` | optional private GitLab HTTPS credential for clone **and** Release publish (`api` scope) |
 | `PRISM_GIT_LFS_MODE` | `auto` downloads Git LFS files on import and sync; `off` leaves pointer files and never contacts an LFS server; `pointers-only` is `off` without UI warnings |
 | `PRISM_GIT_LFS_MAX_MB` | skip LFS downloads for a repository over this size; `0` for no limit |
+| `PRISM_GIT_SUBMODULE_MAX` | most submodules searched for KiCad projects while analyzing an import; `0` to skip |
 | `PRISM_FORGE_HOSTS` | exact self-hosted GitLab registry; legacy `host=gitlab` pairs or structured JSON with per-host API roots and token environment-variable names; see [Forge host configuration](FORGE_HOSTS.md) |
 | `IMPORT_ALLOWED_HOSTS_STR` | comma-separated Git host allowlist |
 | `IMPORT_ALLOW_INSECURE_HTTP` | permits plaintext HTTP remotes when explicitly required |

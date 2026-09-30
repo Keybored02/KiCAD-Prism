@@ -28,6 +28,7 @@ from app.core.security import (
     require_viewer,
 )
 from app.services import forge_publish_service as forge_publish
+from app.services import git_checkout_service
 from app.services import release_studio_build_service as build_service
 from app.services import release_studio_service as store
 from app.services.job_service import jobs
@@ -207,6 +208,18 @@ async def create_candidate(
 
     get_project_for_role_or_404(project_id, user.role)
     project = workspace.get_project_by_id(project_id) or {}
+    # The build walks up to the nearest .git, which for a project inside a
+    # submodule is the submodule's, while its paths are relative to the parent.
+    # Refuse until that is designed rather than build from the wrong tree.
+    relative_path = str(project.get("relative_path") or "")
+    if git_checkout_service.is_inside_submodule(
+        str(project.get("parent_repo_path") or project.get("path") or ""),
+        None if relative_path in ("", ".") else relative_path,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Release Studio cannot build a project that lives inside a Git submodule yet.",
+        )
     _require_enqueue_identity(request.identity, project)
     job = jobs.enqueue(
         "release_studio_build",

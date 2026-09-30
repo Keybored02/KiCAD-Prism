@@ -22,6 +22,7 @@ from app.services import (
     derived_assets,
     file_service,
     git_access_service,
+    git_checkout_service,
     path_config_service,
     project_import_service,
     project_metadata_service,
@@ -130,9 +131,13 @@ class ProjectPropertiesResponse(BaseModel):
 def _repo_context(project: project_service.Project) -> tuple[str, Optional[str]]:
     """Return repository path and optional subproject relative path for project-scoped git operations."""
     if project.parent_repo_path and project.sub_path:
-        return project.parent_repo_path, project.sub_path
+        return git_checkout_service.resolve_history_context(
+            project.parent_repo_path, project.sub_path
+        )
     if project.import_type == "type2_subproject":
-        return project.parent_repo_path or os.path.dirname(project.path), project.sub_path
+        return git_checkout_service.resolve_history_context(
+            project.parent_repo_path or os.path.dirname(project.path), project.sub_path
+        )
     return project.path, None
 
 
