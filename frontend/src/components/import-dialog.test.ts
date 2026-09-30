@@ -106,12 +106,26 @@ describe("projects registered before Prism recorded project files", () => {
 
 describe("importNotices", () => {
   it("says nothing for a repository without LFS", () => {
-    expect(importNotices({})).toEqual([]);
+    expect(importNotices({ projects: [project({ name: "A" })] })).toEqual([]);
   });
 
   it("mentions LFS", () => {
-    const notices = importNotices({ uses_lfs: true });
+    const notices = importNotices({ projects: [], uses_lfs: true });
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatch(/Git LFS/);
+  });
+
+  it("mentions unsearched submodules and submodule projects", () => {
+    const notices = importNotices({
+      projects: [project({ name: "Main", relative_path: "hw/board", submodule: "hw/board" })],
+      submodules: [
+        { path: "hw/board", status: "searched", project_count: 1 },
+        { path: "libs/x", status: "skipped", reason: "host not allowed" },
+      ],
+    });
+    expect(notices).toEqual([
+      "Submodule libs/x was not searched for projects: host not allowed.",
+      expect.stringMatching(/inside a submodule/),
+    ]);
   });
 });
