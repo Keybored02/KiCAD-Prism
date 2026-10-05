@@ -1,15 +1,23 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
-import { Activity, Box, Loader2, Maximize, Tag } from "lucide-react";
+import { Activity, Box, Keyboard, Loader2, Maximize, Move3d, Tag } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getScene } from "@/lib/systems-api";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { toast } from "sonner";
+import { clearPose, getScene, resetPoses, setPose } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
-import type { PrismSystemSceneElement, PrismSystemSceneSelection } from "@/types/prism-semantic-viewer";
+import type {
+  PrismSystemSceneElement,
+  PrismSystemSceneMoveState,
+  PrismSystemSceneSelection,
+} from "@/types/prism-semantic-viewer";
 import type { SystemScene } from "@/types/system";
 
 import { names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
+import { MovePanel } from "./scene-move-panel";
 import type { SystemTabProps } from "./system-tab-content";
+import { useSystemMutation } from "./use-system-mutation";
 
 const DiagramTab = lazy(() => import("./diagram-tab").then((module) => ({ default: module.DiagramTab })));
 
@@ -36,7 +44,7 @@ function Notice({ tone = "info", children }: { tone?: "info" | "warning" | "erro
  * Without WebGPU, the 2D diagram with a notice.
  */
 export function Scene3dTab(props: SystemTabProps) {
-  const { systemId, document, etag, onNavigate } = props;
+  const { systemId, document, etag, canEdit, reload, onNavigate } = props;
   const [scene, setScene] = useState<SystemScene | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState<PrismSystemSceneSelection | null>(null);
@@ -44,6 +52,11 @@ export function Scene3dTab(props: SystemTabProps) {
   const [labels, setLabels] = useState(true);
   const [stats, setStats] = useState(false);
   const [reads, setReads] = useState(0);
+  const [move, setMove] = useState<PrismSystemSceneMoveState | null>(null);
+  // Bumped whenever the view saves, cancels or changes target: the move panel starts over.
+  const [moveEpoch, setMoveEpoch] = useState(0);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const { busy, run } = useSystemMutation(reload);
   const elementRef = useRef<PrismSystemSceneElement | null>(null);
   const supported = webgpuAvailable();
 
@@ -87,18 +100,50 @@ export function Scene3dTab(props: SystemTabProps) {
       if (scene) node.setScene(scene);
       node.setLabelsVisible(labels);
       node.setStatsOverlay(stats);
+      node.setMoveAllowed(canEdit);
     });
   };
+  useEffect(() => {
+    elementRef.current?.setMoveAllowed?.(canEdit);
+  }, [canEdit]);
+
+  /** Store the target's position (a released drag, Enter, or Save); on failure the view goes back. */
+  const savePose = async (target: NonNullable<PrismSystemSceneMoveState["target"]>) => {
+    const saved = await run("pose", () => setPose(systemId, etag, target.instanceId, target.pose));
+    if (!saved) elementRef.current?.cancelMove?.();
+  };
+  const backToDefault = async (target: NonNullable<PrismSystemSceneMoveState["target"]>) => {
+    await run("pose", () => clearPose(systemId, etag, target.instanceId), `${target.displayPath} is back in its default place`);
+  };
+  const resetAll = async () => {
+    const done = await run("pose", () => resetPoses(systemId, etag));
+    setConfirmReset(false);
+    if (done) {
+      const count = done.body.reset.length;
+      toastReset(count);
+    }
+  };
+
   useEffect(() => {
     const node = elementRef.current;
     if (!node) return;
     const onSelection = (event: Event) => setSelection((event as CustomEvent<{ selection: PrismSystemSceneSelection | null }>).detail.selection);
     const onError = (event: Event) => setViewerError(String((event as CustomEvent<{ error: string }>).detail.error));
+    const onMove = (event: Event) => {
+      const state = (event as CustomEvent<PrismSystemSceneMoveState>).detail;
+      setMove(state);
+      if (state.phase === "commit" && state.target) void savePose(state.target);
+      // Start the panel over when the view's state changed under it; a re-read during
+      // typing ("sync" with an unsaved preview) keeps what is typed.
+      if (state.phase !== "preview" && !(state.phase === "sync" && state.target?.unsaved)) setMoveEpoch((count) => count + 1);
+    };
     node.addEventListener("prism-system-scene:selectionchange", onSelection);
     node.addEventListener("prism-system-scene:error", onError);
+    node.addEventListener("prism-system-scene:move", onMove);
     return () => {
       node.removeEventListener("prism-system-scene:selectionchange", onSelection);
       node.removeEventListener("prism-system-scene:error", onError);
+      node.removeEventListener("prism-system-scene:move", onMove);
     };
   });
 
@@ -133,6 +178,14 @@ export function Scene3dTab(props: SystemTabProps) {
         )}
         {summary && summary.failed.length > 0 && <Badge variant="destructive">{summary.failed.length} failed</Badge>}
         <span className="ml-auto flex items-center gap-1">
+          {canEdit && (
+            <Button
+              variant={move?.enabled ? "secondary" : "ghost"} size="sm" aria-pressed={Boolean(move?.enabled)}
+              title="Move boards (M)" onClick={() => elementRef.current?.setMoveMode(!move?.enabled)}
+            >
+              <Move3d className="size-4" aria-hidden /> Move
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={() => elementRef.current?.frameAll()} title="Fit every board (A)">
             <Maximize className="size-4" aria-hidden /> Fit all
           </Button>
@@ -147,6 +200,10 @@ export function Scene3dTab(props: SystemTabProps) {
             onClick={() => { setStats(!stats); elementRef.current?.setStatsOverlay(!stats); }}
           >
             <Activity className="size-4" aria-hidden /> Stats
+          </Button>
+          <Button variant="ghost" size="icon-sm" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"
+            onClick={() => elementRef.current?.setHelpVisible(true)}>
+            <Keyboard className="size-4" aria-hidden />
           </Button>
         </span>
       </div>
@@ -191,6 +248,21 @@ export function Scene3dTab(props: SystemTabProps) {
             <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden /> Loading the system scene…</span>
           </div>
         )}
+        {move?.enabled && (
+          <div className="absolute left-3 top-3">
+            <MovePanel
+              key={moveEpoch}
+              state={move}
+              busy={busy !== null}
+              onPreview={(pose) => elementRef.current?.previewPose(pose)}
+              onSave={(target) => void savePose(target)}
+              onRevert={() => elementRef.current?.cancelMove()}
+              onDefault={(target) => void backToDefault(target)}
+              onResetAll={() => setConfirmReset(true)}
+              onSpace={(space) => elementRef.current?.setMoveSpace(space)}
+            />
+          </div>
+        )}
         {selection && (
           <div className="absolute bottom-3 left-3 w-72 rounded-lg border bg-card/95 p-3 text-sm shadow-md backdrop-blur" aria-live="polite">
             <p className="font-medium">{selection.displayPath}</p>
@@ -207,9 +279,25 @@ export function Scene3dTab(props: SystemTabProps) {
           </div>
         )}
         <p className="pointer-events-none absolute bottom-3 right-3 rounded bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
-          Drag to orbit · Shift-drag to pan · Scroll to zoom · Double-click to frame · F frame · A fit all
+          {move?.enabled
+            ? "Drag an arrow to slide · a ring to turn · Shift for fine steps · Esc undoes · ? keys"
+            : "Drag to orbit · Shift-drag to pan · Scroll to zoom · Double-click to frame · F frame · A fit all · ? keys"}
         </p>
       </div>
+      <ConfirmDialog
+        open={confirmReset}
+        onOpenChange={setConfirmReset}
+        title="Reset every board's position?"
+        description="Every board you or others moved goes back to the default side-by-side row. Earlier snapshots keep the positions they froze."
+        confirmLabel="Reset positions"
+        busy={busy !== null}
+        onConfirm={() => void resetAll()}
+      />
     </div>
   );
+}
+
+function toastReset(count: number) {
+  toast.success(count === 0 ? "Every board was already in its default place"
+    : `${count} ${count === 1 ? "board is" : "boards are"} back in the default layout`);
 }
