@@ -223,9 +223,9 @@ export function definePrismSystemScene() {
       return this.controller?.setNetIsolation(enabled) ?? false;
     }
 
-    /** Frame the copper of one highlighted set (by key), or of all; false when nothing is lit. */
-    frameNetEmphasis(key = null) {
-      return this.controller?.frameNetEmphasis(key) ?? false;
+    /** Frame a highlighted set's copper (by key, or all), on one occurrence (by path) or all; false when nothing is lit there. */
+    frameNetEmphasis(key = null, occurrence = null) {
+      return this.controller?.frameNetEmphasis(key, occurrence) ?? false;
     }
 
     getStats() {

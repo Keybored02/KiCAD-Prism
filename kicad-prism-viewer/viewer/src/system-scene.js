@@ -119,7 +119,6 @@ function samePose(a, b) {
   return left.every((value, index) => Math.abs(value - right[index]) < 1e-6);
 }
 
-const MIN_FRAME_MM = 30; // framing a few-millimetre net still shows where it is on the board
 
 export class SystemScene {
   constructor({
@@ -238,6 +237,10 @@ export class SystemScene {
         if (!reply.ok) throw new Error(`Failed to load ${url}: ${reply.status}`);
         return reply.json();
       };
+      // The board's surface finish colours its outer copper, as on its own 3D tab;
+      // the topology file is shared with that tab's cache, and read in parallel.
+      const topologyUrl = new URL(bundle.topology || "topology.json", bundleUrl).toString();
+      const finish = fetchJson(topologyUrl).then((topology) => topology?.board?.stackup?.copper_finish ?? null, () => null);
       const geometryUrl = new URL(bundle.semantic_geometry || "semantic_geometry.json", bundleUrl).toString();
       const geometry = absolutizeAssetPaths(await fetchJson(geometryUrl), bundleUrl, bundle, cacheKey);
       const manifestPath = geometry.assets?.scene_manifest || geometry.semantic_gltf?.path;
@@ -258,8 +261,7 @@ export class SystemScene {
       const renderer = this.scene.asset(id);
       renderer.setBarrels(manifest.barrels || []);
       let boardBounds = null;
-      // As on the board's own 3D tab: KiCad-like copper (the finish isn't in the
-      // scene's files, so outer copper takes the default ENIG gold).
+      // Barrels take the board's finish below, as on its own 3D tab (realistic colours).
       renderer.setBarrelColor([...FINISH_COLORS.copper.slice(0, 3), 0.78]);
       if (geometry.assets?.base_board_glb) {
         // The pipeline's own mask (with pad openings and paste) replaces any the
@@ -293,6 +295,9 @@ export class SystemScene {
         }
         boardBounds = mergeBounds(context.map((primitive) => primitive.bounds));
       }
+      record.finishColor = finishColorFor(await finish);
+      if (!current()) return;
+      renderer.setBarrelColor([...record.finishColor.slice(0, 3), 0.78]);
       record.boardBounds = boardBounds || runtimeBoundsFromGltf(manifest.bbox);
       renderer.setBoardBounds(record.boardBounds);
       record.state = "loaded";
@@ -329,7 +334,7 @@ export class SystemScene {
               tileId: tile.id,
               layerId,
               innerCopper: innerCopperLayer(layerId, record.copperLayers),
-              color: isOuterCopperLayer(layer, record.copperLayers) ? finishColorFor(null) : FINISH_COLORS.copper,
+              color: isOuterCopperLayer(layer, record.copperLayers) ? record.finishColor || finishColorFor(null) : FINISH_COLORS.copper,
               // Outer copper marks the stencil, so the mask over it draws lighter.
               stencilMark: isOuterCopperLayer(layer, record.copperLayers),
               baseZ: Number(layer?.z_mm || 0) / 1000,
@@ -446,20 +451,32 @@ export class SystemScene {
     return this.applyEmphasis();
   }
 
-  /** Frame the copper a highlighted set lights (by key), or every set's; false when nothing is lit. */
-  frameNetEmphasis(key = null) {
+  /**
+   * Frame the copper a highlighted set lights (by key, or every set), on one
+   * occurrence (by path) or on all; false when nothing is lit there.
+   */
+  frameNetEmphasis(key = null, occurrence = null) {
     const boxes = [];
-    for (const [setKey, list] of this.emphasisBounds || []) if (key == null || setKey === String(key)) boxes.push(...list);
+    for (const [setKey, list] of this.emphasisBounds || []) {
+      if (key != null && setKey !== String(key)) continue;
+      for (const lit of list) if (occurrence == null || lit.occurrence === occurrence) boxes.push(lit.box);
+    }
     const bounds = mergeBounds(boxes);
     if (!bounds) return false;
-    const pad = MIN_FRAME_MM * MM / 2;
-    for (let axis = 0; axis < 2; axis += 1) {
-      const middle = (bounds[axis] + bounds[axis + 3]) / 2;
-      bounds[axis] = Math.min(bounds[axis], middle - pad);
-      bounds[axis + 3] = Math.max(bounds[axis + 3], middle + pad);
-    }
+    // As the board 3D tab frames a net: the copper's own box, no padding.
     this.camera.frame(bounds);
     return true;
+  }
+
+  /** Whether a feature of an occurrence is copper of a highlighted net there. */
+  litFeature(key, featureId) {
+    const item = this.placedByKey?.get(key);
+    const record = item && !item.standIn ? this.assets.get(item.rendererId) : null;
+    const netId = Number(record?.features.get(Number(featureId))?.netId) || 0;
+    if (!netId) return false;
+    const renderer = this.scene.assets.get(item.rendererId);
+    const local = renderer?.occurrenceKeys.indexOf(key) ?? -1;
+    return Boolean(local >= 0 && renderer.occurrenceEmphasis?.[local]?.has(netId));
   }
 
   /** Isolate the highlighted nets' copper (the I key); off again when nothing is highlighted. */
@@ -515,7 +532,7 @@ export class SystemScene {
         if (!list[index].has(netId)) list[index].set(netId, set.mark);
         result.lit += 1;
         const local = runtimeBounds(netRecordOf(record, netId)?.boundsMm);
-        if (local) boxes.push(transformBounds(item.matrix, local));
+        if (local) boxes.push({ occurrence: member.occurrence, box: transformBounds(item.matrix, local) });
       }
       return result;
     });
@@ -755,6 +772,8 @@ export class SystemScene {
   async clickAt(clientX, clientY) {
     const hit = await this.pickAt(clientX, clientY);
     if (!hit?.occurrence) return this.select(null);
+    // Isolated, only lit copper is drawn: a hit on anything else is a click on empty space.
+    if (this.isolateNets && !this.litFeature(hit.occurrence.path, hit.featureId)) return this.select(null);
     // Only components are selectable features for now; copper hits select their board.
     const featureId = hit.selection?.kind === "component" ? hit.featureId : 0;
     return this.select(hit.occurrence.path, featureId);

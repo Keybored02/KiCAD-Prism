@@ -23,7 +23,9 @@ describe("net emphasis model", () => {
       { occurrence: "/sin_cmbd", net: "OBC_SPI_SCK" },
       { occurrence: "/sin_cmbd", net: "OBC_SPI_SCK_R" },
     ] }]);
-    expect(netBoards(spi)).toEqual({ boards: ["OBC-1", "CMBD"], restricted: 1 });
+    expect(netBoards(spi)).toEqual({
+      boards: [{ occurrence: "/sin_obc", name: "OBC-1" }, { occurrence: "/sin_cmbd", name: "CMBD" }], restricted: 1,
+    });
   });
 
   it("names the boards that did not light, by reason", () => {
@@ -50,11 +52,13 @@ describe("NetPanel", () => {
     );
     const list = screen.getByRole("list", { name: "Highlighted nets" });
     expect(list.textContent).toContain("SPI_SCK");
-    expect(list.textContent).toContain("OBC-1, CMBD · 1 on restricted boards");
+    expect(list.textContent).toContain("OBC-1CMBD· 1 on restricted boards");
     expect(screen.getByText("Not lit: OBC-1 still loading")).toBeTruthy();
     expect((list.querySelector("[aria-hidden]") as HTMLElement).style.background).toBe("rgb(255, 184, 26)");
     fireEvent.click(screen.getByRole("button", { name: "Frame SPI_SCK" }));
     expect(h.onFrame).toHaveBeenCalledWith("g_spi");
+    fireEvent.click(screen.getByRole("button", { name: "CMBD" }));
+    expect(h.onFrame).toHaveBeenLastCalledWith("g_spi", "/sin_cmbd");
     fireEvent.click(screen.getByRole("button", { name: "Isolate" }));
     expect(h.onIsolate).toHaveBeenCalledWith(true);
     fireEvent.click(screen.getByRole("button", { name: "Clear all" }));

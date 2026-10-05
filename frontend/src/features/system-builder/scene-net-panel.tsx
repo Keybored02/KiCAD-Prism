@@ -21,8 +21,8 @@ interface NetPanelProps {
   adding: string | null;
   onAdd: (net: SystemNetSummary) => void;
   onRemove: (groupId: string) => void;
-  /** Move the camera to the copper the net lights. */
-  onFrame: (groupId: string) => void;
+  /** Move the camera to the copper the net lights: on one board (occurrence path), or on all. */
+  onFrame: (groupId: string, occurrence?: string) => void;
   /** Only the highlighted copper draws (the I key). */
   isolated: boolean;
   onIsolate: (isolated: boolean) => void;
@@ -138,13 +138,22 @@ export function NetPanel({
                       <span className="truncate font-mono text-xs">{net.name}</span>
                       {net.large && <Badge variant="outline" className="h-4 px-1 text-[10px]">{net.pinCount} pins</Badge>}
                     </span>
-                    <span className="block text-[11px] text-muted-foreground">
-                      {boards.join(", ")}{restricted ? ` · ${restricted} on restricted boards` : ""}
+                    <span className="flex flex-wrap items-center gap-x-1 text-[11px] text-muted-foreground">
+                      {boards.map((board) => (
+                        <button
+                          key={board.occurrence} type="button" title={`Frame it on ${board.name}`}
+                          className="rounded px-1 underline-offset-2 hover:bg-muted hover:text-foreground hover:underline disabled:pointer-events-none"
+                          disabled={!result?.lit} onClick={() => onFrame(net.groupId, board.occurrence)}
+                        >
+                          {board.name}
+                        </button>
+                      ))}
+                      {restricted ? <span>· {restricted} on restricted boards</span> : null}
                     </span>
                     {unlit && <span className="block text-[11px] text-amber-700 dark:text-amber-300">Not lit: {unlit}</span>}
                   </span>
                   <Button
-                    variant="ghost" size="icon-sm" aria-label={`Frame ${net.name}`} title="Frame this net"
+                    variant="ghost" size="icon-sm" aria-label={`Frame ${net.name}`} title="Frame it on every board"
                     disabled={!result?.lit} onClick={() => onFrame(net.groupId)}
                   >
                     <Focus className="size-3.5" aria-hidden />

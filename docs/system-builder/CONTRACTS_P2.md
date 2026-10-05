@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.28 · 2026-10-05 · tickets SB2-00 to SB2-31.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.29 · 2026-10-05 · tickets SB2-00 to SB2-31.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -731,6 +731,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.29 | 2026-10-05 | SB2-31 follow-up 2 (user feedback): framing per occurrence with no padding, as the board 3D tab frames a net; isolated clicks on hidden copper are empty space; outer copper and barrels take the board's surface finish from its topology, as on its 3D tab. |
 | P2-1.28 | 2026-10-05 | SB2-31 follow-up (user feedback): highlighting follows a board's 3D tab net probe (no board body or components; all copper, unlit dimmed, lit nets pulsing; inner copper at every detail level); **I** isolates the lit copper (`setNetIsolation`, `isolation` event); a newly shown net is framed (`frameNetEmphasis`). |
 | P2-1.27 | 2026-10-05 | SB2-31: net emphasis per occurrence (§20.5). `setNetEmphasis` on `<prism-system-scene>`, packed-colour emphasis table in the instanced shaders, dimming and see-through boards while lit, >200-pin confirmation in the 3D tab. No API change. |
 | P2-1.26 | 2026-10-05 | SB2-29: §20.4 move mode: gizmo, numeric panel, axes toggle, snapping, saving on release through `PUT …/poses/{iid}`, element move API and `move` event, focus-scoped keys and the `?` list. |
@@ -830,7 +831,12 @@ A board asset reuses the single-board pipeline and its readiness cache (`semanti
   - Inner copper draws at every detail level.
   - Clearing every net restores the board and components.
 - **Isolation (I).** With nets highlighted and the view focused, **I** toggles an isolated view: only the lit copper and barrels draw, in the copper's own colour, as on a board's 3D tab. `setNetIsolation(bool)` does the same and returns the state; `prism-system-scene:isolation` carries `{isolated}`. Clearing every net leaves isolation.
-- **Framing.** A newly shown net is framed once (the union of its lit copper's boxes, at least 30 mm across); `frameNetEmphasis(key?)` frames one set, or all of them.
+- **Framing (P2-1.29).** As the board 3D tab frames a selected net: the lit copper's own box, no padding.
+  - A newly shown net is framed on the **first board it reaches**.
+  - The Nets panel lists each board as a button that frames the net there; the frame icon frames it on every board.
+  - `frameNetEmphasis(key?, occurrence?)` frames one set or all sets, on one occurrence or all.
+- **Clicks while isolated.** A click on copper that isn't drawn (not lit) is a click on empty space: it clears the selection, and never selects a board.
+- **Copper colours (P2-1.29).** As on the board's 3D tab with realistic colours, outer copper and barrels take the board's surface finish (`topology.board.stackup.copper_finish`); for example, HASL draws grey. The topology file is read in parallel with the geometry, through the shared cache.
 - **Large nets (D-P2-8).** A group with `large: true` (over 200 pins) asks for confirmation before it lights.
 - **Element API.** `setNetEmphasis([{key, color?, members: [{occurrence, net}]}])` returns, per set, `{key, color: "#rrggbb", lit, unresolved: [{occurrence, net, reason}]}`. The reasons are:
   - `loading`: a box until its bundle is ready;
