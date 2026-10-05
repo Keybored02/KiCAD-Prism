@@ -6,7 +6,7 @@
 // ({ selection }), `…:status` ({ status }), `…:move` (SB2-29: { phase,
 // allowed, enabled, space, dragging, target }; phases mode, target, preview,
 // commit, cancel and sync), `…:emphasis` (SB2-31: { report }, when what the
-// highlighted nets light changes) and `…:error`.
+// highlighted nets light changes), `…:isolation` ({ isolated }) and `…:error`.
 //
 // Move mode (SB2-29) only previews: on `move` with phase "commit" the host
 // saves the target's pose and gives the element the re-read scene, or calls
@@ -77,6 +77,7 @@ const SHELL = `
     <dt><kbd>Shift</kbd></dt><dd>While dragging: 0.1 mm and 1° steps (else 1 mm, 15°)</dd>
     <dt><kbd>Enter</kbd></dt><dd>Save the shown position</dd>
     <dt><kbd>Esc</kbd></dt><dd>Undo the drag, or leave move mode, or clear the selection</dd>
+    <dt><kbd>I</kbd></dt><dd>Isolate the highlighted nets' copper, or back</dd>
     <dt><kbd>\`</kbd></dt><dd>Scene stats</dd>
     <dt><kbd>?</kbd></dt><dd>This list</dd>
   </dl>
@@ -131,6 +132,7 @@ export function definePrismSystemScene() {
         onStatus: (status) => this.emit("status", { status }),
         onMove: (state) => this.emit("move", state),
         onEmphasis: (report) => this.emit("emphasis", { report }),
+        onIsolation: (isolated) => this.emit("isolation", { isolated }),
       });
       try {
         await controller.init();
@@ -214,6 +216,16 @@ export function definePrismSystemScene() {
     setNetEmphasis(sets) {
       this.pendingEmphasis = sets;
       return this.controller?.setNetEmphasis(sets) ?? null;
+    }
+
+    /** Isolate the highlighted nets' copper (as the I key); returns the state in force. */
+    setNetIsolation(enabled) {
+      return this.controller?.setNetIsolation(enabled) ?? false;
+    }
+
+    /** Frame the copper of one highlighted set (by key), or of all; false when nothing is lit. */
+    frameNetEmphasis(key = null) {
+      return this.controller?.frameNetEmphasis(key) ?? false;
     }
 
     getStats() {

@@ -233,6 +233,10 @@ export interface PrismSystemSceneElement extends HTMLElement {
     setHelpVisible(visible: boolean): void;
     /** Highlight system nets; an empty list clears. Null before WebGPU starts. */
     setNetEmphasis(sets: readonly PrismSystemSceneEmphasisSet[]): PrismSystemSceneEmphasisResult[] | null;
+    /** Frame the copper of one highlighted set (by key), or of all; false when nothing is lit. */
+    frameNetEmphasis(key?: string | null): boolean;
+    /** Only the highlighted copper draws (the I key); returns the state in force. */
+    setNetIsolation(enabled: boolean): boolean;
 }
 
 declare global {

@@ -37,7 +37,7 @@ describe("net emphasis model", () => {
 });
 
 describe("NetPanel", () => {
-  const handlers = () => ({ onAdd: vi.fn(), onRemove: vi.fn(), onClear: vi.fn(), onClose: vi.fn() });
+  const handlers = () => ({ onAdd: vi.fn(), onRemove: vi.fn(), onFrame: vi.fn(), isolated: false, onIsolate: vi.fn(), onClear: vi.fn(), onClose: vi.fn() });
 
   it("shows each highlighted net in its colour, with what did not light", () => {
     const h = handlers();
@@ -53,6 +53,10 @@ describe("NetPanel", () => {
     expect(list.textContent).toContain("OBC-1, CMBD · 1 on restricted boards");
     expect(screen.getByText("Not lit: OBC-1 still loading")).toBeTruthy();
     expect((list.querySelector("[aria-hidden]") as HTMLElement).style.background).toBe("rgb(255, 184, 26)");
+    fireEvent.click(screen.getByRole("button", { name: "Frame SPI_SCK" }));
+    expect(h.onFrame).toHaveBeenCalledWith("g_spi");
+    fireEvent.click(screen.getByRole("button", { name: "Isolate" }));
+    expect(h.onIsolate).toHaveBeenCalledWith(true);
     fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
     expect(h.onClear).toHaveBeenCalled();
   });

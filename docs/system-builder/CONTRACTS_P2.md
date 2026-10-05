@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.27 · 2026-10-05 · tickets SB2-00 to SB2-31.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.28 · 2026-10-05 · tickets SB2-00 to SB2-31.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -731,6 +731,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.28 | 2026-10-05 | SB2-31 follow-up (user feedback): highlighting follows a board's 3D tab net probe (no board body or components; all copper, unlit dimmed, lit nets pulsing; inner copper at every detail level); **I** isolates the lit copper (`setNetIsolation`, `isolation` event); a newly shown net is framed (`frameNetEmphasis`). |
 | P2-1.27 | 2026-10-05 | SB2-31: net emphasis per occurrence (§20.5). `setNetEmphasis` on `<prism-system-scene>`, packed-colour emphasis table in the instanced shaders, dimming and see-through boards while lit, >200-pin confirmation in the 3D tab. No API change. |
 | P2-1.26 | 2026-10-05 | SB2-29: §20.4 move mode: gizmo, numeric panel, axes toggle, snapping, saving on release through `PUT …/poses/{iid}`, element move API and `move` event, focus-scoped keys and the `?` list. |
 | P2-1.25 | 2026-10-01 | SB2-28: stored poses. Migration 40 `system_poses`; `GET/PUT/DELETE …/poses/{iid}` and `DELETE …/poses` (§14.7), version-checked and audited (`pose_updated`, `poses_reset`); manifests write `placement.poses` and import them (driving mates are still refused); the scene draws stored poses, and a child system's from its snapshot. Placement library: `pose_from`, `place` and the TypeScript twin `placement/poses.ts`, with pose goldens in `placement_cases.json`. |
@@ -823,7 +824,13 @@ A board asset reuses the single-board pipeline and its readiness cache (`semanti
 
 - **What lights.** A highlighted **system net** (§8) lights each of its members: a board net on one occurrence. The same board net on another copy of that board stays unlit, so OBC-1's `SPI_SCK` does not light OBC-2's. Restricted members (`occurrence: null`) never light.
 - **Several nets at once.** Up to **8**, each in its own colour from an 8-colour palette (green, amber, sky, magenta, violet, orange, aqua, yellow), in the order they were added. When two nets claim the same board net, the first keeps its colour.
-- **Dimming.** While any net is highlighted, unlit copper and barrels dim on every board (also on boards the nets don't reach), paste hides, and boards draw see-through (board opacity 0.34, as on a board's own 3D tab).
+- **Highlighting (P2-1.28, as a board's 3D tab probes a net).**
+  - While any net is highlighted, the board body (substrate, mask, silkscreen, paste) and the components hide.
+  - **All copper still draws**, so the review keeps its context: unlit copper and barrels dim on every board, and lit copper pulses in its net's colour.
+  - Inner copper draws at every detail level.
+  - Clearing every net restores the board and components.
+- **Isolation (I).** With nets highlighted and the view focused, **I** toggles an isolated view: only the lit copper and barrels draw, in the copper's own colour, as on a board's 3D tab. `setNetIsolation(bool)` does the same and returns the state; `prism-system-scene:isolation` carries `{isolated}`. Clearing every net leaves isolation.
+- **Framing.** A newly shown net is framed once (the union of its lit copper's boxes, at least 30 mm across); `frameNetEmphasis(key?)` frames one set, or all of them.
 - **Large nets (D-P2-8).** A group with `large: true` (over 200 pins) asks for confirmation before it lights.
 - **Element API.** `setNetEmphasis([{key, color?, members: [{occurrence, net}]}])` returns, per set, `{key, color: "#rrggbb", lit, unresolved: [{occurrence, net, reason}]}`. The reasons are:
   - `loading`: a box until its bundle is ready;

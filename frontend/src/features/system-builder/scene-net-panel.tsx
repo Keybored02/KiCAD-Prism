@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Search, X } from "lucide-react";
+import { Focus, Loader2, Search, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,11 @@ interface NetPanelProps {
   adding: string | null;
   onAdd: (net: SystemNetSummary) => void;
   onRemove: (groupId: string) => void;
+  /** Move the camera to the copper the net lights. */
+  onFrame: (groupId: string) => void;
+  /** Only the highlighted copper draws (the I key). */
+  isolated: boolean;
+  onIsolate: (isolated: boolean) => void;
   onClear: () => void;
   onClose: () => void;
 }
@@ -29,7 +34,9 @@ interface NetPanelProps {
  * SB2-31: find a system net and light it on every board it reaches, each net in
  * its own colour. Click-to-trace (SB2-32) and the full search (SB2-33) build on this.
  */
-export function NetPanel({ systemId, highlighted, results, adding, onAdd, onRemove, onClear, onClose }: NetPanelProps) {
+export function NetPanel({
+  systemId, highlighted, results, adding, onAdd, onRemove, onFrame, isolated, onIsolate, onClear, onClose,
+}: NetPanelProps) {
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<SystemNetSummary[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -136,6 +143,12 @@ export function NetPanel({ systemId, highlighted, results, adding, onAdd, onRemo
                     </span>
                     {unlit && <span className="block text-[11px] text-amber-700 dark:text-amber-300">Not lit: {unlit}</span>}
                   </span>
+                  <Button
+                    variant="ghost" size="icon-sm" aria-label={`Frame ${net.name}`} title="Frame this net"
+                    disabled={!result?.lit} onClick={() => onFrame(net.groupId)}
+                  >
+                    <Focus className="size-3.5" aria-hidden />
+                  </Button>
                   <Button variant="ghost" size="icon-sm" aria-label={`Stop highlighting ${net.name}`} onClick={() => onRemove(net.groupId)}>
                     <X className="size-3.5" aria-hidden />
                   </Button>
@@ -143,10 +156,18 @@ export function NetPanel({ systemId, highlighted, results, adding, onAdd, onRemo
               );
             })}
           </ul>
-          <Button size="sm" variant="ghost" className="self-start" onClick={onClear}>Clear all</Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm" variant={isolated ? "secondary" : "outline"} aria-pressed={isolated}
+              title="Show only the highlighted copper (I)" onClick={() => onIsolate(!isolated)}
+            >
+              Isolate
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onClear}>Clear all</Button>
+          </div>
         </>
       ) : (
-        !found && <p className="text-xs text-muted-foreground">Search for a net to light it on every board it reaches. Other copper dims.</p>
+        !found && <p className="text-xs text-muted-foreground">Search for a net to light it on every board it reaches. The boards hide and other copper dims; I isolates it.</p>
       )}
     </section>
   );

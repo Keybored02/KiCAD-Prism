@@ -22,6 +22,7 @@ import {
   mergeBounds,
   mergePrimitivesByMaterial,
   pasteLayerIdFor,
+  runtimeBounds,
   runtimeBoundsFromGltf,
 } from "./bundle-geometry.js";
 import { absolutizeAssetPaths, bundleIsFinal } from "./bundle-urls.js";
@@ -118,10 +119,12 @@ function samePose(a, b) {
   return left.every((value, index) => Math.abs(value - right[index]) < 1e-6);
 }
 
+const MIN_FRAME_MM = 30; // framing a few-millimetre net still shows where it is on the board
+
 export class SystemScene {
   constructor({
     canvas, labelsEl, statsEl, gizmoEl = null, helpEl = null,
-    onSelectionChange = () => {}, onStatus = () => {}, onMove = () => {}, onEmphasis = () => {},
+    onSelectionChange = () => {}, onStatus = () => {}, onMove = () => {}, onEmphasis = () => {}, onIsolation = () => {},
   }) {
     this.canvas = canvas;
     this.labelsEl = labelsEl;
@@ -132,9 +135,11 @@ export class SystemScene {
     this.onStatus = onStatus;
     this.onMove = onMove;
     this.onEmphasis = onEmphasis;
+    this.onIsolation = onIsolation;
     // SB2-31: the host's highlighted system nets, re-applied whenever boards load or move.
     this.emphasisSets = [];
     this.emphasisReport = [];
+    this.isolateNets = false; // I: only the highlighted nets' copper draws
     // Move mode (SB2-29): `preview` is a pose not saved yet, shown over the host's descriptor.
     this.move = { allowed: false, enabled: false, space: "world", target: null, preview: null, drag: null };
     this.baseDescriptor = null;
@@ -441,6 +446,32 @@ export class SystemScene {
     return this.applyEmphasis();
   }
 
+  /** Frame the copper a highlighted set lights (by key), or every set's; false when nothing is lit. */
+  frameNetEmphasis(key = null) {
+    const boxes = [];
+    for (const [setKey, list] of this.emphasisBounds || []) if (key == null || setKey === String(key)) boxes.push(...list);
+    const bounds = mergeBounds(boxes);
+    if (!bounds) return false;
+    const pad = MIN_FRAME_MM * MM / 2;
+    for (let axis = 0; axis < 2; axis += 1) {
+      const middle = (bounds[axis] + bounds[axis + 3]) / 2;
+      bounds[axis] = Math.min(bounds[axis], middle - pad);
+      bounds[axis + 3] = Math.max(bounds[axis + 3], middle + pad);
+    }
+    this.camera.frame(bounds);
+    return true;
+  }
+
+  /** Isolate the highlighted nets' copper (the I key); off again when nothing is highlighted. */
+  setNetIsolation(enabled) {
+    const next = Boolean(enabled) && this.emphasisSets.length > 0;
+    if (next !== this.isolateNets) {
+      this.isolateNets = next;
+      this.onIsolation(next);
+    }
+    return this.isolateNets;
+  }
+
   netIdOf(record, name) {
     if (!record.netIds) record.netIds = new Map();
     if (!record.netIds.has(name)) {
@@ -456,8 +487,11 @@ export class SystemScene {
     for (const [id, list] of this.groups) rows.set(id, list.map(() => null));
     const localIndex = new Map();
     for (const list of this.groups.values()) list.forEach((entry, index) => localIndex.set(entry.key, index));
+    this.emphasisBounds = new Map();
     const report = this.emphasisSets.map((set) => {
       const result = { key: set.key, color: set.color, lit: 0, unresolved: [] };
+      const boxes = [];
+      this.emphasisBounds.set(set.key, boxes);
       for (const member of set.members) {
         const item = this.placedByKey?.get(member.occurrence);
         const record = item && !item.standIn ? this.assets.get(item.rendererId) : null;
@@ -480,13 +514,18 @@ export class SystemScene {
         // The first set to claim a net keeps its colour.
         if (!list[index].has(netId)) list[index].set(netId, set.mark);
         result.lit += 1;
+        const local = runtimeBounds(netRecordOf(record, netId)?.boundsMm);
+        if (local) boxes.push(transformBounds(item.matrix, local));
       }
       return result;
     });
     const dim = this.emphasisSets.length > 0;
+    if (!dim) this.setNetIsolation(false);
     for (const [id, renderer] of this.scene.assets) {
       if (renderer.standIn) continue;
       renderer.setOccurrenceEmphasis(dim ? rows.get(id) || null : null, { dimCopper: dim });
+      // With the board body hidden inner copper shows, so it draws below full detail too.
+      renderer.setInnerCopperAtFull(!dim);
     }
     const changed = JSON.stringify(report) !== JSON.stringify(this.emphasisReport);
     this.emphasisReport = report;
@@ -546,12 +585,14 @@ export class SystemScene {
       selectedFeatureId: selected ? this.selection.featureId || 0 : 0,
       time: performance.now() / 1000,
       visibleLayers: this.assetFor(renderer)?.visibleLayers || new Set(),
-      showBoard: true,
-      showComponents: true,
+      // As a board's 3D tab probes a net: no board body or components, every
+      // copper layer with unlit copper dimmed and the lit nets pulsing. I isolates
+      // the lit copper (nothing else draws).
+      showBoard: !this.emphasisSets.length,
+      showComponents: !this.emphasisSets.length,
       componentOpacity: 1,
-      // As on the board's own 3D tab: highlighted nets show through a see-through board.
-      boardOpacity: this.emphasisSets.length ? 0.34 : 1,
-      isolateNet: false,
+      boardOpacity: 1,
+      isolateNet: this.isolateNets && this.emphasisSets.length > 0,
     };
   }
 
@@ -1086,6 +1127,7 @@ export class SystemScene {
         else this.frameAll();
       } else if (event.key === "a" || event.key === "A") this.frameAll();
       else if (event.key === "`") this.setStatsOverlay(!this.showStats);
+      else if ((event.key === "i" || event.key === "I") && this.emphasisSets.length) this.setNetIsolation(!this.isolateNets);
       else return;
       event.preventDefault();
     };
@@ -1176,4 +1218,9 @@ export class SystemScene {
     ];
     this.statsEl.innerHTML = rows.map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("");
   }
+}
+
+function netRecordOf(record, netId) {
+  if (!record.netById) record.netById = new Map((record.manifest?.nets || []).map((net) => [Number(net.id), net]));
+  return record.netById.get(netId) || null;
 }

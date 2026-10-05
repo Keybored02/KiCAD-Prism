@@ -127,6 +127,7 @@ describe("Scene3dTab", () => {
     await screen.findByText("4 boards");
     const element = document.querySelector("prism-system-scene") as unknown as HTMLElement & Record<string, unknown>;
     element.setNetEmphasis = vi.fn(() => [{ key: "g1", color: "#14ff33", lit: 1, unresolved: [] }]);
+    element.frameNetEmphasis = vi.fn(() => true);
     fireEvent.click(screen.getByRole("button", { name: /Nets/ }));
     fireEvent.change(screen.getByLabelText("Search system nets"), { target: { value: "gnd" } });
     fireEvent.click(await screen.findByRole("button", { name: "Show" }));
@@ -137,6 +138,7 @@ describe("Scene3dTab", () => {
       { key: "g1", members: [{ occurrence: "/sin_OBC-1", net: "GND" }] },
     ]));
     expect(await screen.findByText(/1 on restricted boards/)).toBeTruthy();
+    expect(element.frameNetEmphasis).toHaveBeenCalledWith("g1"); // a newly shown net is framed once
     fireEvent.click(screen.getByRole("button", { name: "Stop highlighting GND" }));
     await waitFor(() => expect(element.setNetEmphasis).toHaveBeenLastCalledWith([]));
   });
