@@ -33,6 +33,7 @@ import {
   ringRotation, rotatePoseAbout, screenAngle, snapTo, translatePose,
 } from "./move-gizmo.js";
 import { IDENTITY, LOD_THRESHOLDS, projectToViewport, transformBounds, transformPoint } from "./occurrences.js";
+import { EMPHASIS_PALETTE, findNetByName, packEmphasisColor } from "./net-emphasis.js";
 import { SceneRenderer } from "./scene-renderer.js";
 
 const SCENE_SCHEMA = "prism.system_scene.a0";
@@ -120,7 +121,7 @@ function samePose(a, b) {
 export class SystemScene {
   constructor({
     canvas, labelsEl, statsEl, gizmoEl = null, helpEl = null,
-    onSelectionChange = () => {}, onStatus = () => {}, onMove = () => {},
+    onSelectionChange = () => {}, onStatus = () => {}, onMove = () => {}, onEmphasis = () => {},
   }) {
     this.canvas = canvas;
     this.labelsEl = labelsEl;
@@ -130,6 +131,10 @@ export class SystemScene {
     this.onSelectionChange = onSelectionChange;
     this.onStatus = onStatus;
     this.onMove = onMove;
+    this.onEmphasis = onEmphasis;
+    // SB2-31: the host's highlighted system nets, re-applied whenever boards load or move.
+    this.emphasisSets = [];
+    this.emphasisReport = [];
     // Move mode (SB2-29): `preview` is a pose not saved yet, shown over the host's descriptor.
     this.move = { allowed: false, enabled: false, space: "world", target: null, preview: null, drag: null };
     this.baseDescriptor = null;
@@ -388,6 +393,7 @@ export class SystemScene {
     // Stand-in renderers no longer used draw nothing.
     for (const id of this.scene.assets.keys()) if (!groups.has(id)) groups.set(id, []);
     this.scene.setOccurrences(groups);
+    this.groups = groups;
     // Scene-wide numbers follow the renderer order; index placements by key.
     const previous = this.placedByKey;
     this.placed = placed;
@@ -403,9 +409,89 @@ export class SystemScene {
         this.framed = true;
       }
     }
+    this.applyEmphasis();
     if (this.selection && !this.placedByKey.has(this.selection.key)) this.select(null);
     else if (this.selection) this.select(this.selection.key, this.selection.featureId, { quiet: true });
     this.emitStatus();
+  }
+
+  // ----- net emphasis (SB2-31) ---------------------------------------------------
+
+  /**
+   * Light system nets: `sets` is `[{ key, color?, members: [{ occurrence, net }] }]`,
+   * a member being a board occurrence path and that board's net name. Each set
+   * takes its `color` ("#rrggbb" or [r, g, b]) or the next palette colour.
+   * Unlit copper dims everywhere while any set is shown. Returns the report
+   * (also emitted whenever boards load): per set, its colour, how many members
+   * lit, and the members that could not be (not drawn, still loading, or a net
+   * the board's 3D model doesn't have).
+   */
+  setNetEmphasis(sets) {
+    this.emphasisSets = (Array.isArray(sets) ? sets : []).map((set, index) => {
+      const color = set?.color ?? EMPHASIS_PALETTE[index % EMPHASIS_PALETTE.length];
+      const mark = packEmphasisColor(color);
+      return {
+        key: String(set?.key ?? index),
+        mark,
+        color: `#${(mark & 0xffffff).toString(16).padStart(6, "0")}`,
+        members: (Array.isArray(set?.members) ? set.members : [])
+          .filter((member) => member && typeof member.occurrence === "string" && typeof member.net === "string"),
+      };
+    });
+    return this.applyEmphasis();
+  }
+
+  netIdOf(record, name) {
+    if (!record.netIds) record.netIds = new Map();
+    if (!record.netIds.has(name)) {
+      const id = Number(findNetByName(record.manifest?.nets, name)?.id);
+      record.netIds.set(name, Number.isInteger(id) && id > 0 ? id : 0);
+    }
+    return record.netIds.get(name);
+  }
+
+  applyEmphasis() {
+    if (!this.scene || !this.groups) return [];
+    const rows = new Map();
+    for (const [id, list] of this.groups) rows.set(id, list.map(() => null));
+    const localIndex = new Map();
+    for (const list of this.groups.values()) list.forEach((entry, index) => localIndex.set(entry.key, index));
+    const report = this.emphasisSets.map((set) => {
+      const result = { key: set.key, color: set.color, lit: 0, unresolved: [] };
+      for (const member of set.members) {
+        const item = this.placedByKey?.get(member.occurrence);
+        const record = item && !item.standIn ? this.assets.get(item.rendererId) : null;
+        if (!record?.manifest) {
+          const reason = !item ? "not-drawn"
+            : item.standIn === "loading" || item.standIn === "building" ? "loading"
+              : item.standIn === "restricted" ? "restricted" : "not-drawn";
+          result.unresolved.push({ occurrence: member.occurrence, net: member.net, reason });
+          continue;
+        }
+        const netId = this.netIdOf(record, member.net);
+        if (!netId) {
+          result.unresolved.push({ occurrence: member.occurrence, net: member.net, reason: "unknown-net" });
+          continue;
+        }
+        const list = rows.get(item.rendererId);
+        const index = localIndex.get(member.occurrence);
+        if (!list || index == null) continue;
+        list[index] = list[index] || new Map();
+        // The first set to claim a net keeps its colour.
+        if (!list[index].has(netId)) list[index].set(netId, set.mark);
+        result.lit += 1;
+      }
+      return result;
+    });
+    const dim = this.emphasisSets.length > 0;
+    for (const [id, renderer] of this.scene.assets) {
+      if (renderer.standIn) continue;
+      renderer.setOccurrenceEmphasis(dim ? rows.get(id) || null : null, { dimCopper: dim });
+    }
+    const changed = JSON.stringify(report) !== JSON.stringify(this.emphasisReport);
+    this.emphasisReport = report;
+    if (changed) this.onEmphasis(report);
+    return report;
   }
 
   status() {
@@ -463,7 +549,8 @@ export class SystemScene {
       showBoard: true,
       showComponents: true,
       componentOpacity: 1,
-      boardOpacity: 1,
+      // As on the board's own 3D tab: highlighted nets show through a see-through board.
+      boardOpacity: this.emphasisSets.length ? 0.34 : 1,
       isolateNet: false,
     };
   }

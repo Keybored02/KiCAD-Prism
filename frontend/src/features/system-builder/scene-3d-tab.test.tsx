@@ -110,6 +110,37 @@ describe("Scene3dTab", () => {
     await waitFor(() => expect(element.cancelMove).toHaveBeenCalled());
   });
 
+  it("asks before lighting a net over 200 pins, then lights its members", async () => {
+    vi.stubGlobal("navigator", { ...navigator, gpu: {} });
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    const gnd = { groupId: "g1", name: "GND", aliases: ["GND", "GND_3"], pinCount: 600, large: true };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/scene")) return json(mixed);
+      if (String(url).includes("/nets?")) return json({ systemId: "sys_1", groups: [gnd], total: 1 });
+      return json({ ...gnd, hops: [], members: [
+        { occurrence: "/sin_OBC-1", displayPath: "OBC-1", net: "GND" },
+        { occurrence: null, redacted: true },
+      ] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Scene3dTab {...props} />);
+    await screen.findByText("4 boards");
+    const element = document.querySelector("prism-system-scene") as unknown as HTMLElement & Record<string, unknown>;
+    element.setNetEmphasis = vi.fn(() => [{ key: "g1", color: "#14ff33", lit: 1, unresolved: [] }]);
+    fireEvent.click(screen.getByRole("button", { name: /Nets/ }));
+    fireEvent.change(screen.getByLabelText("Search system nets"), { target: { value: "gnd" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
+    expect(await screen.findByText("Highlight GND?")).toBeTruthy();
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith("/nets/g1"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Highlight" }));
+    await waitFor(() => expect(element.setNetEmphasis).toHaveBeenLastCalledWith([
+      { key: "g1", members: [{ occurrence: "/sin_OBC-1", net: "GND" }] },
+    ]));
+    expect(await screen.findByText(/1 on restricted boards/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stop highlighting GND" }));
+    await waitFor(() => expect(element.setNetEmphasis).toHaveBeenLastCalledWith([]));
+  });
+
   it("shows the diagram and a notice without WebGPU, and never reads the scene", async () => {
     vi.stubGlobal("navigator", { ...navigator, gpu: undefined });
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));

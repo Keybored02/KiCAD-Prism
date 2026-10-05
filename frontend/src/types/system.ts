@@ -591,3 +591,55 @@ export interface InstanceMating {
   boardThicknessMm: number | null;
   ports: PortMating[];
 }
+
+/** A system net (CONTRACTS_P2 §8.2): `GET …/nets` lists these, `GET …/nets/{groupId}` adds members and hops. */
+export interface SystemNetSummary {
+  groupId: string;
+  name: string;
+  aliases: string[];
+  pinCount: number;
+  /** Over 200 pins: the UI confirms before highlighting. */
+  large: boolean;
+}
+
+export interface SystemNetList {
+  systemId: string;
+  groups: SystemNetSummary[];
+  total: number;
+}
+
+/** A member: a board net on one occurrence; restricted boards are `{occurrence: null, redacted: true}`. */
+export interface SystemNetMember {
+  occurrence: string | null;
+  displayPath?: string;
+  net?: string | null;
+  redacted?: boolean;
+}
+
+export interface SystemNetHopEnd {
+  occurrence: string | null;
+  displayPath?: string | null;
+  portKey?: string | null;
+  reference?: string | null;
+  pad?: string | null;
+  nets?: string[];
+  end?: string;
+  endPin?: string;
+}
+
+export interface SystemNetHop {
+  kind: "row" | "wire";
+  linkId?: string;
+  linkName?: string;
+  harnessId?: string;
+  harnessName?: string;
+  wireId?: string;
+  signal?: string;
+  from: SystemNetHopEnd;
+  to: SystemNetHopEnd;
+}
+
+export interface SystemNetDetail extends SystemNetSummary {
+  members: SystemNetMember[];
+  hops: SystemNetHop[];
+}
