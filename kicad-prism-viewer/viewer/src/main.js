@@ -37,9 +37,6 @@ const COMPARE_REVEAL_DURATION_MS = 230;
 const TILE_VERTEX_STRIDE_BYTES = 40;
 const TILE_INDEX_BYTES = 4;
 
-let topology = window.__TOPOLOGY__ || {};
-let semanticGeometry = window.__SEMANTIC_GEOMETRY__ || {};
-let viewerReadiness = { stage: "semantic-ready", progress: 100 };
 let viewerRoot = document;
 let appEl;
 let canvas;
@@ -100,12 +97,7 @@ function initialState() {
   return {
     workspace: "pcb",
     mode: "3d",
-    compareLayers: new Set(),
-    desiredCompareLayers: new Set(),
-    visible3dLayers: new Set(),
     activeNetId: 0,
-    /** Host-highlighted nets (Prism #305), emphasised alongside the active net. */
-    highlightedNetIds: new Set(),
     selectedFeatureId: 0,
     // The occurrence the selection belongs to (SB2-24); 0 in the one-board view.
     selectedOccurrence: 0,
@@ -115,12 +107,9 @@ function initialState() {
     showPlaceholders: true,
     realisticColors: true,
     isolateNet: false,
-    hiddenComponents: new Set(),
     /** User/view prefs restored after Esc; not overwritten by net-probe toggles. */
     savedShowBoard: true,
     savedShowComponents: true,
-    preIsolation3dLayers: null,
-    preIsolationCompareLayers: null,
     /** Snapshot of showBoard taken when entering Isolate (I); restored on exit. */
     preIsolationShowBoard: null,
     separation: 0,
@@ -130,16 +119,6 @@ function initialState() {
     lastY: 0,
     pointerStartX: 0,
     pointerStartY: 0,
-    loadedBytes: 0,
-    triangles: 0,
-    residentTileBytes: 0,
-    residentTileGpuBytes: 0,
-    residentTileTriangles: 0,
-    tileLoads: 0,
-    tileEvictions: 0,
-    tileSchedulerMs: 0,
-    lastTileScheduleAt: 0,
-    visibleTileIds: new Set(),
     frameCpuMs: 0,
     frameCpuP95Ms: 0,
     frameIntervalMs: 0,
@@ -156,6 +135,44 @@ function initialState() {
     schematicLastY: 0,
     schematicStartX: 0,
     schematicStartY: 0,
+  };
+}
+
+/**
+ * One board of the viewer (SB2-31d): its bundle (topology, semantic geometry,
+ * readiness, asset cache), its loaded scene and renderer, and the view state
+ * that is per board: layer visibility, tile residency, highlighted and hidden sets.
+ */
+function createBoard(options = {}) {
+  return {
+    key: options.key ?? "board",
+    topology: options.topology || window.__TOPOLOGY__ || {},
+    semanticGeometry: options.semanticGeometry || window.__SEMANTIC_GEOMETRY__ || {},
+    viewerReadiness: options.readiness || { stage: "semantic-ready", progress: 100 },
+    assetCache: options.assetCache || null,
+    deferComponents: Boolean(options.deferComponents),
+    scene: initialScene(),
+    renderer: null,
+    compareLayers: new Set(),
+    desiredCompareLayers: new Set(),
+    visible3dLayers: new Set(),
+    preIsolation3dLayers: null,
+    preIsolationCompareLayers: null,
+    /** Host-highlighted nets (Prism #305), emphasised alongside the active net. */
+    highlightedNetIds: new Set(),
+    hiddenComponents: new Set(),
+    hiddenComponentRequest: null,
+    loadedBytes: 0,
+    triangles: 0,
+    residentTileBytes: 0,
+    residentTileGpuBytes: 0,
+    residentTileTriangles: 0,
+    tileLoads: 0,
+    tileEvictions: 0,
+    tileSchedulerMs: 0,
+    lastTileScheduleAt: 0,
+    visibleTileIds: new Set(),
+    gpuBytes: 0,
   };
 }
 
@@ -221,20 +238,20 @@ function initialSchematicScene() {
 }
 
 const state = initialState();
-const scene = initialScene();
+// SB2-31d: everything that belongs to one board (its bundle, scene, renderer,
+// layer visibility, tile residency, highlight and hidden sets). The 3D tab is a
+// viewer with one board; a system scene (SB2-31e) holds several.
+let board = createBoard();
 const compareAnimation = initialCompareAnimation();
 const compareTransition = initialCompareTransition();
 const schematicScene = initialSchematicScene();
 let gizmoHits = [];
 // SB2-26: the browser cache for this bundle's assets (null: network only), and
 // whether components wait until some occurrence needs full detail.
-let assetCache = null;
-let deferComponents = false;
 const DEFAULT_GPU_BUDGET_BYTES = 1.5 * 1024 * 1024 * 1024;
 // Components unused this long (no occurrence at full detail) may be evicted over budget.
 const COMPONENT_IDLE_EVICT_MS = 5000;
 
-let renderer;
 let schematicRenderer;
 let schematicDomRenderer;
 let bomViewer;
@@ -288,19 +305,19 @@ function buildNetDetails(topo) {
 }
 
 function findFeatureIdByPcbPadId(pcbPadId) {
-  if (!pcbPadId || !topology || !topology.physical_objects) return 0;
-  const obj = topology.physical_objects.find(o => o.uid === pcbPadId);
+  if (!pcbPadId || !board.topology || !board.topology.physical_objects) return 0;
+  const obj = board.topology.physical_objects.find(o => o.uid === pcbPadId);
   if (!obj || !obj.source_ids || !obj.source_ids.length) return 0;
   const uuid = obj.source_ids[0];
-  for (const [id, feat] of scene.features.entries()) {
+  for (const [id, feat] of board.scene.features.entries()) {
     if (feat.sourceUid === uuid) return id;
   }
   return 0;
 }
 
 function findTopologyComponent(designator) {
-  if (!designator || !topology || !topology.components) return null;
-  return topology.components.find(c => c.designator === designator);
+  if (!designator || !board.topology || !board.topology.components) return null;
+  return board.topology.components.find(c => c.designator === designator);
 }
 
 function resetObject(target, source) {
@@ -314,8 +331,8 @@ function disposeRuntimeResources() {
     animationFrameId = 0;
   }
   window.removeEventListener("keydown", handleKey);
-  renderer?.dispose?.();
-  renderer = null;
+  board.renderer?.dispose?.();
+  board.renderer = null;
   schematicRenderer = null;
   schematicDomRenderer?.dispose?.();
   schematicDomRenderer = null;
@@ -329,7 +346,7 @@ function beginViewerSession() {
   activeViewerToken += 1;
   disposeRuntimeResources();
   resetObject(state, initialState());
-  resetObject(scene, initialScene());
+  board = createBoard();
   resetObject(compareAnimation, initialCompareAnimation());
   resetObject(compareTransition, initialCompareTransition());
   resetObject(schematicScene, initialSchematicScene());
@@ -359,12 +376,12 @@ function viewerSessionActive(token) {
 export async function mountStandaloneViewer(options = {}) {
   const token = beginViewerSession();
   const performanceTimings = {};
-  topology = options.topology || window.__TOPOLOGY__ || {};
-  if (topology && !topology.net_details) {
-    topology.net_details = buildNetDetails(topology);
+  board.topology = options.topology || window.__TOPOLOGY__ || {};
+  if (board.topology && !board.topology.net_details) {
+    board.topology.net_details = buildNetDetails(board.topology);
   }
-  semanticGeometry = options.semanticGeometry || window.__SEMANTIC_GEOMETRY__ || {};
-  viewerReadiness = options.readiness || semanticGeometry.readiness || {
+  board.semanticGeometry = options.semanticGeometry || window.__SEMANTIC_GEOMETRY__ || {};
+  board.viewerReadiness = options.readiness || board.semanticGeometry.readiness || {
     stage: "semantic-ready",
     progress: 100,
   };
@@ -377,8 +394,8 @@ export async function mountStandaloneViewer(options = {}) {
     : null;
   viewerIsActive = typeof options.isActive === "function" ? options.isActive : () => true;
   legacyWorkspacesEnabled = options.workspaceScope !== "3d";
-  assetCache = options.assetCache || null;
-  deferComponents = Boolean(options.deferComponents);
+  board.assetCache = options.assetCache || null;
+  board.deferComponents = Boolean(options.deferComponents);
   state.gpuBudgetBytes = DEFAULT_GPU_BUDGET_BYTES;
   resolveDom(options.root || document);
   if (!appEl || !canvas) throw new Error("Semantic viewer shell is missing required DOM nodes");
@@ -391,8 +408,8 @@ export async function mountStandaloneViewer(options = {}) {
         if (selection?.occurrence != null) selectOccurrenceByKey(selection.occurrence);
         if (!selection) clearSelection();
         else if (selection?.netName || selection?.netUid) {
-          const match = (selection.netUid && scene.nets.find((item) => item.uid === selection.netUid))
-            || (selection.netName && findNetByName(scene.nets, selection.netName));
+          const match = (selection.netUid && board.scene.nets.find((item) => item.uid === selection.netUid))
+            || (selection.netName && findNetByName(board.scene.nets, selection.netName));
           if (match) selectNet(Number(match.id), true);
         }
         else if (selection?.netId) selectNet(Number(selection.netId), true);
@@ -403,7 +420,7 @@ export async function mountStandaloneViewer(options = {}) {
       }
     },
     resize() {
-      renderer?.resize();
+      board.renderer?.resize();
       schematicRenderer?.resize();
       if (state.workspace === "pcb" && state.mode === "layer") {
         activatePcbLayerMode();
@@ -417,7 +434,7 @@ export async function mountStandaloneViewer(options = {}) {
       return applyHiddenComponents(references);
     },
     getComponentReferences() {
-      return [...scene.componentFeatures.keys()];
+      return [...board.scene.componentFeatures.keys()];
     },
     setHighlightedNets(refs) {
       return applyHighlightedNets(refs);
@@ -433,7 +450,7 @@ export async function mountStandaloneViewer(options = {}) {
     },
     // Force a level of detail on every occurrence (0 full, 1 board, 2 box), or null for automatic.
     setLodOverride(lod) {
-      renderer?.setLodOverride(lod);
+      board.renderer?.setLodOverride(lod);
     },
     setGpuBudget(bytes) {
       const value = Number(bytes);
@@ -483,10 +500,10 @@ function notifyViewStateChange() {
 }
 
 function pcbViewState() {
-  const selected = state.mode === "3d" ? state.visible3dLayers : state.desiredCompareLayers;
+  const selected = state.mode === "3d" ? board.visible3dLayers : board.desiredCompareLayers;
   return {
     mode: state.mode,
-    layers: scene.copperLayers.map((layer) => ({
+    layers: board.scene.copperLayers.map((layer) => ({
       id: Number(layer.id),
       name: String(layer.name),
       color: rgbCss(layerColor(layer)),
@@ -505,19 +522,19 @@ function pcbViewState() {
 function emitSelectionChange(selection) {
   if (suppressSelectionChange) return;
   // In a system scene every selection names its occurrence (SB2-24).
-  const occurrence = renderer && !renderer.identityOnly ? renderer.occurrenceKeys[state.selectedOccurrence] : null;
+  const occurrence = board.renderer && !board.renderer.identityOnly ? board.renderer.occurrenceKeys[state.selectedOccurrence] : null;
   selectionChangeCallback?.(selection && occurrence != null ? { ...selection, occurrence } : selection);
 }
 
 function selectOccurrenceByKey(key) {
-  const index = renderer?.occurrenceKeys.indexOf(String(key)) ?? -1;
+  const index = board.renderer?.occurrenceKeys.indexOf(String(key)) ?? -1;
   if (index >= 0) state.selectedOccurrence = index;
 }
 
 // Board-local runtime bounds placed at the selected occurrence.
 function placedBounds(bounds) {
-  if (!bounds || !renderer || renderer.identityOnly) return bounds;
-  const model = renderer.occurrenceMatrices[state.selectedOccurrence];
+  if (!bounds || !board.renderer || board.renderer.identityOnly) return bounds;
+  const model = board.renderer.occurrenceMatrices[state.selectedOccurrence];
   return model ? transformBounds(model, bounds) : bounds;
 }
 
@@ -538,7 +555,7 @@ function featureSelection(feature) {
   if (!feature) return null;
   const reference = componentReferenceFromFeature(feature);
   const pin = String(feature.padNumber || feature.pin || feature.pinNumber || "");
-  const net = scene.nets.find((item) => Number(item.id) === Number(feature.netId || 0));
+  const net = board.scene.nets.find((item) => Number(item.id) === Number(feature.netId || 0));
   if (reference && pin) {
     return {
       kind: "terminal",
@@ -575,7 +592,7 @@ function applyComponentProbeVisibility() {
 
 /** Net ids drawn emphasised: the active (inspected) net plus the highlight set. */
 function emphasizedNetIds() {
-  const ids = new Set(state.highlightedNetIds);
+  const ids = new Set(board.highlightedNetIds);
   if (state.activeNetId) ids.add(Number(state.activeNetId));
   return ids;
 }
@@ -588,10 +605,10 @@ function emphasizedNetIds() {
  */
 function applyHighlightedNets(refs) {
   const requested = Array.isArray(refs) ? refs : [];
-  const ids = resolveNetIds(scene.nets, requested);
+  const ids = resolveNetIds(board.scene.nets, requested);
   const hadEmphasis = emphasizedNetIds().size > 0;
-  state.highlightedNetIds = ids;
-  renderer?.setEmphasizedNetIds(ids);
+  board.highlightedNetIds = ids;
+  board.renderer?.setEmphasizedNetIds(ids);
   const hasEmphasis = emphasizedNetIds().size > 0;
   if (hasEmphasis && !hadEmphasis) applyNetProbeVisibility();
   else if (!hasEmphasis && hadEmphasis) restoreViewVisibilityPrefs();
@@ -622,18 +639,18 @@ function restoreViewVisibilityPrefs() {
 
 async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
   const bootStarted = performance.now();
-  const manifestPath = semanticGeometry.assets?.scene_manifest || semanticGeometry.semantic_gltf?.path;
+  const manifestPath = board.semanticGeometry.assets?.scene_manifest || board.semanticGeometry.semantic_gltf?.path;
   let started = performance.now();
   if (manifestPath) {
-    scene.manifestUrl = new URL(manifestPath, location.href).toString();
-    scene.manifest = await fetchJson(scene.manifestUrl);
+    board.scene.manifestUrl = new URL(manifestPath, location.href).toString();
+    board.scene.manifest = await fetchJson(board.scene.manifestUrl);
     performanceTimings.scene_manifest_fetch_parse_ms = performance.now() - started;
     if (!viewerSessionActive(token)) return;
-    if (scene.manifest.schema !== "prism.semantic_gltf_a0") {
-      throw new Error(`Unsupported scene schema: ${scene.manifest.schema}`);
+    if (board.scene.manifest.schema !== "prism.semantic_gltf_a0") {
+      throw new Error(`Unsupported scene schema: ${board.scene.manifest.schema}`);
     }
   } else {
-    scene.manifest = {
+    board.scene.manifest = {
       schema: "prism.semantic_gltf_partial.a0",
       bbox: null,
       layers: [],
@@ -647,17 +664,17 @@ async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
   }
 
   started = performance.now();
-  scene.layers = scene.manifest.layers || [];
-  scene.copperLayers = scene.layers.filter(
+  board.scene.layers = board.scene.manifest.layers || [];
+  board.scene.copperLayers = board.scene.layers.filter(
     (layer) => layer.role === "copper" || String(layer.name).endsWith(".Cu"),
   );
-  scene.nets = scene.manifest.nets || [];
-  for (const feature of scene.manifest.objectFeatures || []) {
-    scene.features.set(Number(feature.id), { ...feature, bounds: runtimeBounds(feature.boundsMm) });
+  board.scene.nets = board.scene.manifest.nets || [];
+  for (const feature of board.scene.manifest.objectFeatures || []) {
+    board.scene.features.set(Number(feature.id), { ...feature, bounds: runtimeBounds(feature.boundsMm) });
   }
-  for (const component of scene.manifest.components || []) {
-    scene.componentFeatures.set(component.designator, component);
-    scene.features.set(Number(component.featureId), {
+  for (const component of board.scene.manifest.components || []) {
+    board.scene.componentFeatures.set(component.designator, component);
+    board.scene.features.set(Number(component.featureId), {
       ...component,
       kind: "component",
       sourceUid: component.uid,
@@ -665,32 +682,32 @@ async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
       bounds: null,
     });
   }
-  for (const tile of scene.manifest.tiles || []) scene.tiles.set(tile.id, tile);
+  for (const tile of board.scene.manifest.tiles || []) board.scene.tiles.set(tile.id, tile);
   performanceTimings.scene_manifest_index_ms = performance.now() - started;
 
   const defaultCompareLayers = defaultPcbCompareLayers();
   for (const layerId of defaultCompareLayers) {
-    state.compareLayers.add(layerId);
-    state.desiredCompareLayers.add(layerId);
+    board.compareLayers.add(layerId);
+    board.desiredCompareLayers.add(layerId);
   }
-  for (const layer of scene.copperLayers) state.visible3dLayers.add(Number(layer.id));
+  for (const layer of board.scene.copperLayers) board.visible3dLayers.add(Number(layer.id));
 
   started = performance.now();
-  renderer = await Renderer.create(canvas);
+  board.renderer = await Renderer.create(canvas);
   performanceTimings.webgpu_renderer_create_ms = performance.now() - started;
   if (!viewerSessionActive(token)) {
-    renderer?.dispose?.();
-    renderer = null;
+    board.renderer?.dispose?.();
+    board.renderer = null;
     return;
   }
-  renderer.setBarrels(scene.manifest.barrels || []);
+  board.renderer.setBarrels(board.scene.manifest.barrels || []);
   applyCopperColors();
   started = performance.now();
   const boardBounds = await loadBoard(token);
   performanceTimings.board_fetch_parse_upload_ms = performance.now() - started;
   if (!viewerSessionActive(token)) return;
-  scene.runtimeBounds = boardBounds || runtimeBoundsFromGltf(scene.manifest.bbox);
-  camera = new CameraController(scene.runtimeBounds);
+  board.scene.runtimeBounds = boardBounds || runtimeBoundsFromGltf(board.scene.manifest.bbox);
+  camera = new CameraController(board.scene.runtimeBounds);
   if (legacyWorkspacesEnabled) {
     await loadSchematicWorld(token);
     if (!viewerSessionActive(token)) return;
@@ -712,8 +729,8 @@ async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
     "components-ready": "Board and components ready · semantic layers are still generating",
     "semantic-ready": "WebGPU semantic glTF active",
   };
-  statusEl.textContent = stageLabels[viewerReadiness.stage] || "Loading 3D assets";
-  if (semanticGeometry.assets?.components_glb && !deferComponents) {
+  statusEl.textContent = stageLabels[board.viewerReadiness.stage] || "Loading 3D assets";
+  if (board.semanticGeometry.assets?.components_glb && !board.deferComponents) {
     const componentsStarted = performance.now();
     void loadComponents(token).then(() => {
       if (!viewerSessionActive(token)) return;
@@ -721,9 +738,9 @@ async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
       onPerformanceEvent?.({
         schema: "prism.semantic_viewer_performance.a0",
         milestone: "components-loaded",
-        readiness_stage: viewerReadiness.stage,
+        readiness_stage: board.viewerReadiness.stage,
         elapsed_ms: performance.now() - componentsStarted,
-        bytes_loaded: state.loadedBytes,
+        bytes_loaded: board.loadedBytes,
       });
     });
   } else {
@@ -738,11 +755,11 @@ async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
 }
 
 async function loadSchematicWorld(token = activeViewerToken) {
-  const nativePath = semanticGeometry.assets?.schematic_native_manifest
-    || semanticGeometry.schematic_vector?.path
-    || semanticGeometry.schematic_scene?.path;
-  const fallbackPath = semanticGeometry.assets?.schematic_manifest
-    || semanticGeometry.schematic_world?.path;
+  const nativePath = board.semanticGeometry.assets?.schematic_native_manifest
+    || board.semanticGeometry.schematic_vector?.path
+    || board.semanticGeometry.schematic_scene?.path;
+  const fallbackPath = board.semanticGeometry.assets?.schematic_manifest
+    || board.semanticGeometry.schematic_world?.path;
   const tab = query("[data-workspace=schematic]");
   if (!nativePath && !fallbackPath) {
     tab.disabled = true;
@@ -795,7 +812,7 @@ async function loadSchematicWorld(token = activeViewerToken) {
 }
 
 async function loadBom(token = activeViewerToken) {
-  const bomPath = semanticGeometry.assets?.bom || semanticGeometry.bom?.path;
+  const bomPath = board.semanticGeometry.assets?.bom || board.semanticGeometry.bom?.path;
   const tab = query("[data-workspace=bom]");
   if (!bomPath) {
     if (tab) {
@@ -821,7 +838,7 @@ async function loadBom(token = activeViewerToken) {
 }
 
 async function fetchJson(url) {
-  if (assetCache) return assetCache.fetchJson(String(url));
+  if (board.assetCache) return board.assetCache.fetchJson(String(url));
   const response = await fetch(url, { cache: "default" });
   if (!response.ok) throw new Error(`Failed to load ${url}: ${response.status}`);
   return response.json();
@@ -834,30 +851,30 @@ async function loadLayer(layerId) {
 
 async function loadTile(tile, token = activeViewerToken) {
   if (!viewerSessionActive(token)) return;
-  const resident = scene.residentTiles.get(tile.id);
+  const resident = board.scene.residentTiles.get(tile.id);
   if (resident) {
     resident.lastUsed = performance.now();
     return;
   }
-  const failed = scene.failed.get(tile.id);
+  const failed = board.scene.failed.get(tile.id);
   if (failed) {
     return;
   }
-  if (scene.loading.has(tile.id)) return scene.loading.get(tile.id);
+  if (board.scene.loading.has(tile.id)) return board.scene.loading.get(tile.id);
   const promise = (async () => {
     try {
-      const loaded = await loadGltf(new URL(tile.path, scene.manifestUrl).toString(), {
+      const loaded = await loadGltf(new URL(tile.path, board.scene.manifestUrl).toString(), {
         fetchBytes: assetFetcher(),
         fetchCache: "no-store",
       });
-      if (!viewerSessionActive(token) || !renderer) return;
-      state.loadedBytes += loaded.byteLength;
-      const layer = scene.layers.find((item) => Number(item.id) === Number(tile.layerId));
+      if (!viewerSessionActive(token) || !board.renderer) return;
+      board.loadedBytes += loaded.byteLength;
+      const layer = board.scene.layers.find((item) => Number(item.id) === Number(tile.layerId));
       const entries = [];
       let triangles = 0;
       let gpuBytes = 0;
       for (const primitive of loaded.primitives) {
-        const entry = renderer.addPrimitive(primitive, {
+        const entry = board.renderer.addPrimitive(primitive, {
           kind: "copper",
           tileId: tile.id,
           layerId: Number(tile.layerId),
@@ -880,31 +897,31 @@ async function loadTile(tile, token = activeViewerToken) {
         lastUsed: performance.now(),
         pinned: false,
       };
-      scene.residentTiles.set(tile.id, record);
-      scene.loaded.add(tile.id);
-      state.tileLoads += 1;
-      state.residentTileBytes += loaded.byteLength;
-      state.residentTileGpuBytes += gpuBytes;
-      state.residentTileTriangles += triangles;
-      state.triangles = state.residentTileTriangles;
-      scene.failed.delete(tile.id);
+      board.scene.residentTiles.set(tile.id, record);
+      board.scene.loaded.add(tile.id);
+      board.tileLoads += 1;
+      board.residentTileBytes += loaded.byteLength;
+      board.residentTileGpuBytes += gpuBytes;
+      board.residentTileTriangles += triangles;
+      board.triangles = board.residentTileTriangles;
+      board.scene.failed.delete(tile.id);
     } catch (error) {
       if (!viewerSessionActive(token)) return;
-      const previous = scene.failed.get(tile.id) || { count: 0, message: "" };
-      scene.failed.set(tile.id, { count: previous.count + 1, message: error?.message || String(error) });
+      const previous = board.scene.failed.get(tile.id) || { count: 0, message: "" };
+      board.scene.failed.set(tile.id, { count: previous.count + 1, message: error?.message || String(error) });
       if (!previous.count) {
         console.warn(`Failed to load tile ${tile.id}; suppressing retries until assets are regenerated`, error);
       }
     } finally {
-      if (viewerSessionActive(token)) scene.loading.delete(tile.id);
+      if (viewerSessionActive(token)) board.scene.loading.delete(tile.id);
     }
   })();
-  scene.loading.set(tile.id, promise);
+  board.scene.loading.set(tile.id, promise);
   return promise;
 }
 
 function tilesForLayer(layerId) {
-  return [...scene.tiles.values()].filter((tile) => Number(tile.layerId) === Number(layerId));
+  return [...board.scene.tiles.values()].filter((tile) => Number(tile.layerId) === Number(layerId));
 }
 
 function estimatePrimitiveGpuBytes(primitive) {
@@ -912,51 +929,51 @@ function estimatePrimitiveGpuBytes(primitive) {
 }
 
 function evictTile(tileId) {
-  const record = scene.residentTiles.get(tileId);
+  const record = board.scene.residentTiles.get(tileId);
   if (!record) return;
-  renderer.removeEntries(record.entries);
-  scene.residentTiles.delete(tileId);
-  scene.loaded.delete(tileId);
-  state.residentTileBytes = Math.max(0, state.residentTileBytes - record.byteLength);
-  state.residentTileGpuBytes = Math.max(0, state.residentTileGpuBytes - record.gpuBytes);
-  state.residentTileTriangles = Math.max(0, state.residentTileTriangles - record.triangles);
-  state.triangles = state.residentTileTriangles;
-  state.tileEvictions += 1;
+  board.renderer.removeEntries(record.entries);
+  board.scene.residentTiles.delete(tileId);
+  board.scene.loaded.delete(tileId);
+  board.residentTileBytes = Math.max(0, board.residentTileBytes - record.byteLength);
+  board.residentTileGpuBytes = Math.max(0, board.residentTileGpuBytes - record.gpuBytes);
+  board.residentTileTriangles = Math.max(0, board.residentTileTriangles - record.triangles);
+  board.triangles = board.residentTileTriangles;
+  board.tileEvictions += 1;
 }
 
 function scheduleTileResidency(now = performance.now(), options = {}) {
-  if (!renderer || !camera || state.workspace !== "pcb") return;
+  if (!board.renderer || !camera || state.workspace !== "pcb") return;
   const interactiveComparePreload = state.mode === "layer" && compareTransition.phase === "preload";
-  if (!options.force && !interactiveComparePreload && now - state.lastTileScheduleAt < TILE_SCHEDULER_INTERVAL_MS) return;
+  if (!options.force && !interactiveComparePreload && now - board.lastTileScheduleAt < TILE_SCHEDULER_INTERVAL_MS) return;
   const started = performance.now();
-  state.lastTileScheduleAt = now;
+  board.lastTileScheduleAt = now;
   const needed = neededTileIdsForView();
-  state.visibleTileIds = needed;
-  const activeLoads = scene.loading.size;
+  board.visibleTileIds = needed;
+  const activeLoads = board.scene.loading.size;
   const maxLoads = interactiveComparePreload ? INTERACTIVE_TILE_LOADS_PER_TICK : MAX_TILE_LOADS_PER_TICK;
   const loadBudget = Math.max(0, maxLoads - activeLoads);
   const missing = [...needed]
-    .map((tileId) => scene.tiles.get(tileId))
-    .filter((tile) => tile && !scene.residentTiles.has(tile.id) && !scene.loading.has(tile.id) && !scene.failed.has(tile.id))
+    .map((tileId) => board.scene.tiles.get(tileId))
+    .filter((tile) => tile && !board.scene.residentTiles.has(tile.id) && !board.scene.loading.has(tile.id) && !board.scene.failed.has(tile.id))
     .sort((a, b) => tileDistanceToFocus(a) - tileDistanceToFocus(b))
     .slice(0, loadBudget);
   const token = activeViewerToken;
   for (const tile of missing) void loadTile(tile, token);
   for (const tileId of needed) {
-    const record = scene.residentTiles.get(tileId);
+    const record = board.scene.residentTiles.get(tileId);
     if (record) record.lastUsed = now;
   }
   evictUnneededTiles(needed);
-  state.tileSchedulerMs = performance.now() - started;
+  board.tileSchedulerMs = performance.now() - started;
 }
 
 function neededTileIdsForView() {
   const needed = new Set();
-  const visibleLayers = state.mode === "3d" ? state.visible3dLayers : compareResidencyLayers();
+  const visibleLayers = state.mode === "3d" ? board.visible3dLayers : compareResidencyLayers();
   if (!visibleLayers.size || !panel) return needed;
 
   if (state.mode === "layer") {
-    for (const tile of scene.tiles.values()) {
+    for (const tile of board.scene.tiles.values()) {
       if (visibleLayers.has(Number(tile.layerId))) needed.add(tile.id);
     }
     return needed;
@@ -965,7 +982,7 @@ function neededTileIdsForView() {
   const activeNetTiles = new Set();
   const emphasized = emphasizedNetIds();
   if (emphasized.size) {
-    for (const tile of scene.tiles.values()) {
+    for (const tile of board.scene.tiles.values()) {
       if (!visibleLayers.has(Number(tile.layerId))) continue;
       for (const netId of emphasized) {
         if (tileHasNet(tile, netId)) {
@@ -975,7 +992,7 @@ function neededTileIdsForView() {
       }
     }
   }
-  for (const tile of scene.tiles.values()) {
+  for (const tile of board.scene.tiles.values()) {
     if (!visibleLayers.has(Number(tile.layerId))) continue;
     const offset = state.mode === "layer" ? compareOffsets.get(Number(tile.layerId)) : null;
     if (tileIntersectsView(tile, panel.matrix, offset, COPPER_TILE_PREFETCH_MARGIN)) needed.add(tile.id);
@@ -985,26 +1002,26 @@ function neededTileIdsForView() {
 }
 
 function compareResidencyLayers() {
-  if (state.mode !== "layer") return state.compareLayers;
-  if (compareTransition.phase === "idle") return state.compareLayers;
+  if (state.mode !== "layer") return board.compareLayers;
+  if (compareTransition.phase === "idle") return board.compareLayers;
   return unionSets(compareTransition.previous, compareTransition.target);
 }
 
 function compareRenderLayers() {
-  if (state.mode !== "layer") return state.visible3dLayers;
+  if (state.mode !== "layer") return board.visible3dLayers;
   if (compareTransition.phase === "reveal") return unionSets(compareTransition.previous, compareTransition.target);
-  return state.compareLayers;
+  return board.compareLayers;
 }
 
 function defaultPcbCompareLayers() {
-  const ids = scene.copperLayers.map((layer) => Number(layer.id)).filter(Number.isFinite);
+  const ids = board.scene.copperLayers.map((layer) => Number(layer.id)).filter(Number.isFinite);
   if (!ids.length) return new Set();
   if (ids.length === 1) return new Set([ids[0]]);
   return new Set([ids[0], ids[ids.length - 1]]);
 }
 
 function ensurePcbCompareLayers() {
-  const current = state.desiredCompareLayers.size ? state.desiredCompareLayers : state.compareLayers;
+  const current = board.desiredCompareLayers.size ? board.desiredCompareLayers : board.compareLayers;
   if (current.size) return new Set([...current].map(Number));
   return defaultPcbCompareLayers();
 }
@@ -1020,12 +1037,12 @@ function unionSets(...sets) {
 function evictUnneededTiles(needed, tileBudget = COPPER_TILE_GPU_BUDGET_BYTES) {
   if (state.mode === "layer") return;
   const budget = Math.min(COPPER_TILE_GPU_BUDGET_BYTES, tileBudget);
-  if (state.residentTileGpuBytes <= budget) return;
-  const candidates = [...scene.residentTiles.values()]
-    .filter((record) => !needed.has(record.tile.id) && !scene.loading.has(record.tile.id))
+  if (board.residentTileGpuBytes <= budget) return;
+  const candidates = [...board.scene.residentTiles.values()]
+    .filter((record) => !needed.has(record.tile.id) && !board.scene.loading.has(record.tile.id))
     .sort((a, b) => a.lastUsed - b.lastUsed);
   for (const record of candidates) {
-    if (state.residentTileGpuBytes <= budget) break;
+    if (board.residentTileGpuBytes <= budget) break;
     evictTile(record.tile.id);
   }
 }
@@ -1042,7 +1059,7 @@ function tileIntersectsView(tile, matrix, offset = null, marginScale = 0) {
     bounds[4] + margin + (offset?.[1] || 0),
     bounds[5] + 0.002,
   ];
-  const occurrences = renderer?.occurrenceMatrices;
+  const occurrences = board.renderer?.occurrenceMatrices;
   if (!occurrences || (occurrences.length === 1 && isIdentity(occurrences[0]))) {
     return boundsIntersectsClip(expanded, matrix);
   }
@@ -1052,7 +1069,7 @@ function tileIntersectsView(tile, matrix, offset = null, marginScale = 0) {
 function tileRuntimeBounds(tile) {
   const bounds = tile.boundsMm;
   if (!bounds || bounds.length !== 4) return null;
-  const layer = scene.layers.find((item) => Number(item.id) === Number(tile.layerId));
+  const layer = board.scene.layers.find((item) => Number(item.id) === Number(tile.layerId));
   const z = Number(layer?.z_mm || 0) / 1000;
   return [
     bounds[0] / 1000,
@@ -1111,11 +1128,11 @@ function tileDistanceToFocus(tile) {
 }
 
 async function loadBoard(token = activeViewerToken) {
-  const path = semanticGeometry.assets?.base_board_glb;
+  const path = board.semanticGeometry.assets?.base_board_glb;
   if (!path) return null;
   // The pipeline's own mask (with pad openings) replaces any the board export
   // carries. Fetched alongside the board; a failed mask leaves the board bare.
-  const maskPath = semanticGeometry.assets?.soldermask_glb;
+  const maskPath = board.semanticGeometry.assets?.soldermask_glb;
   const [loaded, mask] = await Promise.all([
     loadGltf(new URL(path, location.href).toString(), { defaultFeatureId: 0, fetchBytes: assetFetcher() }),
     maskPath
@@ -1125,9 +1142,9 @@ async function loadBoard(token = activeViewerToken) {
       })
       : null,
   ]);
-  if (!viewerSessionActive(token) || !renderer) return null;
-  state.loadedBytes += loaded.byteLength;
-  if (mask) state.loadedBytes += mask.byteLength;
+  if (!viewerSessionActive(token) || !board.renderer) return null;
+  board.loadedBytes += loaded.byteLength;
+  if (mask) board.loadedBytes += mask.byteLength;
   const contextPrimitives = [
     ...loaded.primitives.filter((primitive) => {
       const role = boardRole(primitive);
@@ -1136,7 +1153,7 @@ async function loadBoard(token = activeViewerToken) {
     ...(mask?.primitives || []),
   ];
   for (const primitive of mergePrimitivesByMaterial(contextPrimitives, boardRole)) {
-    renderer.addPrimitive(primitive, {
+    board.renderer.addPrimitive(primitive, {
       kind: "board",
       boardRole: primitive.groupKey,
       layerId: primitive.groupKey === "paste" ? pasteLayerId(primitive) : 0,
@@ -1149,12 +1166,12 @@ async function loadBoard(token = activeViewerToken) {
 
 
 function sceneRuntimeBounds() {
-  return scene.occurrenceBounds || scene.runtimeBounds || runtimeBoundsFromGltf(scene.manifest?.bbox);
+  return board.scene.occurrenceBounds || board.scene.runtimeBounds || runtimeBoundsFromGltf(board.scene.manifest?.bbox);
 }
 
 // Outer copper is the first and last copper layer by height; the rest sit inside the board.
 function isInnerCopperLayer(layerId) {
-  return innerCopperLayer(layerId, scene.copperLayers);
+  return innerCopperLayer(layerId, board.scene.copperLayers);
 }
 
 // What the cull pass needs to size occurrences on screen (SB2-25): the eye, and
@@ -1172,19 +1189,19 @@ function cameraLod(viewportHeight, orthographic) {
 
 // Scene numbers for the stats overlay and for measurements through the element.
 function sceneStats() {
-  const counts = renderer?.cullCounts || { full: 0, board: 0, box: 0, culled: 0 };
-  const single = !renderer || renderer.identityOnly;
+  const counts = board.renderer?.cullCounts || { full: 0, board: 0, box: 0, culled: 0 };
+  const single = !board.renderer || board.renderer.identityOnly;
   return {
-    occurrences: renderer?.occurrenceMatrices.length || 0,
+    occurrences: board.renderer?.occurrenceMatrices.length || 0,
     lod: single ? { full: 1, board: 0, box: 0, culled: 0 } : { ...counts },
-    triangles: renderer?.frameStats.triangles || 0,
-    draws: renderer?.frameStats.draws || 0,
-    gpuMemoryBytes: renderer?.gpuMemoryBytes() || 0,
+    triangles: board.renderer?.frameStats.triangles || 0,
+    draws: board.renderer?.frameStats.draws || 0,
+    gpuMemoryBytes: board.renderer?.gpuMemoryBytes() || 0,
     gpuBudgetBytes: state.gpuBudgetBytes,
-    componentTier: scene.componentTier,
-    componentEvictions: scene.componentEvictions,
-    tileEvictions: state.tileEvictions,
-    cache: assetCache ? assetCache.summary() : { enabled: false },
+    componentTier: board.scene.componentTier,
+    componentEvictions: board.scene.componentEvictions,
+    tileEvictions: board.tileEvictions,
+    cache: board.assetCache ? board.assetCache.summary() : { enabled: false },
     frameIntervalMs: state.frameIntervalMs,
     frameIntervalP95Ms: state.frameIntervalP95Ms,
     frameCpuMs: state.frameCpuMs,
@@ -1222,14 +1239,14 @@ function updateSceneStats() {
 // matrices in runtime units. `null` restores the single identity occurrence.
 // Geometry stays uploaded once; the camera reframes on every copy.
 function applyOccurrences(matrices) {
-  if (!renderer) return;
-  renderer.setOccurrences(matrices);
+  if (!board.renderer) return;
+  board.renderer.setOccurrences(matrices);
   // Back to the one-board view: it always shows its components.
-  if (matrices == null) deferComponents = false;
-  if (state.selectedOccurrence >= renderer.occurrenceMatrices.length) state.selectedOccurrence = 0;
-  const board = scene.runtimeBounds || runtimeBoundsFromGltf(scene.manifest?.bbox);
-  renderer.setBoardBounds(board);
-  scene.occurrenceBounds = matrices == null ? null : occurrenceUnionBounds(renderer.occurrenceMatrices, board);
+  if (matrices == null) board.deferComponents = false;
+  if (state.selectedOccurrence >= board.renderer.occurrenceMatrices.length) state.selectedOccurrence = 0;
+  const board = board.scene.runtimeBounds || runtimeBoundsFromGltf(board.scene.manifest?.bbox);
+  board.renderer.setBoardBounds(board);
+  board.scene.occurrenceBounds = matrices == null ? null : occurrenceUnionBounds(board.renderer.occurrenceMatrices, board);
   const bounds = sceneRuntimeBounds();
   if (camera && bounds) {
     camera.sceneRadius = boundsRadius(bounds);
@@ -1246,40 +1263,40 @@ function applyOccurrences(matrices) {
 
 
 function pasteLayerId(primitive) {
-  return pasteLayerIdFor(primitive, scene.copperLayers);
+  return pasteLayerIdFor(primitive, board.scene.copperLayers);
 }
 
 async function loadComponents(token = activeViewerToken) {
-  const path = semanticGeometry.assets?.components_glb;
-  if (!path || scene.componentTier !== "idle") return;
-  scene.componentTier = "loading";
+  const path = board.semanticGeometry.assets?.components_glb;
+  if (!path || board.scene.componentTier !== "idle") return;
+  board.scene.componentTier = "loading";
   let loaded;
   try {
     loaded = await loadGltf(new URL(path, location.href).toString(), {
-      componentFeatures: scene.componentFeatures,
+      componentFeatures: board.scene.componentFeatures,
       fetchBytes: assetFetcher(),
     });
   } catch (error) {
-    if (viewerSessionActive(token)) scene.componentTier = "idle";
+    if (viewerSessionActive(token)) board.scene.componentTier = "idle";
     throw error;
   }
-  if (!viewerSessionActive(token) || !renderer) return;
-  scene.componentTier = "loaded";
-  state.loadedBytes += loaded.byteLength;
+  if (!viewerSessionActive(token) || !board.renderer) return;
+  board.scene.componentTier = "loaded";
+  board.loadedBytes += loaded.byteLength;
   for (const primitive of loaded.primitives) {
-    const component = scene.componentFeatures.get(primitive.designator);
+    const component = board.scene.componentFeatures.get(primitive.designator);
     if (component) mergeFeatureBounds(component.featureId, primitive.position);
   }
   // A reference whose GLB has two top-level model nodes is an
   // alternate-footprint pair; the group builder keeps it visible.
   for (const [designator, count] of loaded.componentNodeCounts || []) {
-    scene.componentModelCounts.set(designator, count);
+    board.scene.componentModelCounts.set(designator, count);
   }
   // A hidden set that arrived before the models were counted treated
   // alternate-footprint pairs as ordinary references and hid them; redo it now
   // that the pairs are known, so load order never changes what is hidden.
-  if (state.hiddenComponentRequest) applyHiddenComponents(state.hiddenComponentRequest);
-  scene.componentEntries = mergePrimitivesByMaterial(loaded.primitives).map((primitive) => renderer.addPrimitive(primitive, {
+  if (board.hiddenComponentRequest) applyHiddenComponents(board.hiddenComponentRequest);
+  board.scene.componentEntries = mergePrimitivesByMaterial(loaded.primitives).map((primitive) => board.renderer.addPrimitive(primitive, {
     kind: "component",
     layerId: 0,
     material: primitive.material,
@@ -1289,7 +1306,7 @@ async function loadComponents(token = activeViewerToken) {
 
 // Bundle assets through the browser cache when this bundle is final (SB2-26).
 function assetFetcher() {
-  return assetCache ? (url) => assetCache.fetchBytes(url) : undefined;
+  return board.assetCache ? (url) => board.assetCache.fetchBytes(url) : undefined;
 }
 
 /**
@@ -1300,26 +1317,26 @@ function assetFetcher() {
  * browser cache. The one-board view always wants its components.
  */
 function manageTiers(now) {
-  if (!renderer || now - (state.tiersCheckedAt || 0) < 250) return;
+  if (!board.renderer || now - (state.tiersCheckedAt || 0) < 250) return;
   state.tiersCheckedAt = now;
   // A deferred (system) load waits for a full-detail occurrence, not the brief
   // one-board frames before its occurrences are applied.
-  const wanted = (renderer.identityOnly && !deferComponents) || (!renderer.identityOnly && renderer.cullCounts.full > 0);
-  if (wanted) scene.componentsWantedAt = now;
-  if (wanted && scene.componentTier === "idle" && semanticGeometry.assets?.components_glb) {
+  const wanted = (board.renderer.identityOnly && !board.deferComponents) || (!board.renderer.identityOnly && board.renderer.cullCounts.full > 0);
+  if (wanted) board.scene.componentsWantedAt = now;
+  if (wanted && board.scene.componentTier === "idle" && board.semanticGeometry.assets?.components_glb) {
     void loadComponents(activeViewerToken).catch((error) => console.warn("Failed to load components", error));
   }
-  state.gpuBytes = renderer.gpuMemoryBytes();
-  if (state.gpuBytes <= state.gpuBudgetBytes) return;
-  if (scene.componentTier === "loaded" && now - scene.componentsWantedAt > COMPONENT_IDLE_EVICT_MS) {
-    renderer.removeEntries(scene.componentEntries);
-    scene.componentEntries = [];
-    scene.componentTier = "idle";
-    scene.componentEvictions += 1;
-    state.gpuBytes = renderer.gpuMemoryBytes();
+  board.gpuBytes = board.renderer.gpuMemoryBytes();
+  if (board.gpuBytes <= state.gpuBudgetBytes) return;
+  if (board.scene.componentTier === "loaded" && now - board.scene.componentsWantedAt > COMPONENT_IDLE_EVICT_MS) {
+    board.renderer.removeEntries(board.scene.componentEntries);
+    board.scene.componentEntries = [];
+    board.scene.componentTier = "idle";
+    board.scene.componentEvictions += 1;
+    board.gpuBytes = board.renderer.gpuMemoryBytes();
   }
-  if (state.gpuBytes > state.gpuBudgetBytes) {
-    evictUnneededTiles(state.visibleTileIds || new Set(), Math.max(0, state.residentTileGpuBytes - (state.gpuBytes - state.gpuBudgetBytes)));
+  if (board.gpuBytes > state.gpuBudgetBytes) {
+    evictUnneededTiles(board.visibleTileIds || new Set(), Math.max(0, board.residentTileGpuBytes - (board.gpuBytes - state.gpuBudgetBytes)));
   }
 }
 
@@ -1334,9 +1351,9 @@ const PLACEHOLDER_MATERIAL = { baseColor: [0.62, 0.7, 0.8, 1], metallic: 0, roug
  * highlight, framing and hiding then work as for a real model.
  */
 function addFootprintPlaceholders(boardBounds) {
-  if (!renderer) return;
+  if (!board.renderer) return;
   const bodies = new Map();
-  for (const item of topology.physical_objects || []) {
+  for (const item of board.topology.physical_objects || []) {
     if (item.kind === "footprint_body" && item.designator && item.bbox_mm?.length === 4) {
       bodies.set(item.designator, item);
     }
@@ -1344,9 +1361,9 @@ function addFootprintPlaceholders(boardBounds) {
   const top = (boardBounds?.[5] ?? 0.0008) + PLACEHOLDER_GAP_M;
   const bottom = (boardBounds?.[2] ?? -0.0008) - PLACEHOLDER_GAP_M;
   const primitives = [];
-  for (const component of scene.componentFeatures.values()) {
+  for (const component of board.scene.componentFeatures.values()) {
     const featureId = Number(component.featureId);
-    const feature = scene.features.get(featureId);
+    const feature = board.scene.features.get(featureId);
     const body = bodies.get(component.designator);
     if (!feature || feature.bounds || !body) continue;
     const [x0, y0, x1, y1] = body.bbox_mm.map(Number);
@@ -1365,7 +1382,7 @@ function addFootprintPlaceholders(boardBounds) {
   }
   if (!primitives.length) return;
   for (const primitive of mergePrimitivesByMaterial(primitives)) {
-    renderer.addPrimitive(primitive, {
+    board.renderer.addPrimitive(primitive, {
       kind: "component",
       layerId: 0,
       material: primitive.material,
@@ -1411,7 +1428,7 @@ function boxPrimitive([x0, y0, z0, x1, y1, z1], featureId) {
 
 
 function mergeFeatureBounds(featureId, positions) {
-  const feature = scene.features.get(Number(featureId));
+  const feature = board.scene.features.get(Number(featureId));
   if (!feature || !positions.length) return;
   const incoming = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
   for (let index = 0; index < positions.length; index += 3) {
@@ -1435,16 +1452,16 @@ function mergeFeatureBounds(featureId, positions) {
 }
 
 function layerColor(layer) {
-  return copperLayerColor(layer, scene.copperLayers);
+  return copperLayerColor(layer, board.scene.copperLayers);
 }
 
 const DEFAULT_BARREL_COLOR = [0.55, 0.35, 0.16, 0.78];
 function finishColor() {
-  return finishColorFor(topology?.board?.stackup?.copper_finish);
+  return finishColorFor(board.topology?.board?.stackup?.copper_finish);
 }
 
 function isOuterCopper(layer) {
-  return isOuterCopperLayer(layer, scene.copperLayers);
+  return isOuterCopperLayer(layer, board.scene.copperLayers);
 }
 
 // Separation at which copper has fully turned to layer colours.
@@ -1469,7 +1486,7 @@ function mixColor(from, to, amount) {
 }
 
 function frame(now, token = activeViewerToken) {
-  if (token !== activeViewerToken || !renderer || !camera) return;
+  if (token !== activeViewerToken || !board.renderer || !camera) return;
   const frameStarted = performance.now();
   const frameInterval = Math.max(0, now - lastFrame);
   if (state.workspace === "schematic" && schematicRenderer) {
@@ -1488,10 +1505,10 @@ function frame(now, token = activeViewerToken) {
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
   lastFrame = now;
   camera.update(dt);
-  renderer.resize();
+  board.renderer.resize();
   const layerZOffsets = stackupOffsets();
-  if (scene.copperRealism !== copperRealism()) applyCopperColors();
-  for (const entry of renderer.entries) entry.layerOffset = layerZOffsets[entry.layerId] || 0;
+  if (board.scene.copperRealism !== copperRealism()) applyCopperColors();
+  for (const entry of board.renderer.entries) entry.layerOffset = layerZOffsets[entry.layerId] || 0;
   updateCompareTransition(now);
   compareOffsets = updateCompareLayout(now);
   const compareAlphas = compareLayerAlphas(now);
@@ -1502,11 +1519,11 @@ function frame(now, token = activeViewerToken) {
     lod: cameraLod(canvas.height, state.mode === "layer"),
   };
   // The copy holding the selection keeps full detail and its emphasis; none without a selection.
-  renderer.selectedOccurrence = state.selectedFeatureId || state.activeNetId ? state.selectedOccurrence : -1;
+  board.renderer.selectedOccurrence = state.selectedFeatureId || state.activeNetId ? state.selectedOccurrence : -1;
   // Inner copper shows once the board is exploded, faded for highlighting, or hidden.
-  renderer.setInnerCopperAtFull(state.showBoard && state.separation <= 0.001 && !emphasizedNetIds().size);
+  board.renderer.setInnerCopperAtFull(state.showBoard && state.separation <= 0.001 && !emphasizedNetIds().size);
   scheduleTileResidency(now);
-  const visibleLayers = state.mode === "3d" ? state.visible3dLayers : compareRenderLayers();
+  const visibleLayers = state.mode === "3d" ? board.visible3dLayers : compareRenderLayers();
   const inputs = {
     panels: [panel],
     activeNetId: state.activeNetId,
@@ -1524,10 +1541,10 @@ function frame(now, token = activeViewerToken) {
     compareMode: state.mode === "layer",
     compareOffsets,
     layerAlphas: compareAlphas,
-    visibleTileIds: state.mode === "3d" ? state.visibleTileIds : null,
+    visibleTileIds: state.mode === "3d" ? board.visibleTileIds : null,
   };
   if (frameNeedsRender(now, inputs)) {
-    renderer.render(inputs);
+    board.renderer.render(inputs);
     drawGizmo();
     updateLayerLabels();
   }
@@ -1562,8 +1579,8 @@ function frameNeedsRender(now, inputs) {
   const key = [
     canvas.width,
     canvas.height,
-    renderer.version,
-    renderer.selectedOccurrence,
+    board.renderer.version,
+    board.renderer.selectedOccurrence,
     state.workspace,
     state.mode,
     inputs.activeNetId,
@@ -1574,12 +1591,12 @@ function frameNeedsRender(now, inputs) {
     inputs.componentOpacity,
     inputs.boardOpacity,
     inputs.isolateNet,
-    scene.layerZOffsetSignature,
+    board.scene.layerZOffsetSignature,
     [...inputs.visibleLayers].join(","),
     [...inputs.compareOffsets].map(([id, offset]) => `${id}:${offset}`).join(";"),
     inputs.layerAlphas ? [...inputs.layerAlphas].join(";") : "",
   ].join("|");
-  const animating = Boolean(inputs.activeNetId || inputs.selectedFeatureId || renderer.emphasizedNetIds.size);
+  const animating = Boolean(inputs.activeNetId || inputs.selectedFeatureId || board.renderer.emphasizedNetIds.size);
   const stale = animating
     || key !== lastRender.key
     || !sameSet(inputs.visibleTileIds, lastRender.tiles)
@@ -1630,15 +1647,15 @@ function stackupOffsets() {
     (bounds[4] - bounds[1]) * 1000,
   );
   const gap = state.separation * state.separation * clamp(diagonal * 0.12, 8, 25) / 1000;
-  const signature = `${state.separation}:${gap}:${scene.copperLayers.length}`;
-  if (scene.layerZOffsetSignature === signature) return scene.layerZOffsets;
-  const output = scene.layerZOffsets;
+  const signature = `${state.separation}:${gap}:${board.scene.copperLayers.length}`;
+  if (board.scene.layerZOffsetSignature === signature) return board.scene.layerZOffsets;
+  const output = board.scene.layerZOffsets;
   output.fill(0);
-  const middle = (scene.copperLayers.length - 1) / 2;
-  scene.copperLayers.forEach((layer, index) => {
+  const middle = (board.scene.copperLayers.length - 1) / 2;
+  board.scene.copperLayers.forEach((layer, index) => {
     output[Number(layer.id)] = (middle - index) * gap;
   });
-  scene.layerZOffsetSignature = signature;
+  board.scene.layerZOffsetSignature = signature;
   return output;
 }
 
@@ -1648,7 +1665,7 @@ function updateCompareLayout(now) {
     compareAnimation.current.clear();
     return new Map();
   }
-  const selected = scene.copperLayers.filter((layer) => state.compareLayers.has(Number(layer.id)));
+  const selected = board.scene.copperLayers.filter((layer) => board.compareLayers.has(Number(layer.id)));
   const count = Math.max(1, selected.length);
   const aspect = canvas.width / Math.max(1, canvas.height);
   let columns = 1;
@@ -1718,16 +1735,16 @@ function updateCompareLayout(now) {
 
 function beginCompareLayerTransition(targetLayers) {
   const target = new Set([...targetLayers].map(Number));
-  if (setsEqual(target, state.desiredCompareLayers) && compareTransition.phase !== "idle") return;
-  state.desiredCompareLayers = target;
-  if (setsEqual(target, state.compareLayers)) {
+  if (setsEqual(target, board.desiredCompareLayers) && compareTransition.phase !== "idle") return;
+  board.desiredCompareLayers = target;
+  if (setsEqual(target, board.compareLayers)) {
     compareTransition.phase = "idle";
     compareTransition.previous.clear();
     compareTransition.target.clear();
     return;
   }
   compareTransition.phase = "preload";
-  compareTransition.previous = new Set(state.compareLayers);
+  compareTransition.previous = new Set(board.compareLayers);
   compareTransition.target = new Set(target);
   compareTransition.previousOffsets = new Map(compareAnimation.current);
   compareTransition.started = performance.now();
@@ -1737,16 +1754,16 @@ function beginCompareLayerTransition(targetLayers) {
 function activatePcbLayerMode({ snap = true } = {}) {
   state.mode = "layer";
   const target = ensurePcbCompareLayers();
-  state.desiredCompareLayers = new Set(target);
-  if (!state.compareLayers.size && target.size) {
-    state.compareLayers = new Set(target);
+  board.desiredCompareLayers = new Set(target);
+  if (!board.compareLayers.size && target.size) {
+    board.compareLayers = new Set(target);
   }
   compareTransition.phase = "idle";
   compareTransition.previous.clear();
   compareTransition.target.clear();
   compareAnimation.key = "";
   camera.setAxis("z", false);
-  renderer?.resize();
+  board.renderer?.resize();
   compareOffsets = updateCompareLayout(performance.now());
   if (snap) camera.snap();
   scheduleTileResidency(performance.now(), { force: true });
@@ -1762,12 +1779,12 @@ function updateCompareTransition(now) {
     compareTransition.phase = "reveal";
     compareTransition.started = now;
     compareTransition.previousOffsets = new Map(compareAnimation.current);
-    state.compareLayers = new Set(compareTransition.target);
+    board.compareLayers = new Set(compareTransition.target);
     compareAnimation.key = "";
     return;
   }
   if (compareTransition.phase === "reveal" && now - compareTransition.started >= COMPARE_REVEAL_DURATION_MS) {
-    state.compareLayers = new Set(compareTransition.target);
+    board.compareLayers = new Set(compareTransition.target);
     compareTransition.phase = "idle";
     compareTransition.previous.clear();
     compareTransition.target.clear();
@@ -1777,9 +1794,9 @@ function updateCompareTransition(now) {
 }
 
 function compareTargetTilesReady(targetLayers) {
-  for (const tile of scene.tiles.values()) {
+  for (const tile of board.scene.tiles.values()) {
     if (!targetLayers.has(Number(tile.layerId))) continue;
-    if (!scene.residentTiles.has(tile.id) && !scene.failed.has(tile.id)) return false;
+    if (!board.scene.residentTiles.has(tile.id) && !board.scene.failed.has(tile.id)) return false;
   }
   return true;
 }
@@ -1818,7 +1835,7 @@ function renderControls() {
   if (state.workspace === "stackup") {
     return;
   }
-  viewerKindEl.textContent = viewerReadiness.stage === "semantic-ready"
+  viewerKindEl.textContent = board.viewerReadiness.stage === "semantic-ready"
     ? "Semantic GLTF A0"
     : "Prism staged 3D";
   primaryHeadingEl.textContent = "Layers";
@@ -2015,7 +2032,7 @@ function renderSchematicSearch(query) {
   }
   const pages = schematicScene.pages.filter((page) =>
     `${page.name} ${page.sheetPath}`.toLowerCase().includes(value)).slice(0, 8);
-  const nets = scene.nets.filter((net) => String(net.name).toLowerCase().includes(value)).slice(0, 8);
+  const nets = board.scene.nets.filter((net) => String(net.name).toLowerCase().includes(value)).slice(0, 8);
   container.innerHTML = [
     ...pages.map((page) => `<button data-page="${page.id}"><b>${escapeHtml(page.name)}</b><span>Page ${page.sheetNumber}</span></button>`),
     ...nets.map((net) => `<button data-schematic-net="${net.id}"><b>${escapeHtml(net.name)}</b><span>${(schematicScene.manifest.netToPages?.[net.uid] || []).length} pages</span></button>`),
@@ -2029,7 +2046,7 @@ function renderSchematicSearch(query) {
 }
 
 function selectSchematicNet(netId, shouldFrame) {
-  const net = scene.nets.find((item) => Number(item.id) === netId);
+  const net = board.scene.nets.find((item) => Number(item.id) === netId);
   if (!net || !schematicRenderer) return;
   state.activeNetId = netId;
   state.selectedFeatureId = 0;
@@ -2047,7 +2064,7 @@ function selectSchematicNet(netId, shouldFrame) {
 }
 
 function highlightSchematicNetByUid(netUid, selection = null) {
-  const net = scene.nets.find((item) => item.uid === netUid);
+  const net = board.scene.nets.find((item) => item.uid === netUid);
   if (!net) return;
   state.activeNetId = Number(net.id);
   schematicScene.activeNetUid = net.uid;
@@ -2097,8 +2114,8 @@ function selectSchematicDomSelection(selection) {
     schematicRenderer.selectedPageId = state.selectedPageId;
     schematicRenderer.selectedFeatureId = Number(selection.feature?.id || 0);
   }
-  const net = selection.netUid ? scene.nets.find((item) => item.uid === selection.netUid) : null;
-  const component = selection.reference ? scene.componentFeatures.get(selection.reference) : null;
+  const net = selection.netUid ? board.scene.nets.find((item) => item.uid === selection.netUid) : null;
+  const component = selection.reference ? board.scene.componentFeatures.get(selection.reference) : null;
   if (component) {
     state.selectedFeatureId = Number(component.featureId || 0);
     bomViewer?.setSelectionByReference(selection.reference, { scroll: state.workspace === "bom" });
@@ -2124,7 +2141,7 @@ function selectSchematicFeature(hit) {
   state.selectionAnchor = null;
 
   if (feature.netUid) {
-    const net = scene.nets.find((item) => item.uid === feature.netUid);
+    const net = board.scene.nets.find((item) => item.uid === feature.netUid);
     if (net) {
       selectSchematicNet(Number(net.id), false);
       state.selectedSchematicFeature = { ...feature, pageId: page.id };
@@ -2133,7 +2150,7 @@ function selectSchematicFeature(hit) {
     }
   }
   if (feature.reference) {
-    const component = scene.componentFeatures.get(feature.reference);
+    const component = board.scene.componentFeatures.get(feature.reference);
     if (component) {
       selectFeature(Number(component.featureId), false);
       state.selectedSchematicFeature = { ...feature, pageId: page.id };
@@ -2176,8 +2193,8 @@ function layersForNet(netId) {
   // The manifest's net record is the source of truth. It is available before
   // tile residency begins, whereas deriving membership only from resident tile
   // state can leave isolation with an empty layer set on its first activation.
-  const net = scene.nets.find((item) => Number(item.id) === Number(netId));
-  const copperLayerIds = new Set(scene.copperLayers.map((layer) => Number(layer.id)));
+  const net = board.scene.nets.find((item) => Number(item.id) === Number(netId));
+  const copperLayerIds = new Set(board.scene.copperLayers.map((layer) => Number(layer.id)));
   for (const layerId of Object.keys(net?.layerBoundsMm || {})) {
     const numericId = Number(layerId);
     if (copperLayerIds.has(numericId)) layers.add(numericId);
@@ -2185,7 +2202,7 @@ function layersForNet(netId) {
 
   // Older manifests may only expose the human-readable layer list.
   if (!layers.size) {
-    const idsByName = new Map(scene.copperLayers.map((layer) => [layer.name, Number(layer.id)]));
+    const idsByName = new Map(board.scene.copperLayers.map((layer) => [layer.name, Number(layer.id)]));
     for (const layerName of net?.metrics?.layers || []) {
       const layerId = idsByName.get(layerName);
       if (layerId != null) layers.add(layerId);
@@ -2194,7 +2211,7 @@ function layersForNet(netId) {
 
   // Retain compatibility with manifests generated before per-net layer bounds.
   if (layers.size) return layers;
-  for (const tile of scene.tiles.values()) {
+  for (const tile of board.scene.tiles.values()) {
     if (tileHasNet(tile, netId)) layers.add(Number(tile.layerId));
   }
   return layers;
@@ -2203,11 +2220,11 @@ function layersForNet(netId) {
 function applyNetIsolationLayers() {
   const layers = layersForActiveNet();
   if (!layers.size) return;
-  state.visible3dLayers = new Set(layers);
+  board.visible3dLayers = new Set(layers);
   if (state.mode === "layer") beginCompareLayerTransition(layers);
   else {
-    state.compareLayers = new Set(layers);
-    state.desiredCompareLayers = new Set(layers);
+    board.compareLayers = new Set(layers);
+    board.desiredCompareLayers = new Set(layers);
   }
   scheduleTileResidency(performance.now(), { force: true });
 }
@@ -2216,28 +2233,28 @@ function setNetIsolation(enabled) {
   const next = Boolean(enabled && emphasizedNetIds().size);
   const wasIsolating = state.isolateNet;
   if (next && !state.isolateNet) {
-    state.preIsolation3dLayers = new Set(state.visible3dLayers);
-    state.preIsolationCompareLayers = new Set(state.desiredCompareLayers.size
-      ? state.desiredCompareLayers
-      : state.compareLayers);
+    board.preIsolation3dLayers = new Set(board.visible3dLayers);
+    board.preIsolationCompareLayers = new Set(board.desiredCompareLayers.size
+      ? board.desiredCompareLayers
+      : board.compareLayers);
   }
   state.isolateNet = next;
   if (state.isolateNet) {
     applyNetIsolationLayers();
-  } else if (state.preIsolation3dLayers || state.preIsolationCompareLayers) {
-    if (state.preIsolation3dLayers) {
-      state.visible3dLayers = new Set(state.preIsolation3dLayers);
+  } else if (board.preIsolation3dLayers || board.preIsolationCompareLayers) {
+    if (board.preIsolation3dLayers) {
+      board.visible3dLayers = new Set(board.preIsolation3dLayers);
     }
-    if (state.preIsolationCompareLayers) {
-      const restored = new Set(state.preIsolationCompareLayers);
+    if (board.preIsolationCompareLayers) {
+      const restored = new Set(board.preIsolationCompareLayers);
       if (state.mode === "layer") beginCompareLayerTransition(restored);
       else {
-        state.compareLayers = restored;
-        state.desiredCompareLayers = new Set(restored);
+        board.compareLayers = restored;
+        board.desiredCompareLayers = new Set(restored);
       }
     }
-    state.preIsolation3dLayers = null;
-    state.preIsolationCompareLayers = null;
+    board.preIsolation3dLayers = null;
+    board.preIsolationCompareLayers = null;
     scheduleTileResidency(performance.now(), { force: true });
   }
   // Couple substrate hide/show to the Isolate transition only.
@@ -2267,8 +2284,8 @@ function refreshControls() {
   viewControlsEl.querySelector("#show-components").checked = state.showComponents;
   viewControlsEl.querySelector("#separation").value = state.separation;
   const list = layersEl.querySelector(".layer-list");
-  const selected = state.mode === "3d" ? state.visible3dLayers : state.desiredCompareLayers;
-  list.innerHTML = scene.copperLayers.map((layer, index) => `
+  const selected = state.mode === "3d" ? board.visible3dLayers : board.desiredCompareLayers;
+  list.innerHTML = board.scene.copperLayers.map((layer, index) => `
     <label class="layer-row">
       <input type="checkbox" data-layer="${layer.id}" ${selected.has(Number(layer.id)) ? "checked" : ""}>
       <span class="swatch" style="background:${rgbCss(layerColor(layer))}"></span>
@@ -2287,7 +2304,7 @@ function setViewMode(mode) {
     state.mode = "3d";
     camera.frame(sceneRuntimeBounds());
     camera.snap();
-    state.visibleTileIds = new Set();
+    board.visibleTileIds = new Set();
     scheduleTileResidency(performance.now(), { force: true });
   }
   refreshControls();
@@ -2295,10 +2312,10 @@ function setViewMode(mode) {
 
 function setLayerVisible(layerId, visible) {
   if (state.mode === "3d") {
-    visible ? state.visible3dLayers.add(layerId) : state.visible3dLayers.delete(layerId);
+    visible ? board.visible3dLayers.add(layerId) : board.visible3dLayers.delete(layerId);
     scheduleTileResidency(performance.now(), { force: true });
   } else {
-    const target = new Set(state.desiredCompareLayers);
+    const target = new Set(board.desiredCompareLayers);
     visible ? target.add(layerId) : target.delete(layerId);
     beginCompareLayerTransition(target);
   }
@@ -2306,12 +2323,12 @@ function setLayerVisible(layerId, visible) {
 }
 
 function applyLayerPreset(preset) {
-  const target = state.mode === "3d" ? state.visible3dLayers : new Set();
+  const target = state.mode === "3d" ? board.visible3dLayers : new Set();
   target.clear();
-  for (const [index, layer] of scene.copperLayers.entries()) {
+  for (const [index, layer] of board.scene.copperLayers.entries()) {
     const include = preset === "all"
-      || (preset === "outer" && (index === 0 || index === scene.copperLayers.length - 1))
-      || (preset === "inner" && index > 0 && index < scene.copperLayers.length - 1);
+      || (preset === "outer" && (index === 0 || index === board.scene.copperLayers.length - 1))
+      || (preset === "inner" && index > 0 && index < board.scene.copperLayers.length - 1);
     if (include) target.add(Number(layer.id));
   }
   if (state.mode === "3d") scheduleTileResidency(performance.now(), { force: true });
@@ -2334,7 +2351,7 @@ function setShowComponents(visible) {
 
 function setShowPlaceholders(visible) {
   state.showPlaceholders = Boolean(visible);
-  renderer?.setPlaceholdersVisible(state.showPlaceholders);
+  board.renderer?.setPlaceholdersVisible(state.showPlaceholders);
   notifyViewStateChange();
 }
 
@@ -2346,13 +2363,13 @@ function setRealisticColors(enabled) {
 }
 
 function applyCopperColors() {
-  if (!renderer) return;
-  const layers = new Map(scene.layers.map((layer) => [Number(layer.id), layer]));
-  for (const entry of renderer.entries) {
+  if (!board.renderer) return;
+  const layers = new Map(board.scene.layers.map((layer) => [Number(layer.id), layer]));
+  for (const entry of board.renderer.entries) {
     if (entry.kind === "copper") entry.color = copperColor(layers.get(Number(entry.layerId)));
   }
-  renderer.setBarrelColor(mixColor(DEFAULT_BARREL_COLOR, [...finishColor().slice(0, 3), 0.78], copperRealism()));
-  scene.copperRealism = copperRealism();
+  board.renderer.setBarrelColor(mixColor(DEFAULT_BARREL_COLOR, [...finishColor().slice(0, 3), 0.78], copperRealism()));
+  board.scene.copperRealism = copperRealism();
 }
 
 function setSeparation(value) {
@@ -2402,12 +2419,12 @@ function bindPanelTabs() {
 }
 
 function showNetLayers() {
-  const net = scene.nets.find((item) => Number(item.id) === state.activeNetId);
+  const net = board.scene.nets.find((item) => Number(item.id) === state.activeNetId);
   if (!net) return;
   const names = new Set(net.metrics?.layers || []);
-  const target = state.mode === "3d" ? state.visible3dLayers : new Set();
+  const target = state.mode === "3d" ? board.visible3dLayers : new Set();
   target.clear();
-  for (const layer of scene.copperLayers) {
+  for (const layer of board.scene.copperLayers) {
     if (names.has(layer.name)) target.add(Number(layer.id));
   }
   if (state.mode === "3d") scheduleTileResidency(performance.now(), { force: true });
@@ -2422,9 +2439,9 @@ function renderSearch(query) {
     container.innerHTML = "";
     return;
   }
-  const nets = scene.nets.filter((net) => String(net.name).toLowerCase().includes(value)).slice(0, 8);
-  const components = [...scene.componentFeatures.values()].filter((item) =>
-    !state.hiddenComponents.has(String(item.designator || ""))
+  const nets = board.scene.nets.filter((net) => String(net.name).toLowerCase().includes(value)).slice(0, 8);
+  const components = [...board.scene.componentFeatures.values()].filter((item) =>
+    !board.hiddenComponents.has(String(item.designator || ""))
     && `${item.designator} ${item.value} ${item.footprint}`.toLowerCase().includes(value)).slice(0, 6);
   container.innerHTML = [
     ...nets.map((net) => `<button data-net="${net.id}"><b>${escapeHtml(net.name)}</b><span>${escapeHtml(net.netClass || "")}</span></button>`),
@@ -2442,7 +2459,7 @@ function selectNet(netId, shouldFrame) {
   if (shouldFrame) state.selectionAnchor = null;
   state.activeNetId = netId;
   state.selectedFeatureId = 0;
-  const net = scene.nets.find((item) => Number(item.id) === netId);
+  const net = board.scene.nets.find((item) => Number(item.id) === netId);
   if (state.workspace === "schematic" && net && schematicRenderer) {
     schematicScene.activeNetUid = net.uid;
     schematicRenderer.activeNetUid = net.uid;
@@ -2457,10 +2474,10 @@ function selectNet(netId, shouldFrame) {
 }
 
 function selectFeature(featureId, shouldFrame = false) {
-  const feature = scene.features.get(featureId);
+  const feature = board.scene.features.get(featureId);
   if (
     feature?.kind === "component"
-    && isComponentHidden(componentReferenceFromFeature(feature), state.hiddenComponents)
+    && isComponentHidden(componentReferenceFromFeature(feature), board.hiddenComponents)
   ) return;
   if (shouldFrame) state.selectionAnchor = null;
   state.selectedFeatureId = featureId;
@@ -2479,8 +2496,8 @@ function selectFeature(featureId, shouldFrame = false) {
 }
 
 function selectComponentReference(reference, shouldFrame = false) {
-  if (isComponentHidden(reference, state.hiddenComponents)) return;
-  const component = scene.componentFeatures.get(reference);
+  if (isComponentHidden(reference, board.hiddenComponents)) return;
+  const component = board.scene.componentFeatures.get(reference);
   bomViewer?.setSelectionByReference(reference, { scroll: state.workspace === "bom" });
   if (!component?.featureId) return;
   applyComponentProbeVisibility();
@@ -2511,7 +2528,7 @@ function selectComponentReference(reference, shouldFrame = false) {
   }
 
   if (shouldFrame && state.workspace === "pcb") {
-    const feature = scene.features.get(Number(component.featureId));
+    const feature = board.scene.features.get(Number(component.featureId));
     if (feature?.bounds) framePcbFeature(feature, true);
   }
   updateSelectionCard();
@@ -2523,8 +2540,8 @@ function componentReferenceFromFeature(feature) {
 
 function componentFeatureGroups() {
   return buildComponentFeatureGroups(
-    scene.manifest?.components || [],
-    scene.componentModelCounts,
+    board.scene.manifest?.components || [],
+    board.scene.componentModelCounts,
   );
 }
 
@@ -2536,10 +2553,10 @@ function componentFeatureGroups() {
  */
 function applyHiddenComponents(references) {
   // Kept so the plan can be redone once component models are known (see loadComponents).
-  state.hiddenComponentRequest = references;
+  board.hiddenComponentRequest = references;
   const plan = planComponentVisibility(references, componentFeatureGroups());
-  state.hiddenComponents = plan.hiddenReferences;
-  renderer?.setHiddenFeatureIds(plan.hiddenFeatureIds);
+  board.hiddenComponents = plan.hiddenReferences;
+  board.renderer?.setHiddenFeatureIds(plan.hiddenFeatureIds);
   if (plan.ambiguous.length) {
     console.warn(
       `[prism-semantic-viewer] keeping ambiguous components visible: ${plan.ambiguous.join(", ")}`,
@@ -2551,9 +2568,9 @@ function applyHiddenComponents(references) {
     );
   }
   const selectedReference = componentReferenceFromFeature(
-    scene.features.get(state.selectedFeatureId),
+    board.scene.features.get(state.selectedFeatureId),
   );
-  if (isComponentHidden(selectedReference, state.hiddenComponents)) clearSelection();
+  if (isComponentHidden(selectedReference, board.hiddenComponents)) clearSelection();
   const searchInput = searchControlsEl.querySelector("input");
   if (searchInput?.value) renderSearch(searchInput.value);
   return plan;
@@ -2659,7 +2676,7 @@ function selectionHeader(type, title, accent) {
 }
 
 function netSelectionContent(net) {
-  const details = topology.net_details?.[net.uid] || {};
+  const details = board.topology.net_details?.[net.uid] || {};
   const terminals = details.terminals || [];
   const metrics = net.metrics || {};
   const traceLength = Number(metrics.traceLengthMm || 0).toFixed(2);
@@ -2847,27 +2864,27 @@ function updateSelectionCard() {
     return;
   }
 
-  const feature = scene.features.get(state.selectedFeatureId);
+  const feature = board.scene.features.get(state.selectedFeatureId);
   let component = feature?.kind === "component" ? feature : null;
   const schematicFeature = state.workspace === "schematic" ? state.selectedSchematicFeature : null;
   const schematicPage = schematicFeature ? schematicScene.byId.get(schematicFeature.pageId) : null;
   let net = state.activeNetId
-    ? scene.nets.find((item) => Number(item.id) === state.activeNetId)
+    ? board.scene.nets.find((item) => Number(item.id) === state.activeNetId)
     : null;
 
   // Consolidate schematic selections to Net or Component
   if (!net && schematicFeature) {
     if (schematicFeature.netUid) {
-      net = scene.nets.find(n => n.uid === schematicFeature.netUid);
+      net = board.scene.nets.find(n => n.uid === schematicFeature.netUid);
     } else if (schematicFeature.netName) {
-      net = findNetByName(scene.nets, schematicFeature.netName);
+      net = findNetByName(board.scene.nets, schematicFeature.netName);
     }
   }
 
   if (!component && schematicFeature) {
     const designator = schematicFeature.reference || schematicFeature.componentDesignator || schematicFeature.designator;
     if (designator) {
-      component = scene.componentFeatures.get(designator) || { designator };
+      component = board.scene.componentFeatures.get(designator) || { designator };
     }
   }
 
@@ -2937,7 +2954,7 @@ function updateSelectionCard() {
         const pin = row.dataset.pin;
         if (!ref) return;
         
-        const details = topology.net_details?.[net.uid] || {};
+        const details = board.topology.net_details?.[net.uid] || {};
         const terminals = details.terminals || [];
         const terminal = terminals.find(t => t.designator === ref && t.pin === pin);
         
@@ -2957,7 +2974,7 @@ function updateSelectionCard() {
     netRef.addEventListener("click", () => {
       const netName = netRef.dataset.netName;
       if (!netName) return;
-      const targetNet = findNetByName(scene.nets, netName);
+      const targetNet = findNetByName(board.scene.nets, netName);
       if (targetNet) {
         selectNet(Number(targetNet.id), true);
       }
@@ -2970,11 +2987,11 @@ function frameSelection() {
     frameSchematicSelection();
     return;
   }
-  const feature = scene.features.get(state.selectedFeatureId);
+  const feature = board.scene.features.get(state.selectedFeatureId);
   if (feature?.bounds) {
     framePcbFeature(feature);
   } else {
-    const net = scene.nets.find((item) => Number(item.id) === state.activeNetId);
+    const net = board.scene.nets.find((item) => Number(item.id) === state.activeNetId);
     if (net?.boundsMm) camera.frame(placedBounds(runtimeBounds(net.boundsMm)));
   }
 }
@@ -3152,7 +3169,7 @@ function switchWorkspace(workspace) {
     schematicScene.fitted = true;
   }
   if (!schematic && !bom && !stackup) {
-    renderer?.resize();
+    board.renderer?.resize();
     if (state.mode === "layer") {
       activatePcbLayerMode();
     } else {
@@ -3231,7 +3248,7 @@ async function pickAt(event) {
   if (hit.kind === "feature" || hit.kind === "board") state.selectedOccurrence = hit.occurrenceIndex;
   if (hit.featureId) selectFeature(hit.featureId, true);
   // Board context exists only in system scenes; the one-board view clears as it always has.
-  else if (hit.kind === "board" && !renderer.identityOnly) selectBoardContext();
+  else if (hit.kind === "board" && !board.renderer.identityOnly) selectBoardContext();
   else clearSelection();
 }
 
@@ -3241,7 +3258,7 @@ async function pickAt(event) {
  */
 async function contextPickAt(event) {
   if (!panel || !contextMenuCallback) return;
-  const feature = scene.features.get((await pickHitAtEvent(event)).featureId);
+  const feature = board.scene.features.get((await pickHitAtEvent(event)).featureId);
   const reference = componentReferenceFromFeature(feature);
   const component = reference ? findTopologyComponent(reference) : null;
   contextMenuCallback({
@@ -3259,11 +3276,11 @@ function pickHitAtEvent(event) {
 
 // Pick at canvas pixel (x, y): { kind, occurrenceIndex, occurrenceKey, featureId }.
 function pickHit(x, y) {
-  return renderer.pick(panel, x, y, {
+  return board.renderer.pick(panel, x, y, {
     activeNetId: state.activeNetId,
     selectedFeatureId: state.selectedFeatureId,
     layerOffsets: stackupOffsets(),
-    visibleLayers: state.mode === "3d" ? state.visible3dLayers : state.compareLayers,
+    visibleLayers: state.mode === "3d" ? board.visible3dLayers : board.compareLayers,
     showBoard: state.showBoard,
     showComponents: state.showComponents,
     componentOpacity: clamp(1 - state.separation / 0.1, 0, 1),
@@ -3271,16 +3288,16 @@ function pickHit(x, y) {
     isolateNet: state.isolateNet,
     compareMode: state.mode === "layer",
     compareOffsets,
-    visibleTileIds: state.mode === "3d" ? state.visibleTileIds : null,
+    visibleTileIds: state.mode === "3d" ? board.visibleTileIds : null,
   });
 }
 
 async function pickHitAt(clientX, clientY) {
-  if (!panel || !renderer) return null;
+  if (!panel || !board.renderer) return null;
   const rect = canvas.getBoundingClientRect();
   const hit = await pickHit((clientX - rect.left) * canvas.width / rect.width, (clientY - rect.top) * canvas.height / rect.height);
   // What a click there would select: the same mapping as selectFeature.
-  const selection = hit.featureId ? featureSelection(scene.features.get(hit.featureId)) : null;
+  const selection = hit.featureId ? featureSelection(board.scene.features.get(hit.featureId)) : null;
   return { ...hit, selection };
 }
 
@@ -3301,8 +3318,8 @@ function selectBoardContext() {
 }
 
 function projectComponentCenter(reference, occurrenceKey) {
-  const component = scene.componentFeatures.get(String(reference));
-  const bounds = component ? scene.features.get(Number(component.featureId))?.bounds : null;
+  const component = board.scene.componentFeatures.get(String(reference));
+  const bounds = component ? board.scene.features.get(Number(component.featureId))?.bounds : null;
   if (!bounds) return null;
   // Top centre for top-side parts, bottom centre for bottom-side ones: the face a click lands on.
   const top = (bounds[2] + bounds[5]) >= 0;
@@ -3310,9 +3327,9 @@ function projectComponentCenter(reference, occurrenceKey) {
 }
 
 function projectOccurrencePoint(local, occurrenceKey) {
-  if (!panel || !renderer) return null;
-  const index = occurrenceKey == null ? 0 : renderer.occurrenceKeys.indexOf(String(occurrenceKey));
-  const model = renderer.occurrenceMatrices[index];
+  if (!panel || !board.renderer) return null;
+  const index = occurrenceKey == null ? 0 : board.renderer.occurrenceKeys.indexOf(String(occurrenceKey));
+  const model = board.renderer.occurrenceMatrices[index];
   if (!model) return null;
   const pixel = projectToViewport(panel.matrix, transformPoint(model, local), panel.viewport);
   if (!pixel) return null;
@@ -3392,7 +3409,7 @@ function handleKey(event) {
   else if (key === "r") camera.rotateZ(event.shiftKey ? -1 : 1);
   else if (key === " ") {
     event.preventDefault();
-    const feature = scene.features.get(state.selectedFeatureId);
+    const feature = board.scene.features.get(state.selectedFeatureId);
     if (feature?.bounds) {
       camera.setFocus([
         (feature.bounds[0] + feature.bounds[3]) / 2,
@@ -3499,7 +3516,7 @@ function updateLayerLabels() {
   }
   const bounds = sceneRuntimeBounds();
   const visibleLayers = compareRenderLayers();
-  labelsEl.innerHTML = scene.copperLayers
+  labelsEl.innerHTML = board.scene.copperLayers
     .filter((layer) => visibleLayers.has(Number(layer.id)))
     .map((layer) => {
       const offset = compareOffsets.get(Number(layer.id)) || [0, 0, 0];
@@ -3616,7 +3633,7 @@ function updateDiagnostics(now) {
       ["Indexed nets", domStats.indexedNets.toLocaleString()],
       ["SVG cache", `${domStats.cachedSvgPages} pages / ${(domStats.cachedSvgBytes / 1048576).toFixed(1)} MB`],
       ["Selection", `${domStats.selectionMs.toFixed(1)} ms`],
-      ["Active net", scene.nets.find((net) => net.uid === schematicScene.activeNetUid)?.name || "-"],
+      ["Active net", board.scene.nets.find((net) => net.uid === schematicScene.activeNetUid)?.name || "-"],
       ["Tracking links", `${schematicStats.netFlowSegments} total / ${schematicStats.netFlowIntrasheetSegments} local`],
       ["Tracking verts", schematicStats.netFlowVertices.toLocaleString()],
       ["Mount", `${domStats.mountMs.toFixed(1)} ms`],
@@ -3637,7 +3654,7 @@ function updateDiagnostics(now) {
       ["JS heap", domStats?.heapMb ? `${domStats.heapMb.toFixed(1)} MB` : "-"],
       ["Hierarchy links", schematicScene.manifest.edges?.length || 0],
       ["Selected page", schematicScene.byId.get(state.selectedPageId)?.name || "-"],
-      ["Active net", scene.nets.find((net) => net.uid === schematicScene.activeNetUid)?.name || "-"],
+      ["Active net", board.scene.nets.find((net) => net.uid === schematicScene.activeNetUid)?.name || "-"],
       ["Tracking links", `${schematicStats.netFlowSegments} total / ${schematicStats.netFlowIntrasheetSegments} local`],
       ["Downloaded", `${(schematicRenderer.downloadedBytes / 1048576).toFixed(1)} MB`],
       ["Resident vectors", `${(schematicStats.residentVectorBytes / 1048576).toFixed(1)} MB`],
@@ -3653,18 +3670,18 @@ function updateDiagnostics(now) {
     : [
     ["Renderer", "WebGPU semantic glTF"],
     ["Mode", state.mode === "3d" ? "3D" : "Layer Compare"],
-    ["Visible layers", state.mode === "3d" ? state.visible3dLayers.size : state.compareLayers.size],
-    ["Resident tiles", scene.loaded.size],
-    ["Loading tiles", scene.loading.size],
-    ["Failed tiles", scene.failed.size],
-    ["Triangles", Math.round(state.triangles).toLocaleString()],
-    ["Downloaded", `${(state.loadedBytes / 1048576).toFixed(1)} MB`],
-    ["Resident GLB", `${(state.residentTileBytes / 1048576).toFixed(1)} MB`],
-    ["Resident GPU", `${(state.residentTileGpuBytes / 1048576).toFixed(1)} MB`],
-    ["Tile loads", state.tileLoads.toLocaleString()],
-    ["Tile evictions", state.tileEvictions.toLocaleString()],
-    ["Tile scheduler", `${state.tileSchedulerMs.toFixed(2)} ms`],
-    ["Active net", scene.nets.find((net) => Number(net.id) === state.activeNetId)?.name || "-"],
+    ["Visible layers", state.mode === "3d" ? board.visible3dLayers.size : board.compareLayers.size],
+    ["Resident tiles", board.scene.loaded.size],
+    ["Loading tiles", board.scene.loading.size],
+    ["Failed tiles", board.scene.failed.size],
+    ["Triangles", Math.round(board.triangles).toLocaleString()],
+    ["Downloaded", `${(board.loadedBytes / 1048576).toFixed(1)} MB`],
+    ["Resident GLB", `${(board.residentTileBytes / 1048576).toFixed(1)} MB`],
+    ["Resident GPU", `${(board.residentTileGpuBytes / 1048576).toFixed(1)} MB`],
+    ["Tile loads", board.tileLoads.toLocaleString()],
+    ["Tile evictions", board.tileEvictions.toLocaleString()],
+    ["Tile scheduler", `${board.tileSchedulerMs.toFixed(2)} ms`],
+    ["Active net", board.scene.nets.find((net) => Number(net.id) === state.activeNetId)?.name || "-"],
     ["Frame interval", `${state.frameIntervalMs.toFixed(2)} ms avg / ${state.frameIntervalP95Ms.toFixed(2)} p95`],
     ["CPU frame", `${state.frameCpuMs.toFixed(2)} ms avg / ${state.frameCpuP95Ms.toFixed(2)} p95`],
     ["FPS", state.fps.toFixed(1)],
@@ -3679,7 +3696,7 @@ function rgbCss(color) {
 function renderStackupWorkspace() {
   if (!stackupWorkspaceViewEl) return;
 
-  const layers = scene.layers || [];
+  const layers = board.scene.layers || [];
   if (!layers.length) {
     stackupWorkspaceViewEl.innerHTML = `<div class="selection-empty" style="padding:40px;text-align:center;">No stackup information available for this board.</div>`;
     return;
@@ -3688,7 +3705,7 @@ function renderStackupWorkspace() {
   const physicalLayers = layers.filter(
     (l) => ["copper", "dielectric", "paste", "silkscreen", "soldermask"].includes(l.role)
   );
-  const stackupMetadata = topology.board?.stackup || {};
+  const stackupMetadata = board.topology.board?.stackup || {};
   const displayFinish = (value) => {
     if (value === undefined || value === null || value === "") return "None";
     const text = String(value);
@@ -3768,14 +3785,14 @@ function renderStackupWorkspace() {
   });
 
   // --- Via classification using copper layer index spans ---
-  const copperLayers = scene.copperLayers || [];
+  const copperLayers = board.scene.copperLayers || [];
   let thruCount = 0;
   let blindCount = 0;
   let buriedCount = 0;
 
   const viaRecords = [
-    ...(scene.manifest?.barrels || []).filter((barrel) => barrel.kind === "via"),
-    ...[...scene.features.values()].filter((feature) => feature.kind === "via"),
+    ...(board.scene.manifest?.barrels || []).filter((barrel) => barrel.kind === "via"),
+    ...[...board.scene.features.values()].filter((feature) => feature.kind === "via"),
   ];
   const viaData = collectStackupViaData(copperLayers, viaRecords);
   thruCount = viaData.counts.thru;
@@ -3949,7 +3966,7 @@ function renderStackupWorkspace() {
 
   // --- Impedance net classes table ---
   let impedanceRowsHtml = "";
-  const netClasses = topology.board?.net_classes || [];
+  const netClasses = board.topology.board?.net_classes || [];
   const displayRuleMm = (value) => {
     const formatted = displayMm(value);
     return formatted === "-" ? formatted : `${formatted} mm`;
