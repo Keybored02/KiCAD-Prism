@@ -27,7 +27,11 @@ import {
 import { absolutizeAssetPaths, bundleIsFinal } from "./bundle-urls.js";
 import { CameraController } from "./camera.js";
 import { loadGltf } from "./gltf-loader.js";
-import { add, boundsRadius, scale } from "./math.js";
+import { add, boundsRadius, cross, scale } from "./math.js";
+import {
+  AXES, SNAP, axisAmount, canonicalPose, localAxes, moveDescriptor, moveTarget, perpendicular,
+  ringRotation, rotatePoseAbout, screenAngle, snapTo, translatePose,
+} from "./move-gizmo.js";
 import { IDENTITY, LOD_THRESHOLDS, projectToViewport, transformBounds, transformPoint } from "./occurrences.js";
 import { SceneRenderer } from "./scene-renderer.js";
 
@@ -100,13 +104,35 @@ export function drawnOccurrences(descriptor) {
   return (descriptor?.occurrences || []).filter((item) => item.kind === "board" || item.restricted);
 }
 
+const GIZMO_PX = 90; // on-screen length of a translate arrow
+const AXIS_COLORS = ["#e5484d", "#30a46c", "#3e63dd"];
+const AXIS_NAMES = ["X", "Y", "Z"];
+
+function samePose(a, b) {
+  if (!a || !b) return false;
+  const x = canonicalPose(a);
+  const y = canonicalPose(b);
+  const left = [...x.translationMm, ...x.rotation];
+  const right = [...y.translationMm, ...y.rotation];
+  return left.every((value, index) => Math.abs(value - right[index]) < 1e-6);
+}
+
 export class SystemScene {
-  constructor({ canvas, labelsEl, statsEl, onSelectionChange = () => {}, onStatus = () => {} }) {
+  constructor({
+    canvas, labelsEl, statsEl, gizmoEl = null, helpEl = null,
+    onSelectionChange = () => {}, onStatus = () => {}, onMove = () => {},
+  }) {
     this.canvas = canvas;
     this.labelsEl = labelsEl;
     this.statsEl = statsEl;
+    this.gizmoEl = gizmoEl;
+    this.helpEl = helpEl;
     this.onSelectionChange = onSelectionChange;
     this.onStatus = onStatus;
+    this.onMove = onMove;
+    // Move mode (SB2-29): `preview` is a pose not saved yet, shown over the host's descriptor.
+    this.move = { allowed: false, enabled: false, space: "world", target: null, preview: null, drag: null };
+    this.baseDescriptor = null;
     this.descriptor = null;
     this.assets = new Map(); // assetId → asset state
     this.placed = []; // { occurrence, rendererId, matrix, worldBounds, standIn }
@@ -144,6 +170,12 @@ export class SystemScene {
   /** Show a descriptor. Assets already loaded are kept; newly ready ones start loading. */
   setDescriptor(descriptor) {
     if (descriptor?.schema !== SCENE_SCHEMA) throw new Error(`Unsupported system scene schema: ${descriptor?.schema || "missing"}`);
+    this.baseDescriptor = descriptor;
+    // A preview the host has now saved is simply the new state; any other survives re-reads.
+    const target = this.move.target ? descriptor.occurrences.find((item) => item.path === this.move.target) : null;
+    if (!target) this.dropTarget();
+    else if (!this.move.drag && samePose(this.move.preview, target.pose)) this.move.preview = null;
+    descriptor = this.shownDescriptor();
     this.descriptor = descriptor;
     const live = new Set();
     for (const asset of descriptor.assets || []) {
@@ -160,6 +192,8 @@ export class SystemScene {
     }
     for (const id of [...this.assets.keys()]) if (!live.has(id)) this.dropAsset(id);
     this.place();
+    // The host re-read the scene (after a save, or while bundles build): let it show the saved state.
+    if (this.move.enabled) this.emitMove("sync");
   }
 
   dropAsset(id) {
@@ -321,7 +355,7 @@ export class SystemScene {
   // ----- placement -----------------------------------------------------------
 
   /** Place every drawn occurrence: on its asset's renderer, or as a stand-in box. */
-  place() {
+  place({ relabel = true } = {}) {
     if (!this.scene || !this.descriptor) return;
     const assetsById = new Map((this.descriptor.assets || []).map((asset) => [asset.assetId, asset]));
     const groups = new Map();
@@ -352,9 +386,11 @@ export class SystemScene {
     for (const id of this.scene.assets.keys()) if (!groups.has(id)) groups.set(id, []);
     this.scene.setOccurrences(groups);
     // Scene-wide numbers follow the renderer order; index placements by key.
+    const previous = this.placedByKey;
     this.placed = placed;
     this.placedByKey = new Map(placed.map((item) => [item.occurrence.path, item]));
-    this.renderLabels();
+    if (relabel || !previous) this.renderLabels();
+    else for (const item of placed) item.label = previous.get(item.occurrence.path)?.label;
     this.sceneBounds = mergeBounds(placed.map((item) => item.worldBounds));
     if (this.sceneBounds) {
       this.camera.sceneRadius = boundsRadius(this.sceneBounds);
@@ -445,6 +481,7 @@ export class SystemScene {
     this.scene.render(this.currentPanel, (renderer) => this.optionsFor(renderer));
     this.manageTiers(now);
     this.updateLabels();
+    this.updateGizmo();
     this.frameSamples.push([interval, performance.now() - started]);
     if (this.frameSamples.length > 240) this.frameSamples.shift();
     if (this.showStats && now - (this.statsAt || 0) > 250) {
@@ -558,6 +595,7 @@ export class SystemScene {
       this.selection = null;
       this.scene?.setSelectedOccurrence(-1);
       if (had && !quiet) this.onSelectionChange(null);
+      if (this.move.enabled && !quiet) this.retarget();
       return null;
     }
     const renderer = this.scene.assets.get(item.rendererId);
@@ -567,6 +605,7 @@ export class SystemScene {
     this.scene.setSelectedOccurrence(item.standIn ? -1 : index);
     const detail = this.describe(item, this.selection.featureId);
     if (!quiet) this.onSelectionChange(detail);
+    if (this.move.enabled) this.retarget();
     return detail;
   }
 
@@ -596,6 +635,295 @@ export class SystemScene {
     if (!pixel) return null;
     const rect = this.canvas.getBoundingClientRect();
     return { x: rect.left + pixel.x * rect.width / this.canvas.width, y: rect.top + pixel.y * rect.height / this.canvas.height };
+  }
+
+  // ----- move mode (SB2-29) ---------------------------------------------------
+
+  /** The host's descriptor, with the unsaved preview pose applied. */
+  shownDescriptor() {
+    const base = this.baseDescriptor;
+    if (!base || !this.move.target || !this.move.preview) return base;
+    return moveDescriptor(base, this.move.target, this.move.preview);
+  }
+
+  /** Re-place everything after the preview changed (geometry only; assets and labels stay). */
+  refreshPreview() {
+    if (!this.baseDescriptor) return;
+    this.descriptor = this.shownDescriptor();
+    this.place({ relabel: false });
+  }
+
+  targetOccurrence() {
+    return this.move.target ? this.baseDescriptor?.occurrences.find((item) => item.path === this.move.target) ?? null : null;
+  }
+
+  /** What the host needs to show and save: the target and its pose (the preview when there is one). */
+  moveState() {
+    const target = this.targetOccurrence();
+    return {
+      allowed: this.move.allowed,
+      enabled: this.move.enabled,
+      space: this.move.space,
+      dragging: Boolean(this.move.drag),
+      target: target ? {
+        occurrence: target.path,
+        instanceId: target.instanceId,
+        displayPath: target.displayPath,
+        kind: target.kind,
+        restricted: Boolean(target.restricted),
+        pose: canonicalPose(this.move.preview ?? target.pose),
+        source: this.move.preview ? "manual" : target.pose?.source ?? "default",
+        unsaved: Boolean(this.move.preview),
+      } : null,
+    };
+  }
+
+  emitMove(phase) {
+    this.onMove({ phase, ...this.moveState() });
+  }
+
+  /** Whether this reader may move boards; turning it off leaves move mode. */
+  setMoveAllowed(allowed) {
+    this.move.allowed = Boolean(allowed);
+    if (!this.move.allowed && this.move.enabled) this.setMoveMode(false);
+  }
+
+  setMoveMode(enabled) {
+    const next = Boolean(enabled) && this.move.allowed;
+    if (next === this.move.enabled) return;
+    if (!next) this.dropTarget();
+    this.move.enabled = next;
+    if (next) this.retarget({ quiet: true });
+    this.emitMove("mode");
+  }
+
+  setMoveSpace(space) {
+    this.move.space = space === "local" ? "local" : "world";
+    this.emitMove("mode");
+  }
+
+  /** Follow the selection: the moving instance is the selection's top-level occurrence. */
+  retarget({ quiet = false } = {}) {
+    const target = this.move.enabled ? moveTarget(this.baseDescriptor, this.selection?.key)?.path ?? null : null;
+    if (target === this.move.target) return;
+    this.dropTarget();
+    this.move.target = target;
+    if (!quiet) this.emitMove("target");
+  }
+
+  /** Forget the target, throwing away an unsaved preview. */
+  dropTarget() {
+    const had = Boolean(this.move.preview);
+    this.move.drag = null;
+    this.move.preview = null;
+    this.move.target = null;
+    if (had) this.refreshPreview();
+  }
+
+  /** Show `pose` for the target without saving it (the numeric panel); null shows the saved pose. */
+  previewPose(pose) {
+    if (!this.move.target) return;
+    this.move.preview = pose ? canonicalPose(pose) : null;
+    this.refreshPreview();
+    this.emitMove("preview");
+  }
+
+  /** Throw away an unsaved preview (Esc, or a save that failed). */
+  cancelMove() {
+    if (!this.move.preview && !this.move.drag) return;
+    this.move.drag = null;
+    this.move.preview = null;
+    this.refreshPreview();
+    this.emitMove("cancel");
+  }
+
+  /** The target's box centre in world mm: the pivot for rotations and the gizmo's origin. */
+  targetPivotMm() {
+    const prefix = `${this.move.target}/`;
+    const boxes = this.placed
+      .filter((item) => item.occurrence.path === this.move.target || item.occurrence.path.startsWith(prefix))
+      .map((item) => item.worldBounds);
+    const bounds = mergeBounds(boxes);
+    if (!bounds) return null;
+    return [0, 1, 2].map((k) => (bounds[k] + bounds[k + 3]) / 2 / MM);
+  }
+
+  /** Client-space pixel for a world point in mm, or null behind the camera. */
+  screenOf(pointMm) {
+    const pixel = projectToViewport(this.currentPanel.matrix, scale(pointMm, MM), this.currentPanel.viewport);
+    if (!pixel) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    return [pixel.x * rect.width / this.canvas.width, pixel.y * rect.height / this.canvas.height];
+  }
+
+  /** Lay out the gizmo for this frame, and remember what a drag on each handle means. */
+  updateGizmo() {
+    const svg = this.gizmoEl;
+    if (!svg) return;
+    const target = this.targetOccurrence();
+    const pivot = this.move.enabled && target && this.currentPanel ? this.targetPivotMm() : null;
+    const center = pivot ? this.screenOf(pivot) : null;
+    if (!center) {
+      svg.toggleAttribute("hidden", true);
+      this.gizmo = null;
+      return;
+    }
+    svg.toggleAttribute("hidden", false);
+    if (!svg.firstChild) this.buildGizmo(svg);
+    const { right, back } = this.camera.basis();
+    const step = this.screenOf(add(pivot, right));
+    const pxPerMm = step ? Math.hypot(step[0] - center[0], step[1] - center[1]) : 0;
+    if (!(pxPerMm > 1e-6)) {
+      svg.toggleAttribute("hidden", true);
+      return;
+    }
+    const sizeMm = GIZMO_PX / pxPerMm;
+    const pose = this.move.preview ?? target.pose;
+    const axes = this.move.space === "local" ? localAxes(pose) : AXES;
+    const handles = [];
+    axes.forEach((axis, index) => {
+      const tip = this.screenOf(add(pivot, scale(axis, sizeMm)));
+      const arrow = svg.querySelector(`[data-part="t${index}"]`);
+      const shown = tip && Math.hypot(tip[0] - center[0], tip[1] - center[1]) > 12;
+      arrow.style.display = shown ? "" : "none";
+      if (shown) {
+        arrow.querySelector("line").setAttribute("x1", center[0]);
+        arrow.querySelector("line").setAttribute("y1", center[1]);
+        arrow.querySelector("line").setAttribute("x2", tip[0]);
+        arrow.querySelector("line").setAttribute("y2", tip[1]);
+        arrow.querySelector("circle").setAttribute("cx", tip[0]);
+        arrow.querySelector("circle").setAttribute("cy", tip[1]);
+        arrow.querySelector("text").setAttribute("x", tip[0] + 9);
+        arrow.querySelector("text").setAttribute("y", tip[1] - 7);
+      }
+      const u = perpendicular(axis);
+      const v = cross(axis, u);
+      const points = [];
+      for (let i = 0; i <= 64; i += 1) {
+        const angle = (i / 64) * Math.PI * 2;
+        const point = this.screenOf(add(pivot, scale(add(scale(u, Math.cos(angle)), scale(v, Math.sin(angle))), sizeMm * 0.7)));
+        if (point) points.push(`${point[0].toFixed(1)},${point[1].toFixed(1)}`);
+      }
+      svg.querySelector(`[data-part="r${index}"]`).setAttribute("points", points.join(" "));
+      handles.push({ axis, pxPerMm: tip ? [(tip[0] - center[0]) / sizeMm, (tip[1] - center[1]) / sizeMm] : [0, 0] });
+    });
+    const dot = svg.querySelector('[data-part="pivot"]');
+    dot.setAttribute("cx", center[0]);
+    dot.setAttribute("cy", center[1]);
+    this.gizmo = { center, pivot, handles, back };
+  }
+
+  buildGizmo(svg) {
+    const ns = "http://www.w3.org/2000/svg";
+    const make = (tag, attributes) => {
+      const node = document.createElementNS(ns, tag);
+      for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+      return node;
+    };
+    AXIS_COLORS.forEach((color, index) => {
+      const ring = make("polyline", { "data-part": `r${index}`, class: "ring", stroke: color, fill: "none" });
+      ring.append(make("title", {}));
+      ring.firstChild.textContent = `Rotate about ${AXIS_NAMES[index]}`;
+      svg.append(ring);
+    });
+    AXIS_COLORS.forEach((color, index) => {
+      const group = make("g", { "data-part": `t${index}`, class: "arrow", stroke: color, fill: color });
+      const title = make("title", {});
+      title.textContent = `Move along ${AXIS_NAMES[index]}`;
+      const label = make("text", { stroke: "none" });
+      label.textContent = AXIS_NAMES[index];
+      group.append(title, make("line", {}), make("circle", { r: 6 }), label);
+      svg.append(group);
+    });
+    svg.append(make("circle", { "data-part": "pivot", r: 4, class: "pivot" }));
+    svg.append(make("text", { "data-part": "readout", class: "readout" }));
+    svg.addEventListener("pointerdown", (event) => this.startGizmoDrag(event));
+    svg.addEventListener("pointermove", (event) => this.moveGizmoDrag(event));
+    svg.addEventListener("pointerup", (event) => this.endGizmoDrag(event));
+    svg.addEventListener("pointercancel", () => this.abortGizmoDrag());
+  }
+
+  startGizmoDrag(event) {
+    const part = event.target.closest?.("[data-part]")?.dataset.part;
+    if (!part || !this.gizmo || !/^[tr][012]$/.test(part)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = this.targetOccurrence();
+    const rect = this.gizmoEl.getBoundingClientRect();
+    const handle = this.gizmo.handles[Number(part[1])];
+    this.move.drag = {
+      kind: part[0] === "t" ? "translate" : "rotate",
+      handle,
+      start: [event.clientX - rect.left, event.clientY - rect.top],
+      startPose: canonicalPose(this.move.preview ?? target.pose),
+      hadPreview: Boolean(this.move.preview),
+      center: this.gizmo.center,
+      pivot: this.gizmo.pivot,
+      back: this.gizmo.back,
+      changed: false,
+    };
+    try {
+      this.gizmoEl.setPointerCapture(event.pointerId);
+    } catch {
+      // A synthetic pointer cannot be captured; the drag still works while over the gizmo.
+    }
+    this.canvas.focus({ preventScroll: true });
+  }
+
+  moveGizmoDrag(event) {
+    const drag = this.move.drag;
+    if (!drag) return;
+    const rect = this.gizmoEl.getBoundingClientRect();
+    const now = [event.clientX - rect.left, event.clientY - rect.top];
+    const fine = event.shiftKey;
+    let pose;
+    let readout;
+    if (drag.kind === "translate") {
+      const raw = axisAmount([now[0] - drag.start[0], now[1] - drag.start[1]], drag.handle.pxPerMm);
+      const amount = snapTo(raw, fine ? SNAP.fineMm : SNAP.mm);
+      pose = translatePose(drag.startPose, drag.handle.axis, amount);
+      readout = `${amount >= 0 ? "+" : ""}${amount.toFixed(fine ? 1 : 0)} mm`;
+    } else {
+      const raw = ringRotation(drag.handle.axis, drag.back, screenAngle(drag.center, drag.start, now)) * 180 / Math.PI;
+      const degrees = snapTo(raw, fine ? SNAP.fineDeg : SNAP.deg);
+      pose = rotatePoseAbout(drag.startPose, drag.handle.axis, degrees * Math.PI / 180, drag.pivot);
+      readout = `${degrees >= 0 ? "+" : ""}${degrees.toFixed(0)}°`;
+    }
+    drag.changed = drag.changed || !samePose(pose, drag.startPose);
+    this.move.preview = canonicalPose(pose);
+    const text = this.gizmoEl.querySelector('[data-part="readout"]');
+    text.textContent = readout;
+    text.setAttribute("x", now[0] + 14);
+    text.setAttribute("y", now[1] - 10);
+    this.refreshPreview();
+    this.emitMove("preview");
+  }
+
+  /** Releasing a handle saves (D-P2-14): the host stores the pose and re-reads the scene. */
+  endGizmoDrag(event) {
+    const drag = this.move.drag;
+    if (!drag) return;
+    if (this.gizmoEl.hasPointerCapture?.(event.pointerId)) this.gizmoEl.releasePointerCapture(event.pointerId);
+    this.move.drag = null;
+    this.gizmoEl.querySelector('[data-part="readout"]').textContent = "";
+    if (drag.changed) this.emitMove("commit");
+    else if (!drag.hadPreview) this.cancelMove();
+  }
+
+  /** Esc during a drag: back to where it started. */
+  abortGizmoDrag() {
+    const drag = this.move.drag;
+    if (!drag) return false;
+    this.move.drag = null;
+    this.move.preview = drag.hadPreview ? drag.startPose : null;
+    this.gizmoEl.querySelector('[data-part="readout"]').textContent = "";
+    this.refreshPreview();
+    this.emitMove("cancel");
+    return true;
+  }
+
+  setHelpVisible(visible) {
+    if (this.helpEl) this.helpEl.hidden = !visible;
   }
 
   // ----- input -----------------------------------------------------------------
@@ -640,7 +968,17 @@ export class SystemScene {
     const onKey = (event) => {
       // Shortcuts act only while the scene has focus and no text field is active.
       if (event.target !== canvas) return;
-      if (event.key === "Escape") this.select(null);
+      if (event.key === "Escape") {
+        if (this.helpEl && !this.helpEl.hidden) this.setHelpVisible(false);
+        else if (this.abortGizmoDrag()) { /* the drag is undone */ }
+        else if (this.move.preview) this.cancelMove();
+        else if (this.move.enabled) this.setMoveMode(false);
+        else this.select(null);
+      } else if ((event.key === "m" || event.key === "M") && this.move.allowed) this.setMoveMode(!this.move.enabled);
+      else if ((event.key === "l" || event.key === "L") && this.move.enabled) {
+        this.setMoveSpace(this.move.space === "world" ? "local" : "world");
+      } else if (event.key === "Enter" && this.move.preview && !this.move.drag) this.emitMove("commit");
+      else if (event.key === "?" || (event.key === "/" && event.shiftKey)) this.setHelpVisible(Boolean(this.helpEl?.hidden));
       else if (event.key === "f" || event.key === "F") {
         if (this.selection) this.frameOccurrence(this.selection.key);
         else this.frameAll();

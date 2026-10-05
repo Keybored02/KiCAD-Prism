@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.25 · 2026-10-01 · tickets SB2-00 to SB2-28.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.26 · 2026-10-05 · tickets SB2-00 to SB2-29.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -731,6 +731,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.26 | 2026-10-05 | SB2-29: §20.4 move mode: gizmo, numeric panel, axes toggle, snapping, saving on release through `PUT …/poses/{iid}`, element move API and `move` event, focus-scoped keys and the `?` list. |
 | P2-1.25 | 2026-10-01 | SB2-28: stored poses. Migration 40 `system_poses`; `GET/PUT/DELETE …/poses/{iid}` and `DELETE …/poses` (§14.7), version-checked and audited (`pose_updated`, `poses_reset`); manifests write `placement.poses` and import them (driving mates are still refused); the scene draws stored poses, and a child system's from its snapshot. Placement library: `pose_from`, `place` and the TypeScript twin `placement/poses.ts`, with pose goldens in `placement_cases.json`. |
 | P2-1.24 | 2026-10-01 | SB2-23…27: §20.3 System 3D tab and `<prism-system-scene>`. §20.2: the `webgpu_3d` job key names the generator build; the scene reads only the outline and thickness of each interface artifact; `last_build` reads decoded job ids (`job_id`). |
 | P2-1.23 | 2026-10-01 | SB2-22: §20 system scene (`GET …/scene`, `prism.system_scene.a0`): occurrences with default poses and world matrices, board assets per (project, commit) with `bundleToBoard`, bundle builds queued for designers, restricted boards and child systems as boxes. Extractor **v8** `boardOutlineMm` (§14.6; every board re-extracts once). §14.3 default row: label order instead of creation order, assembly boxes, empty slots. Placement library gains `poses` (Python; the TypeScript twin comes with SB2-28). |
@@ -806,3 +807,13 @@ A board asset reuses the single-board pipeline and its readiness cache (`semanti
 - **Stand-ins.** An occurrence without geometry draws as its `boundsMm` box, coloured by why: `restricted` (grey), `loading`, `building`, `missing`, `failed`. An occurrence with `boundsMm: null` is not drawn; the tab says so.
 - **Events.** `prism-system-scene:selectionchange` with `{ selection: { kind: "board" | "component" | "feature", occurrence, displayPath, instanceId, restricted, standIn, reference? } | null }`, plus `:ready`, `:status` and `:error`.
 - **The tab** re-reads the scene every 5 s while a bundle builds or a box is unknown. Without WebGPU it shows the 2D diagram with a notice, and never reads the scene.
+
+### 20.4 Move mode (SB2-29)
+
+- **Who.** Editors (designer or admin) get a **Move** toggle in the System 3D tab and the **M** key; readers never see it. The element starts with moving disallowed; the host enables it with `setMoveAllowed(true)`.
+- **What moves.** The selection's **top-level** occurrence: a board, or a child system as one rigid group (selecting a board inside a child system moves the whole child). Its pose is in the system's frame (§14.3), so a move is a new pose for that instance (§14.7).
+- **Gizmo.** Three arrows slide along X, Y or Z and three rings turn about them, all through the target's box centre. **L** switches the axes between the world's and the board's own. Steps are 1 mm and 15°; Shift gives 0.1 mm and 1°. A rotation turns about the box centre, so the translation changes with it.
+- **Numeric panel.** X, Y, Z in mm and rotation as degrees about X, then Y, then Z (world axes, `Rz·Ry·Rx`; display only, stored poses stay quaternions). Typing previews; Enter or Save stores; Esc or Revert puts it back. **Back to default** clears the instance's pose; **Reset all** clears every manual pose after a confirmation.
+- **Saving (D-P2-14).** Releasing a handle saves. The element only previews: it emits `prism-system-scene:move` with phase `commit`, and the host `PUT`s the pose with If-Match, then re-reads the document and the scene. A failed save (including 412, which reloads) calls `cancelMove()`, so the board goes back.
+- **Element API.** `setMoveAllowed(bool)`, `setMoveMode(bool)`, `setMoveSpace("world" | "local")`, `previewPose(pose | null)`, `cancelMove()`, `getMoveState()`, `setHelpVisible(bool)`. Event `prism-system-scene:move` carries `{phase, allowed, enabled, space, dragging, target: {occurrence, instanceId, displayPath, kind, restricted, pose, source, unsaved} | null}`; phases are `mode`, `target`, `preview`, `commit`, `cancel` and `sync` (a re-read scene arrived). An unsaved preview survives the tab's 5 s re-reads and is dropped once the scene shows it saved.
+- **Keys** act only while the view has focus: F, A, M, L, Enter, Esc (undo the drag, else leave move mode, else clear the selection), \` (stats) and **?** (the shortcut list).

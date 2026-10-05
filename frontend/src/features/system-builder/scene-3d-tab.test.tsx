@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { scenePollDelay, summarizeScene } from "./scene-3d-model";
@@ -69,6 +69,45 @@ describe("Scene3dTab", () => {
     expect(screen.getByText("4 boards")).toBeTruthy();
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain("/api/systems/sys_1/scene");
     expect(document.querySelector("prism-system-scene")).toBeTruthy();
+  });
+
+  it("saves a released drag with If-Match, and puts the board back when the save fails", async () => {
+    vi.stubGlobal("navigator", { ...navigator, gpu: {} });
+    const json = (body: unknown, status = 200, etag?: string) => new Response(JSON.stringify(body), {
+      status, headers: { "Content-Type": "application/json", ...(etag ? { ETag: etag } : {}) },
+    });
+    const responses: Response[] = [];
+    const fetchMock = vi.fn(async (url: string) => (String(url).endsWith("/scene") ? json(mixed) : responses.shift()!));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Scene3dTab {...props} />);
+    await screen.findByText("4 boards");
+    const element = document.querySelector("prism-system-scene") as unknown as HTMLElement & Record<string, unknown>;
+    element.setMoveMode = vi.fn();
+    element.cancelMove = vi.fn();
+    fireEvent.click(screen.getByRole("button", { name: /Move/ }));
+    expect(element.setMoveMode).toHaveBeenCalledWith(true);
+
+    const pose = { translationMm: [10, 20, 0], rotation: [0, 0, 0, 1] };
+    const commit = (phase: string) => act(() => {
+      element.dispatchEvent(new CustomEvent("prism-system-scene:move", { detail: {
+        phase, allowed: true, enabled: true, space: "world", dragging: false,
+        target: { occurrence: "/sin_OBC-1", instanceId: "sin_OBC-1", displayPath: "OBC-1", kind: "board", restricted: false,
+          pose, source: "manual", unsaved: true },
+      } }));
+    });
+    responses.push(json({ instanceId: "sin_OBC-1", ...pose, source: "manual" }, 200, '"sys:sys_1:4"'));
+    commit("commit");
+    await waitFor(() => expect(props.reload).toHaveBeenCalled());
+    const put = fetchMock.mock.calls.find((call) => String(call[0]).endsWith("/poses/sin_OBC-1")) as unknown as [string, RequestInit];
+    expect(put[1].method).toBe("PUT");
+    expect(new Headers(put[1].headers).get("If-Match")).toBe('"sys:sys_1:3"');
+    expect(JSON.parse(String(put[1].body))).toEqual(pose);
+    expect(element.cancelMove).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Position of OBC-1")).toBeTruthy();
+
+    responses.push(json({ detail: "System has changed; reload it" }, 412, '"sys:sys_1:9"'));
+    commit("commit");
+    await waitFor(() => expect(element.cancelMove).toHaveBeenCalled());
   });
 
   it("shows the diagram and a notice without WebGPU, and never reads the scene", async () => {

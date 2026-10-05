@@ -9,9 +9,11 @@ import {
   canonicalRotation,
   compose,
   defaultRow,
+  eulerDegrees,
   matrix,
   place,
   poseFrom,
+  rotationFromEuler,
   transformBounds,
   union,
 } from "./poses";
@@ -76,6 +78,13 @@ describe("placement poses (shared goldens)", () => {
       minMm: [-2, 0, -1],
       maxMm: [10, 9, 2],
     });
+  });
+
+  it("shows rotations as degrees about X, Y, Z and back", () => {
+    for (const degrees of [[0, 0, 0], [30, 0, 0], [0, -45, 0], [0, 0, 90], [10, 20, 30], [-170, 60, 135]] as const) {
+      eulerDegrees(rotationFromEuler(degrees)).forEach((value, index) => expect(Math.abs(value - degrees[index])).toBeLessThan(1e-6));
+    }
+    expectClose(rotationFromEuler([0, 0, 90]), [0, 0, Math.SQRT1_2, Math.SQRT1_2]);
   });
 
   it("refuses what is not a pose", () => {

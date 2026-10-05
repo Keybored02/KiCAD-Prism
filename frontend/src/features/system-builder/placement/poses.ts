@@ -164,3 +164,29 @@ export function place(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Display only (the move panel): angles in degrees about X, then Y, then Z
+// (world axes), i.e. `Rz · Ry · Rx`. Not part of the shared goldens; stored
+// poses are always quaternions.
+
+function axisTurn(axis: 0 | 1 | 2, degrees: number): Quat {
+  const half = (degrees * Math.PI) / 360;
+  const q: Quat = [0, 0, 0, Math.cos(half)];
+  q[axis] = Math.sin(half);
+  return q;
+}
+
+export function rotationFromEuler(degrees: readonly [number, number, number]): Quat {
+  return canonicalRotation(multiply(axisTurn(2, degrees[2]), multiply(axisTurn(1, degrees[1]), axisTurn(0, degrees[0]))));
+}
+
+export function eulerDegrees(rotation: readonly number[]): Vec3 {
+  const [x, y, z, w] = rotation;
+  const deg = (radians: number) => clean((radians * 180) / Math.PI);
+  return [
+    deg(Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))),
+    deg(Math.asin(Math.max(-1, Math.min(1, 2 * (w * y - z * x))))),
+    deg(Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))),
+  ];
+}

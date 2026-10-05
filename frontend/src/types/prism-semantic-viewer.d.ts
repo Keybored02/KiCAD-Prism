@@ -169,6 +169,33 @@ export interface PrismSystemSceneStatus {
     unplaced: number;
 }
 
+export interface PrismScenePose {
+    translationMm: [number, number, number];
+    /** Unit quaternion x, y, z, w (canonical, w ≥ 0). */
+    rotation: [number, number, number, number];
+}
+
+/** `prism-system-scene:move` (SB2-29). "commit" asks the host to save `target.pose`. */
+export interface PrismSystemSceneMoveState {
+    /** "sync": the host gave a re-read scene (a save landed, or bundles changed). */
+    phase?: "mode" | "target" | "preview" | "commit" | "cancel" | "sync";
+    allowed: boolean;
+    enabled: boolean;
+    space: "world" | "local";
+    dragging: boolean;
+    target: {
+        occurrence: string;
+        instanceId: string;
+        displayPath: string;
+        kind: string;
+        restricted: boolean;
+        pose: PrismScenePose;
+        source: "default" | "manual" | "auto";
+        /** The pose shown is a preview that is not saved yet. */
+        unsaved: boolean;
+    } | null;
+}
+
 export interface PrismSystemSceneElement extends HTMLElement {
     setScene(descriptor: unknown): void;
     select(path: string | null, featureId?: number): PrismSystemSceneSelection | null;
@@ -180,6 +207,14 @@ export interface PrismSystemSceneElement extends HTMLElement {
     setLabelsVisible(visible: boolean): void;
     setGpuBudget(bytes: number | null): void;
     getStats(): Record<string, unknown> | null;
+    setMoveAllowed(allowed: boolean): void;
+    setMoveMode(enabled: boolean): void;
+    setMoveSpace(space: "world" | "local"): void;
+    /** Show a pose for the move target without saving it; null shows the saved pose. */
+    previewPose(pose: PrismScenePose | null): void;
+    cancelMove(): void;
+    getMoveState(): PrismSystemSceneMoveState | null;
+    setHelpVisible(visible: boolean): void;
 }
 
 declare global {
