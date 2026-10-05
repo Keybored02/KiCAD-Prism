@@ -15,18 +15,18 @@ export function emphasisSets(nets: readonly SystemNetDetail[]): PrismSystemScene
   }));
 }
 
-/** The boards a net reaches, in member order; restricted ones count once as "restricted". */
-export function netBoards(net: SystemNetDetail): { boards: string[]; restricted: number } {
-  const boards = new Set<string>();
+/** The boards a net reaches (occurrence path and name), in member order, and how many members are restricted. */
+export function netBoards(net: SystemNetDetail): { boards: { occurrence: string; name: string }[]; restricted: number } {
+  const boards = new Map<string, string>();
   let restricted = 0;
   for (const member of net.members) {
     if (member.redacted || !member.occurrence) {
       restricted += 1;
       continue;
     }
-    boards.add(member.displayPath || member.occurrence);
+    if (!boards.has(member.occurrence)) boards.set(member.occurrence, member.displayPath || member.occurrence);
   }
-  return { boards: [...boards], restricted };
+  return { boards: [...boards].map(([occurrence, name]) => ({ occurrence, name })), restricted };
 }
 
 const REASONS: Record<PrismSystemSceneEmphasisResult["unresolved"][number]["reason"], string> = {

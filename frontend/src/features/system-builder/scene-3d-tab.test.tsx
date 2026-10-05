@@ -138,7 +138,8 @@ describe("Scene3dTab", () => {
       { key: "g1", members: [{ occurrence: "/sin_OBC-1", net: "GND" }] },
     ]));
     expect(await screen.findByText(/1 on restricted boards/)).toBeTruthy();
-    expect(element.frameNetEmphasis).toHaveBeenCalledWith("g1"); // a newly shown net is framed once
+    // A newly shown net is framed once, on the first board it reaches.
+    expect(element.frameNetEmphasis).toHaveBeenCalledWith("g1", "/sin_OBC-1");
     fireEvent.click(screen.getByRole("button", { name: "Stop highlighting GND" }));
     await waitFor(() => expect(element.setNetEmphasis).toHaveBeenLastCalledWith([]));
   });

@@ -17,7 +17,7 @@ import type { SystemNetDetail, SystemScene } from "@/types/system";
 
 import { names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
 import { MovePanel } from "./scene-move-panel";
-import { emphasisSets } from "./scene-net-model";
+import { emphasisSets, netBoards } from "./scene-net-model";
 import { NetPanel } from "./scene-net-panel";
 import { useNetHighlight } from "./use-net-highlight";
 import type { SystemTabProps } from "./system-tab-content";
@@ -108,9 +108,12 @@ export function Scene3dTab(props: SystemTabProps) {
   const framedNet = useRef<string | null>(null);
   useEffect(() => {
     showEmphasis(elementRef.current, highlighted);
-    const newest = highlighted.at(-1)?.groupId ?? null;
-    if (newest && newest !== framedNet.current) elementRef.current?.frameNetEmphasis?.(newest);
-    framedNet.current = newest;
+    // As the board 3D tab frames a selected net: close, on the first board it reaches.
+    const newest = highlighted.at(-1) ?? null;
+    if (newest && newest.groupId !== framedNet.current) {
+      elementRef.current?.frameNetEmphasis?.(newest.groupId, netBoards(newest).boards[0]?.occurrence ?? null);
+    }
+    framedNet.current = newest?.groupId ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-apply only when the nets change
   }, [highlighted]);
 
@@ -281,7 +284,7 @@ export function Scene3dTab(props: SystemTabProps) {
               adding={nets.adding}
               onAdd={(net) => void nets.add(net)}
               onRemove={nets.remove}
-              onFrame={(groupId) => elementRef.current?.frameNetEmphasis?.(groupId)}
+              onFrame={(groupId, occurrence) => elementRef.current?.frameNetEmphasis?.(groupId, occurrence ?? null)}
               isolated={isolated}
               onIsolate={(next) => setIsolated(elementRef.current?.setNetIsolation?.(next) ?? false)}
               onClear={nets.clear}
