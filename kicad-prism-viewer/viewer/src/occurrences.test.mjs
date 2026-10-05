@@ -92,6 +92,12 @@ test("instanced shader variants place every path by a culled occurrence", async 
     assert.doesNotMatch(INSTANCED_SHADERS[name], /@location\(3\) dimensions/);
   }
   assert.match(INSTANCED_SHADERS.box, /listedOccurrence\(LIST_BOX, instance\)/);
+  // SB2-31: host-highlighted nets light per occurrence, in their own colours.
+  for (const name of ["main", "barrel"]) {
+    assert.match(INSTANCED_SHADERS[name], /emphasisStride: u32,/);
+    assert.match(INSTANCED_SHADERS[name], /let mark = emphasisOf\(input\.occurrence, input\.netId\);/);
+    assert.match(INSTANCED_SHADERS[name], /emphasisColor\(mark, vec3f\(/);
+  }
   // The inspected selection lights only its own copy.
   assert.match(INSTANCED_SHADERS.main, /let here = input\.occurrence == globals\.selectedOccurrence;/);
   assert.match(INSTANCED_SHADERS.barrel, /input\.occurrence == globals\.selectedOccurrence && globals\.activeNet/);

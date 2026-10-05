@@ -8,9 +8,11 @@ import {
 import {
   MIN_NET_MASK_CAPACITY,
   NET_MASK_WGSL,
+  OCCURRENCE_EMPHASIS_WGSL,
   netMaskCapacityFor,
   normalizeNetIds,
   packNetEmphasis,
+  packOccurrenceEmphasis,
 } from "./net-emphasis.js";
 import {
   BARREL_RECORD_STRIDE,
@@ -337,6 +339,12 @@ function variant(source, replacements) {
 // renderer's first occurrence in a multi-asset scene (SB2-27), so picks and the
 // selection carry scene-wide occurrence numbers. Both are 0 for one renderer.
 const SELECTED_OCCURRENCE = ["  padding0: u32,\n  padding1: u32,", "  selectedOccurrence: u32,\n  occurrenceBase: u32,"];
+// SB2-31: the last spare word is the per-occurrence emphasis table's stride
+// (0: `netMask` is the plain per-net mask, shared by every occurrence).
+const EMPHASIS_TABLE = [
+  ["  padding2: u32,", "  emphasisStride: u32,"],
+  ["fn netEmphasized(id: u32) -> bool {", `${OCCURRENCE_EMPHASIS_WGSL}fn netEmphasized(id: u32) -> bool {`],
+];
 
 const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
   SELECTED_OCCURRENCE,
@@ -364,8 +372,11 @@ const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
   let selectedComponent = component && globals.selectedFeature != 0u && input.objectId == globals.selectedFeature;`,
   `  // The inspected selection lights its own copy; host-highlighted nets light every copy.
   let here = input.occurrence == globals.selectedOccurrence;
-  let selected = netEmphasized(input.netId) || (here && globals.activeNet != 0u && input.netId == globals.activeNet);
+  let mark = emphasisOf(input.occurrence, input.netId);
+  let selected = mark != 0u || (here && globals.activeNet != 0u && input.netId == globals.activeNet);
   let selectedComponent = here && component && globals.selectedFeature != 0u && input.objectId == globals.selectedFeature;`],
+  ...EMPHASIS_TABLE,
+  ["      base = vec3f(0.08, 1.0, 0.2) * pulse;", "      base = emphasisColor(mark, vec3f(0.08, 1.0, 0.2)) * pulse;"],
 ]);
 
 const PICK_SHADER_INSTANCED = variant(PICK_SHADER, [
@@ -445,7 +456,9 @@ const BARREL_SHADER_INSTANCED = barrelVariant(
     ["  output.normal = input.normal;\n  output.netId", "  output.normal = (occurrence.normal * vec4f(input.normal, 0.0)).xyz;\n  output.netId"],
     ["  @location(3) @interpolate(flat) visible: u32,\n};", "  @location(3) @interpolate(flat) visible: u32,\n  @location(4) @interpolate(flat) occurrence: u32,\n};"],
     ["  let selected = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);",
-      "  let selected = netEmphasized(input.netId)\n    || (input.occurrence == globals.selectedOccurrence && globals.activeNet != 0u && input.netId == globals.activeNet);"],
+      "  let mark = emphasisOf(input.occurrence, input.netId);\n  let selected = mark != 0u\n    || (input.occurrence == globals.selectedOccurrence && globals.activeNet != 0u && input.netId == globals.activeNet);"],
+    ...EMPHASIS_TABLE,
+    ["      base = vec3f(0.1, 1.0, 0.22) * (", "      base = emphasisColor(mark, vec3f(0.1, 1.0, 0.22)) * ("],
   ],
 );
 const BARREL_PICK_SHADER_INSTANCED = barrelVariant(
@@ -743,6 +756,11 @@ export class Renderer {
     // Net-emphasis mask: default-off, indexed by net id (Prism #305). It always
     // exists so every bind group is valid before the first highlight.
     this.emphasizedNetIds = new Set();
+    // SB2-31: per-occurrence emphasis rows (Map net id → packed colour), or null.
+    this.occurrenceEmphasis = null;
+    this.emphasisStride = 0;
+    // Dim unlit copper although this asset lights nothing (another board in the scene does).
+    this.dimCopper = false;
     this.netMaskCapacity = MIN_NET_MASK_CAPACITY;
     this.netMaskBuffer = this.createNetMaskBuffer(this.netMaskCapacity);
     this.uploadNetMask();
@@ -1173,8 +1191,45 @@ export class Renderer {
   }
 
   uploadNetMask() {
-    const data = packNetEmphasis(this.emphasizedNetIds, this.netMaskCapacity);
-    this.device.queue.writeBuffer(this.netMaskBuffer, 0, data);
+    let data;
+    if (this.occurrenceEmphasis && !this.identityOnly) {
+      const table = packOccurrenceEmphasis(this.occurrenceEmphasis);
+      this.emphasisStride = table.stride;
+      data = table.data;
+    } else {
+      this.emphasisStride = 0;
+      data = packNetEmphasis(this.emphasizedNetIds, this.netMaskCapacity);
+    }
+    if (data.length > this.netMaskCapacity) {
+      this.netMaskBuffer?.destroy?.();
+      let capacity = this.netMaskCapacity;
+      while (capacity < data.length) capacity *= 2;
+      this.netMaskCapacity = capacity;
+      this.netMaskBuffer = this.createNetMaskBuffer(capacity);
+      this.rebindAll();
+    }
+    const padded = new Uint32Array(this.netMaskCapacity);
+    padded.set(data);
+    this.device.queue.writeBuffer(this.netMaskBuffer, 0, padded);
+  }
+
+  /**
+   * SB2-31: light nets per occurrence of this asset. `rows[i]` is a Map of net
+   * id → packed colour (net-emphasis.js `packEmphasisColor`) for the i-th
+   * occurrence, or null; `rows` null goes back to the shared net mask.
+   * `dimCopper` dims unlit copper even when this asset lights nothing.
+   */
+  setOccurrenceEmphasis(rows, { dimCopper = false } = {}) {
+    const lit = Array.isArray(rows) && rows.some((row) => row && row.size);
+    this.occurrenceEmphasis = lit ? rows.map((row) => (row && row.size ? new Map(row) : null)) : null;
+    this.dimCopper = Boolean(dimCopper);
+    this.uploadNetMask();
+    this.invalidate();
+  }
+
+  /** True while any net is emphasised or the scene asks to dim copper. */
+  get netHighlightActive() {
+    return Boolean(this.emphasizedNetIds.size || this.occurrenceEmphasis || this.dimCopper);
   }
 
   /**
@@ -1183,6 +1238,7 @@ export class Renderer {
    */
   setEmphasizedNetIds(ids) {
     this.emphasizedNetIds = normalizeNetIds(ids);
+    this.occurrenceEmphasis = null;
     const capacity = netMaskCapacityFor(this.emphasizedNetIds, this.netMaskCapacity);
     if (capacity !== this.netMaskCapacity) {
       this.netMaskBuffer?.destroy?.();
@@ -1623,7 +1679,7 @@ export class Renderer {
     this.writeGlobals(panel.matrix, activeNetId, panel.layerId, time, selectedFeatureId);
     const { pipelines, indirect, barrelInstances } = this.drawSet();
     // Paste would sit over highlighted pads; it steps aside while a net is lit.
-    const hidePaste = !showPaste || Boolean(activeNetId || this.emphasizedNetIds.size);
+    const hidePaste = !showPaste || Boolean(activeNetId || this.netHighlightActive);
     const visibleEntries = this.entries.filter((entry) =>
       this.visible(entry, panel.layerId, visibleLayers, showBoard, showComponents, componentOpacity, compareMode, visibleTileIds)
       && !(hidePaste && entry.boardRole === "paste"));
@@ -1735,11 +1791,12 @@ export class Renderer {
     view.setUint32(64, activeNetId || 0, true);
     view.setUint32(68, selectedLayer || 0, true);
     view.setFloat32(72, time, true);
-    view.setFloat32(76, activeNetId || this.emphasizedNetIds.size ? 1 : 0, true);
+    view.setFloat32(76, activeNetId || this.netHighlightActive ? 1 : 0, true);
     view.setUint32(80, selectedFeatureId || 0, true);
     // Read only by the instanced shaders (`selectedOccurrence`, `occurrenceBase`); padding to the one-board ones.
     view.setUint32(84, this.selectedOccurrence >= 0 ? this.selectedOccurrence + 1 + this.occurrenceBase : 0, true);
     view.setUint32(88, this.occurrenceBase, true);
+    view.setUint32(92, this.emphasisStride, true); // `emphasisStride` (SB2-31), instanced shaders only
     floats.set([0.35, -0.5, 0.8, 0], 24);
     this.device.queue.writeBuffer(this.globalBuffer, 0, data);
   }

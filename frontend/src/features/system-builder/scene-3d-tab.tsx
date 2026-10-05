@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
-import { Activity, Box, Keyboard, Loader2, Maximize, Move3d, Tag } from "lucide-react";
+import { Activity, Box, Keyboard, Loader2, Maximize, Move3d, Spline, Tag } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,13 +9,17 @@ import { clearPose, getScene, resetPoses, setPose } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type {
   PrismSystemSceneElement,
+  PrismSystemSceneEmphasisResult,
   PrismSystemSceneMoveState,
   PrismSystemSceneSelection,
 } from "@/types/prism-semantic-viewer";
-import type { SystemScene } from "@/types/system";
+import type { SystemNetDetail, SystemScene } from "@/types/system";
 
 import { names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
 import { MovePanel } from "./scene-move-panel";
+import { emphasisSets } from "./scene-net-model";
+import { NetPanel } from "./scene-net-panel";
+import { useNetHighlight } from "./use-net-highlight";
 import type { SystemTabProps } from "./system-tab-content";
 import { useSystemMutation } from "./use-system-mutation";
 
@@ -56,6 +60,10 @@ export function Scene3dTab(props: SystemTabProps) {
   // Bumped whenever the view saves, cancels or changes target: the move panel starts over.
   const [moveEpoch, setMoveEpoch] = useState(0);
   const [confirmReset, setConfirmReset] = useState(false);
+  // SB2-31: highlighted system nets, lit in the view in their own colours.
+  const [netsOpen, setNetsOpen] = useState(false);
+  const nets = useNetHighlight(systemId, etag);
+  const { highlighted } = nets;
   const { busy, run } = useSystemMutation(reload);
   const elementRef = useRef<PrismSystemSceneElement | null>(null);
   const supported = webgpuAvailable();
@@ -91,6 +99,15 @@ export function Scene3dTab(props: SystemTabProps) {
     if (scene) elementRef.current?.setScene?.(scene);
   }, [scene]);
 
+  const showEmphasis = (node: PrismSystemSceneElement | null, list: readonly SystemNetDetail[]) => {
+    const report = node?.setNetEmphasis?.(emphasisSets(list));
+    if (report) nets.report(report);
+  };
+  useEffect(() => {
+    showEmphasis(elementRef.current, highlighted);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-apply only when the nets change
+  }, [highlighted]);
+
   // The element's events (it is defined by the viewer bundle; it may upgrade after mount).
   const attach = (node: PrismSystemSceneElement | null) => {
     elementRef.current = node;
@@ -101,6 +118,8 @@ export function Scene3dTab(props: SystemTabProps) {
       node.setLabelsVisible(labels);
       node.setStatsOverlay(stats);
       node.setMoveAllowed(canEdit);
+      // No state here: this ref runs on every render. The element reports what it lit by event.
+      node.setNetEmphasis?.(emphasisSets(highlighted));
     });
   };
   useEffect(() => {
@@ -140,7 +159,12 @@ export function Scene3dTab(props: SystemTabProps) {
     node.addEventListener("prism-system-scene:selectionchange", onSelection);
     node.addEventListener("prism-system-scene:error", onError);
     node.addEventListener("prism-system-scene:move", onMove);
+    const onEmphasis = (event: Event) => {
+      nets.report((event as CustomEvent<{ report: PrismSystemSceneEmphasisResult[] }>).detail.report);
+    };
+    node.addEventListener("prism-system-scene:emphasis", onEmphasis);
     return () => {
+      node.removeEventListener("prism-system-scene:emphasis", onEmphasis);
       node.removeEventListener("prism-system-scene:selectionchange", onSelection);
       node.removeEventListener("prism-system-scene:error", onError);
       node.removeEventListener("prism-system-scene:move", onMove);
@@ -186,6 +210,12 @@ export function Scene3dTab(props: SystemTabProps) {
               <Move3d className="size-4" aria-hidden /> Move
             </Button>
           )}
+          <Button
+            variant={netsOpen || highlighted.length ? "secondary" : "ghost"} size="sm" aria-pressed={netsOpen}
+            title="Highlight system nets" onClick={() => setNetsOpen(!netsOpen)}
+          >
+            <Spline className="size-4" aria-hidden /> Nets{highlighted.length ? ` (${highlighted.length})` : ""}
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => elementRef.current?.frameAll()} title="Fit every board (A)">
             <Maximize className="size-4" aria-hidden /> Fit all
           </Button>
@@ -208,7 +238,101 @@ export function Scene3dTab(props: SystemTabProps) {
         </span>
       </div>
 
-      {(error || viewerError || (summary && (summary.restricted.length || summary.building.length || summary.missing.length
+      <SceneNotices error={error} viewerError={viewerError} summary={summary} />
+
+      <div className="relative min-h-0 flex-1">
+        {/* React 18 does not map className onto custom elements: size it with a style. */}
+        <prism-system-scene ref={attach} style={{ position: "absolute", inset: 0, display: "block" }} />
+        {!scene && !error && (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-muted-foreground">
+            <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden /> Loading the system scene…</span>
+          </div>
+        )}
+        {move?.enabled && (
+          <div className="absolute left-3 top-3">
+            <MovePanel
+              key={moveEpoch}
+              state={move}
+              busy={busy !== null}
+              onPreview={(pose) => elementRef.current?.previewPose(pose)}
+              onSave={(target) => void savePose(target)}
+              onRevert={() => elementRef.current?.cancelMove()}
+              onDefault={(target) => void backToDefault(target)}
+              onResetAll={() => setConfirmReset(true)}
+              onSpace={(space) => elementRef.current?.setMoveSpace(space)}
+            />
+          </div>
+        )}
+        {netsOpen && (
+          <div className="absolute bottom-12 right-3 top-3 flex flex-col justify-start">
+            <NetPanel
+              systemId={systemId}
+              highlighted={highlighted}
+              results={nets.results}
+              adding={nets.adding}
+              onAdd={(net) => void nets.add(net)}
+              onRemove={nets.remove}
+              onClear={nets.clear}
+              onClose={() => setNetsOpen(false)}
+            />
+          </div>
+        )}
+        {selection && (
+          <div className="absolute bottom-3 left-3 w-72 rounded-lg border bg-card/95 p-3 text-sm shadow-md backdrop-blur" aria-live="polite">
+            <p className="font-medium">{selection.displayPath}</p>
+            <p className="text-xs text-muted-foreground">
+              {selection.restricted ? "Restricted board" : selection.reference ? `Component ${selection.reference}` : "Board"}
+              {instance?.label && instance.label !== selection.displayPath ? ` · ${instance.label}` : ""}
+            </p>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => elementRef.current?.frameOccurrence(selection.occurrence)}>Frame</Button>
+              {instance && (
+                <Button size="sm" variant="ghost" onClick={() => onNavigate("boards", { board: instance.id })}>Open in Boards</Button>
+              )}
+            </div>
+          </div>
+        )}
+        <p className="pointer-events-none absolute bottom-3 right-3 rounded bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
+          {move?.enabled
+            ? "Drag an arrow to slide · a ring to turn · Shift for fine steps · Esc undoes · ? keys"
+            : "Drag to orbit · Shift-drag to pan · Scroll to zoom · Double-click to frame · F frame · A fit all · ? keys"}
+        </p>
+      </div>
+      <ConfirmDialog
+        open={nets.confirmLarge !== null}
+        onOpenChange={(open) => { if (!open) nets.cancelLarge(); }}
+        title={`Highlight ${nets.confirmLarge?.name ?? "this net"}?`}
+        description={`It has ${nets.confirmLarge?.pinCount ?? 0} pins, so it lights a lot of copper on every board it reaches (usually a ground or supply).`}
+        confirmLabel="Highlight"
+        destructive={false}
+        busy={nets.adding !== null}
+        onConfirm={() => { if (nets.confirmLarge) void nets.add(nets.confirmLarge, true); }}
+      />
+      <ConfirmDialog
+        open={confirmReset}
+        onOpenChange={setConfirmReset}
+        title="Reset every board's position?"
+        description="Every board you or others moved goes back to the default side-by-side row. Earlier snapshots keep the positions they froze."
+        confirmLabel="Reset positions"
+        busy={busy !== null}
+        onConfirm={() => void resetAll()}
+      />
+    </div>
+  );
+}
+
+function toastReset(count: number) {
+  toast.success(count === 0 ? "Every board was already in its default place"
+    : `${count} ${count === 1 ? "board is" : "boards are"} back in the default layout`);
+}
+
+/** Why some boards are boxes, missing or failed; nothing when every board is drawn. */
+function SceneNotices({ error, viewerError, summary }: {
+  error: string | null;
+  viewerError: string | null;
+  summary: ReturnType<typeof summarizeScene> | null;
+}) {
+  return (error || viewerError || (summary && (summary.restricted.length || summary.building.length || summary.missing.length
         || summary.failed.length || summary.unplaced.length))) ? (
         <div className="flex flex-col gap-1.5 border-b px-4 py-2 md:px-6">
           {error && <Notice tone="error">{error}</Notice>}
@@ -238,66 +362,5 @@ export function Scene3dTab(props: SystemTabProps) {
             <Notice>{names(summary.unplaced)} {summary.unplaced.length === 1 ? "is" : "are"} not shown yet: the board outline is still being read.</Notice>
           )}
         </div>
-      ) : null}
-
-      <div className="relative min-h-0 flex-1">
-        {/* React 18 does not map className onto custom elements: size it with a style. */}
-        <prism-system-scene ref={attach} style={{ position: "absolute", inset: 0, display: "block" }} />
-        {!scene && !error && (
-          <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-muted-foreground">
-            <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden /> Loading the system scene…</span>
-          </div>
-        )}
-        {move?.enabled && (
-          <div className="absolute left-3 top-3">
-            <MovePanel
-              key={moveEpoch}
-              state={move}
-              busy={busy !== null}
-              onPreview={(pose) => elementRef.current?.previewPose(pose)}
-              onSave={(target) => void savePose(target)}
-              onRevert={() => elementRef.current?.cancelMove()}
-              onDefault={(target) => void backToDefault(target)}
-              onResetAll={() => setConfirmReset(true)}
-              onSpace={(space) => elementRef.current?.setMoveSpace(space)}
-            />
-          </div>
-        )}
-        {selection && (
-          <div className="absolute bottom-3 left-3 w-72 rounded-lg border bg-card/95 p-3 text-sm shadow-md backdrop-blur" aria-live="polite">
-            <p className="font-medium">{selection.displayPath}</p>
-            <p className="text-xs text-muted-foreground">
-              {selection.restricted ? "Restricted board" : selection.reference ? `Component ${selection.reference}` : "Board"}
-              {instance?.label && instance.label !== selection.displayPath ? ` · ${instance.label}` : ""}
-            </p>
-            <div className="mt-2 flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => elementRef.current?.frameOccurrence(selection.occurrence)}>Frame</Button>
-              {instance && (
-                <Button size="sm" variant="ghost" onClick={() => onNavigate("boards", { board: instance.id })}>Open in Boards</Button>
-              )}
-            </div>
-          </div>
-        )}
-        <p className="pointer-events-none absolute bottom-3 right-3 rounded bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
-          {move?.enabled
-            ? "Drag an arrow to slide · a ring to turn · Shift for fine steps · Esc undoes · ? keys"
-            : "Drag to orbit · Shift-drag to pan · Scroll to zoom · Double-click to frame · F frame · A fit all · ? keys"}
-        </p>
-      </div>
-      <ConfirmDialog
-        open={confirmReset}
-        onOpenChange={setConfirmReset}
-        title="Reset every board's position?"
-        description="Every board you or others moved goes back to the default side-by-side row. Earlier snapshots keep the positions they froze."
-        confirmLabel="Reset positions"
-        busy={busy !== null}
-        onConfirm={() => void resetAll()}
-      />
-    </div>
-  );
-}
-
-function toastReset(count: number) {
-  toast.success(count === 0 ? "Every board was already in its default place"
-    : `${count} ${count === 1 ? "board is" : "boards are"} back in the default layout`);
+      ) : null;
 }

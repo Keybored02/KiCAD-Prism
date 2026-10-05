@@ -5,7 +5,8 @@
 // build). Events: `prism-system-scene:ready`, `…:selectionchange`
 // ({ selection }), `…:status` ({ status }), `…:move` (SB2-29: { phase,
 // allowed, enabled, space, dragging, target }; phases mode, target, preview,
-// commit, cancel and sync) and `…:error`.
+// commit, cancel and sync), `…:emphasis` (SB2-31: { report }, when what the
+// highlighted nets light changes) and `…:error`.
 //
 // Move mode (SB2-29) only previews: on `move` with phase "commit" the host
 // saves the target's pose and gives the element the re-read scene, or calls
@@ -95,6 +96,7 @@ export function definePrismSystemScene() {
       this.pendingStats = null;
       this.pendingBudget = null;
       this.pendingMoveAllowed = false;
+      this.pendingEmphasis = null;
       this.starting = null;
     }
 
@@ -128,6 +130,7 @@ export function definePrismSystemScene() {
         onSelectionChange: (selection) => this.emit("selectionchange", { selection }),
         onStatus: (status) => this.emit("status", { status }),
         onMove: (state) => this.emit("move", state),
+        onEmphasis: (report) => this.emit("emphasis", { report }),
       });
       try {
         await controller.init();
@@ -146,6 +149,7 @@ export function definePrismSystemScene() {
       if (this.pendingBudget != null) controller.setGpuBudget(this.pendingBudget);
       if (this.pendingStats != null) controller.setStatsOverlay(this.pendingStats);
       controller.setMoveAllowed(this.pendingMoveAllowed);
+      if (this.pendingEmphasis) controller.setNetEmphasis(this.pendingEmphasis);
       if (this.pendingScene) this.applyScene(this.pendingScene);
       this.emit("ready", {});
     }
@@ -201,6 +205,15 @@ export function definePrismSystemScene() {
     setGpuBudget(bytes) {
       this.pendingBudget = bytes;
       this.controller?.setGpuBudget(bytes);
+    }
+
+    /**
+     * Highlight system nets (SB2-31): `[{ key, color?, members: [{ occurrence, net }] }]`;
+     * an empty list clears. Returns the per-set report (null before WebGPU starts).
+     */
+    setNetEmphasis(sets) {
+      this.pendingEmphasis = sets;
+      return this.controller?.setNetEmphasis(sets) ?? null;
     }
 
     getStats() {

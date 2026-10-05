@@ -196,6 +196,22 @@ export interface PrismSystemSceneMoveState {
     } | null;
 }
 
+/** A system net to light (SB2-31): board nets by occurrence path. */
+export interface PrismSystemSceneEmphasisSet {
+    key: string;
+    /** "#rrggbb"; omitted takes the next palette colour. */
+    color?: string;
+    members: readonly { occurrence: string; net: string }[];
+}
+
+/** What a set lit (`setNetEmphasis`'s return and `prism-system-scene:emphasis`). */
+export interface PrismSystemSceneEmphasisResult {
+    key: string;
+    color: string;
+    lit: number;
+    unresolved: { occurrence: string; net: string; reason: "not-drawn" | "loading" | "restricted" | "unknown-net" }[];
+}
+
 export interface PrismSystemSceneElement extends HTMLElement {
     setScene(descriptor: unknown): void;
     select(path: string | null, featureId?: number): PrismSystemSceneSelection | null;
@@ -215,6 +231,8 @@ export interface PrismSystemSceneElement extends HTMLElement {
     cancelMove(): void;
     getMoveState(): PrismSystemSceneMoveState | null;
     setHelpVisible(visible: boolean): void;
+    /** Highlight system nets; an empty list clears. Null before WebGPU starts. */
+    setNetEmphasis(sets: readonly PrismSystemSceneEmphasisSet[]): PrismSystemSceneEmphasisResult[] | null;
 }
 
 declare global {

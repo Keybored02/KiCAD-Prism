@@ -38,6 +38,8 @@ import type {
   SystemHierarchy,
   SystemInstance,
   SystemLink,
+  SystemNetDetail,
+  SystemNetList,
   SystemPoses,
   SystemPort,
   SystemScene,
@@ -546,4 +548,18 @@ export async function searchCatalogParts(query: string, signal?: AbortSignal): P
   const params = new URLSearchParams({ q: query, page: "1", page_size: "8", lightweight: "true", kind: "part" });
   const body = await fetchJson<PaginatedComponents>(`/api/catalog/components?${params.toString()}`, { signal });
   return body.items.map((item) => ({ componentId: item.id, name: item.value || item.description || item.mpn, mpn: item.mpn, manufacturer: item.manufacturer }));
+}
+
+/** System nets matching `search` (aliases, fuzzy), optionally only those on one occurrence (§8.2). */
+export async function listSystemNets(systemId: string, search: string, occurrence?: string): Promise<SystemNetList> {
+  const query = new URLSearchParams({ search });
+  if (occurrence) query.set("occurrence", occurrence);
+  const { body } = await send<SystemNetList>(`${path(systemId, "nets")}?${query}`, {}, "Could not search the system's nets");
+  return body;
+}
+
+/** One system net with its members and hops; its group id is valid for the system version that listed it. */
+export async function getSystemNet(systemId: string, groupId: string): Promise<SystemNetDetail> {
+  const { body } = await send<SystemNetDetail>(path(systemId, "nets", groupId), {}, "Could not load the net");
+  return body;
 }
