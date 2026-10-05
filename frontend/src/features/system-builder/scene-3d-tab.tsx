@@ -62,6 +62,7 @@ export function Scene3dTab(props: SystemTabProps) {
   const [confirmReset, setConfirmReset] = useState(false);
   // SB2-31: highlighted system nets, lit in the view in their own colours.
   const [netsOpen, setNetsOpen] = useState(false);
+  const [isolated, setIsolated] = useState(false);
   const nets = useNetHighlight(systemId, etag);
   const { highlighted } = nets;
   const { busy, run } = useSystemMutation(reload);
@@ -103,8 +104,13 @@ export function Scene3dTab(props: SystemTabProps) {
     const report = node?.setNetEmphasis?.(emphasisSets(list));
     if (report) nets.report(report);
   };
+  // The net added last is framed once, so a few-millimetre trace is not lost in the whole system.
+  const framedNet = useRef<string | null>(null);
   useEffect(() => {
     showEmphasis(elementRef.current, highlighted);
+    const newest = highlighted.at(-1)?.groupId ?? null;
+    if (newest && newest !== framedNet.current) elementRef.current?.frameNetEmphasis?.(newest);
+    framedNet.current = newest;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-apply only when the nets change
   }, [highlighted]);
 
@@ -163,7 +169,10 @@ export function Scene3dTab(props: SystemTabProps) {
       nets.report((event as CustomEvent<{ report: PrismSystemSceneEmphasisResult[] }>).detail.report);
     };
     node.addEventListener("prism-system-scene:emphasis", onEmphasis);
+    const onIsolation = (event: Event) => setIsolated((event as CustomEvent<{ isolated: boolean }>).detail.isolated);
+    node.addEventListener("prism-system-scene:isolation", onIsolation);
     return () => {
+      node.removeEventListener("prism-system-scene:isolation", onIsolation);
       node.removeEventListener("prism-system-scene:emphasis", onEmphasis);
       node.removeEventListener("prism-system-scene:selectionchange", onSelection);
       node.removeEventListener("prism-system-scene:error", onError);
@@ -272,6 +281,9 @@ export function Scene3dTab(props: SystemTabProps) {
               adding={nets.adding}
               onAdd={(net) => void nets.add(net)}
               onRemove={nets.remove}
+              onFrame={(groupId) => elementRef.current?.frameNetEmphasis?.(groupId)}
+              isolated={isolated}
+              onIsolate={(next) => setIsolated(elementRef.current?.setNetIsolation?.(next) ?? false)}
               onClear={nets.clear}
               onClose={() => setNetsOpen(false)}
             />
