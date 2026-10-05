@@ -134,6 +134,8 @@ export class SystemScene {
     this.move = { allowed: false, enabled: false, space: "world", target: null, preview: null, drag: null };
     this.baseDescriptor = null;
     this.descriptor = null;
+    // SB2-30: when the first descriptor arrived and when every ready board was first drawn.
+    this.timing = { descriptorAt: null, boardsDrawnAt: null };
     this.assets = new Map(); // assetId → asset state
     this.placed = []; // { occurrence, rendererId, matrix, worldBounds, standIn }
     this.selection = null; // { index, key, featureId }
@@ -171,6 +173,7 @@ export class SystemScene {
   setDescriptor(descriptor) {
     if (descriptor?.schema !== SCENE_SCHEMA) throw new Error(`Unsupported system scene schema: ${descriptor?.schema || "missing"}`);
     this.baseDescriptor = descriptor;
+    this.timing.descriptorAt ??= performance.now();
     // A preview the host has now saved is simply the new state; any other survives re-reads.
     const target = this.move.target ? descriptor.occurrences.find((item) => item.path === this.move.target) : null;
     if (!target) this.dropTarget();
@@ -482,12 +485,24 @@ export class SystemScene {
     this.manageTiers(now);
     this.updateLabels();
     this.updateGizmo();
+    if (this.timing.boardsDrawnAt == null && this.allReadyBoardsDrawn()) this.timing.boardsDrawnAt = performance.now();
     this.frameSamples.push([interval, performance.now() - started]);
     if (this.frameSamples.length > 240) this.frameSamples.shift();
     if (this.showStats && now - (this.statsAt || 0) > 250) {
       this.statsAt = now;
       this.renderStats();
     }
+  }
+
+  /** Every board whose bundle is ready draws its own geometry, not a stand-in (and there is at least one). */
+  allReadyBoardsDrawn() {
+    if (!this.placed.length) return false;
+    let drawn = 0;
+    for (const item of this.placed) {
+      if (!item.standIn) drawn += 1;
+      else if (item.standIn === "loading") return false;
+    }
+    return drawn > 0;
   }
 
   /** Components on approach, eviction over the GPU budget (as the one-board viewer, per asset). */
@@ -1048,6 +1063,11 @@ export class SystemScene {
       frameCpuP95Ms: p95(cpu),
       fps: intervals.length ? 1000 / Math.max(1e-6, mean(intervals)) : 0,
       lodThresholds: { ...LOD_THRESHOLDS },
+      // First frame with every ready board drawn: after the descriptor, and since the page started.
+      firstFrame: this.timing.boardsDrawnAt == null ? null : {
+        sinceSceneMs: this.timing.boardsDrawnAt - this.timing.descriptorAt,
+        sinceNavigationMs: this.timing.boardsDrawnAt,
+      },
     };
   }
 

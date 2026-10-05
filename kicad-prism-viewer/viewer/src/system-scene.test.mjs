@@ -54,3 +54,12 @@ test("instanced shaders number occurrences scene-wide; the one-board shaders are
     assert.doesNotMatch(code, /output\.occurrence = index \+ 1u;/, name);
   }
 });
+
+test("the first frame counts once every ready board draws its own geometry", async () => {
+  const { SystemScene } = await import("./system-scene.js");
+  const drawn = (placed) => SystemScene.prototype.allReadyBoardsDrawn.call({ placed });
+  assert.equal(drawn([]), false, "nothing placed yet");
+  assert.equal(drawn([{ standIn: null }, { standIn: "loading" }]), false, "a ready bundle still loading");
+  assert.equal(drawn([{ standIn: null }, { standIn: "restricted" }, { standIn: "failed" }]), true, "boxes that stay boxes don't wait");
+  assert.equal(drawn([{ standIn: "building" }]), false, "no board drawn at all");
+});
