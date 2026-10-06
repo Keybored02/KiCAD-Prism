@@ -20,7 +20,7 @@ from . import agent_launcher
 from . import prism_theme as th
 from . import prompts
 from . import version
-from .agent_client import AgentClient, AgentUnavailable
+from .agent_client import PROBE_TIMEOUT, AgentClient, AgentUnavailable
 from .settings_dialog import SettingsDialog
 from .widgets import (
     Badge,
@@ -860,8 +860,10 @@ class PrismDialog(wx.Dialog):
         for _ in range(30):
             wx.MilliSleep(200)
             wx.Yield()
+            if not self:
+                return
             try:
-                AgentClient().health()
+                AgentClient().health(timeout=PROBE_TIMEOUT)
                 break
             except AgentUnavailable:
                 continue

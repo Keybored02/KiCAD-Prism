@@ -70,7 +70,7 @@ class _FakeAgentClient:
     def quit(self):
         type(self).calls.append("quit")
 
-    def health(self):
+    def health(self, timeout=None):
         type(self).calls.append("health")
         if not type(self).up:
             raise agent_client.AgentUnavailable("not up yet")

@@ -62,7 +62,10 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import socket
+import sys
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -94,6 +97,9 @@ VERSION = "0.5.17"
 # way (a new plugin meeting an old agent, because autostart kept it alive), and the
 # plugin checks for that itself.
 PLUGIN_MIN = "0.1.0"
+
+# How old /health's view of the backend may get before it checks again.
+BACKEND_RECHECK_SECONDS = 15
 
 log = logging.getLogger(__name__)
 
@@ -127,19 +133,50 @@ class AgentState:
         # the files git says are dirty, so any edit invalidates it by itself.
         self._changes_cache: dict[tuple, list[dict]] = {}
         self._changes_lock = threading.Lock()
-        # What the backend expects of the plugin. Cached: /health runs on every plugin
-        # open, and a release doesn't change under a running agent.
+        # What /health reports about the backend: whether it answered, and the plugin
+        # version it expects. Checked in the background, see backend_status.
+        self._backend_lock = threading.Lock()
+        self._backend_checked = 0.0
+        self._backend_checking = False
+        self._backend_reachable = False
+        # Kept once known: a release doesn't change under a running agent.
         self._server_plugin: dict | None = None
 
-    def server_plugin_version(self) -> dict | None:
-        """The plugin version the backend expects, or None if it can't say.
+    def backend_status(self) -> tuple[bool, dict | None]:
+        """Whether the backend answered, and the plugin version it expects.
 
-        None covers both an unreachable backend and one too old to have the endpoint.
-        Either way the plugin should carry on rather than refuse to work.
+        Never waits on the backend. /health is how the plugin tells whether the agent
+        is alive, so it has to answer at once: when it waited, a hung backend made a
+        healthy agent look dead, and the plugin started another one. This returns the
+        last check and starts a new one in the background when that is stale.
+
+        The plugin version is None for both an unreachable backend and one too old to
+        have the endpoint. Either way the plugin should carry on rather than refuse to
+        work.
         """
-        if self._server_plugin is None:
-            self._server_plugin = self.prism.plugin_version()
-        return self._server_plugin
+        with self._backend_lock:
+            stale = time.monotonic() - self._backend_checked > BACKEND_RECHECK_SECONDS
+            if stale and not self._backend_checking:
+                self._backend_checking = True
+                threading.Thread(
+                    target=self._check_backend, name="prism-backend-check", daemon=True
+                ).start()
+            return self._backend_reachable, self._server_plugin
+
+    def _check_backend(self) -> None:
+        prism = self.prism
+        try:
+            reachable = prism.health()
+            plugin = self._server_plugin or prism.plugin_version()
+        finally:
+            with self._backend_lock:
+                self._backend_checking = False
+                # A check against a client rebuild_client has since replaced describes
+                # the old server. Drop it; the next /health starts a fresh one.
+                if prism is self.prism:
+                    self._backend_checked = time.monotonic()
+                    self._backend_reachable = reachable
+                    self._server_plugin = plugin
 
     def rebuild_client(self, saved) -> None:
         """Re-point at the backend after the URL or token changed.
@@ -152,8 +189,11 @@ class AgentState:
         )
         # A different server means different projects, so the cached diff answers
         # (which carry the Prism project row) are no longer trustworthy. It may also
-        # expect a different plugin version.
-        self._server_plugin = None
+        # expect a different plugin version, and be up when the old one was down.
+        with self._backend_lock:
+            self._server_plugin = None
+            self._backend_checked = 0.0
+            self._backend_reachable = False
         with self._changes_lock:
             self._changes_cache = {}
 
@@ -294,6 +334,7 @@ class _Handler(BaseHTTPRequestHandler):
         query = parse_qs(route.query)
 
         if route.path == "/health":
+            reachable, server_plugin = self.state.backend_status()
             self._send(
                 200,
                 {
@@ -305,10 +346,10 @@ class _Handler(BaseHTTPRequestHandler):
                     # means an old agent routinely meets a new plugin after an
                     # update, and a stale plugin can meet a new agent too.
                     "plugin_min": PLUGIN_MIN,
-                    "backend_reachable": self.state.prism.health(),
+                    "backend_reachable": reachable,
                     # What the SERVER expects of the plugin. The plugin follows the
                     # server it talks to, so this is what stops the two drifting.
-                    "server_plugin": self.state.server_plugin_version(),
+                    "server_plugin": server_plugin,
                 },
             )
             return
@@ -1121,6 +1162,24 @@ def apply_sign_out(state: AgentState) -> str:
     return ""
 
 
+class _AgentServer(ThreadingHTTPServer):
+    """An HTTP server that owns its port outright.
+
+    HTTPServer sets SO_REUSEADDR, and on Windows that lets a second process bind a
+    port another one is already listening on. A second agent then "got" the preferred
+    port instead of falling back to a free one, and connections went to whichever
+    socket Windows picked. SO_EXCLUSIVEADDRUSE makes the bind fail instead. Elsewhere
+    SO_REUSEADDR never allowed two listeners, so it stays.
+    """
+
+    if sys.platform == "win32":
+        allow_reuse_address = False
+
+        def server_bind(self) -> None:
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            super().server_bind()
+
+
 def make_server(prism: PrismClient) -> tuple[ThreadingHTTPServer, AgentState]:
     """Bind 127.0.0.1 on the active profile's port, or an ephemeral one.
 
@@ -1137,10 +1196,10 @@ def make_server(prism: PrismClient) -> tuple[ThreadingHTTPServer, AgentState]:
     handler = type("Handler", (_Handler,), {"state": state})
     preferred = resolve().preferred_port
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", preferred), handler)
+        server = _AgentServer(("127.0.0.1", preferred), handler)
     except OSError:
         # Port 0 = let the OS pick a free one; we publish it via discovery.
-        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        server = _AgentServer(("127.0.0.1", 0), handler)
         log.warning(
             "Preferred port %d is in use; bound an ephemeral port instead.",
             preferred,
@@ -1160,6 +1219,8 @@ def serve(
     # The version goes in the discovery file so a NEWER agent starting up can tell it
     # should retire us. Without it an update leaves the old agent serving forever.
     discovery.write_endpoint(port, state.token, VERSION)
+    # Start the first backend check now, so the plugin's first /health has an answer.
+    state.backend_status()
 
     thread = threading.Thread(
         target=server.serve_forever, name="prism-agent-http", daemon=True

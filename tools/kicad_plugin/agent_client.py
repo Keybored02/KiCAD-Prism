@@ -21,6 +21,8 @@ import urllib.parse
 import urllib.request
 
 TIMEOUT = 15
+# One try of a poll for the agent to come up. A live agent answers /health at once.
+PROBE_TIMEOUT = 2
 # Diffing the working tree means parsing every changed board; a big one takes a
 # couple of seconds cold (the agent caches on mtime, so it's ~instant after that).
 DIFF_TIMEOUT = 120
@@ -184,8 +186,13 @@ class AgentClient:
 
     # -- API ---------------------------------------------------------------
 
-    def health(self):
-        return self._call("GET", "/health")
+    def health(self, timeout=TIMEOUT):
+        """Is the agent up, and what version. Answered at once by a live agent.
+
+        Pollers waiting for an agent to come up pass PROBE_TIMEOUT: the wait is on
+        KiCad's UI thread, so each try must be short.
+        """
+        return self._call("GET", "/health", timeout=timeout)
 
     def project(self, path):
         """Everything the dialog shows: the project, its git state, its Prism row."""

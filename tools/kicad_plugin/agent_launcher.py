@@ -383,7 +383,7 @@ def restart_agent(on_status=lambda _text: None) -> bool:
     and ignore it. Callers on the UI thread still need their own wx.Yield()/
     wx.MilliSleep() around this, this function only knows about the agent, not wx.
     """
-    from .agent_client import AgentClient, AgentUnavailable
+    from .agent_client import PROBE_TIMEOUT, AgentClient, AgentUnavailable
 
     on_status("Stopping the old agent...")
     try:
@@ -396,7 +396,7 @@ def restart_agent(on_status=lambda _text: None) -> bool:
     for _ in range(20):
         _wait_tick()
         try:
-            AgentClient().health()
+            AgentClient().health(timeout=PROBE_TIMEOUT)
         except AgentUnavailable:
             break
 
@@ -410,7 +410,7 @@ def restart_agent(on_status=lambda _text: None) -> bool:
     for _ in range(120):
         _wait_tick()
         try:
-            AgentClient().health()
+            AgentClient().health(timeout=PROBE_TIMEOUT)
             return True
         except AgentUnavailable:
             continue

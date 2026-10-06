@@ -19,7 +19,7 @@ import wx
 
 from . import prism_theme as th
 from . import prompts
-from .agent_client import AgentClient, AgentUnavailable
+from .agent_client import PROBE_TIMEOUT, AgentClient, AgentUnavailable
 from .widgets import Button, Card
 
 MARKER = "first_run_done"
@@ -111,13 +111,15 @@ class FirstRunDialog(wx.Dialog):
         self.body.Clear(delete_windows=True)
 
         try:
-            AgentClient().health()
+            AgentClient().health(timeout=PROBE_TIMEOUT)
             self.agent_ok = True
         except AgentUnavailable:
             self.agent_ok = False
 
         if not self.agent_ok:
             self._start_agent()
+            if not self:
+                return  # closed while we waited for the agent
 
         if self.agent_ok:
             self._render_options()
@@ -142,8 +144,10 @@ class FirstRunDialog(wx.Dialog):
         for _ in range(30):
             wx.MilliSleep(200)
             wx.Yield()
+            if not self:
+                return  # the user closed the dialog; nothing left to update
             try:
-                AgentClient().health()
+                AgentClient().health(timeout=PROBE_TIMEOUT)
                 self.agent_ok = True
                 break
             except AgentUnavailable:

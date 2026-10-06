@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -21,7 +22,12 @@ from dataclasses import dataclass
 from . import identity
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
-TIMEOUT = 10
+TIMEOUT = 5
+# After a request gets no answer, how long the backend counts as down. Calls in that
+# window return None at once instead of each waiting out TIMEOUT. A proxy in front of
+# a stopped backend (Caddy) accepts the connection and then hangs, so without this
+# every call the plugin makes stacked up another full timeout.
+DOWN_FOR = 30
 
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
@@ -39,6 +45,12 @@ class PrismConfig:
 class PrismClient:
     def __init__(self, config: PrismConfig):
         self.config = config
+        self._down_until = 0.0
+
+    @property
+    def known_down(self) -> bool:
+        """A recent request got no answer, so don't wait on another one yet."""
+        return time.monotonic() < self._down_until
 
     # -- plumbing ---------------------------------------------------------
 
@@ -80,7 +92,7 @@ class PrismClient:
     def _request(
         self, method: str, path: str, body: dict | None = None
     ) -> dict | list | None:
-        if not self.config.configured:
+        if not self.config.configured or self.known_down:
             return None
         url = self.config.base_url.rstrip("/") + path
         data = json.dumps(body).encode() if body is not None else None
@@ -94,9 +106,14 @@ class PrismClient:
             with self._opener().open(req, timeout=TIMEOUT) as resp:
                 raw = resp.read()
             return json.loads(raw) if raw else None
-        except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError):
-            # The backend being down is a normal state, not an error worth raising:
-            # the agent's local features must keep working regardless.
+        except (urllib.error.HTTPError, ValueError):
+            # It answered, just not with what we wanted. Not "down".
+            return None
+        except (urllib.error.URLError, OSError):
+            # No answer: refused, timed out, or cut off. The backend being down is a
+            # normal state, not an error worth raising: the agent's local features
+            # must keep working regardless.
+            self._down_until = time.monotonic() + DOWN_FOR
             return None
 
     # -- API --------------------------------------------------------------
