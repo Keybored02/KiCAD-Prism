@@ -351,25 +351,6 @@ class AgentClient:
             body["remote"] = remote
         return self._call("POST", "/push", body, timeout=DIFF_TIMEOUT)
 
-    def merge_plan(self, path, ref):
-        """What merging `ref` would involve. Read-only: nothing moves."""
-        return self._call(
-            "GET",
-            "/merge/plan?path=%s&ref=%s"
-            % (urllib.parse.quote(path), urllib.parse.quote(ref)),
-            timeout=DIFF_TIMEOUT,
-        )
-
-    def start_merge(self, path, ref):
-        """Open the merge UI in a browser for `ref`.
-
-        The agent builds the URL and opens it, because only the agent knows its own port
-        and the one-shot key that lets the page talk back to it.
-        """
-        return self._call(
-            "POST", "/merge/start", {"path": path, "ref": ref}, timeout=DIFF_TIMEOUT
-        )
-
     def stashes(self, path):
         """What is currently stashed, newest first."""
         return self._call("GET", "/stash?path=" + urllib.parse.quote(path))

@@ -45,12 +45,6 @@ LOGO = os.path.join(os.path.dirname(__file__), "assets", "prism-64.png")
 # dialog stays responsive, and say so rather than silently truncating.
 MAX_ROWS_PER_FILE = 60
 
-# The object-level merge editor is alpha and not ready to ship. This hides its only
-# entry point, the "Merge in Prism" button on a diverged branch; the engine and the
-# agent routes stay in place. The web route is dev-only too (MERGE_EDITOR_ENABLED
-# in frontend/src/App.tsx).
-MERGE_EDITOR_ENABLED = False
-
 # Distinguishes "the diff is still computing in the background" from None
 # ("couldn't read") and [] ("nothing to commit"), so the changes card can show a
 # transient loading state while the rest of the dialog is already up.
@@ -1347,8 +1341,8 @@ class PrismDialog(wx.Dialog):
     def _add_sync_row(self, card, git):
         """Fetch and push. Push shows only when there is something to push and it is safe.
 
-        Push is hidden when the branch has diverged: the pull row already routes that to
-        the merge, and offering Push there would invite a force the agent refuses anyway.
+        Push is hidden when the branch has diverged: the pull row explains that it needs
+        a merge, and offering Push there would invite a force the agent refuses anyway.
         Fetch is always safe (it touches no files), so it is always offered on a branch
         with an upstream.
         """
@@ -1371,9 +1365,9 @@ class PrismDialog(wx.Dialog):
             th.SP_XS,
         )
         # Pull, beside Fetch, only when there is something to pull and the branch has
-        # not diverged. A diverged branch is the merge's job, and _add_pull_row already
-        # explains that and offers it; pulling there would be a textual merge of a
-        # board, which is the one thing this must never do.
+        # not diverged. A diverged branch needs a merge, and _add_pull_row explains
+        # that; pulling there would be a textual merge of a board, which is the one
+        # thing this must never do.
         if behind and not ahead:
             row.Add(
                 IconButton(
@@ -1413,7 +1407,7 @@ class PrismDialog(wx.Dialog):
                 th.SP_SM,
             )
 
-        # Push only when ahead and NOT diverged (diverged is the merge's job).
+        # Push only when ahead and NOT diverged (diverged needs a merge first).
         if ahead and not behind:
             row.Add(
                 Button(
@@ -1825,85 +1819,25 @@ class PrismDialog(wx.Dialog):
 
         A plain pull is an icon button beside Fetch in the sync row. This handles the
         situation that button deliberately refuses: both sides have moved on, where
-        pulling would mean a textual merge of a board and the answer is the object-level
-        merge instead.
+        pulling would mean a textual merge of a board. That merge has to happen outside
+        Prism for now.
         """
         behind = git.get("behind") or 0
         ahead = git.get("ahead") or 0
-
-        if ahead and behind and not MERGE_EDITOR_ENABLED:
-            # Diverged, and the merge editor is off: say what's going on, and that the
-            # merge has to happen outside Prism for now.
-            card.body.Add(
-                card.label(
-                    "This branch and the remote have both moved on "
-                    "(%d here, %d there). Merge them with git before pulling."
-                    % (ahead, behind),
-                    tone="warning",
-                    small=True,
-                ),
-                0,
-                wx.TOP,
-                th.SP_XS,
-            )
+        if not (ahead and behind):
             return
-
-        if ahead and behind:
-            # Diverged. A textual merge would produce a board neither author drew, so
-            # this opens the object-level merge instead: same two branches, but the user
-            # chooses what to take rather than git guessing.
-            card.body.Add(
-                card.label(
-                    "This branch and the remote have both moved on "
-                    "(%d here, %d there). Choose what to take from each."
-                    % (ahead, behind),
-                    tone="warning",
-                    small=True,
-                ),
-                0,
-                wx.TOP,
-                th.SP_XS,
-            )
-            card.body.Add(
-                Button(
-                    card,
-                    "Merge in Prism",
-                    self.pal,
-                    variant="secondary",
-                    on_click=self._merge,
-                ),
-                0,
-                wx.TOP,
-                th.SP_XS,
-            )
-            return
-
-    def _merge(self):
-        """Open the object-level merge for the branch this one has diverged from.
-
-        The board itself is merged in the browser, where there is room to show three
-        versions of it side by side. Nothing moves on disk until the user commits there,
-        so pressing this is safe even mid-edit.
-        """
-        project = (self.data or {}).get("project")
-        if not project:
-            return
-
-        # `@{u}` is the tracking branch, and it is the right target by construction: the
-        # ahead/behind counts that produced this button were measured against it, so
-        # anything else would merge a different branch than the one the user was told
-        # about. It also cannot go stale between reading the status and pressing the
-        # button, the way a resolved branch name could.
-        try:
-            with wx.BusyCursor():
-                AgentClient().start_merge(project["path"], "@{u}")
-        except AgentUnavailable as exc:
-            prompts.tell(self, str(exc), "Prism")
-            return
-
-        prompts.tell(self, "Prism has opened the merge in your browser.\n\n"
-            "Nothing changes on disk until you finish it there.",
-            "Prism")
+        card.body.Add(
+            card.label(
+                "This branch and the remote have both moved on "
+                "(%d here, %d there). Merge them with git before pulling."
+                % (ahead, behind),
+                tone="warning",
+                small=True,
+            ),
+            0,
+            wx.TOP,
+            th.SP_XS,
+        )
 
     def _pull(self):
         """Fast-forward the working tree. The agent refuses anything riskier."""

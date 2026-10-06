@@ -264,22 +264,6 @@ class PrismClient:
         """
         return f"{self.config.base_url.rstrip('/')}/project/{project_id}"
 
-    def merge_url(self, session_id: str, agent_port: int) -> str:
-        """Deep link to the merge UI for one session.
-
-        The page needs the agent's port to talk back to it: the agent binds an ephemeral
-        port, so the browser cannot guess it and there is nowhere else for it to come
-        from. It is not a secret (anything local can scan for it), which is exactly why
-        the agent requires a token as well.
-
-        The one-shot claim key is NOT part of this URL. The caller appends it as a
-        fragment, which browsers never send to a server, so it cannot appear in an access
-        log or a Referer header. Keep this in step with the Route in frontend/src/App.tsx.
-        """
-        base = self.config.base_url.rstrip("/")
-        session = urllib.parse.quote(session_id)
-        return f"{base}/merge?session={session}&agent={agent_port}"
-
 
 def _git_origin(tree: str) -> str:
     """The `origin` remote of a local checkout, or "" if it has none."""

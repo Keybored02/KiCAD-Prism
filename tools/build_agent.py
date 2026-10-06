@@ -112,20 +112,6 @@ def build(clean: bool = True, console: bool = False) -> Path:
         "pcb_diff_service.py",
         # Shared with the web UI so both agree on what a KiCad backup is.
         "kicad_noise_service.py",
-        # The merge engine. The agent runs it because the server cannot read a folder
-        # on somebody else's laptop, and it must be the SAME code the web app uses:
-        # two implementations of "which object is this" would drift, and drift here
-        # means splicing the wrong object into a board.
-        "span_index.py",
-        "sexp_splice.py",
-        "merge_integrity.py",
-        "identity_match.py",
-        "trace_groups.py",
-        "merge3_service.py",
-        "merge_patch_service.py",
-        # Runs DRC/ERC and asks KiCad whether the merged file opens at all.
-        "kicad_cli.py",
-        "kicad_check_service.py",
     )
     for required in bundled_services:
         if not (services / required).is_file():

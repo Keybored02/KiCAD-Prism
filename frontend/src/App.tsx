@@ -28,8 +28,6 @@ const Workspace = lazy(() =>
 const ProjectDetailPage = lazy(() =>
     import('./pages/ProjectDetailPage').then((module) => ({ default: module.ProjectDetailPage }))
 );
-const MergePage = lazy(() => import('./pages/MergePage'));
-const MERGE_ROUTES = import.meta.env.DEV ? ["/merge", "/merge-preview"] : [];
 
 function RouteFallback() {
     return (
@@ -329,16 +327,6 @@ function App() {
                         </Suspense>
                     }
                 />
-                {/* The merge editor is alpha: dev builds only until it is ready. The
-                    plugin's entry point is off too (MERGE_EDITOR_ENABLED in dialog.py).
-                    /merge-preview renders it from a fixture, no agent needed. */}
-                {MERGE_ROUTES.map((path) => (
-                    <Route
-                        key={path}
-                        path={path}
-                        element={<Suspense fallback={<RouteFallback />}><MergePage /></Suspense>}
-                    />
-                ))}
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             </div>
