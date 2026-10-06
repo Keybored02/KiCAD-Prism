@@ -592,6 +592,7 @@ async def search_projects(
             "parent_repo": r.get("parent_repo"),
             "sub_path": r.get("relative_path") if r.get("relative_path") != "." else None,
             "last_modified": r.get("last_modified", ""),
+            "last_synced_at": r.get("repo_last_synced"),
             "thumbnail_url": project_service.thumbnail_url_for_row(r),
         })
     return {"results": results}

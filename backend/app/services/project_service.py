@@ -26,6 +26,8 @@ class Project(BaseModel):
     path: str
     last_modified: str
     registered_at: Optional[str] = None
+    # When Prism last fetched the project's repository; what "Last updated" shows.
+    last_synced_at: Optional[str] = None
     thumbnail_url: Optional[str] = None
     # Where the thumbnail came from: "generated" (kicad-cli render), "custom"
     # (uploaded in the workspace) or "repository" (an image committed in the
@@ -428,6 +430,7 @@ def _workspace_row_to_project(row: dict) -> Project:
         path=row.get("path", ""),
         last_modified=row.get("last_modified", ""),
         registered_at=row.get("registered_at"),
+        last_synced_at=row.get("repo_last_synced"),
         thumbnail_url=thumbnail_url_for_row(row),
         thumbnail_source=row.get("thumbnail_source") or "generated",
         sub_path=row.get("relative_path") if row.get("relative_path") != "." else None,

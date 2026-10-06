@@ -21,6 +21,7 @@ import {
 
 import { VISUALIZER_DESIGN_SEARCH_SLOT_ID } from "@/lib/design-search";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { projectLastUpdated } from "@/lib/project-dates";
 
 const AssetsPortal = lazy(() =>
     import("@/components/assets-portal").then((module) => ({ default: module.AssetsPortal }))
@@ -53,6 +54,7 @@ interface Project {
     path: string;
     folder_id?: string | null;
     last_modified: string;
+    last_synced_at?: string | null;
 }
 
 interface CommitDistanceResponse {
@@ -728,7 +730,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             <ErrorBoundary label="the project overview" resetKeys={[projectId, activeCommit, refreshKey]}>
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                        <span>Last Updated: {project.last_modified}</span>
+                                        <span>Last updated: {projectLastUpdated(project)}</span>
                                     </div>
                                     {readme ? (
                                         <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
