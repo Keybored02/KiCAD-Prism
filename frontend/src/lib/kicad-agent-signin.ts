@@ -53,12 +53,17 @@ export async function startAgentSignIn(nextPath: string): Promise<AgentHandoff> 
         body: JSON.stringify({ next_url: nextUrl }),
         signal: controller.signal,
       });
+      // An agent that answers with an error cannot help: not signed in, or its token
+      // expired. Its reason is worth reporting, unlike a port with nothing behind it.
+      if (!response.ok) {
+        const failure = await response.json().catch(() => ({}));
+        if (failure?.error) lastError = failure.error;
+        continue;
+      }
       const data = await response.json().catch(() => ({}));
-      if (response.ok && data?.nonce_url) {
+      if (data?.nonce_url) {
         return { nonceUrl: data.nonce_url as string, email: (data.email as string) || "" };
       }
-      // An agent answered but cannot help: not signed in, or its token expired.
-      // Worth reporting, unlike a port with nothing behind it.
       if (data?.error) lastError = data.error;
     } catch {
       // Not there, refused, or timed out. Try the next port.
