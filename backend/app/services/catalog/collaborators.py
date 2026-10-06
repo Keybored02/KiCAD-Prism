@@ -40,7 +40,6 @@ from app.services.catalog.project_import_acceptance import CatalogProjectImportA
 from app.services.catalog.project_import_assets import CatalogProjectImportAssets
 from app.services.catalog.project_import_matching import CatalogProjectImportMatching
 from app.services.catalog.project_import_sessions import CatalogProjectImportSessions
-from app.services.catalog.agent_tokens import CatalogAgentTokens
 from app.services.catalog.provider_tokens import CatalogProviderTokens
 from app.services.catalog.release_workflow import CatalogReleaseWorkflow
 from app.services.catalog.remote_heads import CatalogRemoteHeads
@@ -77,7 +76,6 @@ class CatalogCollaborators:
     placement: CatalogPlacement
     dbl_export: CatalogDblExport
     provider_tokens: CatalogProviderTokens
-    agent_tokens: CatalogAgentTokens
     remote_heads: CatalogRemoteHeads
     project_import_sessions: CatalogProjectImportSessions
     project_import_matching: CatalogProjectImportMatching
@@ -157,7 +155,6 @@ def build_catalog_collaborators(
     placement = CatalogPlacement(revision_kernel, component_read_models)
     dbl_export = CatalogDblExport(placement)
     provider_tokens = CatalogProviderTokens()
-    agent_tokens = CatalogAgentTokens()
     remote_heads = CatalogRemoteHeads()
     project_import_sessions = CatalogProjectImportSessions()
     project_import_matching = CatalogProjectImportMatching()
@@ -217,7 +214,6 @@ def build_catalog_collaborators(
         placement=placement,
         dbl_export=dbl_export,
         provider_tokens=provider_tokens,
-        agent_tokens=agent_tokens,
         remote_heads=remote_heads,
         project_import_sessions=project_import_sessions,
         project_import_matching=project_import_matching,

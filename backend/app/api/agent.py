@@ -175,11 +175,9 @@ async def list_tokens(
     ``all_users`` is honored only for admins; anyone else always sees just their
     own, regardless of the flag.
     """
-    from app.services.component_catalog_service import catalog_service
-
     email = None if (all_users and user.role == "admin") else user.email
     # A catalog read; keep it off the event loop like every other store call.
-    return await asyncio.to_thread(catalog_service.list_agent_tokens, email=email)
+    return await asyncio.to_thread(agent_auth_service.list_agent_tokens, email=email)
 
 
 @router.delete("/tokens/{jti}")
@@ -188,14 +186,12 @@ async def revoke_token(
     user: AuthenticatedUser = Depends(require_viewer),
 ) -> dict[str, str]:
     """Revoke one agent token. A user may revoke their own; an admin, anyone's."""
-    from app.services.component_catalog_service import catalog_service
-
     # The lookup, the ownership check and the revocation are one blocking
     # sequence against PostgreSQL. Run them in their original order on one
     # worker thread; the ownership check stays between the two writes, so a
     # caller can never revoke a token the check would have refused.
     def revoke() -> None:
-        row = catalog_service.get_agent_token(jti)
+        row = agent_auth_service.get_agent_token(jti)
         if not row:
             raise HTTPException(status_code=404, detail="Token not found")
         if user.role != "admin" and row["email"] != user.email.strip().lower():

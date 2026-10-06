@@ -25,6 +25,8 @@ import hashlib
 import hmac
 import secrets
 import threading
+from contextlib import contextmanager
+from typing import Any, Iterator
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
@@ -33,6 +35,7 @@ from app.core.config import settings
 from app.core.roles import Role, normalize_role
 from app.services import provider_auth_service
 from app.services.auth_service import ResolvedSessionUser
+from app.services.catalog.agent_tokens import CatalogAgentTokens
 
 # The agent identifies itself as its own OAuth client so its codes and tokens
 # never collide with the remote-provider client.
@@ -58,6 +61,31 @@ def _now() -> int:
 
 def _db():
     return provider_auth_service._db()
+
+
+@contextmanager
+def _registry() -> Iterator[Any]:
+    """A catalog connection for the agent-token registry; commits on success."""
+    db = _db()
+    db.initialize()
+    with db.connection() as conn:
+        yield conn
+        conn.commit()
+
+
+def get_agent_token(jti: str) -> dict[str, Any] | None:
+    with _registry() as conn:
+        return CatalogAgentTokens.get(conn, jti=jti)
+
+
+def list_agent_tokens(*, email: str | None) -> list[dict[str, Any]]:
+    with _registry() as conn:
+        return CatalogAgentTokens.list_for(conn, email=email, now=_now())
+
+
+def _touch_registry(jti: str, when: str) -> None:
+    with _registry() as conn:
+        CatalogAgentTokens.touch(conn, jti=jti, when=when)
 
 
 def normalize_agent_scope(scope: str) -> str:
@@ -203,14 +231,16 @@ def _issue_agent_token(
     }
     # Record the token in the registry so the user (or an admin) can see and
     # revoke it later. The token value itself is never stored.
-    _db().record_agent_token(
-        jti=jti,
-        email=email,
-        label=label,
-        scopes=scope.split(),
-        created_at=_iso(now),
-        expires_at=exp,
-    )
+    with _registry() as conn:
+        CatalogAgentTokens.record(
+            conn,
+            jti=jti,
+            email=email,
+            label=label,
+            scopes=scope.split(),
+            created_at=_iso(now),
+            expires_at=exp,
+        )
     return provider_auth_service._encode_payload(payload)
 
 
@@ -239,7 +269,7 @@ def revoke_agent_token_by_jti(jti: str) -> bool:
     the caller can 404. The revocation list needs an expiry; the registry row
     carries it.
     """
-    row = _db().get_agent_token(jti)
+    row = get_agent_token(jti)
     if not row or not jti:
         return False
     _revoke_jti(jti, int(row.get("expires_at") or 0))
@@ -252,7 +282,8 @@ def _revoke_jti(jti: str, exp: int) -> None:
     now = _now()
     if exp > now:
         _db().add_revoked_token(jti, exp)
-    _db().mark_agent_token_revoked(jti, _iso(now))
+    with _registry() as conn:
+        CatalogAgentTokens.mark_revoked(conn, jti=jti, when=_iso(now))
 
 
 # How stale the "last used" timestamp is allowed to get before a validation refreshes
@@ -296,6 +327,6 @@ def touch_agent_token(payload: dict[str, object]) -> None:
                 _last_touched.clear()
         _last_touched[jti] = now
     try:
-        _db().touch_agent_token(jti, _iso(now))
+        _touch_registry(jti, _iso(now))
     except Exception:  # noqa: BLE001 - a bookkeeping write must not fail a request
         pass

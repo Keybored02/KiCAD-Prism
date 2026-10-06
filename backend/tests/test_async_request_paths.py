@@ -371,9 +371,7 @@ class AgentTokenRevocationDoesNotBlockTheLoopTests(unittest.TestCase):
             self.assertEqual(await revoke, {"status": "revoked"})
             return probe_finished
 
-        from app.services.component_catalog_service import catalog_service
-
-        with patch.object(catalog_service, "get_agent_token", blocked), patch.object(
+        with patch.object(agent_api.agent_auth_service, "get_agent_token", blocked), patch.object(
             agent_api.agent_auth_service, "revoke_agent_token_by_jti"
         ):
             self.assertTrue(
@@ -386,10 +384,8 @@ class AgentTokenRevocationDoesNotBlockTheLoopTests(unittest.TestCase):
         user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
         revoked = MagicMock()
 
-        from app.services.component_catalog_service import catalog_service
-
         with patch.object(
-            catalog_service, "get_agent_token", return_value={"email": "someone@else.com"}
+            agent_api.agent_auth_service, "get_agent_token", return_value={"email": "someone@else.com"}
         ), patch.object(agent_api.agent_auth_service, "revoke_agent_token_by_jti", revoked):
             with self.assertRaises(HTTPException) as ctx:
                 asyncio.run(agent_api.revoke_token("jti-1", user))
