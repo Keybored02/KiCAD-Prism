@@ -21,6 +21,14 @@ from unittest.mock import patch  # noqa: E402
 
 DATABASE_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
+# Starlette's TestClient needs an HTTP client package (httpx2, or httpx) that the
+# locked runtime does not ship, so CI cannot drive the app this way.
+try:
+    import starlette.testclient  # noqa: F401
+    HAS_TEST_CLIENT = True
+except RuntimeError:
+    HAS_TEST_CLIENT = False
+
 # Patched onto settings in setUpClass rather than read from the environment, so
 # these run under CI's AUTH_ENABLED=false instead of silently skipping and going
 # green without exercising the sign-in routes.
@@ -44,6 +52,7 @@ def _pkce() -> tuple[str, str]:
 
 
 @unittest.skipUnless(DATABASE_URL, "PRISM_DATABASE_URL is required for agent API tests")
+@unittest.skipUnless(HAS_TEST_CLIENT, "starlette.testclient needs httpx2 or httpx")
 class AgentApiTests(unittest.TestCase):
     REDIRECT = "http://127.0.0.1:53998/cb"
 

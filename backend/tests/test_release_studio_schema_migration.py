@@ -1787,6 +1787,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (23, "tracker_connectors_identities_policy"),
                 (24, "tracker_connector_delete_cascade"),
                 (25, "tracker_webhook_oauth_tables"),
+                (26, "repository_origin"),
             ],
         )
 
