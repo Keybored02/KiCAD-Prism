@@ -121,7 +121,10 @@ class ClientTests(GitHostTestCase):
             git("rev-parse", "--is-bare-repository", cwd=bob).stdout.strip(), "false"
         )
 
-        # Bob pushes; Alice sees it.
+        # Bob pushes; Alice sees it. A clone has no identity of its own, and CI has no
+        # global one to fall back on.
+        git("config", "user.email", "b@b.b", cwd=bob)
+        git("config", "user.name", "B", cwd=bob)
         (bob / "notes.md").write_text("hi")
         git("add", "-A", cwd=bob)
         git("commit", "-m", "bob's change", cwd=bob)
