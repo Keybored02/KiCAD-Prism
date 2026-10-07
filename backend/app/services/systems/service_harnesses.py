@@ -103,6 +103,31 @@ class HarnessesMixin:
                 chosen = store.list_driving_mates(system_id).get(instance_id)
         return Result({"instanceId": instance_id, "linkId": chosen}, system_id, change.version)
 
+    def set_poses(self, caller: Caller, system_id: str, version: int, poses: Sequence[Mapping[str, Any]],
+                  clear: Sequence[str] = ()) -> Result:
+        """``PATCH …/poses`` (SB2-38): store several manual poses and clear others in one change, so a
+        stack moved together (or put back) is one version and never half saved."""
+        if not poses and not clear:
+            raise Invalid("nothing to change: give poses or clear")
+        ids = [p["instanceId"] for p in poses] + list(clear)
+        if len(set(ids)) != len(ids):
+            raise Invalid("each instance may appear once")
+        try:
+            stored = [(p["instanceId"], {**placement_poses.pose_from(p["translationMm"], p["rotation"]), "source": "manual"})
+                      for p in poses]
+        except ValueError as error:
+            raise Invalid(str(error)) from error
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                for instance_id, pose in stored:
+                    store.set_pose(change, instance_id, pose)
+                for instance_id in clear:
+                    store.set_pose(change, instance_id, None)
+                now = store.list_poses(system_id)
+        body = {"poses": [{"instanceId": i, **now[i]} if i in now else {"instanceId": i, "source": "default"} for i in ids]}
+        return Result(body, system_id, change.version)
+
     def reset_poses(self, caller: Caller, system_id: str, version: int) -> Result:
         """``DELETE …/poses``: every manual pose goes back to its default (D-P2-14)."""
         with self._tx() as store:

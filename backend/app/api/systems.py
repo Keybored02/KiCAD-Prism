@@ -476,6 +476,28 @@ async def clear_pose(
     return _respond(result, response)
 
 
+class PoseItem(PoseRequest):
+    instanceId: str = Field(min_length=1, max_length=200)
+
+
+class PosesRequest(BaseModel):
+    poses: list[PoseItem] = Field(default_factory=list, max_length=200)
+    clear: list[str] = Field(default_factory=list, max_length=200)
+
+
+@router.patch("/{system_id}/poses", dependencies=[Depends(require_designer)])
+async def set_poses(
+    system_id: str, body: PosesRequest, request: Request, response: Response,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    version = _expected_version(request, system_id)
+    poses = [item.model_dump() for item in body.poses]
+    result = await _run(system_id, lambda: system_service.service.set_poses(
+        _caller(user), system_id, version, poses, body.clear,
+    ))
+    return _respond(result, response)
+
+
 class DrivingMateRequest(BaseModel):
     linkId: str = Field(min_length=1, max_length=200)
 

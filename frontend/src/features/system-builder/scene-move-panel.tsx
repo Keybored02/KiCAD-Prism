@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { RotateCcw, Save, Undo2 } from "lucide-react";
+import { Link2, Link2Off, RotateCcw, Save, Undo2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { PrismScenePose, PrismSystemSceneMoveState } from "@/types/prism-semantic-viewer";
+import type { SystemSceneMate } from "@/types/system";
 
 import { eulerDegrees, rotationFromEuler } from "./placement/poses";
 
@@ -51,6 +52,16 @@ export interface MovePanelProps {
   onDefault: (target: Target) => void;
   onResetAll: () => void;
   onSpace: (space: "world" | "local") => void;
+  /** SB2-38: the mate that places the target (null: a stack's root, or not mated). */
+  mate?: SystemSceneMate | null;
+  /** How many boards share the target's stack (0: not mated). */
+  stackSize?: number;
+  /** A move of this mated board waits for the choice below. */
+  pending?: boolean;
+  onBreakMate?: () => void;
+  onMoveWithStack?: () => void;
+  onCancelPending?: () => void;
+  onSnapBack?: (target: Target) => void;
 }
 
 /**
@@ -59,7 +70,10 @@ export interface MovePanelProps {
  * target back where it was when it was picked, saved moves included.
  * A child system moves as one group; its boards keep their places inside it.
  */
-export function MovePanel({ state, busy, onPreview, onSave, onCancel, moved, onRevert, onDefault, onResetAll, onSpace }: MovePanelProps) {
+export function MovePanel({
+  state, busy, onPreview, onSave, onCancel, moved, onRevert, onDefault, onResetAll, onSpace,
+  mate = null, stackSize = 0, pending = false, onBreakMate, onMoveWithStack, onCancelPending, onSnapBack,
+}: MovePanelProps) {
   const target = state.target;
   // What the user is typing; otherwise the fields follow the view. The host remounts the
   // panel (its `key`) when the view saves, cancels or changes target, which drops it.
@@ -102,7 +116,8 @@ export function MovePanel({ state, busy, onPreview, onSave, onCancel, moved, onR
   };
   const cancel = () => {
     finish();
-    onCancel();
+    if (pending) onCancelPending?.();
+    else onCancel();
   };
   // Board axes only differ from the world's once the target is turned.
   const unrotated = Math.abs(Math.abs(target.pose.rotation[3]) - 1) < 1e-9;
@@ -123,9 +138,36 @@ export function MovePanel({ state, busy, onPreview, onSave, onCancel, moved, onR
       <div className="flex items-center gap-2">
         <p className="min-w-0 flex-1 truncate font-medium" title={target.displayPath}>{target.displayPath}</p>
         {target.unsaved ? <Badge variant="warning">Not saved</Badge>
-          : target.source === "default" ? <Badge variant="outline">Default place</Badge>
-            : <Badge variant="secondary">Moved</Badge>}
+          : mate?.overridden ? <Badge variant="warning">Mate overridden</Badge>
+            : target.source === "auto" ? <Badge variant="secondary"><Link2 className="size-3" aria-hidden /> Mated</Badge>
+              : target.source === "default" ? <Badge variant="outline">Default place</Badge>
+                : <Badge variant="secondary">Moved</Badge>}
       </div>
+      {mate?.overridden && !pending && (
+        <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+          <Link2Off className="size-3.5 shrink-0" aria-hidden /> Mated position overridden ·
+          <button type="button" className="font-medium text-foreground underline underline-offset-2 disabled:opacity-50"
+            disabled={busy} onClick={() => onSnapBack?.(target)}>
+            Snap back
+          </button>
+        </p>
+      )}
+      {pending && (
+        <fieldset className="mt-2 rounded-md border border-warning/50 bg-warning/10 p-2" aria-label="Moving a mated board">
+          <p className="text-xs">
+            {target.displayPath} is mated in a stack of {stackSize} boards.
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <Button type="button" size="sm" disabled={busy} onClick={onMoveWithStack} autoFocus>
+              <Link2 className="size-4" aria-hidden /> Move with its stack
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onBreakMate}>
+              <Link2Off className="size-4" aria-hidden /> Break the mate
+            </Button>
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">Esc puts it back.</p>
+        </fieldset>
+      )}
       <p className="mt-0.5 text-xs text-muted-foreground">
         {target.kind === "assembly" ? "A child system: it moves as one group." : "Millimetres and degrees, in the system's frame."}
       </p>
@@ -163,7 +205,7 @@ export function MovePanel({ state, busy, onPreview, onSave, onCancel, moved, onR
       )}
 
       <div className="mt-3 flex flex-wrap gap-1.5">
-        <Button type="submit" size="sm" disabled={busy || invalid || (!target.unsaved && !typed)}>
+        <Button type="submit" size="sm" disabled={busy || pending || invalid || (!target.unsaved && !typed)}>
           <Save className="size-4" aria-hidden /> Save
         </Button>
         <Button
@@ -173,7 +215,7 @@ export function MovePanel({ state, busy, onPreview, onSave, onCancel, moved, onR
           <Undo2 className="size-4" aria-hidden /> Revert
         </Button>
         <Button
-          type="button" size="sm" variant="ghost" disabled={busy || target.unsaved || target.source === "default"}
+          type="button" size="sm" variant="ghost" disabled={busy || target.unsaved || target.source !== "manual"}
           onClick={() => onDefault(target)}
         >
           Back to default

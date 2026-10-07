@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { clearPose, resetPoses, setPose } from "@/lib/systems-api";
+import { clearPose, resetPoses, setPose, setPoses } from "@/lib/systems-api";
 import type { PrismSemanticViewerElement, PrismSystemSceneMoveState } from "@/types/prism-semantic-viewer";
+import type { SystemScene } from "@/types/system";
 
+import { stackMove, stackOf, stackUndo } from "./scene-stack";
 import { useSystemMutation } from "./use-system-mutation";
 
 type MoveTarget = NonNullable<PrismSystemSceneMoveState["target"]>;
-/** Where the target was when it was picked, and whether it has been saved elsewhere since. */
-type Origin = { instanceId: string; pose: MoveTarget["pose"]; source: MoveTarget["source"]; moved: boolean };
+type Undo = ReturnType<typeof stackUndo>;
+/**
+ * Where the target was when it was picked, and whether it has been saved elsewhere since.
+ * `undo` is set after a stack move: what Revert stores to put the whole stack back.
+ */
+type Origin = { instanceId: string; pose: MoveTarget["pose"]; source: MoveTarget["source"]; moved: boolean; undo?: Undo };
 
 /**
  * SB2-29 move mode for the System 3D tab, on the 3D tab's viewer since SB2-31f.
@@ -17,13 +23,15 @@ type Origin = { instanceId: string; pose: MoveTarget["pose"]; source: MoveTarget
  */
 export function useMoveMode(
   viewer: PrismSemanticViewerElement | null,
-  { systemId, etag, reload }: { systemId: string; etag: string; reload: () => Promise<void> },
+  { systemId, etag, reload, scene }: { systemId: string; etag: string; reload: () => Promise<void>; scene: SystemScene | null },
 ) {
   const [move, setMove] = useState<PrismSystemSceneMoveState | null>(null);
   // Bumped whenever the view saves, cancels or changes target: the move panel starts over.
   const [epoch, setEpoch] = useState(0);
   const [confirmReset, setConfirmReset] = useState(false);
   const [origin, setOrigin] = useState<Origin | null>(null);
+  // SB2-38: a move of a mated board waiting for "Break the mate" or "Move with its stack".
+  const [pending, setPending] = useState<MoveTarget | null>(null);
   const { busy, run } = useSystemMutation(reload);
 
   const markMoved = (instanceId: string) =>
@@ -35,10 +43,15 @@ export function useMoveMode(
     if (saved) markMoved(target.instanceId);
     else viewer?.cancelMove?.();
   };
+  /** A save of a board in a mated stack asks first (D-P2-18); any other saves at once. */
+  const requestSave = async (target: MoveTarget) => {
+    if (scene && stackOf(scene, target.occurrence)) setPending(target);
+    else await savePose(target);
+  };
   // The listener is added once per viewer; it reads the latest save through a ref.
-  const saveRef = useRef(savePose);
+  const saveRef = useRef(requestSave);
   useEffect(() => {
-    saveRef.current = savePose;
+    saveRef.current = requestSave;
   });
 
   useEffect(() => {
@@ -71,13 +84,52 @@ export function useMoveMode(
     moved: Boolean(origin?.moved && origin.instanceId === move?.target?.instanceId),
     confirmReset,
     setConfirmReset,
-    savePose,
+    savePose: requestSave,
+    /** The target's stack (null: not mated) and its own mate, for the panel. */
+    stack: move?.target && scene ? stackOf(scene, move.target.occurrence) : null,
+    mate: move?.target && scene ? scene.occurrences.find((o) => o.path === move.target?.occurrence)?.mate ?? null : null,
+    pending: pending !== null && pending.instanceId === move?.target?.instanceId,
+    /** Store only this board's pose: its mated position shows as overridden. */
+    breakMate: async () => {
+      const target = pending;
+      setPending(null);
+      if (target) await savePose(target);
+    },
+    /** Move the whole stack rigidly with the board, in one save. */
+    moveWithStack: async () => {
+      const target = pending;
+      setPending(null);
+      if (!target || !scene) return;
+      const poses = stackMove(scene, target.occurrence, target.pose);
+      const undo = stackUndo(scene, poses);
+      const done = await run("pose", () => setPoses(systemId, etag, { poses }), `${target.displayPath} moved with its stack`);
+      if (!done) {
+        viewer?.cancelMove?.();
+        return;
+      }
+      setOrigin((current) => (current?.instanceId === target.instanceId ? { ...current, moved: true, undo: current.undo ?? undo } : current));
+    },
+    cancelPending: () => {
+      setPending(null);
+      viewer?.cancelMove?.();
+    },
+    /** Drop the stored pose of a board whose mated position was overridden: it goes back onto its mate. */
+    snapBack: async (target: MoveTarget) => {
+      const done = await run("pose", () => clearPose(systemId, etag, target.instanceId), `${target.displayPath} snapped back to its mate`);
+      if (done) markMoved(target.instanceId);
+    },
     /** Drop an unsaved preview; after saved moves, store the pose the target had when it was picked. */
     revert: async () => {
       viewer?.cancelMove?.();
       const target = move?.target;
       if (!origin?.moved || !target || origin.instanceId !== target.instanceId) return;
-      const done = origin.source === "default"
+      if (origin.undo) {
+        const undo = origin.undo;
+        const back = await run("pose", () => setPoses(systemId, etag, undo), `${target.displayPath} and its stack are back where they were`);
+        if (back) setOrigin({ ...origin, moved: false, undo: undefined });
+        return;
+      }
+      const done = origin.source !== "manual"
         ? await run("pose", () => clearPose(systemId, etag, origin.instanceId), `${target.displayPath} is back where it was`)
         : await run("pose", () => setPose(systemId, etag, origin.instanceId, origin.pose), `${target.displayPath} is back where it was`);
       if (done) setOrigin({ ...origin, moved: false });

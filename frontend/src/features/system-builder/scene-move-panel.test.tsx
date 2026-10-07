@@ -98,3 +98,42 @@ describe("MovePanel", () => {
     expect(screen.getByText("This board isn't rotated, so its axes are the world axes.")).toBeTruthy();
   });
 });
+
+describe("MovePanel with mates (SB2-38)", () => {
+  const mate = (overridden: boolean) => ({ linkId: "slk_j15", from: "/sin_cmbd", overridden, autoPose: { translationMm: [0, 0, -9], rotation: [1, 0, 0, 0] } });
+
+  it("asks to break the mate or move the stack, and Esc puts it back", () => {
+    const handlers = { onBreakMate: vi.fn(), onMoveWithStack: vi.fn(), onCancelPending: vi.fn(), onCancel: vi.fn() };
+    render(
+      <MovePanel state={state({ target: target({ source: "auto", unsaved: true }) })} busy={false} moved={false}
+        onPreview={vi.fn()} onSave={vi.fn()} onRevert={vi.fn()} onDefault={vi.fn()} onResetAll={vi.fn()} onSpace={vi.fn()}
+        mate={mate(false)} stackSize={3} pending {...handlers} />,
+    );
+    const dialog = screen.getByRole("group", { name: "Moving a mated board" });
+    expect(dialog.textContent).toContain("OBC-1 is mated in a stack of 3 boards.");
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Move with its stack" }));
+    fireEvent.click(screen.getByRole("button", { name: "Break the mate" }));
+    expect([handlers.onMoveWithStack.mock.calls.length, handlers.onBreakMate.mock.calls.length]).toEqual([1, 1]);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect([handlers.onCancelPending.mock.calls.length, handlers.onCancel.mock.calls.length]).toEqual([1, 0]);
+  });
+
+  it("badges a mated board and offers Snap back once its mate is overridden", () => {
+    const onSnapBack = vi.fn();
+    const common = {
+      busy: false, moved: false, onPreview: vi.fn(), onSave: vi.fn(), onCancel: vi.fn(), onRevert: vi.fn(),
+      onDefault: vi.fn(), onResetAll: vi.fn(), onSpace: vi.fn(), onSnapBack,
+    };
+    const view = render(<MovePanel state={state({ target: target({ source: "auto" }) })} mate={mate(false)} {...common} />);
+    expect(screen.getByText("Mated")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Snap back" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Back to default" }) as HTMLButtonElement).disabled).toBe(true);
+    view.unmount();
+    render(<MovePanel state={state({ target: target({ source: "manual" }) })} mate={mate(true)} {...common} />);
+    expect(screen.getByText("Mate overridden")).toBeTruthy();
+    expect(screen.getByText(/Mated position overridden/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Snap back" }));
+    expect(onSnapBack).toHaveBeenCalledWith(expect.objectContaining({ instanceId: "sin_obc" }));
+  });
+});

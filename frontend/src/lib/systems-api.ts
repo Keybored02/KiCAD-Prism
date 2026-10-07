@@ -430,6 +430,16 @@ export function clearPose(systemId: string, etag: string, instanceId: string) {
     { method: "DELETE", etag }, "Could not reset the position");
 }
 
+/** Several poses stored and others cleared in one version (SB2-38: a stack moved together). */
+export function setPoses(
+  systemId: string, etag: string,
+  change: { poses?: { instanceId: string; translationMm: number[]; rotation: number[] }[]; clear?: string[] },
+) {
+  return versioned<{ poses: Pick<StoredPose, "instanceId" | "source">[] }>(path(systemId, "poses"),
+    { method: "PATCH", etag, body: json({ poses: change.poses ?? [], clear: change.clear ?? [] }) },
+    "Could not save the positions");
+}
+
 /** Every manual pose back to its default (D-P2-14). */
 export function resetPoses(systemId: string, etag: string) {
   return versioned<{ reset: string[] }>(path(systemId, "poses"), { method: "DELETE", etag },

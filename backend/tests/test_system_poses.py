@@ -141,6 +141,31 @@ class PoseServiceTest(SnapshotCase):
         [event] = self.events("poses_reset")
         self.assertEqual(event["payload"]["instanceIds"], result.body["reset"])
 
+    def test_several_poses_change_in_one_version_or_not_at_all(self) -> None:
+        # SB2-38: a stack moved together is one save.
+        self.move("OBC-A", [1.0, 2.0, 3.0])
+        before = self.version()
+        result = self.service.set_poses(DESIGNER, self.sid, before, [
+            {"instanceId": self.instances["OBC-B"], "translationMm": [5.0, 0.0, 0.0], "rotation": [0, 0, 0, 1]},
+            {"instanceId": self.instances["PWR"], "translationMm": [0.0, 5.0, 0.0], "rotation": [0, 0, 1, 1]},
+        ], clear=[self.instances["OBC-A"]])
+        self.assertEqual(result.version, before + 1)
+        self.assertEqual([(p["instanceId"], p["source"]) for p in result.body["poses"]],
+                         [(self.instances["OBC-B"], "manual"), (self.instances["PWR"], "manual"),
+                          (self.instances["OBC-A"], "default")])
+        stored = self.store.list_poses(self.sid)
+        self.assertEqual(sorted(stored), sorted([self.instances["OBC-B"], self.instances["PWR"]]))
+        self.assertEqual(stored[self.instances["PWR"]]["rotation"], [0.0, 0.0, 0.707106781, 0.707106781])
+
+        version = self.version()
+        for poses, clear in (([{"instanceId": self.instances["OBC-B"], "translationMm": [0, 0, 0], "rotation": [0, 0, 0, 1]},
+                               {"instanceId": "sin_missing", "translationMm": [0, 0, 0], "rotation": [0, 0, 0, 1]}], []),
+                             ([{"instanceId": self.instances["OBC-B"], "translationMm": [0, 0, 0], "rotation": [0, 0, 0, 0]}], []),
+                             ([], [self.instances["PWR"], self.instances["PWR"]]), ([], [])):
+            with self.subTest(poses=poses, clear=clear), self.assertRaises(Exception):
+                self.service.set_poses(DESIGNER, self.sid, version, poses, clear)
+        self.assertEqual((self.version(), self.store.list_poses(self.sid)), (version, stored), "nothing half saved")
+
     def test_deleting_an_instance_drops_its_pose(self) -> None:
         self.move("PAY", [10, 0, 0])
         self.service.remove_instance(DESIGNER, self.sid, self.version(), self.instances["PAY"], cascade=True)
