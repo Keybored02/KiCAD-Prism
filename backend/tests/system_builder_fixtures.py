@@ -98,6 +98,11 @@ def build_fixture_repo(board: str, destination: Path) -> dict[str, str]:
         elif snapshot.endswith(".1") or "." not in snapshot:
             _git(destination, "checkout", "--quiet", "-b", f"step/{step}", commits["F0"])
         _replace_tree(destination, snapshot_dir(board, snapshot))
+        # Hash every file again: Git's stat cache can take a replaced file for
+        # the old one (same size and mtime, and Linux may reuse the inode), and
+        # commit the previous step's content. F11.1 and F11.2 differ only in
+        # same-length net names.
+        _git(destination, "read-tree", "--empty")
         _git(destination, "add", "--all")
         _git(
             destination, "commit", "--quiet", "--allow-empty", "-m", f"{board} {snapshot}",
