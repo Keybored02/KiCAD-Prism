@@ -1,8 +1,7 @@
 import { useMemo, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, Factory, Search, SlidersHorizontal, Tag } from "lucide-react";
+import { AlertTriangle, Factory, Search, SlidersHorizontal, StickyNote, Tag } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -30,7 +29,8 @@ import {
     type SortKey,
     type StatusFilter,
 } from "./production-filters";
-import { RunStatusBadge, SOLID_DESTRUCTIVE } from "./status-badge";
+import { DefectSummary } from "./defect-summary";
+import { RunStatusBadge } from "./status-badge";
 import { YieldBar } from "./yield-bar";
 
 const CHIPS: { value: StatusFilter; label: string }[] = [
@@ -40,7 +40,11 @@ const CHIPS: { value: StatusFilter; label: string }[] = [
 ];
 
 // Column widths: job and project, manufacturer, status, yield, open defects, updated.
-const GRID = "minmax(0,2fr) minmax(0,1.4fr) 8.5rem minmax(0,1.2fr) 4.5rem 6rem";
+// Job and project, manufacturer, status, ordered, yield, defects, [created,] updated. The
+// created column only appears on wide screens; the whole string must stay literal for Tailwind.
+const GRID_LG = "lg:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)_8.5rem_4.5rem_minmax(0,1.2fr)_9rem_5.5rem]";
+const GRID_XL =
+    "xl:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)_8.5rem_4.5rem_minmax(0,1.2fr)_9rem_8rem_5.5rem]";
 
 interface ProductionListProps {
     runs: ManufacturingRun[];
@@ -218,14 +222,19 @@ export function ProductionList({
                 ) : (
                     <>
                         <div
-                            className="hidden shrink-0 gap-3 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground lg:grid"
-                            style={{ gridTemplateColumns: GRID }}
+                            className={cn(
+                                "hidden shrink-0 gap-3 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground lg:grid",
+                                GRID_LG,
+                                GRID_XL,
+                            )}
                         >
                             <span className="min-w-0">{hideProject ? "Job / Board" : "Job / Project"}</span>
                             <span className="min-w-0">Manufacturer</span>
                             <span className="min-w-0">Status</span>
+                            <span className="min-w-0 text-right">Ordered</span>
                             <span className="min-w-0">Yield</span>
-                            <span className="min-w-0 text-right">Defects</span>
+                            <span className="min-w-0">Defects</span>
+                            <span className="hidden min-w-0 xl:block">Created</span>
                             <span className="min-w-0 text-right">Updated</span>
                         </div>
 
@@ -268,7 +277,7 @@ function RunRow({
     hideProject: boolean;
     onOpen: (runId: string) => void;
 }) {
-    const openDefects = run.open_defect_count ?? 0;
+    const notes = run.notes?.trim();
     return (
         <div
             role="button"
@@ -283,7 +292,9 @@ function RunRow({
             }}
             aria-pressed={selected}
             className={cn(
-                "flex min-h-16 w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)_8.5rem_minmax(0,1.2fr)_4.5rem_6rem]",
+                "flex min-h-16 w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid",
+                GRID_LG,
+                GRID_XL,
                 selected && "bg-secondary",
             )}
         >
@@ -291,8 +302,13 @@ function RunRow({
                 {run.job_number && (
                     <p className="truncate font-mono text-[11px] text-muted-foreground">{run.job_number}</p>
                 )}
-                <p className="truncate text-sm font-medium">
-                    {hideProject ? boardName(run) : run.project_name || run.project_id}
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                    <span className="truncate">{hideProject ? boardName(run) : run.project_name || run.project_id}</span>
+                    {notes && (
+                        <span title={notes} aria-label="Has notes" className="shrink-0 text-muted-foreground">
+                            <StickyNote className="h-3.5 w-3.5" aria-hidden />
+                        </span>
+                    )}
                 </p>
                 {!hideProject && <p className="truncate text-xs text-muted-foreground">{boardName(run)}</p>}
             </div>
@@ -314,17 +330,20 @@ function RunRow({
                     </Link>
                 )}
             </div>
-            <div className="min-w-0">
-                <YieldBar good={run.quantity_good} ordered={run.quantity_ordered} />
+            <div className="min-w-0 text-right text-sm tabular-nums" title="Units ordered">
+                {run.quantity_ordered}
             </div>
-            <div className="min-w-0 text-right">
-                {openDefects > 0 ? (
-                    <Badge variant="destructive" className={SOLID_DESTRUCTIVE} title={`${openDefects} open defect(s)`}>
-                        {openDefects}
-                    </Badge>
-                ) : (
-                    <span className="text-sm text-muted-foreground">—</span>
-                )}
+            <div className="min-w-0">
+                <YieldBar good={run.quantity_good} ordered={run.quantity_ordered} format="percent" />
+            </div>
+            <div className="min-w-0">
+                <DefectSummary run={run} />
+            </div>
+            <div className="hidden min-w-0 xl:block">
+                <p className="text-sm">{new Date(run.created_at).toLocaleDateString()}</p>
+                <p className="truncate text-xs text-muted-foreground" title={run.created_by || undefined}>
+                    {run.created_by || "—"}
+                </p>
             </div>
             <div
                 className="min-w-0 truncate text-right text-xs text-muted-foreground"

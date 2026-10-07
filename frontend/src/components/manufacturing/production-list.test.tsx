@@ -123,6 +123,43 @@ describe("ProductionList", () => {
         expect(within(row).getByText("In production")).toBeTruthy();
     });
 
+    it("shows the ordered quantity, the yield percentage, who created it and when", () => {
+        renderList({
+            runs: [makeRun({ id: "q", job_number: "JOB-Q", status: "received", quantity_ordered: 250, quantity_good: 240, created_by: "ana@x", created_at: "2026-03-04T12:00:00Z" })],
+        });
+        const row = screen.getByText("JOB-Q").closest("[data-run-row]") as HTMLElement;
+        expect(within(row).getByTitle("Units ordered").textContent).toBe("250");
+        expect(within(row).getByText("96%")).toBeTruthy();
+        expect(within(row).getByText("ana@x")).toBeTruthy();
+        expect(within(row).getByText(new Date("2026-03-04T12:00:00Z").toLocaleDateString())).toBeTruthy();
+        // "Ordered" is also a status chip, so look for the column header specifically.
+        expect(screen.getAllByText("Ordered").some((el) => el.tagName === "SPAN" && el.className.includes("text-right"))).toBe(true);
+        expect(screen.getByText("Created")).toBeTruthy();
+    });
+
+    it("splits the defects by severity on the row", () => {
+        renderList({
+            runs: [makeRun({ id: "d", job_number: "JOB-D", status: "received", defect_severity_counts: { critical: 1, minor: 2 }, open_defect_count: 1 })],
+        });
+        const row = screen.getByText("JOB-D").closest("[data-run-row]") as HTMLElement;
+        expect(within(row).getByText("1 critical")).toBeTruthy();
+        expect(within(row).getByText("2 minor")).toBeTruthy();
+        expect(within(row).getByText("1 open")).toBeTruthy();
+    });
+
+    it("marks a run that has notes, with the notes on hover", () => {
+        renderList({
+            runs: [
+                makeRun({ id: "n", job_number: "JOB-N", status: "received", notes: "Rush order, ship DHL" }),
+                makeRun({ id: "m", job_number: "JOB-M", status: "received", notes: "  " }),
+            ],
+        });
+        const withNotes = screen.getByText("JOB-N").closest("[data-run-row]") as HTMLElement;
+        expect(within(withNotes).getByLabelText("Has notes").getAttribute("title")).toBe("Rush order, ship DHL");
+        const without = screen.getByText("JOB-M").closest("[data-run-row]") as HTMLElement;
+        expect(within(without).queryByLabelText("Has notes")).toBeNull();
+    });
+
     it("leaves out the project name when the list is one project's", () => {
         renderList({ hideProject: true });
         expect(screen.getByText("Job / Board")).toBeTruthy();
