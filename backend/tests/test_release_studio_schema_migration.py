@@ -1805,6 +1805,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (40, "system_poses"),
                 (41, "repository_origin"),
                 (42, "system_archive"),
+                (43, "system_driving_mates"),
             ],
         )
 

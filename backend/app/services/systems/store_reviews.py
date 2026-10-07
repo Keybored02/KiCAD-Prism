@@ -325,6 +325,20 @@ class ReviewsStore:
         ).fetchone()
         return dict(row["extent"]) if row else None
 
+    def get_interface_component(self, project_id: str, commit: str, extractor_version: str,
+                                port_key: str) -> Optional[dict]:
+        """One component of an artifact by its port key (placement needs only the mated connectors)."""
+        row = self.conn.execute(
+            """
+            SELECT c AS component, a.payload->'boardThicknessMm' AS thickness
+            FROM system_interface_artifacts a, jsonb_array_elements(a.payload->'components') c
+            WHERE a.project_id = %s AND a.commit = %s AND a.extractor_version = %s AND c->>'portKey' = %s
+            LIMIT 1
+            """,
+            (project_id, commit, extractor_version, port_key),
+        ).fetchone()
+        return {**dict(row["component"]), "boardThicknessMm": row["thickness"]} if row else None
+
     def put_interface(self, payload: Mapping[str, Any]) -> dict:
         """Store an artifact; the first writer wins, and its copy is returned."""
         project_id, commit = payload["projectId"], payload["commit"]

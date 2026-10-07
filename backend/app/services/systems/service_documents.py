@@ -150,6 +150,11 @@ class DocumentsMixin:
                     stale.append({"instanceId": instance["id"], "portKey": port_key, "mode": record["mode"],
                                   "reference": (component or {}).get("reference")})
         report = validation.with_findings(report, validation.mating_findings(stale))
+        if any(link.get("type") == "b2b" for link in links):
+            # SYS-V11 (§14.9): the root level's mates, solved as the System 3D view places them.
+            solved = self._placement(store, system_id)[0]["results"].get("")
+            if solved:
+                report = validation.with_findings(report, validation.mate_mismatch_findings(solved["mismatches"]))
         harness_rows = store.list_harnesses(system_id)
         harness_docs = []
         for harness in harness_rows:

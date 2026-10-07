@@ -28,6 +28,7 @@ RULES = {
     # CONTRACTS_P2 §8.4. V09-V15 arrive with their tickets.
     "SYS-V09": ("net_name_mismatch", "warning"),
     "SYS-V10": ("power_meets_signal", "error"),
+    "SYS-V11": ("mate_mismatch", "warning"),
     "SYS-V14": ("child_revision_unreleased", "warning"),
     "SYS-V15": ("child_advance_blocked", "warning"),
     "SYS-V16": ("export_unresolved", "error"),
@@ -256,6 +257,13 @@ def with_findings(report: Mapping[str, Any], extra: Sequence[Mapping[str, Any]])
         counts[finding["severity"]] += 1
     counts["notEvaluated"] = report["counts"]["notEvaluated"]
     return {**report, "findings": findings, "counts": counts}
+
+
+def mate_mismatch_findings(mismatches: Sequence[Mapping[str, Any]]) -> list[dict]:
+    """SYS-V11 (CONTRACTS_P2 §14.9): a B2B mate that does not line up where the driving mates put its boards."""
+    return [_finding("SYS-V11", link_id=item["linkId"],
+                     detail={k: item[k] for k in ("offsetMm", "lateralMm", "axialMm", "angleDeg")})
+            for item in mismatches]
 
 
 def mating_findings(stale: Sequence[Mapping[str, Any]]) -> list[dict]:

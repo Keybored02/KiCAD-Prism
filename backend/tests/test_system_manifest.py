@@ -61,16 +61,28 @@ class ManifestTest(SnapshotCase):
         self.assertEqual(digests(after), digests(before))
         self.assertEqual([e["kind"] for e in self.store.history(self.sid)][:1], ["system_imported"])
 
-    def test_import_refuses_an_id_that_already_exists_and_unsupported_sections(self) -> None:
+    def test_import_refuses_an_id_that_already_exists(self) -> None:
         manifest = self.build()
         with self.assertRaises(Exception):
             manifest_io.import_manifest(self.store, manifest, actor="user:t")
         self.conn.rollback()
-        body = manifest.model_dump(mode="json", by_alias=True)
-        body["placement"]["drivingMates"] = [{"instanceId": body["instances"][0]["id"],
-                                               "linkId": body["links"][0]["id"]}]
-        with self.assertRaises(Invalid):
-            manifest_io.import_manifest(self.store, Manifest.model_validate(body), actor="user:t")
+
+    def test_driving_mates_round_trip(self) -> None:
+        # SB2-37: the user's driving mate choices are placement data, kept by manifests.
+        link = self.store.list_links(self.sid)[0]
+        with self.store.mutation(self.sid, expected_version=None, actor="user:t") as change:
+            self.store.update_link(change, link["id"], link_type="b2b")
+            self.store.set_driving_mate(change, link["b_instance_id"], link["id"])
+        self.conn.commit()
+        before = self.build()
+        self.assertEqual([(d.instanceId, d.linkId) for d in before.placement.drivingMates],
+                         [(link["b_instance_id"], link["id"])])
+        self.store.delete_system(self.sid)
+        self.conn.commit()
+        manifest_io.import_manifest(self.store, before, actor="user:importer")
+        self.conn.commit()
+        self.assertEqual(self.store.list_driving_mates(self.sid), {link["b_instance_id"]: link["id"]})
+        self.assertEqual(digests(self.build()), digests(before))
 
     def test_snapshot_stores_the_manifest_and_its_digests(self) -> None:
         meta = self.snapshot("CDR")
