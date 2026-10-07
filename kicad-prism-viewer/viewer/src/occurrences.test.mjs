@@ -8,7 +8,6 @@ import {
   OCCURRENCE_STRIDE,
   normalMatrix,
   normalizeMatrix,
-  occurrenceUnionBounds,
   packBarrels,
   packOccurrences,
   transformBounds,
@@ -69,12 +68,9 @@ test("matrices are validated", () => {
   assert.throws(() => normalMatrix([0, 0, 0, 0, ...IDENTITY.slice(4)]), /invertible/);
 });
 
-test("bounds follow each occurrence and union across them", () => {
+test("bounds follow each occurrence", () => {
   const board = [0, 0, -0.001, 0.05, 0.04, 0.001];
   close(transformBounds(QUARTER_TURN, board), [0.06, 0.2, 0.299, 0.1, 0.25, 0.301]);
-  const shifted = [...IDENTITY.slice(0, 12), 0.07, 0, 0, 1];
-  close(occurrenceUnionBounds([[...IDENTITY], shifted], board), [0, 0, -0.001, 0.12, 0.04, 0.001]);
-  assert.equal(occurrenceUnionBounds([[...IDENTITY]], board), board);
 });
 
 test("barrel records pack into the storage layout (ids at byte 32)", () => {
@@ -137,15 +133,13 @@ test("instanced shader variants place every path by a culled occurrence", async 
   assert.match(INSTANCED_SHADERS.cull, /args\[slot \* 5u \+ 1u\] = count;/);
 });
 
-test("pick values decode to occurrence, board and gizmo hits", async () => {
-  const { decodePick, PICK_GIZMO_BASE } = await import("./occurrences.js");
+test("pick values decode to occurrence and board hits", async () => {
+  const { decodePick, MAX_OCCURRENCES } = await import("./occurrences.js");
   assert.deepEqual(decodePick(0, 0), { kind: "none", occurrenceIndex: -1, featureId: 0 });
   assert.deepEqual(decodePick(0, 77), { kind: "none", occurrenceIndex: -1, featureId: 0 });
   assert.deepEqual(decodePick(1, 877), { kind: "feature", occurrenceIndex: 0, featureId: 877 });
   assert.deepEqual(decodePick(2, 0), { kind: "board", occurrenceIndex: 1, featureId: 0 });
-  assert.equal(decodePick(PICK_GIZMO_BASE + 3, 1).kind, "gizmo");
-  assert.equal(decodePick(PICK_GIZMO_BASE + 3, 1).gizmoPart, 3);
-  assert.equal(decodePick(PICK_GIZMO_BASE - 1, 5).occurrenceIndex, PICK_GIZMO_BASE - 2);
+  assert.equal(decodePick(MAX_OCCURRENCES, 5).occurrenceIndex, MAX_OCCURRENCES - 1);
 });
 
 test("occurrences carry host keys, defaulting to their index", async () => {

@@ -41,7 +41,6 @@ import type {
   SystemLink,
   SystemNetDetail,
   SystemNetList,
-  SystemPoses,
   SystemPort,
   SystemScene,
   SystemSummary,
@@ -415,11 +414,6 @@ export function clearMating(systemId: string, etag: string, instanceId: string, 
 
 // ---------------------------------------------------------------------------
 // Poses (CONTRACTS_P2 §14.3)
-
-export async function getPoses(systemId: string): Promise<SystemPoses> {
-  const { body } = await send<SystemPoses>(path(systemId, "poses"), {}, "Could not load placement");
-  return body;
-}
 
 /** Store a manual pose; the server canonicalises the rotation. */
 export function setPose(

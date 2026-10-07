@@ -145,25 +145,6 @@ export function moveDescriptor(descriptor, path, pose) {
   };
 }
 
-/** Euler angles in degrees, rotating about X, then Y, then Z (world axes), for the numeric panel. */
-export function eulerDegrees(rotation) {
-  const [x, y, z, w] = rotation;
-  const sinY = Math.max(-1, Math.min(1, 2 * (w * y - z * x)));
-  const deg = (radians) => clean(radians * 180 / Math.PI);
-  return [
-    deg(Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))),
-    deg(Math.asin(sinY)),
-    deg(Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))),
-  ];
-}
-
-/** The inverse of `eulerDegrees`: `Rz · Ry · Rx`. */
-export function rotationFromEuler(degrees) {
-  const [rx, ry, rz] = degrees.map((value) => value * Math.PI / 180);
-  const q = quatMultiply(quatAxis([0, 0, 1], rz), quatMultiply(quatAxis([0, 1, 0], ry), quatAxis([1, 0, 0], rx)));
-  return canonicalPose({ translationMm: [0, 0, 0], rotation: q }).rotation;
-}
-
 /** A unit vector perpendicular to `axis`, for drawing its rotation ring. */
 export function perpendicular(axis) {
   const helper = Math.abs(axis[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];

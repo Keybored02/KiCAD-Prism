@@ -750,6 +750,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 | P2-1.37 | 2026-10-07 | Follow-up review findings 1–2: §5.4 hidden export ends now also redact re-export interfaces (live and frozen), review items, candidates and pending changes, and history events. |
 | P2-1.38 | 2026-10-07 | Follow-up review finding 3, D-P2-31: delete archives a referenced system (frozen parent snapshots count), `archivedAt`, 409 `system_archived`; `DELETE` answers 200 with the outcome. Workspace migration 42. |
 | P2-1.39 | 2026-10-07 | SB2-21 review: the mezzanine fixtures move from Hirose DF12(3.0) to Samtec ADM6-30-03.5-L-4-0-A / ADF6-30-03.5-L-4-0-A (the JTYU OBC–CMBD pair; user choice). Footprints written from Samtec's recommended PCB layouts; goldens: mated height 7.00 mm (Samtec ADX6 mated views, Table 1), top pose (0, 0, 8.6) mm, frames at `medium` confidence (no orientation keyword, §15.1). Vendor models are not redistributed. No contract rule changes. |
+| P2-1.40 | 2026-10-07 | D-P2-30 dead-code removal: the board viewer's one-board multi-occurrence mode (`setOccurrences` on the element and controller) is gone, with `setMoveAllowed()` (the `move-allowed` attribute remains), the `"gizmo"` pick kind, the `systemstatus` event, the viewer's Euler helpers and the frontend's unused `getPoses`. `projectComponent` / `projectPoint` take an occurrence in mode="system". §20.3–§20.5 marked superseded where §20.6–§20.8 replaced them. Board 3D tab pixel diff on JTYU-OBC: 0 px. |
 | P2-1.35 | 2026-10-07 | SB2-34: §20.11, proxy harnesses. The scene gains `harnesses`; emphasis sets take `wires`; the viewer draws each harness as straight segments that light per wire and glow their ends. Completes M3. |
 | P2-1.34 | 2026-10-07 | SB2-33: §20.10, net search in the System 3D tab: a board picker, one result per system net found by any of its names, Shift-pick adds it to the highlighted nets. `GET …/nets?members=true` (§8.2). |
 | P2-1.33 | 2026-10-07 | SB2-32 (D-P2-28): §20.9, click to trace. `GET …/nets?occurrence=&net=` exact lookup (§8.2); the clicked board net's system net lit in the selection green on every board; the System net card with boards and ordered hops; `frameParts`. Move panel: Revert undoes saved moves (SB2-31f follow-up, #490). |
@@ -830,6 +831,8 @@ A board asset reuses the single-board pipeline and its readiness cache (`semanti
 
 ### 20.3 The System 3D tab (SB2-27)
 
+> **Superseded (P2-1.40).** `<prism-system-scene>` was retired in SB2-31f; the tab runs on `<prism-semantic-viewer mode="system">` (§20.6–§20.8). Still current: the stand-in boxes and their colours, scene-wide pick numbers, and the tab's 5 s re-reads while a bundle builds. Events are `prism-semantic-viewer:*`; there is no `:status` event.
+
 - `<prism-system-scene>`, in the same viewer bundle as `<prism-semantic-viewer>`, takes the descriptor with `setScene(descriptor)` and is given it again on every re-read. Assets already loaded are kept; an asset that becomes `ready` loads.
 - Every board asset is drawn by its own renderer over one shared WebGPU device, canvas and pass. Occurrence numbers in the pick target are scene-wide (each asset's first occurrence is its base), so a pick names one occurrence path.
 - **Stand-ins.** An occurrence without geometry draws as its `boundsMm` box, coloured by why: `restricted` (grey), `loading`, `building`, `missing`, `failed`. An occurrence with `boundsMm: null` is not drawn; the tab says so.
@@ -837,6 +840,8 @@ A board asset reuses the single-board pipeline and its readiness cache (`semanti
 - **The tab** re-reads the scene every 5 s while a bundle builds or a box is unknown. Without WebGPU it shows the 2D diagram with a notice, and never reads the scene.
 
 ### 20.4 Move mode (SB2-29)
+
+> **Superseded (P2-1.40).** The behaviour below is current, on `<prism-semantic-viewer mode="system">` (§20.8). Who may move is the `move-allowed` attribute (there is no `setMoveAllowed()`), and the event is `prism-semantic-viewer:move`.
 
 - **Who.** Editors (designer or admin) get a **Move** toggle in the System 3D tab and the **M** key; readers never see it. The element starts with moving disallowed; the host enables it with `setMoveAllowed(true)`.
 - **What moves.** The selection's **top-level** occurrence: a board, or a child system as one rigid group (selecting a board inside a child system moves the whole child). Its pose is in the system's frame (§14.3), so a move is a new pose for that instance (§14.7).
@@ -847,6 +852,8 @@ A board asset reuses the single-board pipeline and its readiness cache (`semanti
 - **Keys** act only while the view has focus: F, A, M, L, Enter, Esc (undo the drag, else leave move mode, else clear the selection), \` (stats) and **?** (the shortcut list).
 
 ### 20.5 Net emphasis (SB2-31)
+
+> **Superseded (P2-1.40).** The rules below are current, on `<prism-semantic-viewer mode="system">` (§20.6): events are `prism-semantic-viewer:emphasis` and `:isolation`, and `occurrence` is the placement path.
 
 - **What lights.** A highlighted **system net** (§8) lights each of its members: a board net on one occurrence. The same board net on another copy of that board stays unlit, so OBC-1's `SPI_SCK` does not light OBC-2's. Restricted members (`occurrence: null`) never light.
 - **Several nets at once.** Up to **8**, each in its own colour from an 8-colour palette (green, amber, sky, magenta, violet, orange, aqua, yellow), in the order they were added. When two nets claim the same board net, the first keeps its colour.
@@ -884,7 +891,6 @@ The System 3D tab becomes the board 3D tab's own viewer showing several boards. 
 - **Element.** `<prism-semantic-viewer mode="system">` takes no `bundle-url`.
   - `setSystemScene(descriptor)` shows a `prism.system_scene.a0` descriptor (§20.1). Each board asset loads once, from the same bundle and browser cache as its own 3D tab, and draws at every placement that uses it.
   - Placements without geometry draw as the §20.3 stand-in boxes.
-  - `prism-semantic-viewer:systemstatus` carries the board counts by state.
   - One viewer per page, as for the board 3D tab.
 - **The board.** The board the selection belongs to is "the board" of the 3D tab: picking, inspecting a net or part, framing, Esc and **I** work exactly as on its own tab.
   - Every selection event carries `occurrence`, the placement path.

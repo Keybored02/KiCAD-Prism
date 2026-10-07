@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiHttpError } from "./api";
-import { StaleSystemError, addInstance, clearPose, getPoses, getSystem, listSystemNetMembers, resetPoses, setPose } from "./systems-api";
+import { StaleSystemError, addInstance, clearPose, getSystem, listSystemNetMembers, resetPoses, setPose } from "./systems-api";
 
 function reply(status: number, body: unknown, etag?: string): Response {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -51,12 +51,11 @@ describe("systems-api", () => {
     expect([resetUrl, reset.method, new Headers(reset.headers).get("If-Match")]).toEqual(["/api/systems/s1/poses", "DELETE", '"sys:s1:5"']);
   });
 
-  it("reads the stored poses and clears one", async () => {
+  it("clears one stored pose", async () => {
     const fetchMock = vi.fn(async () => reply(200, { systemId: "s1", version: 5, poses: [] }, '"sys:s1:5"'));
     vi.stubGlobal("fetch", fetchMock);
-    await expect(getPoses("s1")).resolves.toEqual({ systemId: "s1", version: 5, poses: [] });
     await clearPose("s1", '"sys:s1:5"', "sin_1");
-    const [, [url, init]] = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const [[url, init]] = fetchMock.mock.calls as unknown as [string, RequestInit][];
     expect([url, init.method, new Headers(init.headers).get("If-Match")]).toEqual(["/api/systems/s1/poses/sin_1", "DELETE", '"sys:s1:5"']);
   });
 

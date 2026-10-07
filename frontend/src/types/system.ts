@@ -561,12 +561,6 @@ export interface StoredPose {
   updatedAt: string;
 }
 
-export interface SystemPoses {
-  systemId: string;
-  version: number;
-  poses: StoredPose[];
-}
-
 export interface SystemScene {
   schema: "prism.system_scene.a0";
   systemId: string;

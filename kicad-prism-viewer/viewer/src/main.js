@@ -26,7 +26,7 @@ import {
   AXES, SNAP, axisAmount, canonicalPose, localAxes, moveDescriptor, moveTarget, perpendicular,
   ringRotation, rotatePoseAbout, screenAngle, snapTo, translatePose,
 } from "./move-gizmo.js";
-import { isIdentity, occurrenceUnionBounds, projectToViewport, transformBounds, transformPoint } from "./occurrences.js";
+import { IDENTITY, isIdentity, projectToViewport, transformBounds, transformPoint } from "./occurrences.js";
 import { Renderer } from "./renderer.js";
 import { SceneRenderer } from "./scene-renderer.js";
 import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
@@ -213,8 +213,6 @@ function initialScene() {
     componentsWantedAt: 0,
     componentEvictions: 0,
     runtimeBounds: null,
-    // Union of the board at every occurrence (SB2-23); null for the one-board view.
-    occurrenceBounds: null,
     layerZOffsets: new Float32Array(256),
     layerZOffsetSignature: "",
   };
@@ -420,7 +418,6 @@ export async function mountStandaloneViewer(options = {}) {
   viewerIsActive = typeof options.isActive === "function" ? options.isActive : () => true;
   legacyWorkspacesEnabled = options.workspaceScope !== "3d";
   board.assetCache = options.assetCache || null;
-  board.deferComponents = Boolean(options.deferComponents);
   state.gpuBudgetBytes = DEFAULT_GPU_BUDGET_BYTES;
   resolveDom(options.root || document);
   if (!appEl || !canvas) throw new Error("Semantic viewer shell is missing required DOM nodes");
@@ -464,9 +461,6 @@ export async function mountStandaloneViewer(options = {}) {
     setHighlightedNets(refs) {
       return applyHighlightedNets(refs);
     },
-    setOccurrences(occurrences) {
-      return applyOccurrences(occurrences);
-    },
     setStatsOverlay(visible) {
       setStatsOverlay(visible);
     },
@@ -486,13 +480,13 @@ export async function mountStandaloneViewer(options = {}) {
     pickAt(clientX, clientY) {
       return pickHitAt(clientX, clientY);
     },
-    // Where a component's centre appears on screen for one occurrence (client px), or null.
-    projectComponent(reference, occurrenceKey) {
-      return projectComponentCenter(reference, occurrenceKey);
+    // Where a component's centre appears on screen (client px), or null.
+    projectComponent(reference) {
+      return projectComponentCenter(board, reference, (local) => projectBoardPoint(local, IDENTITY));
     },
-    // Where a board-local runtime point (metres) appears for one occurrence (client px), or null.
-    projectPoint(point, occurrenceKey) {
-      return projectOccurrencePoint(point, occurrenceKey);
+    // Where a board-local runtime point (metres) appears on screen (client px), or null.
+    projectPoint(point) {
+      return projectBoardPoint(point, IDENTITY);
     },
     getViewState: pcbViewState,
     setViewMode,
@@ -1210,7 +1204,7 @@ async function loadBoard(token = activeViewerToken, b = board) {
 
 
 function sceneRuntimeBounds(b = board) {
-  return b.scene.occurrenceBounds || b.scene.runtimeBounds || runtimeBoundsFromGltf(b.scene.manifest?.bbox);
+  return b.scene.runtimeBounds || runtimeBoundsFromGltf(b.scene.manifest?.bbox);
 }
 
 // Outer copper is the first and last copper layer by height; the rest sit inside the b.
@@ -1308,31 +1302,6 @@ function updateSceneStats() {
   sceneStatsEl.innerHTML = rows.map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("");
 }
 
-// Draw the loaded board once per occurrence (SB2-23): column-major model
-// matrices in runtime units. `null` restores the single identity occurrence.
-// Geometry stays uploaded once; the camera reframes on every copy.
-function applyOccurrences(matrices) {
-  if (!board.renderer) return;
-  board.renderer.setOccurrences(matrices);
-  // Back to the one-board view: it always shows its components.
-  if (matrices == null) board.deferComponents = false;
-  if (state.selectedOccurrence >= board.renderer.occurrenceMatrices.length) state.selectedOccurrence = 0;
-  const boardBounds = board.scene.runtimeBounds || runtimeBoundsFromGltf(board.scene.manifest?.bbox);
-  board.renderer.setBoardBounds(boardBounds);
-  board.scene.occurrenceBounds = matrices == null ? null : occurrenceUnionBounds(board.renderer.occurrenceMatrices, boardBounds);
-  const bounds = sceneRuntimeBounds();
-  if (camera && bounds) {
-    camera.sceneRadius = boundsRadius(bounds);
-    camera.frame(bounds);
-    // The first placement opens framed, without easing out from the one-board view:
-    // the fly-out would bring a copy close enough to fetch its components.
-    if (!state.occurrencesFramed && matrices != null) {
-      camera.snap();
-      state.occurrencesFramed = true;
-    }
-  }
-  scheduleTileResidency(performance.now(), { force: true });
-}
 
 
 // ----- system scene (SB2-31e) -------------------------------------------------
@@ -1372,7 +1341,6 @@ export async function mountSystemViewer(options = {}) {
     scene,
     loadBundle: options.loadBundle,
     onEmphasis: typeof options.onEmphasis === "function" ? options.onEmphasis : null,
-    onStatus: typeof options.onStatus === "function" ? options.onStatus : null,
     onMove: typeof options.onMove === "function" ? options.onMove : null,
     // The host's descriptor; `descriptor` is what is shown (with an unsaved move preview).
     baseDescriptor: null,
@@ -1405,7 +1373,6 @@ export async function mountSystemViewer(options = {}) {
     emphasisSets: [],
     emphasisBounds: new Map(),
     emphasisReport: null,
-    statusKey: "",
   };
   // No board is selected yet: an empty one stands in until a pick picks one.
   board = createBoard({ key: "" });
@@ -1473,6 +1440,11 @@ export async function mountSystemViewer(options = {}) {
     },
     projectPoint(point, occurrenceKey) {
       return projectPlacementPoint(point, occurrenceKey);
+    },
+    projectComponent(reference, occurrenceKey) {
+      const item = system?.placements.get(String(occurrenceKey));
+      if (!item?.board) return null;
+      return projectComponentCenter(item.board, reference, (local) => projectPlacementPoint(local, occurrenceKey));
     },
     getViewState: pcbViewState,
     setLayerVisible,
@@ -1647,7 +1619,6 @@ function placeSystem({ relabel = true } = {}) {
     else unfocusBoard();
   }
   applySystemEmphasis();
-  emitSystemStatus();
   notifyViewStateChange();
 }
 
@@ -1830,11 +1801,7 @@ function litFeatureAt(b, key, featureId) {
 
 function projectPlacementPoint(local, key) {
   const item = system?.placements.get(String(key));
-  if (!panel || !item) return null;
-  const pixel = projectToViewport(panel.matrix, transformPoint(item.matrix, local), panel.viewport);
-  if (!pixel) return null;
-  const rect = canvas.getBoundingClientRect();
-  return { x: rect.left + pixel.x * rect.width / canvas.width, y: rect.top + pixel.y * rect.height / canvas.height };
+  return item ? projectBoardPoint(local, item.matrix) : null;
 }
 
 // ----- layers per placement -----------------------------------------------------
@@ -2086,22 +2053,6 @@ function frameParts(parts) {
   if (!bounds) return false;
   camera.frame(bounds);
   return true;
-}
-
-/** Counts by how each drawn board shows, sent to `onStatus` when they change. */
-function emitSystemStatus() {
-  const counts = { boards: 0, loaded: 0, loading: 0, restricted: 0, building: 0, missing: 0, failed: 0, unknown: 0, unplaced: 0 };
-  for (const occurrence of drawnOccurrences(system.descriptor)) {
-    counts.boards += 1;
-    const item = system.placements.get(occurrence.path);
-    if (!item) counts.unplaced += 1;
-    else if (!item.standIn) counts.loaded += 1;
-    else if (counts[item.standIn] !== undefined) counts[item.standIn] += 1;
-  }
-  const key = JSON.stringify(counts);
-  if (key === system.statusKey) return;
-  system.statusKey = key;
-  system.onStatus?.(counts);
 }
 
 // ----- move mode (SB2-29, in this viewer since SB2-31f) ------------------------
@@ -4756,20 +4707,18 @@ function selectBoardContext() {
   emitSelectionChange({ kind: "board", sourceContext: "3D" });
 }
 
-function projectComponentCenter(reference, occurrenceKey) {
-  const component = board.scene.componentFeatures.get(String(reference));
-  const bounds = component ? board.scene.features.get(Number(component.featureId))?.bounds : null;
+// A component's top centre for top-side parts, bottom centre for bottom-side ones: the face a click lands on.
+function projectComponentCenter(b, reference, project) {
+  const component = b.scene.componentFeatures.get(String(reference));
+  const bounds = component ? b.scene.features.get(Number(component.featureId))?.bounds : null;
   if (!bounds) return null;
-  // Top centre for top-side parts, bottom centre for bottom-side ones: the face a click lands on.
   const top = (bounds[2] + bounds[5]) >= 0;
-  return projectOccurrencePoint([(bounds[0] + bounds[3]) / 2, (bounds[1] + bounds[4]) / 2, top ? bounds[5] : bounds[2]], occurrenceKey);
+  return project([(bounds[0] + bounds[3]) / 2, (bounds[1] + bounds[4]) / 2, top ? bounds[5] : bounds[2]]);
 }
 
-function projectOccurrencePoint(local, occurrenceKey) {
-  if (!panel || !board.renderer) return null;
-  const index = occurrenceKey == null ? 0 : board.renderer.occurrenceKeys.indexOf(String(occurrenceKey));
-  const model = board.renderer.occurrenceMatrices[index];
-  if (!model) return null;
+/** Client px of a board-local runtime point placed by `model`, or null off screen. */
+function projectBoardPoint(local, model) {
+  if (!panel) return null;
   const pixel = projectToViewport(panel.matrix, transformPoint(model, local), panel.viewport);
   if (!pixel) return null;
   const rect = canvas.getBoundingClientRect();
