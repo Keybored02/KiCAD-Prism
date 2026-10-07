@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const {
-  axisAmount, canonicalPose, eulerDegrees, moveDescriptor, moveTarget, poseMatrix, rigidInverse,
-  ringRotation, rotatePoseAbout, rotationFromEuler, screenAngle, snapTo, translatePose,
+  axisAmount, canonicalPose, moveDescriptor, moveTarget, poseMatrix, rigidInverse,
+  ringRotation, rotatePoseAbout, screenAngle, snapTo, translatePose,
 } = await import("./move-gizmo.js");
 
 const close = (actual, expected, tolerance = 1e-9) => {
@@ -20,7 +20,7 @@ test("a pose matrix rotates, then translates, column-major", () => {
 });
 
 test("the rigid inverse undoes the matrix", () => {
-  const m = poseMatrix({ translationMm: [5, -7, 2], rotation: rotationFromEuler([30, -20, 75]) });
+  const m = poseMatrix({ translationMm: [5, -7, 2], rotation: [0.1, -0.2, 0.3, Math.sqrt(0.86)] });
   close(apply(rigidInverse(m), apply(m, [3, 4, 5])), [3, 4, 5], 1e-6); // the quaternion is rounded to 1e-9
 });
 
@@ -65,12 +65,6 @@ test("rotating about a pivot keeps the pivot still", () => {
 
 test("translating moves along a world axis", () => {
   assert.deepEqual(translatePose({ translationMm: [1, 2, 3], rotation: [0, 0, 0, 1] }, [0, 1, 0], 5).translationMm, [1, 7, 3]);
-});
-
-test("euler angles round-trip through the rotation", () => {
-  for (const degrees of [[0, 0, 0], [30, 0, 0], [0, -45, 0], [0, 0, 90], [10, 20, 30], [-170, 60, 135]]) {
-    close(eulerDegrees(rotationFromEuler(degrees)), degrees, 1e-6);
-  }
 });
 
 const descriptor = {

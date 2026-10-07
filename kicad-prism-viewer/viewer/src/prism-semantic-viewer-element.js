@@ -191,7 +191,6 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.reloadOwner = createReloadOwner();
     this.pendingSelection = null;
     this.pendingHiddenComponents = null;
-    this.pendingOccurrences = null;
     this.reloadQueued = false;
     this.reloadSource = null;
   }
@@ -215,7 +214,7 @@ export class PrismSemanticViewerElement extends HTMLElement {
     }
     // mode="system": whether this reader may move boards (the host sets it for editors).
     if (name === "move-allowed") {
-      this.setMoveAllowed(newValue === "true");
+      this.controller?.setMoveAllowed?.(newValue === "true");
       return;
     }
     this.queueReload();
@@ -279,9 +278,6 @@ export class PrismSemanticViewerElement extends HTMLElement {
         onEmphasis: (results) => {
           if (!signal.aborted) this.emit("emphasis", { results });
         },
-        onStatus: (status) => {
-          if (!signal.aborted) this.emit("systemstatus", status);
-        },
         onMove: (state) => {
           if (!signal.aborted) this.emit("move", state);
         },
@@ -294,7 +290,7 @@ export class PrismSemanticViewerElement extends HTMLElement {
       if (this.pendingGpuBudget != null) controller.setGpuBudget(this.pendingGpuBudget);
       if (this.pendingSystemScene) controller.setSystemScene(this.pendingSystemScene);
       if (this.pendingNetEmphasis) controller.setNetEmphasis(this.pendingNetEmphasis);
-      controller.setMoveAllowed(Boolean(this.pendingMoveAllowed ?? this.getAttribute("move-allowed") === "true"));
+      controller.setMoveAllowed(this.getAttribute("move-allowed") === "true");
       if (this.pendingLabels != null) controller.setLabelsVisible(this.pendingLabels);
       const viewState = this.getViewState();
       if (viewState) this.emitViewState(viewState);
@@ -340,12 +336,8 @@ export class PrismSemanticViewerElement extends HTMLElement {
    * enabled, space, dragging, target }` with phases mode, target, preview,
    * commit, cancel and sync. On "commit" the host saves the target's pose and
    * passes the re-read scene, or calls `cancelMove()` when the save fails.
+   * Whether this reader may move boards is the `move-allowed` attribute.
    */
-  setMoveAllowed(allowed) {
-    this.pendingMoveAllowed = Boolean(allowed);
-    this.controller?.setMoveAllowed?.(this.pendingMoveAllowed);
-  }
-
   setMoveMode(enabled) {
     this.controller?.setMoveMode?.(enabled);
   }
@@ -428,8 +420,6 @@ export class PrismSemanticViewerElement extends HTMLElement {
       readiness,
       workspaceScope: "3d",
       assetCache,
-      // A system scene (occurrences set before the load) fetches components on approach.
-      deferComponents: Boolean(this.pendingOccurrences),
       isActive: () => this.getAttribute("active") === "true",
       onSelectionChange: (selection) => {
         if (signal.aborted) return;
@@ -471,7 +461,6 @@ export class PrismSemanticViewerElement extends HTMLElement {
     if (this.pendingHiddenComponents) {
       this.controller?.setHiddenComponents?.(this.pendingHiddenComponents);
     }
-    if (this.pendingOccurrences) this.controller?.setOccurrences?.(this.pendingOccurrences);
     if (this.pendingGpuBudget != null) this.controller?.setGpuBudget?.(this.pendingGpuBudget);
     // A fresh viewer is already unselected. Avoid a redundant clearSelection()
     // while the staged shell is completing its first-frame setup.
@@ -533,33 +522,15 @@ export class PrismSemanticViewerElement extends HTMLElement {
   }
 
   /**
-   * Draw the loaded board once per occurrence (System Builder SB2-23): an
-   * array of column-major 4×4 model matrices in the bundle's runtime units
-   * (metres), or `{ matrix, key }` where the key (the system's occurrence
-   * path) comes back on picks and selection events. The geometry is uploaded
-   * once and shared. `null` restores the
-   * single identity occurrence of the one-board view. Safe before ready and
-   * after reloads: the last call is replayed on the next controller.
-   */
-  setOccurrences(occurrences) {
-    this.pendingOccurrences = occurrences == null
-      ? null
-      : Array.from(occurrences, (item) => (item?.matrix
-        ? { matrix: [...item.matrix], key: item.key }
-        : [...item]));
-    this.controller?.setOccurrences?.(this.pendingOccurrences);
-  }
-
-  /**
    * What is under a client point (SB2-24), without selecting it:
-   * `{ kind: "none" | "feature" | "board" | "gizmo", occurrenceKey, occurrenceIndex, featureId }`.
+   * `{ kind: "none" | "feature" | "board", occurrenceKey, occurrenceIndex, featureId }`.
    * Resolves null before the viewer is ready.
    */
   pickAt(clientX, clientY) {
     return Promise.resolve(this.controller?.pickAt?.(clientX, clientY) ?? null);
   }
 
-  /** Client coordinates of a component's centre on one occurrence, or null when off screen. */
+  /** Client coordinates of a component's centre (in mode="system", on one placement), or null when off screen. */
   projectComponent(reference, occurrenceKey) {
     return this.controller?.projectComponent?.(reference, occurrenceKey) ?? null;
   }
@@ -585,7 +556,7 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.controller?.setGpuBudget?.(bytes);
   }
 
-  /** Client coordinates of a board-local point (runtime metres) on one occurrence, or null. */
+  /** Client coordinates of a board-local point (runtime metres; in mode="system", on one placement), or null. */
   projectPoint(point, occurrenceKey) {
     return this.controller?.projectPoint?.(point, occurrenceKey) ?? null;
   }

@@ -22,13 +22,8 @@ export type PrismSystemViewerSelection =
     | { kind: "board"; sourceContext: "3D"; occurrence: string; standIn?: string | null };
 
 /** One placement of the loaded board; `key` (the occurrence path) returns on picks and selections. */
-export interface PrismViewerOccurrence {
-    matrix: readonly number[];
-    key: string;
-}
-
 export interface PrismViewerPick {
-    kind: "none" | "feature" | "board" | "gizmo";
+    kind: "none" | "feature" | "board";
     occurrenceIndex: number;
     occurrenceKey: string | null;
     featureId: number;
@@ -126,20 +121,11 @@ export interface PrismSemanticViewerElement extends HTMLElement {
      * reloads; ambiguous or unknown references stay visible.
      */
     setHiddenComponents: (references: string[]) => void;
-    /**
-     * Draw the loaded board once per occurrence (System Builder SB2-23):
-     * column-major 4×4 model matrices in the bundle's runtime units (metres).
-     * Geometry uploads once; `null` restores the one-board view exactly.
-     * Safe before ready and after reloads.
-     */
-    setOccurrences?: (
-        occurrences: readonly (readonly number[] | PrismViewerOccurrence)[] | null,
-    ) => void;
     /** What is under a client point, without selecting it (SB2-24). Null before ready. */
     pickAt?: (clientX: number, clientY: number) => Promise<PrismViewerPick | null>;
-    /** Client coordinates of a component's centre on one occurrence, or null off screen. */
+    /** Client coordinates of a component's centre (mode="system": on one placement), or null off screen. */
     projectComponent?: (reference: string, occurrenceKey?: string) => { x: number; y: number } | null;
-    /** Client coordinates of a board-local runtime point (metres) on one occurrence. */
+    /** Client coordinates of a board-local runtime point (metres; mode="system": on one placement). */
     projectPoint?: (point: readonly [number, number, number], occurrenceKey?: string) => { x: number; y: number } | null;
     /** Show the scene stats overlay (SB2-25); the backquote key toggles it. */
     setStatsOverlay?: (visible: boolean) => void;
@@ -174,8 +160,7 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     frameNetEmphasis?: (key?: string | null, occurrence?: string | null) => boolean;
     /** mode="system": frame every placed board. */
     frameAll?: () => void;
-    /** mode="system" move mode (SB2-29); state arrives as `prism-semantic-viewer:move`. */
-    setMoveAllowed?: (allowed: boolean) => void;
+    /** mode="system" move mode (SB2-29); state arrives as `prism-semantic-viewer:move`. Who may move is the `move-allowed` attribute. */
     setMoveMode?: (enabled: boolean) => void;
     setMoveSpace?: (space: "world" | "local") => void;
     /** Show a pose for the move target without saving it; null shows the saved pose. */
@@ -192,20 +177,6 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     frameBoard?: (key: string) => boolean;
     /** mode="system": frame parts on their placements (SB2-32: a hop's two connectors); false when none is drawn. */
     frameParts?: (parts: readonly { occurrence: string; reference: string }[]) => boolean;
-}
-
-/** `prism-semantic-viewer:systemstatus` (mode="system"): board counts by how each draws. */
-export interface PrismSystemSceneStatus {
-    boards: number;
-    loaded: number;
-    loading: number;
-    restricted: number;
-    building: number;
-    missing: number;
-    failed: number;
-    unknown: number;
-    /** Boards without a known box yet (no PCB or interface): not drawn. */
-    unplaced: number;
 }
 
 export interface PrismScenePose {

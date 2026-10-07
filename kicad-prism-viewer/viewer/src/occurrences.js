@@ -187,16 +187,6 @@ export function transformBounds(model, bounds) {
   return output;
 }
 
-/** The union of `bounds` placed at every occurrence; `bounds` itself for the identity alone. */
-export function occurrenceUnionBounds(matrices, bounds) {
-  if (!bounds || !matrices.length) return bounds || null;
-  if (matrices.length === 1 && isIdentity(matrices[0])) return bounds;
-  const boxes = matrices.map((model) => transformBounds(model, bounds));
-  return [0, 1, 2, 3, 4, 5].map((axis) => (axis < 3
-    ? Math.min(...boxes.map((box) => box[axis]))
-    : Math.max(...boxes.map((box) => box[axis]))));
-}
-
 export function isIdentity(model) {
   return model.every((value, index) => value === IDENTITY[index]);
 }
@@ -204,17 +194,13 @@ export function isIdentity(model) {
 // Two-channel picking (SB2-24): the pick target is `rg32uint`.
 //   R = occurrence index + 1 (0 = nothing under the cursor);
 //   G = the local feature id; 0 = the board itself (its context, no feature).
-// R values from PICK_GIZMO_BASE up are reserved for overlay handles such as
-// the move gizmo (SB2-29), which draw into the same target.
 export const PICK_NONE = 0;
-export const PICK_GIZMO_BASE = 0xffff0000;
-export const MAX_OCCURRENCES = PICK_GIZMO_BASE - 1;
+export const MAX_OCCURRENCES = 0xfffeffff;
 
 export function decodePick(red, green) {
   const r = red >>> 0;
   const g = green >>> 0;
   if (r === PICK_NONE) return { kind: "none", occurrenceIndex: -1, featureId: 0 };
-  if (r >= PICK_GIZMO_BASE) return { kind: "gizmo", occurrenceIndex: -1, featureId: 0, gizmoPart: r - PICK_GIZMO_BASE, gizmoValue: g };
   return { kind: g ? "feature" : "board", occurrenceIndex: r - 1, featureId: g };
 }
 
