@@ -35,6 +35,8 @@ import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
 import { collectStackupViaData } from "./stackup-vias.js";
 import { SvgDomSchematicRenderer } from "./svg-dom-schematic-renderer.js";
 import { harnessKey, harnessSegments, hubPoint, litEnds, litHarnessWires, segmentColor } from "./system-harness.js";
+// SB2-44: the placement library is shared with the app (one implementation, CONTRACTS_P2 §17).
+import { harnessTubes } from "../../../frontend/src/features/system-builder/placement/harness-tubes.ts";
 import { allReadyBoardsDrawn, assetLoadable, assetOccurrenceMatrix, boardTransition, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
@@ -1439,6 +1441,9 @@ export async function mountSystemViewer(options = {}) {
     harnessLit: new Map(),
     showHarnesses: true,
     harnessDrawn: null,
+    // SB2-44: tube segments of the harnesses whose ends can be posed, and those harnesses' keys.
+    tubes: [],
+    tubedHarnesses: new Set(),
     // SB2-30: when the first descriptor arrived and when every ready board was first drawn.
     timing: { descriptorAt: null, boardsDrawnAt: null },
     boards: new Map(),
@@ -1490,6 +1495,7 @@ export async function mountSystemViewer(options = {}) {
       if (!system) return;
       system.showHarnesses = Boolean(visible);
       system.harnessDrawn = null;
+      refreshSystemTubes();
     },
     frameBoard(key) {
       const item = system?.placements.get(String(key));
@@ -1703,8 +1709,45 @@ function placeSystem({ relabel = true } = {}) {
     if (item?.board === board) state.selectedOccurrence = board.renderer.occurrenceKeys.indexOf(selectedKey);
     else unfocusBoard();
   }
+  refreshSystemTubes();
   applySystemEmphasis();
   notifyViewStateChange();
+}
+
+// ----- harness tubes (SB2-44) -----------------------------------------------------
+
+const HARNESS_RGB = [0.17, 0.18, 0.2];
+
+/** Rebuild the tubes from the shown descriptor's placements (a load, a move, a drag preview). */
+function refreshSystemTubes() {
+  if (!system?.descriptor) return;
+  let tubes = [];
+  if (system.showHarnesses && system.harnesses.length) {
+    const worlds = new Map(system.descriptor.occurrences.map((occurrence) => [occurrence.path, occurrence.worldMatrix]));
+    try {
+      tubes = harnessTubes(system.harnesses, (path) => worlds.get(path) ?? null);
+    } catch (error) {
+      console.warn("[prism-semantic-viewer] harness tubes failed", error);
+    }
+  }
+  system.tubes = tubes;
+  system.tubedHarnesses = new Set(tubes.map((tube) => tube.harness));
+  system.scene.setTubes(tubes, tubeColor);
+}
+
+/** A tube's colour: a lit wire's set colour, dimmed while another net is lit, else the harness grey. */
+function tubeColor(tube) {
+  const lit = system.harnessLit.get(tube.harness);
+  const color = lit ? tube.wires.map((wire) => lit.get(wire)).find(Boolean) : null;
+  if (color) return { rgb: hexColor(color), mode: 1 };
+  return { rgb: HARNESS_RGB, mode: system.emphasisSets.length ? 2 : 0 };
+}
+
+function hexColor(value) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(value));
+  if (!match) return HARNESS_RGB;
+  const n = Number.parseInt(match[1], 16);
+  return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255];
 }
 
 /** The placement path the selection belongs to, or null. */
@@ -2092,6 +2135,7 @@ function applySystemEmphasis() {
   });
   system.harnessLit = litHarnessWires(system.harnesses, system.emphasisSets);
   system.harnessDrawn = null;
+  system.scene.setTubeColors(tubeColor);
   for (const result of report) {
     result.wires = 0;
     for (const wires of system.harnessLit.values()) for (const color of wires.values()) if (color === result.color) result.wires += 1;
@@ -2507,7 +2551,8 @@ function buildHarnessOverlay() {
     const anchors = new Map(harness.ends.map((end) => [end.id, harnessAnchor(end)]));
     anchors.set("hub", harness.ends.length > 2 ? hubPoint([...anchors.values()]) : null);
     const title = harness.name || "Harness";
-    for (const segment of harnessSegments(harness)) {
+    // A harness drawn as tubes keeps only its end dots here.
+    for (const segment of system.tubedHarnesses.has(harnessKey(harness)) ? [] : harnessSegments(harness)) {
       const color = segmentColor(segment, lit);
       const line = document.createElementNS(SVG_NS, "line");
       line.setAttribute("class", `segment${color ? " lit" : emphasis ? " dim" : ""}`);
@@ -3015,6 +3060,7 @@ function systemFrameNeedsRender(now, inputs, emphasis) {
     emphasis,
     copperRealism(),
     selectionKey(),
+    system.scene.tubeVersion,
   ];
   for (const renderer of system.scene.renderers) {
     const options = inputs.get(renderer);

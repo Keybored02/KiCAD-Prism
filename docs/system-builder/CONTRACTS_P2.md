@@ -838,6 +838,7 @@ Python `placement/harness_curves.py`, TypeScript `placement/harness-curves.ts`; 
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.51 | 2026-10-08 | SB2-44: §20.15 harness tubes: scene ends carry their connector (geometry, thickness, stored frame) and part, wires their gauge; the viewer bundles the placement library, recomputes curves on every placement change, and builds rotation-minimising tubes in a compute pass. Ten harnesses on the JTYU stack while dragging a board: ~101 fps mean, p95 17 ms. |
 | P2-1.50 | 2026-10-08 | SB2-43: §17.8 harness curves (library pair, goldens `harnessCurves`): control polygons with tangent points, centripetal Catmull-Rom sampled to 0.2 mm chord error, waypoint relaxation for the 6 d bend radius, tight-bend reports, arc length. |
 | P2-1.49 | 2026-10-08 | SB2-42: §17.7 harness topology (library pair, goldens `harnessTopologies` on WH-001): runs, the automatic weighted breakout, user breakouts, segment wire sets and bundle diameters. |
 | P2-1.48 | 2026-10-08 | SB2-41: §17.6 harness end poses and exit legs (library pair, goldens `harnessEnds`); the housing meets the top of the connector body, not the board surface. |
@@ -1122,3 +1123,10 @@ Coarser levels only stop drawing parts of a board; the bundle's geometry is neve
   - **what the solve did with it**: places a board ("(chosen)" when the user chose it), lines up, doesn't line up (the V11 numbers), or isn't used yet (an end without a stored frame);
   - **Place <board> by this link** when the link could place a board that another mate places now, and **Place <board> automatically** to drop that choice (§14.10);
   - a **live preview** of the pair: the browser runs `mate` (§14.8) with the frames being picked (else stored, else inferred) and draws both connector bodies, a slab of each board around its pads and pad 1, with the stack height used (the link's, or the clearance height and why).
+
+### 20.15 Harness tubes (SB2-44)
+
+- **Scene.** A harness end in `GET …/scene` also carries `part` (its catalog component, or null for Generic) and `connector`: `{geometry (v6), thicknessMm, stored}` of the board connector it mates, with `stored` the level's confirmed or override frame (null when there is none or it is stale; the browser then infers, §15.1). `connector` is null for an end that is unmated, on a restricted board, or whose connector can't be read. Wires carry `gaugeAwg`.
+- **Curves in the browser.** The viewer bundles the placement library (`placement/harness-tubes.ts`, one implementation with the app) and recomputes every harness whenever a placement changes, drag previews included: end poses (§17.6), the tree (§17.7), the curves (§17.8). An end without a connector or a frame drops out; a harness with fewer than two posed ends draws only its proxy dots (§20.11); a segment no wire crosses draws nothing.
+- **Tubes on the GPU.** A compute pass gives each sample a rotation-minimising frame (double reflection; one invocation per segment walking its samples), a second writes the vertices: a 12-segment ring per sample (§17.5) at the segment's bundle radius, and flat caps at both ends. The draw shares the scene's render pass and depth buffer. Colour: harness grey; a segment carrying a lit wire takes that set's colour and pulses; the others dim while anything is lit. A harness drawn as tubes drops its proxy straight lines and keeps its end dots.
+- **Not yet:** picking tubes, breakouts and waypoints in move mode (SB2-45), tight-bend and collision findings (SB2-46), housing models at ends and radius blends at breakouts (SB2-47).

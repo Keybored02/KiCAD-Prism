@@ -222,9 +222,12 @@ def harness_layout(root: Level) -> list[dict]:
                 "id": harness["id"], "level": level.prefix, "name": harness.get("name") or "",
                 "ends": [{"id": end_id, "ordinal": end["ordinal"],
                           "occurrence": located[end_id][0] if located[end_id] else None,
-                          "reference": (located[end_id][2] or None) if located[end_id] else None}
+                          "reference": (located[end_id][2] or None) if located[end_id] else None,
+                          "portKey": located[end_id][1] if located[end_id] else None,
+                          "part": end["part"]}
                          for end_id, end in sorted(ends.items(), key=lambda item: item[1]["ordinal"])],
-                "wires": [{"id": wire["id"], "from": wire["from"][0], "to": wire["to"][0]} for wire in wires],
+                "wires": [{"id": wire["id"], "from": wire["from"][0], "to": wire["to"][0],
+                           "gaugeAwg": wire.get("gaugeAwg")} for wire in wires],
             })
         for child in level.children.values():
             walk(child)
@@ -254,18 +257,21 @@ def _harness(harness: Mapping[str, Any]) -> tuple[dict[str, dict], list[dict]]:
             mates = ((raw["instanceId"], raw.get("portKey") or raw.get("exportId"),
                       baseline.get("reference") or baseline.get("name") or "") if raw else None)
             pin_map = end.get("pinMap")
-        ends[end["id"]] = {"ordinal": end["ordinal"], "mates": mates, "pinMap": pin_map or {}}
+        part = end.get("catalog_component_id") if "mates_instance_id" in end else (end.get("part") or {}).get("componentId")
+        ends[end["id"]] = {"ordinal": end["ordinal"], "mates": mates, "pinMap": pin_map or {}, "part": part}
     wires = []
     for wire in harness["wires"]:
         if "from_end" in wire:
             wires.append({"id": wire["id"], "from": (wire["from_end"], str(wire["from_pin"])),
                           "to": (wire["to_end"], str(wire["to_pin"])), "signal": wire.get("signal") or "",
-                          "netFrom": list(wire["net_from"]), "netTo": list(wire["net_to"])})
+                          "netFrom": list(wire["net_from"]), "netTo": list(wire["net_to"]),
+                          "gaugeAwg": wire.get("gauge_awg")})
         else:
             source, target = wire.get("from") or wire.get("source"), wire.get("to") or wire.get("target")
             wires.append({"id": wire["id"], "from": (source["end"], str(source["pin"])),
                           "to": (target["end"], str(target["pin"])), "signal": wire.get("signal") or "",
-                          "netFrom": list(wire.get("netFrom") or []), "netTo": list(wire.get("netTo") or [])})
+                          "netFrom": list(wire.get("netFrom") or []), "netTo": list(wire.get("netTo") or []),
+                          "gaugeAwg": wire.get("gaugeAwg")})
     return ends, wires
 
 
