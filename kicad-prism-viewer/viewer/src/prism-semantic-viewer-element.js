@@ -377,6 +377,11 @@ export class PrismSemanticViewerElement extends HTMLElement {
     return this.controller?.frameBoard?.(key) ?? false;
   }
 
+  /** mode="system": frame parts on their placements, `[{ occurrence, reference }]` (SB2-32). */
+  frameParts(parts) {
+    return this.controller?.frameParts?.(parts) ?? false;
+  }
+
   renderLoading() {
     this.shadowRoot.innerHTML = `<style>:host{display:block;height:100%;background:#020817;color:#e5e7eb;font:14px system-ui}</style><div style="display:grid;place-items:center;height:100%">Loading semantic visualizer...</div>`;
   }

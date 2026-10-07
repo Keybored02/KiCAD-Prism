@@ -188,6 +188,8 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     setHelpVisible?: (visible: boolean) => void;
     /** mode="system": frame one placed board. */
     frameBoard?: (key: string) => boolean;
+    /** mode="system": frame parts on their placements (SB2-32: a hop's two connectors); false when none is drawn. */
+    frameParts?: (parts: readonly { occurrence: string; reference: string }[]) => boolean;
 }
 
 /** `prism-semantic-viewer:systemstatus` (mode="system"): board counts by how each draws. */

@@ -559,6 +559,19 @@ export async function listSystemNets(systemId: string, search: string, occurrenc
   return body;
 }
 
+/**
+ * SB2-32: the system net a board net belongs to, with its members and hops, or
+ * null when the net stays on its board (no link carries it).
+ */
+export async function traceSystemNet(systemId: string, occurrence: string, net: string, signal?: AbortSignal): Promise<SystemNetDetail | null> {
+  const query = new URLSearchParams({ occurrence, net, limit: "1" });
+  const { body } = await send<SystemNetList>(`${path(systemId, "nets")}?${query}`, { signal }, "Could not trace the net");
+  const [found] = body.groups;
+  if (!found) return null;
+  const detail = await send<SystemNetDetail>(path(systemId, "nets", found.groupId), { signal }, "Could not load the net");
+  return detail.body;
+}
+
 /** One system net with its members and hops; its group id is valid for the system version that listed it. */
 export async function getSystemNet(systemId: string, groupId: string): Promise<SystemNetDetail> {
   const { body } = await send<SystemNetDetail>(path(systemId, "nets", groupId), {}, "Could not load the net");

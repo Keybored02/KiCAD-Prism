@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { CircuitBoard, Focus, Loader2 } from "lucide-react";
 
 import { SelectionInspector } from "@/components/selection-inspector";
@@ -27,6 +28,7 @@ export function SceneInspector({
   onFrameBoard,
   onOpenBoard,
   onClear,
+  trace,
 }: {
   selection: PrismSystemViewerSelection | null;
   /** The placement's name (OBC-1), or null without a selection. */
@@ -36,6 +38,8 @@ export function SceneInspector({
   /** Open the board in the Boards tab; absent when it has no instance to open. */
   onOpenBoard?: () => void;
   onClear: () => void;
+  /** SB2-32: the clicked trace's system net, shown above the board's own inspector. */
+  trace?: ReactNode;
 }) {
   if (!selection || !boardName) {
     return (
@@ -60,6 +64,7 @@ export function SceneInspector({
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onOpenBoard}>Open in Boards</Button>
         )}
       </div>
+      {!onBoard && trace}
       <div className="min-h-0 flex-1">
         {onBoard ? (
           <p className="p-4 text-xs text-muted-foreground">

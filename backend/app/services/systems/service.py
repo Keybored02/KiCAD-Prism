@@ -950,8 +950,13 @@ class SystemService:
         return out, occurrences
 
     def nets(self, caller: Caller, system_id: str, *, search: str = "", occurrence: Optional[str] = None,
-             limit: int = 50) -> dict:
-        """``GET …/nets``: system nets matching ``search`` (any alias), optionally touching one board occurrence."""
+             net: Optional[str] = None, limit: int = 50) -> dict:
+        """``GET …/nets``: system nets matching ``search`` (any alias), optionally touching one board occurrence.
+
+        ``net`` (with ``occurrence``) keeps only the group holding exactly that board net (SB2-32).
+        """
+        if net is not None and not occurrence:
+            raise Invalid("net needs occurrence")
         groups, _occurrences = self._net_groups(caller, system_id)
         needle = search.strip().casefold()
         found = []
@@ -959,7 +964,8 @@ class SystemService:
             if needle and not any(needle in alias.casefold() for alias in group["aliases"]) and not any(
                     needle in (m["net"] or "").casefold() for m in group["members"]):
                 continue
-            if occurrence and not any(m["occurrence"] == occurrence for m in group["members"]):
+            if occurrence and not any(m["occurrence"] == occurrence and (net is None or m["net"] == net)
+                                      for m in group["members"]):
                 continue
             found.append({k: group[k] for k in ("groupId", "name", "aliases", "pinCount", "large")}
                          | {"boards": len({m["occurrence"] for m in group["members"] if m["occurrence"]})})
