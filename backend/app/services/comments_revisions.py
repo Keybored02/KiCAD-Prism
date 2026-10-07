@@ -140,6 +140,7 @@ def record_revision(
     comment_class: Optional[str] = None,
     status: Optional[str] = None,
     mentions: Optional[List] = None,
+    content_format: Optional[str] = None,
     emit_change: bool = True,
 ) -> None:
     conn.execute(
@@ -147,15 +148,16 @@ def record_revision(
         INSERT INTO comment_revisions(
             project_id, target_kind, target_id, revision, change_kind,
             content, severity, comment_class, status, mentions,
-            editor_user_id, editor_kind, editor_display, origin
+            editor_user_id, editor_kind, editor_display, origin, content_format
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)
         """,
         (
             project_id, target_kind, target_id, revision, change_kind,
             content, severity, comment_class, status,
             json.dumps(mentions) if mentions is not None else None,
             editor.user_id, editor.kind, editor.display, editor.origin,
+            content_format if content is not None else None,
         ),
     )
     if emit_change:
@@ -189,6 +191,14 @@ def _current_revision(conn, table: str, project_id: str, target_id: str) -> Opti
         (project_id, target_id),
     ).fetchone()
     return int(row["revision"]) if row else None
+
+
+def _stored_format(conn, table: str, project_id: str, target_id: str) -> str:
+    row = conn.execute(
+        f"SELECT content_format FROM {table} WHERE project_id = %s AND id = %s",
+        (project_id, target_id),
+    ).fetchone()
+    return (row and row.get("content_format")) or "plain"
 
 
 def _bump(
@@ -239,10 +249,13 @@ def edit_root(
     severity: Optional[str] = None,
     comment_class: Optional[str] = None,
     mentions: Optional[List] = None,
+    content_format: Optional[str] = None,
 ) -> int:
     assignments: Dict[str, object] = {}
     if content is not None:
         assignments["content"] = content
+        if content_format is not None:
+            assignments["content_format"] = content_format
     if severity is not None:
         assignments["severity"] = severity
     if comment_class is not None:
@@ -262,6 +275,7 @@ def edit_root(
         conn, project_id=project_id, target_kind=ROOT, target_id=comment_id, revision=revision,
         change_kind=CHANGE_EDIT, editor=editor, content=content, severity=severity,
         comment_class=comment_class, mentions=mentions,
+        content_format=content_format or _stored_format(conn, "comments", project_id, comment_id),
     )
     return revision
 
@@ -297,17 +311,22 @@ def edit_reply(
     content: str,
     editor: Editor,
     expected_revision: Optional[int],
+    content_format: Optional[str] = None,
 ) -> int:
     ensure_create_revision(
         conn, project_id=project_id, target_kind=REPLY, table="comment_replies", target_id=reply_id,
     )
+    assignments: Dict[str, object] = {"content": content}
+    if content_format is not None:
+        assignments["content_format"] = content_format
     revision = _bump(
         conn, "comment_replies", project_id=project_id, target_id=reply_id,
-        expected_revision=expected_revision, assignments={"content": content}, target_kind=REPLY,
+        expected_revision=expected_revision, assignments=assignments, target_kind=REPLY,
     )
     record_revision(
         conn, project_id=project_id, target_kind=REPLY, target_id=reply_id, revision=revision,
         change_kind=CHANGE_EDIT, editor=editor, content=content,
+        content_format=content_format or _stored_format(conn, "comment_replies", project_id, reply_id),
     )
     return revision
 
@@ -368,7 +387,7 @@ def tombstone_root(
 def history(conn, *, project_id: str, target_kind: str, target_id: str) -> List[Dict]:
     rows = conn.execute(
         """
-        SELECT revision, change_kind, content, severity, comment_class, status, mentions,
+        SELECT revision, change_kind, content, content_format, severity, comment_class, status, mentions,
                editor_user_id, editor_kind, editor_display, origin, created_at
         FROM comment_revisions
         WHERE project_id = %s AND target_kind = %s AND target_id = %s
@@ -383,6 +402,7 @@ def history(conn, *, project_id: str, target_kind: str, target_id: str) -> List[
             "revision": int(row["revision"]),
             "changeKind": row["change_kind"],
             "content": row["content"],
+            "contentFormat": row.get("content_format") or ("plain" if row["content"] is not None else None),
             "severity": row["severity"],
             "commentClass": row["comment_class"],
             "status": row["status"],

@@ -508,6 +508,41 @@ class Settings(BaseSettings):
         ),
     )
 
+    COMMENT_ATTACHMENT_ROOT: str = Field(
+        default="",
+        description=(
+            "Content-addressed store for review-comment attachments. Defaults to "
+            "KICAD_PROJECTS_ROOT/.kicad-prism/comment-attachments."
+        ),
+    )
+    COMMENT_ATTACHMENT_MAX_BYTES: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1024,
+        le=100 * 1024 * 1024,
+        description="Largest single file a reviewer can attach to a comment.",
+    )
+    COMMENT_ATTACHMENT_PROJECT_QUOTA_BYTES: int = Field(
+        default=2 * 1024 * 1024 * 1024,
+        ge=0,
+        description="Total attachment storage one project may use. 0 means no limit.",
+    )
+    COMMENT_ATTACHMENT_LINK_SECRET: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Signs session-less image links in forge issues (GitHub). Give the same value "
+            "to backend and prism-worker; unset sends the file name instead of an image."
+        ),
+    )
+    COMMENT_ATTACHMENT_LINK_TTL_DAYS: int = Field(
+        default=365,
+        ge=0,
+        le=3650,
+        description=(
+            "Lifetime of the signed image links Prism puts in forge issues that cannot "
+            "host uploads (GitHub). 0 sends a plain link that needs a Prism session."
+        ),
+    )
+
     PRISM_WEBGPU_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     PRISM_DESIGN_COMPARE_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     PRISM_WORKFLOW_CONCURRENCY: int = Field(default=1, ge=1, le=8)

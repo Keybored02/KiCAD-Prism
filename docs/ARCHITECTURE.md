@@ -45,7 +45,9 @@ The application separates concerns into PostgreSQL schemas:
 - `workspace`: projects, folders, roles, sessions, service clients, tracker
   connectors, identities, and project destinations;
 - `comments`: project and comparison discussions, tracked threads, sync
-  operations, and inbound remote hints;
+  operations, inbound remote hints, and comment attachment metadata (the
+  files themselves are content-addressed under `COMMENT_ATTACHMENT_ROOT`,
+  never in the project repository);
 - `catalog`: component metadata, revisions, assets, validation, and release data;
 - `operations`: jobs, leases, logs, artifacts, and runtime coordination.
 

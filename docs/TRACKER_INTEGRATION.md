@@ -34,6 +34,8 @@ Set these in the deployment `.env`. Source builds use the repository root
 | `TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY` | During rotation grace | Previous root key so existing envelopes remain readable until re-wrapped. |
 | `TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID` | During rotation grace | Id of the previous root key. Must differ from the current id. |
 | `PUBLIC_BASE_URL` | Strongly recommended | Canonical public origin (for example `https://prism.example.com`). |
+| `COMMENT_ATTACHMENT_LINK_SECRET` | For images in GitHub issues | Signs session-less links to comment attachments. Same value in `backend` and `prism-worker`. |
+| `COMMENT_ATTACHMENT_LINK_TTL_DAYS` | No (default 365) | Lifetime of those links; `0` turns them off. |
 
 Generate a root key:
 
@@ -238,6 +240,15 @@ surfaces the disabled encryption state.
   deployments should train users accordingly.
 - Legacy comments with unpinned anchors remain readable locally but cannot be
   promoted until anchor policy is satisfied (contract D6).
+- Comment attachments (pasted snips, files) travel with published threads.
+  GitLab receives each file through its project uploads API, once per
+  destination. GitHub has no attachment API, so Prism links a signed, expiring
+  URL (`/api/public/comment-attachments/...`, `COMMENT_ATTACHMENT_LINK_SECRET`)
+  that opens that one file without a Prism session; GitHub's image proxy must
+  be able to reach `PUBLIC_BASE_URL`. Anyone who can read the issue can open
+  those files until the link expires. Without the secret, the issue shows the
+  file name instead. Replies from the forge are stored as Markdown; Prism's own
+  image URLs map back to their attachments, and other images show as links.
 
 ## Conflict and recovery guarantees
 
