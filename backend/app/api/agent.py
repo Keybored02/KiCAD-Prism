@@ -205,7 +205,7 @@ async def revoke_token(
 def _consent_page(
     *, user: AuthenticatedUser, label: str, scope: str, fields: dict[str, str]
 ) -> str:
-    """Minimal, self-contained consent screen. No external assets.
+    """Minimal, self-contained consent screen. The only external asset is the Inter webfont.
 
     The device the user is approving is named so they consent to a specific
     agent, and every request field is echoed as a hidden input so the POST
