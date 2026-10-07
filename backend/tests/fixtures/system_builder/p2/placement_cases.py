@@ -22,7 +22,7 @@ from pathlib import Path
 from kicad_monkey import kicad_pcb_footprint, kicad_sexpr
 
 from app.services.systems.interface_extractor import _footprint_geometry, extract_interface
-from app.services.systems.placement import harness_ends, mate, poses, solve
+from app.services.systems.placement import harness_ends, harness_topology, mate, poses, solve
 from app.services.systems.placement.frames import connector_frame, infer
 
 SOURCES = Path(__file__).resolve().parent / "sources"
@@ -303,6 +303,37 @@ def harness_end_cases() -> list[dict]:
     return out
 
 
+def topology_cases() -> list[dict]:
+    """Harness trees (§17.7) on the fixture's WH-001 (PWR J3 → PAY J11 and J12, a splice on J3 pin 3).
+
+    The three ends are stock vertical headers placed by ``harness_ends.board_end`` on boards
+    standing apart; the wires are WH-001's link rows.
+    """
+    header = stock("header_v")
+    boards = {"e1": {"translationMm": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0]},
+              "e2": {"translationMm": [120.0, 30.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0]},
+              "e3": {"translationMm": [120.0, -40.0, 0.0], "rotation": poses.canonical_rotation([0.0, 0.0, 0.5, 0.866])}}
+    ends = []
+    for end_id, world in boards.items():
+        placed = harness_ends.board_end(world, pose(header, x=50, y=-10, angle=0), THICKNESS)
+        ends.append({"id": end_id, "legMm": placed["legMm"], "outward": placed["outward"]})
+    wires = [{"id": "w1", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e2", "pin": "1"}},
+             {"id": "w2", "from": {"end": "e1", "pin": "4"}, "to": {"end": "e2", "pin": "2"}},
+             {"id": "w3", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e3", "pin": "1"}}]
+    gauged = [{**w, "gaugeAwg": g} for w, g in zip(wires, ("20", "22", "20"))]
+    specs = [
+        ("WH-001: three ends meet at one automatic breakout", ends, wires, []),
+        ("two ends: one run", ends[:2], wires[:2], []),
+        ("given gauges: no assumption", ends, gauged, []),
+        ("an end without a pose leaves its wires unplaced", ends[:2], wires, []),
+        ("user breakouts in order; an assigned end skips the nearest", ends, wires,
+         [{"id": "b1", "positionMm": [60.0, 0.0, 40.0], "ends": ["e3"]}, {"id": "b2", "positionMm": [150.0, 0.0, 40.0]}]),
+        ("no wires: equal weights, empty segments", ends, [], []),
+    ]
+    return [{"name": name, "input": {"ends": e, "wires": w, "breakouts": b},
+             "expected": harness_topology.topology(e, w, b)} for name, e, w, b in specs]
+
+
 def compact(value, indent: int = 0) -> str:
     """JSON with every container that fits in 120 columns on one line (pads stay one per line)."""
     flat = json.dumps(value)
@@ -320,7 +351,8 @@ def main() -> None:
     OUT.write_text(compact({"schema": "prism.placement_cases.v1", "kicad": "10.0.6 stock footprints",
                             "tolerance": {"mm": 1e-6, "unit": 1e-9}, "frames": cases(),
                             "poses": pose_cases(), "mates": mate_cases(),
-                            "solves": solve_cases(), "harnessEnds": harness_end_cases(), "mateEnds": MATE_ENDS}) + "\n")
+                            "solves": solve_cases(), "harnessEnds": harness_end_cases(),
+                            "harnessTopologies": topology_cases(), "mateEnds": MATE_ENDS}) + "\n")
 
 
 if __name__ == "__main__":
