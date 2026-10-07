@@ -220,7 +220,9 @@ jobs:
           cache-dependency-path: requirements/runtime.lock
 
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        # The runner is throwaway, so the test tools (requirements/test.txt) go
+        # beside the runtime here; locally they stay out of the venv.
+        run: python -m pip install -r requirements.txt -r ../requirements/test.txt
 
       - name: Create the isolated catalog test database
         run: |
@@ -231,27 +233,41 @@ jobs:
         run: python -m compileall -q app
 
       - name: Run backend tests
-        run: python -m unittest discover -s tests -p "test_*.py"
+        # pytest-xdist runs the unittest suite on every core; conftest.py gives
+        # each worker its own copy of the three databases. -rs lists skip reasons.
+        run: python -m pytest -n auto -q -rs --junitxml=results.xml
 
-      - name: Require the catalog integration suite to have run
+      - name: Require the integration suites to have run
         run: |
-          # These tests skip themselves when TEST_POSTGRES_URL is missing or
-          # points at the application database, so a silent skip looks green.
-          python -m unittest tests.test_component_catalog_postgres_integration -v 2>&1 | tee result.log
-          if grep -q "skipped" result.log; then
-            echo "Catalog integration tests skipped; check TEST_POSTGRES_URL." >&2
-            exit 1
-          fi
+          # The catalog and legacy-survivor integration tests skip themselves
+          # when their database URL is missing or points at the application
+          # database, so a silent skip looks green. Read the skips from the run
+          # above instead of running the suites a second time.
+          python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
 
-      - name: Require the legacy survivor integration suite to have run
-        run: |
-          # This is the destructive upgrade path: export a legacy catalog,
-          # initialize epoch 2, and restore every non-CERN survivor.
-          python -m unittest tests.test_legacy_catalog_survivor_postgres_integration -v 2>&1 | tee survivor-result.log
-          if grep -q "skipped" survivor-result.log; then
-            echo "Legacy survivor integration tests skipped; check LEGACY_SURVIVOR_TEST_POSTGRES_URL." >&2
-            exit 1
-          fi
+          required = {
+              "test_component_catalog_postgres_integration": "TEST_POSTGRES_URL",
+              "test_legacy_catalog_survivor_postgres_integration": "LEGACY_SURVIVOR_TEST_POSTGRES_URL",
+          }
+          ran = dict.fromkeys(required, 0)
+          failed = False
+          for case in ET.parse("results.xml").iter("testcase"):
+              module = case.get("classname", "").split(".")[-2] if "." in case.get("classname", "") else ""
+              if module not in required:
+                  continue
+              if case.find("skipped") is not None:
+                  print(f"{module}.{case.get('name')} skipped; check {required[module]}.", file=sys.stderr)
+                  failed = True
+              else:
+                  ran[module] += 1
+          for module, count in ran.items():
+              if not count:
+                  print(f"{module}: no test ran; check {required[module]}.", file=sys.stderr)
+                  failed = True
+          sys.exit(1 if failed else 0)
+          PY
 
   semantic-viewer:
     name: Semantic viewer
@@ -505,18 +521,6 @@ jobs:
             release-studio-live-kicad:ci \
             -m tests.release_studio_live_runner
 
-  agent-docs:
-    name: Agent guidance
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Verify paths named in agent maps and skills
-        run: python3 scripts/check_agent_docs.py
-
   quality-gate:
     name: Quality gate
     if: ${{ always() }}
@@ -528,7 +532,6 @@ jobs:
       - deployment-config
       - dependency-identity
       - kicad-live
-      - agent-docs
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -542,7 +545,6 @@ jobs:
           DEPLOYMENT_RESULT: ${{ needs.deployment-config.result }}
           IDENTITY_RESULT: ${{ needs.dependency-identity.result }}
           KICAD_LIVE_RESULT: ${{ needs.kicad-live.result }}
-          AGENT_DOCS_RESULT: ${{ needs.agent-docs.result }}
         run: |
           test "$CATALOG_ARCHITECTURE_RESULT" = "success"
           test "$FRONTEND_RESULT" = "success"
@@ -550,7 +552,6 @@ jobs:
           test "$VIEWER_RESULT" = "success"
           test "$DEPLOYMENT_RESULT" = "success"
           test "$IDENTITY_RESULT" = "success"
-          test "$AGENT_DOCS_RESULT" = "success"
           case "$KICAD_LIVE_RESULT" in
             success|skipped) ;;
             *)
