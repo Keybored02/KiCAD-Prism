@@ -186,6 +186,22 @@ class ManufacturingRouteTests(unittest.TestCase):
         self.assertEqual(result, {"id": "def_1"})
         self.assertEqual(log.call_args.kwargs["logged_by"], "qa@x")
 
+    def test_update_defect_records_the_caller_as_resolver(self) -> None:
+        with patch.object(self.api.mfg, "update_defect", return_value=True) as update:
+            request = self.api.DefectUpdateRequest(status="accepted", resolution_note="cosmetic only")
+            result = _run(self.api.update_defect("def_1", request, user=_User(email="qa@x", role="qa")))
+        self.assertEqual(result, {"status": "success"})
+        self.assertEqual(update.call_args.args[0], "def_1")
+        self.assertEqual(update.call_args.kwargs["resolved_by"], "qa@x")
+        self.assertEqual(update.call_args.kwargs["status"], "accepted")
+        self.assertEqual(update.call_args.kwargs["resolution_note"], "cosmetic only")
+
+    def test_accepting_without_a_reason_is_a_400(self) -> None:
+        request = self.api.DefectUpdateRequest(status="accepted")
+        with self.assertRaises(HTTPException) as ctx:
+            _run(self.api.update_defect("def_1", request, user=_User(role="qa")))
+        self.assertEqual(ctx.exception.status_code, 400)
+
     def test_delete_run_also_drops_evidence(self) -> None:
         with patch.object(self.api.mfg, "delete_run", return_value=True), \
              patch.object(self.api.derived_assets, "discard_run_evidence") as discard:

@@ -136,6 +136,8 @@ class DefectUpdateRequest(BaseModel):
     quantity_affected: int | None = Field(default=None, ge=1)
     description: str | None = None
     status: str | None = None
+    # Why it was resolved, or the required reason for accepting it as-is.
+    resolution_note: str | None = None
 
 
 def _handle(func, *args, **kwargs):
@@ -587,10 +589,15 @@ async def log_defect(
     return {"id": def_id}
 
 
-@router.patch("/defects/{defect_id}", dependencies=[Depends(require_project_release_actor)])
-async def update_defect(defect_id: str, request: DefectUpdateRequest):
+@router.patch("/defects/{defect_id}")
+async def update_defect(
+    defect_id: str,
+    request: DefectUpdateRequest,
+    user: AuthenticatedUser = Depends(require_project_release_actor),
+):
     updated = await asyncio.to_thread(
-        _handle, mfg.update_defect, defect_id, **request.model_dump(exclude_none=True)
+        _handle, mfg.update_defect, defect_id, resolved_by=user.email,
+        **request.model_dump(exclude_none=True),
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Defect not found or nothing to update")

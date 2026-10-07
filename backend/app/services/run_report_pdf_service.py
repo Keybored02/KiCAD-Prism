@@ -363,6 +363,10 @@ def _defect_flow(run_id: str, defect: dict[str, Any], styles: dict[str, Paragrap
     if defect.get("description"):
         inner.append(Spacer(1, 1.5 * mm))
         inner.append(Paragraph(_esc(defect["description"]), styles["defectBody"]))
+    if defect.get("resolution_note"):
+        by = f" ({defect['resolved_by']})" if defect.get("resolved_by") else ""
+        inner.append(Spacer(1, 1.5 * mm))
+        inner.append(Paragraph(f"<b>Resolution{_esc(by)}:</b> {_esc(defect['resolution_note'])}", styles["defectBody"]))
 
     # The header/meta/description sit in a hairline card. Evidence (which may hold
     # large images) follows the card as siblings, so no image is boxed inside a

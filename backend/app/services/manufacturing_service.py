@@ -841,7 +841,12 @@ def list_runs(project_id: Optional[str] = None) -> List[Dict[str, Any]]:
     query = """
         SELECT run.*, p.name AS project_name, p.relative_path, p.pcb_rel,
                m.name AS manufacturer_name, s.name AS spec_name,
-               (SELECT COUNT(*) FROM ws_run_defects d WHERE d.run_id = run.id) AS defect_count
+               (SELECT COUNT(*) FROM ws_run_defects d WHERE d.run_id = run.id) AS defect_count,
+               (SELECT COUNT(*) FROM ws_run_defects d
+                 WHERE d.run_id = run.id AND d.status = 'open') AS open_defect_count,
+               (SELECT COALESCE(jsonb_object_agg(sev.severity, sev.n), '{}'::jsonb)
+                  FROM (SELECT d.severity, COUNT(*) AS n FROM ws_run_defects d
+                         WHERE d.run_id = run.id GROUP BY d.severity) sev) AS defect_severity_counts
         FROM ws_manufacturing_runs run
         JOIN ws_projects p ON p.id = run.project_id
         LEFT JOIN ws_manufacturers m ON m.id = run.manufacturer_id
@@ -1033,11 +1038,18 @@ def log_defect(
     return def_id
 
 
-def update_defect(defect_id: str, **fields: Any) -> bool:
-    allowed = {"category", "severity", "quantity_affected", "description", "status"}
+def update_defect(defect_id: str, *, resolved_by: str = "", **fields: Any) -> bool:
+    """Edit a defect. Closing it (resolved or accepted) stamps when and by whom;
+    accepting it as-is needs a reason in the same call. Reopening clears the
+    stamp but keeps the note, so the history stays readable."""
+    allowed = {"category", "severity", "quantity_affected", "description", "status", "resolution_note"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
         return False
+    if isinstance(updates.get("resolution_note"), str):
+        updates["resolution_note"] = updates["resolution_note"].strip()
+    if updates.get("status") == "accepted" and not updates.get("resolution_note"):
+        raise ManufacturingError("Accepting a defect as-is needs a reason.")
     if "severity" in updates and updates["severity"] not in DEFECT_SEVERITIES:
         raise ManufacturingError(f"Unknown severity: {updates['severity']!r}")
     if "status" in updates and updates["status"] not in DEFECT_STATUSES:
@@ -1052,10 +1064,10 @@ def update_defect(defect_id: str, **fields: Any) -> bool:
     query = f"UPDATE ws_run_defects SET {columns}"
     params: list[Any] = list(updates.values())
     if resolved_at is not None:
-        query += ", resolved_at = %s"
-        params.append(resolved_at)
+        query += ", resolved_at = %s, resolved_by = %s"
+        params.extend([resolved_at, resolved_by])
     elif updates.get("status") == "open":
-        query += ", resolved_at = NULL"
+        query += ", resolved_at = NULL, resolved_by = ''"
     query += " WHERE id = %s"
     params.append(defect_id)
     with _connect() as conn:

@@ -26,6 +26,12 @@ class ManufacturingValidationTests(unittest.TestCase):
         with self.assertRaises(mfg.ManufacturingError):
             mfg.log_defect("run_x", severity="apocalyptic")
 
+    def test_accepting_a_defect_as_is_needs_a_reason(self) -> None:
+        # Rejected before any database work, so no run or defect has to exist.
+        for note in (None, "", "   "):
+            with self.assertRaises(mfg.ManufacturingError):
+                mfg.update_defect("def_x", status="accepted", resolution_note=note)
+
     def test_status_lifecycle_is_ordered(self) -> None:
         self.assertEqual(mfg.RUN_STATUSES[0], "draft")
         self.assertEqual(mfg.RUN_STATUSES[-1], "closed")
@@ -305,6 +311,10 @@ class ManufacturingStoreTests(unittest.TestCase):
         self.assertTrue(mfg.update_run(run_id, status="received", quantity_good=95))
         self.assertEqual(mfg.get_run(run_id)["quantity_good"], 95)
 
+        def listed_counts(rid: str):
+            row = {r["id"]: r for r in mfg.list_runs(self.project_id)}[rid]
+            return row["defect_count"], row["open_defect_count"], row["defect_severity_counts"]
+
         # Log a defect, then resolve it (resolved_at gets stamped).
         def_id = mfg.log_defect(
             run_id, category="soldering", severity="major", quantity_affected=5,
@@ -314,10 +324,28 @@ class ManufacturingStoreTests(unittest.TestCase):
         self.assertEqual(defect["status"], "open")
         self.assertIsNone(defect["resolved_at"])
 
-        self.assertTrue(mfg.update_defect(def_id, status="resolved"))
+        self.assertEqual(defect["resolution_note"], "")
+        self.assertEqual(listed_counts(run_id), (1, 1, {"major": 1}))
+
+        self.assertTrue(mfg.update_defect(def_id, status="resolved", resolution_note=" reflowed ", resolved_by="qa@x"))
         resolved = mfg.get_defect(def_id)
         self.assertEqual(resolved["status"], "resolved")
         self.assertIsNotNone(resolved["resolved_at"])
+        self.assertEqual((resolved["resolution_note"], resolved["resolved_by"]), ("reflowed", "qa@x"))
+        # Resolved defects no longer count as open, but still count in the severity split.
+        self.assertEqual(listed_counts(run_id), (1, 0, {"major": 1}))
+
+        # Reopening clears who/when but keeps the note readable.
+        self.assertTrue(mfg.update_defect(def_id, status="open"))
+        reopened = mfg.get_defect(def_id)
+        self.assertEqual((reopened["status"], reopened["resolved_by"], reopened["resolution_note"]), ("open", "", "reflowed"))
+        self.assertIsNone(reopened["resolved_at"])
+
+        # Accept as-is stamps the reason and the person.
+        self.assertTrue(mfg.update_defect(def_id, status="accepted", resolution_note="cosmetic only", resolved_by="designer@x"))
+        accepted = mfg.get_defect(def_id)
+        self.assertEqual((accepted["status"], accepted["resolution_note"], accepted["resolved_by"]),
+                         ("accepted", "cosmetic only", "designer@x"))
 
         # The run now reports one defect and a defect_count in the list view.
         self.assertEqual(len(mfg.get_run(run_id)["defects"]), 1)

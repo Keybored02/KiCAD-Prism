@@ -1904,6 +1904,20 @@ def _manufacturing_one_spec_per_manufacturer(conn: Any) -> None:
     )
 
 
+def _manufacturing_defect_disposition(conn: Any) -> None:
+    """Who closed a defect and why: a note on resolve, a required reason on
+    accept-as-is, and the person who did it."""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ws_run_defects (id TEXT PRIMARY KEY)"
+    )
+    conn.execute(
+        "ALTER TABLE ws_run_defects ADD COLUMN IF NOT EXISTS resolution_note TEXT NOT NULL DEFAULT ''"
+    )
+    conn.execute(
+        "ALTER TABLE ws_run_defects ADD COLUMN IF NOT EXISTS resolved_by TEXT NOT NULL DEFAULT ''"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
     (2, "workspace_read_versions", _workspace_read_versions),
@@ -1933,6 +1947,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (30, "manufacturing_capability_meta", _manufacturing_capability_meta),
     (31, "manufacturing_capability_config", _manufacturing_capability_config),
     (32, "manufacturing_one_spec_per_manufacturer", _manufacturing_one_spec_per_manufacturer),
+    (33, "manufacturing_defect_disposition", _manufacturing_defect_disposition),
 )
 
 
