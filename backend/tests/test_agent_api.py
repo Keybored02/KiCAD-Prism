@@ -66,8 +66,11 @@ class AgentApiTests(unittest.TestCase):
         #
         # AUTH_ENABLED is a property over AUTH_ENABLED_OVERRIDE; patch the real field,
         # not the property (which cannot be cleanly unpatched on teardown).
+        # Password login gives auth a login method, or the app refuses to start
+        # (and exits the test run) when no OIDC is configured, as in CI.
         cls._patchers = [
             patch.object(settings, "AUTH_ENABLED_OVERRIDE", True),
+            patch.object(settings, "PASSWORD_AUTH_ENABLED", True),
             patch.object(settings, "SESSION_SECRET", TEST_SECRET),
         ]
         for patcher in cls._patchers:
