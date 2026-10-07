@@ -165,6 +165,14 @@ export function RunQuickView({
                                 />
                             </dl>
 
+                            {run.notes.trim() && (
+                                <div className="mt-5">
+                                    <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Notes
+                                    </h4>
+                                    <p className="whitespace-pre-wrap text-sm">{run.notes}</p>
+                                </div>
+                            )}
                             {defects.length > 0 && (
                                 <div className="mt-5">
                                     <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">

@@ -22,6 +22,8 @@ import { CompactSelect } from "./ui";
 interface NewRunWizardProps {
     open: boolean;
     projects: Project[];
+    /** Start with this project already chosen (opened from a project's own tab). */
+    initialProjectId?: string;
     onClose: () => void;
     onCreated: (runId: string) => void;
 }
@@ -38,9 +40,9 @@ interface Release {
 // satisfied, so a run can never be created with no project or a zero quantity.
 const STEPS = ["Project", "Quantity", "Manufacturer", "Spec", "Details", "Confirm"] as const;
 
-export function NewRunWizard({ open, projects, onClose, onCreated }: NewRunWizardProps) {
-    const [step, setStep] = useState(0);
-    const [projectId, setProjectId] = useState("");
+export function NewRunWizard({ open, projects, initialProjectId, onClose, onCreated }: NewRunWizardProps) {
+    const [step, setStep] = useState(initialProjectId ? 1 : 0);
+    const [projectId, setProjectId] = useState(initialProjectId ?? "");
     const [quantity, setQuantity] = useState<number>(0);
     const [manufacturerId, setManufacturerId] = useState<string>("");
     const [manufacturers, setManufacturers] = useState<ProjectManufacturer[]>([]);

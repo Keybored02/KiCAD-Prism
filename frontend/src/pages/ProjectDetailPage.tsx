@@ -674,8 +674,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                         <ProjectManufacturing
                                             projectId={projectId}
                                             canEdit={canMutateProject}
-                                            onNewRun={() => navigate("/?section=manufacturing")}
-                                            onOpenRun={() => navigate("/?section=manufacturing")}
+                                            onNewRun={() => navigate(`/?section=manufacturing&newRunFor=${encodeURIComponent(projectId)}`)}
+                                            onOpenRun={(runId) => navigate(`/?section=manufacturing&run=${encodeURIComponent(runId)}`)}
                                         />
                                     </Suspense>
                                 </ErrorBoundary>

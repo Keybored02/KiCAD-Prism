@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
     Select,
     SelectContent,
@@ -100,6 +101,11 @@ export function ProjectManufacturing({
     const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
     // Which top-level panels (Capabilities / spec / Production) are collapsed.
     const [panelCollapsed, setPanelCollapsed] = useState<Set<string>>(new Set());
+
+    // Switching manufacturer or schema while the form has unsaved edits asks first.
+    const [pendingNav, setPendingNav] = useState<(() => void) | null>(null);
+    const [detachTarget, setDetachTarget] = useState<ProjectManufacturer | null>(null);
+    const [detaching, setDetaching] = useState(false);
 
     const togglePanel = (id: string) =>
         setPanelCollapsed((prev) => {
@@ -320,6 +326,14 @@ export function ProjectManufacturing({
     // spec so its schema fields and capabilities both move to the chosen method.
     const handleSelectTemplate = async (id: string) => {
         if (!specId || !id || id === templateId) return;
+        if (dirty) {
+            setPendingNav(() => () => void applyTemplate(id));
+            return;
+        }
+        await applyTemplate(id);
+    };
+
+    const applyTemplate = async (id: string) => {
         setApplyingTemplate(true);
         try {
             await applyTemplateToSpec(specId, id);
@@ -343,12 +357,22 @@ export function ProjectManufacturing({
     };
 
     const handleDetach = async (id: string) => {
+        setDetaching(true);
         try {
             await detachManufacturer(projectId, id);
+            setDetachTarget(null);
             await load();
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to remove manufacturer.");
+        } finally {
+            setDetaching(false);
         }
+    };
+
+    const selectManufacturer = (id: string) => {
+        if (id === manufacturerId) return;
+        if (dirty) setPendingNav(() => () => setManufacturerId(id));
+        else setManufacturerId(id);
     };
 
     if (loading) {
@@ -394,8 +418,12 @@ export function ProjectManufacturing({
                     <div className="flex flex-col items-center gap-2 p-8 text-center text-muted-foreground">
                         <Factory className="h-8 w-8 opacity-50" />
                         <p className="text-sm">
-                            No manufacturers yet.
-                            {canEdit ? " Add one above to set its fabrication specs." : ""}
+                            No manufacturers on this project yet.
+                            {canEdit
+                                ? attachable.length > 0
+                                    ? " Add one above to set its fabrication specs."
+                                    : " None exist yet: create one from Manufacturing in the sidebar, then add it here."
+                                : ""}
                         </p>
                     </div>
                 ) : (
@@ -411,7 +439,7 @@ export function ProjectManufacturing({
                             >
                                 <button
                                     type="button"
-                                    onClick={() => setManufacturerId(m.id)}
+                                    onClick={() => selectManufacturer(m.id)}
                                     className={cn(
                                         "px-2 py-1.5 text-sm",
                                         m.id === manufacturerId && "font-medium",
@@ -424,7 +452,7 @@ export function ProjectManufacturing({
                                         type="button"
                                         aria-label={`Remove ${m.name}`}
                                         title={`Remove ${m.name} from this project`}
-                                        onClick={() => void handleDetach(m.id)}
+                                        onClick={() => setDetachTarget(m)}
                                         className="p-1 text-muted-foreground hover:text-destructive"
                                     >
                                         <Trash2 className="h-3 w-3" />
@@ -637,6 +665,35 @@ export function ProjectManufacturing({
                 )}
             </section>
 
+            <ConfirmDialog
+                open={pendingNav !== null}
+                onOpenChange={(open) => !open && setPendingNav(null)}
+                title="Discard unsaved changes?"
+                description="This spec has edits that are not saved. Switching now loses them."
+                confirmLabel="Discard changes"
+                onConfirm={() => {
+                    const go = pendingNav;
+                    setPendingNav(null);
+                    setDirty(false);
+                    go?.();
+                }}
+            />
+
+            <ConfirmDialog
+                open={detachTarget !== null}
+                onOpenChange={(open) => !open && setDetachTarget(null)}
+                title="Remove manufacturer from this project?"
+                description={
+                    <>
+                        {detachTarget?.name} is removed from this project. Its spec and its production are kept and
+                        come back if you add it again.
+                    </>
+                }
+                confirmLabel="Remove"
+                busy={detaching}
+                onConfirm={() => detachTarget && void handleDetach(detachTarget.id)}
+            />
+
             {editorOpen && specId && (
                 <SchemaCapabilitiesDialog
                     title="Edit spec"
@@ -789,7 +846,7 @@ function CapabilitiesTable({
             )}
             {rows.length === 0 ? (
                 <p className="px-4 py-6 text-sm text-muted-foreground">
-                    No capabilities set for this method yet. Set them from the main Manufacturing page.
+                    No capabilities set for this method yet. Add them from Edit schema, on its Capabilities tab.
                 </p>
             ) : (
                 <div className="overflow-x-auto">

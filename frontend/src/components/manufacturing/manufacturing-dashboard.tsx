@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Factory, Plus, Building2, Tag, Layers } from "lucide-react";
 import { toast } from "sonner";
 
@@ -102,8 +102,13 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
     const [statusFilter, setStatusFilter] = useState<RunStatus | "all">("all");
     const [groupBy, setGroupBy] = useState<GroupBy>("none");
     const [quickRunId, setQuickRunId] = useState<string | null>(null);
-    const [openRunId, setOpenRunId] = useState<string | null>(null);
-    const [wizardOpen, setWizardOpen] = useState(false);
+    // A project's own Manufacturing tab links here with a run to open, or a
+    // project to start a production for. Read once, then clear the params so a
+    // refresh or Back does not reopen it.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [openRunId, setOpenRunId] = useState<string | null>(() => searchParams.get("run"));
+    const [wizardProjectId] = useState<string | undefined>(() => searchParams.get("newRunFor") ?? undefined);
+    const [wizardOpen, setWizardOpen] = useState(() => searchParams.has("newRunFor"));
     const [addManufacturer, setAddManufacturer] = useState(false);
 
     const load = useCallback(async () => {
@@ -122,6 +127,21 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
     useEffect(() => {
         void load();
     }, [load]);
+
+    useEffect(() => {
+        if (!searchParams.has("run") && !searchParams.has("newRunFor")) return;
+        setSearchParams(
+            (current) => {
+                const next = new URLSearchParams(current);
+                next.delete("run");
+                next.delete("newRunFor");
+                return next;
+            },
+            { replace: true },
+        );
+        // Only on mount: the params were consumed by the state initialisers.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const filtered = useMemo(
         () => (statusFilter === "all" ? runs : runs.filter((r) => r.status === statusFilter)),
@@ -171,21 +191,8 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
                 </TabsList>
             </Tabs>
 
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-6 py-3">
-                <div className="flex items-center gap-2">
-                    {view === "manufacturers" ? (
-                        <>
-                            <Building2 className="h-5 w-5 text-primary" />
-                            <h2 className="text-lg font-semibold">Manufacturers</h2>
-                        </>
-                    ) : (
-                        <>
-                            <Factory className="h-5 w-5 text-primary" />
-                            <h2 className="text-lg font-semibold">Production</h2>
-                        </>
-                    )}
-                </div>
-                <div className="flex items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-6 py-2.5">
+                <div className="ml-auto flex items-center gap-2">
                     {view === "manufacturers" ? (
                         canEdit && (
                             <Button size="sm" onClick={() => setAddManufacturer(true)}>
@@ -278,6 +285,7 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
                 <NewRunWizard
                     open={wizardOpen}
                     projects={projects}
+                    initialProjectId={wizardProjectId}
                     onClose={() => setWizardOpen(false)}
                     onCreated={(runId) => {
                         setWizardOpen(false);

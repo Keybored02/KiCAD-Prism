@@ -133,7 +133,16 @@ describe("ProjectManufacturing", () => {
     it("shows an empty state when the project has no manufacturers", async () => {
         listProjectManufacturers.mockResolvedValue([]);
         render(<ProjectManufacturing projectId="p1" canEdit />);
-        await waitFor(() => expect(screen.getByText(/No manufacturers yet/)).toBeTruthy());
+        await waitFor(() => expect(screen.getByText(/No manufacturers on this project yet/)).toBeTruthy());
+        expect(screen.getByText(/Add one above/)).toBeTruthy();
+    });
+
+    it("points to the sidebar when no manufacturer exists to add", async () => {
+        listProjectManufacturers.mockResolvedValue([]);
+        listManufacturers.mockResolvedValue([]);
+        render(<ProjectManufacturing projectId="p1" canEdit />);
+        await waitFor(() => expect(screen.getByText(/create one from Manufacturing in the sidebar/)).toBeTruthy());
+        expect(screen.queryByText(/Add one above/)).toBeNull();
     });
 
     it("lists the spec's min capabilities and auto-extracts the board's values", async () => {
@@ -216,6 +225,71 @@ describe("ProjectManufacturing", () => {
         fireEvent.click(await screen.findByRole("option", { name: "Advanced" }));
 
         await waitFor(() => expect(applyTemplateToSpec).toHaveBeenCalledWith("spec_1", "t2"));
+    });
+
+    it("asks before dropping unsaved edits when switching manufacturer", async () => {
+        const two = [
+            { id: "m1", name: "Acme Fab", contact: "", website: "", notes: "", created_at: "", updated_at: "", attached_at: "" },
+            { id: "m2", name: "Beta Fab", contact: "", website: "", notes: "", created_at: "", updated_at: "", attached_at: "" },
+        ];
+        listProjectManufacturers.mockResolvedValue(two);
+        render(<ProjectManufacturing projectId="p1" canEdit />);
+        await waitForForm();
+        fireEvent.change(screen.getByLabelText(/Layer count/), { target: { value: "4" } });
+
+        fireEvent.click(screen.getByRole("button", { name: "Beta Fab" }));
+        expect(await screen.findByText("Discard unsaved changes?")).toBeTruthy();
+        // Cancelling keeps the current manufacturer and the edit.
+        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+        await waitFor(() => expect(screen.queryByText("Discard unsaved changes?")).toBeNull());
+        expect(getProjectSpecForManufacturer).toHaveBeenCalledTimes(1);
+        expect((screen.getByLabelText(/Layer count/) as HTMLInputElement).value).toBe("4");
+
+        fireEvent.click(screen.getByRole("button", { name: "Beta Fab" }));
+        fireEvent.click(await screen.findByRole("button", { name: "Discard changes" }));
+        await waitFor(() => expect(getProjectSpecForManufacturer).toHaveBeenCalledWith("p1", "m2"));
+    });
+
+    it("switches manufacturer without asking when nothing is unsaved", async () => {
+        listProjectManufacturers.mockResolvedValue([
+            { id: "m1", name: "Acme Fab", contact: "", website: "", notes: "", created_at: "", updated_at: "", attached_at: "" },
+            { id: "m2", name: "Beta Fab", contact: "", website: "", notes: "", created_at: "", updated_at: "", attached_at: "" },
+        ]);
+        render(<ProjectManufacturing projectId="p1" canEdit />);
+        await waitForForm();
+        fireEvent.click(screen.getByRole("button", { name: "Beta Fab" }));
+        await waitFor(() => expect(getProjectSpecForManufacturer).toHaveBeenCalledWith("p1", "m2"));
+        expect(screen.queryByText("Discard unsaved changes?")).toBeNull();
+    });
+
+    it("asks before swapping the schema over unsaved edits", async () => {
+        listTemplates.mockResolvedValue([
+            { id: "t1", manufacturer_id: "m1", name: "Standard", spec_config: "", capabilities: {} },
+            { id: "t2", manufacturer_id: "m1", name: "Advanced", spec_config: "", capabilities: {} },
+        ]);
+        getProjectSpecForManufacturer.mockResolvedValue({ ...makeSpec(), template_id: "t1", template_name: "Standard" });
+        getProjectSpec.mockResolvedValue({ ...makeSpec(), template_id: "t1", template_name: "Standard" });
+        render(<ProjectManufacturing projectId="p1" canEdit />);
+        await waitForForm();
+        fireEvent.change(screen.getByLabelText(/Layer count/), { target: { value: "4" } });
+
+        fireEvent.keyDown(screen.getByRole("combobox", { name: "Schema" }), { key: "Enter" });
+        fireEvent.click(await screen.findByRole("option", { name: "Advanced" }));
+        expect(await screen.findByText("Discard unsaved changes?")).toBeTruthy();
+        expect(applyTemplateToSpec).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+        await waitFor(() => expect(applyTemplateToSpec).toHaveBeenCalledWith("spec_1", "t2"));
+    });
+
+    it("confirms before removing a manufacturer from the project", async () => {
+        detachManufacturer.mockResolvedValue(undefined);
+        render(<ProjectManufacturing projectId="p1" canEdit />);
+        await waitForForm();
+        fireEvent.click(screen.getByRole("button", { name: "Remove Acme Fab" }));
+        expect(detachManufacturer).not.toHaveBeenCalled();
+        fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+        await waitFor(() => expect(detachManufacturer).toHaveBeenCalledWith("p1", "m1"));
     });
 
     it("hides edit controls when canEdit is false", async () => {

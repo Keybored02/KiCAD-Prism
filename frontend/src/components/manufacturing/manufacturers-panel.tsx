@@ -79,7 +79,18 @@ export function ManufacturersPanel({ manufacturers, canEdit, addOpen, onAddOpenC
                                     <div className="font-medium">{m.name}</div>
                                     <div className="mt-0.5 space-y-0.5 text-sm text-muted-foreground">
                                         {m.contact && <div>{m.contact}</div>}
-                                        {m.website && <div className="truncate">{m.website}</div>}
+                                        {m.website && (
+                                            <div className="truncate">
+                                                <a
+                                                    href={/^https?:\/\//i.test(m.website) ? m.website : `https://${m.website}`}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="text-primary hover:underline"
+                                                >
+                                                    {m.website}
+                                                </a>
+                                            </div>
+                                        )}
                                         {m.notes && <div className="text-xs">{m.notes}</div>}
                                     </div>
                                 </div>
@@ -315,7 +326,7 @@ function ManufacturerTemplates({ manufacturer, canEdit }: ManufacturerTemplatesP
                 open={deleteTarget !== null}
                 onOpenChange={(open) => !open && setDeleteTarget(null)}
                 title="Delete template?"
-                description={<>{deleteTarget?.name} will be removed. Projects that already applied it keep their copy.</>}
+                description={<>{deleteTarget?.name} will be removed. Projects using it keep their form fields but lose its capabilities.</>}
                 confirmLabel="Delete"
                 onConfirm={async () => {
                     if (!deleteTarget) return;

@@ -97,6 +97,32 @@ describe("RunDetail", () => {
         expect(screen.getByText(/No defects logged/)).toBeTruthy();
     });
 
+    it("shows the run's notes and saves an edit", async () => {
+        getRun.mockResolvedValue({ ...makeRun(), notes: "Rush order" });
+        updateRun.mockResolvedValue(undefined);
+        render(<RunDetail runId="run_1" canEdit canLogDefects canChangeStatus onBack={vi.fn()} />);
+        const notes = (await screen.findByLabelText("Notes")) as HTMLTextAreaElement;
+        expect(notes.value).toBe("Rush order");
+        fireEvent.change(notes, { target: { value: "Rush order, ship DHL" } });
+        fireEvent.blur(notes);
+        await waitFor(() => expect(updateRun).toHaveBeenCalledWith("run_1", { notes: "Rush order, ship DHL" }));
+    });
+
+    it("shows notes as plain text without edit rights, and nothing when empty", async () => {
+        getRun.mockResolvedValue({ ...makeRun(), notes: "Rush order" });
+        const { unmount } = render(
+            <RunDetail runId="run_1" canEdit={false} canLogDefects={false} canChangeStatus={false} onBack={vi.fn()} />,
+        );
+        expect(await screen.findByText("Rush order")).toBeTruthy();
+        expect(screen.queryByLabelText("Notes")).toBeNull();
+        unmount();
+
+        getRun.mockResolvedValue(makeRun());
+        render(<RunDetail runId="run_1" canEdit={false} canLogDefects={false} canChangeStatus={false} onBack={vi.fn()} />);
+        await waitFor(() => expect(screen.getByRole("heading", { name: "Board One" })).toBeTruthy());
+        expect(screen.queryByText("Notes")).toBeNull();
+    });
+
     it("shows Good as a number and edits it via the pencil", async () => {
         getRun.mockResolvedValue(makeRun());
         updateRun.mockResolvedValue(makeRun());
@@ -210,6 +236,19 @@ describe("RunDetail", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
         await waitFor(() => expect(updateDefect).toHaveBeenCalledWith("def_1", { status: "resolved" }));
+    });
+
+    it("confirms before removing defect evidence", async () => {
+        const evidence = [{ kind: "photo" as const, filename: "joint.jpg", digest: "abc", media_type: "image/jpeg", size: 10 }];
+        getRun.mockResolvedValue(makeRun([makeDefect({ evidence })]));
+        deleteEvidence.mockResolvedValue(undefined);
+        render(<RunDetail runId="run_1" canEdit canLogDefects canChangeStatus onBack={vi.fn()} />);
+        await waitFor(() => expect(screen.getByRole("heading", { name: "Board One" })).toBeTruthy());
+        goToDefects();
+        fireEvent.click(screen.getByRole("button", { name: "Remove joint.jpg" }));
+        expect(deleteEvidence).not.toHaveBeenCalled();
+        fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+        await waitFor(() => expect(deleteEvidence).toHaveBeenCalledWith("def_1", "abc"));
     });
 
     it("a QA user can change status even without run-edit rights", async () => {

@@ -278,6 +278,12 @@ export function RunDetail({ runId, canEdit, canLogDefects, canChangeStatus, onBa
                                 <Stat label="Affected units" value={affected} />
                             </div>
 
+                            <RunNotes
+                                notes={run.notes}
+                                canEdit={canEdit}
+                                onCommit={(notes) => void patch({ notes })}
+                            />
+
                             <SpecSnapshot snapshot={run.spec_snapshot} />
                         </div>
                     ) : null}
@@ -343,6 +349,41 @@ export function RunDetail({ runId, canEdit, canLogDefects, canChangeStatus, onBa
                 busy={deleting}
                 onConfirm={() => void handleDelete()}
             />
+        </div>
+    );
+}
+
+function RunNotes({
+    notes,
+    canEdit,
+    onCommit,
+}: {
+    notes: string;
+    canEdit: boolean;
+    onCommit: (notes: string) => void;
+}) {
+    const [draft, setDraft] = useState(notes);
+    useEffect(() => setDraft(notes), [notes]);
+
+    if (!canEdit && !notes.trim()) return null;
+    return (
+        <div className="border">
+            <div className="border-b bg-muted/30 px-4 py-2.5">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notes</h3>
+            </div>
+            {canEdit ? (
+                <Textarea
+                    aria-label="Notes"
+                    rows={3}
+                    className="rounded-none border-0 shadow-none focus-visible:ring-0"
+                    placeholder="Add notes about this production"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={() => draft !== notes && onCommit(draft.trim())}
+                />
+            ) : (
+                <p className="whitespace-pre-wrap px-4 py-3 text-sm">{notes}</p>
+            )}
         </div>
     );
 }
@@ -691,6 +732,7 @@ function EvidenceThumb({
 }) {
     const url = evidenceUrl(runId, item.digest);
     const isPdf = item.media_type === "application/pdf";
+    const [confirmRemove, setConfirmRemove] = useState(false);
     return (
         <div className="group relative">
             <a
@@ -710,18 +752,29 @@ function EvidenceThumb({
                 <button
                     type="button"
                     aria-label={`Remove ${item.filename}`}
-                    className="absolute -right-2 -top-2 hidden rounded-full border bg-background p-1 text-destructive group-hover:block"
-                    onClick={() =>
-                        void deleteEvidence(defectId, item.digest)
-                            .then(onDeleted)
-                            .catch((error) =>
-                                toast.error(error instanceof Error ? error.message : "Failed to remove."),
-                            )
-                    }
+                    className="absolute -right-2 -top-2 hidden rounded-full border bg-background p-1 text-destructive group-hover:block focus-visible:block"
+                    onClick={() => setConfirmRemove(true)}
                 >
                     <Trash2 className="h-3 w-3" />
                 </button>
             )}
+            <ConfirmDialog
+                open={confirmRemove}
+                onOpenChange={setConfirmRemove}
+                title="Remove evidence?"
+                description={<>{item.filename} will be removed from this defect.</>}
+                confirmLabel="Remove"
+                onConfirm={() =>
+                    void deleteEvidence(defectId, item.digest)
+                        .then(() => {
+                            setConfirmRemove(false);
+                            onDeleted();
+                        })
+                        .catch((error) =>
+                            toast.error(error instanceof Error ? error.message : "Failed to remove."),
+                        )
+                }
+            />
         </div>
     );
 }
