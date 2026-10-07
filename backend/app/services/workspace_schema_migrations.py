@@ -47,6 +47,7 @@ from app.services.workspace_migrations import m038_system_harnesses
 from app.services.workspace_migrations import m039_system_harness_part_pins
 from app.services.workspace_migrations import m040_system_poses
 from app.services.trackers import migrations as tracker_migrations
+from app.services.workspace_migrations import m041_repository_origin
 
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,14 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (38, "system_harnesses", m038_system_harnesses.migrate),
     (39, "system_harness_part_pins", m039_system_harness_part_pins.migrate),
     (40, "system_poses", m040_system_poses.migrate),
+    (41, "repository_origin", m041_repository_origin.migrate),
+)
+
+# Migrations that a long-lived branch database recorded under an earlier number.
+# The ledger keys on version, so without this the old row would hide another
+# migration's version and the new one would fail on the unique name.
+RENUMBERED: tuple[tuple[str, int, int], ...] = (
+    ("repository_origin", 26, 41),
 )
 
 
@@ -105,6 +114,11 @@ def apply_workspace_migrations(conn: Any) -> None:
         )
         """
     )
+    for name, old_version, new_version in RENUMBERED:
+        conn.execute(
+            "UPDATE ws_schema_migrations SET version = %s WHERE version = %s AND name = %s",
+            (new_version, old_version, name),
+        )
     applied = {
         int(row["version"])
         for row in conn.execute("SELECT version FROM ws_schema_migrations").fetchall()

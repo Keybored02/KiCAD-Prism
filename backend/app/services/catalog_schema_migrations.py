@@ -163,12 +163,45 @@ def _model_glb(conn: Any) -> None:
     )
 
 
+def _agent_tokens_registry(conn: Any) -> None:
+    """Track issued KiCad agent sign-in tokens so they can be listed and revoked.
+
+    The token value is never stored; the jti is the handle the revocation list
+    keys on when a row is revoked from the web console.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_tokens (
+            jti TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            scopes TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            last_used_at TEXT,
+            revoked_at TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS agent_tokens_email_idx ON agent_tokens (email)"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "portable_column_types", _portable_column_types),
     (2, "import_proposal_draft_column", _import_proposal_draft_column),
     (3, "component_kinds", _component_kinds),
     (4, "mates_with", _mates_with),
     (5, "model_glb", _model_glb),
+    (6, "agent_tokens_registry", _agent_tokens_registry),
+)
+
+# Migrations that a long-lived branch database recorded under an earlier number.
+# The ledger keys on version, so without this the old row would hide another
+# migration's version and the new one would fail on the unique name.
+RENUMBERED: tuple[tuple[str, int, int], ...] = (
+    ("agent_tokens_registry", 3, 6),
 )
 
 
@@ -202,6 +235,11 @@ def apply_catalog_migrations(conn: Any) -> None:
         )
         """
     )
+    for name, old_version, new_version in RENUMBERED:
+        conn.execute(
+            "UPDATE catalog_schema_versions SET version = %s WHERE version = %s AND name = %s",
+            (new_version, old_version, name),
+        )
     applied = {
         int(row["version"])
         for row in conn.execute("SELECT version FROM catalog_schema_versions").fetchall()
@@ -240,9 +278,10 @@ def pending_catalog_migrations(conn: Any) -> list[tuple[int, str]]:
     ).fetchone()
     applied: set[int] = set()
     if existing and existing["relation"]:
+        renumbered = {(old, name): new for name, old, new in RENUMBERED}
         applied = {
-            int(row["version"])
-            for row in conn.execute("SELECT version FROM catalog_schema_versions").fetchall()
+            renumbered.get((int(row["version"]), str(row["name"])), int(row["version"]))
+            for row in conn.execute("SELECT version, name FROM catalog_schema_versions").fetchall()
         }
     if not applied:
         applied |= _adopt_legacy_markers(conn)

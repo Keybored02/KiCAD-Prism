@@ -327,6 +327,24 @@ def create_base_schema(conn: CatalogPostgresConnection) -> None:
                 last_used_at TEXT
             );
 
+            -- Registry of issued KiCad agent sign-in tokens, so a user (or an
+            -- admin) can see and revoke them from the web console. The token
+            -- itself is never stored; the jti here is what the revocation list
+            -- keys on when a row is revoked.
+            CREATE TABLE IF NOT EXISTS agent_tokens (
+                jti TEXT PRIMARY KEY,
+                email TEXT NOT NULL,
+                label TEXT NOT NULL DEFAULT '',
+                scopes TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                last_used_at TEXT,
+                revoked_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS agent_tokens_email_idx
+                ON agent_tokens (email);
+
             CREATE INDEX IF NOT EXISTS idx_components_active ON components(is_active);
             CREATE INDEX IF NOT EXISTS idx_components_source ON components(source, external_source, external_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_components_identity_mpn
