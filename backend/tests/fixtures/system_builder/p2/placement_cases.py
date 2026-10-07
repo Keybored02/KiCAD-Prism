@@ -22,7 +22,7 @@ from pathlib import Path
 from kicad_monkey import kicad_pcb_footprint, kicad_sexpr
 
 from app.services.systems.interface_extractor import _footprint_geometry, extract_interface
-from app.services.systems.placement import harness_ends, harness_topology, mate, poses, solve
+from app.services.systems.placement import harness_curves, harness_ends, harness_topology, mate, poses, solve
 from app.services.systems.placement.frames import connector_frame, infer
 
 SOURCES = Path(__file__).resolve().parent / "sources"
@@ -303,6 +303,9 @@ def harness_end_cases() -> list[dict]:
     return out
 
 
+WH001_ENDS: dict[str, dict] = {}  # filled by topology_cases, used by curve_cases
+
+
 def topology_cases() -> list[dict]:
     """Harness trees (§17.7) on the fixture's WH-001 (PWR J3 → PAY J11 and J12, a splice on J3 pin 3).
 
@@ -316,6 +319,7 @@ def topology_cases() -> list[dict]:
     ends = []
     for end_id, world in boards.items():
         placed = harness_ends.board_end(world, pose(header, x=50, y=-10, angle=0), THICKNESS)
+        WH001_ENDS[end_id] = {k: placed[k] for k in ("exitMm", "outward", "legMm")}
         ends.append({"id": end_id, "legMm": placed["legMm"], "outward": placed["outward"]})
     wires = [{"id": "w1", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e2", "pin": "1"}},
              {"id": "w2", "from": {"end": "e1", "pin": "4"}, "to": {"end": "e2", "pin": "2"}},
@@ -332,6 +336,34 @@ def topology_cases() -> list[dict]:
     ]
     return [{"name": name, "input": {"ends": e, "wires": w, "breakouts": b},
              "expected": harness_topology.topology(e, w, b)} for name, e, w, b in specs]
+
+
+def curve_cases() -> list[dict]:
+    """Harness curves (§17.8): single curves with and without relaxation, and WH-001's segments."""
+
+    def head(x: float, out: list[float]) -> list[list[float]]:
+        return [[x + d * out[0], d * out[1], d * out[2]] for d in (0.0, 5.0, 10.0, 15.0)]
+
+    a, b = head(0.0, [1.0, 0.0, 0.0]), head(200.0, [-1.0, 0.0, 0.0])
+    single = [
+        ("facing ends, a waypoint on the line: straight", [[100.0, 0.0, 0.0]]),
+        ("a gentle waypoint is left alone", [[100.0, 15.0, 0.0]]),
+        ("a sharp waypoint is pulled in until the bend clears 6 d", [[100.0, 60.0, 0.0]]),
+        ("two waypoints, the nearer to the tight bend moves", [[60.0, 40.0, 0.0], [140.0, -40.0, 0.0]]),
+    ]
+    out = []
+    for name, waypoints in single:
+        points = a + waypoints + b[::-1]
+        movable = [False] * 4 + [True] * len(waypoints) + [False] * 4
+        out.append({"name": name, "op": "curve", "input": {"points": points, "movable": movable, "diameterMm": 1.4},
+                    "expected": harness_curves.curve(points, movable, 1.4)})
+    wh = next(c for c in topology_cases() if c["name"].startswith("WH-001"))["expected"]
+    for name, waypoints in (("WH-001 without waypoints: each leg turns tighter than 6 d (reported)", {}),
+                            ("WH-001 with a waypoint on the trunk", {"e1~auto": [[60.0, 30.0, 45.0]]})):
+        out.append({"name": name, "op": "harness",
+                    "input": {"ends": WH001_ENDS, "tree": wh, "waypoints": waypoints},
+                    "expected": harness_curves.harness_curves(WH001_ENDS, wh, waypoints)})
+    return out
 
 
 def compact(value, indent: int = 0) -> str:
@@ -352,7 +384,8 @@ def main() -> None:
                             "tolerance": {"mm": 1e-6, "unit": 1e-9}, "frames": cases(),
                             "poses": pose_cases(), "mates": mate_cases(),
                             "solves": solve_cases(), "harnessEnds": harness_end_cases(),
-                            "harnessTopologies": topology_cases(), "mateEnds": MATE_ENDS}) + "\n")
+                            "harnessTopologies": topology_cases(), "harnessCurves": curve_cases(),
+                            "mateEnds": MATE_ENDS}) + "\n")
 
 
 if __name__ == "__main__":
