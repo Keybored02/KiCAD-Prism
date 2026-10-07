@@ -1,0 +1,524 @@
+"""Systems, the system document, exports and instances (§8.1, CONTRACTS_P2 §4)."""
+
+from __future__ import annotations
+
+from typing import Any, Mapping, Optional, Sequence
+
+from app.services.systems import (
+    exports as exports_module, exposure, harnesses as harnesses_module, mating as mating_module, redaction, sources,
+    validation, visibility,
+)
+from app.services.systems.interface_extractor import EXTRACTOR_VERSION
+from app.services.systems.jobs import (
+    EXTRACT_JOB_KIND,
+    artifact_key,
+)
+from app.services.systems.store import Conflict, Invalid, NotFound, SystemStore
+from app.services.systems.service_base import Caller, Result, _mating_summary, _iso
+
+
+class DocumentsMixin:
+    # ------------------------------------------------------------------
+    # Systems
+
+    def list_systems(self, caller: Caller) -> list[dict]:
+        with self._tx() as store:
+            return visibility.visible_systems(store.conn, caller.role)
+
+    def create_system(
+        self, caller: Caller, *, name: str, description: str, folder_id: Optional[str]
+    ) -> Result:
+        with self._tx() as store:
+            if folder_id is not None and not visibility.folder_visible(store.conn, folder_id, caller.role):
+                raise Invalid("folderId does not name a folder")
+            row = store.create_system(
+                name=name, description=description, folder_id=folder_id, actor=caller.actor
+            )
+            body = self._system(store, row["id"], caller)
+        return Result(body, row["id"], body["version"])
+
+    def update_system(
+        self, caller: Caller, system_id: str, version: int, fields: Mapping[str, Any]
+    ) -> Result:
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            folder_id = fields.get("folderId", ...)
+            if folder_id not in (..., None) and not visibility.folder_visible(
+                store.conn, folder_id, caller.role
+            ):
+                raise Invalid("folderId does not name a folder")
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                rules = fields.get("optionalRules")
+                if rules is not None and not set(rules) <= validation.OPTIONAL_RULES:
+                    raise Invalid(f"optionalRules may only name {', '.join(sorted(validation.OPTIONAL_RULES))}")
+                store.update_system(
+                    change, name=fields.get("name"), description=fields.get("description"),
+                    folder_id=folder_id, optional_rules=rules,
+                )
+            body = self._system(store, system_id, caller)
+        return Result(body, system_id, change.version)
+
+    def delete_system(self, caller: Caller, system_id: str, version: int) -> None:
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            access = self._access(store, store.list_instances(system_id), caller)
+            if any(not seen["visible"] for seen in access.values()):
+                # Deleting would destroy rows of a board the caller cannot see.
+                raise Conflict("system contains restricted boards")
+            with store.mutation(system_id, expected_version=version, actor=caller.actor):
+                self._refuse_deleting_published(store, system_id)
+            store.delete_system(system_id)
+
+    def _refuse_deleting_published(self, store: SystemStore, system_id: str) -> None:
+        """D-P2-29: a catalog revision resolves through the snapshot it was published from, so a
+        system whose snapshots back revisions stays while its component is active or any parent
+        still uses one of those revisions."""
+
+        component_id = store.get_system(system_id).get("catalog_component_id") or \
+            self._catalog().find_system_component(system_id)
+        if not component_id:
+            return
+        revisions = [r for r in self._catalog().system_revisions(component_id)
+                     if (r.get("sourceRef") or {}).get("systemId") == system_id]
+        if not revisions:
+            return
+        versions = ", ".join(f"v{r['version']}" for r in revisions)
+        if self._catalog().find_system_component(system_id) == component_id:
+            raise Conflict(f"published_in_catalog: catalog revisions {versions} come from this system's snapshots; "
+                           "retire the catalog component before deleting the system")
+        users = store.count_instances_of_revisions([r["revisionId"] for r in revisions])
+        if users:
+            raise Conflict(f"published_in_catalog: {users} parent instance(s) still use revisions {versions} "
+                           "of this system; remove them from their parent systems first")
+
+    # ------------------------------------------------------------------
+    # The system document (§8.1)
+
+    def _build(self, store: SystemStore, system: Mapping[str, Any]) -> tuple[dict, list[dict], dict]:
+        """The unredacted system document with its full validation report.
+
+        Snapshots freeze exactly this; readers get it through ``redact_document``.
+        Also returns the instance rows and their latest extraction jobs.
+        """
+
+        system_id = system["id"]
+        instances = store.list_instances(system_id)
+        links = store.list_links(system_id)
+        names = visibility.project_access(store.conn, [i["project_id"] for i in instances], "admin")
+        interfaces: dict[str, dict] = {}
+        for instance in instances:
+            found = store.get_interface(instance["project_id"], instance["baseline_commit"], EXTRACTOR_VERSION)
+            if found is not None:
+                interfaces[instance["id"]] = found
+        pending = [i for i in instances if i["id"] not in interfaces]
+        job_state = self._latest_jobs(store, pending)
+        for child in store.list_instances(system_id, kinds=("assembly", "module")):
+            synthetic = self._instance_interface(store, child)
+            if synthetic is not None:
+                interfaces[child["id"]] = synthetic
+        overrides = {i["id"]: store.list_overrides(i["id"]) for i in instances if i["id"] in interfaces}
+        open_reviews = store.list_reviews(system_id, status="open")
+        exports = store.list_exports(system_id)
+        report = self._validate(store, system_id, instances, links, interfaces, job_state, open_reviews, exports,
+                                system.get("optionalRules") or ())
+        catalog_docs = [self._catalog_instance_doc(i) for i in store.list_instances(system_id, kinds=("assembly", "module"))]
+        report = validation.with_findings(report, validation.child_findings([
+            {"instanceId": doc["id"], "releaseStatus": doc["catalog"]["releaseStatus"],
+             "openReviewCount": doc["catalog"]["openReviewCount"],
+             "blocked": (store.get_source_check(doc["id"]) or {}).get("last_outcome") == "advance_blocked"}
+            for doc in catalog_docs
+        ]))
+        stale = []
+        mating = {instance["id"]: store.list_mating(instance["id"]) for instance in instances}
+        for instance in instances:
+            stored = mating[instance["id"]]
+            if not stored or instance["id"] not in interfaces:
+                continue
+            for port_key, record in sorted(stored.items()):
+                component = exposure.component_by_key(interfaces[instance["id"]], port_key)
+                if mating_module.is_stale(component, record):
+                    stale.append({"instanceId": instance["id"], "portKey": port_key, "mode": record["mode"],
+                                  "reference": (component or {}).get("reference")})
+        report = validation.with_findings(report, validation.mating_findings(stale))
+        harness_rows = store.list_harnesses(system_id)
+        harness_docs = []
+        for harness in harness_rows:
+            components = self._end_components(store, harness, interfaces)
+            harness_docs.append(self._harness_doc(harness, components))
+            report = validation.with_findings(report, harnesses_module.findings(
+                harness, components, {i["id"]: store.list_overrides(i["id"]) for i in instances},
+                system.get("optionalRules") or (), validation.make_finding))
+        report = validation.with_findings(report, self._mate_pair_findings(links, harness_rows, interfaces))
+        review_rows = sorted({rid for review in open_reviews for item in review["items"] for rid in item["row_ids"]})
+        return {
+            "system": dict(system),
+            "instances": [
+                self._instance_doc(i, names.get(i["project_id"]), interfaces.get(i["id"]),
+                                   overrides.get(i["id"], {}),
+                                   job_state.get(artifact_key(i["project_id"], i["baseline_commit"])))
+                for i in instances
+            ] + catalog_docs,
+            "links": [self._link_doc(link, interfaces, overrides, mating) for link in links],
+            "exports": [self._export_doc(export, interfaces, overrides) for export in exports],
+            "harnesses": harness_docs,
+            "openReviewCount": system["openReviewCount"],
+            "findingCounts": report["counts"],
+            "validation": report,
+            "reviewRowIds": review_rows,
+        }, instances, job_state
+
+    def document(self, caller: Caller, system_id: str) -> Result:
+        with self._tx() as store:
+            system = self._system(store, system_id, caller)
+            built, instances, job_state = self._build(store, system)
+            restricted = self._restricted_instances(store, system_id, caller)
+        ready = {i["id"] for i in built["instances"] if i["interface"]["status"] == "ready"}
+        for instance in instances:
+            key = artifact_key(instance["project_id"], instance["baseline_commit"])
+            if (instance["id"] not in ready and instance["id"] not in restricted
+                    and key not in job_state and instance["resolution"] == "resolved"):
+                self._enqueue_quietly(instance["project_id"], instance["baseline_commit"], caller)
+        body = {k: v for k, v in built.items() if k not in ("validation", "reviewRowIds")}
+        return Result(redaction.redact_document(body, restricted), system_id, system["version"])
+
+    def _validate(
+        self, store: SystemStore, system_id: str, instances: Sequence[dict], links: Sequence[dict],
+        interfaces: Mapping[str, dict], job_state: Mapping[str, dict], open_reviews: Sequence[dict],
+        exports: Sequence[dict] = (), optional_rules: Sequence[str] = (),
+    ) -> dict:
+        """§7.2 over the live state; an instance's failed extraction makes its source unavailable."""
+
+        unavailable = {}
+        for instance in instances:
+            job = job_state.get(artifact_key(instance["project_id"], instance["baseline_commit"]))
+            if instance["id"] not in interfaces and job and job["status"] in ("failed", "cancelled"):
+                unavailable[instance["id"]] = job["error_code"] or "extraction_failed"
+        return validation.validate(
+            # The full map: board rules read boards only; re-export checks need assemblies (P2 §4).
+            instances, links, dict(interfaces),
+            {i["id"]: store.list_overrides(i["id"]) for i in instances},
+            open_reviews, unavailable=unavailable, exports=exports, optional_rules=optional_rules,
+        )
+
+    def validation_report(self, caller: Caller, system_id: str) -> Result:
+        """``GET …/validation`` (§7.2), redacted for restricted boards (§8.2)."""
+
+        with self._tx() as store:
+            system = self._system(store, system_id, caller)
+            built, _instances, _jobs = self._build(store, system)
+            restricted = self._restricted_instances(store, system_id, caller)
+        return Result(redaction.redact_findings(built["validation"], restricted), system_id, system["version"])
+
+    def _latest_jobs(self, store: SystemStore, instances: Sequence[dict]) -> dict[str, dict]:
+        keys = sorted({artifact_key(i["project_id"], i["baseline_commit"]) for i in instances})
+        if not keys:
+            return {}
+        rows = store.conn.execute(
+            """
+            SELECT DISTINCT ON (artifact_key) id, artifact_key, status, error_code
+            FROM ws_jobs
+            WHERE kind = %s AND artifact_key = ANY(%s)
+            ORDER BY artifact_key, created_at DESC
+            """,
+            (EXTRACT_JOB_KIND, keys),
+        ).fetchall()
+        return {row["artifact_key"]: dict(row) for row in rows}
+
+    @staticmethod
+    def _interface_state(interface: Optional[dict], job: Optional[dict]) -> dict:
+        if interface is not None:
+            return {"status": "ready", "digest": interface["digest"], "hasPcb": interface["hasPcb"],
+                    "jobId": None, "errorCode": None}
+        if job is not None and job["status"] in ("failed", "cancelled"):
+            return {"status": "failed", "digest": None, "hasPcb": None,
+                    "jobId": str(job["id"]), "errorCode": job["error_code"] or "extraction_failed"}
+        return {"status": "pending", "digest": None, "hasPcb": None,
+                "jobId": str(job["id"]) if job else None, "errorCode": None}
+
+    def _instance_doc(
+        self, instance: dict, access: Optional[dict], interface: Optional[dict],
+        overrides: Mapping[str, str], job: Optional[dict],
+    ) -> dict:
+        tip = instance["tip_commit"]
+        return {
+            "id": instance["id"],
+            "label": instance["label"],
+            "restricted": False,
+            "projectId": instance["project_id"],
+            "projectName": access["name"] if access else None,
+            # Not sensitive, and survives redaction: tells a designer the board can be removed.
+            "projectDeleted": bool(access and access["deleted"]),
+            "baselineCommit": instance["baseline_commit"],
+            "trackedRef": instance["tracked_ref"],
+            "pinned": instance["pinned"],
+            "resolution": instance["resolution"],
+            "tipCommit": tip,
+            "tipCheckedAt": _iso(instance["tip_checked_at"]),
+            "updateAvailable": bool(tip) and tip != instance["baseline_commit"],
+            "interface": self._interface_state(interface, job),
+            # Exposed ports plus any the user overrode; the full list is GET …/interface.
+            "ports": None if interface is None else [
+                port for port in exposure.resolve_ports(interface, overrides)
+                if port["exposed"] or port["override"] is not None
+            ],
+        }
+
+    @staticmethod
+    def _observed(pin: Optional[dict]) -> Optional[dict]:
+        if pin is None:
+            return {"present": False, "nets": None, "pcbNets": None, "pinNames": None, "pinTypes": None}
+        return {"present": True, "nets": pin["nets"], "pcbNets": pin.get("pcbNets"),
+                "pinNames": pin.get("pinNames"), "pinTypes": pin.get("pinTypes")}
+
+    def _link_doc(
+        self, link: dict, interfaces: Mapping[str, dict], overrides: Mapping[str, Mapping[str, str]],
+        mating: Optional[Mapping[str, Mapping[str, dict]]] = None,
+    ) -> dict:
+        ends: dict[str, dict] = {}
+        pins: dict[str, Optional[dict]] = {}
+        for end in ("a", "b"):
+            instance_id = link[f"{end}_instance_id"]
+            port = dict(link[f"{end}_port"])
+            interface = interfaces.get(instance_id)
+            component = exposure.component_by_key(interface, port["portKey"]) if interface else None
+            ends[end] = {
+                "instanceId": instance_id,
+                "redacted": False,
+                "port": port,
+                # An end on a subsystem's export: where it lands inside the child (P2 §6.1).
+                "export": dict(component["export"]) if component and component.get("export") else None,
+                "resolved": None if interface is None else component is not None,
+                "exposed": None if component is None else exposure.is_exposed(
+                    component, overrides.get(instance_id, {}).get(component["portKey"])
+                ),
+                # The port's stored mating frame (CONTRACTS_P2 §15.2), for the ICD's board-to-board table.
+                "mating": _mating_summary(((mating or {}).get(instance_id) or {}).get(port["portKey"])),
+            }
+            pins[end] = exposure.pins_by_pad(component) if component is not None else None
+
+        rows = []
+        for row in link["rows"]:
+            doc: dict[str, Any] = {"id": row["id"], "signal": row["signal"], "source": row["source"]}
+            for end, column in (("a", "A"), ("b", "B")):
+                pad = row[f"pin_{end}"]
+                doc[f"pin{column}"] = pad
+                doc[f"net{column}"] = list(row[f"net_{end}"])
+                doc[f"observed{column}"] = (
+                    None if pins[end] is None else self._observed(pins[end].get(pad))
+                )
+            doc["redacted"] = False
+            doc["redactedEnds"] = []
+            rows.append(doc)
+        return {
+            "id": link["id"],
+            "name": link["name"],
+            "harness": link["harness"],
+            "type": link.get("type") or "unspecified",
+            "stackHeightMm": link.get("stack_height_mm"),
+            "a": ends["a"],
+            "b": ends["b"],
+            "rows": rows,
+            "updatedAt": _iso(link["updated_at"]),
+        }
+
+    @staticmethod
+    def _export_doc(export: Mapping[str, Any], interfaces: Mapping[str, dict],
+                    overrides: Mapping[str, Mapping[str, str]]) -> dict:
+        port = export["target_port"]
+        iid = export["target_instance_id"]
+        if port:
+            component = exports_module.resolve(interfaces.get(iid), port)
+            exposed = None if component is None else exposure.is_exposed(
+                component, overrides.get(iid, {}).get(component["portKey"]))
+        else:  # a re-export resolves when the pinned revision still exports it
+            component = exposure.component_by_key(interfaces[iid], export["target_export_id"] or "") \
+                if interfaces.get(iid) else None
+            exposed = component is not None
+        return {
+            "id": export["id"], "name": export["name"], "description": export["description"],
+            "instanceId": iid, "portKey": port["portKey"] if port else None,
+            "port": dict(port) if port else None, "childExportId": export["target_export_id"],
+            "resolved": None if iid not in interfaces else (component is not None and bool(exposed)),
+            "redacted": False, "updatedAt": _iso(export["updated_at"]),
+        }
+
+    # ------------------------------------------------------------------
+    # Exports (CONTRACTS_P2 §4)
+
+    def _export_port(self, store: SystemStore, system_id: str, instance_id: str, port_key: str,
+                     caller: Caller) -> dict:
+        """The port baseline of an exposed board port at its baseline."""
+        instance = self._open_instance(store, system_id, instance_id, caller)
+        interface = self._interface(store, instance)
+        component = exposure.component_by_key(interface, port_key)
+        if component is None:
+            raise Invalid("portKey is not a component of this board at its baseline")
+        override = store.list_overrides(instance_id).get(component["portKey"])
+        if not exposure.is_exposed(component, override):
+            raise Conflict("port_not_exposed: this port is not exposed on its board")
+        return exposure.port_baseline(component)
+
+    def list_exports(self, caller: Caller, system_id: str) -> list[dict]:
+        with self._tx() as store:
+            system = self._system(store, system_id, caller)
+            built, _instances, _jobs = self._build(store, system)
+            restricted = self._restricted_instances(store, system_id, caller)
+        return redaction.redact_document(built, restricted)["exports"]
+
+    def create_export(
+        self, caller: Caller, system_id: str, version: int, *, name: str, description: str,
+        instance_id: str, port_key: Optional[str], child_export_id: Optional[str],
+    ) -> Result:
+        with self._tx() as store:
+            system = self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                if port_key is not None:
+                    port = self._export_port(store, system_id, instance_id, port_key, caller)
+                    row = store.create_export(change, name=name, description=description,
+                                              instance_id=instance_id, port=port)
+                else:
+                    instance = self._open_instance(store, system_id, instance_id, caller)
+                    if instance.get("kind") != "assembly":
+                        raise Invalid("a re-export needs an assembly instance")
+                    if exposure.component_by_key(self._interface(store, instance), child_export_id or "") is None:
+                        raise Invalid("childExportId is not an export of this subsystem's revision")
+                    row = store.create_export(change, name=name, description=description,
+                                              instance_id=instance_id, child_export_id=child_export_id)
+                body = self._export_body(store, system, row["id"])
+        return Result(body, system_id, change.version)
+
+    def update_export(
+        self, caller: Caller, system_id: str, version: int, export_id: str, fields: Mapping[str, Any],
+    ) -> Result:
+        with self._tx() as store:
+            system = self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                export = self._visible_export(store, system_id, export_id, caller)
+                if "name" in fields or "description" in fields:
+                    store.update_export(change, export_id, name=fields.get("name"),
+                                        description=fields.get("description"))
+                if fields.get("portKey") is not None:
+                    instance_id = fields.get("instanceId") or export["target_instance_id"]
+                    port = self._export_port(store, system_id, instance_id, fields["portKey"], caller)
+                    store.retarget_export(change, export_id, instance_id=instance_id, port=port)
+                body = self._export_body(store, system, export_id)
+        return Result(body, system_id, change.version)
+
+    def delete_export(self, caller: Caller, system_id: str, version: int, export_id: str) -> Result:
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                self._visible_export(store, system_id, export_id, caller)
+                store.delete_export(change, export_id)
+        return Result(None, system_id, change.version)
+
+    def _visible_export(self, store: SystemStore, system_id: str, export_id: str, caller: Caller) -> dict:
+        export = store.get_export(system_id, export_id)
+        try:
+            self._open_instance(store, system_id, export["target_instance_id"], caller)
+        except NotFound:
+            raise NotFound("Export not found") from None
+        return export
+
+    def _export_body(self, store: SystemStore, system: Mapping[str, Any], export_id: str) -> dict:
+        built, _instances, _jobs = self._build(store, system)
+        return next(e for e in built["exports"] if e["id"] == export_id)
+
+    def export_interface(self, caller: Caller, system_id: str, snapshot_id: Optional[str] = None) -> dict:
+        """``GET …/export-interface`` (P2 §4.3), live or at a snapshot, redacted for the reader."""
+
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            if snapshot_id is None:
+                instances = {i["id"]: i for i in store.list_instances(system_id)}
+                children = {i["id"]: i for i in store.list_instances(system_id, kinds=("assembly", "module"))}
+                exports = store.list_exports(system_id)
+                restricted = self._restricted_instances(store, system_id, caller)
+            else:
+                row = store.get_snapshot(system_id, snapshot_id)
+                if row["manifest"] is None:
+                    raise NotFound("This snapshot predates manifests")
+                manifest = row["manifest"]
+                instances = {i["id"]: {"id": i["id"], "project_id": i["projectId"],
+                                       "baseline_commit": i["baselineCommit"]}
+                             for i in manifest["instances"] if i["kind"] == "board"}
+                children = {i["id"]: {"id": i["id"], "kind": i["kind"], "catalog_revision_id": i["catalog"]["revisionId"]}
+                            for i in manifest["instances"] if i["kind"] != "board"}
+                exports = [{"id": e["id"], "name": e["name"], "description": e["description"],
+                            "target_instance_id": e["target"]["instanceId"],
+                            "target_port": e["target"].get("port"),
+                            "target_export_id": e["target"].get("exportId")} for e in manifest["exports"]]
+                restricted = self._restricted_in(store, row["document"], caller)
+            interfaces = {iid: store.get_interface(i["project_id"], i["baseline_commit"], EXTRACTOR_VERSION)
+                          for iid, i in instances.items()}
+            for iid, child in children.items():
+                interfaces[iid] = self._instance_interface(store, child)
+            overrides = ({iid: store.list_overrides(iid) for iid in instances} if snapshot_id is None else
+                         {i["id"]: {o["portKey"]: o["state"] for o in i.get("portOverrides", [])}
+                          for i in manifest["instances"] if i["kind"] == "board"})
+        missing = [iid for e in exports for iid in [e["target_instance_id"]]
+                   if iid in instances and interfaces.get(iid) is None]
+        if missing:
+            for iid in set(missing):
+                self._enqueue_quietly(instances[iid]["project_id"], instances[iid]["baseline_commit"], caller)
+            raise Conflict("interface_not_ready: a board behind an export is still being extracted")
+        body = exports_module.interface(exports, instances, interfaces, overrides)
+        for entry in body["exports"]:
+            if entry["occurrence"].lstrip("/") in restricted:
+                entry.update({"reference": None, "libId": None, "footprint": None, "redacted": True,
+                              "pins": [{"pad": p["pad"], "nets": None, "powerNet": None, "pinNames": None,
+                                        "pinTypes": None} for p in entry["pins"]]})
+        return body
+
+    # ------------------------------------------------------------------
+    # Instances
+
+    def add_instance(
+        self, caller: Caller, system_id: str, version: int, *, project_id: str, label: str,
+        baseline_commit: Optional[str], tracked_ref: Optional[str], pinned: bool,
+    ) -> Result:
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            project = self._require_project(store, project_id, caller)
+        commit = self._resolve_baseline(project, baseline_commit, tracked_ref)
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                row = store.add_instance(
+                    change, project_id=project_id, label=label, baseline_commit=commit,
+                    tracked_ref=tracked_ref, pinned=pinned,
+                )
+        self._enqueue_quietly(project_id, commit, caller)
+        return Result(self._instance_row(row), system_id, change.version)
+
+    def _resolve_baseline(
+        self, project: Any, baseline_commit: Optional[str], tracked_ref: Optional[str]
+    ) -> str:
+        try:
+            if tracked_ref is not None:
+                tip = sources.resolve_tracked_ref(project, tracked_ref)
+                if tip is None:
+                    raise Invalid("trackedRef does not exist in the project repository")
+            else:
+                tip = None
+            if baseline_commit is None:
+                if tip is None:
+                    raise Invalid("baselineCommit or trackedRef is required")
+                return tip  # resolved once (§8.1)
+            commit = sources.resolve_commit(project, baseline_commit)
+        except sources.SourceError as error:
+            raise Invalid(str(error)) from None
+        if commit is None:
+            raise Invalid("baselineCommit does not exist in the project repository")
+        return commit
+
+    @staticmethod
+    def _instance_row(row: Mapping[str, Any]) -> dict:
+        return {
+            "id": row["id"], "label": row["label"], "kind": row.get("kind", "board"), "projectId": row["project_id"],
+            "baselineCommit": row["baseline_commit"], "trackedRef": row["tracked_ref"],
+            "pinned": row["pinned"], "resolution": row["resolution"],
+            "tipCommit": row["tip_commit"], "tipCheckedAt": _iso(row["tip_checked_at"]),
+            "catalogComponentId": row.get("catalog_component_id"), "catalogRevisionId": row.get("catalog_revision_id"),
+            "follow": row.get("follow"),
+        }
