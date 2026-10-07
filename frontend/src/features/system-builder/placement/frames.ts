@@ -74,7 +74,8 @@ function compareNatural(a: string, b: string): number {
   return pa < pb ? -1 : pa > pb ? 1 : 0;
 }
 
-function footprintPoint(geometry: ConnectorGeometry, point: [number, number]): [number, number] {
+/** Board frame → the footprint's own frame (y up, before rotation). */
+export function footprintPoint(geometry: ConnectorGeometry, point: [number, number]): [number, number] {
   const a = radians(geometry.rotationDeg);
   const dx = point[0] - geometry.positionMm[0];
   const dy = point[1] - geometry.positionMm[1];
@@ -90,12 +91,19 @@ function distinctPadPositions(geometry: ConnectorGeometry): number {
   return new Set(geometry.pads.map((p) => `${p.positionMm[0]},${p.positionMm[1]}`)).size;
 }
 
+/**
+ * The pads `F_c` is built from: the numbered ones, or every pad when none is numbered.
+ * Unnumbered pads are mounting and alignment holes, often off-centre, which would skew the frame.
+ */
+function framePads(geometry: ConnectorGeometry): PadGeometry[] {
+  const named = geometry.pads.filter((p) => p.pad);
+  return named.length ? named : geometry.pads;
+}
+
 function padCentroid(geometry: ConnectorGeometry): [number, number] {
-  const n = geometry.pads.length;
-  return [
-    geometry.pads.reduce((sum, p) => sum + p.positionMm[0], 0) / n,
-    geometry.pads.reduce((sum, p) => sum + p.positionMm[1], 0) / n,
-  ];
+  const pads = framePads(geometry);
+  const n = pads.length;
+  return [pads.reduce((sum, p) => sum + p.positionMm[0], 0) / n, pads.reduce((sum, p) => sum + p.positionMm[1], 0) / n];
 }
 
 function localAxis(x: number, y: number): MatingAxis | null {
@@ -180,11 +188,12 @@ function padOne(geometry: ConnectorGeometry): PadGeometry {
 
 function principalAxis(geometry: ConnectorGeometry): Vec3 {
   const [cx, cy] = padCentroid(geometry);
-  const n = geometry.pads.length;
+  const pads = framePads(geometry);
+  const n = pads.length;
   let sxx = 0;
   let syy = 0;
   let sxy = 0;
-  for (const p of geometry.pads) {
+  for (const p of pads) {
     sxx += (p.positionMm[0] - cx) ** 2;
     syy += (p.positionMm[1] - cy) ** 2;
     sxy += (p.positionMm[0] - cx) * (p.positionMm[1] - cy);

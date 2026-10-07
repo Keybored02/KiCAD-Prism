@@ -32,7 +32,7 @@ export const DEFAULT_GAP_MM = 20;
 export const MAX_TRANSLATION_MM = 1_000_000;
 
 /** Round away float noise (1e-9) and fold -0, so equal poses serialise equally. */
-function clean(value: number): number {
+export function clean(value: number): number {
   return Math.round(value * 1e9) / 1e9 + 0;
 }
 

@@ -45,8 +45,18 @@ def _distinct_pad_positions(geometry: Mapping[str, Any]) -> list[tuple[float, fl
     return sorted({(p["positionMm"][0], p["positionMm"][1]) for p in geometry["pads"]})
 
 
+def _frame_pads(geometry: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The pads ``F_c`` is built from: the numbered ones, or every pad when none is numbered.
+
+    Unnumbered pads are mounting and alignment holes, often off-centre (Samtec
+    -A: one 1.27 mm off the centreline), which would skew the frame.
+    """
+    named = [p for p in geometry["pads"] if p["pad"]]
+    return named or list(geometry["pads"])
+
+
 def _pad_centroid(geometry: Mapping[str, Any]) -> tuple[float, float]:
-    pads = geometry["pads"]
+    pads = _frame_pads(geometry)
     return (sum(p["positionMm"][0] for p in pads) / len(pads), sum(p["positionMm"][1] for p in pads) / len(pads))
 
 
@@ -128,7 +138,7 @@ def _pad_one(geometry: Mapping[str, Any]) -> Mapping[str, Any]:
 def _principal_axis(geometry: Mapping[str, Any]) -> Vec:
     """The largest eigenvector of the pad-centre covariance, or the footprint's +x for square arrays."""
     cx, cy = _pad_centroid(geometry)
-    pads = geometry["pads"]
+    pads = _frame_pads(geometry)
     sxx = sum((p["positionMm"][0] - cx) ** 2 for p in pads) / len(pads)
     syy = sum((p["positionMm"][1] - cy) ** 2 for p in pads) / len(pads)
     sxy = sum((p["positionMm"][0] - cx) * (p["positionMm"][1] - cy) for p in pads) / len(pads)

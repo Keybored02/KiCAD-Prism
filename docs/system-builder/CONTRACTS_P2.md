@@ -543,8 +543,9 @@ languages with a tolerance of 1e-6 mm and 1e-9 on quaternion components.
 
 Computed from extractor v6 geometry (§14.6) in the board frame:
 
-- **Origin:** the centroid of the connector's **pads** (all pads, including mechanical ones), at `z = +t/2` when the footprint is on the front, `−t/2` on the back.
-- **x axis:** the principal axis of the pad centres (largest eigenvector of their 2D covariance), signed so that **pad "1"** (or, without one, the first pad in natural order) lies at negative x. When the two eigenvalues are within 5 % of each other (a square array) or there is one pad, x is the footprint's own +x rotated by the footprint angle.
+- **Frame pads:** the connector's **numbered** pads (mechanical ones such as "MP" included); unnumbered pads, the mounting and alignment holes, only when the footprint has no numbered pad. *(P2-1.42: was all pads. Samtec's -A alignment holes sit 1.27 mm off the centreline and skewed the frame by 0.02 mm and 0.2°.)*
+- **Origin:** the centroid of the frame pads, at `z = +t/2` when the footprint is on the front, `−t/2` on the back.
+- **x axis:** the principal axis of the frame pads' centres (largest eigenvector of their 2D covariance), signed so that **pad "1"** (or, without one, the first pad in natural order) lies at negative x. When the two eigenvalues are within 5 % of each other (a square array) or there is one pad, x is the footprint's own +x rotated by the footprint angle.
 - **z axis (mating direction):**
   - vertical: the board normal, +z for a front footprint, −z for a back one;
   - right-angle: in the board plane, along the footprint's own ±x/±y axis named by the inference or override (§15.1), rotated by the footprint angle into the board frame. The body centre is the courtyard centre; M4 may refine it with model bounds.
@@ -559,8 +560,8 @@ For a B2B pair (board A connector `a`, board B connector `b`):
 B_world = A_world · F_a · T(0, 0, h) · Rx(180°) · Rz(k · 90°) · F_b⁻¹
 ```
 
-- `k ∈ {0,1,2,3}`: default is the one that puts pad 1 on pad 1 (minimum summed pad-to-pad distance, ties to the lower k); the user's `quarterTurns` on either side add to it.
-- `h`: the link's `stackHeightMm` when given (§16.2). Otherwise the minimum separation at which the two connectors' bodies (courtyard × assumed 5 mm height until M4 brings model bounds) don't intersect, **plus 5 mm**, so an unknown stack is visibly apart rather than interpenetrating.
+- `k ∈ {0,1,2,3}`: the one that puts pad 1 on pad 1: the least summed distance across the mating plane between same-named pads (pads sharing a name count once, at their centroid), ties to the lower k; 0 when the two share no pad name. It is chosen on the **unturned** frames; `F_a` and `F_b` in the formula carry the user's `quarterTurns`, so a turn on either side turns the mated board about the mating axis.
+- `h`: the link's `stackHeightMm` when given (§16.2). Otherwise the **clearance** height: each connector's body is a box in its own connector frame (§14.8); with B's box mapped through `Rx(180°)·Rz(k·90°)`, `h` is the least separation at which the two boxes don't overlap (A's top plus B's top when they overlap across the mating plane, otherwise 0), **plus 5 mm**, so an unknown stack is visibly apart rather than interpenetrating.
 - The M4 tree solve, driving mates and `SYS-V11` follow PLAN §5.3; this section fixes only the algebra they use.
 
 ### 14.6 Extractor v6 geometry
@@ -597,6 +598,16 @@ B_world = A_world · F_a · T(0, 0, h) · Rx(180°) · Rz(k · 90°) · F_b⁻¹
 
 - **Engineering data, not connectivity.** A pose change bumps the system version and is audited (`pose_updated` with before and after; `poses_reset` with the instances), like a mating frame. It never changes the connectivity digest, so it never opens a review, moves drift or makes a parent see a new child revision.
 - **Snapshots** freeze `placement.poses`, and a system imported from a manifest gets them back. A child system's poses are its snapshot's: inside a parent it moves only as a rigid group, by the parent's pose for the assembly instance.
+
+### 14.8 The mate library (SB2-35)
+
+Python `systems/placement/mate.py`, TypeScript `placement/mate.ts`; goldens in `placement_cases.json` `mates`.
+
+- **An end** is `{geometry, thicknessMm, stored, bodyMm?}`: v6 geometry, the board thickness, the stored mating record `{axis, quarterTurns}` (null: the inference, §15.2 decides whether auto-placement may use it) and optional body bounds.
+- **Body.** `bodyMm` is `{minMm, maxMm}` in the footprint's own frame (§14.6: y up, before rotation; a back footprint in its stored mirrored coordinates) with **z measured outward from the mounting surface**, e.g. the 3D model's bounds under its KiCad model transform. Without it the body is the courtyard (or, lacking one, the pad centres) × **5 mm**. Where the server gets model bounds is SB2-37's choice; the library only takes them.
+- **`mate(a, b, stackHeightMm?)`** → `{pose, quarterTurns, stackHeightMm, heightSource}` or null when either end has no frame. `pose` is B's board frame in A's (§14.5); `heightSource` is `link` or `clearance`.
+- **`residual(aWorld, bWorld, a, b, mateResult)`** → `{offsetMm, distanceMm, lateralMm, angleDeg}`: how far placed board B's connector is from where the pair's mate puts it. `offsetMm` is on A's connector axes (x, y across the mating plane; z along the mating axis, positive = further apart), `lateralMm` its x-y length, `angleDeg` the rotation between the two. `SYS-V11` (SB2-36) is built on it.
+- **Datasheet goldens** (SB2-21 Samtec mezzanine): the 7.00 mm stack puts the top board at z = 8.60 with no rotation; the second pair's residual is 0 and the shifted commit's 1.50 mm; Samtec's body heights (terminal 4.90, socket 3.23) give a 13.13 mm clearance height.
 
 ## 15. Mating frames (SB2-12)
 
@@ -751,6 +762,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 | P2-1.38 | 2026-10-07 | Follow-up review finding 3, D-P2-31: delete archives a referenced system (frozen parent snapshots count), `archivedAt`, 409 `system_archived`; `DELETE` answers 200 with the outcome. Workspace migration 42. |
 | P2-1.39 | 2026-10-07 | SB2-21 review: the mezzanine fixtures move from Hirose DF12(3.0) to Samtec ADM6-30-03.5-L-4-0-A / ADF6-30-03.5-L-4-0-A (the JTYU OBC–CMBD pair; user choice). Footprints written from Samtec's recommended PCB layouts; goldens: mated height 7.00 mm (Samtec ADX6 mated views, Table 1), top pose (0, 0, 8.6) mm, frames at `medium` confidence (no orientation keyword, §15.1). Vendor models are not redistributed. No contract rule changes. |
 | P2-1.40 | 2026-10-07 | D-P2-30 dead-code removal: the board viewer's one-board multi-occurrence mode (`setOccurrences` on the element and controller) is gone, with `setMoveAllowed()` (the `move-allowed` attribute remains), the `"gizmo"` pick kind, the `systemstatus` event, the viewer's Euler helpers and the frontend's unused `getPoses`. `projectComponent` / `projectPoint` take an occurrence in mode="system". §20.3–§20.5 marked superseded where §20.6–§20.8 replaced them. Board 3D tab pixel diff on JTYU-OBC: 0 px. |
+| P2-1.42 | 2026-10-07 | SB2-35: §14.8 the mate library pair (`mate`, `residual`, body boxes, clearance); §14.5 spells out `k` (unturned frames, user turns on top) and the clearance height; §14.4 builds `F_c` from **numbered** pads only (unnumbered holes when there is no numbered pad). The stock-footprint goldens are unchanged; the Samtec mezzanine now poses exactly. |
 | P2-1.41 | 2026-10-07 | SB2-30a (R2, R5): §20.12 level of detail in mode="system": a body level (substrate and mask) between board and box, thresholds in CSS pixels, live tuning with the stats overlay (`setLodThresholds`, kept per browser), labels re-placed only when the view changes. Perf-25 fit-all: 52.5 → ~118 fps, p95 25 → 9.3 ms, 50.1 M → 11 M triangles; JTYU six boards: 58 → 81 fps, p95 25 → 17.5 ms. Board 3D tab pixel diff 0 px. |
 | P2-1.35 | 2026-10-07 | SB2-34: §20.11, proxy harnesses. The scene gains `harnesses`; emphasis sets take `wires`; the viewer draws each harness as straight segments that light per wire and glow their ends. Completes M3. |
 | P2-1.34 | 2026-10-07 | SB2-33: §20.10, net search in the System 3D tab: a board picker, one result per system net found by any of its names, Shift-pick adds it to the highlighted nets. `GET …/nets?members=true` (§8.2). |

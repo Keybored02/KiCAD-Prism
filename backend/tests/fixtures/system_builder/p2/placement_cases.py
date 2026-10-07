@@ -21,10 +21,11 @@ from pathlib import Path
 
 from kicad_monkey import kicad_pcb_footprint, kicad_sexpr
 
-from app.services.systems.interface_extractor import _footprint_geometry
-from app.services.systems.placement import poses
+from app.services.systems.interface_extractor import _footprint_geometry, extract_interface
+from app.services.systems.placement import mate, poses
 from app.services.systems.placement.frames import connector_frame, infer
 
+SOURCES = Path(__file__).resolve().parent / "sources"
 STOCK = Path("/Applications/KiCad/KiCad.app/Contents/SharedSupport/footprints")
 OUT = Path(__file__).resolve().parents[1] / "placement_cases.json"
 THICKNESS = 1.6
@@ -121,10 +122,97 @@ def pose_cases() -> list[dict]:
     ]
 
 
+MATE_ENDS: dict[str, dict] = {}  # fixture connectors, written once as ``mateEnds`` and named by the cases
+
+
+def fixture_end(snapshot: str, reference: str) -> dict:
+    """One connector of an SB2-21 fixture board, as a mate end: ``{"end": key}`` naming ``MATE_ENDS``."""
+    key = f"{snapshot} {reference}"
+    if key not in MATE_ENDS:
+        board, step = snapshot.split("/")
+        payload = extract_interface(SOURCES / board / step / f"{board}.kicad_pro", project_id=f"prj_{board}", commit=None)
+        geometry = next(c for c in payload["components"] if c["reference"] == reference)["geometry"]
+        MATE_ENDS[key] = {"geometry": geometry, "thicknessMm": payload["boardThicknessMm"], "stored": None}
+    return {"end": key}
+
+
+def resolve(end: dict) -> dict:
+    """A case's end with its ``{"end": key}`` reference expanded (the tests do the same)."""
+    return {**MATE_ENDS[end["end"]], **{k: v for k, v in end.items() if k != "end"}} if "end" in end else end
+
+
+def stock_end(name: str, **placement) -> dict:
+    stored = placement.pop("stored", None)
+    return {"geometry": pose(stock(name), **placement), "thicknessMm": THICKNESS, "stored": stored}
+
+
+def mate_cases() -> list[dict]:
+    """The mate transform and clearance (§14.5, §14.8), computed by the Python half.
+
+    ``test_system_placement_mate.py`` checks the Samtec ones against the
+    datasheet goldens and the others by meaning (pad 1 on pad 1, axes opposed).
+    """
+    def body(end: dict, height: float) -> dict:
+        courtyard = resolve(end)["geometry"]["courtyard"]
+        lo, hi = courtyard["minMm"], courtyard["maxMm"]
+        return {**end, "bodyMm": {"minMm": [*lo, 0.0], "maxMm": [*hi, height]}}
+
+    base, top = fixture_end("mezz_base/F0", "J1"), fixture_end("mezz_top/F0", "J1")
+    specs = [
+        ("Samtec ADM6/ADF6 mezzanine, link stack 7.00 mm", base, top, 7.0),
+        ("Samtec mezzanine, clearance from the datasheet body heights", body(base, 4.9), body(top, 3.23), None),
+        ("Samtec mezzanine, clearance from the courtyard x 5 mm", base, top, None),
+        ("orthogonal: right-angle header into a vertical socket",
+         fixture_end("edge_a/F0", "J1"), fixture_end("edge_b/F0", "J1"), None),
+        ("coplanar: right-angle socket and right-angle header",
+         fixture_end("edge_a/F0", "J2"), fixture_end("edge_b/F0", "J2"), None),
+        ("vertical headers, the far one on a back side at 90 degrees",
+         stock_end("header_v", x=50, y=-10, angle=0), stock_end("header_v", x=20, y=-30, angle=90, side="bottom"), 8.5),
+        ("square 2x2 headers: k turns pad 1 onto pad 1",
+         stock_end("header_2x2", x=5, y=5, angle=0), stock_end("header_2x2", x=0, y=0, angle=0), 3.0),
+        ("a quarter-turn override on one side turns the mated board",
+         stock_end("header_v", x=50, y=-10, angle=0),
+         stock_end("header_v", x=0, y=0, angle=0, side="bottom", stored={"axis": "bottom", "quarterTurns": 1}), 8.5),
+        ("one DF40 footprint on both boards (45 degrees, back side): pad 1 lands one row across",
+         stock_end("df40", x=40, y=-40, angle=0), stock_end("df40", x=40, y=-40, angle=45, side="bottom"), 1.5),
+        ("an end without a frame gives no mate",
+         stock_end("header_v", x=0, y=0, angle=0),
+         {"geometry": dict(pose(stock("df40"), x=0, y=0, angle=0), courtyard=None), "thicknessMm": THICKNESS,
+          "stored": None}, None),
+    ]
+    out = []
+    for name, a, b, stack in specs:
+        out.append({"name": name, "op": "mate", "input": {"a": a, "b": b, "stackHeightMm": stack},
+                    "expected": mate.mate(resolve(a), resolve(b), stack)})
+    shifted = fixture_end("mezz_top/F1", "J2")
+    driving = mate.mate(resolve(base), resolve(top), 7.0)
+    second = mate.mate(resolve(fixture_end("mezz_base/F0", "J2")), resolve(shifted), 7.0)
+    residual_input = {"aWorld": poses.IDENTITY, "bWorld": driving["pose"], "a": fixture_end("mezz_base/F0", "J2"),
+                      "b": shifted, "result": second}
+    out.append({"name": "residual: the shifted top's J2 misses by 1.5 mm when J1 drives", "op": "residual",
+                "input": residual_input,
+                "expected": mate.residual(poses.IDENTITY, driving["pose"], resolve(residual_input["a"]), resolve(shifted),
+                                          second)})
+    return out
+
+
+def compact(value, indent: int = 0) -> str:
+    """JSON with every container that fits in 120 columns on one line (pads stay one per line)."""
+    flat = json.dumps(value)
+    if not isinstance(value, (dict, list)) or len(flat) + indent <= 120:
+        return flat
+    pad = " " * (indent + 1)
+    if isinstance(value, list):
+        items = [pad + compact(v, indent + 1) for v in value]
+        return "[\n" + ",\n".join(items) + "\n" + " " * indent + "]"
+    items = [f"{pad}{json.dumps(k)}: {compact(v, indent + 1)}" for k, v in value.items()]
+    return "{\n" + ",\n".join(items) + "\n" + " " * indent + "}"
+
+
 def main() -> None:
-    OUT.write_text(json.dumps({"schema": "prism.placement_cases.v1", "kicad": "10.0.6 stock footprints",
-                               "tolerance": {"mm": 1e-6, "unit": 1e-9}, "frames": cases(),
-                               "poses": pose_cases()}, indent=1) + "\n")
+    OUT.write_text(compact({"schema": "prism.placement_cases.v1", "kicad": "10.0.6 stock footprints",
+                            "tolerance": {"mm": 1e-6, "unit": 1e-9}, "frames": cases(),
+                            "poses": pose_cases(), "mates": mate_cases(), "mateEnds": MATE_ENDS}) + "\n")
 
 
 if __name__ == "__main__":
