@@ -9,6 +9,7 @@
 
 import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
 import type { PaginatedComponents } from "@/types/catalog";
+import type { PrismSemanticIndex } from "@/types/prism-selection";
 import type {
   Decision,
   GeneratorKind,
@@ -562,4 +563,14 @@ export async function listSystemNets(systemId: string, search: string, occurrenc
 export async function getSystemNet(systemId: string, groupId: string): Promise<SystemNetDetail> {
   const { body } = await send<SystemNetDetail>(path(systemId, "nets", groupId), {}, "Could not load the net");
   return body;
+}
+
+/**
+ * A board's semantic design index at the commit the system pins (SB2-31e.2): the
+ * same identity artifact its own visualizer reads, for the System 3D tab's
+ * inspector and search.
+ */
+export async function getSemanticIndex(projectId: string, commit: string, signal?: AbortSignal): Promise<PrismSemanticIndex> {
+  const url = `/api/projects/${encodeURIComponent(projectId)}/semantic-index/identity?commit=${encodeURIComponent(commit)}`;
+  return fetchJson<PrismSemanticIndex>(url, { signal }, "The board's design index is unavailable");
 }

@@ -33,6 +33,10 @@ type DesignSearchFieldProps = {
     loading?: boolean;
     active?: boolean;
     onPick: (hit: DesignSearchHit) => void;
+    /** Replaces the one-index search (the System 3D tab searches every board). */
+    search?: (query: string) => DesignSearchHit[];
+    /** Render in place instead of in the visualizer header's search slot. */
+    inline?: boolean;
 };
 
 function ShortcutCaps({ combo }: { combo: string }) {
@@ -68,6 +72,8 @@ export function DesignSearchField({
     loading = false,
     active = true,
     onPick,
+    search,
+    inline = false,
 }: DesignSearchFieldProps) {
     const listId = useId();
     const rootRef = useRef<HTMLDivElement>(null);
@@ -80,11 +86,13 @@ export function DesignSearchField({
 
     const hits = useMemo(
         () =>
-            searchDesignEntities(semanticIndex, query, {
-                currentPage,
-                components: components ?? undefined,
-            }),
-        [components, currentPage, query, semanticIndex],
+            search
+                ? search(query)
+                : searchDesignEntities(semanticIndex, query, {
+                    currentPage,
+                    components: components ?? undefined,
+                }),
+        [components, currentPage, query, search, semanticIndex],
     );
     // A hit list that has shrunk past the highlight takes the highlight back to
     // the top during render, rather than after a commit that showed the wrong
@@ -194,7 +202,7 @@ export function DesignSearchField({
         }
     };
 
-    if (!slot) return null;
+    if (!slot && !inline) return null;
 
     const trimmed = query.trim();
     const showShortcuts = !trimmed;
@@ -203,7 +211,7 @@ export function DesignSearchField({
     const showEmpty = open && !loading && trimmed.length > 0 && hits.length === 0;
     const showHits = open && !loading && hits.length > 0;
 
-    return createPortal(
+    const field = (
         <div ref={rootRef} className="relative w-full">
             <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -277,9 +285,9 @@ export function DesignSearchField({
                     ) : null}
                 </div>
             ) : null}
-        </div>,
-        slot,
+        </div>
     );
+    return inline || !slot ? field : createPortal(field, slot);
 }
 
 function ResultList({

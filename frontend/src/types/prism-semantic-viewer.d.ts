@@ -12,7 +12,14 @@ export interface PrismRendererSelection {
     netUid?: string;
     netCode?: number;
     featureId?: number;
+    /** mode="system": the board placement to select on (alone: the board itself). */
+    occurrence?: string;
 }
+
+/** What a click in `<prism-semantic-viewer mode="system">` selected: a board's own selection with its placement, or the board. */
+export type PrismSystemViewerSelection =
+    | (PrismSelection & { occurrence?: string })
+    | { kind: "board"; sourceContext: "3D"; occurrence: string; standIn?: string | null };
 
 /** One placement of the loaded board; `key` (the occurrence path) returns on picks and selections. */
 export interface PrismViewerOccurrence {
@@ -162,6 +169,8 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     setNetEmphasis?: (sets: readonly PrismSystemSceneEmphasisSet[]) => PrismSystemSceneEmphasisResult[];
     /** mode="system": frame a lit set's copper (or all), on one placement or all; false when nothing is lit there. */
     frameNetEmphasis?: (key?: string | null, occurrence?: string | null) => boolean;
+    /** mode="system": frame every placed board. */
+    frameAll?: () => void;
     /** mode="system": frame one placed board. */
     frameBoard?: (key: string) => boolean;
 }
@@ -276,6 +285,8 @@ declare global {
                     workspace?: "pcb" | "stackup";
                     active?: string;
                     "hide-panel"?: string;
+                    /** "system": several boards from `setSystemScene` (SB2-31e). */
+                    mode?: "system";
                 },
                 PrismSemanticViewerElement
             >;

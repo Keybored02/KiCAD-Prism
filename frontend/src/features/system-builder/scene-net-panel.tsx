@@ -28,6 +28,8 @@ interface NetPanelProps {
   onIsolate: (isolated: boolean) => void;
   onClear: () => void;
   onClose: () => void;
+  /** In the 3D tab's right rail: no card frame and no close button (the rail has them). */
+  embedded?: boolean;
 }
 
 /**
@@ -35,7 +37,7 @@ interface NetPanelProps {
  * its own colour. Click-to-trace (SB2-32) and the full search (SB2-33) build on this.
  */
 export function NetPanel({
-  systemId, highlighted, results, adding, onAdd, onRemove, onFrame, isolated, onIsolate, onClear, onClose,
+  systemId, highlighted, results, adding, onAdd, onRemove, onFrame, isolated, onIsolate, onClear, onClose, embedded = false,
 }: NetPanelProps) {
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<SystemNetSummary[] | null>(null);
@@ -75,10 +77,15 @@ export function NetPanel({
   const shown = new Set(highlighted.map((net) => net.groupId));
 
   return (
-    <section aria-label="Highlight nets" className="flex max-h-full w-80 flex-col gap-2 rounded-lg border bg-card/95 p-3 text-sm shadow-md backdrop-blur">
+    <section
+      aria-label="Highlight nets"
+      className={embedded
+        ? "flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-3 text-sm"
+        : "flex max-h-full w-80 flex-col gap-2 rounded-lg border bg-card/95 p-3 text-sm shadow-md backdrop-blur"}
+    >
       <div className="flex items-center justify-between">
-        <h2 className="font-medium">Highlight nets</h2>
-        <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}><X className="size-4" aria-hidden /></Button>
+        <h2 className="font-medium">Highlight system nets</h2>
+        {!embedded && <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}><X className="size-4" aria-hidden /></Button>}
       </div>
       <div className="relative">
         <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />

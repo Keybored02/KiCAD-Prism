@@ -1361,6 +1361,7 @@ export async function mountSystemViewer(options = {}) {
     hiddenLayers: new Map(),
     bounds: null,
     framed: false,
+    snapped: false,
     boardSelected: false,
     inputs: new Map(),
     emphasisSets: [],
@@ -1381,6 +1382,9 @@ export async function mountSystemViewer(options = {}) {
     setSystemScene,
     setNetEmphasis,
     frameNetEmphasis,
+    frameAll() {
+      if (system?.bounds) camera.frame(system.bounds);
+    },
     frameBoard(key) {
       const item = system?.placements.get(String(key));
       if (item) camera.frame(item.worldBounds);
@@ -1423,6 +1427,7 @@ export async function mountSystemViewer(options = {}) {
     setRealisticColors,
     setSeparation,
     setNetIsolation,
+    showNetLayers,
     dispose() {
       disposeViewerSession(token);
     },
@@ -1544,10 +1549,13 @@ function placeSystem() {
   system.bounds = mergeBounds(placed.map((item) => item.worldBounds));
   if (system.bounds) {
     camera.sceneRadius = boundsRadius(system.bounds);
+    // The opening view follows the boards as they load (a box while loading is
+    // not the board's size), until every board is in or the reviewer moves.
     if (!system.framed) {
       camera.frame(system.bounds);
-      camera.snap();
-      system.framed = true;
+      if (!system.snapped) camera.snap();
+      system.snapped = true;
+      if (!placed.some((item) => item.standIn === "loading")) system.framed = true;
     }
   }
   for (const b of systemBoards()) refreshBoardLayers(b);
@@ -1786,6 +1794,18 @@ function setPlacementLayers(keys, update) {
   }
   refreshControls();
   notifyViewStateChange();
+}
+
+/** Net layers on the placement holding the inspected net: only the copper layers it uses stay shown. */
+function showPlacementNetLayers() {
+  const key = selectedPlacementKey();
+  if (key == null || !state.activeNetId) return;
+  const used = layersForNet(state.activeNetId, board);
+  if (!used.size) return;
+  setPlacementLayers([key], (hidden) => {
+    hidden.clear();
+    for (const layer of board.scene.copperLayers) if (!used.has(Number(layer.id))) hidden.add(Number(layer.id));
+  });
 }
 
 /** The per-board layer sections for a host that renders the controls (D-P2-26). */
@@ -3115,6 +3135,10 @@ function bindPanelTabs() {
 }
 
 function showNetLayers() {
+  if (system) {
+    showPlacementNetLayers();
+    return;
+  }
   const net = board.scene.nets.find((item) => Number(item.id) === state.activeNetId);
   if (!net) return;
   const names = new Set(net.metrics?.layers || []);
@@ -3696,6 +3720,7 @@ function frameSelection() {
 function bindInteractions() {
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   canvas.addEventListener("pointerdown", (event) => {
+    if (system) system.framed = true;
     state.dragging = true;
     state.lastX = event.clientX;
     state.lastY = event.clientY;
@@ -3730,6 +3755,7 @@ function bindInteractions() {
     frameSelection();
   });
   canvas.addEventListener("wheel", (event) => {
+    if (system) system.framed = true;
     event.preventDefault();
     if (Math.abs(event.deltaX) > Math.abs(event.deltaY) * 0.4) {
       camera.pan(-event.deltaX, 0, canvas.clientHeight, state.mode === "layer");
