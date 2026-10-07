@@ -8,7 +8,37 @@ for whoever reads it then (§9.1).
 from __future__ import annotations
 
 import copy
-from typing import Any, Collection, Mapping
+from typing import Any, Collection, Iterable, Mapping
+
+
+class Restricted(frozenset):
+    """What a reader may not see (P2 §5.4): restricted instance IDs, plus ``hidden_ports``, the
+    ``(assembly instance, export)`` ends whose source board inside the child is hidden. Such an end
+    keeps its pins but not their nets. Truthy when either is non-empty; ``|`` merges both."""
+
+    hidden_ports: frozenset = frozenset()
+
+    def __new__(cls, instances: Iterable[str] = (), hidden_ports: Iterable[tuple[str, str]] = ()):
+        made = super().__new__(cls, instances)
+        made.hidden_ports = frozenset(hidden_ports)
+        return made
+
+    def __bool__(self) -> bool:
+        return bool(len(self) or self.hidden_ports)
+
+    def __or__(self, other: Collection[str]) -> "Restricted":
+        return Restricted(frozenset(self) | frozenset(other), self.hidden_ports | hidden_ports(other))
+
+    __ror__ = __or__
+
+
+def hidden_ports(restricted: Collection[str]) -> frozenset:
+    return getattr(restricted, "hidden_ports", frozenset())
+
+
+def _hides_nets(end: Mapping[str, Any], ports: frozenset) -> bool:
+    port = end.get("port") or {}
+    return (end.get("instanceId"), port.get("portKey")) in ports
 
 
 def redact_instance(instance: Mapping[str, Any]) -> dict:
@@ -25,14 +55,22 @@ def redact_instance(instance: Mapping[str, Any]) -> dict:
 def redact_link(link: Mapping[str, Any], restricted: Collection[str]) -> dict:
     out = copy.deepcopy(dict(link))
     hidden = [end for end in ("a", "b") if out[end]["instanceId"] in restricted]
+    # An end on an export whose board is hidden keeps the export and pins, not the nets (P2 §5.4).
+    netless = [end for end in ("a", "b") if end not in hidden and _hides_nets(out[end], hidden_ports(restricted))]
     for end in hidden:
         out[end] = {"instanceId": out[end]["instanceId"], "redacted": True, "port": None,
                     "resolved": None, "exposed": None}
+    for end in netless:
+        out[end]["export"] = None
     for row in out["rows"]:
+        for end in netless:
+            column = end.upper()
+            row[f"net{column}"] = row[f"observed{column}"] = None
+        hidden_or_netless = hidden + netless
         for end in hidden:
             column = end.upper()
             row[f"pin{column}"] = row[f"net{column}"] = row[f"observed{column}"] = None
-        row["redactedEnds"] = sorted(set(row.get("redactedEnds") or []) | set(hidden))
+        row["redactedEnds"] = sorted(set(row.get("redactedEnds") or []) | set(hidden_or_netless))
         row["redacted"] = bool(row["redactedEnds"])
     return out
 
@@ -43,13 +81,16 @@ def redact_harness(harness: Mapping[str, Any], restricted: Collection[str]) -> d
     if not restricted:
         return out
     hidden = {end["id"] for end in out["ends"] if end["mates"] and end["mates"]["instanceId"] in restricted}
+    ports = hidden_ports(restricted)
+    netless = {end["id"] for end in out["ends"] if end["mates"] and end["id"] not in hidden
+               and (end["mates"]["instanceId"], end["mates"].get("portKey")) in ports}
     for end in out["ends"]:
         if end["id"] in hidden:
             end["mates"] = {"instanceId": end["mates"]["instanceId"], "portKey": None, "port": None,
                             "redacted": True, "resolved": None}
             end["pins"] = []
     for wire in out["wires"]:
-        sides = [side for side in ("from", "to") if wire[side]["end"] in hidden]
+        sides = [side for side in ("from", "to") if wire[side]["end"] in hidden | netless]
         for side in sides:
             wire["netFrom" if side == "from" else "netTo"] = None
         wire["redactedEnds"] = sorted(set(wire.get("redactedEnds") or []) | set(sides))
@@ -58,8 +99,11 @@ def redact_harness(harness: Mapping[str, Any], restricted: Collection[str]) -> d
 
 def redact_findings(report: Mapping[str, Any], restricted: Collection[str]) -> dict:
     out = copy.deepcopy(dict(report))
+    ports = hidden_ports(restricted)
     for finding in out.get("findings") or []:
-        if finding["instanceId"] in restricted:
+        if (finding.get("instanceId"), finding.get("portKey")) in ports:
+            finding.update(detail=None, redacted=True)
+        elif finding["instanceId"] in restricted:
             finding.update(reference=None, pin=None, detail=None, redacted=True)
         else:
             finding.setdefault("redacted", False)

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { INSTANCED_SHADERS } from "./renderer.js";
 import { transformBounds, transformPoint } from "./occurrences.js";
-import { allReadyBoardsDrawn, assetOccurrenceMatrix, drawnOccurrences, standInKind, standInMatrix } from "./system-placement.js";
+import { allReadyBoardsDrawn, assetLoadable, assetOccurrenceMatrix, boardTransition, drawnOccurrences, standInKind, standInMatrix } from "./system-placement.js";
 
 const translate = (x, y, z) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
 // bundleToBoard (CONTRACTS_P2 §20.2): metres → mm, lowered by the mid-plane height (0.8 mm here).
@@ -61,4 +61,25 @@ test("the first frame counts once every ready board draws its own geometry", asy
   assert.equal(drawn([{ standIn: null }, { standIn: "loading" }]), false, "a ready bundle still loading");
   assert.equal(drawn([{ standIn: null }, { standIn: "restricted" }, { standIn: "failed" }]), true, "boxes that stay boxes don't wait");
   assert.equal(drawn([{ standIn: "building" }]), false, "no board drawn at all");
+});
+
+test("a staged bundle that turns ready at the same URL loads (retro D5)", () => {
+  const url = "/api/projects/p/webgpu-3d/assets/s/b/bundle.json";
+  const frame = [1000, 0, 0, 0, 0, 1000, 0, 0, 0, 0, 1000, 0, 0, 0, -0.8, 1];
+  const missing = { status: "missing", bundleUrl: null, bundleToBoard: null };
+  const building = { status: "building", bundleUrl: url, bundleToBoard: null };
+  const ready = { status: "ready", bundleUrl: url, bundleToBoard: frame };
+  assert.equal(boardTransition(undefined, missing), "create");
+  assert.equal(assetLoadable(missing), false);
+  // missing → building: the URL appears, so the board starts over (and waits).
+  assert.equal(boardTransition({ bundleUrl: null, loadState: "waiting" }, building), "create");
+  assert.equal(assetLoadable(building), false);
+  assert.equal(boardTransition({ bundleUrl: url, loadState: "waiting" }, building), "keep");
+  // building → ready at the same URL: load the board kept waiting (it used to stay a box).
+  assert.equal(boardTransition({ bundleUrl: url, loadState: "waiting" }, ready), "load");
+  assert.equal(boardTransition({ bundleUrl: url, loadState: "loading" }, ready), "keep");
+  assert.equal(boardTransition({ bundleUrl: url, loadState: "loaded" }, ready), "keep");
+  // A failed load retries from scratch; a new bundle URL replaces the board.
+  assert.equal(boardTransition({ bundleUrl: url, loadState: "failed" }, ready), "create");
+  assert.equal(boardTransition({ bundleUrl: url, loadState: "loaded" }, { ...ready, bundleUrl: `${url}?v=2` }), "create");
 });

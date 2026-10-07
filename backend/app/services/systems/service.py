@@ -242,8 +242,30 @@ class SystemService:
                 # Deleting would destroy rows of a board the caller cannot see.
                 raise Conflict("system contains restricted boards")
             with store.mutation(system_id, expected_version=version, actor=caller.actor):
-                pass
+                self._refuse_deleting_published(store, system_id)
             store.delete_system(system_id)
+
+    def _refuse_deleting_published(self, store: SystemStore, system_id: str) -> None:
+        """D-P2-29: a catalog revision resolves through the snapshot it was published from, so a
+        system whose snapshots back revisions stays while its component is active or any parent
+        still uses one of those revisions."""
+
+        component_id = store.get_system(system_id).get("catalog_component_id") or \
+            self._catalog().find_system_component(system_id)
+        if not component_id:
+            return
+        revisions = [r for r in self._catalog().system_revisions(component_id)
+                     if (r.get("sourceRef") or {}).get("systemId") == system_id]
+        if not revisions:
+            return
+        versions = ", ".join(f"v{r['version']}" for r in revisions)
+        if self._catalog().find_system_component(system_id) == component_id:
+            raise Conflict(f"published_in_catalog: catalog revisions {versions} come from this system's snapshots; "
+                           "retire the catalog component before deleting the system")
+        users = store.count_instances_of_revisions([r["revisionId"] for r in revisions])
+        if users:
+            raise Conflict(f"published_in_catalog: {users} parent instance(s) still use revisions {versions} "
+                           "of this system; remove them from their parent systems first")
 
     # ------------------------------------------------------------------
     # The system document (§8.1)
@@ -775,7 +797,8 @@ class SystemService:
         Shared by the release trigger (``child_auto_advanced``) and a manual
         rebase (``child_rebased``). Outcomes: ``at_revision``, ``auto_advanced``,
         ``review_opened``, ``review_current`` or ``advance_blocked`` (§5.3
-        limits; reported as SYS-V15).
+        limits; reported as SYS-V15); for the release trigger also
+        ``not_following`` and ``superseded`` (a newer release exists: nothing changes).
         """
 
         revision = self._catalog_revision(revision_id)
@@ -803,6 +826,17 @@ class SystemService:
                 logger.info("Not advancing %s to %s: %s", instance_id, revision_id, error)
                 return {"outcome": "advance_blocked", "reviewId": None, "reason": error.code}
         with self._tx() as store:
+            if auto_kind == "child_auto_advanced":
+                # A release job runs after its listing and may arrive late: under the lock (held to
+                # commit), apply it only while the instance still follows and this is still the newest
+                # release. A manual rebase ("child_rebased") may choose any revision.
+                with store.mutation(system_id, expected_version=expected_version, actor=actor, bump=False):
+                    current = store.get_instance(system_id, instance_id)
+                    fresh = self._catalog_revision(revision_id) or revision
+                    if current.get("follow") != "latest_released":
+                        return {"outcome": "not_following", "reviewId": None}
+                    if fresh.get("latestReleasedRevisionId") != revision_id:
+                        return {"outcome": "superseded", "reviewId": None}
             with store.mutation(system_id, expected_version=expected_version, actor=actor) as change:
                 current = store.get_instance(system_id, instance_id)
                 outcome, review_id = child_drift.apply_child_evaluation(store, change, current, revision,
@@ -955,7 +989,7 @@ class SystemService:
         return root
 
     def nets(self, caller: Caller, system_id: str, *, search: str = "", occurrence: Optional[str] = None,
-             net: Optional[str] = None, members: bool = False, limit: int = 50) -> dict:
+             net: Optional[str] = None, members: bool = False, limit: int = 50, offset: int = 0) -> dict:
         """``GET …/nets``: system nets matching ``search`` (any alias), optionally touching one board occurrence.
 
         ``net`` (with ``occurrence``) keeps only the group holding exactly that board net (SB2-32).
@@ -980,7 +1014,7 @@ class SystemService:
                                       if m["occurrence"] and m["net"]]
             found.append(summary)
         found.sort(key=lambda g: (g["name"].casefold(), g["groupId"]))
-        return {"systemId": system_id, "groups": found[:limit], "total": len(found)}
+        return {"systemId": system_id, "groups": found[offset:offset + limit], "total": len(found), "offset": offset}
 
     def net(self, caller: Caller, system_id: str, group_id: str) -> dict:
         """``GET …/nets/{groupId}``: one system net with its members and hops."""
@@ -1201,7 +1235,14 @@ class SystemService:
                 if commit is not None:
                     raise Invalid("a subsystem has no commits; it pins a catalog revision")
                 body = dict(self._interface(store, instance))
-                body["components"] = [{**c, "override": None, "exposed": True} for c in body["components"]]
+                # An export whose board inside the child is hidden keeps its pads, not their nets (P2 §5.4).
+                hidden = redaction.hidden_ports(self._restricted_instances(store, system_id, caller))
+                body["components"] = [
+                    {**c, "override": None, "exposed": True,
+                     **({"pins": [{**pin, "nets": None, "powerNet": None} for pin in c.get("pins") or []],
+                         "export": None, "redacted": True} if (instance_id, c["portKey"]) in hidden else {})}
+                    for c in body["components"]
+                ]
                 return "ready", {**body, "instanceId": instance_id, "atBaseline": True}
             target = instance["baseline_commit"]
             if commit is not None:
@@ -1840,10 +1881,63 @@ class SystemService:
                 "toCommit": review["to_commit"], "pendingChanges": review["pending_changes"],
                 "items": items}
 
-    def _restricted_instances(self, store: SystemStore, system_id: str, caller: Caller) -> set[str]:
-        instances = store.list_instances(system_id)
-        access = self._access(store, instances, caller)
-        return {i["id"] for i in instances if not access[i["project_id"]]["visible"]}
+    def _restricted_instances(self, store: SystemStore, system_id: str, caller: Caller) -> redaction.Restricted:
+        """The live system's restricted boards and hidden export ends for ``caller`` (§8.2, P2 §5.4)."""
+        return self._visibility(store, system_id, caller, store.list_instances(system_id, kinds=SystemStore.ALL_KINDS))
+
+    def _visibility(self, store: SystemStore, system_id: str, caller: Caller,
+                    instances: Sequence[Mapping[str, Any]]) -> redaction.Restricted:
+        """Restricted boards (by today's access to their project) and the assembly export ends
+        whose source board inside the child is hidden from ``caller``, for live instance rows or
+        a frozen document's instances. An export that does not resolve hides its nets too."""
+
+        members = [{"id": i["id"], "kind": i.get("kind") or "board",
+                    "project_id": i.get("project_id") or i.get("projectId")} for i in instances]
+        try:
+            tree = hierarchy.resolve(system_id, instances, self._child_loader(store))
+        except hierarchy.HierarchyError:
+            tree = None
+        projects = {m["project_id"] for m in members if m["kind"] == "board" and m["project_id"]}
+        projects |= {o.project_id for o in (tree.boards if tree else ()) if o.project_id}
+        access = visibility.project_access(store.conn, projects, caller.role)
+        restricted = {m["id"] for m in members if m["kind"] == "board"
+                      and not access.get(str(m["project_id"]), {}).get("visible", False)}
+        assemblies = [m for m in members if m["kind"] == "assembly"]
+        if not assemblies:
+            return redaction.Restricted(restricted)
+        visible = self._visible_board_paths(store, tree, caller, access) if tree else set()
+        root = system_nets.Level(prefix="", kinds={m["id"]: m["kind"] for m in members},
+                                 labels={}, links=[])
+        if tree:
+            system_nets.attach_children(root, tree)
+        hidden: set[tuple[str, str]] = set()
+        for member, raw in zip(members, instances):
+            if member["kind"] != "assembly":
+                continue
+            child = root.children.get(member["id"])
+            export_ids = {e["id"] for e in (child.exports if child else ())}
+            export_ids |= set(self._catalog_export_ids(raw))
+            for export_id in export_ids:
+                if system_nets.export_source(child, export_id) not in visible:
+                    hidden.add((member["id"], export_id))
+        return redaction.Restricted(restricted, hidden)
+
+    def _catalog_export_ids(self, instance: Mapping[str, Any]) -> list[str]:
+        """The export IDs of an assembly instance's catalog revision (its ports in the document)."""
+        revision_id = instance.get("catalog_revision_id") or (instance.get("catalog") or {}).get("revisionId")
+        revision = self._catalog_revision(revision_id) if revision_id else None
+        return [e.get("id") for e in ((revision or {}).get("interface") or {}).get("exports") or [] if e.get("id")]
+
+    @staticmethod
+    def _visible_board_paths(store: SystemStore, tree: hierarchy.Tree, caller: Caller,
+                             access: Mapping[str, Mapping[str, Any]]) -> set[str]:
+        """Board occurrence paths ``caller`` may see: a readable project, not inside a child system
+        whose folder the reader cannot see (P2 §5.4, S7). ``access`` covers every board's project."""
+        hidden_systems = [o.path for o in tree.occurrences if o.child_system_id and not visibility.visible_systems(
+            store.conn, caller.role, system_id=o.child_system_id)]
+        return {o.path for o in tree.boards
+                if access.get(str(o.project_id), {}).get("visible", False)
+                and not any(o.path.startswith(prefix + "/") for prefix in hidden_systems)}
 
     def list_reviews(self, caller: Caller, system_id: str, status: Optional[str]) -> list[dict]:
         with self._tx() as store:
@@ -1988,17 +2082,15 @@ class SystemService:
                 "manifestSchema": row.get("manifest_schema"),
                 "openReviewCount": int(row["open_review_count"]), "rendererVersion": row["renderer_version"]}
 
-    @staticmethod
-    def _restricted_in(store: SystemStore, document: Mapping[str, Any], caller: Caller) -> set[str]:
-        """Restricted instances of a frozen document, by today's access (§8.2).
+    def _restricted_in(self, store: SystemStore, document: Mapping[str, Any], caller: Caller) -> redaction.Restricted:
+        """Restricted boards and hidden export ends of a frozen document, by today's access (§8.2).
 
         A snapshot can hold instances that have since been removed, so this
-        reads the project identities the document itself recorded.
+        reads the identities the document itself recorded: a board's project,
+        an assembly's catalog revision (P2 §5.4).
         """
 
-        projects = {i["id"]: i["projectId"] for i in document["instances"]}
-        access = visibility.project_access(store.conn, projects.values(), caller.role)
-        return {iid for iid, pid in projects.items() if not access[pid]["visible"]}
+        return self._visibility(store, document["system"]["id"], caller, document["instances"])
 
     def create_snapshot(self, caller: Caller, system_id: str, version: int, name: str, note: str) -> Result:
         """Freeze the unredacted document and manifest at ``version`` (§9.1, P2 §9.4).

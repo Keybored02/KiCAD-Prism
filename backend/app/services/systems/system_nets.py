@@ -218,6 +218,12 @@ def harness_layout(root: Level) -> list[dict]:
     return out
 
 
+def export_source(level: Optional[Level], export_id: str) -> Optional[str]:
+    """The board occurrence path an export of ``level`` lands on, or None when it does not resolve."""
+    found = _resolve_export(level, export_id) if level else None
+    return found[0] if found else None
+
+
 def _harness(harness: Mapping[str, Any]) -> tuple[dict[str, dict], list[dict]]:
     """``(end ID -> {ordinal, mates, pinMap}, wires)`` for store rows or manifest harnesses; ``mates`` is
     ``(instance ID, port key or export ID, reference)`` or None."""

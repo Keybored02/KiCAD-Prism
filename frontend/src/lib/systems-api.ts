@@ -559,11 +559,21 @@ export async function listSystemNets(systemId: string, search: string, occurrenc
   return body;
 }
 
-/** SB2-33: every system net (up to 500) with its visible board nets, for the System 3D tab's search. */
+const NET_PAGE = 500;
+
+/** SB2-33: every system net with its visible board nets, for the System 3D tab's search, read a page at a time. */
 export async function listSystemNetMembers(systemId: string, signal?: AbortSignal): Promise<SystemNetList> {
-  const query = new URLSearchParams({ members: "true", limit: "500" });
-  const { body } = await send<SystemNetList>(`${path(systemId, "nets")}?${query}`, { signal }, "Could not read the system's nets");
-  return body;
+  const groups: SystemNetList["groups"] = [];
+  let total = 0;
+  for (let offset = 0; ; offset += NET_PAGE) {
+    const query = new URLSearchParams({ members: "true", limit: String(NET_PAGE), offset: String(offset) });
+    const { body } = await send<SystemNetList>(`${path(systemId, "nets")}?${query}`, { signal }, "Could not read the system's nets");
+    groups.push(...body.groups);
+    total = body.total;
+    // A server without paging (no `offset` echoed) returns its first page only.
+    if (!body.groups.length || groups.length >= total || body.offset !== offset) break;
+  }
+  return { systemId, groups, total };
 }
 
 /**

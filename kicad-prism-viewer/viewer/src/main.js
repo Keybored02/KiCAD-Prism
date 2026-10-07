@@ -33,7 +33,7 @@ import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
 import { collectStackupViaData } from "./stackup-vias.js";
 import { SvgDomSchematicRenderer } from "./svg-dom-schematic-renderer.js";
 import { harnessKey, harnessSegments, hubPoint, litEnds, litHarnessWires, segmentColor } from "./system-harness.js";
-import { allReadyBoardsDrawn, assetOccurrenceMatrix, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
+import { allReadyBoardsDrawn, assetLoadable, assetOccurrenceMatrix, boardTransition, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
 const COPPER_TILE_PREFETCH_MARGIN = 0.65;
@@ -1515,15 +1515,18 @@ function setSystemScene(descriptor) {
   for (const asset of descriptor.assets || []) {
     live.add(asset.assetId);
     const known = system.boards.get(asset.assetId);
-    if (known && known.bundleUrl === asset.bundleUrl && known.loadState !== "failed") {
+    const transition = boardTransition(known, asset);
+    if (transition !== "create") {
       known.asset = asset;
+      // A staged bundle that became ready at the same URL loads now (retro D5).
+      if (transition === "load") void loadSystemBoard(known, activeViewerToken);
       continue;
     }
     if (known) dropSystemBoard(asset.assetId);
     const b = createBoard({ key: asset.assetId, topology: {}, semanticGeometry: {}, deferComponents: true });
     Object.assign(b, { asset, bundleUrl: asset.bundleUrl, loadState: "waiting", abort: null });
     system.boards.set(asset.assetId, b);
-    if (asset.status === "ready" && asset.bundleUrl && asset.bundleToBoard) void loadSystemBoard(b, activeViewerToken);
+    if (assetLoadable(asset)) void loadSystemBoard(b, activeViewerToken);
   }
   for (const id of [...system.boards.keys()]) if (!live.has(id)) dropSystemBoard(id);
   placeSystem();

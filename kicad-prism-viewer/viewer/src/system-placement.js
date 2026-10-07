@@ -65,6 +65,23 @@ export function standInKind(occurrence, asset, state) {
   return STAND_INS[asset.status] ? asset.status : "unknown";
 }
 
+/** Whether an asset can be loaded: its bundle is final and placed in the board frame. */
+export function assetLoadable(asset) {
+  return Boolean(asset && asset.status === "ready" && asset.bundleUrl && asset.bundleToBoard);
+}
+
+/**
+ * What a re-read scene means for a board already known by asset id (retro D5):
+ * "create" (new, or its bundle URL changed, or it failed: start over), "load"
+ * (kept waiting at a stable URL that is now ready: a staged bundle finished),
+ * or "keep" (loading, loaded, or still not ready).
+ */
+export function boardTransition(known, asset) {
+  if (!known || known.bundleUrl !== asset.bundleUrl || known.loadState === "failed") return "create";
+  if (known.loadState === "waiting" && assetLoadable(asset)) return "load";
+  return "keep";
+}
+
 /** Occurrences to place: boards, and restricted assemblies (one box for a hidden child system). */
 export function drawnOccurrences(descriptor) {
   return (descriptor?.occurrences || []).filter((item) => item.kind === "board" || item.restricted);

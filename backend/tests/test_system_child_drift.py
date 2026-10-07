@@ -108,6 +108,32 @@ class ChildDriftTest(AssemblyCase):
         self.assertEqual(fresh["toCommit"], v2["revisionId"])
         self.assertIn("4", [pin for item in fresh["items"] for pin in item["pins"]])
 
+    def test_a_delayed_older_release_never_rolls_the_parent_back(self) -> None:
+        """Retro D4: release jobs can arrive out of order; only the newest release auto-advances."""
+        exports = self.child_export()["id"]
+        self.service.update_export(DESIGNER, self.sid, self.version(), exports, {"description": "v2 wording"})
+        v2 = self.publish_next("V2")
+        self.service.update_export(DESIGNER, self.sid, self.version(), exports, {"description": "v3 wording"})
+        v3 = self.publish_next("V3")
+        self.assertEqual(self.advance(v3["revisionId"])["outcome"], "auto_advanced")
+        late = self.advance(v2["revisionId"])
+        self.assertEqual(late["outcome"], "superseded")
+        self.assertEqual(self.cndh_instance()["catalog_revision_id"], v3["revisionId"])
+        # A manual rebase may still go back on purpose.
+        result = self.service.rebase_child(DESIGNER, self.bus, self.bus_doc()["system"]["version"], self.cndh,
+                                           v2["revisionId"])
+        self.assertEqual(result.body["outcome"], "auto_advanced")
+        self.assertEqual(self.cndh_instance()["catalog_revision_id"], v2["revisionId"])
+
+    def test_an_automatic_check_skips_an_instance_that_stopped_following(self) -> None:
+        self.service.update_export(DESIGNER, self.sid, self.version(), self.child_export()["id"], {"description": "x"})
+        v2 = self.publish_next("V2")
+        with self.connect() as conn:  # pinned between the job's listing and its run
+            conn.execute("UPDATE system_instances SET follow = 'pinned' WHERE id = %s", (self.cndh,))
+            conn.commit()
+        self.assertEqual(self.advance(v2["revisionId"])["outcome"], "not_following")
+        self.assertEqual(self.cndh_instance()["catalog_revision_id"], self.publication["revisionId"])
+
     def test_keep_pinned_stops_following(self) -> None:
         self.service.update_export(DESIGNER, self.sid, self.version(), self.child_export()["id"],
                                    {"instanceId": self.instances["OBC-B"], "portKey": self.port_key("OBC-B", "J5")})
@@ -137,6 +163,10 @@ class ChildDriftTest(AssemblyCase):
     def test_release_triggers_the_parent_check(self) -> None:
         self.service.update_export(DESIGNER, self.sid, self.version(), self.child_export()["id"], {"description": "y"})
         _, v2 = self.publish(self.snapshot("V2")["id"])
+        with mock.patch("app.services.systems.child_drift.enqueue_child_check") as enqueue:
+            self.release(v2["componentId"])
+        enqueue.assert_called_once_with(v2["componentId"], v2["revisionId"])
+        # The job the release queued, run as the worker would.
         context = SimpleNamespace(payload={"componentId": v2["componentId"], "revisionId": v2["revisionId"]},
                                   progress=lambda **_: None)
         with mock.patch.object(service_module, "service", self.service), \
@@ -144,9 +174,6 @@ class ChildDriftTest(AssemblyCase):
             self.assertEqual(child_drift.followers(self.connect, v2["componentId"]), [(self.bus, self.cndh)])
             result = child_drift.run_child_check_job(context)
         self.assertEqual(result.details["outcomes"], {"auto_advanced": 1})
-        with mock.patch("app.services.systems.child_drift.enqueue_child_check") as enqueue:
-            self.release(v2["componentId"])
-        enqueue.assert_called_once_with(v2["componentId"], v2["revisionId"])
 
 
 class ChildFindingTest(unittest.TestCase):
