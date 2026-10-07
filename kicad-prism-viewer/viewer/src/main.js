@@ -2595,6 +2595,8 @@ async function loadComponents(token = activeViewerToken, b = board) {
     const component = b.scene.componentFeatures.get(primitive.designator);
     if (component) mergeFeatureBounds(component.featureId, primitive.position, b);
   }
+  // Harness ends anchor at their connector's bounds, known only now; until then they sat at the board's centre.
+  if (system) system.harnessDrawn = null;
   // A reference whose GLB has two top-level model nodes is an
   // alternate-footprint pair; the group builder keeps it visible.
   for (const [designator, count] of loaded.componentNodeCounts || []) {
