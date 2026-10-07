@@ -169,6 +169,8 @@ async def require_viewer(user: AuthenticatedUser = Depends(get_current_user)) ->
 async def require_designer(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
     if user.auth_type == "kicad_provider":
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
+    # Role and scope are separate requirements: a read-only token of a designer stays read-only.
+    _require_bearer_scope(user, "api:write")
     if not role_meets_minimum(user.role, "designer"):
         raise HTTPException(status_code=403, detail="Designer role required")
     return user
@@ -185,6 +187,7 @@ async def require_comment_writer(user: AuthenticatedUser = Depends(get_current_u
 async def require_admin(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
     if user.auth_type == "kicad_provider":
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot access admin APIs")
+    _require_bearer_scope(user, "api:write")
     if not role_meets_minimum(user.role, "admin"):
         raise HTTPException(status_code=403, detail="Admin role required")
     return user
@@ -201,6 +204,7 @@ async def require_project_release_actor(
 
     if user.auth_type == "kicad_provider":
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
+    _require_bearer_scope(user, "api:write")
     if user.role not in PROJECT_RELEASE_ACTOR_ROLES:
         raise HTTPException(status_code=403, detail="Designer, QA, or Admin role required")
     return user

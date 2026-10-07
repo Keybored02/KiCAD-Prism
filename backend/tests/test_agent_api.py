@@ -221,7 +221,7 @@ class AgentApiTests(unittest.TestCase):
 
     def test_the_agents_sign_in_signs_the_panel_in_as_the_same_user(self) -> None:
         email = "panel-user@example.com"
-        token = self._obtain_token(self._client_for(email, "designer"), email=email)
+        token = self._obtain_token(self._client_for(email, "designer"), email=email, scope="api:read api:write")
 
         response = self._handoff(token)
         self.assertEqual(response.status_code, 200)
@@ -249,7 +249,7 @@ class AgentApiTests(unittest.TestCase):
         would only add a way for the two answers to disagree.
         """
         email = "panel-named@example.com"
-        token = self._obtain_token(self._client_for(email, "designer"), email=email)
+        token = self._obtain_token(self._client_for(email, "designer"), email=email, scope="api:read api:write")
 
         body = self._handoff(token).json()
         self.assertEqual(body["email"], email)
@@ -258,7 +258,7 @@ class AgentApiTests(unittest.TestCase):
 
     def test_the_handoff_is_single_use(self) -> None:
         email = "panel-once@example.com"
-        token = self._obtain_token(self._client_for(email, "designer"), email=email)
+        token = self._obtain_token(self._client_for(email, "designer"), email=email, scope="api:read api:write")
         nonce_url = self._handoff(token).json()["nonce_url"]
 
         path = _path_of(nonce_url)
