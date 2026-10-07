@@ -70,6 +70,11 @@ import {
 } from "@/types/manufacturing";
 import { SchemaCapabilitiesDialog } from "./spec-config-editor";
 import { ManufacturerDialog } from "./manufacturers-panel";
+import { NewProductionDialog } from "./new-production-dialog";
+import { ProductionList } from "./production-list";
+import { DEFAULT_FILTERS, type ProductionFilters } from "./production-filters";
+import { RunDrawer } from "./run-drawer";
+import { RunView } from "./run-view";
 import { CapabilityCheck } from "./capability-check";
 import { OptionRow, ProvenanceMarker, type Provenance } from "./option-row";
 import { SaveBar, useBeforeUnloadWhen } from "./save-bar";
@@ -79,8 +84,12 @@ import { CompactSelect } from "./ui";
 interface ProjectManufacturingProps {
     projectId: string;
     canEdit: boolean;
-    onOpenRun?: (runId: string) => void;
-    onNewRun?: () => void;
+    /** QA can act on defects even without edit rights. Defaults to `canEdit`. */
+    canLogDefects?: boolean;
+    /** QA and admin advance a production's status. */
+    canChangeStatus?: boolean;
+    /** Shown in the new-production dialog; falls back to the id. */
+    projectName?: string;
 }
 
 type SpecValues = Record<string, unknown>;
@@ -89,10 +98,18 @@ type SubTab = "specs" | "production";
 export function ProjectManufacturing({
     projectId,
     canEdit,
-    onOpenRun,
-    onNewRun,
+    canLogDefects = canEdit,
+    canChangeStatus = false,
+    projectName,
 }: ProjectManufacturingProps) {
     const [subTab, setSubTab] = useState<SubTab>("specs");
+
+    // Productions open in place: a drawer over the list, a full page on request,
+    // and the new-production dialog with this project (and manufacturer) filled in.
+    const [filters, setFilters] = useState<ProductionFilters>(DEFAULT_FILTERS);
+    const [drawerRunId, setDrawerRunId] = useState<string | null>(null);
+    const [fullRunId, setFullRunId] = useState<string | null>(null);
+    const [newRunOpen, setNewRunOpen] = useState(false);
 
     // Navigation: which attached manufacturer is selected. Each has one spec.
     const [manufacturers, setManufacturers] = useState<ProjectManufacturer[]>([]);
@@ -138,6 +155,15 @@ export function ProjectManufacturing({
     const [detaching, setDetaching] = useState(false);
 
     useBeforeUnloadWhen(dirty);
+
+    // Re-read just the runs after a change, without blanking the whole tab.
+    const reloadRuns = useCallback(async () => {
+        try {
+            setRuns(await listRuns(projectId));
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to refresh production.");
+        }
+    }, [projectId]);
 
     useEffect(() => {
         void getPcbRuleFields()
@@ -403,6 +429,30 @@ export function ProjectManufacturing({
         return <div className="text-sm text-muted-foreground">Loading manufacturing...</div>;
     }
 
+    if (fullRunId) {
+        return (
+            <div className="-mx-4 -my-2 h-[calc(100vh-10rem)] min-h-[28rem] border">
+                <RunView
+                    runId={fullRunId}
+                    variant="page"
+                    canEdit={canEdit}
+                    canLogDefects={canLogDefects}
+                    canChangeStatus={canChangeStatus}
+                    onBack={() => {
+                        setDrawerRunId(fullRunId);
+                        setFullRunId(null);
+                        void reloadRuns();
+                    }}
+                    onDeleted={() => {
+                        setFullRunId(null);
+                        void reloadRuns();
+                    }}
+                    onChanged={() => void reloadRuns()}
+                />
+            </div>
+        );
+    }
+
     const hasFields = schema.sections.some((s) => s.fields.length > 0);
     const attachedIds = new Set(manufacturers.map((m) => m.id));
     const attachable = allManufacturers.filter((m) => !attachedIds.has(m.id));
@@ -434,7 +484,33 @@ export function ProjectManufacturing({
             </Tabs>
 
             {subTab === "production" ? (
-                <ProductionPanel runs={runs} canEdit={canEdit} onOpenRun={onOpenRun} onNewRun={onNewRun} />
+                <section className="flex min-h-[24rem] flex-col gap-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-sm font-medium">Production</h3>
+                        {canEdit && (
+                            <Button size="sm" onClick={() => setNewRunOpen(true)}>
+                                <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
+                                New production
+                            </Button>
+                        )}
+                    </div>
+                    <ProductionList
+                        runs={runs}
+                        filters={filters}
+                        onFiltersChange={setFilters}
+                        selectedId={drawerRunId}
+                        onOpen={setDrawerRunId}
+                        hideProject
+                        emptyAction={
+                            canEdit ? (
+                                <Button size="sm" onClick={() => setNewRunOpen(true)}>
+                                    <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
+                                    New production
+                                </Button>
+                            ) : undefined
+                        }
+                    />
+                </section>
             ) : (
                 <>
                     {/* Which manufacturer's spec is shown. */}
@@ -685,7 +761,7 @@ export function ProjectManufacturing({
                                                 {lastRun ? (
                                                     <button
                                                         type="button"
-                                                        onClick={() => onOpenRun?.(lastRun.id)}
+                                                        onClick={() => setDrawerRunId(lastRun.id)}
                                                         className="flex w-full items-center justify-between gap-2 text-left hover:underline"
                                                     >
                                                         <span className="min-w-0 truncate text-sm">
@@ -704,8 +780,8 @@ export function ProjectManufacturing({
                                                     </p>
                                                 )}
                                             </div>
-                                            {canEdit && onNewRun && (
-                                                <Button size="sm" className="w-full" onClick={onNewRun}>
+                                            {canEdit && (
+                                                <Button size="sm" className="w-full" onClick={() => setNewRunOpen(true)}>
                                                     <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
                                                     Start production
                                                 </Button>
@@ -767,6 +843,39 @@ export function ProjectManufacturing({
                 busy={detaching}
                 onConfirm={() => detachTarget && void handleDetach(detachTarget.id)}
             />
+
+            <RunDrawer
+                runId={drawerRunId}
+                canEdit={canEdit}
+                canLogDefects={canLogDefects}
+                canChangeStatus={canChangeStatus}
+                onClose={() => setDrawerRunId(null)}
+                onOpenFull={() => {
+                    setFullRunId(drawerRunId);
+                    setDrawerRunId(null);
+                }}
+                onDeleted={() => {
+                    setDrawerRunId(null);
+                    void reloadRuns();
+                }}
+                onChanged={() => void reloadRuns()}
+            />
+
+            {newRunOpen && (
+                <NewProductionDialog
+                    open
+                    projects={[{ id: projectId, name: projectName ?? projectId }]}
+                    initialProjectId={projectId}
+                    initialManufacturerId={manufacturerId || undefined}
+                    onClose={() => setNewRunOpen(false)}
+                    onCreated={(runId) => {
+                        setNewRunOpen(false);
+                        void reloadRuns();
+                        setSubTab("production");
+                        setDrawerRunId(runId);
+                    }}
+                />
+            )}
 
             {createOpen && (
                 <ManufacturerDialog
@@ -833,68 +942,6 @@ export function ProjectManufacturing({
                 />
             )}
         </div>
-    );
-}
-
-// This project's productions. (The global Production page gets the richer list;
-// this one is the project's own, opened in place.)
-function ProductionPanel({
-    runs,
-    canEdit,
-    onOpenRun,
-    onNewRun,
-}: {
-    runs: ManufacturingRun[];
-    canEdit: boolean;
-    onOpenRun?: (runId: string) => void;
-    onNewRun?: () => void;
-}) {
-    return (
-        <section className="border">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-4 py-2.5">
-                <h3 className="text-sm font-medium">Production{runs.length > 0 ? ` (${runs.length})` : ""}</h3>
-                {canEdit && onNewRun && (
-                    <Button size="sm" onClick={onNewRun}>
-                        <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
-                        New production
-                    </Button>
-                )}
-            </div>
-            {runs.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 p-8 text-center text-muted-foreground">
-                    <Factory className="h-8 w-8 opacity-50" />
-                    <p className="text-sm">Track a production to record quantity, manufacturer, and defects.</p>
-                </div>
-            ) : (
-                <div>
-                    {runs.map((run) => (
-                        <button
-                            key={run.id}
-                            type="button"
-                            onClick={() => onOpenRun?.(run.id)}
-                            className="grid w-full grid-cols-[1fr_auto] items-center gap-3 border-b px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                        >
-                            <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                    <span className="truncate text-sm font-medium">
-                                        {run.manufacturer_name || "No manufacturer"}
-                                    </span>
-                                    <RunStatusBadge status={run.status} />
-                                </div>
-                                <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                                    {run.quantity_good}/{run.quantity_ordered} good
-                                    {run.defect_count ? ` · ${run.defect_count} defect(s)` : ""}
-                                    {run.commit_sha ? ` · ${run.commit_sha.slice(0, 7)}` : ""}
-                                </div>
-                            </div>
-                            <span className="text-xs text-muted-foreground">
-                                {new Date(run.created_at).toLocaleDateString()}
-                            </span>
-                        </button>
-                    ))}
-                </div>
-            )}
-        </section>
     );
 }
 

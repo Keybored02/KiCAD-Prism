@@ -482,6 +482,8 @@ export async function updateDefect(
         quantity_affected: number;
         description: string;
         status: string;
+        /** Why it was resolved; required when accepting a defect as-is. */
+        resolution_note: string;
     }>,
 ): Promise<void> {
     await json(

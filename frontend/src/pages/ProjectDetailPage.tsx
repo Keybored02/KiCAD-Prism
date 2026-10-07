@@ -674,8 +674,9 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                         <ProjectManufacturing
                                             projectId={projectId}
                                             canEdit={canMutateProject}
-                                            onNewRun={() => navigate(`/?section=manufacturing&newRunFor=${encodeURIComponent(projectId)}`)}
-                                            onOpenRun={(runId) => navigate(`/?section=manufacturing&run=${encodeURIComponent(runId)}`)}
+                                            canLogDefects={canMutateProject || user?.role === "qa"}
+                                            canChangeStatus={user?.role === "qa" || user?.role === "admin"}
+                                            projectName={project ? getDisplayName(project) : undefined}
                                         />
                                     </Suspense>
                                 </ErrorBoundary>

@@ -1,0 +1,398 @@
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const getRun = vi.fn();
+const updateRun = vi.fn();
+const updateRunStatus = vi.fn();
+const deleteRun = vi.fn();
+const logDefect = vi.fn();
+const updateDefect = vi.fn();
+const deleteDefect = vi.fn();
+const uploadEvidence = vi.fn();
+const deleteEvidence = vi.fn();
+const previewSpecConfig = vi.fn();
+const downloadRunReport = vi.fn();
+
+vi.mock("@/lib/manufacturing", () => ({
+    getRun: (...a: unknown[]) => getRun(...a),
+    updateRun: (...a: unknown[]) => updateRun(...a),
+    updateRunStatus: (...a: unknown[]) => updateRunStatus(...a),
+    deleteRun: (...a: unknown[]) => deleteRun(...a),
+    logDefect: (...a: unknown[]) => logDefect(...a),
+    updateDefect: (...a: unknown[]) => updateDefect(...a),
+    deleteDefect: (...a: unknown[]) => deleteDefect(...a),
+    uploadEvidence: (...a: unknown[]) => uploadEvidence(...a),
+    deleteEvidence: (...a: unknown[]) => deleteEvidence(...a),
+    previewSpecConfig: (...a: unknown[]) => previewSpecConfig(...a),
+    downloadRunReport: (...a: unknown[]) => downloadRunReport(...a),
+    evidenceUrl: (runId: string, digest: string) => `/api/x/${runId}/${digest}`,
+}));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+
+// Radix dialogs and menus need these in jsdom.
+vi.stubGlobal("ResizeObserver", class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+});
+if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+}
+if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+}
+
+import type { ManufacturingRun } from "@/types/manufacturing";
+import { RunView } from "./run-view";
+import { makeDefect, makeRun } from "./test-fixtures";
+
+type Props = Partial<React.ComponentProps<typeof RunView>>;
+
+function renderView(run: ManufacturingRun, props: Props = {}) {
+    getRun.mockResolvedValue(run);
+    const handlers = { onDeleted: vi.fn(), onChanged: vi.fn(), onBack: vi.fn(), onOpenFull: vi.fn() };
+    render(
+        <MemoryRouter>
+            <RunView
+                runId={run.id}
+                canEdit
+                canLogDefects
+                canChangeStatus
+                {...handlers}
+                {...props}
+            />
+        </MemoryRouter>,
+    );
+    return handlers;
+}
+
+const heading = (name: string) => screen.findByRole("heading", { name });
+const openMenu = (name: string) => fireEvent.keyDown(screen.getByRole("button", { name }), { key: "Enter" });
+
+describe("RunView", () => {
+    beforeEach(() => {
+        updateRun.mockResolvedValue(undefined);
+        updateRunStatus.mockResolvedValue(undefined);
+        updateDefect.mockResolvedValue(undefined);
+        previewSpecConfig.mockResolvedValue({ sections: [], errors: [] });
+    });
+    afterEach(() => {
+        cleanup();
+        vi.clearAllMocks();
+    });
+
+    describe("header and status", () => {
+        it("titles the run by job number with the project, manufacturer and process beneath", async () => {
+            renderView(makeRun());
+            expect(await heading("JOB-2026-0001")).toBeTruthy();
+            expect(screen.getByText(/Board One · Acme Fab · Standard/)).toBeTruthy();
+        });
+
+        it("shows the five-stage stepper and advances to the next status", async () => {
+            renderView(makeRun({ status: "ordered" }));
+            await heading("JOB-2026-0001");
+            expect(screen.getByRole("list", { name: "Production status" })).toBeTruthy();
+            fireEvent.click(screen.getByRole("button", { name: "Mark as in production" }));
+            await waitFor(() => expect(updateRunStatus).toHaveBeenCalledWith("run_1", "in_production"));
+        });
+
+        it("offers no advance button once closed", async () => {
+            renderView(makeRun({ status: "closed" }));
+            await heading("JOB-2026-0001");
+            expect(screen.queryByRole("button", { name: /Mark as/ })).toBeNull();
+        });
+
+        it("lets QA correct the status from the actions menu", async () => {
+            renderView(makeRun({ status: "received" }));
+            await heading("JOB-2026-0001");
+            openMenu("Production actions");
+            fireEvent.click(await screen.findByRole("menuitemradio", { name: "Ordered" }));
+            await waitFor(() => expect(updateRunStatus).toHaveBeenCalledWith("run_1", "ordered"));
+        });
+
+        it("shows status read-only without QA rights", async () => {
+            renderView(makeRun(), { canChangeStatus: false });
+            await heading("JOB-2026-0001");
+            expect(screen.queryByRole("button", { name: /Mark as/ })).toBeNull();
+            expect(screen.getAllByText("Received").length).toBeGreaterThan(0);
+        });
+
+        it("tells the host about each change", async () => {
+            const { onChanged } = renderView(makeRun({ status: "draft" }));
+            await heading("JOB-2026-0001");
+            fireEvent.click(screen.getByRole("button", { name: "Mark as ordered" }));
+            await waitFor(() => expect(onChanged).toHaveBeenCalled());
+        });
+
+        it("deletes a production after a held confirmation", async () => {
+            deleteRun.mockResolvedValue(undefined);
+            renderView(makeRun());
+            await heading("JOB-2026-0001");
+            openMenu("Production actions");
+            fireEvent.click(await screen.findByRole("menuitem", { name: /Delete production/ }));
+            expect(await screen.findByText("Delete production?")).toBeTruthy();
+            expect(deleteRun).not.toHaveBeenCalled();
+        });
+
+        it("hides the actions menu when the user can neither edit nor change status", async () => {
+            renderView(makeRun(), { canEdit: false, canChangeStatus: false });
+            await heading("JOB-2026-0001");
+            expect(screen.queryByRole("button", { name: "Production actions" })).toBeNull();
+        });
+    });
+
+    describe("hosts", () => {
+        it("the page variant has a back button", async () => {
+            const { onBack } = renderView(makeRun(), { variant: "page" });
+            await heading("JOB-2026-0001");
+            fireEvent.click(screen.getByRole("button", { name: /All production/ }));
+            expect(onBack).toHaveBeenCalled();
+        });
+
+        it("the drawer variant offers the full page instead", async () => {
+            const { onOpenFull } = renderView(makeRun(), { variant: "drawer" });
+            await heading("JOB-2026-0001");
+            expect(screen.queryByRole("button", { name: /All production/ })).toBeNull();
+            fireEvent.click(screen.getByRole("button", { name: /Open full page/ }));
+            expect(onOpenFull).toHaveBeenCalled();
+        });
+    });
+
+    describe("quantities and details", () => {
+        it("shows ordered, good, affected units and yield", async () => {
+            renderView(makeRun({ quantity_ordered: 100, quantity_good: 90, defects: [makeDefect({ quantity_affected: 4 })] }));
+            await heading("JOB-2026-0001");
+            expect(screen.getByText("100")).toBeTruthy();
+            expect(screen.getByText("90")).toBeTruthy();
+            expect(screen.getByText("90%")).toBeTruthy();
+            expect(screen.getByText("Affected units").parentElement?.textContent).toContain("4");
+        });
+
+        it("edits the good count through the pencil", async () => {
+            renderView(makeRun());
+            await heading("JOB-2026-0001");
+            fireEvent.click(screen.getByRole("button", { name: "Edit Good" }));
+            const input = screen.getByLabelText("Good") as HTMLInputElement;
+            fireEvent.change(input, { target: { value: "88" } });
+            fireEvent.keyDown(input, { key: "Enter" });
+            await waitFor(() => expect(updateRun).toHaveBeenCalledWith("run_1", { quantity_good: 88 }));
+        });
+
+        it("lists the facts, linking the release to History", async () => {
+            renderView(makeRun({ release_tag: "v1.2", commit_sha: "abcdef1234567" }));
+            await heading("JOB-2026-0001");
+            const details = screen.getByRole("region", { name: "Details" });
+            expect(within(details).getByText("Acme Fab")).toBeTruthy();
+            expect(within(details).getByText("abcdef1")).toBeTruthy();
+            const link = within(details).getByRole("link", { name: /v1.2/ });
+            expect(link.getAttribute("href")).toContain("/project/p1?section=history&commit=abcdef1234567");
+        });
+
+        it("shows the run's notes and saves an edit on blur", async () => {
+            renderView(makeRun({ notes: "Rush order" }));
+            const notes = (await screen.findByLabelText("Notes")) as HTMLTextAreaElement;
+            expect(notes.value).toBe("Rush order");
+            fireEvent.change(notes, { target: { value: "Rush order, ship DHL" } });
+            fireEvent.blur(notes);
+            await waitFor(() => expect(updateRun).toHaveBeenCalledWith("run_1", { notes: "Rush order, ship DHL" }));
+        });
+
+        it("shows notes as text without edit rights", async () => {
+            renderView(makeRun({ notes: "Rush order" }), { canEdit: false, canLogDefects: false, canChangeStatus: false });
+            expect(await screen.findByText("Rush order")).toBeTruthy();
+            expect(screen.queryByLabelText("Notes")).toBeNull();
+        });
+
+        it("shows no notes panel to a reader when there are none", async () => {
+            renderView(makeRun({ notes: "" }), { canEdit: false });
+            await heading("JOB-2026-0001");
+            expect(screen.queryByRole("heading", { name: "Notes" })).toBeNull();
+        });
+    });
+
+    describe("defects", () => {
+        const open = makeDefect({ id: "d_open", description: "cold joints" });
+        const resolved = makeDefect({
+            id: "d_res", description: "bridged pins", status: "resolved",
+            resolution_note: "reflowed", resolved_by: "qa@x", resolved_at: "2026-01-04T00:00:00Z",
+        });
+        const accepted = makeDefect({
+            id: "d_acc", description: "scuffed silkscreen", severity: "aesthetic", status: "accepted",
+            resolution_note: "cosmetic only", resolved_by: "designer@x", resolved_at: "2026-01-05T00:00:00Z",
+        });
+
+        it("explains an empty list and offers to log one", async () => {
+            renderView(makeRun());
+            await heading("JOB-2026-0001");
+            expect(screen.getByText("No defects logged.")).toBeTruthy();
+            expect(screen.getAllByRole("button", { name: /Log defect/ }).length).toBeGreaterThan(0);
+        });
+
+        it("logs a defect through the dialog", async () => {
+            logDefect.mockResolvedValue({ id: "def_new" });
+            renderView(makeRun());
+            await heading("JOB-2026-0001");
+            fireEvent.click(screen.getAllByRole("button", { name: /Log defect/ })[0]);
+            fireEvent.change(await screen.findByLabelText("Units affected"), { target: { value: "3" } });
+            fireEvent.change(screen.getByLabelText("Description"), { target: { value: "bad solder" } });
+            fireEvent.click(screen.getAllByRole("button", { name: "Log defect" }).at(-1)!);
+            await waitFor(() =>
+                expect(logDefect).toHaveBeenCalledWith("run_1", expect.objectContaining({ quantity_affected: 3, description: "bad solder" })),
+            );
+        });
+
+        it("filters defects by open, resolved and all, with counts", async () => {
+            renderView(makeRun({ defects: [open, resolved, accepted] }));
+            await heading("JOB-2026-0001");
+            const filter = screen.getByRole("radiogroup", { name: "Filter defects" });
+            expect(within(filter).getByRole("radio", { name: "Open 1" })).toBeTruthy();
+            expect(within(filter).getByRole("radio", { name: "Resolved 2" })).toBeTruthy();
+            expect(screen.getByText("cold joints")).toBeTruthy();
+            expect(screen.getByText("bridged pins")).toBeTruthy();
+
+            fireEvent.click(within(filter).getByRole("radio", { name: "Open 1" }));
+            expect(screen.getByText("cold joints")).toBeTruthy();
+            expect(screen.queryByText("bridged pins")).toBeNull();
+
+            fireEvent.click(within(filter).getByRole("radio", { name: "Resolved 2" }));
+            expect(screen.queryByText("cold joints")).toBeNull();
+            expect(screen.getByText("scuffed silkscreen")).toBeTruthy();
+        });
+
+        it("shows the resolution note and who closed a defect", async () => {
+            renderView(makeRun({ defects: [resolved, accepted] }));
+            await heading("JOB-2026-0001");
+            expect(screen.getByText("reflowed")).toBeTruthy();
+            expect(screen.getByText("cosmetic only")).toBeTruthy();
+            expect(screen.getByText("cosmetic only").closest("p")?.textContent).toContain("designer@x");
+            expect(screen.getByText("reflowed").closest("p")?.textContent).toContain("qa@x");
+            expect(screen.getByText("Accepted as is")).toBeTruthy();
+        });
+
+        it("resolves a defect with an optional note", async () => {
+            renderView(makeRun({ defects: [open] }));
+            await heading("JOB-2026-0001");
+            fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+            const resolve = await screen.findByRole("button", { name: "Resolve", hidden: false });
+            expect(resolve).toBeTruthy();
+            fireEvent.change(await screen.findByLabelText("Note (optional)"), { target: { value: "reflowed" } });
+            fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Resolve" }));
+            await waitFor(() =>
+                expect(updateDefect).toHaveBeenCalledWith("d_open", { status: "resolved", resolution_note: "reflowed" }),
+            );
+        });
+
+        it("resolves without a note when none is given", async () => {
+            renderView(makeRun({ defects: [open] }));
+            await heading("JOB-2026-0001");
+            fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+            fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Resolve" }));
+            await waitFor(() => expect(updateDefect).toHaveBeenCalledWith("d_open", { status: "resolved" }));
+        });
+
+        it("will not accept a defect as is without a reason", async () => {
+            renderView(makeRun({ defects: [open] }));
+            await heading("JOB-2026-0001");
+            fireEvent.click(screen.getByRole("button", { name: "Accept as is" }));
+            const dialog = await screen.findByRole("dialog");
+            const accept = within(dialog).getByRole("button", { name: "Accept as is" });
+            expect(accept).toHaveProperty("disabled", true);
+
+            fireEvent.change(within(dialog).getByLabelText("Why is this acceptable?"), { target: { value: "  " } });
+            expect(accept).toHaveProperty("disabled", true);
+            fireEvent.change(within(dialog).getByLabelText("Why is this acceptable?"), { target: { value: "cosmetic only" } });
+            expect(accept).toHaveProperty("disabled", false);
+            fireEvent.click(accept);
+            await waitFor(() =>
+                expect(updateDefect).toHaveBeenCalledWith("d_open", { status: "accepted", resolution_note: "cosmetic only" }),
+            );
+        });
+
+        it("reopens a closed defect", async () => {
+            renderView(makeRun({ defects: [resolved] }));
+            await heading("JOB-2026-0001");
+            expect(screen.queryByRole("button", { name: "Resolve" })).toBeNull();
+            fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+            await waitFor(() => expect(updateDefect).toHaveBeenCalledWith("d_res", { status: "open" }));
+        });
+
+        it("deletes a defect from its menu, after confirming", async () => {
+            deleteDefect.mockResolvedValue(undefined);
+            renderView(makeRun({ defects: [open] }));
+            await heading("JOB-2026-0001");
+            openMenu("Defect actions");
+            fireEvent.click(await screen.findByRole("menuitem", { name: /Delete defect/ }));
+            expect(deleteDefect).not.toHaveBeenCalled();
+            fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+            await waitFor(() => expect(deleteDefect).toHaveBeenCalledWith("d_open"));
+        });
+
+        it("confirms before removing evidence", async () => {
+            const evidence = [{ kind: "photo" as const, filename: "joint.jpg", digest: "abc", media_type: "image/jpeg", size: 10 }];
+            deleteEvidence.mockResolvedValue(undefined);
+            renderView(makeRun({ defects: [makeDefect({ evidence })] }));
+            await heading("JOB-2026-0001");
+            fireEvent.click(screen.getByRole("button", { name: "Remove joint.jpg" }));
+            expect(deleteEvidence).not.toHaveBeenCalled();
+            fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+            await waitFor(() => expect(deleteEvidence).toHaveBeenCalledWith("def_1", "abc"));
+        });
+
+        it("hides defect actions from viewers", async () => {
+            renderView(makeRun({ defects: [open] }), { canLogDefects: false });
+            await heading("JOB-2026-0001");
+            expect(screen.queryByRole("button", { name: "Resolve" })).toBeNull();
+            expect(screen.queryByRole("button", { name: /Log defect/ })).toBeNull();
+            expect(screen.queryByRole("button", { name: "Defect actions" })).toBeNull();
+        });
+    });
+
+    describe("spec at the time of order", () => {
+        const snapshot = {
+            spec_config: "x",
+            specs: { layer_count: 4, thickness: 1.6 },
+            active_sections: [],
+        };
+        const parsed = {
+            sections: [
+                {
+                    title: "Board", optional: false, when: null,
+                    fields: [
+                        { key: "layer_count", label: "Layer count", type: "int", unit: "", options: [], default: null, when: null },
+                        { key: "thickness", label: "Thickness", type: "number", unit: "mm", options: [], default: null, when: null },
+                    ],
+                },
+            ],
+            errors: [],
+        };
+
+        it("is folded away until opened, then shows values with their units", async () => {
+            previewSpecConfig.mockResolvedValue(parsed);
+            renderView(makeRun({ spec_snapshot: snapshot }));
+            await heading("JOB-2026-0001");
+            expect(screen.queryByText("Layer count")).toBeNull();
+
+            fireEvent.click(screen.getByRole("button", { name: /Spec at the time of order/ }));
+            expect(await screen.findByText("Layer count")).toBeTruthy();
+            expect(screen.getByText("1.6 mm")).toBeTruthy();
+        });
+
+        it("says so when no spec was recorded", async () => {
+            renderView(makeRun({ spec_snapshot: {} }));
+            await heading("JOB-2026-0001");
+            fireEvent.click(screen.getByRole("button", { name: /Spec at the time of order/ }));
+            expect(await screen.findByText("No spec was recorded for this run.")).toBeTruthy();
+        });
+    });
+
+    it("says when the production cannot be found", async () => {
+        getRun.mockResolvedValue(null);
+        render(
+            <MemoryRouter>
+                <RunView runId="gone" canEdit canLogDefects canChangeStatus onDeleted={vi.fn()} onBack={vi.fn()} />
+            </MemoryRouter>,
+        );
+        expect(await screen.findByText("Production not found.")).toBeTruthy();
+    });
+});

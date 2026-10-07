@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const extractBoardSpec = vi.fn();
@@ -62,7 +63,30 @@ vi.mock("./spec-config-editor", () => ({
     SchemaCapabilitiesDialog: () => null,
 }));
 
+// The drawer and the dialog are children with their own suites; stub them to see what the tab hands them.
+vi.mock("./run-drawer", () => ({
+    RunDrawer: (props: { runId: string | null }) => (props.runId ? <div>drawer:{props.runId}</div> : null),
+}));
+vi.mock("./run-view", () => ({
+    RunView: (props: { runId: string; onBack?: () => void }) => (
+        <div>
+            page:{props.runId}
+            <button type="button" onClick={props.onBack}>back</button>
+        </div>
+    ),
+}));
+vi.mock("./new-production-dialog", () => ({
+    NewProductionDialog: (props: { initialProjectId?: string; initialManufacturerId?: string; projects: { name: string }[]; onCreated: (id: string) => void }) => (
+        <div>
+            dialog:{props.initialProjectId}:{props.initialManufacturerId ?? "none"}:{props.projects[0]?.name}
+            <button type="button" onClick={() => props.onCreated("run_new")}>finish</button>
+        </div>
+    ),
+}));
+
 import { ProjectManufacturing } from "./project-manufacturing";
+
+const renderTab = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
 // A parsed schema with the two fields the tests exercise.
 const SCHEMA = {
@@ -129,7 +153,7 @@ describe("ProjectManufacturing", () => {
 
     describe("layout", () => {
         it("shows the manufacturer tab, its spec form and the summary", async () => {
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             expect(screen.getByRole("tab", { name: "Acme Fab", selected: true })).toBeTruthy();
             expect(screen.getByText("Stackup & physical")).toBeTruthy();
@@ -138,48 +162,72 @@ describe("ProjectManufacturing", () => {
         });
 
         it("keeps Production on its own sub-tab", async () => {
-            render(<ProjectManufacturing projectId="p1" canEdit onNewRun={vi.fn()} />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
-            expect(screen.queryByText(/Track a production/)).toBeNull();
+            expect(screen.queryByText("No production yet.")).toBeNull();
 
             fireEvent.mouseDown(screen.getByRole("tab", { name: /Production/ }));
-            expect(await screen.findByText(/Track a production/)).toBeTruthy();
+            expect(await screen.findByText("No production yet.")).toBeTruthy();
             expect(screen.queryByLabelText(/Layer count/)).toBeNull();
-            expect(screen.getByRole("button", { name: /New production/ })).toBeTruthy();
+            expect(screen.getAllByRole("button", { name: /New production/ }).length).toBeGreaterThan(0);
         });
 
-        it("lists this project's productions and opens one", async () => {
-            listRuns.mockResolvedValue([run()]);
-            const onOpenRun = vi.fn();
-            render(<ProjectManufacturing projectId="p1" canEdit onOpenRun={onOpenRun} />);
+        it("lists this project's productions and opens one in a drawer, in place", async () => {
+            listRuns.mockResolvedValue([run({ status: "ordered" })]);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             fireEvent.mouseDown(screen.getByRole("tab", { name: /Production/ }));
-            fireEvent.click(await screen.findByRole("button", { name: /Acme Fab/ }));
-            expect(onOpenRun).toHaveBeenCalledWith("run_1");
+            fireEvent.click(await screen.findByText("JOB-2026-0001"));
+            expect(await screen.findByText("drawer:run_1")).toBeTruthy();
         });
 
-        it("shows the last production for the manufacturer and starts a new one", async () => {
+        it("counts the project's productions on the sub-tab", async () => {
+            listRuns.mockResolvedValue([run(), run({ id: "run_2" })]);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
+            await waitForForm();
+            expect(screen.getByRole("tab", { name: /Production/ }).textContent).toContain("2");
+        });
+
+        it("shows the last production for the manufacturer and starts a new one in place", async () => {
             listRuns.mockResolvedValue([
                 run({ id: "old", job_number: "JOB-OLD", created_at: "2025-01-01T00:00:00Z" }),
                 run({ id: "new", job_number: "JOB-NEW", status: "in_production" }),
                 run({ id: "other", job_number: "JOB-OTHER", manufacturer_id: "m9", created_at: "2027-01-01T00:00:00Z" }),
             ]);
-            const onOpenRun = vi.fn();
-            const onNewRun = vi.fn();
-            render(<ProjectManufacturing projectId="p1" canEdit onOpenRun={onOpenRun} onNewRun={onNewRun} />);
+            renderTab(<ProjectManufacturing projectId="p1" projectName="Board One" canEdit />);
             await waitForForm();
 
             fireEvent.click(await screen.findByRole("button", { name: /JOB-NEW/ }));
-            expect(onOpenRun).toHaveBeenCalledWith("new");
+            expect(await screen.findByText("drawer:new")).toBeTruthy();
             expect(screen.queryByText("JOB-OTHER")).toBeNull();
 
             fireEvent.click(screen.getByRole("button", { name: "Start production" }));
-            expect(onNewRun).toHaveBeenCalled();
+            // The dialog opens for this project and the manufacturer on screen.
+            expect(await screen.findByText("dialog:p1:m1:Board One")).toBeTruthy();
+        });
+
+        it("opens a production created from the dialog, on the Production sub-tab", async () => {
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
+            await waitForForm();
+            fireEvent.click(screen.getByRole("button", { name: "Start production" }));
+            fireEvent.click(await screen.findByRole("button", { name: "finish" }));
+            expect(await screen.findByText("drawer:run_new")).toBeTruthy();
+            expect(screen.queryByText(/dialog:/)).toBeNull();
+            // The list was refreshed, and the Production sub-tab is showing.
+            await waitFor(() => expect(listRuns).toHaveBeenCalledTimes(2));
+            expect(screen.queryByLabelText(/Layer count/)).toBeNull();
+        });
+
+        it("falls back to the project id when it has no name", async () => {
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
+            await waitForForm();
+            fireEvent.click(screen.getByRole("button", { name: "Start production" }));
+            expect(await screen.findByText("dialog:p1:m1:p1")).toBeTruthy();
         });
 
         it("shows an empty state when the project has no manufacturers", async () => {
             listProjectManufacturers.mockResolvedValue([]);
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitFor(() => expect(screen.getByText(/No manufacturers on this project yet/)).toBeTruthy());
             expect(screen.getByText(/Add one above/)).toBeTruthy();
         });
@@ -187,7 +235,7 @@ describe("ProjectManufacturing", () => {
         it("points to New manufacturer when none exist to add", async () => {
             listProjectManufacturers.mockResolvedValue([]);
             listManufacturers.mockResolvedValue([]);
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitFor(() => expect(screen.getByText(/create one with/)).toBeTruthy());
             expect(screen.queryByText(/Add one above/)).toBeNull();
         });
@@ -197,7 +245,7 @@ describe("ProjectManufacturing", () => {
             listManufacturers.mockResolvedValue([]);
             createManufacturer.mockResolvedValue({ id: "m7" });
             attachManufacturer.mockResolvedValue(undefined);
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             fireEvent.click(await screen.findByRole("button", { name: "New manufacturer" }));
             fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Fresh Fab" } });
             fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -220,7 +268,7 @@ describe("ProjectManufacturing", () => {
                 template_capabilities: { min_track_width: 0.1, min_via_diameter: 0.25 },
             });
             extractPcbRules.mockResolvedValue({ rules: { min_track_width: 0.09, min_via_diameter: 0.3 } });
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitFor(() => expect(extractPcbRules).toHaveBeenCalledWith("p1"));
 
             expect(await screen.findByText("1 rule below minimum")).toBeTruthy();
@@ -242,12 +290,12 @@ describe("ProjectManufacturing", () => {
                 template_capabilities: { min_track_width: 0.1, min_via_diameter: 0.25 },
             });
             extractPcbRules.mockResolvedValue({ rules: { min_track_width: 0.1 } });
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             expect(await screen.findByText(/All 1 checked rule meets the Standard minimums/)).toBeTruthy();
         });
 
         it("asks for a process when the spec has none", async () => {
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             expect(screen.getByText("Pick a process to see its minimums.")).toBeTruthy();
         });
@@ -263,7 +311,7 @@ describe("ProjectManufacturing", () => {
                 template_capability_meta: { max_board_width_mm: { label: "Max board width", unit: "mm" } },
             });
             extractPcbRules.mockResolvedValue({ rules: { min_track_width: 0.1 } });
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             fireEvent.click(await screen.findByRole("button", { name: /Show all rules/ }));
 
             expect(await screen.findByText("Min track width")).toBeTruthy();
@@ -277,7 +325,7 @@ describe("ProjectManufacturing", () => {
     describe("spec form", () => {
         it("counts the fields that are set, per section and overall", async () => {
             getProjectSpec.mockResolvedValue(makeSpec(SCHEMA, { layer_count: 4 }));
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             expect(screen.getByText("1 of 2 set")).toBeTruthy();
             expect(screen.getByRole("progressbar", { name: "Spec completeness" }).getAttribute("aria-valuenow")).toBe("1");
@@ -301,7 +349,7 @@ describe("ProjectManufacturing", () => {
                     errors: [],
                 }),
             );
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             const layers = await screen.findByRole("radiogroup", { name: "Layers" });
             fireEvent.click(within(layers).getByRole("radio", { name: "4" }));
             expect(within(layers).getByRole("radio", { name: "4" }).getAttribute("aria-checked")).toBe("true");
@@ -328,7 +376,7 @@ describe("ProjectManufacturing", () => {
                     errors: [],
                 }),
             );
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             const input = (await screen.findByLabelText("Board thickness")) as HTMLInputElement;
             expect(input.value).toBe("1.6");
             expect(screen.getByText("mm")).toBeTruthy();
@@ -354,7 +402,7 @@ describe("ProjectManufacturing", () => {
                 ),
                 source: { layer_count: "extracted", thickness: "manual" },
             });
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             expect(screen.getByText("From board")).toBeTruthy();
             expect(screen.getByText("Edited")).toBeTruthy();
@@ -363,7 +411,7 @@ describe("ProjectManufacturing", () => {
 
         it("shows read-only viewers the values as text", async () => {
             getProjectSpec.mockResolvedValue(makeSpec(SCHEMA, { layer_count: 4 }));
-            render(<ProjectManufacturing projectId="p1" canEdit={false} />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit={false} />);
             await waitFor(() => expect(screen.getByText("Layer count")).toBeTruthy());
             expect(screen.queryByLabelText(/Layer count/)).toBeNull();
             expect(screen.getByText("4")).toBeTruthy();
@@ -373,7 +421,7 @@ describe("ProjectManufacturing", () => {
         });
 
         it("collapses a section when its header is clicked", async () => {
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             fireEvent.click(screen.getByRole("button", { name: /Stackup & physical/ }));
             await waitFor(() => expect(screen.queryByLabelText(/Layer count/)).toBeNull());
@@ -391,7 +439,7 @@ describe("ProjectManufacturing", () => {
                 errors: [],
             };
             getProjectSpec.mockResolvedValue(makeSpec(withOptional));
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitFor(() => expect(screen.getByText("Assembly")).toBeTruthy());
             expect(screen.queryByLabelText(/SMT parts/)).toBeNull();
 
@@ -405,7 +453,7 @@ describe("ProjectManufacturing", () => {
                 errors: [],
             };
             getProjectSpec.mockResolvedValue(makeSpec(withOptional));
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitFor(() => expect(screen.getByText("Assembly")).toBeTruthy());
 
             fireEvent.click(screen.getByRole("switch", { name: "Enable Assembly" }));
@@ -431,7 +479,7 @@ describe("ProjectManufacturing", () => {
                 errors: [],
             };
             getProjectSpec.mockResolvedValue(makeSpec(gated, { material: "Flex" }));
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             const material = await screen.findByRole("radiogroup", { name: "Material" });
             expect(screen.queryByRole("radiogroup", { name: "Inner copper" })).toBeNull();
 
@@ -444,7 +492,7 @@ describe("ProjectManufacturing", () => {
 
     describe("saving", () => {
         it("shows the save bar only once something changes, and saves", async () => {
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             expect(screen.queryByRole("region", { name: "Unsaved changes" })).toBeNull();
 
@@ -460,7 +508,7 @@ describe("ProjectManufacturing", () => {
         });
 
         it("discards edits by reloading the saved spec", async () => {
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             fireEvent.change(screen.getByLabelText(/Layer count/), { target: { value: "9" } });
             fireEvent.click(screen.getByRole("button", { name: "Discard" }));
@@ -470,7 +518,7 @@ describe("ProjectManufacturing", () => {
         });
 
         it("warns on page unload only while there are unsaved edits", async () => {
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             const clean = new Event("beforeunload", { cancelable: true });
             window.dispatchEvent(clean);
@@ -484,7 +532,7 @@ describe("ProjectManufacturing", () => {
 
         it("Fill from board fills fields and marks them", async () => {
             extractBoardSpec.mockResolvedValue({ suggested: { layer_count: 6, board_thickness_mm: 1.6 } });
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             fireEvent.click(screen.getByRole("button", { name: /Fill from board/ }));
             await waitFor(() => expect((screen.getByLabelText(/Layer count/) as HTMLInputElement).value).toBe("6"));
@@ -505,7 +553,7 @@ describe("ProjectManufacturing", () => {
                 }),
             );
             extractBoardSpec.mockResolvedValue({ suggested: { layer_count: 4 } });
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             const group = await screen.findByRole("radiogroup", { name: "Layers" });
             expect(within(group).getByRole("radio", { name: "4" }).getAttribute("aria-checked")).toBe("false");
 
@@ -524,7 +572,7 @@ describe("ProjectManufacturing", () => {
 
         it("asks before dropping unsaved edits when switching manufacturer", async () => {
             listProjectManufacturers.mockResolvedValue(TWO);
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             fireEvent.change(screen.getByLabelText(/Layer count/), { target: { value: "4" } });
 
@@ -543,7 +591,7 @@ describe("ProjectManufacturing", () => {
 
         it("switches manufacturer without asking when nothing is unsaved", async () => {
             listProjectManufacturers.mockResolvedValue(TWO);
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             fireEvent.click(screen.getByRole("tab", { name: "Beta Fab" }));
             await waitFor(() => expect(getProjectSpecForManufacturer).toHaveBeenCalledWith("p1", "m2"));
@@ -561,7 +609,7 @@ describe("ProjectManufacturing", () => {
 
         it("confirms before switching the spec's process, then applies it", async () => {
             twoProcesses();
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
 
             await openProcessMenu();
@@ -575,7 +623,7 @@ describe("ProjectManufacturing", () => {
 
         it("does not switch the process when the confirmation is cancelled", async () => {
             twoProcesses();
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             await openProcessMenu();
             fireEvent.click(await screen.findByRole("option", { name: "Advanced" }));
@@ -586,7 +634,7 @@ describe("ProjectManufacturing", () => {
 
         it("mentions unsaved edits in the process confirmation", async () => {
             twoProcesses();
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             fireEvent.change(screen.getByLabelText(/Layer count/), { target: { value: "4" } });
             await openProcessMenu();
@@ -596,7 +644,7 @@ describe("ProjectManufacturing", () => {
 
         it("removes a manufacturer from the project through the menu, after confirming", async () => {
             detachManufacturer.mockResolvedValue(undefined);
-            render(<ProjectManufacturing projectId="p1" canEdit />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
             await waitForForm();
             fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Acme Fab" }), { key: "Enter" });
             fireEvent.click(await screen.findByRole("menuitem", { name: /Remove from project/ }));
@@ -606,7 +654,7 @@ describe("ProjectManufacturing", () => {
         });
 
         it("hides every edit control when canEdit is false", async () => {
-            render(<ProjectManufacturing projectId="p1" canEdit={false} />);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit={false} />);
             await waitFor(() => expect(screen.getByText("Layer count")).toBeTruthy());
             expect(screen.queryByRole("button", { name: /Actions for/ })).toBeNull();
             expect(screen.queryByRole("button", { name: "Start production" })).toBeNull();

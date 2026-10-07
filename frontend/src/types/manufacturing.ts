@@ -129,6 +129,10 @@ export interface ManufacturingRun {
     created_at: string;
     updated_at: string;
     defect_count?: number;
+    /** Defects still open (the list view); `defects` carries them all in the detail view. */
+    open_defect_count?: number;
+    /** All defects by severity (the list view). */
+    defect_severity_counts?: Partial<Record<DefectSeverity, number>>;
     defects?: RunDefect[];
 }
 
@@ -151,6 +155,10 @@ export interface RunDefect {
     quantity_affected: number;
     description: string;
     status: DefectStatus;
+    /** Why it was resolved, or the reason it was accepted as-is. */
+    resolution_note?: string;
+    /** Who resolved or accepted it. */
+    resolved_by?: string;
     evidence: EvidenceDescriptor[];
     logged_by: string;
     created_at: string;
