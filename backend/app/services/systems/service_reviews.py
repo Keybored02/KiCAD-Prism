@@ -28,10 +28,24 @@ class ReviewsMixin:
         if restricted:
             return {**base, "redacted": True, "fromCommit": None, "toCommit": None,
                     "pendingChanges": None, "items": None}
-        rows = {row["id"]: row for link in store.drift_links(review["system_id"]) for row in link["rows"]}
+        links = store.drift_links(review["system_id"])
+        rows = {row["id"]: row for link in links for row in link["rows"]}
+        # P2 §5.4: an item on a link end whose export's source board is hidden says nothing of its
+        # nets, exactly as the link row itself does; nor does a candidate export with a hidden source.
+        ports = redaction.hidden_ports(hidden)
+        ends = {(link["id"], side): (link[f"{side}_instance_id"], (link[f"{side}_port"] or {}).get("portKey"))
+                for link in links for side in ("a", "b")} if ports else {}
+        withheld = False
         items = []
         for item in review["items"]:
             end = item["link_end"]
+            if ports and ends.get((item["link_id"], end)) in ports:
+                withheld = True
+                items.append({"id": item["id"], "ordinal": item["ordinal"], "kind": item["kind"],
+                              "linkId": item["link_id"], "end": end, "rowIds": list(item["row_ids"]),
+                              "pins": [], "expected": None, "observed": None, "candidates": None,
+                              "decision": item["decision"], "decisionPayload": None, "redacted": True})
+                continue
             pins = sorted({rows[rid][f"pin_{end}"] for rid in item["row_ids"] if rid in rows},
                           key=drift.pad_sort_key) if end else []
             if review["kind"] == "import" and hidden and {
@@ -46,11 +60,14 @@ class ReviewsMixin:
                 "id": item["id"], "ordinal": item["ordinal"], "kind": item["kind"],
                 "linkId": item["link_id"], "end": end, "rowIds": list(item["row_ids"]), "pins": pins,
                 "expected": item["expected"], "observed": item["observed"],
-                "candidates": item["candidates"], "decision": item["decision"],
+                "candidates": _visible_candidates(item["candidates"], review["instance_id"], ports),
+                "decision": item["decision"],
                 "decisionPayload": item["decision_payload"], "redacted": False,
             })
         return {**base, "redacted": False, "fromCommit": review["from_commit"],
-                "toCommit": review["to_commit"], "pendingChanges": review["pending_changes"],
+                "toCommit": review["to_commit"],
+                # Port updates and silent changes name the same ends' nets.
+                "pendingChanges": None if withheld else review["pending_changes"],
                 "items": items}
 
     def _restricted_instances(self, store: SystemStore, system_id: str, caller: Caller) -> redaction.Restricted:
@@ -622,12 +639,20 @@ class ReviewsMixin:
                 if isinstance(project, str):
                     project_ids.add(project)
             access = visibility.project_access(store.conn, project_ids, caller.role)
+            # Export ends whose source board inside a child is hidden (P2 §5.4); an event naming one
+            # (a decided child-update item, a port update) can carry that board's nets.
+            ports = redaction.hidden_ports(self._restricted_instances(store, system_id, caller))
+            # Row edits are logged by link, not by end: a link with such an end withholds them too.
+            hidden_links = {link["id"] for link in store.drift_links(system_id) for side in ("a", "b")
+                            if (link[f"{side}_instance_id"], (link[f"{side}_port"] or {}).get("portKey")) in ports}
         hidden_projects = {pid for pid, seen in access.items() if not seen["visible"]}
         hidden_instances = {iid for iid, pid in owners.items() if pid in hidden_projects}
         out = []
         for event in events:
             text = json.dumps(event["payload"], sort_keys=True)
-            redacted = any(token in text for token in hidden_instances | hidden_projects)
+            redacted = (any(token in text for token in hidden_instances | hidden_projects)
+                        or any(instance in text and export in text for instance, export in ports)
+                        or any(link_id in text for link_id in hidden_links))
             out.append({
                 "seq": int(event["seq"]), "id": event["id"], "at": _iso(event["at"]),
                 "actor": event["actor"], "kind": event["kind"],
@@ -650,3 +675,20 @@ class ReviewsMixin:
             self._system(store, system_id, caller)
             store.put_layout(system_id, positions)
             return {"positions": store.get_layout(system_id)}
+
+
+def _visible_candidates(candidates: Any, instance_id: str, ports: Collection[tuple[str, str]]) -> Any:
+    """Candidate ports of a review item, without the nets of those whose source is hidden (P2 §5.4)."""
+    if not candidates or not ports:
+        return candidates
+    out = []
+    for candidate in candidates:
+        key = candidate.get("portKey") if isinstance(candidate, Mapping) else None
+        if key is not None and (instance_id, key) in ports:
+            # As for the export itself: its name and pin count stay; the hidden board's connector
+            # facts and the overlap computed from its nets do not.
+            candidate = {**{k: v for k, v in candidate.items()
+                            if k in ("portKey", "memberKeys", "reference", "pinCount", "referenceEqual", "pinCountEqual")},
+                         "libId": None, "footprint": None, "libIdEqual": None, "netOverlap": None, "redacted": True}
+        out.append(candidate)
+    return out

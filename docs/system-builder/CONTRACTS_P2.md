@@ -262,7 +262,10 @@ Redaction recurses. For each board occurrence, P1 §8.2 applies with the reader'
 - **Parent access never grants child access.**
 - **Deleted projects:** P1 v1.12 applies at every depth.
 
-**As built (retro D1/D2, P2-1.36).** A reader's view of a document (live or a snapshot's, by today's access) is a set of restricted boards plus **hidden export ends**: each `(assembly instance, export)` whose export resolves, through the child tree, to a board the reader cannot see, or inside a child system they cannot open, or does not resolve at all. Such an end keeps the export, its pins and its pin numbers. Its row nets (`net*`, `observed*`), the wire nets on that side, the link end's `export` landing point, finding details on it, and the assembly interface's pin nets and power flags are null; rows list the end in `redactedEnds`. Documents, snapshots, ICDs, diffs, reviews and `GET …/instances/{iid}/interface` all apply it. A snapshot's manifest and publishing still need the whole document (403 when anything is hidden).
+**As built (retro D1/D2, P2-1.36).** A reader's view of a document (live or a snapshot's, by today's access) is a set of restricted boards plus **hidden export ends**: each `(assembly instance, export)` whose export resolves, through the child tree, to a board the reader cannot see, or inside a child system they cannot open, or does not resolve at all. Such an end keeps the export, its pins and its pin numbers. Its row nets (`net*`, `observed*`), the wire nets on that side, the link end's `export` landing point, finding details on it, and the assembly interface's pin nets and power flags are null; rows list the end in `redactedEnds`. Documents, snapshots, ICDs, diffs and `GET …/instances/{iid}/interface` apply it, and since P2-1.37 also:
+- `GET …/export-interface`, live and frozen: a re-export whose `(target instance, target export)` is hidden is listed with `redacted: true`, its pads, and null reference, libId, footprint, nets, pin names and pin types;
+- reviews: an item on a hidden end has `redacted: true` and null `expected`, `observed`, `candidates` and `decisionPayload`, and the review's `pendingChanges` is null. A candidate export with a hidden source keeps its name and pin count; `libId`, `footprint`, `libIdEqual` and `netOverlap` are null;
+- `GET …/history`: an event naming a hidden end (its assembly and export), or a link with such an end, has `payload: null, redacted: true`. A snapshot's manifest and publishing still need the whole document (403 when anything is hidden).
 
 ## 6. Links, exports as ends, and harnesses
 
@@ -744,6 +747,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 | Version | Date | Change |
 |---|---|---|
 | P2-1.36 | 2026-10-07 | Retrospective fixes (RETRO-M0-M3): §5.4 hidden export ends (D1 snapshot crash, D2 nets through exports); D-P2-29 delete refusal (409 `published_in_catalog`); release jobs report `superseded` / `not_following` instead of rolling back (D4); `GET …/nets?offset=` (D6). Viewer: a staged bundle that turns ready at the same URL loads (D5). |
+| P2-1.37 | 2026-10-07 | Follow-up review findings 1–2: §5.4 hidden export ends now also redact re-export interfaces (live and frozen), review items, candidates and pending changes, and history events. |
 | P2-1.38 | 2026-10-07 | Follow-up review finding 3, D-P2-31: delete archives a referenced system (frozen parent snapshots count), `archivedAt`, 409 `system_archived`; `DELETE` answers 200 with the outcome. Workspace migration 42. |
 | P2-1.35 | 2026-10-07 | SB2-34: §20.11, proxy harnesses. The scene gains `harnesses`; emphasis sets take `wires`; the viewer draws each harness as straight segments that light per wire and glow their ends. Completes M3. |
 | P2-1.34 | 2026-10-07 | SB2-33: §20.10, net search in the System 3D tab: a board picker, one result per system net found by any of its names, Shift-pick adds it to the highlighted nets. `GET …/nets?members=true` (§8.2). |

@@ -473,8 +473,13 @@ class DocumentsMixin:
                 self._enqueue_quietly(instances[iid]["project_id"], instances[iid]["baseline_commit"], caller)
             raise Conflict("interface_not_ready: a board behind an export is still being extracted")
         body = exports_module.interface(exports, instances, interfaces, overrides)
+        # A re-export resolves through the child's export to a board inside it; when that board is
+        # hidden from the reader (or the export no longer resolves), so are its pins' nets (P2 §5.4).
+        ports = redaction.hidden_ports(restricted)
+        hidden_reexports = {e["id"] for e in exports if not e["target_port"]
+                            and (e["target_instance_id"], e["target_export_id"]) in ports}
         for entry in body["exports"]:
-            if entry["occurrence"].lstrip("/") in restricted:
+            if entry["occurrence"].lstrip("/") in restricted or entry["id"] in hidden_reexports:
                 entry.update({"reference": None, "libId": None, "footprint": None, "redacted": True,
                               "pins": [{"pad": p["pad"], "nets": None, "powerNet": None, "pinNames": None,
                                         "pinTypes": None} for p in entry["pins"]]})

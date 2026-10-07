@@ -15,7 +15,7 @@ from app.services.systems import validation
 from app.services.systems.store import Conflict
 
 
-class ChildDriftTest(AssemblyCase):
+class ChildDriftCase(AssemblyCase):
     """Bus = CNDH-A (follows released revisions of the fixture system) + PDU, linked PDU J1 ↔ CNDH-A PWR_IN."""
 
     def setUp(self) -> None:
@@ -59,6 +59,8 @@ class ChildDriftTest(AssemblyCase):
         return self.service.advance_child("system:detection", self.bus, self.cndh, revision_id,
                                           auto_kind="child_auto_advanced")
 
+
+class ChildDriftTest(ChildDriftCase):
     def test_an_internal_child_change_auto_advances_the_parent(self) -> None:
         self.service.update_export(DESIGNER, self.sid, self.version(), self.child_export()["id"],
                                    {"description": "internal wording only"})
