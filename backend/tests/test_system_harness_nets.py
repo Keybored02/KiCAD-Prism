@@ -95,11 +95,35 @@ class SceneHarnessTest(ImportCase):
         self.assertEqual(sorted((w["id"], w["from"], w["to"]) for w in listed["wires"]),
                          sorted((w["id"], w["from"]["end"], w["to"]["end"]) for w in harness["wires"]))
 
+    def test_scene_ends_carry_their_connector_for_the_tubes(self) -> None:
+        # SB2-44: the browser poses each end from its connector's v6 geometry and stored frame.
+        harness = self.service.harness_from_label(DESIGNER, self.sid, self.version(), "WH-001").body
+        [listed] = self.service.scene(VIEWER, self.sid)["harnesses"]
+        by_reference = {e["reference"]: e for e in listed["ends"]}
+        connector = by_reference["J3"]["connector"]
+        self.assertTrue({p["pad"] for p in connector["geometry"]["pads"]} >= {"1"})
+        self.assertGreater(connector["thicknessMm"], 0)
+        self.assertIsNone(connector["stored"], "nothing confirmed yet: the browser infers")
+        self.assertIsNone(by_reference["J3"]["part"])
+        # mini_payload has no PCB: its connectors have no geometry, so those ends can't be posed.
+        self.assertEqual((by_reference["J11"]["connector"], by_reference["J12"]["connector"]), (None, None))
+        self.assertTrue(all("gaugeAwg" in w for w in listed["wires"]))
+        j3 = next(e for e in harness["ends"] if e["mates"]["port"]["reference"] == "J3")
+        port_key = j3["mates"]["port"]["portKey"]
+        geometry = next(e for e in listed["ends"] if e["id"] == j3["id"])["connector"]["geometry"]
+        from app.services.systems import mating as mating_module
+        self.service.set_mating(DESIGNER, self.sid, self.version(), j3["mates"]["instanceId"], port_key,
+                                {"mode": "override", "axis": "bottom", "quarterTurns": 1})
+        [listed] = self.service.scene(VIEWER, self.sid)["harnesses"]
+        stored = next(e for e in listed["ends"] if e["id"] == j3["id"])["connector"]["stored"]
+        self.assertEqual(stored, {"axis": "bottom", "quarterTurns": 1})
+        self.assertIsNotNone(mating_module.infer(geometry))
+
 
 class SceneHarnessRedactionTest(unittest.TestCase):
     harness = {"id": "shw_1", "level": "", "name": "W1", "wires": [{"id": "w1", "from": "e1", "to": "e2"}], "ends": [
-        {"id": "e1", "ordinal": 0, "occurrence": "/sin_a", "reference": "J1"},
-        {"id": "e2", "ordinal": 1, "occurrence": "/sin_b", "reference": "J2"},
+        {"id": "e1", "ordinal": 0, "occurrence": "/sin_a", "reference": "J1", "connector": {"geometry": "g"}},
+        {"id": "e2", "ordinal": 1, "occurrence": "/sin_b", "reference": "J2", "connector": {"geometry": "g"}},
         {"id": "e3", "ordinal": 2, "occurrence": None, "reference": None},
     ]}
 
@@ -108,6 +132,8 @@ class SceneHarnessRedactionTest(unittest.TestCase):
         [out] = scene_module.redact_harnesses([self.harness], shown)
         self.assertEqual([(e["occurrence"], e["reference"]) for e in out["ends"]],
                          [("/sin_a", "J1"), ("/sin_b", None), (None, None)])
+        self.assertEqual([e["connector"] for e in out["ends"]], [{"geometry": "g"}, None, None],
+                         "a restricted board's connector geometry is withheld")
         # A board the reader cannot see at all is no anchor.
         [out] = scene_module.redact_harnesses([self.harness], {"/sin_a": {"restricted": False}})
         self.assertEqual(out["ends"][1]["occurrence"], None)

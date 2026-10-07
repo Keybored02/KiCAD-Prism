@@ -233,6 +233,30 @@ def build(
     }
 
 
+def harness_connectors(harnesses: Sequence[dict], occurrences: Sequence[Occurrence],
+                       root: Optional[system_nets.Level], component: Component) -> None:
+    """Attach each located end's ``connector`` (§17.6 inputs): ``{geometry, thicknessMm, stored}``, with
+    ``stored`` the level's confirmed or override frame (null when there is none or it is stale; the browser
+    then infers it). Ends whose connector can't be read get null."""
+    by_path = {o.path: o for o in occurrences}
+    levels = _levels(root)
+    for harness in harnesses:
+        for end in harness["ends"]:
+            end["connector"] = None
+            board = by_path.get(end["occurrence"] or "")
+            if board is None or not end.get("portKey"):
+                continue
+            found = component(board, end["portKey"])
+            if not found or not found.get("geometry"):
+                continue
+            level = levels.get(board.path.rsplit("/", 1)[0])
+            record = level.mating.get(board.instance_id, {}).get(end["portKey"]) if level else None
+            stored = None if record is None or is_stale(found, record) else \
+                {"axis": record["axis"], "quarterTurns": int(record.get("quarterTurns") or 0)}
+            end["connector"] = {"geometry": found["geometry"], "thicknessMm": found.get("boardThicknessMm"),
+                                "stored": stored}
+
+
 def redact_harnesses(harnesses: Sequence[Mapping[str, Any]], shown: Mapping[str, Mapping[str, Any]]) -> list[dict]:
     """The scene's proxy harnesses (SB2-34) for this reader. A harness inside a child system the
     reader cannot open is left out. An end on a restricted board keeps the board (its box is drawn)
@@ -245,9 +269,13 @@ def redact_harnesses(harnesses: Sequence[Mapping[str, Any]], shown: Mapping[str,
         ends = []
         for end in harness["ends"]:
             entry = shown.get(end["occurrence"]) if end["occurrence"] else None
+            open_board = bool(entry) and not entry["restricted"]
             ends.append({"id": end["id"], "ordinal": end["ordinal"],
                          "occurrence": end["occurrence"] if entry else None,
-                         "reference": end["reference"] if entry and not entry["restricted"] else None})
+                         "reference": end["reference"] if open_board else None,
+                         # SB2-44: what the browser needs to pose the end (§17.6); never for a restricted board.
+                         "part": end.get("part"),
+                         "connector": end.get("connector") if open_board else None})
         out.append({"id": harness["id"], "level": level or None, "name": harness["name"], "ends": ends,
                     "wires": [dict(wire) for wire in harness["wires"]]})
     return out

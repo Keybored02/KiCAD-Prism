@@ -411,6 +411,10 @@ class AssembliesMixin:
             level = self._net_level(store, system_id, tree)
             harnesses = system_nets.harness_layout(level)
             placement, interfaces = self._placement(store, system_id, tree, level)
+            scene_module.harness_connectors(harnesses, tree.occurrences, level,
+                                            lambda o, key: store.get_interface_component(
+                                                o.project_id, o.baseline_commit, EXTRACTOR_VERSION, key)
+                                            if o.project_id and o.baseline_commit else None)
         for (project_id, commit), found in interfaces.items():
             if found is None:  # not extracted yet, or by an older extractor: the bounds come with it
                 self._enqueue_quietly(project_id, commit, caller)
