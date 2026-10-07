@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 import uuid
+from unittest import mock
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -1802,9 +1803,50 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (38, "system_harnesses"),
                 (39, "system_harness_part_pins"),
                 (40, "system_poses"),
+                (41, "repository_origin"),
             ],
         )
 
+
+class _LedgerOnlyConnection:
+    """Just the ws_schema_migrations ledger; migration bodies are stubbed out."""
+
+    def __init__(self, ledger: dict[int, str]) -> None:
+        self.ledger = dict(ledger)
+
+    def execute(self, sql: str, params: tuple = ()):
+        statement = " ".join(sql.split())
+        rows: list[dict] = []
+        if statement.startswith("UPDATE ws_schema_migrations SET version"):
+            new_version, old_version, name = params
+            if self.ledger.get(old_version) == name:
+                self.ledger[new_version] = self.ledger.pop(old_version)
+        elif statement.startswith("SELECT version FROM ws_schema_migrations"):
+            rows = [{"version": version} for version in self.ledger]
+        elif statement.startswith("INSERT INTO ws_schema_migrations"):
+            version, name = params
+            if version in self.ledger or name in self.ledger.values():
+                raise AssertionError(f"migration {version} ({name}) recorded twice")
+            self.ledger[version] = name
+        return mock.Mock(fetchall=mock.Mock(return_value=rows))
+
+
+class WorkspaceMigrationRenumberTests(unittest.TestCase):
+    def test_branch_database_keeps_repository_origin_under_its_new_number(self) -> None:
+        """repository_origin was 26 on the agent branch; 26-40 belong to System Builder."""
+        stubbed = tuple((version, name, lambda conn: None) for version, name, _ in MIGRATIONS)
+        ledger = {version: name for version, name, _ in MIGRATIONS if version <= 25}
+        ledger[26] = "repository_origin"
+        conn = _LedgerOnlyConnection(ledger)
+
+        with mock.patch("app.services.workspace_schema_migrations.MIGRATIONS", stubbed):
+            apply_workspace_migrations(conn)
+
+        self.assertEqual(conn.ledger[41], "repository_origin")
+        self.assertEqual(list(conn.ledger.values()).count("repository_origin"), 1)
+        # 26 is free again for the migration that owns it.
+        self.assertNotEqual(conn.ledger.get(26), "repository_origin")
+        self.assertEqual(sorted(conn.ledger), [version for version, _, _ in MIGRATIONS])
 
 if __name__ == "__main__":
     unittest.main()
