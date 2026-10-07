@@ -187,11 +187,11 @@ export function MatingPanel({ systemId, etag, document, link, editable, busy, ru
   const restricted = link.a.redacted || link.b.redacted;
   // A board this link could place instead of its current driving mate, and a choice to undo.
   const choices = placement && editable && !restricted
-    ? (["a", "b"] as const).flatMap((end) => {
+    ? (["a", "b"] as const).flatMap((end): { instanceId: string; kind: "use" | "reset" }[] => {
       const instanceId = link[end].instanceId;
       const current = placement.driving[instanceId];
-      if (placement.drivingMates[instanceId] === link.id) return [{ instanceId, kind: "reset" as const }];
-      if (current && current.linkId !== link.id && !placement.unusable.includes(link.id)) return [{ instanceId, kind: "use" as const }];
+      if (placement.drivingMates[instanceId] === link.id) return [{ instanceId, kind: "reset" }];
+      if (current && current.linkId !== link.id && !placement.unusable.includes(link.id)) return [{ instanceId, kind: "use" }];
       return [];
     })
     : [];
