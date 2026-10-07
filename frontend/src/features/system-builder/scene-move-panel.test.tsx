@@ -15,11 +15,11 @@ const state = (patch: Partial<PrismSystemSceneMoveState> = {}): PrismSystemScene
   allowed: true, enabled: true, space: "world", dragging: false, target: target(), ...patch,
 });
 
-function renderPanel(moveState = state()) {
+function renderPanel(moveState = state(), moved = false) {
   const handlers = {
-    onPreview: vi.fn(), onSave: vi.fn(), onRevert: vi.fn(), onDefault: vi.fn(), onResetAll: vi.fn(), onSpace: vi.fn(),
+    onPreview: vi.fn(), onSave: vi.fn(), onCancel: vi.fn(), onRevert: vi.fn(), onDefault: vi.fn(), onResetAll: vi.fn(), onSpace: vi.fn(),
   };
-  const view = render(<MovePanel state={moveState} busy={false} {...handlers} />);
+  const view = render(<MovePanel state={moveState} busy={false} moved={moved} {...handlers} />);
   return { ...handlers, view };
 }
 
@@ -58,9 +58,19 @@ describe("MovePanel", () => {
     }));
   });
 
-  it("puts the position back with Esc", () => {
-    const { onRevert } = renderPanel(state({ target: target({ unsaved: true }) }));
+  it("drops an unsaved position with Esc, without undoing saved moves", () => {
+    const { onCancel, onRevert } = renderPanel(state({ target: target({ unsaved: true }) }), true);
     fireEvent.keyDown(screen.getByLabelText("Rotate Z in degrees"), { key: "Escape" });
+    expect(onCancel).toHaveBeenCalled();
+    expect(onRevert).not.toHaveBeenCalled();
+  });
+
+  it("offers Revert after a saved move, not before", () => {
+    const { view } = renderPanel(state({ target: target({ source: "manual" }) }));
+    expect((screen.getByRole("button", { name: "Revert" }) as HTMLButtonElement).disabled).toBe(true);
+    view.unmount();
+    const { onRevert } = renderPanel(state({ target: target({ source: "manual" }) }), true);
+    fireEvent.click(screen.getByRole("button", { name: "Revert" }));
     expect(onRevert).toHaveBeenCalled();
   });
 
@@ -80,5 +90,11 @@ describe("MovePanel", () => {
     expect(screen.getByText(/A child system: it moves as one group/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
     expect(onSpace).toHaveBeenCalledWith("local");
+    expect(screen.queryByText(/isn't rotated/)).toBeNull();
+  });
+
+  it("says when board axes are the world axes", () => {
+    renderPanel(state({ target: target({ pose: { translationMm: [0, 0, 0], rotation: [0, 0, 0, 1] } }) }));
+    expect(screen.getByText("This board isn't rotated, so its axes are the world axes.")).toBeTruthy();
   });
 });
