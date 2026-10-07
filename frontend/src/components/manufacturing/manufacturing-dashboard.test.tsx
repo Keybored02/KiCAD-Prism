@@ -17,22 +17,13 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 
 // The heavy children are stubbed: this suite is about what the URL opens and what the shell wires up.
 vi.mock("./run-drawer", () => ({
-    RunDrawer: (props: { runId: string | null; onClose: () => void; onOpenFull?: () => void }) =>
+    RunDrawer: (props: { runId: string | null; onClose: () => void }) =>
         props.runId ? (
             <div>
                 drawer:{props.runId}
                 <button type="button" onClick={props.onClose}>close drawer</button>
-                <button type="button" onClick={props.onOpenFull}>open full</button>
             </div>
         ) : null,
-}));
-vi.mock("./run-view", () => ({
-    RunView: (props: { runId: string; variant: string; onBack?: () => void }) => (
-        <div>
-            page:{props.runId}:{props.variant}
-            <button type="button" onClick={props.onBack}>back</button>
-        </div>
-    ),
 }));
 vi.mock("./new-production-dialog", () => ({
     NewProductionDialog: (props: { initialProjectId?: string; projects: { id: string; name: string }[] }) => (
@@ -141,16 +132,6 @@ describe("ManufacturingDashboard", () => {
             expect((screen.getByLabelText("Search production") as HTMLInputElement).value).toBe("JOB");
         });
 
-        it("switches to the full page and back to the drawer", async () => {
-            runs();
-            renderAt("/?section=manufacturing&run=r1");
-            fireEvent.click(await screen.findByRole("button", { name: "open full" }));
-            expect(await screen.findByText("page:r1:page")).toBeTruthy();
-            expect(screen.queryByText("drawer:r1")).toBeNull();
-
-            fireEvent.click(screen.getByRole("button", { name: "back" }));
-            expect(await screen.findByText("drawer:r1")).toBeTruthy();
-        });
     });
 
     describe("actions and roles", () => {

@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-    ArrowLeft,
     Check,
     CheckCircle2,
     ChevronDown,
     ChevronRight,
-    ExternalLink,
     FileDown,
     MoreHorizontal,
     Paperclip,
@@ -29,7 +27,6 @@ import {
     DropdownMenuLabel,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
-    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -76,11 +73,6 @@ interface RunViewProps {
     canLogDefects: boolean;
     /** QA/admin only: move the run through its status lifecycle. */
     canChangeStatus: boolean;
-    /** "page" fills the main area with a back button; "drawer" sits over a list. */
-    variant?: "page" | "drawer";
-    onBack?: () => void;
-    /** Drawer only: switch to the full-page view of the same run. */
-    onOpenFull?: () => void;
     /** Called after the run is deleted, so the host can leave this view. */
     onDeleted: () => void;
     /** Called after any change, so a list behind this view can refresh. */
@@ -101,9 +93,6 @@ export function RunView({
     canEdit,
     canLogDefects,
     canChangeStatus,
-    variant = "page",
-    onBack,
-    onOpenFull,
     onDeleted,
     onChanged,
 }: RunViewProps) {
@@ -185,12 +174,7 @@ export function RunView({
     if (!run) {
         return (
             <div className="p-6">
-                {onBack && (
-                    <Button variant="ghost" onClick={onBack}>
-                        <ArrowLeft className="mr-2 h-4 w-4" /> Back
-                    </Button>
-                )}
-                <p className="mt-4 text-sm text-muted-foreground">Production not found.</p>
+                <p className="text-sm text-muted-foreground">Production not found.</p>
             </div>
         );
     }
@@ -205,18 +189,12 @@ export function RunView({
     const yieldPct = run.quantity_ordered > 0 ? Math.round((run.quantity_good / run.quantity_ordered) * 100) : null;
     const next = nextRunStatus(run.status);
     const board = boardName(run);
-    const showActionsMenu = canChangeStatus || canEdit;
     const title = run.job_number || run.project_name || run.project_id;
 
     return (
         <div className="flex h-full min-h-0 flex-col bg-background">
             <header className="shrink-0 border-b bg-card">
-                <div className={cn("px-4 py-3", variant === "drawer" && "pr-14")}>
-                    {variant === "page" && onBack && (
-                        <Button size="sm" variant="ghost" className="-ml-2 mb-2 h-7 px-2 text-xs" onClick={onBack}>
-                            <ArrowLeft className="mr-1 h-3 w-3" /> All production
-                        </Button>
-                    )}
+                <div className="px-4 py-3 pr-14">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
@@ -240,13 +218,7 @@ export function RunView({
                                 <FileDown className="mr-1.5 h-4 w-4" />
                                 {downloading ? "Preparing..." : "Download report"}
                             </Button>
-                            {variant === "drawer" && onOpenFull && (
-                                <Button size="sm" variant="outline" onClick={onOpenFull}>
-                                    <ExternalLink className="mr-1.5 h-4 w-4" />
-                                    Open full page
-                                </Button>
-                            )}
-                            {showActionsMenu && (
+                            {canEdit && (
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <Button size="icon-sm" variant="outline" aria-label="Production actions">
@@ -254,31 +226,13 @@ export function RunView({
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
-                                        {canChangeStatus && (
-                                            <>
-                                                <DropdownMenuLabel>Set status</DropdownMenuLabel>
-                                                <DropdownMenuRadioGroup
-                                                    value={run.status}
-                                                    onValueChange={(value) => void changeStatus(value)}
-                                                >
-                                                    {RUN_STATUSES.map((status) => (
-                                                        <DropdownMenuRadioItem key={status} value={status}>
-                                                            {RUN_STATUS_LABELS[status]}
-                                                        </DropdownMenuRadioItem>
-                                                    ))}
-                                                </DropdownMenuRadioGroup>
-                                            </>
-                                        )}
-                                        {canChangeStatus && canEdit && <DropdownMenuSeparator />}
-                                        {canEdit && (
-                                            <DropdownMenuItem
-                                                className="text-destructive focus:text-destructive"
-                                                onSelect={() => setConfirmDelete(true)}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                                Delete production
-                                            </DropdownMenuItem>
-                                        )}
+                                        <DropdownMenuItem
+                                            className="text-destructive focus:text-destructive"
+                                            onSelect={() => setConfirmDelete(true)}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                            Delete production
+                                        </DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             )}
@@ -287,10 +241,41 @@ export function RunView({
 
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                         <StatusStepper status={run.status} />
-                        {canChangeStatus && next && (
-                            <Button size="sm" onClick={() => void changeStatus(next)}>
-                                Mark as {RUN_STATUS_LABELS[next].toLowerCase()}
-                            </Button>
+                        {canChangeStatus && (
+                            // One control for status: the button moves the run to the next stage,
+                            // and the arrow beside it opens every stage for a correction.
+                            <div className="ml-auto flex">
+                                {next && (
+                                    <Button size="sm" className="rounded-r-none" onClick={() => void changeStatus(next)}>
+                                        Mark as {RUN_STATUS_LABELS[next].toLowerCase()}
+                                    </Button>
+                                )}
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button
+                                            size="sm"
+                                            className={next ? "rounded-l-none border-l border-primary-foreground/30 px-2" : undefined}
+                                            aria-label="Set status"
+                                        >
+                                            {!next && "Set status"}
+                                            <ChevronDown className={cn("h-4 w-4", !next && "ml-1.5")} />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuLabel>Set status</DropdownMenuLabel>
+                                        <DropdownMenuRadioGroup
+                                            value={run.status}
+                                            onValueChange={(value) => void changeStatus(value)}
+                                        >
+                                            {RUN_STATUSES.map((status) => (
+                                                <DropdownMenuRadioItem key={status} value={status}>
+                                                    {RUN_STATUS_LABELS[status]}
+                                                </DropdownMenuRadioItem>
+                                            ))}
+                                        </DropdownMenuRadioGroup>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -311,6 +296,8 @@ export function RunView({
                             <Stat label="Affected units" value={affected} />
                             <Stat label="Yield" value={yieldPct === null ? "—" : `${yieldPct}%`} />
                         </div>
+
+                        <SpecSnapshot snapshot={run.spec_snapshot} />
 
                         <section aria-label="Defects">
                             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -364,7 +351,6 @@ export function RunView({
                             )}
                         </section>
 
-                        <SpecSnapshot snapshot={run.spec_snapshot} />
                     </div>
 
                     <aside className="min-w-0 space-y-6">

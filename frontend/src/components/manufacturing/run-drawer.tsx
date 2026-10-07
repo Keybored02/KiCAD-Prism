@@ -8,8 +8,6 @@ interface RunDrawerProps {
     canLogDefects: boolean;
     canChangeStatus: boolean;
     onClose: () => void;
-    /** Switch to the full-page view of the same run. */
-    onOpenFull?: () => void;
     onDeleted: () => void;
     /** Called after any change, so the list behind the drawer can refresh. */
     onChanged?: () => void;
@@ -25,7 +23,6 @@ export function RunDrawer({
     canLogDefects,
     canChangeStatus,
     onClose,
-    onOpenFull,
     onDeleted,
     onChanged,
 }: RunDrawerProps) {
@@ -42,11 +39,9 @@ export function RunDrawer({
                 {runId && (
                     <RunView
                         runId={runId}
-                        variant="drawer"
                         canEdit={canEdit}
                         canLogDefects={canLogDefects}
                         canChangeStatus={canChangeStatus}
-                        onOpenFull={onOpenFull}
                         onDeleted={onDeleted}
                         onChanged={onChanged}
                     />

@@ -74,7 +74,6 @@ import { NewProductionDialog } from "./new-production-dialog";
 import { ProductionList } from "./production-list";
 import { DEFAULT_FILTERS, type ProductionFilters } from "./production-filters";
 import { RunDrawer } from "./run-drawer";
-import { RunView } from "./run-view";
 import { CapabilityCheck } from "./capability-check";
 import { OptionRow, ProvenanceMarker, type Provenance } from "./option-row";
 import { SaveBar, useBeforeUnloadWhen } from "./save-bar";
@@ -108,7 +107,6 @@ export function ProjectManufacturing({
     // and the new-production dialog with this project (and manufacturer) filled in.
     const [filters, setFilters] = useState<ProductionFilters>(DEFAULT_FILTERS);
     const [drawerRunId, setDrawerRunId] = useState<string | null>(null);
-    const [fullRunId, setFullRunId] = useState<string | null>(null);
     const [newRunOpen, setNewRunOpen] = useState(false);
 
     // Navigation: which attached manufacturer is selected. Each has one spec.
@@ -427,30 +425,6 @@ export function ProjectManufacturing({
 
     if (loading) {
         return <div className="text-sm text-muted-foreground">Loading manufacturing...</div>;
-    }
-
-    if (fullRunId) {
-        return (
-            <div className="h-[calc(100vh-12rem)] min-h-[28rem] border">
-                <RunView
-                    runId={fullRunId}
-                    variant="page"
-                    canEdit={canEdit}
-                    canLogDefects={canLogDefects}
-                    canChangeStatus={canChangeStatus}
-                    onBack={() => {
-                        setDrawerRunId(fullRunId);
-                        setFullRunId(null);
-                        void reloadRuns();
-                    }}
-                    onDeleted={() => {
-                        setFullRunId(null);
-                        void reloadRuns();
-                    }}
-                    onChanged={() => void reloadRuns()}
-                />
-            </div>
-        );
     }
 
     const hasFields = schema.sections.some((s) => s.fields.length > 0);
@@ -849,10 +823,6 @@ export function ProjectManufacturing({
                 canLogDefects={canLogDefects}
                 canChangeStatus={canChangeStatus}
                 onClose={() => setDrawerRunId(null)}
-                onOpenFull={() => {
-                    setFullRunId(drawerRunId);
-                    setDrawerRunId(null);
-                }}
                 onDeleted={() => {
                     setDrawerRunId(null);
                     void reloadRuns();

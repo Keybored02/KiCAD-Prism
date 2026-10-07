@@ -14,7 +14,6 @@ import { NewProductionDialog, type ProjectOption } from "./new-production-dialog
 import { ProductionList } from "./production-list";
 import { filtersFromParams, filtersToParams, type ProductionFilters } from "./production-filters";
 import { RunDrawer } from "./run-drawer";
-import { RunView } from "./run-view";
 import { ManufacturersPanel } from "./manufacturers-panel";
 
 interface ManufacturingDashboardProps {
@@ -48,7 +47,6 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
     const [searchParams, setSearchParams] = useSearchParams();
     const filters = useMemo(() => filtersFromParams(searchParams), [searchParams]);
     const drawerRunId = searchParams.get("run");
-    const [fullRunId, setFullRunId] = useState<string | null>(null);
     const [wizardProjectId] = useState<string | undefined>(() => searchParams.get("newRunFor") ?? undefined);
     const [wizardOpen, setWizardOpen] = useState(() => searchParams.has("newRunFor"));
 
@@ -103,27 +101,6 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
         () => projects.map((p) => ({ id: p.id, name: projectLabel(p) })),
         [projects],
     );
-
-    if (fullRunId) {
-        return (
-            <RunView
-                runId={fullRunId}
-                variant="page"
-                canEdit={canEdit}
-                canLogDefects={canLogDefects}
-                canChangeStatus={canChangeStatus}
-                onBack={() => {
-                    openRun(fullRunId);
-                    setFullRunId(null);
-                    void load();
-                }}
-                onDeleted={() => {
-                    setFullRunId(null);
-                    void load();
-                }}
-            />
-        );
-    }
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -199,10 +176,6 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
                 canLogDefects={canLogDefects}
                 canChangeStatus={canChangeStatus}
                 onClose={() => openRun(null)}
-                onOpenFull={() => {
-                    setFullRunId(drawerRunId);
-                    openRun(null);
-                }}
                 onDeleted={() => {
                     openRun(null);
                     void load();

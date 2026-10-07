@@ -51,7 +51,7 @@ type Props = Partial<React.ComponentProps<typeof RunView>>;
 
 function renderView(run: ManufacturingRun, props: Props = {}) {
     getRun.mockResolvedValue(run);
-    const handlers = { onDeleted: vi.fn(), onChanged: vi.fn(), onBack: vi.fn(), onOpenFull: vi.fn() };
+    const handlers = { onDeleted: vi.fn(), onChanged: vi.fn() };
     render(
         <MemoryRouter>
             <RunView
@@ -97,17 +97,33 @@ describe("RunView", () => {
             await waitFor(() => expect(updateRunStatus).toHaveBeenCalledWith("run_1", "in_production"));
         });
 
-        it("offers no advance button once closed", async () => {
+        it("has no advance button once closed, only the status menu", async () => {
             renderView(makeRun({ status: "closed" }));
             await heading("JOB-2026-0001");
             expect(screen.queryByRole("button", { name: /Mark as/ })).toBeNull();
+            const setStatus = screen.getByRole("button", { name: "Set status" });
+            expect(setStatus.textContent).toContain("Set status");
         });
 
-        it("lets QA correct the status from the actions menu", async () => {
+        it("puts the advance button and the status arrow in one control", async () => {
+            renderView(makeRun({ status: "ordered" }));
+            await heading("JOB-2026-0001");
+            const advance = screen.getByRole("button", { name: "Mark as in production" });
+            const arrow = screen.getByRole("button", { name: "Set status" });
+            expect(advance.parentElement).toBe(arrow.parentElement);
+            // The status choices are not duplicated in the actions menu.
+            openMenu("Production actions");
+            expect(await screen.findByRole("menuitem", { name: /Delete production/ })).toBeTruthy();
+            expect(screen.queryByRole("menuitemradio")).toBeNull();
+        });
+
+        it("lets QA correct the status from the arrow beside the advance button", async () => {
             renderView(makeRun({ status: "received" }));
             await heading("JOB-2026-0001");
-            openMenu("Production actions");
-            fireEvent.click(await screen.findByRole("menuitemradio", { name: "Ordered" }));
+            openMenu("Set status");
+            expect(await screen.findAllByRole("menuitemradio")).toHaveLength(5);
+            expect(screen.getByRole("menuitemradio", { name: "Received" }).getAttribute("aria-checked")).toBe("true");
+            fireEvent.click(screen.getByRole("menuitemradio", { name: "Ordered" }));
             await waitFor(() => expect(updateRunStatus).toHaveBeenCalledWith("run_1", "ordered"));
         });
 
@@ -115,6 +131,7 @@ describe("RunView", () => {
             renderView(makeRun(), { canChangeStatus: false });
             await heading("JOB-2026-0001");
             expect(screen.queryByRole("button", { name: /Mark as/ })).toBeNull();
+            expect(screen.queryByRole("button", { name: "Set status" })).toBeNull();
             expect(screen.getAllByText("Received").length).toBeGreaterThan(0);
         });
 
@@ -135,28 +152,26 @@ describe("RunView", () => {
             expect(deleteRun).not.toHaveBeenCalled();
         });
 
-        it("hides the actions menu when the user can neither edit nor change status", async () => {
-            renderView(makeRun(), { canEdit: false, canChangeStatus: false });
+        it("hides the delete menu without edit rights, but QA keeps the status control", async () => {
+            renderView(makeRun(), { canEdit: false, canChangeStatus: true });
             await heading("JOB-2026-0001");
             expect(screen.queryByRole("button", { name: "Production actions" })).toBeNull();
+            expect(screen.getByRole("button", { name: "Set status" })).toBeTruthy();
+        });
+
+        it("has no full-page button", async () => {
+            renderView(makeRun());
+            await heading("JOB-2026-0001");
+            expect(screen.queryByRole("button", { name: /full page/i })).toBeNull();
         });
     });
 
-    describe("hosts", () => {
-        it("the page variant has a back button", async () => {
-            const { onBack } = renderView(makeRun(), { variant: "page" });
-            await heading("JOB-2026-0001");
-            fireEvent.click(screen.getByRole("button", { name: /All production/ }));
-            expect(onBack).toHaveBeenCalled();
-        });
-
-        it("the drawer variant offers the full page instead", async () => {
-            const { onOpenFull } = renderView(makeRun(), { variant: "drawer" });
-            await heading("JOB-2026-0001");
-            expect(screen.queryByRole("button", { name: /All production/ })).toBeNull();
-            fireEvent.click(screen.getByRole("button", { name: /Open full page/ }));
-            expect(onOpenFull).toHaveBeenCalled();
-        });
+    it("lists the spec before the defects", async () => {
+        renderView(makeRun({ defects: [makeDefect()] }));
+        await heading("JOB-2026-0001");
+        const spec = screen.getByRole("button", { name: /Spec at the time of order/ });
+        const defects = screen.getByRole("region", { name: "Defects" });
+        expect(spec.compareDocumentPosition(defects) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     describe("quantities and details", () => {
@@ -390,7 +405,7 @@ describe("RunView", () => {
         getRun.mockResolvedValue(null);
         render(
             <MemoryRouter>
-                <RunView runId="gone" canEdit canLogDefects canChangeStatus onDeleted={vi.fn()} onBack={vi.fn()} />
+                <RunView runId="gone" canEdit canLogDefects canChangeStatus onDeleted={vi.fn()} />
             </MemoryRouter>,
         );
         expect(await screen.findByText("Production not found.")).toBeTruthy();
