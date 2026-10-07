@@ -115,12 +115,15 @@ export class SceneRenderer {
 
   /**
    * One frame. `optionsFor(renderer)` gives each renderer's draw options
-   * (visible layers and so on, as `Renderer.render` takes them).
+   * (visible layers and so on, as `Renderer.render` takes them); `layerOffsets`
+   * there, when given, is that board's exploded-stackup offsets.
    */
   render(panel, optionsFor) {
     const host = this.host;
     host.resize();
     const live = this.renderers.filter((renderer) => renderer.occurrenceCount > 0);
+    const options = new Map(live.map((renderer) => [renderer, optionsFor(renderer)]));
+    for (const [renderer, value] of options) writeLayerOffsets(renderer, value);
     const encoder = this.device.createCommandEncoder();
     const reads = live.filter((renderer) => renderer.encodeCull(encoder, panel));
     const pass = encoder.beginRenderPass({
@@ -136,7 +139,7 @@ export class SceneRenderer {
     let triangles = 0;
     let draws = 0;
     for (const renderer of live) {
-      const counted = renderer.encodeDraws(pass, panel, optionsFor(renderer));
+      const counted = renderer.encodeDraws(pass, panel, options.get(renderer));
       triangles += counted.triangles;
       draws += counted.draws;
     }
@@ -165,7 +168,10 @@ export class SceneRenderer {
     });
     setViewport(pass, panel.viewport, this.canvas);
     for (const renderer of this.renderers) {
-      if (renderer.occurrenceCount > 0) renderer.encodePick(pass, panel, optionsFor(renderer));
+      if (renderer.occurrenceCount === 0) continue;
+      const options = optionsFor(renderer);
+      writeLayerOffsets(renderer, options);
+      renderer.encodePick(pass, panel, options);
     }
     pass.end();
     const hit = await host.readPick(encoder, pixelX, pixelY);
@@ -202,6 +208,10 @@ export class SceneRenderer {
     this.host.context?.unconfigure?.();
     this.device.destroy?.();
   }
+}
+
+function writeLayerOffsets(renderer, options) {
+  if (options?.layerOffsets) renderer.device.queue.writeBuffer(renderer.layerOffsetBuffer, 0, options.layerOffsets);
 }
 
 function setViewport(pass, viewport, canvas) {
