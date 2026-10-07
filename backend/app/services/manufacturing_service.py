@@ -71,9 +71,22 @@ def _row(row: Any) -> Dict[str, Any]:
 
 
 def list_manufacturers() -> List[Dict[str, Any]]:
+    """Every manufacturer, with how many processes it has and which projects use it."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM ws_manufacturers ORDER BY name"
+            """SELECT m.*,
+                      (SELECT COUNT(*) FROM ws_spec_templates t
+                        WHERE t.manufacturer_id = m.id) AS process_count,
+                      (SELECT COUNT(*) FROM ws_project_manufacturers pm
+                        WHERE pm.manufacturer_id = m.id) AS project_count,
+                      COALESCE(
+                        (SELECT jsonb_agg(jsonb_build_object('id', p.id, 'name', p.name) ORDER BY p.name)
+                           FROM ws_project_manufacturers pm
+                           JOIN ws_projects p ON p.id = pm.project_id
+                          WHERE pm.manufacturer_id = m.id),
+                        '[]'::jsonb) AS projects
+               FROM ws_manufacturers m
+               ORDER BY m.name"""
         ).fetchall()
     return [_row(r) for r in rows]
 
@@ -125,9 +138,12 @@ def delete_manufacturer(mfr_id: str) -> bool:
 
 
 def list_templates(manufacturer_id: str | None = None) -> List[Dict[str, Any]]:
-    """Templates for one manufacturer, or all of them, with the manufacturer name."""
+    """Templates for one manufacturer, or all of them, with the manufacturer name
+    and how many projects' specs are using each."""
     query = """
-        SELECT t.*, m.name AS manufacturer_name
+        SELECT t.*, m.name AS manufacturer_name,
+               (SELECT COUNT(DISTINCT s.project_id) FROM ws_project_specs s
+                 WHERE s.template_id = t.id) AS project_count
         FROM ws_spec_templates t
         JOIN ws_manufacturers m ON m.id = t.manufacturer_id
     """

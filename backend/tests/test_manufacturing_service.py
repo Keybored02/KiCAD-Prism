@@ -447,6 +447,36 @@ class ManufacturingStoreTests(unittest.TestCase):
         mfg.delete_manufacturer(mid)
         mfg.delete_manufacturer(bare)
 
+    def test_manufacturer_and_process_usage_counts(self) -> None:
+        mid = mfg.create_manufacturer("Usage Fab " + uuid.uuid4().hex[:5])
+        idle = mfg.create_manufacturer("Idle Fab " + uuid.uuid4().hex[:5])
+        tid = mfg.create_template(mid, "standard")
+        mfg.create_template(mid, "advanced")
+        mfg.attach_manufacturer(self.project_id, mid)
+
+        listed = {m["id"]: m for m in mfg.list_manufacturers()}
+        self.assertEqual(listed[mid]["process_count"], 2)
+        self.assertEqual(listed[mid]["project_count"], 1)
+        self.assertEqual([p["id"] for p in listed[mid]["projects"]], [self.project_id])
+        # A manufacturer nobody uses still lists, with zero counts and no projects.
+        self.assertEqual(
+            (listed[idle]["process_count"], listed[idle]["project_count"], listed[idle]["projects"]),
+            (0, 0, []),
+        )
+
+        # Attaching links the project's spec to the manufacturer's first process
+        # (alphabetically), which now reports the project as using it.
+        by_name = {t["name"]: t for t in mfg.list_templates(mid)}
+        self.assertEqual(by_name["advanced"]["project_count"], 1)
+        self.assertEqual(by_name["standard"]["project_count"], 0)
+        self.assertEqual(by_name["standard"]["id"], tid)
+
+        mfg.detach_manufacturer(self.project_id, mid)
+        self.assertEqual({m["id"]: m for m in mfg.list_manufacturers()}[mid]["project_count"], 0)
+
+        mfg.delete_manufacturer(mid)
+        mfg.delete_manufacturer(idle)
+
     def test_apply_template_relinks_spec_and_moves_capabilities(self) -> None:
         mid = mfg.create_manufacturer("Swap Fab " + uuid.uuid4().hex[:5])
         std = mfg.create_template(
