@@ -341,7 +341,9 @@ class SystemApiTest(unittest.TestCase):
     def test_delete_system(self) -> None:
         sid, etag = self.create_system()
         self.assertEqual(self.call("DELETE", f"/{sid}").status, 428)
-        self.mutate("DELETE", f"/{sid}", etag, expect=204)
+        deleted = self.mutate("DELETE", f"/{sid}", etag, expect=200)
+        # D-P2-31: the answer says whether it was deleted or, being referenced, archived.
+        self.assertEqual((deleted.json["deleted"], deleted.json["archived"]), (True, False))
         self.assertEqual(self.call("GET", f"/{sid}").status, 404)
 
     # ------------------------------------------------------------------ instances
@@ -703,7 +705,7 @@ class SystemApiTest(unittest.TestCase):
             with self.subTest(method=method, path=path):
                 self.assertEqual(self.call(method, path, body=body, headers={"If-Match": etag}).status, 404)
         self.assertEqual(self.call("DELETE", f"/{sid}", headers={"If-Match": etag}).status, 409)
-        self.assertEqual(self.call("DELETE", f"/{sid}", headers={"If-Match": etag}, user="admin").status, 204)
+        self.assertEqual(self.call("DELETE", f"/{sid}", headers={"If-Match": etag}, user="admin").status, 200)
 
     def delete_project(self, project_id: str) -> None:
         with self.connect() as conn:

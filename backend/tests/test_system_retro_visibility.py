@@ -12,7 +12,7 @@ from test_system_assemblies import AssemblyCase
 from test_system_publish import ADMIN
 from test_system_snapshots import DESIGNER, VIEWER
 
-from app.services.systems.store import Conflict
+from app.services.systems.store import Conflict, NotFound
 
 
 class ParentWithAssemblyCase(AssemblyCase):
@@ -107,24 +107,66 @@ class ExportRedactionTest(ParentWithAssemblyCase):
 
 
 class DeletePublishedSystemTest(AssemblyCase):
-    """Retro D3 / D-P2-29: a system whose snapshots back catalog revisions is not deleted from under them."""
+    """Retro D3 and follow-up review finding 3 (D-P2-29, D-P2-31): a system whose snapshots back catalog
+    revisions, live or frozen in a parent snapshot, is archived instead of deleted."""
 
-    def delete_child(self) -> None:
-        self.service.delete_system(DESIGNER, self.sid, self.version())
+    def delete_child(self) -> dict:
+        return self.service.delete_system(DESIGNER, self.sid, self.version())
 
-    def test_deleting_a_published_system_is_refused_until_retired_and_unused(self) -> None:
+    def listed(self) -> bool:
+        return any(s["id"] == self.sid for s in self.service.list_systems(DESIGNER))
+
+    def child_rows(self, bus: str, snapshot_id: str) -> int:
+        """Rows of the child's level in the parent snapshot's flattened ICD."""
+        content, _name, _version = self.service.icd(ADMIN, bus, "csv", snapshot_id, depth="all")
+        return sum(1 for line in content.splitlines() if line.startswith("CNDH-A,"))
+
+    def test_a_system_a_parent_snapshot_froze_is_archived_not_deleted(self) -> None:
+        # The review's reproduction: publish, add to a parent, snapshot the parent, remove the
+        # live instance, retire the child component, then delete the child's source system.
         publication = self.child()
-        with self.assertRaisesRegex(Conflict, "published_in_catalog: .*v1.*retire the catalog component"):
-            self.delete_child()
         bus, version = self.parent()
         added = self.add(bus, version, "CNDH-A", publication["componentId"])
+        frozen = self.service.create_snapshot(DESIGNER, bus, added.version, "P1", "").body
+        before = self.child_rows(bus, frozen["id"])
+        self.assertGreater(before, 0)
+        self.service.remove_instance(DESIGNER, bus, self.service.document(DESIGNER, bus).body["system"]["version"],
+                                     added.body["id"], cascade=True)
+        self.catalog.deactivate_component(publication["componentId"], actor="t@local", reason="review finding 3")
+
+        outcome = self.delete_child()
+        self.assertEqual((outcome["deleted"], outcome["archived"]), (False, True))
+        self.assertEqual(outcome["references"]["parentSnapshots"], 1)
+        self.assertEqual(self.child_rows(bus, frozen["id"]), before, "the frozen parent keeps its child's connectivity")
+        self.assertFalse(self.listed())
+        document = self.service.document(DESIGNER, self.sid).body
+        self.assertIsNotNone(document["system"]["archivedAt"])
+        with self.assertRaisesRegex(Conflict, "system_archived"):
+            self.service.update_system(DESIGNER, self.sid, self.version(), {"description": "edit"})
+
+    def test_references_archive_and_nothing_left_deletes(self) -> None:
+        publication = self.child()
+        archived = self.delete_child()  # the catalog component is active
+        self.assertTrue(archived["archived"])
+        self.assertTrue(archived["references"]["activeCatalogComponent"])
+        bus, version = self.parent()
+        with self.assertRaisesRegex(Conflict, "system_archived"):
+            self.service.create_snapshot(DESIGNER, self.sid, self.version(), "X", "")
+        # A parent can still use the released revision: the catalog component is independent.
+        added = self.add(bus, version, "CNDH-A", publication["componentId"])
         self.catalog.deactivate_component(publication["componentId"], actor="t@local", reason="retro D3 test")
-        with self.assertRaisesRegex(Conflict, "1 parent instance.*remove them from their parent systems"):
-            self.delete_child()
+        self.assertEqual(self.delete_child()["references"]["parentInstances"], 1)
         self.service.remove_instance(DESIGNER, bus, added.version, added.body["id"], cascade=True)
-        self.delete_child()
-        self.assertFalse(any(s["id"] == self.sid for s in self.service.list_systems(DESIGNER)))
+        gone = self.delete_child()
+        self.assertEqual((gone["deleted"], gone["archived"]), (True, False))
+        with self.assertRaises(NotFound):
+            self.service.document(DESIGNER, self.sid)
         self.sid = None  # deleted: nothing for tearDown to unbind
+
+    def test_an_unreferenced_system_is_deleted(self) -> None:
+        bus, version = self.parent()
+        outcome = self.service.delete_system(DESIGNER, bus, version)
+        self.assertEqual((outcome["deleted"], outcome["archived"]), (True, False))
 
 
 if __name__ == "__main__":

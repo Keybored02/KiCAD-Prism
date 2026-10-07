@@ -58,38 +58,48 @@ class DocumentsMixin:
             body = self._system(store, system_id, caller)
         return Result(body, system_id, change.version)
 
-    def delete_system(self, caller: Caller, system_id: str, version: int) -> None:
+    def delete_system(self, caller: Caller, system_id: str, version: int) -> dict:
+        """D-P2-31: delete, or archive a system something still references.
+
+        Catalog revisions resolve through the snapshots they were published from, and a parent
+        snapshot freezes the revisions it used. While the catalog component is active, or any
+        parent instance or parent snapshot pins one of those revisions, the system is archived:
+        hidden from lists and read-only, its snapshots kept. Otherwise it is deleted. Deleting an
+        archived system again deletes it once nothing references it any more.
+        """
         with self._tx() as store:
             self._system(store, system_id, caller)
+            references = self._references(store, system_id)
+            if any(references.values()):
+                with store.mutation(system_id, expected_version=version, actor=caller.actor, archived_ok=True) as change:
+                    store.archive_system(change)
+                return {"deleted": False, "archived": True, "references": references}
             access = self._access(store, store.list_instances(system_id), caller)
             if any(not seen["visible"] for seen in access.values()):
                 # Deleting would destroy rows of a board the caller cannot see.
                 raise Conflict("system contains restricted boards")
-            with store.mutation(system_id, expected_version=version, actor=caller.actor):
-                self._refuse_deleting_published(store, system_id)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor, archived_ok=True):
+                pass
             store.delete_system(system_id)
+        return {"deleted": True, "archived": False, "references": references}
 
-    def _refuse_deleting_published(self, store: SystemStore, system_id: str) -> None:
-        """D-P2-29: a catalog revision resolves through the snapshot it was published from, so a
-        system whose snapshots back revisions stays while its component is active or any parent
-        still uses one of those revisions."""
+    def _references(self, store: SystemStore, system_id: str) -> dict:
+        """What still needs this system's snapshots: its active catalog component, and the parent
+        instances and parent snapshots that pin a revision published from it (D-P2-29, D-P2-31)."""
 
+        references = {"activeCatalogComponent": False, "parentInstances": 0, "parentSnapshots": 0}
         component_id = store.get_system(system_id).get("catalog_component_id") or \
             self._catalog().find_system_component(system_id)
         if not component_id:
-            return
-        revisions = [r for r in self._catalog().system_revisions(component_id)
+            return references
+        revisions = [r["revisionId"] for r in self._catalog().system_revisions(component_id)
                      if (r.get("sourceRef") or {}).get("systemId") == system_id]
         if not revisions:
-            return
-        versions = ", ".join(f"v{r['version']}" for r in revisions)
-        if self._catalog().find_system_component(system_id) == component_id:
-            raise Conflict(f"published_in_catalog: catalog revisions {versions} come from this system's snapshots; "
-                           "retire the catalog component before deleting the system")
-        users = store.count_instances_of_revisions([r["revisionId"] for r in revisions])
-        if users:
-            raise Conflict(f"published_in_catalog: {users} parent instance(s) still use revisions {versions} "
-                           "of this system; remove them from their parent systems first")
+            return references
+        references["activeCatalogComponent"] = self._catalog().find_system_component(system_id) == component_id
+        references["parentInstances"] = store.count_instances_of_revisions(revisions)
+        references["parentSnapshots"] = store.count_snapshots_of_revisions(revisions)
+        return references
 
     # ------------------------------------------------------------------
     # The system document (§8.1)

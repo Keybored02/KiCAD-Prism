@@ -22,6 +22,8 @@ export interface SystemSummary {
   openReviewCount: number;
   /** The catalog `assembly` this system publishes to, bound on first publish (CONTRACTS_P2 §3.3). */
   catalogComponentId?: string | null;
+  /** Set when deleting archived the system instead (D-P2-31): read-only, left out of lists. */
+  archivedAt?: string | null;
   /** Opt-in validation rules this system runs (CONTRACTS_P2 §8.4); absent before P2-1.10. */
   optionalRules?: OptionalRule[];
   createdBy: string;

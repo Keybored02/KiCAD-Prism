@@ -1,5 +1,5 @@
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Boxes, CircleAlert, GitPullRequestArrow, TriangleAlert } from "lucide-react";
+import { Archive, ArrowLeft, Boxes, CircleAlert, GitPullRequestArrow, TriangleAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,9 @@ export function SystemDetailPage({ user }: SystemDetailPageProps) {
   const tab = systemTabFromParam(searchParams.get("tab"));
   const state = useSystemDocument(systemId);
   const system = state.document?.system ?? null;
-  const canEdit = canManageProjects(user?.role);
+  // D-P2-31: an archived system is kept for the parents that froze it, and takes no changes.
+  const archived = Boolean(system?.archivedAt);
+  const canEdit = canManageProjects(user?.role) && !archived;
 
   /** Switch tab; per-tab selections (`board`, `link`, …) belong to their tab and are replaced. */
   const setTab = (next: SystemTab, extra: Record<string, string> = {}) => {
@@ -67,6 +69,11 @@ export function SystemDetailPage({ user }: SystemDetailPageProps) {
         </div>
         {system && (
           <div className="flex shrink-0 items-center gap-2">
+            {archived && (
+              <Badge variant="secondary" title="Kept because parent systems or the catalog still reference it">
+                <Archive /> Archived · read-only
+              </Badge>
+            )}
             {system.openReviewCount > 0 && (
               <button type="button" onClick={() => setTab("changes")} aria-label="Open source changes">
                 <Badge variant="warning" className="cursor-pointer">

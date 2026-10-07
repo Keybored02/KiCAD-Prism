@@ -261,8 +261,8 @@ async def update_system(
 @router.delete("/{system_id}", dependencies=[Depends(require_designer)])
 async def delete_system(system_id: str, request: Request, user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
-    await _run(system_id, lambda: system_service.service.delete_system(_caller(user), system_id, version))
-    return Response(status_code=204)
+    # D-P2-31: 200 with {deleted, archived, references}; a referenced system is archived instead.
+    return await _run(system_id, lambda: system_service.service.delete_system(_caller(user), system_id, version))
 
 
 # ---------------------------------------------------------------------------

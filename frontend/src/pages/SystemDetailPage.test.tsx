@@ -54,6 +54,15 @@ describe("SystemDetailPage", () => {
     expect(screen.getByTestId("location").textContent).toBe("/?folder=fld_1");
   });
 
+  it("marks an archived system read-only", async () => {
+    const archived = { ...document, system: { ...document.system, archivedAt: "2026-10-07T12:00:00Z" } };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(archived), {
+      status: 200, headers: { "Content-Type": "application/json", ETag: '"sys:sys_1:3"' },
+    })));
+    renderAt("/systems/sys_1");
+    expect(await screen.findByText(/Archived · read-only/)).toBeTruthy();
+  });
+
   it("explains a missing or hidden system", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: "System not found" }), {
       status: 404, headers: { "Content-Type": "application/json" },

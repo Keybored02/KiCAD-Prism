@@ -69,9 +69,11 @@ def followers(connect: Any, component_id: str) -> list[tuple[str, str]]:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT system_id, id FROM system_instances
-            WHERE catalog_component_id = %s AND follow = 'latest_released'
-            ORDER BY system_id, id
+            SELECT i.system_id, i.id FROM system_instances i
+            JOIN system_projects s ON s.id = i.system_id
+            WHERE i.catalog_component_id = %s AND i.follow = 'latest_released'
+              AND s.archived_at IS NULL  -- D-P2-31: an archived system takes no changes
+            ORDER BY i.system_id, i.id
             """,
             (component_id,),
         ).fetchall()

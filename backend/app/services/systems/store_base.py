@@ -196,16 +196,20 @@ class StoreCore:
 
     @contextmanager
     def mutation(
-        self, system_id: str, *, expected_version: Optional[int], actor: str, bump: bool = True
+        self, system_id: str, *, expected_version: Optional[int], actor: str, bump: bool = True,
+        archived_ok: bool = False,
     ) -> Iterator[Mutation]:
         """``bump=False`` locks and checks the version but leaves it alone, for
-        audited writes that change no engineering state (a snapshot, §9.1)."""
+        audited writes that change no engineering state (a snapshot, §9.1).
+        An archived system refuses every change (D-P2-31) except a delete retry (``archived_ok``)."""
 
         row = self.conn.execute(
-            "SELECT version FROM system_projects WHERE id = %s FOR UPDATE", (system_id,)
+            "SELECT version, archived_at FROM system_projects WHERE id = %s FOR UPDATE", (system_id,)
         ).fetchone()
         if row is None:
             raise NotFound(system_id)
+        if row["archived_at"] is not None and not archived_ok:
+            raise Conflict("system_archived: this system is archived and read-only")
         if expected_version is not None and int(expected_version) != int(row["version"]):
             raise StaleVersion(int(row["version"]))
         change = Mutation(self, system_id, actor, int(row["version"]))
@@ -220,6 +224,33 @@ class StoreCore:
             (system_id,),
         ).fetchone()
         change.version = int(bumped["version"])
+
+    def count_snapshots_of_revisions(self, revision_ids: Sequence[str]) -> int:
+        """Snapshots, in any system, whose frozen instances pin one of ``revision_ids`` (D-P2-31).
+
+        The manifest names each assembly's catalog revision; a snapshot from before manifests
+        records it in its document."""
+        if not revision_ids:
+            return 0
+        row = self.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM system_snapshots s
+            WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(s.manifest -> 'instances', '[]'::jsonb)) i
+                          WHERE i -> 'catalog' ->> 'revisionId' = ANY(%(ids)s))
+               OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(s.document -> 'instances', '[]'::jsonb)) i
+                          WHERE i ->> 'catalogRevisionId' = ANY(%(ids)s)
+                             OR i -> 'catalog' ->> 'revisionId' = ANY(%(ids)s))
+            """,
+            {"ids": list(revision_ids)},
+        ).fetchone()
+        return int(row["n"])
+
+    def archive_system(self, change: Mutation) -> None:
+        self.conn.execute(
+            "UPDATE system_projects SET archived_at = NOW(), archived_by = %s WHERE id = %s AND archived_at IS NULL",
+            (change.actor, change.system_id),
+        )
+        change.audit("system_archived")
 
     def count_instances_of_revisions(self, revision_ids: Sequence[str]) -> int:
         """Assembly instances, in any system, that pin one of ``revision_ids`` (D-P2-29)."""
