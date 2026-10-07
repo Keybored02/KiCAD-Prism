@@ -155,7 +155,7 @@ function CapabilitiesTable({
                     </div>
                 </div>
             )}
-            <div className="overflow-x-auto">
+            <div className="themed-scrollbar overflow-x-auto">
                 <table className="w-full text-xs">
                     <thead>
                         <tr className="border-b text-muted-foreground">

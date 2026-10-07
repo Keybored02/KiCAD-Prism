@@ -205,7 +205,7 @@ function ConfigEditorPane({
                 </div>
                 <textarea
                     id={textId}
-                    className="h-[clamp(22rem,calc(100vh-22rem),52rem)] w-full resize-none rounded-md border bg-background p-4 font-mono text-sm leading-relaxed"
+                    className="themed-scrollbar h-[clamp(22rem,calc(100vh-22rem),52rem)] w-full resize-none rounded-md border bg-background p-4 font-mono text-sm leading-relaxed"
                     spellCheck={false}
                     value={text}
                     onChange={(e) => handleChange(e.target.value)}
@@ -227,7 +227,7 @@ function ConfigEditorPane({
                     </span>
                 </div>
 
-                <div className="h-[clamp(22rem,calc(100vh-22rem),52rem)] overflow-y-auto rounded-md border p-4">
+                <div className="themed-scrollbar h-[clamp(22rem,calc(100vh-22rem),52rem)] overflow-y-auto rounded-md border p-4">
                     {parsed.errors.length > 0 && (
                         <ul className="mb-3 space-y-1">
                             {parsed.errors.map((error, index) => (
@@ -361,7 +361,7 @@ export function SchemaCapabilitiesDialog({
 
     return (
         <Dialog open onOpenChange={(next) => !next && !saving && onClose()}>
-            <DialogContent className="max-h-[calc(100vh-2rem)] w-[min(92rem,calc(100vw-2rem))] max-w-none overflow-y-auto">
+            <DialogContent className="themed-scrollbar max-h-[calc(100vh-2rem)] w-[min(92rem,calc(100vw-2rem))] max-w-none overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>

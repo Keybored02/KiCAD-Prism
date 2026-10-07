@@ -138,6 +138,16 @@ describe("ManufacturersPanel", () => {
         });
     });
 
+    it("scrolls the list and the detail in the themed scrollbar", async () => {
+        renderPanel();
+        await screen.findByRole("heading", { name: "Acme Fab", level: 2 });
+        const nav = screen.getByRole("navigation", { name: "Manufacturers" });
+        expect(nav.querySelector("ul")!.className).toContain("themed-scrollbar");
+        expect(screen.getByRole("heading", { name: "Acme Fab", level: 2 }).closest("header")!.parentElement!.className).toContain(
+            "themed-scrollbar",
+        );
+    });
+
     describe("the detail", () => {
         it("shows the contact, a clickable website and the notes", async () => {
             renderPanel();

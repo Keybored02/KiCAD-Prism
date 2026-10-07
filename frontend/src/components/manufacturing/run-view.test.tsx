@@ -191,6 +191,19 @@ describe("RunView", () => {
             expect(screen.getByRole("button", { name: "Set status" })).toBeTruthy();
         });
 
+        it("links to the project's Manufacturing page from the header", async () => {
+            renderView(makeRun());
+            await heading("JOB-2026-0001");
+            const link = screen.getByRole("link", { name: "Open Board One manufacturing page" });
+            expect(link.getAttribute("href")).toBe("/project/p1?section=manufacturing");
+        });
+
+        it("leaves that link out when asked, as inside that page itself", async () => {
+            renderView(makeRun(), { projectLink: false });
+            await heading("JOB-2026-0001");
+            expect(screen.queryByRole("link", { name: /manufacturing page/ })).toBeNull();
+        });
+
         it("has no full-page button", async () => {
             renderView(makeRun());
             await heading("JOB-2026-0001");

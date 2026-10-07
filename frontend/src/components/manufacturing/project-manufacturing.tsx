@@ -817,6 +817,7 @@ export function ProjectManufacturing({
                 canEdit={canEdit}
                 canLogDefects={canLogDefects}
                 canChangeStatus={canChangeStatus}
+                projectLink={false}
                 onClose={() => setDrawerRunId(null)}
                 onDeleted={() => {
                     setDrawerRunId(null);

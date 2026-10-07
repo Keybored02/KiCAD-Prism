@@ -11,6 +11,8 @@ interface RunDrawerProps {
     onDeleted: () => void;
     /** Called after any change, so the list behind the drawer can refresh. */
     onChanged?: () => void;
+    /** Show the link to the project's Manufacturing page (off inside that page). */
+    projectLink?: boolean;
 }
 
 /**
@@ -25,6 +27,7 @@ export function RunDrawer({
     onClose,
     onDeleted,
     onChanged,
+    projectLink,
 }: RunDrawerProps) {
     return (
         <Sheet open={runId !== null} onOpenChange={(open) => !open && onClose()}>
@@ -44,6 +47,7 @@ export function RunDrawer({
                         canChangeStatus={canChangeStatus}
                         onDeleted={onDeleted}
                         onChanged={onChanged}
+                        projectLink={projectLink}
                     />
                 )}
             </SheetContent>

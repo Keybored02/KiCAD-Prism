@@ -65,7 +65,8 @@ vi.mock("./spec-config-editor", () => ({
 
 // The drawer and the dialog are children with their own suites; stub them to see what the tab hands them.
 vi.mock("./run-drawer", () => ({
-    RunDrawer: (props: { runId: string | null }) => (props.runId ? <div>drawer:{props.runId}</div> : null),
+    RunDrawer: (props: { runId: string | null; projectLink?: boolean }) =>
+        props.runId ? <div data-project-link={String(props.projectLink)}>drawer:{props.runId}</div> : null,
 }));
 vi.mock("./new-production-dialog", () => ({
     NewProductionDialog: (props: { initialProjectId?: string; initialManufacturerId?: string; projects: { name: string }[]; onCreated: (id: string) => void }) => (
@@ -171,6 +172,16 @@ describe("ProjectManufacturing", () => {
             fireEvent.mouseDown(screen.getByRole("tab", { name: /Production/ }));
             fireEvent.click(await screen.findByText("JOB-2026-0001"));
             expect(await screen.findByText("drawer:run_1")).toBeTruthy();
+        });
+
+        it("opens runs without a link back to the page it is already on", async () => {
+            listRuns.mockResolvedValue([run()]);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
+            await waitForForm();
+            fireEvent.mouseDown(screen.getByRole("tab", { name: /Production/ }));
+            fireEvent.click(await screen.findByText("JOB-2026-0001"));
+            const drawer = await screen.findByText("drawer:run_1");
+            expect(drawer.getAttribute("data-project-link")).toBe("false");
         });
 
         it("counts the project's productions on the sub-tab", async () => {

@@ -184,6 +184,26 @@ describe("ProductionList", () => {
         expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
     });
 
+    it("links each row to its project's Manufacturing page without opening the run", () => {
+        const { onOpen } = renderList();
+        const row = screen.getByText("JOB-0002").closest("[data-run-row]") as HTMLElement;
+        const link = within(row).getByRole("link", { name: "Open Board One manufacturing page" });
+        expect(link.getAttribute("href")).toBe("/project/p1?section=manufacturing");
+        fireEvent.click(link);
+        expect(onOpen).not.toHaveBeenCalled();
+    });
+
+    it("has no project link when the list is one project's", () => {
+        renderList({ hideProject: true });
+        expect(screen.queryByRole("link", { name: /manufacturing page/ })).toBeNull();
+    });
+
+    it("scrolls its rows in the themed scrollbar", () => {
+        renderList();
+        const body = document.querySelector("[data-run-row]")!.parentElement!.parentElement!;
+        expect(body.className).toContain("themed-scrollbar");
+    });
+
     it("leaves out the project name when the list is one project's", () => {
         renderList({ hideProject: true });
         expect(screen.getByText("Job / Board")).toBeTruthy();

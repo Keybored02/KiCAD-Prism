@@ -138,7 +138,7 @@ export function ManufacturersPanel({
                                     onChange={(e) => setQuery(e.target.value)}
                                 />
                             </div>
-                            <ul className="min-h-0 flex-1 overflow-auto">
+                            <ul className="themed-scrollbar min-h-0 flex-1 overflow-auto">
                                 {visible.map((m) => (
                                     <li key={m.id}>
                                         <button
@@ -272,7 +272,7 @@ function ManufacturerDetail({
     const projects = m.projects ?? [];
 
     return (
-        <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+        <div className="themed-scrollbar min-h-0 min-w-0 flex-1 overflow-auto">
             <header className="flex flex-wrap items-start justify-between gap-3 border-b p-5">
                 <div className="min-w-0">
                     <h2 className="truncate text-lg font-semibold">{m.name}</h2>

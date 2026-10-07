@@ -666,6 +666,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         <ProjectSectionPanel
                             key={`${projectId}:manufacturing`}
                             active={activeSection === "manufacturing"}
+                            className="themed-scrollbar"
                         >
                             <h2 className="mb-6 text-2xl font-bold">Manufacturing</h2>
                             {projectId && (

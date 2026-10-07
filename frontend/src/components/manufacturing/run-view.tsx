@@ -5,6 +5,7 @@ import {
     CheckCircle2,
     ChevronDown,
     ChevronRight,
+    ExternalLink,
     FileDown,
     MoreHorizontal,
     Paperclip,
@@ -78,6 +79,8 @@ interface RunViewProps {
     onDeleted: () => void;
     /** Called after any change, so a list behind this view can refresh. */
     onChanged?: () => void;
+    /** Show a link to the project's Manufacturing page (leave off where that is the page). */
+    projectLink?: boolean;
 }
 
 const SEVERITY_BORDER: Record<DefectSeverity, string> = {
@@ -96,6 +99,7 @@ export function RunView({
     canChangeStatus,
     onDeleted,
     onChanged,
+    projectLink = true,
 }: RunViewProps) {
     const [run, setRun] = useState<ManufacturingRun | null>(null);
     const [loading, setLoading] = useState(true);
@@ -202,11 +206,23 @@ export function RunView({
                                 <h2 className="truncate font-mono text-lg font-semibold tracking-tight">{title}</h2>
                                 <RunStatusBadge status={run.status} />
                             </div>
-                            <p className="mt-0.5 text-sm text-muted-foreground">
-                                {run.project_name || run.project_id}
-                                {board !== "—" ? ` / ${board}` : ""}
-                                {run.manufacturer_name ? ` · ${run.manufacturer_name}` : ""}
-                                {run.spec_name ? ` · ${run.spec_name}` : ""}
+                            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
+                                <span>
+                                    {run.project_name || run.project_id}
+                                    {board !== "—" ? ` / ${board}` : ""}
+                                    {run.manufacturer_name ? ` · ${run.manufacturer_name}` : ""}
+                                    {run.spec_name ? ` · ${run.spec_name}` : ""}
+                                </span>
+                                {projectLink && (
+                                    <Link
+                                        to={`/project/${run.project_id}?section=manufacturing`}
+                                        aria-label={`Open ${run.project_name || run.project_id} manufacturing page`}
+                                        title="Open this project's Manufacturing page"
+                                        className="shrink-0 transition-colors hover:text-primary focus-visible:text-primary"
+                                    >
+                                        <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                                    </Link>
+                                )}
                             </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -293,7 +309,7 @@ export function RunView({
                 </div>
             </header>
 
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea className="themed-scrollbar min-h-0 flex-1">
                 <main className="grid w-full gap-6 p-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
                     <div className="min-w-0 space-y-6">
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

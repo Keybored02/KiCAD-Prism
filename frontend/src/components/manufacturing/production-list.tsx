@@ -1,6 +1,6 @@
 import { useMemo, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, Factory, Search, SlidersHorizontal, StickyNote, Tag } from "lucide-react";
+import { AlertTriangle, ExternalLink, Factory, Search, SlidersHorizontal, StickyNote, Tag } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -252,7 +252,7 @@ export function ProductionList({
                         <span className="min-w-0 text-right">Updated</span>
                     </div>
 
-                    <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto" onKeyDown={handleKeyDown}>
+                    <div ref={bodyRef} className="themed-scrollbar min-h-0 flex-1 overflow-auto" onKeyDown={handleKeyDown}>
                         {groups.map((group) => (
                             <div key={group.key}>
                                 {filters.group !== "none" && (
@@ -356,6 +356,17 @@ function RunRow({
                         <span title={notes} aria-label="Has notes" className="shrink-0 text-muted-foreground">
                             <StickyNote className="h-3.5 w-3.5" aria-hidden />
                         </span>
+                    )}
+                    {!hideProject && (
+                        <Link
+                            to={`/project/${run.project_id}?section=manufacturing`}
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label={`Open ${run.project_name || run.project_id} manufacturing page`}
+                            title="Open this project's Manufacturing page"
+                            className="shrink-0 text-muted-foreground transition-colors hover:text-primary focus-visible:text-primary"
+                        >
+                            <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                        </Link>
                     )}
                 </p>
                 {!hideProject && <p className="truncate text-xs text-muted-foreground">{boardName(run)}</p>}
