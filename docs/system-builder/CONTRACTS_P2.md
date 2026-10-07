@@ -752,6 +752,27 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 - **Import.** A row with `from_end` or `to_end` is a wire. Its harness is the one owning `row_id`, else the one named `link_name` (an unknown name creates a harness with that name and the row's `harness` as label). For an existing harness each end must exist at that position and mate the connector the row names, and the row's pad must be where the end pin lands; otherwise the row is a conflict (`end_not_found`, `end_mate_mismatch`, `pin_map_mismatch`). A new harness gets Generic ends at the rows' positions, mating the rows' connectors (an end with no connector is unmated, pins `1…N`), with a pin map wherever an end pin lands on another pad; a connector already mated by a harness end or a `b2b` link is `port_already_mated`. Also: `end_label_invalid`, `gauge_invalid` (0–40), `same_end`, `wire_in_other_harness`, `harness_ambiguous`. Signals are checked against the pads' nets as for rows; mismatches go to the import review, whose items may now carry a wire (`observed.kind = "wire"`). Parts are not in the CSV: an imported end is Generic. The commit report adds `harnessesCreated`.
 - **ICD.** Stats count harnesses. Link headings say "board-to-board" and the stack height. **Board-to-board mating** lists each `b2b` link with both ends' stored frames (axis, quarter turns, confirmed or set by hand; "not confirmed" when none) and the stack height. **Harnesses** lists per harness its ends (mate, block with the part's MPN, pin map, boot), its wires and its splices. Link documents gain `a.mating`/`b.mating` (`{mode, axis, quarterTurns}` or null) for this.
 
+### 17.5 Harness geometry numbers (SB2-40, D-P2-35)
+
+Frozen for M5 (PLAN §7). Both placement-library halves hold them (`placement/harness_spec.py`, `placement/harness-spec.ts`) and equal `backend/tests/fixtures/system_builder/harness_spec.json`; changing one is a contract change.
+
+| Quantity | Value | Used for (PLAN §7) |
+|---|---|---|
+| Boot | 10 mm | straight exit leg along the end's outward axis |
+| Housing depth (no model) | 8 mm | mating face to cable exit |
+| Breakout lift | 10 mm | N-end breakout above the weighted centroid, along the mean outward normal |
+| Chord error | 0.2 mm | adaptive sampling of the centripetal Catmull-Rom curve (α = 0.5) |
+| Minimum bend radius | 6 × bundle diameter, 8 relaxation passes | tight bends relax, else an info finding |
+| Packing factor | 1.2 | bundle diameter `d = k·√Σ dᵢ²` |
+| Ring segments | 12 | tube mesh |
+| Breakout radius blend | 5 mm | tube mesh |
+| Length allowance | 10 % | estimated total length |
+| Length mismatch | 15 % | `SYS-V13` against a cut-length override |
+| Board collision margin | 1 mm | board OBBs for `SYS-V12` |
+| Default gauge | 24 AWG | a wire without a gauge |
+
+**Wire diameters** `dᵢ` are M22759/16 finished diameters (SAE AS22759/16: ETFE, 600 V, medium weight, tin-coated copper, 150 °C), nominal, from NASA NEPP's AS22759/16 table, inches × 25.4: 24 AWG 1.143 mm, 22 → 1.3208, 20 → 1.524, 18 → 1.8034, 16 → 2.0066, 14 → 2.3622, 12 → 2.8956, 10 → 3.5306, 8 → 5.0546, 6 → 6.35, 4 → 7.9248, 2 → 9.8552, 1 → 10.9474, 0 → 12.1666, 00 → 13.8684. M22759/16 starts at 24 AWG, so a wire without a gauge, or with one the table lacks (26 AWG and finer, or a typo), takes the 24 AWG diameter and is marked **assumed**; the UI says so.
+
 ## 18. Mating parts in the catalog: mates with (SB2-16) and models (SB2-17)
 
 ### 18.1 "Mates with" **[T7]**
@@ -789,6 +810,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 | P2-1.38 | 2026-10-07 | Follow-up review finding 3, D-P2-31: delete archives a referenced system (frozen parent snapshots count), `archivedAt`, 409 `system_archived`; `DELETE` answers 200 with the outcome. Workspace migration 42. |
 | P2-1.39 | 2026-10-07 | SB2-21 review: the mezzanine fixtures move from Hirose DF12(3.0) to Samtec ADM6-30-03.5-L-4-0-A / ADF6-30-03.5-L-4-0-A (the JTYU OBC–CMBD pair; user choice). Footprints written from Samtec's recommended PCB layouts; goldens: mated height 7.00 mm (Samtec ADX6 mated views, Table 1), top pose (0, 0, 8.6) mm, frames at `medium` confidence (no orientation keyword, §15.1). Vendor models are not redistributed. No contract rule changes. |
 | P2-1.40 | 2026-10-07 | D-P2-30 dead-code removal: the board viewer's one-board multi-occurrence mode (`setOccurrences` on the element and controller) is gone, with `setMoveAllowed()` (the `move-allowed` attribute remains), the `"gizmo"` pick kind, the `systemstatus` event, the viewer's Euler helpers and the frontend's unused `getPoses`. `projectComponent` / `projectPoint` take an occurrence in mode="system". §20.3–§20.5 marked superseded where §20.6–§20.8 replaced them. Board 3D tab pixel diff on JTYU-OBC: 0 px. |
+| P2-1.47 | 2026-10-08 | SB2-40: §17.5 the frozen harness geometry numbers (PLAN §7 defaults, signed off as D-P2-35) and the M22759/16 wire diameter table (NASA NEPP), default 24 AWG; unknown gauges assumed 24. |
 | P2-1.46 | 2026-10-08 | SB2-39: §20.14 mating in link details: `GET …/placement` and `GET …/links/{lid}/mate`; the solve's status per link with the V11 numbers, the driving choice, and a live preview of the mated pair while a frame is picked. Completes M4. |
 | P2-1.45 | 2026-10-08 | SB2-38: §20.13 moving mated boards: the stack prompt (Move with its stack / Break the mate), stack moves and their Revert as one `PATCH …/poses` (§14.7), Mated / Mate overridden badges and Snap back. |
 | P2-1.44 | 2026-10-08 | SB2-37: §14.10 auto placement on the server: the scene and validation solve every level on read; `SYS-V11 mate_mismatch` (warning) is live; migration 43 `system_driving_mates` with `GET/PUT/DELETE …/driving-mates`; manifests carry `placement.drivingMates`; scene occurrences gain `mate`, the descriptor `placement`. |
