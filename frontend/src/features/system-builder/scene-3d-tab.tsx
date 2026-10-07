@@ -7,6 +7,7 @@ import { Semantic3dControls } from "@/components/semantic-3d-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ViewerOverlayRail } from "@/components/viewer-overlay-rail";
 import { selectionFromDesignSearchHit, type DesignSearchHit } from "@/lib/design-search";
 import { getScene } from "@/lib/systems-api";
@@ -24,11 +25,12 @@ import { SceneInspector } from "./scene-inspector";
 import { MovePanel } from "./scene-move-panel";
 import { TRACE_KEY, emphasisSets, netBoards, traceSet } from "./scene-net-model";
 import { NetPanel } from "./scene-net-panel";
-import { hitOccurrence, searchBoards, type SearchableBoard } from "./scene-search";
+import { hitOccurrence, searchBoards, type SceneSearchHit, type SearchableBoard } from "./scene-search";
 import { TraceCard } from "./scene-trace-card";
 import { useBoardIndexes } from "./use-board-indexes";
 import { useMoveMode } from "./use-move-mode";
 import { useNetHighlight } from "./use-net-highlight";
+import { useSystemNetIndex } from "./use-system-net-index";
 import { useTracedNet } from "./use-traced-net";
 import type { SystemTabProps } from "./system-tab-content";
 
@@ -184,14 +186,31 @@ export function Scene3dTab(props: SystemTabProps) {
     const index = board.assetId ? indexes.get(board.assetId)?.index : null;
     return index ? [{ occurrence: board.path, name: board.displayPath, index }] : [];
   }), [boards, indexes]);
-  const search = useCallback((query: string) => searchBoards(searchable, query), [searchable]);
-  const pick = (hit: DesignSearchHit) => {
-    const occurrence = hitOccurrence(hit);
-    const picked = selectionFromDesignSearchHit(hit, "3D", null);
-    if (!picked) return;
-    viewer?.setSelection(picked.kind === "net" ? { occurrence, netName: picked.netName } : { occurrence, reference: picked.reference });
-    // A host selection is not echoed back by the viewer.
-    setSelection({ ...picked, occurrence });
+  // SB2-33: search every board or one; a net crossing boards is one result for its system net.
+  const systemNets = useSystemNetIndex(systemId, etag);
+  const [searchBoard, setSearchBoard] = useState<string | null>(null);
+  const scope = searchBoard && boards.some((board) => board.path === searchBoard) ? searchBoard : null;
+  const search = useCallback(
+    (query: string) => searchBoards(searchable, query, { board: scope, systemNets }),
+    [searchable, scope, systemNets],
+  );
+  const pick = (picked: DesignSearchHit, options?: { additive: boolean }) => {
+    const hit = picked as SceneSearchHit;
+    // Shift adds a system net to the highlighted set, in the next colour (D-P2-19).
+    if (options?.additive && hit.systemNet) {
+      void nets.add(hit.systemNet);
+      setRail("nets");
+      return;
+    }
+    const occurrence = hit.target?.occurrence ?? hitOccurrence(hit);
+    const picked3d = hit.target ? null : selectionFromDesignSearchHit(hit, "3D", null);
+    const selection = hit.target
+      ? { kind: "net" as const, sourceContext: "3D" as const, netName: hit.target.net, occurrence }
+      : picked3d?.kind === "component" ? { ...picked3d, occurrence } : null;
+    if (!selection) return;
+    viewer?.setSelection(selection.kind === "net" ? { occurrence, netName: selection.netName } : { occurrence, reference: selection.reference });
+    // A host selection is not echoed back by the viewer; a net selection traces its system net (SB2-32).
+    setSelection(selection);
     setRail("selection");
   };
 
@@ -226,7 +245,18 @@ export function Scene3dTab(props: SystemTabProps) {
           <Badge variant="info" className="gap-1"><Loader2 className="size-3 animate-spin" aria-hidden />{summary.building.length} building</Badge>
         )}
         {summary && summary.failed.length > 0 && <Badge variant="destructive">{summary.failed.length} failed</Badge>}
-        <div className="mx-2 min-w-48 max-w-sm flex-1">
+        <Select value={scope ?? "all"} onValueChange={(value) => setSearchBoard(value === "all" ? null : value)}>
+          <SelectTrigger className="ml-2 h-9 w-36 text-xs" aria-label="Search on">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All boards</SelectItem>
+            {boards.map((board) => (
+              <SelectItem key={board.path} value={board.path}>{board.displayPath}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="mr-2 min-w-48 max-w-sm flex-1">
           <DesignSearchField semanticIndex={null} search={search} loading={boards.length > 0 && !searchable.length} onPick={pick} inline />
         </div>
         <span className="ml-auto flex items-center gap-1">

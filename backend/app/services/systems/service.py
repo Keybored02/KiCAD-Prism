@@ -950,10 +950,11 @@ class SystemService:
         return out, occurrences
 
     def nets(self, caller: Caller, system_id: str, *, search: str = "", occurrence: Optional[str] = None,
-             net: Optional[str] = None, limit: int = 50) -> dict:
+             net: Optional[str] = None, members: bool = False, limit: int = 50) -> dict:
         """``GET …/nets``: system nets matching ``search`` (any alias), optionally touching one board occurrence.
 
         ``net`` (with ``occurrence``) keeps only the group holding exactly that board net (SB2-32).
+        ``members`` adds each group's visible board nets, ``{occurrence, net}`` (SB2-33's search).
         """
         if net is not None and not occurrence:
             raise Invalid("net needs occurrence")
@@ -967,8 +968,12 @@ class SystemService:
             if occurrence and not any(m["occurrence"] == occurrence and (net is None or m["net"] == net)
                                       for m in group["members"]):
                 continue
-            found.append({k: group[k] for k in ("groupId", "name", "aliases", "pinCount", "large")}
-                         | {"boards": len({m["occurrence"] for m in group["members"] if m["occurrence"]})})
+            summary = {k: group[k] for k in ("groupId", "name", "aliases", "pinCount", "large")} \
+                | {"boards": len({m["occurrence"] for m in group["members"] if m["occurrence"]})}
+            if members:
+                summary["members"] = [{"occurrence": m["occurrence"], "net": m["net"]} for m in group["members"]
+                                      if m["occurrence"] and m["net"]]
+            found.append(summary)
         found.sort(key=lambda g: (g["name"].casefold(), g["groupId"]))
         return {"systemId": system_id, "groups": found[:limit], "total": len(found)}
 

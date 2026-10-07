@@ -326,15 +326,17 @@ async def list_nets(
     system_id: str, search: str = Query(default="", max_length=200),
     occurrence: Optional[str] = Query(default=None, max_length=2000),
     net: Optional[str] = Query(default=None, max_length=1000),
+    members: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=500), user: AuthenticatedUser = Depends(require_viewer),
 ):
     """P2 §8.2: system nets matching ``search``, optionally on one board occurrence.
 
     With ``occurrence`` and ``net`` (SB2-32), the system net that board net belongs to:
     an exact match, so a click on a trace resolves to at most one group.
+    With ``members`` (SB2-33), each group lists its visible board nets as ``{occurrence, net}``.
     """
     return await _run(system_id, lambda: system_service.service.nets(
-        _caller(user), system_id, search=search, occurrence=occurrence, net=net, limit=limit,
+        _caller(user), system_id, search=search, occurrence=occurrence, net=net, members=members, limit=limit,
     ))
 
 

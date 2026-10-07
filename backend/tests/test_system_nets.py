@@ -153,6 +153,15 @@ class NetApiTest(AssemblyCase):
         with self.assertRaises(Invalid):
             self.service.nets(VIEWER, self.bus, net=member["net"])
 
+    def test_the_list_can_carry_members_for_search(self) -> None:
+        [summary] = self.service.nets(VIEWER, self.bus, search="VIN_28V")["groups"]
+        self.assertNotIn("members", summary)
+        [listed] = self.service.nets(VIEWER, self.bus, search="VIN_28V", members=True)["groups"]
+        detail = self.service.net(VIEWER, self.bus, summary["groupId"])
+        self.assertEqual(listed["members"], [{"occurrence": m["occurrence"], "net": m["net"]}
+                                             for m in detail["members"] if m["occurrence"] and m["net"]])
+        self.assertIn("PDU", {m["displayPath"] for m in detail["members"]})
+
     def test_hidden_boards_are_redacted_in_nets(self) -> None:
         self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
                           " VALUES ('fld_admins', 'roles', '[\"admin\"]') ON CONFLICT DO NOTHING")
