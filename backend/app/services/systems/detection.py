@@ -144,7 +144,9 @@ class Detector:
                 """
                 SELECT i.id FROM system_instances i
                 JOIN ws_projects p ON p.id = i.project_id
+                JOIN system_projects s ON s.id = i.system_id
                 WHERE p.repo_id = %s AND i.tracked_ref IS NOT NULL
+                  AND s.archived_at IS NULL  -- D-P2-31: an archived system takes no changes
                 ORDER BY i.system_id, i.id
                 """,
                 (repository_id,),

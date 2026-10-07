@@ -50,6 +50,8 @@ def summary(row: dict) -> dict[str, Any]:
         "subsystemCount": int(row.get("subsystem_count") or 0),
         "openReviewCount": int(row.get("open_review_count") or 0),
         "catalogComponentId": row.get("catalog_component_id"),
+        # D-P2-31: archived systems are read-only and left out of every list.
+        "archivedAt": _iso(row.get("archived_at")),
         "optionalRules": sorted(row.get("optional_rules") or []),
         "createdBy": row["created_by"],
         "createdAt": _iso(row["created_at"]),
@@ -87,6 +89,8 @@ def visible_systems(
     if system_id is not None:
         extra += " AND s.id = %(system_id)s"
         params["system_id"] = system_id
+    else:
+        extra += " AND s.archived_at IS NULL"  # D-P2-31: still readable by ID, never listed
     predicate = "TRUE" if role is None else FOLDER_VISIBLE_SQL
     rows = conn.execute(_SUMMARY_SQL.format(predicate=predicate, extra=extra), params).fetchall()
     return [summary(dict(row)) for row in rows]

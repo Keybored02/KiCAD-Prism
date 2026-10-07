@@ -163,7 +163,12 @@ A revision **never copies** the manifest. Readers load the snapshot through `sou
 
   A `module` needs only a non-empty interface until M6 adds its model gates.
 
-**Deleting a published system (D-P2-29, retro D3).** A catalog revision resolves its boards through the snapshot it was published from, so `DELETE …/systems/{id}` answers 409 `published_in_catalog` while the system's catalog component is active (naming the revisions), and, once it is retired, while any system instance still pins one of its revisions. With neither, the system and its snapshots go as before.
+**Deleting a published system (D-P2-29, D-P2-31; P2-1.38).** A catalog revision resolves its boards through the snapshot it was published from. A parent snapshot freezes the revisions it used. So `DELETE …/systems/{id}` **archives** the system while anything references it:
+- its catalog component is active;
+- a live system instance pins one of its revisions;
+- a parent snapshot's manifest (or, before manifests, its document) pins one.
+
+An archived system has `archivedAt` set. It is left out of every system list but stays readable by ID, and every change answers 409 `system_archived`. Source checks and child auto-advance skip it, and its snapshots stay. With no reference, the system and its snapshots are deleted as before, including on a second `DELETE` of an archived system once its references are gone. The answer is 200 `{deleted, archived, references: {activeCatalogComponent, parentInstances, parentSnapshots}}`, replacing the 204 and the 409 `published_in_catalog`.
 
 ### 3.4 "Mates with" (M1; shape frozen here)
 
@@ -739,6 +744,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 | Version | Date | Change |
 |---|---|---|
 | P2-1.36 | 2026-10-07 | Retrospective fixes (RETRO-M0-M3): §5.4 hidden export ends (D1 snapshot crash, D2 nets through exports); D-P2-29 delete refusal (409 `published_in_catalog`); release jobs report `superseded` / `not_following` instead of rolling back (D4); `GET …/nets?offset=` (D6). Viewer: a staged bundle that turns ready at the same URL loads (D5). |
+| P2-1.38 | 2026-10-07 | Follow-up review finding 3, D-P2-31: delete archives a referenced system (frozen parent snapshots count), `archivedAt`, 409 `system_archived`; `DELETE` answers 200 with the outcome. Workspace migration 42. |
 | P2-1.35 | 2026-10-07 | SB2-34: §20.11, proxy harnesses. The scene gains `harnesses`; emphasis sets take `wires`; the viewer draws each harness as straight segments that light per wire and glow their ends. Completes M3. |
 | P2-1.34 | 2026-10-07 | SB2-33: §20.10, net search in the System 3D tab: a board picker, one result per system net found by any of its names, Shift-pick adds it to the highlighted nets. `GET …/nets?members=true` (§8.2). |
 | P2-1.33 | 2026-10-07 | SB2-32 (D-P2-28): §20.9, click to trace. `GET …/nets?occurrence=&net=` exact lookup (§8.2); the clicked board net's system net lit in the selection green on every board; the System net card with boards and ordered hops; `frameParts`. Move panel: Revert undoes saved moves (SB2-31f follow-up, #490). |

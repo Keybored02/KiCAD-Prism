@@ -48,6 +48,7 @@ from app.services.workspace_migrations import m039_system_harness_part_pins
 from app.services.workspace_migrations import m040_system_poses
 from app.services.trackers import migrations as tracker_migrations
 from app.services.workspace_migrations import m041_repository_origin
+from app.services.workspace_migrations import m042_system_archive
 
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (39, "system_harness_part_pins", m039_system_harness_part_pins.migrate),
     (40, "system_poses", m040_system_poses.migrate),
     (41, "repository_origin", m041_repository_origin.migrate),
+    (42, "system_archive", m042_system_archive.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
