@@ -99,12 +99,16 @@ class SpecFieldDef:
     options: list[str] = field(default_factory=list)
     default: Any = None
     when: SpecCondition | None = None
+    # A trailing `(unit)` on a numeric field's label, split off: `Thickness (mm)`
+    # gives label "Thickness" and unit "mm". Empty for other types.
+    unit: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "key": self.key,
             "label": self.label,
             "type": self.type,
+            "unit": self.unit,
             "options": self.options,
             "default": self.default,
             "when": self.when.to_dict() if self.when else None,
@@ -278,6 +282,10 @@ def parse_spec_config(text: str) -> ParsedSpecConfig:
 
         if label_override:
             field_def.label = label_override
+        if field_def.type in ("int", "number"):
+            label, unit = _split_label_unit(field_def.label)
+            if unit:
+                field_def.label, field_def.unit = label, unit
         if default_raw is not None:
             field_def.default = _coerce_default(default_raw, field_def.type)
         field_def.when = when_cond
@@ -334,7 +342,7 @@ def capabilities_from_config(text: str) -> tuple[dict[str, Any], dict[str, Any]]
                 continue
             # Store whole numbers as ints so 4 does not become 4.0 in the UI.
             capabilities[fld.key] = int(value) if value.is_integer() else value
-            label, unit = _split_label_unit(fld.label)
+            label, unit = (fld.label, fld.unit) if fld.unit else _split_label_unit(fld.label)
             meta[fld.key] = {"label": label, "unit": unit} if unit else {"label": label}
     return capabilities, meta
 

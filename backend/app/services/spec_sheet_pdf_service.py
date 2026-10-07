@@ -84,7 +84,8 @@ def _display_value(field: dict[str, Any], values: dict[str, Any]) -> str:
         return "—"
     if field["type"] == "bool":
         return "Yes" if raw in (True, "true", "True", 1, "1") else "No"
-    return str(raw)
+    unit = field.get("unit")
+    return f"{raw} {unit}" if unit else str(raw)
 
 
 def _styles() -> dict[str, ParagraphStyle]:

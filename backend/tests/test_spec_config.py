@@ -41,6 +41,39 @@ class SpecConfigParseTests(unittest.TestCase):
         self.assertEqual(fields["finish"].type, "choice")
         self.assertEqual(fields["finish"].options, ["ENIG", "HASL"])
 
+    def test_numeric_label_unit_is_split_off(self) -> None:
+        parsed = parse_spec_config(
+            "[S]\n"
+            "thickness: number = 1.6 | Board thickness (mm)\n"
+            "layers: int | Layers (count)\n"
+            "finish: choice(HASL, ENIG) | Surface finish (see note)\n"
+            "plain: number\n"
+        )
+        self.assertEqual(parsed.errors, [])
+        fields = {f.key: f for f in parsed.sections[0].fields}
+        self.assertEqual((fields["thickness"].label, fields["thickness"].unit), ("Board thickness", "mm"))
+        self.assertEqual((fields["layers"].label, fields["layers"].unit), ("Layers", "count"))
+        # Only numeric fields carry a unit; a choice label keeps its parentheses.
+        self.assertEqual((fields["finish"].label, fields["finish"].unit), ("Surface finish (see note)", ""))
+        self.assertEqual(fields["plain"].unit, "")
+        self.assertEqual(fields["thickness"].to_dict()["unit"], "mm")
+
+    def test_pdfs_print_the_unit_after_the_value(self) -> None:
+        from app.services import run_report_pdf_service, spec_sheet_pdf_service
+
+        field = {"key": "t", "type": "number", "unit": "mm", "default": None}
+        for module in (spec_sheet_pdf_service, run_report_pdf_service):
+            self.assertEqual(module._display_value(field, {"t": 1.6}), "1.6 mm")
+            self.assertEqual(module._display_value({**field, "unit": ""}, {"t": 1.6}), "1.6")
+            self.assertEqual(module._display_value(field, {}), "—")
+
+    def test_capabilities_keep_label_and_unit_after_the_split(self) -> None:
+        from app.services.spec_config_service import capabilities_from_config
+
+        caps, meta = capabilities_from_config("[Board rules]\nmin_track_width: number = 0.1 | Min track width (mm)\n")
+        self.assertEqual(caps, {"min_track_width": 0.1})
+        self.assertEqual(meta["min_track_width"], {"label": "Min track width", "unit": "mm"})
+
     def test_choice_options_keep_commas_and_parentheses(self) -> None:
         # Real JLCPCB labels carry their own commas and parentheses; a naive
         # split on "," tore these apart and dropped half of an option.
@@ -86,7 +119,8 @@ class SpecConfigParseTests(unittest.TestCase):
             "layer_count: int\n"
         )
         fields = {f.key: f for f in parsed.sections[0].fields}
-        self.assertEqual(fields["board_thickness_mm"].label, "Board thickness (mm)")
+        self.assertEqual(fields["board_thickness_mm"].label, "Board thickness")
+        self.assertEqual(fields["board_thickness_mm"].unit, "mm")
         self.assertEqual(fields["layer_count"].label, "Layer count")  # humanised
 
     def test_fields_before_a_section_go_in_a_default_one(self) -> None:
