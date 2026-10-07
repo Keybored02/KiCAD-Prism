@@ -1,0 +1,6 @@
+# Test tools for the backend suite (pytest runs the unittest suite in parallel;
+# testmon reruns only the tests affected by a change). Kept out of
+# runtime.lock, which is the production image's runtime.
+pytest==9.1.1
+pytest-xdist==3.8.0
+pytest-testmon==2.2.0

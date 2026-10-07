@@ -46,6 +46,7 @@ loadtest/results/
 *.egg-info/
 build/
 .pytest_cache/
+.testmondata*
 
 # Project Data
 # (The project database is currently outside the repo, but just in case)

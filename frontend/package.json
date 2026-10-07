@@ -13,7 +13,7 @@
     "dev:panel": "vite --config vite.config.panel.ts",
     "build": "npx tsc -b && vite build",
     "build:panel": "vite build --config vite.config.panel.ts",
-    "lint": "eslint .",
+    "lint": "eslint --cache --cache-location node_modules/.cache/eslint/ .",
     "test": "vitest run",
     "scan": "react-doctor . --no-telemetry",
     "preview": "vite preview",
