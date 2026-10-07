@@ -28,6 +28,7 @@ import subprocess
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from app.api._helpers import get_project_for_role_or_404
 from app.core.config import settings
 from app.core.roles import role_meets_minimum
 from app.core.security import AuthenticatedUser, _resolve_bearer_user, guest_user
@@ -94,14 +95,20 @@ def _authenticate(request: Request) -> AuthenticatedUser:
         raise _unauthorised() from exc
 
 
-def _authorise(user: AuthenticatedUser, path: str) -> None:
-    """Reading needs viewer. Writing needs designer."""
+def _authorise(user: AuthenticatedUser, project_id: str, path: str) -> None:
+    """Reading needs viewer. Writing needs designer. Either needs the project visible.
+
+    Visibility is the same folder check every /api/projects/{id} route applies, so
+    hiding a folder from a role also stops that role cloning and pushing its repos.
+    A hidden or unknown project is a 404, as it is in the API.
+    """
     writing = any(path.endswith(p) for p in _WRITE_PATHS)
     needed = "designer" if writing else "viewer"
     if not role_meets_minimum(user.role, needed):
         raise HTTPException(
             status_code=403, detail=f"{needed.capitalize()} role required"
         )
+    get_project_for_role_or_404(project_id, user.role)
 
 
 def _split(full_path: str) -> tuple[str, str]:
@@ -125,7 +132,7 @@ async def git_http(full_path: str, request: Request):
     project_id, sub_path = _split(full_path)
 
     user = _authenticate(request)
-    _authorise(user, sub_path)
+    await asyncio.to_thread(_authorise, user, project_id, sub_path)
 
     if not git_host_service.exists(project_id):
         raise HTTPException(status_code=404, detail="Not found")
