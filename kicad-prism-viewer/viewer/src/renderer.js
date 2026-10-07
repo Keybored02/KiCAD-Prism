@@ -169,7 +169,9 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var<uniform> draw: Draw;
 @group(0) @binding(3) var<storage, read> hiddenMask: array<u32>;
+@group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${FEATURE_MASK_WGSL}
+${NET_MASK_WGSL}
 struct Input {
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
@@ -180,16 +182,21 @@ struct Input {
 };
 struct Output {
   @builtin(position) position: vec4f,
+  @location(2) @interpolate(flat) netId: u32,
   @location(0) @interpolate(flat) objectId: u32,
 };
 @vertex fn vs(input: Input) -> Output {
   var output: Output;
   output.position = globals.viewProjection * vec4f(input.position + draw.offset.xyz, 1.0);
   output.objectId = input.objectId;
+  output.netId = input.netId;
   return output;
 }
 @fragment fn fs(input: Output) -> @location(0) vec2u {
   if (u32(draw.flags.x) == 2u && featureHidden(input.objectId)) { discard; }
+  // Isolated (flags.z), unlit copper is not drawn, so it is not there to pick (SB2-31e).
+  let lit = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
+  if (u32(draw.flags.x) == 1u && draw.flags.z > 0.5 && !lit) { discard; }
   return vec2u(1u, input.objectId);
 }
 `;
@@ -283,6 +290,8 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var<uniform> draw: Draw;
 @group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;
+@group(0) @binding(4) var<storage, read> netMask: array<u32>;
+${NET_MASK_WGSL}
 struct Input {
   @location(0) unit: vec3f,
   @location(1) normal: vec3f,
@@ -293,6 +302,7 @@ struct Input {
 };
 struct Output {
   @builtin(position) position: vec4f,
+  @location(3) @interpolate(flat) netId: u32,
   @location(0) @interpolate(flat) objectId: u32,
   @location(1) @interpolate(flat) visible: u32,
 };
@@ -306,6 +316,7 @@ struct Output {
   var output: Output;
   output.position = globals.viewProjection * vec4f(world, 1.0);
   output.objectId = input.ids.y;
+  output.netId = input.ids.x;
   output.visible = 0u;
   if (globals.selectedLayer == 0u || (globals.selectedLayer >= input.ids.z && globals.selectedLayer <= input.ids.w)) {
     output.visible = 1u;
@@ -314,6 +325,8 @@ struct Output {
 }
 @fragment fn fs(input: Output) -> @location(0) vec2u {
   if (input.visible == 0u) { discard; }
+  let lit = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
+  if (draw.flags.z > 0.5 && !lit) { discard; }
   return vec2u(1u, input.objectId);
 }
 `;
@@ -346,6 +359,11 @@ const EMPHASIS_TABLE = [
   ["fn netEmphasized(id: u32) -> bool {", `${OCCURRENCE_EMPHASIS_WGSL}fn netEmphasized(id: u32) -> bool {`],
 ];
 
+// What an isolated pick keeps: copper lit on this occurrence.
+const PICK_LIT = "  let lit = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);";
+const PICK_LIT_INSTANCED = `  let lit = emphasisOf(input.occurrence, input.netId) != 0u
+    || (input.occurrence == globals.selectedOccurrence && globals.activeNet != 0u && input.netId == globals.activeNet);`;
+
 const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
   SELECTED_OCCURRENCE,
   [`  @location(3) world: vec3f,
@@ -367,7 +385,9 @@ const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
   output.world = (occurrence.model * vec4f(input.position + draw.offset.xyz, 1.0)).xyz;
   output.position = globals.viewProjection * vec4f(output.world, 1.0);
   output.normal = normalize((occurrence.normal * vec4f(input.normal, 0.0)).xyz);
-  output.occurrence = index + 1u + globals.occurrenceBase;`],
+  output.occurrence = index + 1u + globals.occurrenceBase;
+  // A layer this copy hides (SB2-31e) collapses outside the clip volume.
+  if (layerHiddenAt(occurrence, draw.offset.w)) { output.position = vec4f(0.0, 0.0, 2.0, 1.0); }`],
   [`  let selected = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
   let selectedComponent = component && globals.selectedFeature != 0u && input.objectId == globals.selectedFeature;`,
   `  // The inspected selection lights its own copy; host-highlighted nets light every copy.
@@ -394,11 +414,14 @@ const PICK_SHADER_INSTANCED = variant(PICK_SHADER, [
   let world = (occurrences[index].model * vec4f(input.position + draw.offset.xyz, 1.0)).xyz;
   var output: Output;
   output.position = globals.viewProjection * vec4f(world, 1.0);
-  output.occurrence = index + 1u + globals.occurrenceBase;`],
+  output.occurrence = index + 1u + globals.occurrenceBase;
+  if (layerHiddenAt(occurrences[index], draw.offset.w)) { output.position = vec4f(0.0, 0.0, 2.0, 1.0); }`],
   // Board context draws (kind 0) pick as feature 0: "this board", no feature.
   [`  return vec2u(1u, input.objectId);`,
   `  let kind = u32(draw.flags.x);
   return vec2u(input.occurrence, select(input.objectId, 0u, kind == 0u));`],
+  ...EMPHASIS_TABLE,
+  [PICK_LIT, PICK_LIT_INSTANCED],
 ]);
 
 const BARREL_INPUT = `struct Input {
@@ -467,6 +490,8 @@ const BARREL_PICK_SHADER_INSTANCED = barrelVariant(
   [
     ["  @location(1) @interpolate(flat) visible: u32,\n};", "  @location(1) @interpolate(flat) visible: u32,\n  @location(2) @interpolate(flat) occurrence: u32,\n};"],
     ["  return vec2u(1u, input.objectId);", "  return vec2u(input.occurrence, input.objectId);"],
+    ...EMPHASIS_TABLE,
+    [PICK_LIT, PICK_LIT_INSTANCED],
   ],
 );
 
@@ -530,6 +555,7 @@ const CULL_SHADER = `
 struct Occurrence {
   model: mat4x4f,
   normal: mat4x4f,
+  hiddenLayers: vec4u,
 };
 struct Cull {
   planes: array<vec4f, 6>,
@@ -695,6 +721,7 @@ export class Renderer {
     // one-record placeholder so every bind group is valid.
     this.occurrenceMatrices = [[...IDENTITY]];
     this.occurrenceKeys = ["0"];
+    this.occurrenceHiddenLayers = [[]];
     this.identityOnly = true;
     this.occurrenceCapacity = 1;
     this.occurrenceBuffer = this.createOccurrenceBuffer(this.occurrenceCapacity);
@@ -897,9 +924,10 @@ export class Renderer {
    * restores the single identity occurrence.
    */
   setOccurrences(occurrences) {
-    const { matrices: next, keys } = normalizeOccurrences(occurrences == null ? [IDENTITY] : occurrences);
+    const { matrices: next, keys, hiddenLayers } = normalizeOccurrences(occurrences == null ? [IDENTITY] : occurrences);
     this.occurrenceMatrices = next;
     this.occurrenceKeys = keys;
+    this.occurrenceHiddenLayers = hiddenLayers;
     this.identityOnly = !this.alwaysInstanced && next.length === 1 && isIdentity(next[0]);
     if (!this.identityOnly) this.ensureInstancedPipelines();
     if (next.length > this.occurrenceCapacity) {
@@ -914,11 +942,23 @@ export class Renderer {
       }
       this.rebindAll();
     }
-    if (next.length) this.device.queue.writeBuffer(this.occurrenceBuffer, 0, packOccurrences(next));
+    if (next.length) this.device.queue.writeBuffer(this.occurrenceBuffer, 0, packOccurrences(next, hiddenLayers));
     // New occurrences start without history: no hysteresis carried over.
     if (this.cull) this.device.queue.writeBuffer(this.cull.lods, 0, new Uint32Array(this.occurrenceCapacity).fill(3));
     if (this.selectedOccurrence >= next.length) this.selectedOccurrence = -1;
     this.bundleCache.clear();
+    this.invalidate();
+  }
+
+  /**
+   * The copper layers each occurrence hides (layer ids per occurrence, in
+   * occurrence order), without placing them again: level-of-detail history stays.
+   */
+  setOccurrenceHiddenLayers(hiddenLayers) {
+    this.occurrenceHiddenLayers = this.occurrenceMatrices.map((_, index) => [...(hiddenLayers?.[index] || [])].map(Number));
+    if (this.occurrenceMatrices.length) {
+      this.device.queue.writeBuffer(this.occurrenceBuffer, 0, packOccurrences(this.occurrenceMatrices, this.occurrenceHiddenLayers));
+    }
     this.invalidate();
   }
 
@@ -1828,7 +1868,8 @@ export class Renderer {
       compareOffset?.[0] || 0,
       compareOffset?.[1] || 0,
       (compareMode ? -(entry.baseZ || 0) : entry.layerOffset || 0) + boardOverlayOffset,
-      0,
+      // The layer + 1 an occurrence can hide (SB2-31e); only the instanced shaders read it.
+      entry.kind === "copper" || entry.boardRole === "paste" ? Number(entry.layerId || 0) + 1 : 0,
     ], 8);
     const materialAlpha = Number.isFinite(color?.[3]) ? color[3] : 1;
     const opacity = entry.kind === "component"

@@ -13,14 +13,19 @@
 // identity occurrence takes the original `viewProjection * p` path, and only
 // real occurrences pay for `viewProjection * (model * p)`.
 
-export const OCCURRENCE_STRIDE = 128; // model mat4x4f + normal mat4x4f
+export const OCCURRENCE_STRIDE = 144; // model mat4x4f + normal mat4x4f + hiddenLayers vec4u
 const OCCURRENCE_FLOATS = OCCURRENCE_STRIDE / 4;
+// SB2-31e: each occurrence hides its own copper layers (a system scene shows a
+// layer section per board). A 128-bit mask over manifest layer ids; layers with
+// ids from HIDDEN_LAYER_BITS up cannot be hidden per occurrence.
+export const HIDDEN_LAYER_BITS = 128;
 export const BARREL_RECORD_STRIDE = 48; // dimensions vec4f, span vec2f (+pad), ids vec4u
 
 export const OCCURRENCE_WGSL = `
 struct Occurrence {
   model: mat4x4f,
   normal: mat4x4f,
+  hiddenLayers: vec4u,
 };
 @group(0) @binding(5) var<storage, read> occurrences: array<Occurrence>;
 // The cull pass (SB2-25) lists the occurrences to draw, interleaved by level of
@@ -31,6 +36,13 @@ const LIST_FULL = 0u;
 const LIST_BOARD = 1u;
 const LIST_BOX = 2u;
 fn listedOccurrence(list: u32, instance: u32) -> u32 { return visibleOccurrences[instance * 3u + list]; }
+// draw.offset.w is the draw's layer id + 1 for copper and paste (0: no layer).
+fn layerHiddenAt(occurrence: Occurrence, layerPlusOne: f32) -> bool {
+  if (layerPlusOne < 0.5) { return false; }
+  let layer = u32(layerPlusOne + 0.5) - 1u;
+  if (layer >= ${HIDDEN_LAYER_BITS}u) { return false; }
+  return (occurrence.hiddenLayers[layer / 32u] & (1u << (layer % 32u))) != 0u;
+}
 `;
 
 export const IDENTITY = Object.freeze([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
@@ -79,13 +91,29 @@ export function normalMatrix(model) {
   ];
 }
 
-/** Pack occurrences for the storage buffer. Returns at least one slot. */
-export function packOccurrences(matrices) {
+/** The hidden-layer mask of one occurrence: four u32 words over layer ids. */
+export function hiddenLayerWords(layers) {
+  const words = new Uint32Array(4);
+  for (const value of layers || []) {
+    const layer = Number(value);
+    if (!Number.isInteger(layer) || layer < 0 || layer >= HIDDEN_LAYER_BITS) continue;
+    words[layer >>> 5] |= (1 << (layer & 31)) >>> 0;
+  }
+  return words;
+}
+
+/**
+ * Pack occurrences for the storage buffer. Returns at least one slot.
+ * `hiddenLayers[i]` lists the copper layer ids occurrence i hides.
+ */
+export function packOccurrences(matrices, hiddenLayers = []) {
   const data = new Float32Array(Math.max(1, matrices.length) * OCCURRENCE_FLOATS);
+  const words = new Uint32Array(data.buffer);
   matrices.forEach((model, index) => {
     const base = index * OCCURRENCE_FLOATS;
     data.set(model, base);
     data.set(normalMatrix(model), base + 16);
+    if (hiddenLayers[index]) words.set(hiddenLayerWords(hiddenLayers[index]), base + 32);
   });
   return data;
 }
@@ -171,20 +199,20 @@ export function decodePick(red, green) {
 }
 
 /**
- * Occurrences as the element accepts them: matrices, or `{ matrix, key }`
- * where `key` names the occurrence to the host (the system scene's occurrence
- * path). Keys default to the index and must be unique.
+ * Occurrences as the element accepts them: matrices, or `{ matrix, key,
+ * hiddenLayers }` where `key` names the occurrence to the host (the system
+ * scene's occurrence path) and `hiddenLayers` lists the copper layer ids that
+ * copy hides. Keys default to the index and must be unique.
  */
 export function normalizeOccurrences(list) {
   const items = Array.from(list);
   if (items.length > MAX_OCCURRENCES) throw new RangeError("Too many occurrences for the pick target");
   const matrices = items.map(normalizeMatrix);
-  const keys = items.map((item, index) => {
-    const key = item && !Array.isArray(item) && !ArrayBuffer.isView(item) && item.key != null ? String(item.key) : String(index);
-    return key;
-  });
+  const named = (item) => item && !Array.isArray(item) && !ArrayBuffer.isView(item);
+  const keys = items.map((item, index) => (named(item) && item.key != null ? String(item.key) : String(index)));
   if (new Set(keys).size !== keys.length) throw new TypeError("Occurrence keys must be unique");
-  return { matrices, keys };
+  const hiddenLayers = items.map((item) => (named(item) && item.hiddenLayers ? [...item.hiddenLayers].map(Number) : []));
+  return { matrices, keys, hiddenLayers };
 }
 
 /**

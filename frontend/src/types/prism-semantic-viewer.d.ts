@@ -78,6 +78,20 @@ export interface PrismSemanticViewState {
     separation: number;
     isolateNet: boolean;
     hasNet: boolean;
+    /** mode="system" (SB2-31e): a layer section per placed board, in placement order. */
+    boards?: PrismSystemBoardViewState[];
+    /** mode="system": the placement path the selection belongs to, or null. */
+    selectedBoard?: string | null;
+}
+
+/** One placed board of a system scene and its copper layers (D-P2-26). */
+export interface PrismSystemBoardViewState {
+    /** The placement (occurrence) path. */
+    key: string;
+    name: string;
+    /** Why the board draws as a box (restricted, loading, building, missing, failed), or null. */
+    standIn: string | null;
+    layers: PrismSemanticLayerState[];
 }
 
 /** `prism-semantic-viewer:contextmenu`: a right-click without a drag. */
@@ -132,8 +146,9 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     /** Null until the viewer is ready. Changes arrive as `prism-semantic-viewer:viewstatechange`. */
     getViewState?: () => PrismSemanticViewState | null;
     setViewMode?: (mode: PrismSemanticViewState["mode"]) => void;
-    setLayerVisible?: (layerId: number, visible: boolean) => void;
-    applyLayerPreset?: (preset: PrismSemanticLayerPreset) => void;
+    /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
+    setLayerVisible?: (layerId: number, visible: boolean, placement?: string | null) => void;
+    applyLayerPreset?: (preset: PrismSemanticLayerPreset, placement?: string | null) => void;
     setShowBoard?: (visible: boolean) => void;
     setShowComponents?: (visible: boolean) => void;
     setShowPlaceholders?: (visible: boolean) => void;
@@ -141,6 +156,14 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     setSeparation?: (value: number) => void;
     showNetLayers?: () => void;
     setNetIsolation?: (enabled: boolean) => void;
+    /** mode="system" (SB2-31e): the system to show, a `prism.system_scene.a0` descriptor. Safe before ready. */
+    setSystemScene?: (descriptor: unknown) => void;
+    /** mode="system": light system nets on every board they reach; the report also arrives as `prism-semantic-viewer:emphasis`. */
+    setNetEmphasis?: (sets: readonly PrismSystemSceneEmphasisSet[]) => PrismSystemSceneEmphasisResult[];
+    /** mode="system": frame a lit set's copper (or all), on one placement or all; false when nothing is lit there. */
+    frameNetEmphasis?: (key?: string | null, occurrence?: string | null) => boolean;
+    /** mode="system": frame one placed board. */
+    frameBoard?: (key: string) => boolean;
 }
 
 /** What a click in the system scene selected (SB2-27). */

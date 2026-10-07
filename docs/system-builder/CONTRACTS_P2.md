@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.29 · 2026-10-05 · tickets SB2-00 to SB2-31.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.30 · 2026-10-06 · tickets SB2-00 to SB2-31e.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -731,6 +731,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.30 | 2026-10-06 | SB2-31e (D-P2-25, D-P2-26): §20.6, the board 3D tab's viewer with several boards (`<prism-semantic-viewer mode="system">`); per-placement copper layers; isolated picks skip unlit copper on every viewer. No API change. |
 | P2-1.29 | 2026-10-05 | SB2-31 follow-up 2 (user feedback): framing per occurrence with no padding, as the board 3D tab frames a net; isolated clicks on hidden copper are empty space; outer copper and barrels take the board's surface finish from its topology, as on its 3D tab. |
 | P2-1.28 | 2026-10-05 | SB2-31 follow-up (user feedback): highlighting follows a board's 3D tab net probe (no board body or components; all copper, unlit dimmed, lit nets pulsing; inner copper at every detail level); **I** isolates the lit copper (`setNetIsolation`, `isolation` event); a newly shown net is framed (`frameNetEmphasis`). |
 | P2-1.27 | 2026-10-05 | SB2-31: net emphasis per occurrence (§20.5). `setNetEmphasis` on `<prism-system-scene>`, packed-colour emphasis table in the instanced shaders, dimming and see-through boards while lit, >200-pin confirmation in the 3D tab. No API change. |
@@ -851,4 +852,36 @@ A board asset reuses the single-board pipeline and its readiness cache (`semanti
   - The instanced shaders read the asset's `netMask` buffer as a table of `stride` slots per occurrence: slot = local occurrence × stride + net id, where stride = the largest lit net id + 1, carried in the Globals word that was spare.
   - A slot holds 0 (off), 1 (the default colour) or `0x01RRGGBB`.
   - A stride of 0 keeps the one-board meaning: one shared per-net mask. The one-board shaders are unchanged.
+
+### 20.6 The 3D tab with several boards (SB2-31e, D-P2-25)
+
+The System 3D tab becomes the board 3D tab's own viewer showing several boards. `<prism-system-scene>` stays until SB2-31f moves its move mode, labels and Nets panel across, then retires.
+
+- **Element.** `<prism-semantic-viewer mode="system">` takes no `bundle-url`.
+  - `setSystemScene(descriptor)` shows a `prism.system_scene.a0` descriptor (§20.1). Each board asset loads once, from the same bundle and browser cache as its own 3D tab, and draws at every placement that uses it.
+  - Placements without geometry draw as the §20.3 stand-in boxes.
+  - `prism-semantic-viewer:systemstatus` carries the board counts by state.
+  - One viewer per page, as for the board 3D tab.
+- **The board.** The board the selection belongs to is "the board" of the 3D tab: picking, inspecting a net or part, framing, Esc and **I** work exactly as on its own tab.
+  - Every selection event carries `occurrence`, the placement path.
+  - A click on a board away from any feature selects that board: `{kind: "board", occurrence}`.
+  - A click on a stand-in also selects its board: `{kind: "board", occurrence, standIn}`.
+  - `setSelection({occurrence, netName | netId | featureId | reference})` selects on one placement. Given `occurrence` alone, it selects that board.
+- **Inspected net.** A clicked net lights on its own placement only, as the inspected net does on one copy of a board.
+  - The probe applies to every board: bodies and components hide, and unlit copper dims everywhere.
+  - Clicking a trace to light the whole system net is SB2-32 (D-P2-28).
+- **System nets.** `setNetEmphasis`, `frameNetEmphasis` and the report work as in §20.5. The report arrives as `prism-semantic-viewer:emphasis` (`{results}`).
+- **Layers per placement (D-P2-26).**
+  - `getViewState().boards` lists every placement in order: `{key, name, standIn, layers: [{id, name, color, visible}]}`.
+  - `selectedBoard` is the placement holding the selection.
+  - `setLayerVisible(layerId, visible, placement?)` and `applyLayerPreset(preset, placement?)` act on one placement. With no placement, they act on every placement of the selected board.
+  - Two placements of the same board (OBC-1, OBC-2) show their layers independently.
+  - The top-level `layers` are the selected board's.
+- **3D only (D-P2-27).** System mode has no 2D compare view.
+- **Isolated picks (all viewers).** While isolated, the pick pass discards copper and barrels that are not lit, as the draw pass does. A click lands only on what is drawn; anywhere else is empty space. On a board's own 3D tab this replaces picking the hidden pour under the cursor.
+- **Renderer.**
+  - Each occurrence record gains `hiddenLayers` (four u32, a 128-bit mask over manifest layer ids). The stride grows from 128 to 144 bytes.
+  - The instanced draw and pick shaders collapse a copper or paste draw whose layer the occurrence hides. The draw's layer id + 1 travels in `draw.offset.w`, which the one-board shaders do not read.
+  - `SceneRenderer` writes each board's exploded-stackup offsets.
+  - The one-board picture is unchanged: pixel diff on JTYU-OBC at 1280×800, 0 px.
 

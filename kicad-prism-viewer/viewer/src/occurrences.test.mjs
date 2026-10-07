@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   BARREL_RECORD_STRIDE,
+  HIDDEN_LAYER_BITS,
   IDENTITY,
   OCCURRENCE_STRIDE,
   normalMatrix,
@@ -24,7 +25,19 @@ test("the identity occurrence maps to itself exactly", () => {
   assert.deepEqual(normalMatrix([...IDENTITY]), [...IDENTITY]);
   const packed = packOccurrences([[...IDENTITY]]);
   assert.equal(packed.byteLength, OCCURRENCE_STRIDE);
-  assert.deepEqual([...packed], [...IDENTITY, ...IDENTITY]);
+  // No layer hidden: the mask words are zero.
+  assert.deepEqual([...packed], [...IDENTITY, ...IDENTITY, 0, 0, 0, 0]);
+});
+
+test("each occurrence hides its own copper layers (SB2-31e)", () => {
+  const packed = packOccurrences([[...IDENTITY], [...IDENTITY]], [[1, 33], [HIDDEN_LAYER_BITS - 1, HIDDEN_LAYER_BITS, -1, 2.5]]);
+  const words = new Uint32Array(packed.buffer);
+  const stride = OCCURRENCE_STRIDE / 4;
+  assert.deepEqual([...words.subarray(32, 36)], [2, 2, 0, 0]);
+  // Ids past the mask (and non-integers) cannot be hidden per occurrence; the top bit can.
+  assert.deepEqual([...words.subarray(stride + 32, stride + 36)], [0, 0, 0, 0x80000000]);
+  // The matrices are untouched by the mask.
+  assert.deepEqual([...packed.subarray(stride, stride + 32)], [...IDENTITY, ...IDENTITY]);
 });
 
 test("a rigid transform's normal matrix is its rotation", () => {
@@ -92,6 +105,12 @@ test("instanced shader variants place every path by a culled occurrence", async 
     assert.doesNotMatch(INSTANCED_SHADERS[name], /@location\(3\) dimensions/);
   }
   assert.match(INSTANCED_SHADERS.box, /listedOccurrence\(LIST_BOX, instance\)/);
+  // SB2-31e: drawing and picking skip the layers an occurrence hides; the cull pass reads the same record.
+  for (const name of ["main", "pick"]) {
+    assert.match(INSTANCED_SHADERS[name], /hiddenLayers: vec4u,/);
+    assert.match(INSTANCED_SHADERS[name], /if \(layerHiddenAt\(occurrence(s\[index\])?, draw\.offset\.w\)\) \{ output\.position = vec4f\(0\.0, 0\.0, 2\.0, 1\.0\); \}/);
+  }
+  assert.match(INSTANCED_SHADERS.cull, /struct Occurrence \{\n  model: mat4x4f,\n  normal: mat4x4f,\n  hiddenLayers: vec4u,\n\};/);
   // SB2-31: host-highlighted nets light per occurrence, in their own colours.
   for (const name of ["main", "barrel"]) {
     assert.match(INSTANCED_SHADERS[name], /emphasisStride: u32,/);
@@ -126,6 +145,7 @@ test("occurrences carry host keys, defaulting to their index", async () => {
   assert.deepEqual(named.keys, ["inst_obc1", "inst_obc2"]);
   close(named.matrices[1], shifted.map(Math.fround));
   assert.throws(() => normalizeOccurrences([{ matrix: IDENTITY, key: "a" }, { matrix: IDENTITY, key: "a" }]), /unique/);
+  assert.deepEqual(normalizeOccurrences([{ matrix: IDENTITY, key: "a", hiddenLayers: new Set([3, "5"]) }, IDENTITY]).hiddenLayers, [[3, 5], []]);
 });
 
 test("points project into the viewport, y down", async () => {

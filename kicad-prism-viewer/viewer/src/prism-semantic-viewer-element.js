@@ -1,7 +1,7 @@
 import viewerCss from "../styles.css";
 import { AssetCache } from "./asset-cache.js";
 import { absolutizeAssetPaths, bundleIsFinal } from "./bundle-urls.js";
-import { mountStandaloneViewer } from "./main.js";
+import { mountStandaloneViewer, mountSystemViewer } from "./main.js";
 import { createReloadOwner, runSemanticViewerReload } from "./semantic-viewer-reload.js";
 
 const SUPPORTED_SCHEMA = "prism.visualizer_bundle.a0";
@@ -120,7 +120,7 @@ async function loadBundle(bundleUrl, timings, signal) {
 
 export class PrismSemanticViewerElement extends HTMLElement {
   static get observedAttributes() {
-    return ["bundle-url", "workspace"];
+    return ["bundle-url", "workspace", "mode"];
   }
 
   constructor() {
@@ -159,8 +159,13 @@ export class PrismSemanticViewerElement extends HTMLElement {
     return this.getAttribute("workspace") === "stackup" ? "stackup" : "pcb";
   }
 
+  /** `mode="system"`: several boards from a system scene descriptor (SB2-31e) instead of one bundle. */
+  get systemMode() {
+    return this.getAttribute("mode") === "system";
+  }
+
   queueReload() {
-    const source = this.getAttribute("bundle-url");
+    const source = this.systemMode ? "system" : this.getAttribute("bundle-url");
     if (!source || source === this.reloadSource) return;
     this.reloadSource = source;
     if (this.reloadQueued) return;
@@ -176,11 +181,92 @@ export class PrismSemanticViewerElement extends HTMLElement {
     const attempt = this.reloadOwner.begin();
     this.controller?.dispose?.();
     this.controller = null;
+    if (this.systemMode) {
+      await this.reloadSystem(attempt);
+      return;
+    }
     if (!bundleUrl) {
       this.shadowRoot.innerHTML = `<style>:host{display:block;height:100%;font:14px system-ui;color:#94a3b8}</style><div>Semantic bundle URL is missing.</div>`;
       return;
     }
     await runSemanticViewerReload(this, attempt, { owner: this.reloadOwner, bundleUrl, loadBundle });
+  }
+
+  async reloadSystem(attempt) {
+    const { signal } = attempt;
+    const isCurrent = () => this.reloadOwner.owns(attempt) && this.isConnected;
+    try {
+      this.renderShell();
+      const controller = await mountSystemViewer({
+        root: this.shadowRoot,
+        loadBundle: (bundleUrl, boardSignal) => loadBundle(bundleUrl, null, boardSignal),
+        isActive: () => this.getAttribute("active") === "true",
+        onSelectionChange: (selection) => {
+          if (!signal.aborted) this.emit("selectionchange", { selection });
+        },
+        onContextMenu: (detail) => {
+          if (!signal.aborted) this.emit("contextmenu", detail);
+        },
+        onViewStateChange: (detail) => {
+          if (!signal.aborted) this.emitViewState(detail);
+        },
+        onEmphasis: (results) => {
+          if (!signal.aborted) this.emit("emphasis", { results });
+        },
+        onStatus: (status) => {
+          if (!signal.aborted) this.emit("systemstatus", status);
+        },
+      });
+      if (!isCurrent()) {
+        controller?.dispose?.();
+        return;
+      }
+      this.controller = controller;
+      if (this.pendingGpuBudget != null) controller.setGpuBudget(this.pendingGpuBudget);
+      if (this.pendingSystemScene) controller.setSystemScene(this.pendingSystemScene);
+      if (this.pendingNetEmphasis) controller.setNetEmphasis(this.pendingNetEmphasis);
+      const viewState = this.getViewState();
+      if (viewState) this.emitViewState(viewState);
+      this.emitReady({ schema: "prism.semantic_viewer_performance.a0", milestone: "system-mounted" });
+    } catch (error) {
+      if (!isCurrent()) return;
+      this.renderError(error);
+      this.emitError(error);
+    }
+  }
+
+  emit(name, detail) {
+    this.dispatchEvent(new CustomEvent(`prism-semantic-viewer:${name}`, { bubbles: true, composed: true, detail }));
+  }
+
+  /**
+   * The system to show (mode="system"): a `prism.system_scene.a0` descriptor.
+   * Boards already loaded are kept. Safe before the viewer is ready; the last
+   * call is replayed on the next controller.
+   */
+  setSystemScene(descriptor) {
+    this.pendingSystemScene = descriptor || null;
+    if (descriptor) this.controller?.setSystemScene?.(descriptor);
+  }
+
+  /**
+   * Light system nets on every board they reach (mode="system"):
+   * `[{ key, color?, members: [{ occurrence, net }] }]`. Returns the report
+   * (also sent as `prism-semantic-viewer:emphasis` when boards load), or [] before ready.
+   */
+  setNetEmphasis(sets) {
+    this.pendingNetEmphasis = Array.isArray(sets) ? sets : [];
+    return this.controller?.setNetEmphasis?.(this.pendingNetEmphasis) ?? [];
+  }
+
+  /** Frame the copper of a lit set (or of all), on one placement or all; false when nothing is lit there. */
+  frameNetEmphasis(key = null, occurrence = null) {
+    return this.controller?.frameNetEmphasis?.(key, occurrence) ?? false;
+  }
+
+  /** Frame one placed board (mode="system"). */
+  frameBoard(key) {
+    return this.controller?.frameBoard?.(key) ?? false;
   }
 
   renderLoading() {
@@ -393,12 +479,13 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.controller?.setViewMode?.(mode);
   }
 
-  setLayerVisible(layerId, visible) {
-    this.controller?.setLayerVisible?.(layerId, visible);
+  /** In a system scene, `placement` names the board placement (all placements of the selected board when omitted). */
+  setLayerVisible(layerId, visible, placement = null) {
+    this.controller?.setLayerVisible?.(layerId, visible, placement);
   }
 
-  applyLayerPreset(preset) {
-    this.controller?.applyLayerPreset?.(preset);
+  applyLayerPreset(preset, placement = null) {
+    this.controller?.applyLayerPreset?.(preset, placement);
   }
 
   setShowBoard(visible) {
