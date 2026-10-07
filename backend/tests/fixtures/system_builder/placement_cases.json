@@ -992,6 +992,676 @@
    "expected": {"offsetMm": [-1.5, 0.0, 0.0], "distanceMm": 1.5, "lateralMm": 1.5, "angleDeg": 0.0}
   }
  ],
+ "solves": [
+  {
+   "name": "misplacement fixture: J1 drives (equal rows, lower reference), J2 misses by 1.5 mm",
+   "input": {
+    "items": [
+     ["base", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["top", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {},
+    "connections": [["base", "top"], ["base", "top"]],
+    "mates": [
+     {
+      "linkId": "lnk_j1",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F1 J1", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     },
+     {
+      "linkId": "lnk_j2",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J2",
+       "end": {"end": "mezz_base/F0 J2", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J2",
+       "end": {"end": "mezz_top/F1 J2", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     }
+    ],
+    "overrides": null
+   },
+   "expected": {
+    "poses": {
+     "base": {"translationMm": [-100.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "top": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"}
+    },
+    "driving": {
+     "top": {
+      "linkId": "lnk_j1",
+      "from": "base",
+      "autoPose": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": false
+     }
+    },
+    "roots": ["base"],
+    "mismatches": [{"linkId": "lnk_j2", "offsetMm": [-1.5, 0.0, 0.0], "lateralMm": 1.5, "axialMm": 0.0, "angleDeg": 0.0}],
+    "unusable": [],
+    "ignoredOverrides": []
+   }
+  },
+  {
+   "name": "the aligned commit checks clean",
+   "input": {
+    "items": [
+     ["base", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["top", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {},
+    "connections": [["base", "top"], ["base", "top"]],
+    "mates": [
+     {
+      "linkId": "lnk_j1",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F0 J1", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     },
+     {
+      "linkId": "lnk_j2",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J2",
+       "end": {"end": "mezz_base/F0 J2", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J2",
+       "end": {"end": "mezz_top/F0 J2", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     }
+    ],
+    "overrides": null
+   },
+   "expected": {
+    "poses": {
+     "base": {"translationMm": [-100.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "top": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"}
+    },
+    "driving": {
+     "top": {
+      "linkId": "lnk_j1",
+      "from": "base",
+      "autoPose": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": false
+     }
+    },
+    "roots": ["base"],
+    "mismatches": [],
+    "unusable": [],
+    "ignoredOverrides": []
+   }
+  },
+  {
+   "name": "the mate with more rows drives",
+   "input": {
+    "items": [
+     ["base", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["top", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {},
+    "connections": [["base", "top"], ["base", "top"]],
+    "mates": [
+     {
+      "linkId": "lnk_j1",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F1 J1", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     },
+     {
+      "linkId": "lnk_j2",
+      "rows": 40,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J2",
+       "end": {"end": "mezz_base/F0 J2", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J2",
+       "end": {"end": "mezz_top/F1 J2", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     }
+    ],
+    "overrides": null
+   },
+   "expected": {
+    "poses": {
+     "base": {"translationMm": [-100.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "top": {"translationMm": [-101.5, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"}
+    },
+    "driving": {
+     "top": {
+      "linkId": "lnk_j2",
+      "from": "base",
+      "autoPose": {"translationMm": [-101.5, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": false
+     }
+    },
+    "roots": ["base"],
+    "mismatches": [{"linkId": "lnk_j1", "offsetMm": [1.5, 0.0, 0.0], "lateralMm": 1.5, "axialMm": 0.0, "angleDeg": 0.0}],
+    "unusable": [],
+    "ignoredOverrides": []
+   }
+  },
+  {
+   "name": "a driving override wins over rows",
+   "input": {
+    "items": [
+     ["base", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["top", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {},
+    "connections": [["base", "top"], ["base", "top"]],
+    "mates": [
+     {
+      "linkId": "lnk_j1",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F1 J1", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     },
+     {
+      "linkId": "lnk_j2",
+      "rows": 40,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J2",
+       "end": {"end": "mezz_base/F0 J2", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J2",
+       "end": {"end": "mezz_top/F1 J2", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     }
+    ],
+    "overrides": {"top": "lnk_j1"}
+   },
+   "expected": {
+    "poses": {
+     "base": {"translationMm": [-100.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "top": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"}
+    },
+    "driving": {
+     "top": {
+      "linkId": "lnk_j1",
+      "from": "base",
+      "autoPose": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": false
+     }
+    },
+    "roots": ["base"],
+    "mismatches": [{"linkId": "lnk_j2", "offsetMm": [-1.5, 0.0, 0.0], "lateralMm": 1.5, "axialMm": 0.0, "angleDeg": 0.0}],
+    "unusable": [],
+    "ignoredOverrides": []
+   }
+  },
+  {
+   "name": "an unconfirmed end makes its mate unusable",
+   "input": {
+    "items": [
+     ["base", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["top", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {},
+    "connections": [["base", "top"]],
+    "mates": [
+     {
+      "linkId": "lnk_j1",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {"member": "top", "reference": "J1", "end": {"end": "mezz_top/F1 J1"}}
+     }
+    ],
+    "overrides": null
+   },
+   "expected": {
+    "poses": {
+     "base": {"translationMm": [-100.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "top": {"translationMm": [-30.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"}
+    },
+    "driving": {},
+    "roots": [],
+    "mismatches": [],
+    "unusable": ["lnk_j1"],
+    "ignoredOverrides": []
+   }
+  },
+  {
+   "name": "a manual pose on the driven board: overridden, the auto pose kept for snap-back",
+   "input": {
+    "items": [
+     ["base", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["top", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {"top": {"translationMm": [0.0, 0.0, 30.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "manual"}},
+    "connections": [["base", "top"], ["base", "top"]],
+    "mates": [
+     {
+      "linkId": "lnk_j1",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F1 J1", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     },
+     {
+      "linkId": "lnk_j2",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J2",
+       "end": {"end": "mezz_base/F0 J2", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J2",
+       "end": {"end": "mezz_top/F1 J2", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     }
+    ],
+    "overrides": null
+   },
+   "expected": {
+    "poses": {
+     "base": {"translationMm": [-100.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "top": {"translationMm": [0.0, 0.0, 30.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "manual"}
+    },
+    "driving": {
+     "top": {
+      "linkId": "lnk_j1",
+      "from": "base",
+      "autoPose": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": true
+     }
+    },
+    "roots": ["base"],
+    "mismatches": [{"linkId": "lnk_j2", "offsetMm": [-1.5, 0.0, 0.0], "lateralMm": 1.5, "axialMm": 0.0, "angleDeg": 0.0}],
+    "unusable": [],
+    "ignoredOverrides": []
+   }
+  },
+  {
+   "name": "the root is the most-connected member; others hang off it",
+   "input": {
+    "items": [
+     ["top", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["base", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["radio", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {},
+    "connections": [["base", "top"], ["base", "radio"], ["base", "top"]],
+    "mates": [
+     {
+      "linkId": "lnk_j1",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F1 J1", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     }
+    ],
+    "overrides": null
+   },
+   "expected": {
+    "poses": {
+     "base": {"translationMm": [-30.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "top": {"translationMm": [-30.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+     "radio": {"translationMm": [40.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"}
+    },
+    "driving": {
+     "top": {
+      "linkId": "lnk_j1",
+      "from": "base",
+      "autoPose": {"translationMm": [-30.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": false
+     }
+    },
+    "roots": ["base"],
+    "mismatches": [],
+    "unusable": [],
+    "ignoredOverrides": []
+   }
+  },
+  {
+   "name": "an assembly member: the connector's board sits inside it",
+   "input": {
+    "items": [
+     ["base", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["cdh", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {},
+    "connections": [["base", "cdh"]],
+    "mates": [
+     {
+      "linkId": "lnk_j1",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "cdh",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F0 J1", "stored": {"axis": "bottom", "quarterTurns": 0}},
+       "inMember": {"translationMm": [5.0, -2.0, 1.5], "rotation": [0.0, 0.0, 0.707106781, 0.707106781]}
+      }
+     }
+    ],
+    "overrides": null
+   },
+   "expected": {
+    "poses": {
+     "base": {"translationMm": [-100.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "cdh": {
+      "translationMm": [-98.000000004, 129.999999998, 7.1],
+      "rotation": [0.0, 0.0, -0.707106781, 0.707106781],
+      "source": "auto"
+     }
+    },
+    "driving": {
+     "cdh": {
+      "linkId": "lnk_j1",
+      "from": "base",
+      "autoPose": {
+       "translationMm": [-98.000000004, 129.999999998, 7.1],
+       "rotation": [0.0, 0.0, -0.707106781, 0.707106781],
+       "source": "auto"
+      },
+      "overridden": false
+     }
+    },
+    "roots": ["base"],
+    "mismatches": [],
+    "unusable": [],
+    "ignoredOverrides": []
+   }
+  },
+  {
+   "name": "two mated groups and a loose board",
+   "input": {
+    "items": [
+     ["base", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["edge_a", {"minMm": [95.0, -130.0, -0.8], "maxMm": [145.0, -95.0, 0.8]}],
+     ["edge_b", {"minMm": [95.0, -130.0, -0.8], "maxMm": [145.0, -95.0, 0.8]}],
+     ["loose", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["top", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {},
+    "connections": [["base", "top"], ["edge_a", "edge_b"]],
+    "mates": [
+     {
+      "linkId": "lnk_j1",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "base",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "top",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F1 J1", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     },
+     {
+      "linkId": "lnk_edge",
+      "rows": 4,
+      "stackHeightMm": null,
+      "a": {
+       "member": "edge_a",
+       "reference": "J1",
+       "end": {"end": "edge_a/F0 J1", "stored": {"axis": "+x", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "edge_b",
+       "reference": "J1",
+       "end": {"end": "edge_b/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      }
+     }
+    ],
+    "overrides": null
+   },
+   "expected": {
+    "poses": {
+     "base": {"translationMm": [-100.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "top": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+     "edge_a": {"translationMm": [-25.0, 130.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "edge_b": {"translationMm": [101.34, 132.0, -109.2], "rotation": [0.0, -0.707106781, 0.0, 0.707106781], "source": "auto"},
+     "loose": {"translationMm": [110.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"}
+    },
+    "driving": {
+     "top": {
+      "linkId": "lnk_j1",
+      "from": "base",
+      "autoPose": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": false
+     },
+     "edge_b": {
+      "linkId": "lnk_edge",
+      "from": "edge_a",
+      "autoPose": {"translationMm": [101.34, 132.0, -109.2], "rotation": [0.0, -0.707106781, 0.0, 0.707106781], "source": "auto"},
+      "overridden": false
+     }
+    },
+    "roots": ["base", "edge_a"],
+    "mismatches": [],
+    "unusable": [],
+    "ignoredOverrides": []
+   }
+  },
+  {
+   "name": "an override naming no usable mate, or one only reachable through itself, is ignored",
+   "input": {
+    "items": [
+     ["a", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["b", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["c", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["d", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {},
+    "connections": [["a", "b"], ["a", "c"], ["a", "d"]],
+    "mates": [
+     {
+      "linkId": "lnk_ab",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "a",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "b",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F0 J1", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     },
+     {
+      "linkId": "lnk_bc",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "b",
+       "reference": "J2",
+       "end": {"end": "mezz_base/F0 J2", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "c",
+       "reference": "J2",
+       "end": {"end": "mezz_top/F0 J2", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     },
+     {
+      "linkId": "lnk_cd",
+      "rows": 30,
+      "stackHeightMm": 12.0,
+      "a": {
+       "member": "c",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "d",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F0 J1", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     }
+    ],
+    "overrides": {"b": "lnk_nope", "c": "lnk_cd"}
+   },
+   "expected": {
+    "poses": {
+     "a": {"translationMm": [-100.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "b": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+     "c": {"translationMm": [-100.0, 125.0, 17.2], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+     "d": {"translationMm": [-100.0, 125.0, 30.8], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"}
+    },
+    "driving": {
+     "b": {
+      "linkId": "lnk_ab",
+      "from": "a",
+      "autoPose": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": false
+     },
+     "c": {
+      "linkId": "lnk_bc",
+      "from": "b",
+      "autoPose": {"translationMm": [-100.0, 125.0, 17.2], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": false
+     },
+     "d": {
+      "linkId": "lnk_cd",
+      "from": "c",
+      "autoPose": {"translationMm": [-100.0, 125.0, 30.8], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": false
+     }
+    },
+    "roots": ["a"],
+    "mismatches": [],
+    "unusable": [],
+    "ignoredOverrides": [
+     {"member": "b", "linkId": "lnk_nope", "reason": "not_a_usable_mate"},
+     {"member": "c", "linkId": "lnk_cd", "reason": "unreachable"}
+    ]
+   }
+  },
+  {
+   "name": "every member overridden: the hub is root and its override is ignored",
+   "input": {
+    "items": [
+     ["a", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}],
+     ["b", {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}]
+    ],
+    "stored": {},
+    "connections": [["a", "b"]],
+    "mates": [
+     {
+      "linkId": "lnk_ab",
+      "rows": 30,
+      "stackHeightMm": 7.0,
+      "a": {
+       "member": "a",
+       "reference": "J1",
+       "end": {"end": "mezz_base/F0 J1", "stored": {"axis": "top", "quarterTurns": 0}}
+      },
+      "b": {
+       "member": "b",
+       "reference": "J1",
+       "end": {"end": "mezz_top/F0 J1", "stored": {"axis": "bottom", "quarterTurns": 0}}
+      }
+     }
+    ],
+    "overrides": {"a": "lnk_ab", "b": "lnk_ab"}
+   },
+   "expected": {
+    "poses": {
+     "a": {"translationMm": [-100.0, 125.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "default"},
+     "b": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"}
+    },
+    "driving": {
+     "b": {
+      "linkId": "lnk_ab",
+      "from": "a",
+      "autoPose": {"translationMm": [-100.0, 125.0, 8.6], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "auto"},
+      "overridden": false
+     }
+    },
+    "roots": ["a"],
+    "mismatches": [],
+    "unusable": [],
+    "ignoredOverrides": [{"member": "a", "linkId": "lnk_ab", "reason": "root"}]
+   }
+  }
+ ],
  "mateEnds": {
   "mezz_base/F0 J1": {
    "geometry": {
@@ -1641,6 +2311,288 @@
     "courtyard": {"minMm": [-12.135, -2.75], "maxMm": [12.135, 2.75]},
     "model": {
      "path": "${KIPRJMOD}/../../../vendor/samtec/ADM6-30-03.5-L-4-0-A-TR.stp",
+     "offsetMm": [0.0, 0.0, 0.0],
+     "rotationDeg": [-90.0, 0.0, 0.0],
+     "scale": [1.0, 1.0, 1.0]
+    }
+   },
+   "thicknessMm": 1.6,
+   "stored": null
+  },
+  "mezz_top/F0 J2": {
+   "geometry": {
+    "side": "bottom",
+    "positionMm": [125.0, -135.0],
+    "rotationDeg": 0.0,
+    "footprintName": "Samtec_ADF6-30-03.5-L-4-0-A",
+    "pads": [
+     {"pad": "", "positionMm": [114.39, -135.0], "sizeMm": [0.95, 0.95], "shape": "circle", "tht": true},
+     {"pad": "", "positionMm": [135.61, -136.27], "sizeMm": [0.95, 0.95], "shape": "circle", "tht": true},
+     {"pad": "A01", "positionMm": [134.2075, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A02", "positionMm": [133.5725, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A03", "positionMm": [132.9375, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A04", "positionMm": [132.3025, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A05", "positionMm": [131.6675, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A06", "positionMm": [131.0325, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A07", "positionMm": [130.3975, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A08", "positionMm": [129.7625, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A09", "positionMm": [129.1275, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A10", "positionMm": [128.4925, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A11", "positionMm": [127.8575, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A12", "positionMm": [127.2225, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A13", "positionMm": [126.5875, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A14", "positionMm": [125.9525, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A15", "positionMm": [125.3175, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A16", "positionMm": [124.6825, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A17", "positionMm": [124.0475, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A18", "positionMm": [123.4125, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A19", "positionMm": [122.7775, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A20", "positionMm": [122.1425, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A21", "positionMm": [121.5075, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A22", "positionMm": [120.8725, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A23", "positionMm": [120.2375, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A24", "positionMm": [119.6025, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A25", "positionMm": [118.9675, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A26", "positionMm": [118.3325, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A27", "positionMm": [117.6975, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A28", "positionMm": [117.0625, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A29", "positionMm": [116.4275, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A30", "positionMm": [115.7925, -133.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B01", "positionMm": [134.2075, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B02", "positionMm": [133.5725, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B03", "positionMm": [132.9375, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B04", "positionMm": [132.3025, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B05", "positionMm": [131.6675, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B06", "positionMm": [131.0325, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B07", "positionMm": [130.3975, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B08", "positionMm": [129.7625, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B09", "positionMm": [129.1275, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B10", "positionMm": [128.4925, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B11", "positionMm": [127.8575, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B12", "positionMm": [127.2225, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B13", "positionMm": [126.5875, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B14", "positionMm": [125.9525, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B15", "positionMm": [125.3175, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B16", "positionMm": [124.6825, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B17", "positionMm": [124.0475, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B18", "positionMm": [123.4125, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B19", "positionMm": [122.7775, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B20", "positionMm": [122.1425, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B21", "positionMm": [121.5075, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B22", "positionMm": [120.8725, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B23", "positionMm": [120.2375, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B24", "positionMm": [119.6025, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B25", "positionMm": [118.9675, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B26", "positionMm": [118.3325, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B27", "positionMm": [117.6975, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B28", "positionMm": [117.0625, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B29", "positionMm": [116.4275, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B30", "positionMm": [115.7925, -134.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C01", "positionMm": [134.2075, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C02", "positionMm": [133.5725, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C03", "positionMm": [132.9375, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C04", "positionMm": [132.3025, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C05", "positionMm": [131.6675, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C06", "positionMm": [131.0325, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C07", "positionMm": [130.3975, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C08", "positionMm": [129.7625, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C09", "positionMm": [129.1275, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C10", "positionMm": [128.4925, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C11", "positionMm": [127.8575, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C12", "positionMm": [127.2225, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C13", "positionMm": [126.5875, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C14", "positionMm": [125.9525, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C15", "positionMm": [125.3175, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C16", "positionMm": [124.6825, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C17", "positionMm": [124.0475, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C18", "positionMm": [123.4125, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C19", "positionMm": [122.7775, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C20", "positionMm": [122.1425, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C21", "positionMm": [121.5075, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C22", "positionMm": [120.8725, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C23", "positionMm": [120.2375, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C24", "positionMm": [119.6025, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C25", "positionMm": [118.9675, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C26", "positionMm": [118.3325, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C27", "positionMm": [117.6975, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C28", "positionMm": [117.0625, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C29", "positionMm": [116.4275, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C30", "positionMm": [115.7925, -135.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D01", "positionMm": [134.2075, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D02", "positionMm": [133.5725, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D03", "positionMm": [132.9375, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D04", "positionMm": [132.3025, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D05", "positionMm": [131.6675, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D06", "positionMm": [131.0325, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D07", "positionMm": [130.3975, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D08", "positionMm": [129.7625, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D09", "positionMm": [129.1275, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D10", "positionMm": [128.4925, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D11", "positionMm": [127.8575, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D12", "positionMm": [127.2225, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D13", "positionMm": [126.5875, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D14", "positionMm": [125.9525, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D15", "positionMm": [125.3175, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D16", "positionMm": [124.6825, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D17", "positionMm": [124.0475, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D18", "positionMm": [123.4125, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D19", "positionMm": [122.7775, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D20", "positionMm": [122.1425, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D21", "positionMm": [121.5075, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D22", "positionMm": [120.8725, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D23", "positionMm": [120.2375, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D24", "positionMm": [119.6025, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D25", "positionMm": [118.9675, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D26", "positionMm": [118.3325, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D27", "positionMm": [117.6975, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D28", "positionMm": [117.0625, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D29", "positionMm": [116.4275, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D30", "positionMm": [115.7925, -136.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false}
+    ],
+    "courtyard": {"minMm": [-12.135, -2.75], "maxMm": [12.135, 2.75]},
+    "model": {
+     "path": "${KIPRJMOD}/../../../vendor/samtec/ADF6-30-03.5-L-4-0-A-TR.stp",
+     "offsetMm": [0.0, 0.0, 0.0],
+     "rotationDeg": [-90.0, 0.0, 0.0],
+     "scale": [1.0, 1.0, 1.0]
+    }
+   },
+   "thicknessMm": 1.6,
+   "stored": null
+  },
+  "mezz_top/F1 J1": {
+   "geometry": {
+    "side": "bottom",
+    "positionMm": [125.0, -105.0],
+    "rotationDeg": 0.0,
+    "footprintName": "Samtec_ADF6-30-03.5-L-4-0-A",
+    "pads": [
+     {"pad": "", "positionMm": [114.39, -105.0], "sizeMm": [0.95, 0.95], "shape": "circle", "tht": true},
+     {"pad": "", "positionMm": [135.61, -106.27], "sizeMm": [0.95, 0.95], "shape": "circle", "tht": true},
+     {"pad": "A01", "positionMm": [134.2075, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A02", "positionMm": [133.5725, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A03", "positionMm": [132.9375, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A04", "positionMm": [132.3025, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A05", "positionMm": [131.6675, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A06", "positionMm": [131.0325, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A07", "positionMm": [130.3975, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A08", "positionMm": [129.7625, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A09", "positionMm": [129.1275, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A10", "positionMm": [128.4925, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A11", "positionMm": [127.8575, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A12", "positionMm": [127.2225, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A13", "positionMm": [126.5875, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A14", "positionMm": [125.9525, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A15", "positionMm": [125.3175, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A16", "positionMm": [124.6825, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A17", "positionMm": [124.0475, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A18", "positionMm": [123.4125, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A19", "positionMm": [122.7775, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A20", "positionMm": [122.1425, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A21", "positionMm": [121.5075, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A22", "positionMm": [120.8725, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A23", "positionMm": [120.2375, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A24", "positionMm": [119.6025, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A25", "positionMm": [118.9675, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A26", "positionMm": [118.3325, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A27", "positionMm": [117.6975, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A28", "positionMm": [117.0625, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A29", "positionMm": [116.4275, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "A30", "positionMm": [115.7925, -103.25], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B01", "positionMm": [134.2075, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B02", "positionMm": [133.5725, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B03", "positionMm": [132.9375, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B04", "positionMm": [132.3025, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B05", "positionMm": [131.6675, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B06", "positionMm": [131.0325, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B07", "positionMm": [130.3975, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B08", "positionMm": [129.7625, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B09", "positionMm": [129.1275, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B10", "positionMm": [128.4925, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B11", "positionMm": [127.8575, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B12", "positionMm": [127.2225, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B13", "positionMm": [126.5875, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B14", "positionMm": [125.9525, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B15", "positionMm": [125.3175, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B16", "positionMm": [124.6825, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B17", "positionMm": [124.0475, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B18", "positionMm": [123.4125, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B19", "positionMm": [122.7775, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B20", "positionMm": [122.1425, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B21", "positionMm": [121.5075, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B22", "positionMm": [120.8725, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B23", "positionMm": [120.2375, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B24", "positionMm": [119.6025, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B25", "positionMm": [118.9675, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B26", "positionMm": [118.3325, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B27", "positionMm": [117.6975, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B28", "positionMm": [117.0625, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B29", "positionMm": [116.4275, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "B30", "positionMm": [115.7925, -104.21], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C01", "positionMm": [134.2075, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C02", "positionMm": [133.5725, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C03", "positionMm": [132.9375, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C04", "positionMm": [132.3025, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C05", "positionMm": [131.6675, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C06", "positionMm": [131.0325, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C07", "positionMm": [130.3975, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C08", "positionMm": [129.7625, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C09", "positionMm": [129.1275, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C10", "positionMm": [128.4925, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C11", "positionMm": [127.8575, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C12", "positionMm": [127.2225, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C13", "positionMm": [126.5875, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C14", "positionMm": [125.9525, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C15", "positionMm": [125.3175, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C16", "positionMm": [124.6825, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C17", "positionMm": [124.0475, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C18", "positionMm": [123.4125, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C19", "positionMm": [122.7775, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C20", "positionMm": [122.1425, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C21", "positionMm": [121.5075, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C22", "positionMm": [120.8725, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C23", "positionMm": [120.2375, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C24", "positionMm": [119.6025, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C25", "positionMm": [118.9675, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C26", "positionMm": [118.3325, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C27", "positionMm": [117.6975, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C28", "positionMm": [117.0625, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C29", "positionMm": [116.4275, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "C30", "positionMm": [115.7925, -105.79], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D01", "positionMm": [134.2075, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D02", "positionMm": [133.5725, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D03", "positionMm": [132.9375, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D04", "positionMm": [132.3025, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D05", "positionMm": [131.6675, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D06", "positionMm": [131.0325, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D07", "positionMm": [130.3975, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D08", "positionMm": [129.7625, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D09", "positionMm": [129.1275, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D10", "positionMm": [128.4925, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D11", "positionMm": [127.8575, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D12", "positionMm": [127.2225, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D13", "positionMm": [126.5875, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D14", "positionMm": [125.9525, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D15", "positionMm": [125.3175, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D16", "positionMm": [124.6825, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D17", "positionMm": [124.0475, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D18", "positionMm": [123.4125, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D19", "positionMm": [122.7775, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D20", "positionMm": [122.1425, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D21", "positionMm": [121.5075, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D22", "positionMm": [120.8725, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D23", "positionMm": [120.2375, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D24", "positionMm": [119.6025, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D25", "positionMm": [118.9675, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D26", "positionMm": [118.3325, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D27", "positionMm": [117.6975, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D28", "positionMm": [117.0625, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D29", "positionMm": [116.4275, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false},
+     {"pad": "D30", "positionMm": [115.7925, -106.75], "sizeMm": [0.356, 0.356], "shape": "circle", "tht": false}
+    ],
+    "courtyard": {"minMm": [-12.135, -2.75], "maxMm": [12.135, 2.75]},
+    "model": {
+     "path": "${KIPRJMOD}/../../../vendor/samtec/ADF6-30-03.5-L-4-0-A-TR.stp",
      "offsetMm": [0.0, 0.0, 0.0],
      "rotationDeg": [-90.0, 0.0, 0.0],
      "scale": [1.0, 1.0, 1.0]
