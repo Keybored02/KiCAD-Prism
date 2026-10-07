@@ -1987,6 +1987,206 @@
    "expected": null
   }
  ],
+ "harnessTopologies": [
+  {
+   "name": "WH-001: three ends meet at one automatic breakout",
+   "input": {
+    "ends": [
+     {"id": "e1", "legMm": [50.0, -13.81, 23.799999981], "outward": [0.0, 0.0, 0.999999999]},
+     {"id": "e2", "legMm": [170.0, 16.19, 23.799999981], "outward": [0.0, 0.0, 0.999999999]},
+     {"id": "e3", "legMm": [156.958886224, -3.602790906, 23.800000021], "outward": [0.0, 0.0, 1.000000001]}
+    ],
+    "wires": [
+     {"id": "w1", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e2", "pin": "1"}},
+     {"id": "w2", "from": {"end": "e1", "pin": "4"}, "to": {"end": "e2", "pin": "2"}},
+     {"id": "w3", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e3", "pin": "1"}}
+    ],
+    "breakouts": []
+   },
+   "expected": {
+    "nodes": [
+     {"id": "e1", "kind": "end", "positionMm": [50.0, -13.81, 23.799999981]},
+     {"id": "e2", "kind": "end", "positionMm": [170.0, 16.19, 23.799999981]},
+     {"id": "e3", "kind": "end", "positionMm": [156.958886224, -3.602790906, 23.800000021]},
+     {"id": "auto", "kind": "breakout", "positionMm": [107.826481037, -2.108798484, 33.799999988]}
+    ],
+    "segments": [
+     {
+      "id": "e1~auto",
+      "from": "e1",
+      "to": "auto",
+      "wires": ["w1", "w2", "w3"],
+      "diameterMm": 2.375680888,
+      "assumedGauge": true
+     },
+     {
+      "id": "e2~auto",
+      "from": "e2",
+      "to": "auto",
+      "wires": ["w1", "w2"],
+      "diameterMm": 1.939735322,
+      "assumedGauge": true
+     },
+     {"id": "e3~auto", "from": "e3", "to": "auto", "wires": ["w3"], "diameterMm": 1.3716, "assumedGauge": true}
+    ],
+    "unplaced": []
+   }
+  },
+  {
+   "name": "two ends: one run",
+   "input": {
+    "ends": [
+     {"id": "e1", "legMm": [50.0, -13.81, 23.799999981], "outward": [0.0, 0.0, 0.999999999]},
+     {"id": "e2", "legMm": [170.0, 16.19, 23.799999981], "outward": [0.0, 0.0, 0.999999999]}
+    ],
+    "wires": [
+     {"id": "w1", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e2", "pin": "1"}},
+     {"id": "w2", "from": {"end": "e1", "pin": "4"}, "to": {"end": "e2", "pin": "2"}}
+    ],
+    "breakouts": []
+   },
+   "expected": {
+    "nodes": [
+     {"id": "e1", "kind": "end", "positionMm": [50.0, -13.81, 23.799999981]},
+     {"id": "e2", "kind": "end", "positionMm": [170.0, 16.19, 23.799999981]}
+    ],
+    "segments": [{"id": "e1~e2", "from": "e1", "to": "e2", "wires": ["w1", "w2"], "diameterMm": 1.939735322, "assumedGauge": true}],
+    "unplaced": []
+   }
+  },
+  {
+   "name": "given gauges: no assumption",
+   "input": {
+    "ends": [
+     {"id": "e1", "legMm": [50.0, -13.81, 23.799999981], "outward": [0.0, 0.0, 0.999999999]},
+     {"id": "e2", "legMm": [170.0, 16.19, 23.799999981], "outward": [0.0, 0.0, 0.999999999]},
+     {"id": "e3", "legMm": [156.958886224, -3.602790906, 23.800000021], "outward": [0.0, 0.0, 1.000000001]}
+    ],
+    "wires": [
+     {"id": "w1", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e2", "pin": "1"}, "gaugeAwg": "20"},
+     {"id": "w2", "from": {"end": "e1", "pin": "4"}, "to": {"end": "e2", "pin": "2"}, "gaugeAwg": "22"},
+     {"id": "w3", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e3", "pin": "1"}, "gaugeAwg": "20"}
+    ],
+    "breakouts": []
+   },
+   "expected": {
+    "nodes": [
+     {"id": "e1", "kind": "end", "positionMm": [50.0, -13.81, 23.799999981]},
+     {"id": "e2", "kind": "end", "positionMm": [170.0, 16.19, 23.799999981]},
+     {"id": "e3", "kind": "end", "positionMm": [156.958886224, -3.602790906, 23.800000021]},
+     {"id": "auto", "kind": "breakout", "positionMm": [107.826481037, -2.108798484, 33.799999988]}
+    ],
+    "segments": [
+     {
+      "id": "e1~auto",
+      "from": "e1",
+      "to": "auto",
+      "wires": ["w1", "w2", "w3"],
+      "diameterMm": 3.033334317,
+      "assumedGauge": false
+     },
+     {
+      "id": "e2~auto",
+      "from": "e2",
+      "to": "auto",
+      "wires": ["w1", "w2"],
+      "diameterMm": 2.420042901,
+      "assumedGauge": false
+     },
+     {"id": "e3~auto", "from": "e3", "to": "auto", "wires": ["w3"], "diameterMm": 1.8288, "assumedGauge": false}
+    ],
+    "unplaced": []
+   }
+  },
+  {
+   "name": "an end without a pose leaves its wires unplaced",
+   "input": {
+    "ends": [
+     {"id": "e1", "legMm": [50.0, -13.81, 23.799999981], "outward": [0.0, 0.0, 0.999999999]},
+     {"id": "e2", "legMm": [170.0, 16.19, 23.799999981], "outward": [0.0, 0.0, 0.999999999]}
+    ],
+    "wires": [
+     {"id": "w1", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e2", "pin": "1"}},
+     {"id": "w2", "from": {"end": "e1", "pin": "4"}, "to": {"end": "e2", "pin": "2"}},
+     {"id": "w3", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e3", "pin": "1"}}
+    ],
+    "breakouts": []
+   },
+   "expected": {
+    "nodes": [
+     {"id": "e1", "kind": "end", "positionMm": [50.0, -13.81, 23.799999981]},
+     {"id": "e2", "kind": "end", "positionMm": [170.0, 16.19, 23.799999981]}
+    ],
+    "segments": [{"id": "e1~e2", "from": "e1", "to": "e2", "wires": ["w1", "w2"], "diameterMm": 1.939735322, "assumedGauge": true}],
+    "unplaced": ["w3"]
+   }
+  },
+  {
+   "name": "user breakouts in order; an assigned end skips the nearest",
+   "input": {
+    "ends": [
+     {"id": "e1", "legMm": [50.0, -13.81, 23.799999981], "outward": [0.0, 0.0, 0.999999999]},
+     {"id": "e2", "legMm": [170.0, 16.19, 23.799999981], "outward": [0.0, 0.0, 0.999999999]},
+     {"id": "e3", "legMm": [156.958886224, -3.602790906, 23.800000021], "outward": [0.0, 0.0, 1.000000001]}
+    ],
+    "wires": [
+     {"id": "w1", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e2", "pin": "1"}},
+     {"id": "w2", "from": {"end": "e1", "pin": "4"}, "to": {"end": "e2", "pin": "2"}},
+     {"id": "w3", "from": {"end": "e1", "pin": "3"}, "to": {"end": "e3", "pin": "1"}}
+    ],
+    "breakouts": [{"id": "b1", "positionMm": [60.0, 0.0, 40.0], "ends": ["e3"]}, {"id": "b2", "positionMm": [150.0, 0.0, 40.0]}]
+   },
+   "expected": {
+    "nodes": [
+     {"id": "e1", "kind": "end", "positionMm": [50.0, -13.81, 23.799999981]},
+     {"id": "e2", "kind": "end", "positionMm": [170.0, 16.19, 23.799999981]},
+     {"id": "e3", "kind": "end", "positionMm": [156.958886224, -3.602790906, 23.800000021]},
+     {"id": "b1", "kind": "breakout", "positionMm": [60.0, 0.0, 40.0]},
+     {"id": "b2", "kind": "breakout", "positionMm": [150.0, 0.0, 40.0]}
+    ],
+    "segments": [
+     {
+      "id": "e1~b1",
+      "from": "e1",
+      "to": "b1",
+      "wires": ["w1", "w2", "w3"],
+      "diameterMm": 2.375680888,
+      "assumedGauge": true
+     },
+     {"id": "e2~b2", "from": "e2", "to": "b2", "wires": ["w1", "w2"], "diameterMm": 1.939735322, "assumedGauge": true},
+     {"id": "e3~b1", "from": "e3", "to": "b1", "wires": ["w3"], "diameterMm": 1.3716, "assumedGauge": true},
+     {"id": "b1~b2", "from": "b1", "to": "b2", "wires": ["w1", "w2"], "diameterMm": 1.939735322, "assumedGauge": true}
+    ],
+    "unplaced": []
+   }
+  },
+  {
+   "name": "no wires: equal weights, empty segments",
+   "input": {
+    "ends": [
+     {"id": "e1", "legMm": [50.0, -13.81, 23.799999981], "outward": [0.0, 0.0, 0.999999999]},
+     {"id": "e2", "legMm": [170.0, 16.19, 23.799999981], "outward": [0.0, 0.0, 0.999999999]},
+     {"id": "e3", "legMm": [156.958886224, -3.602790906, 23.800000021], "outward": [0.0, 0.0, 1.000000001]}
+    ],
+    "wires": [],
+    "breakouts": []
+   },
+   "expected": {
+    "nodes": [
+     {"id": "e1", "kind": "end", "positionMm": [50.0, -13.81, 23.799999981]},
+     {"id": "e2", "kind": "end", "positionMm": [170.0, 16.19, 23.799999981]},
+     {"id": "e3", "kind": "end", "positionMm": [156.958886224, -3.602790906, 23.800000021]},
+     {"id": "auto", "kind": "breakout", "positionMm": [125.652962075, -0.407596969, 33.799999994]}
+    ],
+    "segments": [
+     {"id": "e1~auto", "from": "e1", "to": "auto", "wires": [], "diameterMm": 0.0, "assumedGauge": false},
+     {"id": "e2~auto", "from": "e2", "to": "auto", "wires": [], "diameterMm": 0.0, "assumedGauge": false},
+     {"id": "e3~auto", "from": "e3", "to": "auto", "wires": [], "diameterMm": 0.0, "assumedGauge": false}
+    ],
+    "unplaced": []
+   }
+  }
+ ],
  "mateEnds": {
   "mezz_base/F0 J1": {
    "geometry": {

@@ -784,6 +784,18 @@ Python `placement/harness_ends.py`, TypeScript `placement/harness-ends.ts`; gold
 - An end on a connector without a frame (`low` inference, nothing stored) has no pose: "Mating details needed".
 - Result: `{pose, exitMm, outward, legMm, depthMm, modeled, matingPlaneMm}`.
 
+### 17.7 Topology, breakouts and segment wire sets (SB2-42)
+
+Python `placement/harness_topology.py`, TypeScript `placement/harness-topology.ts`; goldens in `placement_cases.json` `harnessTopologies` (on the fixture's WH-001).
+
+- **Input.** The ends that have a pose (§17.6) in ordinal order, as `{id, legMm, outward}`; the wires `{id, from: {end}, to: {end}, gaugeAwg?}`; the user's breakouts in order `{id, positionMm, ends?}` (SB2-45 stores them).
+- **Tree.** Leaves are the ends' **leg points**; inner nodes are breakouts.
+  - No user breakouts: two ends make one run; three or more meet at one automatic breakout `auto`, the wire-count-weighted centroid of the leg points (equal weights when no wire is placed) lifted 10 mm along the normalised mean outward axis (not lifted when the axes cancel).
+  - User breakouts: consecutive ones are joined; each end joins the breakout that lists it (the first, if several do), else the nearest by leg point (ties to the earlier).
+- **Segments** are the tree's edges, `id` `"<from>~<to>"`, end legs first in end order, then breakout links in order. A segment's **wires** are those whose two ends fall on opposite sides of it, in wire order.
+- **Bundle diameter** `d = 1.2·√Σ dᵢ²` over a segment's wires (§17.5), `assumedGauge` when any wire's gauge was assumed; 0 for a segment no wire crosses.
+- A wire touching an end without a pose is listed in `unplaced` and drawn nowhere.
+
 ## 18. Mating parts in the catalog: mates with (SB2-16) and models (SB2-17)
 
 ### 18.1 "Mates with" **[T7]**
@@ -821,6 +833,7 @@ Python `placement/harness_ends.py`, TypeScript `placement/harness-ends.ts`; gold
 | P2-1.38 | 2026-10-07 | Follow-up review finding 3, D-P2-31: delete archives a referenced system (frozen parent snapshots count), `archivedAt`, 409 `system_archived`; `DELETE` answers 200 with the outcome. Workspace migration 42. |
 | P2-1.39 | 2026-10-07 | SB2-21 review: the mezzanine fixtures move from Hirose DF12(3.0) to Samtec ADM6-30-03.5-L-4-0-A / ADF6-30-03.5-L-4-0-A (the JTYU OBC–CMBD pair; user choice). Footprints written from Samtec's recommended PCB layouts; goldens: mated height 7.00 mm (Samtec ADX6 mated views, Table 1), top pose (0, 0, 8.6) mm, frames at `medium` confidence (no orientation keyword, §15.1). Vendor models are not redistributed. No contract rule changes. |
 | P2-1.40 | 2026-10-07 | D-P2-30 dead-code removal: the board viewer's one-board multi-occurrence mode (`setOccurrences` on the element and controller) is gone, with `setMoveAllowed()` (the `move-allowed` attribute remains), the `"gizmo"` pick kind, the `systemstatus` event, the viewer's Euler helpers and the frontend's unused `getPoses`. `projectComponent` / `projectPoint` take an occurrence in mode="system". §20.3–§20.5 marked superseded where §20.6–§20.8 replaced them. Board 3D tab pixel diff on JTYU-OBC: 0 px. |
+| P2-1.49 | 2026-10-08 | SB2-42: §17.7 harness topology (library pair, goldens `harnessTopologies` on WH-001): runs, the automatic weighted breakout, user breakouts, segment wire sets and bundle diameters. |
 | P2-1.48 | 2026-10-08 | SB2-41: §17.6 harness end poses and exit legs (library pair, goldens `harnessEnds`); the housing meets the top of the connector body, not the board surface. |
 | P2-1.47 | 2026-10-08 | SB2-40: §17.5 the frozen harness geometry numbers (PLAN §7 defaults, signed off as D-P2-35) and the M22759/16 wire diameter table (NASA NEPP), default 24 AWG; unknown gauges assumed 24. |
 | P2-1.46 | 2026-10-08 | SB2-39: §20.14 mating in link details: `GET …/placement` and `GET …/links/{lid}/mate`; the solve's status per link with the V11 numbers, the driving choice, and a live preview of the mated pair while a frame is picked. Completes M4. |
