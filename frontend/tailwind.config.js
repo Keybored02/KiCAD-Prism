@@ -45,6 +45,10 @@ module.exports = {
                     DEFAULT: 'hsl(var(--warning))',
                     foreground: 'hsl(var(--warning-foreground))',
                 },
+                progress: {
+                    DEFAULT: 'hsl(var(--progress))',
+                    foreground: 'hsl(var(--progress-foreground))',
+                },
                 border: 'hsl(var(--border))',
                 input: 'hsl(var(--input))',
                 ring: 'hsl(var(--ring))',

@@ -10,10 +10,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { deleteRun, downloadRunReport, getRun } from "@/lib/manufacturing";
 import {
-    RUN_STATUS_LABELS,
     defectCategoryLabel,
     type ManufacturingRun,
 } from "@/types/manufacturing";
+import { RunStatusBadge } from "./status-badge";
 
 function DefinitionRow({ label, value }: { label: string; value?: ReactNode }) {
     return (
@@ -126,7 +126,7 @@ export function RunQuickView({
                     <ScrollArea className="min-h-0 flex-1">
                         <div className="p-4">
                             <div className="mb-3 flex items-center gap-2">
-                                <Badge variant="secondary">{RUN_STATUS_LABELS[run.status]}</Badge>
+                                <RunStatusBadge status={run.status} />
                                 {defects.length > 0 && (
                                     <Badge variant="outline">{defects.length} defect(s)</Badge>
                                 )}

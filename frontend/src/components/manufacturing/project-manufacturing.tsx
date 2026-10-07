@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
     Select,
@@ -33,7 +32,6 @@ import {
     extractPcbRules,
 } from "@/lib/manufacturing";
 import {
-    RUN_STATUS_LABELS,
     EXTRACTABLE_KEYS,
     evaluateCondition,
     mergeCapabilityRows,
@@ -48,6 +46,7 @@ import {
     type SpecTemplate,
 } from "@/types/manufacturing";
 import { SchemaCapabilitiesDialog } from "./spec-config-editor";
+import { RunStatusBadge } from "./status-badge";
 import { CompactSelect, FIELD_GAP, GROUP_GRID, FIELD_WRAP } from "./ui";
 
 interface ProjectManufacturingProps {
@@ -338,9 +337,9 @@ export function ProjectManufacturing({
         try {
             await applyTemplateToSpec(specId, id);
             await reloadSpec();
-            toast.success("Schema applied.");
+            toast.success("Process applied.");
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : "Failed to apply schema.");
+            toast.error(error instanceof Error ? error.message : "Failed to apply process.");
         } finally {
             setApplyingTemplate(false);
         }
@@ -466,7 +465,7 @@ export function ProjectManufacturing({
                 {selectedManufacturer && (
                     <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2">
                         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Schema
+                            Process
                         </span>
                         {templates.length > 0 ? (
                             <Select
@@ -474,8 +473,8 @@ export function ProjectManufacturing({
                                 onValueChange={(id) => void handleSelectTemplate(id)}
                                 disabled={!canEdit || !specId || applyingTemplate}
                             >
-                                <SelectTrigger size="sm" aria-label="Schema" className="w-auto min-w-[12rem]">
-                                    <SelectValue placeholder="Custom (no schema)" />
+                                <SelectTrigger size="sm" aria-label="Process" className="w-auto min-w-[12rem]">
+                                    <SelectValue placeholder="Custom (no process)" />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {templates.map((t) => (
@@ -487,7 +486,7 @@ export function ProjectManufacturing({
                             </Select>
                         ) : (
                             <span className="text-sm text-muted-foreground">
-                                No schemas defined for {selectedManufacturer.name}.
+                                No processes defined for {selectedManufacturer.name}.
                             </span>
                         )}
                     </div>
@@ -513,7 +512,7 @@ export function ProjectManufacturing({
                             />
                         ) : (
                             <p className="px-4 py-6 text-sm text-muted-foreground">
-                                Pick one of this manufacturer&rsquo;s schemas above to see its capabilities.
+                                Pick one of this manufacturer&rsquo;s processes above to see its capabilities.
                             </p>
                         ))}
                 </section>
@@ -543,8 +542,8 @@ export function ProjectManufacturing({
                                     <Button
                                         variant="outline"
                                         size="icon-sm"
-                                        aria-label="Edit schema"
-                                        title="Edit schema"
+                                        aria-label="Edit process"
+                                        title="Edit process"
                                         onClick={() => setEditorOpen(true)}
                                     >
                                         <Pencil className="h-4 w-4" />
@@ -574,8 +573,8 @@ export function ProjectManufacturing({
                     <div className="flex flex-col items-center gap-3 p-10 text-center text-muted-foreground">
                         <Settings2 className="h-8 w-8 opacity-50" />
                         <p className="text-sm">
-                            This schema defines no fields yet.
-                            {canEdit ? " Open “Edit schema” to add some." : ""}
+                            This process defines no fields yet.
+                            {canEdit ? " Open “Edit process” to add some." : ""}
                         </p>
                     </div>
                 ) : (
@@ -648,7 +647,7 @@ export function ProjectManufacturing({
                                         <span className="truncate text-sm font-medium">
                                             {run.manufacturer_name || "No manufacturer"}
                                         </span>
-                                        <Badge variant="secondary">{RUN_STATUS_LABELS[run.status]}</Badge>
+                                        <RunStatusBadge status={run.status} />
                                     </div>
                                     <div className="mt-0.5 truncate text-xs text-muted-foreground">
                                         {run.quantity_good}/{run.quantity_ordered} good
@@ -696,13 +695,13 @@ export function ProjectManufacturing({
 
             {editorOpen && specId && (
                 <SchemaCapabilitiesDialog
-                    title="Edit spec"
-                    description="Define the fields this spec's form shows and the linked method's fabrication capabilities."
+                    title="Edit process"
+                    description="Fields are shown on this spec's form. Capabilities belong to the process and are shared by every spec using it."
                     saveLabel="Save"
                     tabs={[
                         {
                             id: "schema",
-                            label: "Schema",
+                            label: "Fields",
                             fileBaseName: "spec-schema",
                             load: async () => {
                                 const spec = await getProjectSpec(specId);
@@ -713,9 +712,9 @@ export function ProjectManufacturing({
                                 const { previewSpecConfig } = await import("@/lib/manufacturing");
                                 return previewSpecConfig(text);
                             },
-                            // No in-editor "apply template" picker: it overwrote the
-                            // open spec's schema. To switch schemas, use the Schema
-                            // selector on the Manufacturing page instead.
+                            // No in-editor "apply process" picker: it overwrote the
+                            // open spec's fields. To switch process, use the Process
+                            // selector instead.
                         },
                         {
                             id: "capabilities",
@@ -724,7 +723,7 @@ export function ProjectManufacturing({
                             // Capabilities belong to the linked template.
                             disabledNote: templateId
                                 ? undefined
-                                : "This spec is not linked to a schema, so it has no capabilities to edit. Pick a schema from the selector on the Manufacturing page to get one.",
+                                : "This spec is not linked to a process, so it has no capabilities to edit. Pick a process from the selector to get one.",
                             load: async () => {
                                 const { previewSpecConfig, getTemplate } = await import("@/lib/manufacturing");
                                 if (!templateId) return { text: "", parsed: { sections: [], errors: [] } };
@@ -846,7 +845,7 @@ function CapabilitiesTable({
             )}
             {rows.length === 0 ? (
                 <p className="px-4 py-6 text-sm text-muted-foreground">
-                    No capabilities set for this method yet. Add them from Edit schema, on its Capabilities tab.
+                    No capabilities set for this process yet. Add them from Edit process, on its Capabilities tab.
                 </p>
             ) : (
                 <div className="overflow-x-auto">

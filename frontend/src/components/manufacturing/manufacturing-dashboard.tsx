@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import type { User } from "@/types/auth";
 import type { Project } from "@/types/project";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     Select,
@@ -29,6 +28,7 @@ import { NewRunWizard } from "./new-run-wizard";
 import { RunDetail } from "./run-detail";
 import { RunQuickView } from "./run-quick-view";
 import { ManufacturersPanel } from "./manufacturers-panel";
+import { RunStatusBadge } from "./status-badge";
 
 interface ManufacturingDashboardProps {
     user: User | null;
@@ -430,7 +430,7 @@ function RunRow({
                 )}
             </div>
             <div className="flex min-w-0">
-                <Badge variant="secondary">{RUN_STATUS_LABELS[run.status]}</Badge>
+                <RunStatusBadge status={run.status} />
             </div>
             <div className="min-w-0 text-right text-sm tabular-nums">
                 {run.quantity_good}/{run.quantity_ordered}

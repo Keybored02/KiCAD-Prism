@@ -249,7 +249,7 @@ function ManufacturerTemplates({ manufacturer, canEdit }: ManufacturerTemplatesP
             setTemplates(await listTemplates(manufacturer.id));
             setLoaded(true);
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : "Failed to load templates.");
+            toast.error(error instanceof Error ? error.message : "Failed to load processes.");
         }
     }, [manufacturer.id]);
 
@@ -266,13 +266,13 @@ function ManufacturerTemplates({ manufacturer, canEdit }: ManufacturerTemplatesP
             >
                 {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                 <FileCode2 className="h-3.5 w-3.5" />
-                Spec templates{loaded ? ` (${templates.length})` : ""}
+                Processes{loaded ? ` (${templates.length})` : ""}
             </button>
 
             {expanded && (
                 <div className="mt-2 space-y-2 pl-5">
                     {templates.length === 0 && loaded && (
-                        <p className="text-xs text-muted-foreground">No templates yet.</p>
+                        <p className="text-xs text-muted-foreground">No processes yet.</p>
                     )}
                     {templates.map((t) => (
                         <div key={t.id} className="flex items-center justify-between gap-2">
@@ -304,7 +304,7 @@ function ManufacturerTemplates({ manufacturer, canEdit }: ManufacturerTemplatesP
                     {canEdit && (
                         <Button variant="outline" size="sm" onClick={() => setEditing({ mode: "create" })}>
                             <Plus className="mr-1.5 h-3.5 w-3.5" />
-                            New template
+                            New process
                         </Button>
                     )}
                 </div>
@@ -325,7 +325,7 @@ function ManufacturerTemplates({ manufacturer, canEdit }: ManufacturerTemplatesP
             <ConfirmDialog
                 open={deleteTarget !== null}
                 onOpenChange={(open) => !open && setDeleteTarget(null)}
-                title="Delete template?"
+                title="Delete process?"
                 description={<>{deleteTarget?.name} will be removed. Projects using it keep their form fields but lose its capabilities.</>}
                 confirmLabel="Delete"
                 onConfirm={async () => {
@@ -359,11 +359,11 @@ function TemplateEditorDialog({ manufacturer, edit, onClose, onSaved }: Template
         const { previewSpecConfig } = await import("@/lib/manufacturing");
         return previewSpecConfig(text);
     };
-    const baseName = (existing?.name ?? "template").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const baseName = (existing?.name ?? "process").toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
     const schemaTab: ConfigTab = {
         id: "schema",
-        label: "Schema",
+        label: "Fields",
         fileBaseName: `${baseName}-schema`,
         load: async () => {
             if (existing) {
@@ -373,7 +373,7 @@ function TemplateEditorDialog({ manufacturer, edit, onClose, onSaved }: Template
             return { text: "", parsed: { sections: [], errors: [] } };
         },
         save: async (text) => {
-            const finalName = name.trim() || (existing ? existing.name : "Untitled template");
+            const finalName = name.trim() || (existing ? existing.name : "Untitled process");
             if (existing) {
                 await updateTemplate(existing.id, { name: finalName, spec_config: text });
             } else {
@@ -383,9 +383,9 @@ function TemplateEditorDialog({ manufacturer, edit, onClose, onSaved }: Template
         },
         headerSlot: () => (
             <input
-                aria-label="Template name"
+                aria-label="Process name"
                 className="h-7 w-40 rounded-md border bg-background px-2 text-xs"
-                placeholder="Template name"
+                placeholder="Process name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
             />
@@ -399,7 +399,7 @@ function TemplateEditorDialog({ manufacturer, edit, onClose, onSaved }: Template
         // Capabilities live on a saved template; a brand-new one has none yet.
         disabledNote: existing
             ? undefined
-            : "Save the template first, then reopen it to define its capabilities.",
+            : "Save the process first, then reopen it to define its capabilities.",
         load: async () => {
             if (!existing) return { text: "", parsed: { sections: [], errors: [] } };
             const full = await getTemplate(existing.id);
@@ -414,9 +414,9 @@ function TemplateEditorDialog({ manufacturer, edit, onClose, onSaved }: Template
 
     return (
         <SchemaCapabilitiesDialog
-            title={existing ? `Edit template: ${existing.name}` : `New ${manufacturer.name} template`}
-            description="A named spec schema and its fabrication capabilities. Projects copy the schema when applied and read the capabilities live."
-            saveLabel="Save template"
+            title={existing ? `Edit process: ${existing.name}` : `New ${manufacturer.name} process`}
+            description="A fabrication tier: the spec fields a project fills in, and its capabilities. Projects copy the fields when they pick it and read the capabilities live."
+            saveLabel="Save process"
             tabs={[schemaTab, capabilitiesTab]}
             onClose={onClose}
             onSaved={onSaved}

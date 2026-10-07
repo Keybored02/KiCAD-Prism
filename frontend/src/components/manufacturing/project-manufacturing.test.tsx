@@ -209,7 +209,7 @@ describe("ProjectManufacturing", () => {
         expect(screen.queryByRole("button", { name: /Rename/ })).toBeNull();
     });
 
-    it("swaps the spec's schema through the schema selector", async () => {
+    it("swaps the spec's process through the process selector", async () => {
         listTemplates.mockResolvedValue([
             { id: "t1", manufacturer_id: "m1", name: "Standard", spec_config: "", capabilities: {} },
             { id: "t2", manufacturer_id: "m1", name: "Advanced", spec_config: "", capabilities: {} },
@@ -220,7 +220,7 @@ describe("ProjectManufacturing", () => {
         await waitForForm();
 
         // Open the schema select and pick the other schema.
-        const trigger = screen.getByRole("combobox", { name: "Schema" });
+        const trigger = screen.getByRole("combobox", { name: "Process" });
         fireEvent.keyDown(trigger, { key: "Enter" });
         fireEvent.click(await screen.findByRole("option", { name: "Advanced" }));
 
@@ -262,7 +262,7 @@ describe("ProjectManufacturing", () => {
         expect(screen.queryByText("Discard unsaved changes?")).toBeNull();
     });
 
-    it("asks before swapping the schema over unsaved edits", async () => {
+    it("asks before swapping the process over unsaved edits", async () => {
         listTemplates.mockResolvedValue([
             { id: "t1", manufacturer_id: "m1", name: "Standard", spec_config: "", capabilities: {} },
             { id: "t2", manufacturer_id: "m1", name: "Advanced", spec_config: "", capabilities: {} },
@@ -273,7 +273,7 @@ describe("ProjectManufacturing", () => {
         await waitForForm();
         fireEvent.change(screen.getByLabelText(/Layer count/), { target: { value: "4" } });
 
-        fireEvent.keyDown(screen.getByRole("combobox", { name: "Schema" }), { key: "Enter" });
+        fireEvent.keyDown(screen.getByRole("combobox", { name: "Process" }), { key: "Enter" });
         fireEvent.click(await screen.findByRole("option", { name: "Advanced" }));
         expect(await screen.findByText("Discard unsaved changes?")).toBeTruthy();
         expect(applyTemplateToSpec).not.toHaveBeenCalled();

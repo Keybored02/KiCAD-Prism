@@ -52,6 +52,7 @@ import {
     type RunDefect,
 } from "@/types/manufacturing";
 import { CompactSelect } from "./ui";
+import { RunStatusBadge, SEVERITY_VARIANT } from "./status-badge";
 
 interface RunDetailProps {
     runId: string;
@@ -63,13 +64,6 @@ interface RunDetailProps {
     /** Called after the run is deleted, so the caller can leave this view. */
     onDeleted?: () => void;
 }
-
-const SEVERITY_VARIANT: Record<DefectSeverity, "secondary" | "outline" | "default" | "destructive"> = {
-    aesthetic: "outline",
-    minor: "secondary",
-    major: "default",
-    critical: "destructive",
-};
 
 export function RunDetail({ runId, canEdit, canLogDefects, canChangeStatus, onBack, onDeleted }: RunDetailProps) {
     const [run, setRun] = useState<ManufacturingRun | null>(null);
@@ -220,7 +214,7 @@ export function RunDetail({ runId, canEdit, canLogDefects, canChangeStatus, onBa
                                 </CompactSelect>
                             ) : (
                                 // Only QA/Admin can advance status; others see it read-only.
-                                <Badge variant="secondary">{RUN_STATUS_LABELS[run.status]}</Badge>
+                                <RunStatusBadge status={run.status} />
                             )}
                             {canEdit && (
                                 <Button

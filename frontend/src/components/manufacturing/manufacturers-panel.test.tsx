@@ -78,21 +78,21 @@ describe("ManufacturersPanel", () => {
         vi.clearAllMocks();
     });
 
-    it("edits a template through a unified Schema + Capabilities dialog", async () => {
+    it("edits a process through a unified Fields + Capabilities dialog", async () => {
         render(<ManufacturersPanel manufacturers={[acme]} canEdit onChanged={vi.fn()} />);
 
         // Expand the manufacturer's templates and open the flex template editor.
-        fireEvent.click(screen.getByRole("button", { name: /Spec templates/ }));
+        fireEvent.click(screen.getByRole("button", { name: /Processes/ }));
         await waitFor(() => expect(listTemplates).toHaveBeenCalledWith("m1"));
         fireEvent.click(await screen.findByRole("button", { name: "Edit flex" }));
 
         await waitFor(() => expect(lastTabs.length).toBe(2));
-        expect(lastTabs.map((t) => t.label)).toEqual(["Schema", "Capabilities"]);
+        expect(lastTabs.map((t) => t.label)).toEqual(["Fields", "Capabilities"]);
     });
 
     it("saves capability .config text from the Capabilities tab", async () => {
         render(<ManufacturersPanel manufacturers={[acme]} canEdit onChanged={vi.fn()} />);
-        fireEvent.click(screen.getByRole("button", { name: /Spec templates/ }));
+        fireEvent.click(screen.getByRole("button", { name: /Processes/ }));
         await waitFor(() => expect(listTemplates).toHaveBeenCalledWith("m1"));
         fireEvent.click(await screen.findByRole("button", { name: "Edit flex" }));
         await waitFor(() => expect(lastTabs.length).toBe(2));

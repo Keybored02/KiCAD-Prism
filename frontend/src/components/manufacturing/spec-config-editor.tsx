@@ -304,7 +304,7 @@ export function SpecConfigEditor({
             onClose={onClose}
             onSaved={onSaved}
             saveLabel={saveLabel}
-            tabs={[{ id: "schema", label: "Schema", load, save, headerSlot, fileBaseName }]}
+            tabs={[{ id: "schema", label: "Fields", load, save, headerSlot, fileBaseName }]}
         />
     );
 }
