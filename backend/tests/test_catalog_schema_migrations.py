@@ -179,7 +179,9 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
         apply_catalog_migrations(conn)
 
         self.assertEqual(conn.ledger[6], "agent_tokens_registry")
-        self.assertNotIn(3, conn.ledger)
+        self.assertEqual(list(conn.ledger.values()).count("agent_tokens_registry"), 1)
+        # 3 is free again for the migration that owns it.
+        self.assertNotEqual(conn.ledger.get(3), "agent_tokens_registry")
         self.assertEqual(pending_catalog_migrations(conn), [])
 
 
