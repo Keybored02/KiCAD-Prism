@@ -159,7 +159,12 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
                 <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 pt-3">
                     <ManufacturersPanel
                         manufacturers={manufacturers}
+                        runs={runs}
                         canEdit={canEdit}
+                        onOpenRun={(runId) => {
+                            setView("runs");
+                            openRun(runId);
+                        }}
                         addOpen={addManufacturer}
                         onAddOpenChange={setAddManufacturer}
                         onChanged={() => void load()}

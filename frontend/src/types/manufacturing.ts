@@ -6,6 +6,12 @@ export interface Manufacturer {
     notes: string;
     created_at: string;
     updated_at: string;
+    /** How many processes it has (the directory list only). */
+    process_count?: number;
+    /** How many projects have it attached (the directory list only). */
+    project_count?: number;
+    /** The projects that have it attached (the directory list only). */
+    projects?: { id: string; name: string }[];
 }
 
 /** One PCB rule / manufacturer-capability field (the KiCad rule set). Each is a
@@ -285,6 +291,8 @@ export interface SpecTemplate {
     capability_meta?: Record<string, CapabilityMeta>;
     /** Editable .config text for the capabilities; the source of truth. */
     capability_config?: string;
+    /** How many projects' specs use this process (from the list). */
+    project_count?: number;
     created_at: string;
     updated_at: string;
 }
