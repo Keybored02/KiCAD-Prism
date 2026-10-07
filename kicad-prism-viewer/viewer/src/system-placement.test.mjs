@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { INSTANCED_SHADERS } from "./renderer.js";
 import { transformBounds, transformPoint } from "./occurrences.js";
-import { assetOccurrenceMatrix, drawnOccurrences, standInKind, standInMatrix } from "./system-scene.js";
+import { allReadyBoardsDrawn, assetOccurrenceMatrix, drawnOccurrences, standInKind, standInMatrix } from "./system-placement.js";
 
 const translate = (x, y, z) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
 // bundleToBoard (CONTRACTS_P2 §20.2): metres → mm, lowered by the mid-plane height (0.8 mm here).
@@ -56,8 +56,7 @@ test("instanced shaders number occurrences scene-wide; the one-board shaders are
 });
 
 test("the first frame counts once every ready board draws its own geometry", async () => {
-  const { SystemScene } = await import("./system-scene.js");
-  const drawn = (placed) => SystemScene.prototype.allReadyBoardsDrawn.call({ placed });
+  const drawn = allReadyBoardsDrawn;
   assert.equal(drawn([]), false, "nothing placed yet");
   assert.equal(drawn([{ standIn: null }, { standIn: "loading" }]), false, "a ready bundle still loading");
   assert.equal(drawn([{ standIn: null }, { standIn: "restricted" }, { standIn: "failed" }]), true, "boxes that stay boxes don't wait");

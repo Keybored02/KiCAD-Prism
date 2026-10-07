@@ -11,7 +11,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { PcbLayerList } from "./ecad-viewer-controls";
+import { PcbLayerList, RailSlider } from "./ecad-viewer-controls";
 import type {
     PrismSemanticLayerPreset,
     PrismSemanticViewerElement,
@@ -35,8 +35,8 @@ const STAND_IN_LABELS: Record<string, string> = {
 
 /**
  * The System 3D tab's Layers: one section per placed board (D-P2-26), each
- * with the board 3D tab's preset and layer list, acting on that placement
- * only. The board holding the selection opens and is marked.
+ * with the board 3D tab's stackup separation, preset and layer list, acting
+ * on that placement only. The board holding the selection opens and is marked.
  */
 export function BoardLayerSections({
     viewer,
@@ -93,6 +93,13 @@ export function BoardLayerSections({
                         </div>
                         {open && board.layers.length > 0 && (
                             <div className="space-y-1 px-2 pb-2">
+                                <div className="px-1 pb-1">
+                                    <RailSlider
+                                        label="Stackup separation"
+                                        value={board.separation}
+                                        onChange={(value) => viewer?.setSeparation?.(value, board.key)}
+                                    />
+                                </div>
                                 <Select
                                     onValueChange={(value) =>
                                         viewer?.applyLayerPreset?.(value as PrismSemanticLayerPreset, board.key)}

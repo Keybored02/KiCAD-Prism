@@ -118,7 +118,8 @@ export function Semantic3dControls({
 
             {section === "layers" ? (
                 <>
-                    {viewState?.mode !== "layer" && (
+                    {/* A system scene separates each board on its own (in its section). */}
+                    {viewState?.mode !== "layer" && !boards && (
                         <div className="border-b p-3">
                             <RailSlider
                                 label="Stackup separation"

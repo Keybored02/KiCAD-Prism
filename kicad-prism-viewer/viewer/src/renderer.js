@@ -369,6 +369,8 @@ const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
   [`  @location(3) world: vec3f,
 };`, `  @location(3) world: vec3f,
   @location(4) @interpolate(flat) occurrence: u32,
+  // Mask and silkscreen opacity of this occurrence's own stackup separation (SB2-31f).
+  @location(5) @interpolate(flat) fade: f32,
 };`],
   [`@vertex fn vs(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
@@ -382,12 +384,16 @@ const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
   let index = listedOccurrence(select(LIST_BOARD, LIST_FULL, draw.material.w > 0.5), instance);
   let occurrence = occurrences[index];
   var output: VertexOutput;
-  output.world = (occurrence.model * vec4f(input.position + draw.offset.xyz, 1.0)).xyz;
+  let lift = vec3f(0.0, 0.0, explodeLift(occurrence, draw.offset.w));
+  output.world = (occurrence.model * vec4f(input.position + draw.offset.xyz + lift, 1.0)).xyz;
   output.position = globals.viewProjection * vec4f(output.world, 1.0);
   output.normal = normalize((occurrence.normal * vec4f(input.normal, 0.0)).xyz);
   output.occurrence = index + 1u + globals.occurrenceBase;
-  // A layer this copy hides (SB2-31e) collapses outside the clip volume.
-  if (layerHiddenAt(occurrence, draw.offset.w)) { output.position = vec4f(0.0, 0.0, 2.0, 1.0); }`],
+  output.fade = select(1.0, occurrence.explode.z, occurrence.explode.w > 0.5 && draw.flags.x < 0.5);
+  // A layer this copy hides (SB2-31e), or a draw its separation removes (SB2-31f), collapses outside the clip volume.
+  if (layerHiddenAt(occurrence, draw.offset.w) || explodeHides(occurrence, draw.flags.x, draw.offset.w)) {
+    output.position = vec4f(0.0, 0.0, 2.0, 1.0);
+  }`],
   [`  let selected = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
   let selectedComponent = component && globals.selectedFeature != 0u && input.objectId == globals.selectedFeature;`,
   `  // The inspected selection lights its own copy; host-highlighted nets light every copy.
@@ -397,6 +403,7 @@ const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
   let selectedComponent = here && component && globals.selectedFeature != 0u && input.objectId == globals.selectedFeature;`],
   ...EMPHASIS_TABLE,
   ["      base = vec3f(0.08, 1.0, 0.2) * pulse;", "      base = emphasisColor(mark, vec3f(0.08, 1.0, 0.2)) * pulse;"],
+  ["  var alpha = draw.flags.y;", "  var alpha = draw.flags.y * input.fade;"],
 ]);
 
 const PICK_SHADER_INSTANCED = variant(PICK_SHADER, [
@@ -411,11 +418,15 @@ const PICK_SHADER_INSTANCED = variant(PICK_SHADER, [
   `${OCCURRENCE_WGSL}
 @vertex fn vs(input: Input, @builtin(instance_index) instance: u32) -> Output {
   let index = listedOccurrence(select(LIST_BOARD, LIST_FULL, draw.material.w > 0.5), instance);
-  let world = (occurrences[index].model * vec4f(input.position + draw.offset.xyz, 1.0)).xyz;
+  let occurrence = occurrences[index];
+  let lift = vec3f(0.0, 0.0, explodeLift(occurrence, draw.offset.w));
+  let world = (occurrence.model * vec4f(input.position + draw.offset.xyz + lift, 1.0)).xyz;
   var output: Output;
   output.position = globals.viewProjection * vec4f(world, 1.0);
   output.occurrence = index + 1u + globals.occurrenceBase;
-  if (layerHiddenAt(occurrences[index], draw.offset.w)) { output.position = vec4f(0.0, 0.0, 2.0, 1.0); }`],
+  if (layerHiddenAt(occurrence, draw.offset.w) || explodeHides(occurrence, draw.flags.x, draw.offset.w)) {
+    output.position = vec4f(0.0, 0.0, 2.0, 1.0);
+  }`],
   // Board context draws (kind 0) pick as feature 0: "this board", no feature.
   [`  return vec2u(1u, input.objectId);`,
   `  let kind = u32(draw.flags.x);
@@ -451,6 +462,8 @@ struct Input {
 function barrelVariant(source, positionLine, extra = []) {
   return variant(source, [
     SELECTED_OCCURRENCE,
+    // OCCURRENCE_WGSL declares the layer offsets for every instanced shader.
+    ["@group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;\n", ""],
     [BARREL_INPUT, BARREL_INPUT_INSTANCED],
     [`@vertex fn vs(input: Input) -> Output {`, `struct Record {
   unit: vec3f,
@@ -465,6 +478,8 @@ function barrelVariant(source, positionLine, extra = []) {
   let barrel = barrels[instance % count];
   let index = listedOccurrence(LIST_BOARD, instance / count);
   let occurrence = occurrences[index];
+  // An occurrence that explodes itself (SB2-31f) scales the renderer's per-layer steps by its own gap.
+  let spread = select(1.0, occurrence.explode.x, occurrence.explode.w > 0.5);
   let input = Record(vertex.unit, vertex.normal, vertex.radiusMix, barrel.dimensions, barrel.span, barrel.ids);`],
     [positionLine, positionLine.replace("vec4f(world, 1.0)", "vec4f((occurrence.model * vec4f(world, 1.0)).xyz, 1.0)")],
     ["  output.objectId = input.ids.y;", "  output.objectId = input.ids.y;\n  output.occurrence = index + 1u + globals.occurrenceBase;"],
@@ -476,6 +491,8 @@ const BARREL_SHADER_INSTANCED = barrelVariant(
   BARREL_SHADER,
   "  output.position = globals.viewProjection * vec4f(world, 1.0);\n  output.normal = input.normal;",
   [
+    ["  let z0 = input.span.x + layerOffsets[input.ids.z];\n  let z1 = input.span.y + layerOffsets[input.ids.w];",
+      "  let z0 = input.span.x + layerOffsets[input.ids.z] * spread;\n  let z1 = input.span.y + layerOffsets[input.ids.w] * spread;"],
     ["  output.normal = input.normal;\n  output.netId", "  output.normal = (occurrence.normal * vec4f(input.normal, 0.0)).xyz;\n  output.netId"],
     ["  @location(3) @interpolate(flat) visible: u32,\n};", "  @location(3) @interpolate(flat) visible: u32,\n  @location(4) @interpolate(flat) occurrence: u32,\n};"],
     ["  let selected = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);",
@@ -488,6 +505,8 @@ const BARREL_PICK_SHADER_INSTANCED = barrelVariant(
   BARREL_PICK_SHADER,
   "  output.position = globals.viewProjection * vec4f(world, 1.0);\n  output.objectId",
   [
+    ["mix(input.span.x + layerOffsets[input.ids.z], input.span.y + layerOffsets[input.ids.w], input.unit.z)",
+      "mix(input.span.x + layerOffsets[input.ids.z] * spread, input.span.y + layerOffsets[input.ids.w] * spread, input.unit.z)"],
     ["  @location(1) @interpolate(flat) visible: u32,\n};", "  @location(1) @interpolate(flat) visible: u32,\n  @location(2) @interpolate(flat) occurrence: u32,\n};"],
     ["  return vec2u(1u, input.objectId);", "  return vec2u(input.occurrence, input.objectId);"],
     ...EMPHASIS_TABLE,
@@ -556,6 +575,7 @@ struct Occurrence {
   model: mat4x4f,
   normal: mat4x4f,
   hiddenLayers: vec4u,
+  explode: vec4f,
 };
 struct Cull {
   planes: array<vec4f, 6>,
@@ -722,6 +742,7 @@ export class Renderer {
     this.occurrenceMatrices = [[...IDENTITY]];
     this.occurrenceKeys = ["0"];
     this.occurrenceHiddenLayers = [[]];
+    this.occurrenceExplode = [null];
     this.identityOnly = true;
     this.occurrenceCapacity = 1;
     this.occurrenceBuffer = this.createOccurrenceBuffer(this.occurrenceCapacity);
@@ -924,10 +945,11 @@ export class Renderer {
    * restores the single identity occurrence.
    */
   setOccurrences(occurrences) {
-    const { matrices: next, keys, hiddenLayers } = normalizeOccurrences(occurrences == null ? [IDENTITY] : occurrences);
+    const { matrices: next, keys, hiddenLayers, explode } = normalizeOccurrences(occurrences == null ? [IDENTITY] : occurrences);
     this.occurrenceMatrices = next;
     this.occurrenceKeys = keys;
     this.occurrenceHiddenLayers = hiddenLayers;
+    this.occurrenceExplode = explode;
     this.identityOnly = !this.alwaysInstanced && next.length === 1 && isIdentity(next[0]);
     if (!this.identityOnly) this.ensureInstancedPipelines();
     if (next.length > this.occurrenceCapacity) {
@@ -942,7 +964,7 @@ export class Renderer {
       }
       this.rebindAll();
     }
-    if (next.length) this.device.queue.writeBuffer(this.occurrenceBuffer, 0, packOccurrences(next, hiddenLayers));
+    if (next.length) this.device.queue.writeBuffer(this.occurrenceBuffer, 0, packOccurrences(next, hiddenLayers, explode));
     // New occurrences start without history: no hysteresis carried over.
     if (this.cull) this.device.queue.writeBuffer(this.cull.lods, 0, new Uint32Array(this.occurrenceCapacity).fill(3));
     if (this.selectedOccurrence >= next.length) this.selectedOccurrence = -1;
@@ -956,8 +978,21 @@ export class Renderer {
    */
   setOccurrenceHiddenLayers(hiddenLayers) {
     this.occurrenceHiddenLayers = this.occurrenceMatrices.map((_, index) => [...(hiddenLayers?.[index] || [])].map(Number));
+    this.writeOccurrenceRecords();
+  }
+
+  /** Each occurrence's own stackup separation (`NO_EXPLODE` or [gap, components, mask opacity, 1]), in occurrence order. */
+  setOccurrenceExplode(explode) {
+    this.occurrenceExplode = this.occurrenceMatrices.map((_, index) => (explode?.[index] ? [...explode[index]].map(Number) : null));
+    this.writeOccurrenceRecords();
+  }
+
+  writeOccurrenceRecords() {
     if (this.occurrenceMatrices.length) {
-      this.device.queue.writeBuffer(this.occurrenceBuffer, 0, packOccurrences(this.occurrenceMatrices, this.occurrenceHiddenLayers));
+      this.device.queue.writeBuffer(
+        this.occurrenceBuffer, 0,
+        packOccurrences(this.occurrenceMatrices, this.occurrenceHiddenLayers, this.occurrenceExplode),
+      );
     }
     this.invalidate();
   }

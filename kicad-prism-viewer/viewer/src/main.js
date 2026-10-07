@@ -21,14 +21,18 @@ import {
 import { escapeHtml } from "./escape-html.js";
 import { EMPHASIS_PALETTE, findNetByName, packEmphasisColor, resolveNetIds } from "./net-emphasis.js";
 import { loadGltf } from "./gltf-loader.js";
-import { add, boundsRadius, clamp, mat4Multiply, scale } from "./math.js";
+import { add, boundsRadius, clamp, cross, mat4Multiply, scale } from "./math.js";
+import {
+  AXES, SNAP, axisAmount, canonicalPose, localAxes, moveDescriptor, moveTarget, perpendicular,
+  ringRotation, rotatePoseAbout, screenAngle, snapTo, translatePose,
+} from "./move-gizmo.js";
 import { isIdentity, occurrenceUnionBounds, projectToViewport, transformBounds, transformPoint } from "./occurrences.js";
 import { Renderer } from "./renderer.js";
 import { SceneRenderer } from "./scene-renderer.js";
 import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
 import { collectStackupViaData } from "./stackup-vias.js";
 import { SvgDomSchematicRenderer } from "./svg-dom-schematic-renderer.js";
-import { assetOccurrenceMatrix, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-scene.js";
+import { allReadyBoardsDrawn, assetOccurrenceMatrix, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
 const COPPER_TILE_PREFETCH_MARGIN = 0.65;
@@ -63,6 +67,10 @@ let primaryHeadingEl;
 let primaryDescriptionEl;
 let stackupWorkspaceViewEl;
 let modeSwitchEl;
+// System mode (SB2-31f): board labels, the move gizmo and the key list.
+let systemLabelsEl;
+let moveGizmoEl;
+let systemHelpEl;
 
 const query = (selector) => viewerRoot.querySelector(selector);
 const queryAll = (selector) => viewerRoot.querySelectorAll(selector);
@@ -92,6 +100,9 @@ function resolveDom(root = document) {
   primaryHeadingEl = query("#primary-heading");
   primaryDescriptionEl = query("#primary-description");
   modeSwitchEl = query("#mode-switch");
+  systemLabelsEl = query("#system-labels");
+  moveGizmoEl = query("#move-gizmo");
+  systemHelpEl = query("#system-help");
   appEl.classList.add("workspace-pcb");
 }
 
@@ -524,7 +535,7 @@ function pcbViewState() {
     showComponents: state.showComponents,
     showPlaceholders: state.showPlaceholders,
     realisticColors: state.realisticColors,
-    separation: state.separation,
+    separation: system ? system.separation.get(selectedPlacementKey()) || 0 : state.separation,
     isolateNet: state.isolateNet,
     hasNet: Boolean(state.activeNetId) || anyEmphasis(),
     // SB2-31e: a layer section per placed board, and the placement holding the selection.
@@ -533,6 +544,8 @@ function pcbViewState() {
 }
 
 function emitSelectionChange(selection) {
+  // Move mode follows the selection to its top-level instance (SB2-29).
+  if (system?.move.enabled) retargetMove();
   if (suppressSelectionChange) return;
   // In a system scene every selection names its occurrence (SB2-24).
   const occurrence = board.renderer && !board.renderer.identityOnly ? board.renderer.occurrenceKeys[state.selectedOccurrence] : null;
@@ -1259,6 +1272,11 @@ function systemStats() {
     frameCpuMs: state.frameCpuMs,
     frameCpuP95Ms: state.frameCpuP95Ms,
     fps: state.fps,
+    // First frame with every ready board drawn: after the descriptor, and since the page started.
+    firstFrame: system.timing.boardsDrawnAt == null ? null : {
+      sinceSceneMs: system.timing.boardsDrawnAt - system.timing.descriptorAt,
+      sinceNavigationMs: system.timing.boardsDrawnAt,
+    },
   };
 }
 
@@ -1352,13 +1370,25 @@ export async function mountSystemViewer(options = {}) {
     loadBundle: options.loadBundle,
     onEmphasis: typeof options.onEmphasis === "function" ? options.onEmphasis : null,
     onStatus: typeof options.onStatus === "function" ? options.onStatus : null,
+    onMove: typeof options.onMove === "function" ? options.onMove : null,
+    // The host's descriptor; `descriptor` is what is shown (with an unsaved move preview).
+    baseDescriptor: null,
     descriptor: null,
+    move: initialMove(),
+    gizmo: null,
+    // A selected stand-in board (it has no board of its own), or null.
+    standInKey: null,
+    showLabels: true,
+    // SB2-30: when the first descriptor arrived and when every ready board was first drawn.
+    timing: { descriptorAt: null, boardsDrawnAt: null },
     boards: new Map(),
     groups: new Map(),
     placed: [],
     placements: new Map(),
     // Placement path → copper layer ids that placement hides.
     hiddenLayers: new Map(),
+    // Placement path → its stackup separation, 0…1 (SB2-31f).
+    separation: new Map(),
     bounds: null,
     framed: false,
     snapped: false,
@@ -1385,6 +1415,18 @@ export async function mountSystemViewer(options = {}) {
     frameAll() {
       if (system?.bounds) camera.frame(system.bounds);
     },
+    setMoveAllowed,
+    setMoveMode,
+    setMoveSpace,
+    previewPose,
+    cancelMove,
+    getMoveState: () => (system ? moveState() : null),
+    setLabelsVisible(visible) {
+      if (!system) return;
+      system.showLabels = Boolean(visible);
+      if (systemLabelsEl) systemLabelsEl.hidden = !system.showLabels;
+    },
+    setHelpVisible: setSystemHelpVisible,
     frameBoard(key) {
       const item = system?.placements.get(String(key));
       if (item) camera.frame(item.worldBounds);
@@ -1443,7 +1485,16 @@ function setSystemScene(descriptor) {
   if (descriptor?.schema !== SYSTEM_SCENE_SCHEMA) {
     throw new Error(`Unsupported system scene schema: ${descriptor?.schema || "missing"}`);
   }
-  system.descriptor = descriptor;
+  system.baseDescriptor = descriptor;
+  system.timing.descriptorAt ??= performance.now();
+  // A preview the host has now saved is simply the new state; any other survives re-reads.
+  const target = system.move.target ? descriptor.occurrences.find((item) => item.path === system.move.target) : null;
+  if (!target) {
+    system.move.drag = null;
+    system.move.preview = null;
+    system.move.target = null;
+  } else if (!system.move.drag && samePose(system.move.preview, target.pose)) system.move.preview = null;
+  system.descriptor = shownDescriptor();
   const live = new Set();
   for (const asset of descriptor.assets || []) {
     live.add(asset.assetId);
@@ -1460,6 +1511,11 @@ function setSystemScene(descriptor) {
   }
   for (const id of [...system.boards.keys()]) if (!live.has(id)) dropSystemBoard(id);
   placeSystem();
+  if (system.move.enabled) {
+    retargetMove({ quiet: true });
+    // The host re-read the scene (after a save, or while bundles build): let it show the saved state.
+    emitMove("sync");
+  }
 }
 
 function dropSystemBoard(id) {
@@ -1507,7 +1563,7 @@ async function loadSystemBoard(b, token) {
 }
 
 /** Place every drawn occurrence: at its board's renderer, or as a stand-in box. */
-function placeSystem() {
+function placeSystem({ relabel = true } = {}) {
   const descriptor = system?.descriptor;
   if (!descriptor) return;
   const selectedKey = selectedPlacementKey();
@@ -1537,6 +1593,7 @@ function placeSystem() {
       matrix,
       key: occurrence.path,
       hiddenLayers: kind ? [] : [...(system.hiddenLayers.get(occurrence.path) || [])],
+      explode: kind ? null : explodeFor(b, system.separation.get(occurrence.path) || 0),
     });
     placed.push({ occurrence, rendererId, board: kind ? null : b, matrix, worldBounds, standIn: kind });
   }
@@ -1544,8 +1601,11 @@ function placeSystem() {
   for (const id of system.scene.assets.keys()) if (!groups.has(id)) groups.set(id, []);
   system.scene.setOccurrences(groups);
   system.groups = groups;
+  const previous = system.placements;
   system.placed = placed;
   system.placements = new Map(placed.map((item) => [item.occurrence.path, item]));
+  if (relabel || !previous) renderSystemLabels();
+  else for (const item of placed) item.label = previous.get(item.occurrence.path)?.label;
   system.bounds = mergeBounds(placed.map((item) => item.worldBounds));
   if (system.bounds) {
     camera.sceneRadius = boundsRadius(system.bounds);
@@ -1619,11 +1679,11 @@ function frameSystem(now, token) {
   const emphasis = anyEmphasis();
   const inputs = new Map();
   for (const b of systemBoards()) {
-    const layerZOffsets = stackupOffsets(b);
+    // Each placement explodes itself (SB2-31f): the renderer holds per-layer steps, each occurrence its gap.
+    const layerZOffsets = stackupSteps(b);
     if (b.scene.copperRealism !== copperRealism()) applyCopperColors(b);
-    for (const entry of b.renderer.entries) entry.layerOffset = layerZOffsets[entry.layerId] || 0;
     // As on the 3D tab: inner copper shows once the board is exploded, hidden or a net is lit.
-    b.renderer.setInnerCopperAtFull(state.showBoard && state.separation <= 0.001 && !emphasis);
+    b.renderer.setInnerCopperAtFull(state.showBoard && !boardSeparated(b) && !emphasis);
     // Copper of boards with nothing lit dims too while any net is lit anywhere.
     b.renderer.dimCopper = emphasis;
     scheduleTileResidency(now, {}, b);
@@ -1636,9 +1696,10 @@ function frameSystem(now, token) {
       visibleLayers: b.visible3dLayers,
       showBoard: state.showBoard,
       showComponents: state.showComponents,
-      showPaste: state.separation === 0,
-      componentOpacity: clamp(1 - state.separation / 0.1, 0, 1),
-      boardOpacity: emphasis ? 0.34 : 1 - state.separation * 0.72,
+      // Paste, parts and mask opacity follow each placement's own separation (explodeFor).
+      showPaste: true,
+      componentOpacity: 1,
+      boardOpacity: emphasis ? 0.34 : 1,
       isolateNet: state.isolateNet,
       compareMode: false,
       compareOffsets: new Map(),
@@ -1650,6 +1711,9 @@ function frameSystem(now, token) {
   system.scene.setSelectedOccurrence(board.renderer && hasSystemSelection() ? board.renderer.occurrenceBase + state.selectedOccurrence : -1);
   system.scene.render(panel, (renderer) => inputs.get(renderer) || standInInputs(now));
   drawGizmo();
+  updateSystemLabels();
+  updateMoveGizmo();
+  if (system.timing.boardsDrawnAt == null && allReadyBoardsDrawn(system.placed)) system.timing.boardsDrawnAt = performance.now();
   for (const b of systemBoards()) manageTiers(now, b);
   recordFrameSample(frameInterval, performance.now() - frameStarted);
   updateDiagnostics(now);
@@ -1688,7 +1752,8 @@ function selectSystemHit(hit) {
   if (state.isolateNet && !litFeatureAt(b, item.occurrence.path, hit.featureId)) return clearSelection();
   focusBoard(b);
   state.selectedOccurrence = b.renderer.occurrenceKeys.indexOf(item.occurrence.path);
-  if (hit.featureId) selectFeature(hit.featureId, true);
+  // Moving boards, a click picks the board and leaves the camera where it is.
+  if (hit.featureId && !system.move.enabled) selectFeature(hit.featureId, true);
   else selectBoardContext();
 }
 
@@ -1721,6 +1786,8 @@ function selectStandIn(item) {
   } finally {
     suppressSelectionChange = quiet;
   }
+  system.standInKey = item.occurrence.path;
+  if (system.move.enabled) retargetMove();
   if (!suppressSelectionChange) {
     selectionChangeCallback?.({ kind: "board", sourceContext: "3D", occurrence: item.occurrence.path, standIn: item.standIn });
   }
@@ -1808,6 +1875,43 @@ function showPlacementNetLayers() {
   });
 }
 
+// ----- separation per placement (SB2-31f) ----------------------------------------
+
+/** Copper layer steps from the board's middle (the 3D tab's offsets for a gap of one). */
+function stackupSteps(b) {
+  if (b.scene.layerSteps) return b.scene.layerSteps;
+  const steps = new Float32Array(256);
+  const middle = (b.scene.copperLayers.length - 1) / 2;
+  b.scene.copperLayers.forEach((layer, index) => {
+    steps[Number(layer.id)] = middle - index;
+  });
+  b.scene.layerSteps = steps;
+  return steps;
+}
+
+/** One placement's separation as its occurrence record carries it: the board 3D tab's rules. */
+function explodeFor(b, separation) {
+  const bounds = b?.scene.runtimeBounds;
+  const diagonal = bounds ? Math.hypot((bounds[3] - bounds[0]) * 1000, (bounds[4] - bounds[1]) * 1000) : 0;
+  const gap = separation * separation * clamp(diagonal * 0.12, 8, 25) / 1000;
+  return [gap, separation < 0.0999 ? 1 : 0, 1 - separation * 0.72, 1];
+}
+
+function boardSeparated(b) {
+  return (system.groups.get(b.key) || []).some((item) => (system.separation.get(item.key) || 0) > 0.001);
+}
+
+/** Set one placement's separation, or every placement of the selected board's. */
+function setPlacementSeparation(value, placementKey) {
+  const keys = placementKey != null ? [String(placementKey)] : (system.groups.get(board.key) || []).map((item) => item.key);
+  for (const key of keys) system.separation.set(key, value);
+  for (const b of systemBoards()) {
+    const list = system.groups.get(b.key) || [];
+    b.renderer.setOccurrenceExplode(list.map((item) => explodeFor(b, system.separation.get(item.key) || 0)));
+  }
+  notifyViewStateChange();
+}
+
 /** The per-board layer sections for a host that renders the controls (D-P2-26). */
 function systemBoardViews() {
   return system.placed.map((item) => {
@@ -1817,6 +1921,7 @@ function systemBoardViews() {
       key: item.occurrence.path,
       name: item.occurrence.displayPath || item.occurrence.path,
       standIn: item.standIn || null,
+      separation: system.separation.get(item.occurrence.path) || 0,
       layers: b
         ? b.scene.copperLayers.map((layer) => ({
           id: Number(layer.id),
@@ -1946,6 +2051,386 @@ function emitSystemStatus() {
   system.onStatus?.(counts);
 }
 
+// ----- move mode (SB2-29, in this viewer since SB2-31f) ------------------------
+//
+// Move mode only previews: the gizmo or the host's numeric panel shows a pose
+// over the host's descriptor; releasing a handle or Enter sends "commit", and
+// the host saves the pose and gives back the re-read scene (or calls
+// `cancelMove` when the save fails). The target is the top-level instance of
+// the selected board.
+
+const MOVE_MM = 0.001; // descriptor millimetres → renderer metres
+const GIZMO_PX = 90; // on-screen length of a translate arrow
+const AXIS_COLORS = ["#e5484d", "#30a46c", "#3e63dd"];
+const AXIS_NAMES = ["X", "Y", "Z"];
+
+function samePose(a, b) {
+  if (!a || !b) return false;
+  const x = canonicalPose(a);
+  const y = canonicalPose(b);
+  const left = [...x.translationMm, ...x.rotation];
+  const right = [...y.translationMm, ...y.rotation];
+  return left.every((value, index) => Math.abs(value - right[index]) < 1e-6);
+}
+
+function initialMove() {
+  return { allowed: false, enabled: false, space: "world", target: null, preview: null, drag: null };
+}
+
+/** The host's descriptor with the unsaved preview pose applied. */
+function shownDescriptor() {
+  const base = system.baseDescriptor;
+  if (!base || !system.move.target || !system.move.preview) return base;
+  return moveDescriptor(base, system.move.target, system.move.preview);
+}
+
+/** Re-place everything after the preview changed (geometry only; boards stay loaded). */
+function refreshPreview() {
+  if (!system.baseDescriptor) return;
+  system.descriptor = shownDescriptor();
+  placeSystem({ relabel: false });
+}
+
+function moveTargetOccurrence() {
+  const path = system.move.target;
+  return path ? system.baseDescriptor?.occurrences.find((item) => item.path === path) ?? null : null;
+}
+
+/** What the host needs to show and save: the target and its pose (the preview when there is one). */
+function moveState() {
+  const move = system.move;
+  const target = moveTargetOccurrence();
+  return {
+    allowed: move.allowed,
+    enabled: move.enabled,
+    space: move.space,
+    dragging: Boolean(move.drag),
+    target: target ? {
+      occurrence: target.path,
+      instanceId: target.instanceId,
+      displayPath: target.displayPath,
+      kind: target.kind,
+      restricted: Boolean(target.restricted),
+      pose: canonicalPose(move.preview ?? target.pose),
+      source: move.preview ? "manual" : target.pose?.source ?? "default",
+      unsaved: Boolean(move.preview),
+    } : null,
+  };
+}
+
+function emitMove(phase) {
+  system.onMove?.({ phase, ...moveState() });
+}
+
+/** Whether this reader may move boards; turning it off leaves move mode. */
+function setMoveAllowed(allowed) {
+  system.move.allowed = Boolean(allowed);
+  if (!system.move.allowed && system.move.enabled) setMoveMode(false);
+}
+
+function setMoveMode(enabled) {
+  const next = Boolean(enabled) && system.move.allowed;
+  if (next === system.move.enabled) return;
+  if (!next) dropMoveTarget();
+  system.move.enabled = next;
+  if (next) retargetMove({ quiet: true });
+  emitMove("mode");
+}
+
+function setMoveSpace(space) {
+  system.move.space = space === "local" ? "local" : "world";
+  emitMove("mode");
+}
+
+/** The placement path the selection is on, a stand-in's included; null without a selection. */
+function selectionKey() {
+  return system.standInKey ?? selectedPlacementKey();
+}
+
+/** Follow the selection: the moving instance is the selection's top-level occurrence. */
+function retargetMove({ quiet = false } = {}) {
+  if (!system) return;
+  const key = selectionKey();
+  const target = system.move.enabled && key != null ? moveTarget(system.baseDescriptor, key)?.path ?? null : null;
+  if (target === system.move.target) return;
+  dropMoveTarget();
+  system.move.target = target;
+  if (!quiet) emitMove("target");
+}
+
+/** Forget the target, throwing away an unsaved preview. */
+function dropMoveTarget() {
+  const had = Boolean(system.move.preview);
+  system.move.drag = null;
+  system.move.preview = null;
+  system.move.target = null;
+  if (had) refreshPreview();
+}
+
+/** Show `pose` for the target without saving it (the numeric panel); null shows the saved pose. */
+function previewPose(pose) {
+  if (!system?.move.target) return;
+  system.move.preview = pose ? canonicalPose(pose) : null;
+  refreshPreview();
+  emitMove("preview");
+}
+
+/** Throw away an unsaved preview (Esc, or a save that failed). */
+function cancelMove() {
+  if (!system || (!system.move.preview && !system.move.drag)) return;
+  system.move.drag = null;
+  system.move.preview = null;
+  refreshPreview();
+  emitMove("cancel");
+}
+
+/** The target's box centre in world mm: the pivot for rotations and the gizmo's origin. */
+function movePivotMm() {
+  const prefix = `${system.move.target}/`;
+  const bounds = mergeBounds(system.placed
+    .filter((item) => item.occurrence.path === system.move.target || item.occurrence.path.startsWith(prefix))
+    .map((item) => item.worldBounds));
+  if (!bounds) return null;
+  return [0, 1, 2].map((k) => (bounds[k] + bounds[k + 3]) / 2 / MOVE_MM);
+}
+
+/** Client-space pixel (relative to the canvas) for a world point in mm, or null behind the camera. */
+function screenOfMm(pointMm) {
+  const pixel = projectToViewport(panel.matrix, scale(pointMm, MOVE_MM), panel.viewport);
+  if (!pixel) return null;
+  const rect = canvas.getBoundingClientRect();
+  return [pixel.x * rect.width / canvas.width, pixel.y * rect.height / canvas.height];
+}
+
+/** Lay out the gizmo for this frame, and remember what a drag on each handle means. */
+function updateMoveGizmo() {
+  const svg = moveGizmoEl;
+  if (!svg) return;
+  const target = moveTargetOccurrence();
+  const pivot = system.move.enabled && target && panel ? movePivotMm() : null;
+  const center = pivot ? screenOfMm(pivot) : null;
+  if (!center) {
+    svg.toggleAttribute("hidden", true);
+    system.gizmo = null;
+    return;
+  }
+  svg.toggleAttribute("hidden", false);
+  if (!svg.firstChild) buildMoveGizmo(svg);
+  const { right, back } = camera.basis();
+  const step = screenOfMm(add(pivot, right));
+  const pxPerMm = step ? Math.hypot(step[0] - center[0], step[1] - center[1]) : 0;
+  if (!(pxPerMm > 1e-6)) {
+    svg.toggleAttribute("hidden", true);
+    return;
+  }
+  const sizeMm = GIZMO_PX / pxPerMm;
+  const pose = system.move.preview ?? target.pose;
+  const axes = system.move.space === "local" ? localAxes(pose) : AXES;
+  const handles = [];
+  axes.forEach((axis, index) => {
+    const tip = screenOfMm(add(pivot, scale(axis, sizeMm)));
+    const arrow = svg.querySelector(`[data-part="t${index}"]`);
+    const shown = tip && Math.hypot(tip[0] - center[0], tip[1] - center[1]) > 12;
+    arrow.style.display = shown ? "" : "none";
+    if (shown) {
+      const line = arrow.querySelector("line");
+      line.setAttribute("x1", center[0]);
+      line.setAttribute("y1", center[1]);
+      line.setAttribute("x2", tip[0]);
+      line.setAttribute("y2", tip[1]);
+      arrow.querySelector("circle").setAttribute("cx", tip[0]);
+      arrow.querySelector("circle").setAttribute("cy", tip[1]);
+      arrow.querySelector("text").setAttribute("x", tip[0] + 9);
+      arrow.querySelector("text").setAttribute("y", tip[1] - 7);
+    }
+    const u = perpendicular(axis);
+    const v = cross(axis, u);
+    const points = [];
+    for (let i = 0; i <= 64; i += 1) {
+      const angle = (i / 64) * Math.PI * 2;
+      const point = screenOfMm(add(pivot, scale(add(scale(u, Math.cos(angle)), scale(v, Math.sin(angle))), sizeMm * 0.7)));
+      if (point) points.push(`${point[0].toFixed(1)},${point[1].toFixed(1)}`);
+    }
+    svg.querySelector(`[data-part="r${index}"]`).setAttribute("points", points.join(" "));
+    handles.push({ axis, pxPerMm: tip ? [(tip[0] - center[0]) / sizeMm, (tip[1] - center[1]) / sizeMm] : [0, 0] });
+  });
+  const dot = svg.querySelector('[data-part="pivot"]');
+  dot.setAttribute("cx", center[0]);
+  dot.setAttribute("cy", center[1]);
+  system.gizmo = { center, pivot, handles, back };
+}
+
+function buildMoveGizmo(svg) {
+  const ns = "http://www.w3.org/2000/svg";
+  const make = (tag, attributes) => {
+    const node = document.createElementNS(ns, tag);
+    for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+    return node;
+  };
+  AXIS_COLORS.forEach((color, index) => {
+    const ring = make("polyline", { "data-part": `r${index}`, class: "ring", stroke: color, fill: "none" });
+    const title = make("title", {});
+    title.textContent = `Rotate about ${AXIS_NAMES[index]}`;
+    ring.append(title);
+    svg.append(ring);
+  });
+  AXIS_COLORS.forEach((color, index) => {
+    const group = make("g", { "data-part": `t${index}`, class: "arrow", stroke: color, fill: color });
+    const title = make("title", {});
+    title.textContent = `Move along ${AXIS_NAMES[index]}`;
+    const label = make("text", { stroke: "none" });
+    label.textContent = AXIS_NAMES[index];
+    group.append(title, make("line", {}), make("circle", { r: 6 }), label);
+    svg.append(group);
+  });
+  svg.append(make("circle", { "data-part": "pivot", r: 4, class: "pivot" }));
+  svg.append(make("text", { "data-part": "readout", class: "readout" }));
+  svg.addEventListener("pointerdown", startGizmoDrag);
+  svg.addEventListener("pointermove", moveGizmoDrag);
+  svg.addEventListener("pointerup", endGizmoDrag);
+  svg.addEventListener("pointercancel", () => abortGizmoDrag());
+}
+
+function startGizmoDrag(event) {
+  const part = event.target.closest?.("[data-part]")?.dataset.part;
+  if (!system || !part || !system.gizmo || !/^[tr][012]$/.test(part)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const target = moveTargetOccurrence();
+  const rect = moveGizmoEl.getBoundingClientRect();
+  system.move.drag = {
+    kind: part[0] === "t" ? "translate" : "rotate",
+    handle: system.gizmo.handles[Number(part[1])],
+    start: [event.clientX - rect.left, event.clientY - rect.top],
+    startPose: canonicalPose(system.move.preview ?? target.pose),
+    hadPreview: Boolean(system.move.preview),
+    center: system.gizmo.center,
+    pivot: system.gizmo.pivot,
+    back: system.gizmo.back,
+    changed: false,
+  };
+  try {
+    moveGizmoEl.setPointerCapture(event.pointerId);
+  } catch {
+    // A synthetic pointer cannot be captured; the drag still works while over the gizmo.
+  }
+}
+
+function moveGizmoDrag(event) {
+  const drag = system?.move.drag;
+  if (!drag) return;
+  const rect = moveGizmoEl.getBoundingClientRect();
+  const now = [event.clientX - rect.left, event.clientY - rect.top];
+  const fine = event.shiftKey;
+  let pose;
+  let readout;
+  if (drag.kind === "translate") {
+    const amount = snapTo(axisAmount([now[0] - drag.start[0], now[1] - drag.start[1]], drag.handle.pxPerMm), fine ? SNAP.fineMm : SNAP.mm);
+    pose = translatePose(drag.startPose, drag.handle.axis, amount);
+    readout = `${amount >= 0 ? "+" : ""}${amount.toFixed(fine ? 1 : 0)} mm`;
+  } else {
+    const raw = ringRotation(drag.handle.axis, drag.back, screenAngle(drag.center, drag.start, now)) * 180 / Math.PI;
+    const degrees = snapTo(raw, fine ? SNAP.fineDeg : SNAP.deg);
+    pose = rotatePoseAbout(drag.startPose, drag.handle.axis, degrees * Math.PI / 180, drag.pivot);
+    readout = `${degrees >= 0 ? "+" : ""}${degrees.toFixed(0)}°`;
+  }
+  drag.changed = drag.changed || !samePose(pose, drag.startPose);
+  system.move.preview = canonicalPose(pose);
+  const text = moveGizmoEl.querySelector('[data-part="readout"]');
+  text.textContent = readout;
+  text.setAttribute("x", now[0] + 14);
+  text.setAttribute("y", now[1] - 10);
+  refreshPreview();
+  emitMove("preview");
+}
+
+/** Releasing a handle saves (D-P2-14): the host stores the pose and re-reads the scene. */
+function endGizmoDrag(event) {
+  const drag = system?.move.drag;
+  if (!drag) return;
+  if (moveGizmoEl.hasPointerCapture?.(event.pointerId)) moveGizmoEl.releasePointerCapture(event.pointerId);
+  system.move.drag = null;
+  moveGizmoEl.querySelector('[data-part="readout"]').textContent = "";
+  if (drag.changed) emitMove("commit");
+  else if (!drag.hadPreview) cancelMove();
+}
+
+/** Esc during a drag: back to where it started. */
+function abortGizmoDrag() {
+  const drag = system?.move.drag;
+  if (!drag) return false;
+  system.move.drag = null;
+  system.move.preview = drag.hadPreview ? drag.startPose : null;
+  moveGizmoEl.querySelector('[data-part="readout"]').textContent = "";
+  refreshPreview();
+  emitMove("cancel");
+  return true;
+}
+
+/** The system keys on top of the 3D tab's; true when the key was used. */
+function handleSystemKey(event, key) {
+  const move = system.move;
+  if (key === "escape") {
+    if (systemHelpEl && !systemHelpEl.hidden) systemHelpEl.hidden = true;
+    else if (abortGizmoDrag()) { /* the drag is undone */ }
+    else if (move.preview) cancelMove();
+    else if (move.enabled) setMoveMode(false);
+    else return false; // the 3D tab's Esc: clear the selection
+    return true;
+  }
+  if (key === "m" && move.allowed) setMoveMode(!move.enabled);
+  else if (key === "l" && move.enabled) setMoveSpace(move.space === "world" ? "local" : "world");
+  else if (key === "enter" && move.preview && !move.drag) emitMove("commit");
+  else if (event.key === "?") setSystemHelpVisible(Boolean(systemHelpEl?.hidden));
+  else if (key === "a") camera.frame(system.bounds || sceneRuntimeBounds());
+  else return false;
+  return true;
+}
+
+function setSystemHelpVisible(visible) {
+  if (systemHelpEl) systemHelpEl.hidden = !visible;
+}
+
+// ----- board labels -------------------------------------------------------------
+
+function renderSystemLabels() {
+  if (!systemLabelsEl) return;
+  systemLabelsEl.replaceChildren(...system.placed.map((item) => {
+    const label = document.createElement("div");
+    label.className = `scene-label${item.standIn ? ` stand-in ${item.standIn}` : ""}`;
+    const name = document.createElement("strong");
+    name.textContent = item.occurrence.displayPath || item.occurrence.labels?.join(" / ") || item.occurrence.path;
+    label.append(name);
+    const note = item.standIn ? STAND_INS[item.standIn]?.label : "";
+    if (note) {
+      const span = document.createElement("span");
+      span.textContent = note;
+      label.append(span);
+    }
+    item.label = label;
+    return label;
+  }));
+}
+
+function updateSystemLabels() {
+  if (!systemLabelsEl || !panel) return;
+  systemLabelsEl.hidden = !system.showLabels;
+  if (!system.showLabels) return;
+  const rect = canvas.getBoundingClientRect();
+  const sx = rect.width / Math.max(1, canvas.width);
+  const sy = rect.height / Math.max(1, canvas.height);
+  const selected = selectionKey();
+  for (const item of system.placed) {
+    if (!item.label) continue;
+    const [x0, y0, , x1, y1, z1] = item.worldBounds;
+    const pixel = projectToViewport(panel.matrix, [(x0 + x1) / 2, (y0 + y1) / 2, z1], panel.viewport);
+    const visible = pixel && pixel.x >= 0 && pixel.y >= 0 && pixel.x <= canvas.width && pixel.y <= canvas.height;
+    item.label.hidden = !visible;
+    if (visible) item.label.style.transform = `translate(${(pixel.x * sx).toFixed(1)}px, ${(pixel.y * sy).toFixed(1)}px) translate(-50%, -100%)`;
+    item.label.classList.toggle("selected", selected === item.occurrence.path);
+  }
+}
+
 function pasteLayerId(primitive, b = board) {
   return pasteLayerIdFor(primitive, b.scene.copperLayers);
 }
@@ -2013,14 +2498,16 @@ function manageTiers(now, b = board) {
       .then(() => { if (system && b.renderer && b.scene.componentTier === "loaded") addFootprintPlaceholders(b.scene.runtimeBounds, b); })
       .catch((error) => console.warn("Failed to load components", error));
   }
-  b.gpuBytes = b.renderer.gpuMemoryBytes();
+  // A system scene (SB2-31f) keeps one budget for every board together.
+  const used = () => (system ? system.scene.gpuMemoryBytes() : b.renderer.gpuMemoryBytes());
+  b.gpuBytes = used();
   if (b.gpuBytes <= state.gpuBudgetBytes) return;
   if (b.scene.componentTier === "loaded" && now - b.scene.componentsWantedAt > COMPONENT_IDLE_EVICT_MS) {
     b.renderer.removeEntries(b.scene.componentEntries);
     b.scene.componentEntries = [];
     b.scene.componentTier = "idle";
     b.scene.componentEvictions += 1;
-    b.gpuBytes = b.renderer.gpuMemoryBytes();
+    b.gpuBytes = used();
   }
   if (b.gpuBytes > state.gpuBudgetBytes) {
     evictUnneededTiles(b.visibleTileIds || new Set(), Math.max(0, b.residentTileGpuBytes - (b.gpuBytes - state.gpuBudgetBytes)), b);
@@ -3088,7 +3575,11 @@ function applyCopperColors(b = board) {
   b.scene.copperRealism = copperRealism();
 }
 
-function setSeparation(value) {
+function setSeparation(value, placementKey = null) {
+  if (system) {
+    setPlacementSeparation(clamp(Number(value) || 0, 0, 1), placementKey);
+    return;
+  }
   state.separation = clamp(Number(value) || 0, 0, 1);
   notifyViewStateChange();
 }
@@ -3345,7 +3836,10 @@ function findSchematicFeatureByReference(reference) {
 function clearSelection() {
   state.activeNetId = 0;
   state.selectedFeatureId = 0;
-  if (system) system.boardSelected = false;
+  if (system) {
+    system.boardSelected = false;
+    system.standInKey = null;
+  }
   state.selectedSchematicFeature = null;
   state.selectionAnchor = null;
   const stillEmphasised = anyEmphasis();
@@ -4125,6 +4619,10 @@ function handleKey(event) {
       const dy = event.key === "ArrowDown" ? 32 : event.key === "ArrowUp" ? -32 : 0;
       schematicRenderer?.pan(dx, dy);
     }
+    return;
+  }
+  if (system && handleSystemKey(event, key)) {
+    event.preventDefault();
     return;
   }
   if (key === "/") {

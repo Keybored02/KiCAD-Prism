@@ -24,6 +24,39 @@ function shellHtml() {
       #scene-stats[hidden] { display: none; }
       #scene-stats dt { color: #8a97a8; }
       #scene-stats dd { margin: 0; text-align: right; }
+      /* System mode (SB2-31f): board labels, the move gizmo and the key list. */
+      #system-labels { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+      #system-labels[hidden] { display: none; }
+      .scene-label {
+        position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center;
+        padding: 2px 7px; border-radius: 5px; background: rgb(15 20 28 / 0.72); color: #f1f5f9;
+        font: 500 11px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; white-space: nowrap; margin-top: -6px;
+      }
+      .scene-label[hidden] { display: none; }
+      .scene-label span { font-weight: 400; color: #cbd5e1; font-size: 10px; }
+      .scene-label.stand-in { background: rgb(71 85 105 / 0.78); }
+      .scene-label.restricted { background: rgb(55 65 81 / 0.85); }
+      .scene-label.failed { background: rgb(153 27 27 / 0.8); }
+      .scene-label.selected { background: rgb(37 99 235 / 0.92); }
+      #move-gizmo { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+      #move-gizmo[hidden] { display: none; }
+      #move-gizmo .ring { stroke-width: 2.5; opacity: 0.75; pointer-events: stroke; cursor: grab; }
+      #move-gizmo .ring:hover { stroke-width: 5; opacity: 1; }
+      #move-gizmo .arrow { pointer-events: visiblePainted; cursor: grab; }
+      #move-gizmo .arrow line { stroke-width: 4; stroke-linecap: round; }
+      #move-gizmo .arrow:hover line { stroke-width: 6; }
+      #move-gizmo .arrow text { font: 700 11px system-ui, -apple-system, "Segoe UI", sans-serif; paint-order: stroke; }
+      #move-gizmo .pivot { fill: #0f172a; stroke: #fff; stroke-width: 1.5; }
+      #move-gizmo .readout { font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0f172a;
+        paint-order: stroke; stroke: #fff; stroke-width: 3px; }
+      #system-help { position: absolute; right: 12px; bottom: 12px; z-index: 4; margin: 0; padding: 10px 12px; max-width: 340px;
+        display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
+        background: rgb(15 20 28 / 0.9); color: #e2e8f0; border-radius: 8px;
+        font: 12px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+      #system-help[hidden] { display: none; }
+      #system-help h2 { grid-column: 1 / -1; margin: 0 0 4px; font-size: 12px; font-weight: 600; }
+      #system-help kbd { font: 600 11px "SFMono-Regular", Consolas, monospace; color: #fff; }
+      #system-help dd { margin: 0; color: #cbd5e1; }
       /* The host renders the PCB controls itself (see getViewState). */
       :host([hide-panel]) #app,
       :host([hide-panel]) #app.panel-collapsed { grid-template-columns: minmax(0, 1fr); }
@@ -37,6 +70,23 @@ function shellHtml() {
         <div id="selection-card" hidden></div>
         <canvas id="axis-gizmo" width="112" height="112" title="Click an axis to align the camera"></canvas>
         <dl id="scene-stats" hidden></dl>
+        <div id="system-labels" hidden></div>
+        <svg id="move-gizmo" hidden aria-hidden="true"></svg>
+        <dl id="system-help" hidden aria-label="Keyboard shortcuts">
+          <h2>Keyboard</h2>
+          <dt><kbd>Home</kbd> <kbd>A</kbd></dt><dd>Frame every board</dd>
+          <dt><kbd>Double-click</kbd></dt><dd>Select and frame</dd>
+          <dt><kbd>X</kbd> <kbd>Y</kbd> <kbd>Z</kbd></dt><dd>Look along an axis (Shift: from the other side)</dd>
+          <dt><kbd>F</kbd> <kbd>R</kbd></dt><dd>Flip the view, turn it a quarter</dd>
+          <dt><kbd>I</kbd></dt><dd>Isolate the lit nets' copper, or back</dd>
+          <dt><kbd>M</kbd></dt><dd>Move mode on or off (editors)</dd>
+          <dt><kbd>L</kbd></dt><dd>Gizmo axes: world or the board's own</dd>
+          <dt><kbd>Shift</kbd></dt><dd>While dragging: 0.1 mm and 1° steps (else 1 mm, 15°)</dd>
+          <dt><kbd>Enter</kbd></dt><dd>Save the shown position</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Undo the drag, leave move mode, or clear the selection</dd>
+          <dt><kbd>\`</kbd></dt><dd>Scene stats</dd>
+          <dt><kbd>?</kbd></dt><dd>This list</dd>
+        </dl>
         <div id="fallback" hidden></div>
       </section>
       <aside class="panel">
@@ -120,7 +170,7 @@ async function loadBundle(bundleUrl, timings, signal) {
 
 export class PrismSemanticViewerElement extends HTMLElement {
   static get observedAttributes() {
-    return ["bundle-url", "workspace", "mode"];
+    return ["bundle-url", "workspace", "mode", "move-allowed"];
   }
 
   constructor() {
@@ -150,6 +200,11 @@ export class PrismSemanticViewerElement extends HTMLElement {
     if (!this.isConnected || oldValue === newValue) return;
     if (name === "workspace") {
       this.controller?.setWorkspace?.(this.workspace);
+      return;
+    }
+    // mode="system": whether this reader may move boards (the host sets it for editors).
+    if (name === "move-allowed") {
+      this.setMoveAllowed(newValue === "true");
       return;
     }
     this.queueReload();
@@ -216,6 +271,9 @@ export class PrismSemanticViewerElement extends HTMLElement {
         onStatus: (status) => {
           if (!signal.aborted) this.emit("systemstatus", status);
         },
+        onMove: (state) => {
+          if (!signal.aborted) this.emit("move", state);
+        },
       });
       if (!isCurrent()) {
         controller?.dispose?.();
@@ -225,6 +283,8 @@ export class PrismSemanticViewerElement extends HTMLElement {
       if (this.pendingGpuBudget != null) controller.setGpuBudget(this.pendingGpuBudget);
       if (this.pendingSystemScene) controller.setSystemScene(this.pendingSystemScene);
       if (this.pendingNetEmphasis) controller.setNetEmphasis(this.pendingNetEmphasis);
+      controller.setMoveAllowed(Boolean(this.pendingMoveAllowed ?? this.getAttribute("move-allowed") === "true"));
+      if (this.pendingLabels != null) controller.setLabelsVisible(this.pendingLabels);
       const viewState = this.getViewState();
       if (viewState) this.emitViewState(viewState);
       this.emitReady({ schema: "prism.semantic_viewer_performance.a0", milestone: "system-mounted" });
@@ -262,6 +322,49 @@ export class PrismSemanticViewerElement extends HTMLElement {
   /** Frame the copper of a lit set (or of all), on one placement or all; false when nothing is lit there. */
   frameNetEmphasis(key = null, occurrence = null) {
     return this.controller?.frameNetEmphasis?.(key, occurrence) ?? false;
+  }
+
+  /**
+   * Move mode (mode="system", SB2-29): `move` events carry `{ phase, allowed,
+   * enabled, space, dragging, target }` with phases mode, target, preview,
+   * commit, cancel and sync. On "commit" the host saves the target's pose and
+   * passes the re-read scene, or calls `cancelMove()` when the save fails.
+   */
+  setMoveAllowed(allowed) {
+    this.pendingMoveAllowed = Boolean(allowed);
+    this.controller?.setMoveAllowed?.(this.pendingMoveAllowed);
+  }
+
+  setMoveMode(enabled) {
+    this.controller?.setMoveMode?.(enabled);
+  }
+
+  setMoveSpace(space) {
+    this.controller?.setMoveSpace?.(space);
+  }
+
+  /** Show a pose for the move target without saving it; null shows the saved pose. */
+  previewPose(pose) {
+    this.controller?.previewPose?.(pose);
+  }
+
+  cancelMove() {
+    this.controller?.cancelMove?.();
+  }
+
+  getMoveState() {
+    return this.controller?.getMoveState?.() ?? null;
+  }
+
+  /** Board name labels over the system scene (on by default). */
+  setLabelsVisible(visible) {
+    this.pendingLabels = Boolean(visible);
+    this.controller?.setLabelsVisible?.(this.pendingLabels);
+  }
+
+  /** The keyboard list (also `?`). */
+  setHelpVisible(visible) {
+    this.controller?.setHelpVisible?.(visible);
   }
 
   /** Frame every placed board (mode="system"). */
@@ -509,8 +612,9 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.controller?.setRealisticColors?.(enabled);
   }
 
-  setSeparation(value) {
-    this.controller?.setSeparation?.(value);
+  /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
+  setSeparation(value, placement = null) {
+    this.controller?.setSeparation?.(value, placement);
   }
 
   showNetLayers() {

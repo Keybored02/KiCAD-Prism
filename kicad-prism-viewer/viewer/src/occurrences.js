@@ -13,12 +13,17 @@
 // identity occurrence takes the original `viewProjection * p` path, and only
 // real occurrences pay for `viewProjection * (model * p)`.
 
-export const OCCURRENCE_STRIDE = 144; // model mat4x4f + normal mat4x4f + hiddenLayers vec4u
+export const OCCURRENCE_STRIDE = 160; // model mat4x4f + normal mat4x4f + hiddenLayers vec4u + explode vec4f
 const OCCURRENCE_FLOATS = OCCURRENCE_STRIDE / 4;
 // SB2-31e: each occurrence hides its own copper layers (a system scene shows a
 // layer section per board). A 128-bit mask over manifest layer ids; layers with
 // ids from HIDDEN_LAYER_BITS up cannot be hidden per occurrence.
 export const HIDDEN_LAYER_BITS = 128;
+// SB2-31f: each occurrence's own stackup separation, as the board 3D tab
+// explodes one board: (gap in metres per copper layer step, components shown
+// 1/0, mask and silkscreen opacity, 1 when the occurrence explodes itself).
+// With w = 0 (the default) the renderer's layer offsets apply as they are.
+export const NO_EXPLODE = Object.freeze([0, 1, 1, 0]);
 export const BARREL_RECORD_STRIDE = 48; // dimensions vec4f, span vec2f (+pad), ids vec4u
 
 export const OCCURRENCE_WGSL = `
@@ -26,7 +31,9 @@ struct Occurrence {
   model: mat4x4f,
   normal: mat4x4f,
   hiddenLayers: vec4u,
+  explode: vec4f,
 };
+@group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;
 @group(0) @binding(5) var<storage, read> occurrences: array<Occurrence>;
 // The cull pass (SB2-25) lists the occurrences to draw, interleaved by level of
 // detail: slot * 3 + list. Components draw for LIST_FULL; board, copper and
@@ -37,6 +44,18 @@ const LIST_BOARD = 1u;
 const LIST_BOX = 2u;
 fn listedOccurrence(list: u32, instance: u32) -> u32 { return visibleOccurrences[instance * 3u + list]; }
 // draw.offset.w is the draw's layer id + 1 for copper and paste (0: no layer).
+// A draw this occurrence's separation removes: components once exploded, paste whenever separated.
+fn explodeHides(occurrence: Occurrence, kind: f32, layerPlusOne: f32) -> bool {
+  let explode = occurrence.explode;
+  if (explode.w < 0.5) { return false; }
+  if (kind > 1.5 && kind < 2.5 && explode.y < 0.5) { return true; }
+  return kind < 0.5 && layerPlusOne > 0.5 && explode.x > 0.0;
+}
+// How far this occurrence lifts a copper or paste draw's layer (0: the draw's own offset stands).
+fn explodeLift(occurrence: Occurrence, layerPlusOne: f32) -> f32 {
+  if (occurrence.explode.w < 0.5 || layerPlusOne < 0.5) { return 0.0; }
+  return layerOffsets[u32(layerPlusOne + 0.5) - 1u] * occurrence.explode.x;
+}
 fn layerHiddenAt(occurrence: Occurrence, layerPlusOne: f32) -> bool {
   if (layerPlusOne < 0.5) { return false; }
   let layer = u32(layerPlusOne + 0.5) - 1u;
@@ -106,7 +125,7 @@ export function hiddenLayerWords(layers) {
  * Pack occurrences for the storage buffer. Returns at least one slot.
  * `hiddenLayers[i]` lists the copper layer ids occurrence i hides.
  */
-export function packOccurrences(matrices, hiddenLayers = []) {
+export function packOccurrences(matrices, hiddenLayers = [], explode = []) {
   const data = new Float32Array(Math.max(1, matrices.length) * OCCURRENCE_FLOATS);
   const words = new Uint32Array(data.buffer);
   matrices.forEach((model, index) => {
@@ -114,6 +133,7 @@ export function packOccurrences(matrices, hiddenLayers = []) {
     data.set(model, base);
     data.set(normalMatrix(model), base + 16);
     if (hiddenLayers[index]) words.set(hiddenLayerWords(hiddenLayers[index]), base + 32);
+    data.set(explode[index] || NO_EXPLODE, base + 36);
   });
   return data;
 }
@@ -212,7 +232,8 @@ export function normalizeOccurrences(list) {
   const keys = items.map((item, index) => (named(item) && item.key != null ? String(item.key) : String(index)));
   if (new Set(keys).size !== keys.length) throw new TypeError("Occurrence keys must be unique");
   const hiddenLayers = items.map((item) => (named(item) && item.hiddenLayers ? [...item.hiddenLayers].map(Number) : []));
-  return { matrices, keys, hiddenLayers };
+  const explode = items.map((item) => (named(item) && item.explode ? [...item.explode].map(Number) : null));
+  return { matrices, keys, hiddenLayers, explode };
 }
 
 /**
