@@ -3,9 +3,10 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { clearMating, getMating, setMating } from "@/lib/systems-api";
-import type { MatingAxis, PortMating, SystemDocument, SystemLink } from "@/types/system";
+import { clearDrivingMate, clearMating, getLinkMate, getMating, getPlacement, setDrivingMate, setMating } from "@/lib/systems-api";
+import type { LinkMate, MatingAxis, PortMating, SystemDocument, SystemLink, SystemPlacement } from "@/types/system";
 
+import { MatePreview, type Pick } from "./mate-preview";
 import type { Mutate } from "./use-system-mutation";
 
 /** How the mating axis reads to a designer (CONTRACTS_P2 §15.1; ±x/±y are the footprint's own axes). */
@@ -44,11 +45,13 @@ interface EndProps {
   editable: boolean;
   busy: boolean;
   run: Mutate;
+  /** The frame being picked by hand (the panel previews it), or null. */
+  picking: Pick;
+  setPicking: (pick: Pick) => void;
 }
 
-function MatingEnd({ systemId, etag, side, instanceId, portKey, label, editable, busy, run }: EndProps) {
+function MatingEnd({ systemId, etag, side, instanceId, portKey, label, editable, busy, run, picking, setPicking }: EndProps) {
   const [port, setPort] = useState<{ key: string; body: PortMating | null } | null>(null);
-  const [picking, setPicking] = useState<{ axis: MatingAxis; quarterTurns: number } | null>(null);
   const key = `${instanceId}:${portKey}:${etag}`;
 
   useEffect(() => {
@@ -131,8 +134,67 @@ interface MatingPanelProps {
   run: Mutate;
 }
 
-/** CONTRACTS_P2 §16.2: a board-to-board link shows both connectors' mating frames. */
+/** Loads `load()` again whenever `key` changes; null while loading or after a failure. */
+function useKeyed<T>(key: string, load: () => Promise<T>): T | null {
+  const [state, setState] = useState<{ key: string; value: T | null } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    load().then((value) => !cancelled && setState({ key, value })).catch(() => !cancelled && setState({ key, value: null }));
+    return () => {
+      cancelled = true;
+    };
+    // `load` is rebuilt every render; `key` names what it loads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return state?.key === key ? state.value : null;
+}
+
+type Status = { tone: "ok" | "info" | "warn"; text: string };
+
+const mm = (value: number) => `${Math.round(value * 100) / 100} mm`;
+
+/** What the solve did with this link (CONTRACTS_P2 §14.9). */
+export function placementStatus(placement: SystemPlacement, link: SystemLink, label: (instanceId: string) => string): Status {
+  const mismatch = placement.mismatches.find((m) => m.linkId === link.id);
+  if (mismatch) {
+    const apart = Math.abs(mismatch.axialMm) > 0.005 ? `, ${mm(mismatch.axialMm)} along the mating axis` : "";
+    const turned = mismatch.angleDeg > 0.005 ? `, turned ${Math.round(mismatch.angleDeg * 10) / 10}°` : "";
+    return { tone: "warn", text: `Doesn't line up where the stack puts it: ${mm(mismatch.lateralMm)} across the mating plane${apart}${turned}.` };
+  }
+  if (placement.unusable.includes(link.id)) {
+    return { tone: "info", text: "Not used for 3D placement yet: confirm or set both connectors' frames." };
+  }
+  const placed = Object.entries(placement.driving).find(([, entry]) => entry.linkId === link.id);
+  if (placed) {
+    const chosen = placement.drivingMates[placed[0]] === link.id ? " (chosen)" : "";
+    return { tone: "ok", text: `Places ${label(placed[0])} on ${label(placed[1].from)}${chosen}.` };
+  }
+  return { tone: "ok", text: "Lines up with the stack." };
+}
+
+const STATUS_TONE: Record<Status["tone"], string> = {
+  ok: "text-muted-foreground", info: "text-muted-foreground", warn: "text-destructive",
+};
+
+/** CONTRACTS_P2 §16.2, §20.14: a board-to-board link shows both connectors' mating frames, how the solve used
+ * the link, a choice of which board it places, and a live preview of the pair. */
 export function MatingPanel({ systemId, etag, document, link, editable, busy, run }: MatingPanelProps) {
+  const [picks, setPicks] = useState<{ a: Pick; b: Pick }>({ a: null, b: null });
+  const placement = useKeyed(`${systemId}:${etag}`, () => getPlacement(systemId));
+  const pair = useKeyed<LinkMate>(`${link.id}:${etag}`, () => getLinkMate(systemId, link.id));
+  const label = (instanceId: string) => document.instances.find((candidate) => candidate.id === instanceId)?.label ?? "?";
+  const status = placement ? placementStatus(placement, link, label) : null;
+  const restricted = link.a.redacted || link.b.redacted;
+  // A board this link could place instead of its current driving mate, and a choice to undo.
+  const choices = placement && editable && !restricted
+    ? (["a", "b"] as const).flatMap((end): { instanceId: string; kind: "use" | "reset" }[] => {
+      const instanceId = link[end].instanceId;
+      const current = placement.driving[instanceId];
+      if (placement.drivingMates[instanceId] === link.id) return [{ instanceId, kind: "reset" }];
+      if (current && current.linkId !== link.id && !placement.unusable.includes(link.id)) return [{ instanceId, kind: "use" }];
+      return [];
+    })
+    : [];
   return (
     <section className="space-y-2" aria-label="Mating">
       <h3 className="text-sm font-semibold">
@@ -141,19 +203,42 @@ export function MatingPanel({ systemId, etag, document, link, editable, busy, ru
       <p className="text-xs text-muted-foreground">
         Automatic 3D placement uses only frames that are confirmed or set by hand.
       </p>
+      {status && <p className={`text-xs ${STATUS_TONE[status.tone]}`} role="status">{status.text}</p>}
+      {choices.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {choices.map((choice) => (choice.kind === "use" ? (
+            <Button key={choice.instanceId} size="sm" variant="outline" disabled={busy}
+              onClick={() => void run("driving", () => setDrivingMate(systemId, etag, choice.instanceId, link.id),
+                `${label(choice.instanceId)} is now placed by this link`)}>
+              Place {label(choice.instanceId)} by this link
+            </Button>
+          ) : (
+            <Button key={choice.instanceId} size="sm" variant="ghost" disabled={busy}
+              onClick={() => void run("driving", () => clearDrivingMate(systemId, etag, choice.instanceId),
+                `${label(choice.instanceId)} is placed automatically again`)}>
+              Place {label(choice.instanceId)} automatically
+            </Button>
+          )))}
+        </div>
+      )}
       {(["a", "b"] as const).map((end) => {
         const instance = document.instances.find((candidate) => candidate.id === link[end].instanceId);
         const side = end === "a" ? "A" : "B";
-        const label = `${instance?.label ?? "?"} ${link[end].port?.reference ?? ""}`.trim();
+        const endLabel = `${instance?.label ?? "?"} ${link[end].port?.reference ?? ""}`.trim();
         if (link[end].redacted || !link[end].port) return <p key={end} className="text-sm text-muted-foreground">{side} · restricted</p>;
         if (instance?.kind === "assembly") {
-          return <p key={end} className="text-sm text-muted-foreground">{side} · {label}: the frame comes from the subsystem's snapshot.</p>;
+          return <p key={end} className="text-sm text-muted-foreground">{side} · {endLabel}: the frame comes from the subsystem's snapshot.</p>;
         }
         return (
           <MatingEnd key={end} systemId={systemId} etag={etag} side={side} instanceId={link[end].instanceId}
-            portKey={link[end].port!.portKey} label={label} editable={editable} busy={busy} run={run} />
+            portKey={link[end].port!.portKey} label={endLabel} editable={editable} busy={busy} run={run}
+            picking={picks[end]} setPicking={(pick) => setPicks((current) => ({ ...current, [end]: pick }))} />
         );
       })}
+      {pair && !restricted && (
+        <MatePreview data={pair} picks={picks}
+          labels={{ a: `${label(link.a.instanceId)} ${pair.a.reference}`, b: `${label(link.b.instanceId)} ${pair.b.reference}` }} />
+      )}
     </section>
   );
 }

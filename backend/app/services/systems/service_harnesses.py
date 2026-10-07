@@ -7,6 +7,7 @@ from typing import Any, Mapping, Optional, Sequence
 from app.services.systems import (
     drift, exposure, generators, harnesses as harnesses_module, mating as mating_module, redaction,
 )
+from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.placement import poses as placement_poses
 from app.services.systems.store import Conflict, Invalid, NotFound, SystemStore
 from app.services.systems.service_base import Caller, Result, _iso
@@ -33,6 +34,54 @@ class HarnessesMixin:
         ports = [mating_module.port_state(component, stored.get(component["portKey"]))
                  for component in interface.get("components") or [] if component["portKey"] in exposed]
         return {"instanceId": instance_id, "boardThicknessMm": interface.get("boardThicknessMm"), "ports": ports}
+
+    def link_mate(self, caller: Caller, system_id: str, link_id: str) -> dict:
+        """``GET …/links/{lid}/mate`` (SB2-39): both connectors of a B2B link with their v6 geometry and
+        frames, so the browser can preview the mated pair with the placement library while a frame is picked."""
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            link = store.get_link(system_id, link_id)
+            if link.get("type") != "b2b":
+                raise Invalid("only a board-to-board link has a mate")
+            ends = {}
+            for end in ("a", "b"):
+                instance_id, port = link[f"{end}_instance_id"], link[f"{end}_port"]
+                instance = self._open_instance(store, system_id, instance_id, caller)
+                entry = {"instanceId": instance_id, "kind": instance.get("kind", "board"),
+                         "portKey": port["portKey"], "reference": port.get("reference") or "",
+                         "geometry": None, "thicknessMm": None, "inferred": None, "stored": None}
+                if entry["kind"] == "board" and instance.get("project_id") and instance.get("baseline_commit"):
+                    component = store.get_interface_component(instance["project_id"], instance["baseline_commit"],
+                                                              EXTRACTOR_VERSION, port["portKey"])
+                    if component is not None:
+                        record = store.list_mating(instance_id).get(port["portKey"])
+                        state = mating_module.port_state(component, record)
+                        entry.update(geometry=component.get("geometry"), thicknessMm=component.get("boardThicknessMm"),
+                                     inferred=state["inferred"], stored=state["stored"])
+                ends[end] = entry
+        return {"linkId": link_id, "stackHeightMm": link.get("stack_height_mm"), **ends}
+
+    def placement(self, caller: Caller, system_id: str) -> dict:
+        """``GET …/placement`` (SB2-39): the root level's solve (§14.9), by instance ID, without the scene's
+        bundle reads (which can queue builds)."""
+        with self._tx() as store:
+            version = int(self._system(store, system_id, caller)["version"])
+            solved = self._placement(store, system_id)[0]["results"].get("")
+            chosen = store.list_driving_mates(system_id)
+
+        def iid(path: str) -> str:
+            return path.rsplit("/", 1)[-1]
+
+        out = {"systemId": system_id, "version": version, "roots": [], "driving": {}, "mismatches": [],
+               "unusable": [], "ignoredOverrides": [], "drivingMates": chosen}
+        if solved:
+            out.update(
+                roots=[iid(p) for p in solved["roots"]],
+                driving={iid(p): {"linkId": e["linkId"], "from": iid(e["from"]), "overridden": e["overridden"]}
+                         for p, e in solved["driving"].items()},
+                mismatches=solved["mismatches"], unusable=solved["unusable"],
+                ignoredOverrides=[{**o, "member": iid(o["member"])} for o in solved["ignoredOverrides"]])
+        return out
 
     def set_mating(
         self, caller: Caller, system_id: str, version: int, instance_id: str, port_key: str,

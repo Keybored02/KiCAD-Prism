@@ -498,6 +498,16 @@ async def set_poses(
     return _respond(result, response)
 
 
+@router.get("/{system_id}/placement")
+async def get_placement(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
+    return await _run(system_id, lambda: system_service.service.placement(_caller(user), system_id))
+
+
+@router.get("/{system_id}/links/{link_id}/mate")
+async def get_link_mate(system_id: str, link_id: str, user: AuthenticatedUser = Depends(require_viewer)):
+    return await _run(system_id, lambda: system_service.service.link_mate(_caller(user), system_id, link_id))
+
+
 class DrivingMateRequest(BaseModel):
     linkId: str = Field(min_length=1, max_length=200)
 
