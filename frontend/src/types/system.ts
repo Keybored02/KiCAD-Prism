@@ -5,6 +5,8 @@
  * nullable here.
  */
 
+import type { ConnectorGeometry } from "@/features/system-builder/placement/frames";
+
 /** Rules that run only when a system opts in (CONTRACTS_P2 §8.4). */
 export type OptionalRule = "SYS-V09";
 
@@ -617,6 +619,38 @@ export interface PortMating {
   hasGeometry: boolean;
   inferred: { axis: MatingAxis | null; confidence: "high" | "medium" | "low"; reasons: string[] };
   stored: { mode: "confirmed" | "override"; axis: MatingAxis; quarterTurns: number; stale: boolean } | null;
+}
+
+/** `GET …/placement` (CONTRACTS_P2 §14.10): the root level's solve, by instance ID. */
+export interface SystemPlacement {
+  systemId: string;
+  version: number;
+  roots: string[];
+  driving: Record<string, { linkId: string; from: string; overridden: boolean }>;
+  mismatches: SystemScenePlacement["mismatches"];
+  unusable: string[];
+  ignoredOverrides: SystemScenePlacement["ignoredOverrides"];
+  /** The user's choices: instance → link. */
+  drivingMates: Record<string, string>;
+}
+
+/** One connector of `GET …/links/{lid}/mate`; `geometry` null for a subsystem or an unread connector. */
+export interface LinkMateEnd {
+  instanceId: string;
+  kind: string;
+  portKey: string;
+  reference: string;
+  geometry: ConnectorGeometry | null;
+  thicknessMm: number | null;
+  inferred: PortMating["inferred"] | null;
+  stored: PortMating["stored"];
+}
+
+export interface LinkMate {
+  linkId: string;
+  stackHeightMm: number | null;
+  a: LinkMateEnd;
+  b: LinkMateEnd;
 }
 
 export interface InstanceMating {

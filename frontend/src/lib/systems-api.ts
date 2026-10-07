@@ -22,6 +22,8 @@ import type {
   InstanceInterface,
   HarnessWire,
   InstanceMating,
+  LinkMate,
+  SystemPlacement,
   LinkType,
   MatingAxis,
   OptionalRule,
@@ -393,6 +395,30 @@ export function commitImport(systemId: string, etag: string, importId: string, m
 
 // ---------------------------------------------------------------------------
 // Mating frames (CONTRACTS_P2 §15.3)
+
+/** The root level's mate solve (CONTRACTS_P2 §14.10). */
+export async function getPlacement(systemId: string): Promise<SystemPlacement> {
+  const { body } = await send<SystemPlacement>(path(systemId, "placement"), {}, "Could not load the placement");
+  return body;
+}
+
+/** Both connectors of a B2B link, for the mate preview. */
+export async function getLinkMate(systemId: string, linkId: string): Promise<LinkMate> {
+  const { body } = await send<LinkMate>(path(systemId, "links", linkId, "mate"), {}, "Could not load the mated pair");
+  return body;
+}
+
+/** Choose the B2B link that places an instance (CONTRACTS_P2 §14.10). */
+export function setDrivingMate(systemId: string, etag: string, instanceId: string, linkId: string) {
+  return versioned<{ instanceId: string; linkId: string | null }>(path(systemId, "driving-mates", instanceId),
+    { method: "PUT", etag, body: json({ linkId }) }, "Could not choose the driving mate");
+}
+
+/** Back to the solve's choice (most rows, then the lower reference). */
+export function clearDrivingMate(systemId: string, etag: string, instanceId: string) {
+  return versioned<{ instanceId: string; linkId: string | null }>(path(systemId, "driving-mates", instanceId),
+    { method: "DELETE", etag }, "Could not reset the driving mate");
+}
 
 export async function getMating(systemId: string, instanceId: string): Promise<InstanceMating> {
   const { body } = await send<InstanceMating>(path(systemId, "instances", instanceId, "mating"), {}, "Could not load mating frames");

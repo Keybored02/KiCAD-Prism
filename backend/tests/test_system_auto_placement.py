@@ -152,6 +152,34 @@ class AutoPlacementTest(SceneCase):
         self.assertEqual(pwr["mate"]["autoPose"], {k: auto[k] for k in ("translationMm", "rotation")})
         self.assertEqual(len(self.v11()), 1, "still only the real 1.5 mm miss, not the hand move")
 
+    def test_placement_lists_the_solve_by_instance(self) -> None:
+        # SB2-39: the link page reads this instead of the scene.
+        empty = self.service.placement(VIEWER, self.sid)
+        self.assertEqual((empty["driving"], sorted(empty["unusable"])), ({}, sorted(self.links.values())))
+        self.confirm_all()
+        got = self.service.placement(VIEWER, self.sid)
+        [driven] = list(got["driving"])
+        self.assertIn(driven, (self.base, self.top))
+        self.assertEqual(got["driving"][driven]["linkId"], self.links["J1"])
+        self.assertEqual(got["roots"], [({self.base, self.top} - {driven}).pop()])
+        self.assertEqual([m["linkId"] for m in got["mismatches"]], [self.links["J2"]])
+        self.assertEqual(got["drivingMates"], {})
+
+    def test_link_mate_returns_both_connectors_for_the_preview(self) -> None:
+        self.confirm(( self.base, "J1"))
+        got = self.service.link_mate(VIEWER, self.sid, self.links["J1"])
+        self.assertEqual(got["stackHeightMm"], 7.0)
+        self.assertEqual((got["a"]["instanceId"], got["b"]["instanceId"]), (self.base, self.top))
+        self.assertEqual(got["a"]["geometry"], self.component(self.base, "J1")["geometry"])
+        self.assertAlmostEqual(got["a"]["thicknessMm"], 1.6)
+        self.assertEqual(got["a"]["stored"]["mode"], "confirmed")
+        self.assertIsNone(got["b"]["stored"])
+        self.assertEqual(got["b"]["inferred"]["axis"], "bottom")
+        from app.services.systems.store import Invalid
+        other = next(link for link in self.store.list_links(self.sid) if link["type"] != "b2b")
+        with self.assertRaises(Invalid):
+            self.service.link_mate(VIEWER, self.sid, other["id"])
+
     def test_a_stale_frame_stops_placing(self) -> None:
         self.confirm_all()
         self.replace_artifact(self.top, "mezz_top/F0")  # J2 moved back: its stored digest no longer matches
