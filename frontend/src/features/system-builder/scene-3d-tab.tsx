@@ -263,7 +263,9 @@ export function Scene3dTab(props: SystemTabProps) {
               busy={moving.busy}
               onPreview={(pose) => viewer?.previewPose?.(pose)}
               onSave={(target) => void moving.savePose(target)}
-              onRevert={() => viewer?.cancelMove?.()}
+              onCancel={() => viewer?.cancelMove?.()}
+              moved={moving.moved}
+              onRevert={() => void moving.revert()}
               onDefault={(target) => void moving.backToDefault(target)}
               onResetAll={() => moving.setConfirmReset(true)}
               onSpace={(space) => viewer?.setMoveSpace?.(space)}

@@ -116,6 +116,39 @@ describe("Scene3dTab", () => {
     await waitFor(() => expect(element.cancelMove).toHaveBeenCalled());
   });
 
+  it("reverts saved moves to where the board was when it was picked", async () => {
+    vi.stubGlobal("navigator", { ...navigator, gpu: {} });
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+      status, headers: { "Content-Type": "application/json" },
+    });
+    const fetchMock = vi.fn(async (url: string) => (String(url).endsWith("/scene") ? json(mixed) : json({})));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Scene3dTab {...props} />);
+    await screen.findByText("4 boards");
+    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
+    await act(async () => undefined);
+    element.cancelMove = vi.fn();
+    const picked = { translationMm: [1, 2, 3], rotation: [0, 0, 0, 1] };
+    const send = (phase: string, pose: unknown, unsaved: boolean) => act(() => {
+      element.dispatchEvent(new CustomEvent("prism-semantic-viewer:move", { detail: {
+        phase, allowed: true, enabled: true, space: "world", dragging: false,
+        target: { occurrence: "/sin_OBC-1", instanceId: "sin_OBC-1", displayPath: "OBC-1", kind: "board", restricted: false,
+          pose, source: "manual", unsaved },
+      } }));
+    });
+    send("target", picked, false);
+    const revert = () => screen.getByRole("button", { name: "Revert" }) as HTMLButtonElement;
+    expect(revert().disabled).toBe(true);
+    send("commit", { translationMm: [40, 2, 3], rotation: [0, 0, 0, 1] }, true);
+    await waitFor(() => expect(revert().disabled).toBe(false));
+    fireEvent.click(revert());
+    await waitFor(() => expect(fetchMock.mock.calls.filter((call) => String(call[0]).endsWith("/poses/sin_OBC-1"))).toHaveLength(2));
+    const put = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith("/poses/sin_OBC-1"))[1] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(put[1].body))).toEqual(picked);
+    send("sync", picked, false); // the viewer's re-read
+    await waitFor(() => expect(revert().disabled).toBe(true));
+  });
+
   it("asks before lighting a net over 200 pins, then lights its members", async () => {
     vi.stubGlobal("navigator", { ...navigator, gpu: {} });
     const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });

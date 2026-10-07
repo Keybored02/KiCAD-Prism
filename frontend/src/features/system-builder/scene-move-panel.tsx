@@ -43,6 +43,10 @@ export interface MovePanelProps {
   busy: boolean;
   onPreview: (pose: PrismScenePose | null) => void;
   onSave: (target: Target) => void;
+  /** Esc: drop what is typed or dragged and not saved yet. */
+  onCancel: () => void;
+  /** The target was saved somewhere else since it was picked: Revert puts it back there. */
+  moved: boolean;
   onRevert: () => void;
   onDefault: (target: Target) => void;
   onResetAll: () => void;
@@ -51,10 +55,11 @@ export interface MovePanelProps {
 
 /**
  * SB2-29 move mode: where the target sits, as numbers. Typing previews the
- * position in the view; Enter (or Save) stores it, Esc (or Revert) puts it back.
+ * position in the view; Enter (or Save) stores it, Esc drops it. Revert puts the
+ * target back where it was when it was picked, saved moves included.
  * A child system moves as one group; its boards keep their places inside it.
  */
-export function MovePanel({ state, busy, onPreview, onSave, onRevert, onDefault, onResetAll, onSpace }: MovePanelProps) {
+export function MovePanel({ state, busy, onPreview, onSave, onCancel, moved, onRevert, onDefault, onResetAll, onSpace }: MovePanelProps) {
   const target = state.target;
   // What the user is typing; otherwise the fields follow the view. The host remounts the
   // panel (its `key`) when the view saves, cancels or changes target, which drops it.
@@ -95,6 +100,12 @@ export function MovePanel({ state, busy, onPreview, onSave, onRevert, onDefault,
     finish();
     onRevert();
   };
+  const cancel = () => {
+    finish();
+    onCancel();
+  };
+  // Board axes only differ from the world's once the target is turned.
+  const unrotated = Math.abs(Math.abs(target.pose.rotation[3]) - 1) < 1e-9;
 
   return (
     <form
@@ -105,7 +116,7 @@ export function MovePanel({ state, busy, onPreview, onSave, onRevert, onDefault,
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
-          revert();
+          cancel();
         }
       }}
     >
@@ -145,12 +156,20 @@ export function MovePanel({ state, busy, onPreview, onSave, onRevert, onDefault,
           </Button>
         ))}
       </div>
+      {unrotated && (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          This {target.kind === "assembly" ? "system" : "board"} isn't rotated, so its axes are the world axes.
+        </p>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         <Button type="submit" size="sm" disabled={busy || invalid || (!target.unsaved && !typed)}>
           <Save className="size-4" aria-hidden /> Save
         </Button>
-        <Button type="button" size="sm" variant="outline" disabled={busy || (!target.unsaved && !typed)} onClick={revert}>
+        <Button
+          type="button" size="sm" variant="outline" disabled={busy || (!target.unsaved && !typed && !moved)} onClick={revert}
+          title={`Put ${target.displayPath} back where it was when you picked it`}
+        >
           <Undo2 className="size-4" aria-hidden /> Revert
         </Button>
         <Button
