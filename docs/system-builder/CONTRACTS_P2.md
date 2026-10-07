@@ -751,6 +751,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 | P2-1.38 | 2026-10-07 | Follow-up review finding 3, D-P2-31: delete archives a referenced system (frozen parent snapshots count), `archivedAt`, 409 `system_archived`; `DELETE` answers 200 with the outcome. Workspace migration 42. |
 | P2-1.39 | 2026-10-07 | SB2-21 review: the mezzanine fixtures move from Hirose DF12(3.0) to Samtec ADM6-30-03.5-L-4-0-A / ADF6-30-03.5-L-4-0-A (the JTYU OBC–CMBD pair; user choice). Footprints written from Samtec's recommended PCB layouts; goldens: mated height 7.00 mm (Samtec ADX6 mated views, Table 1), top pose (0, 0, 8.6) mm, frames at `medium` confidence (no orientation keyword, §15.1). Vendor models are not redistributed. No contract rule changes. |
 | P2-1.40 | 2026-10-07 | D-P2-30 dead-code removal: the board viewer's one-board multi-occurrence mode (`setOccurrences` on the element and controller) is gone, with `setMoveAllowed()` (the `move-allowed` attribute remains), the `"gizmo"` pick kind, the `systemstatus` event, the viewer's Euler helpers and the frontend's unused `getPoses`. `projectComponent` / `projectPoint` take an occurrence in mode="system". §20.3–§20.5 marked superseded where §20.6–§20.8 replaced them. Board 3D tab pixel diff on JTYU-OBC: 0 px. |
+| P2-1.41 | 2026-10-07 | SB2-30a (R2, R5): §20.12 level of detail in mode="system": a body level (substrate and mask) between board and box, thresholds in CSS pixels, live tuning with the stats overlay (`setLodThresholds`, kept per browser), labels re-placed only when the view changes. Perf-25 fit-all: 52.5 → ~118 fps, p95 25 → 9.3 ms, 50.1 M → 11 M triangles; JTYU six boards: 58 → 81 fps, p95 25 → 17.5 ms. Board 3D tab pixel diff 0 px. |
 | P2-1.35 | 2026-10-07 | SB2-34: §20.11, proxy harnesses. The scene gains `harnesses`; emphasis sets take `wires`; the viewer draws each harness as straight segments that light per wire and glow their ends. Completes M3. |
 | P2-1.34 | 2026-10-07 | SB2-33: §20.10, net search in the System 3D tab: a board picker, one result per system net found by any of its names, Shift-pick adds it to the highlighted nets. `GET …/nets?members=true` (§8.2). |
 | P2-1.33 | 2026-10-07 | SB2-32 (D-P2-28): §20.9, click to trace. `GET …/nets?occurrence=&net=` exact lookup (§8.2); the clicked board net's system net lit in the selection green on every board; the System net card with boards and ordered hops; `frameParts`. Move panel: Revert undoes saved moves (SB2-31f follow-up, #490). |
@@ -984,3 +985,21 @@ Until M5 gives harnesses geometry, the System 3D view draws each one as straight
 - **Drawing.** An end is anchored at its connector's centre on the placement (the board's box centre before the board loads, or with no reference). Two ends: one segment. More: a star from the centroid of the anchored ends. Each segment carries the set of wires through it: all of them for two ends, those touching its end for a star (M5's per-segment wire sets replace this). Idle segments are dashed; `setHarnessesVisible(false)` hides them (the tab's **Harnesses** button, shown when there are any).
 - **Emphasis.** An emphasis set (§20.5) may carry `wires: [{harness, wire, occurrence?}]`, the wire hops of its system net; `occurrence` (a board the wire reaches) tells child-system copies apart. A segment carrying a lit wire draws solid in the set's colour (the first set to claim a wire keeps it, as for copper); the ends that wire reaches glow. With any net lit, unlit segments dim. The report counts `wires` lit per set.
 - The traced net (§20.9) and the Nets panel's sets pass their wire hops, so a net crossing a harness lights it.
+
+### 20.12 Level of detail (SB2-30a, user decisions 2026-10-05)
+
+Coarser levels only stop drawing parts of a board; the bundle's geometry is never simplified. mode="system" only: a board's own 3D tab always draws in full (pixel diff 0 px).
+
+- **Levels**, chosen per placement on the GPU each frame from the board's projected radius in **CSS pixels** (device pixels ÷ the canvas ratio, so a 2× screen does not keep every board at full detail):
+
+  | Level | At or above | Draws |
+  |---|---|---|
+  | full | `fullPx` (140) | everything: components, inner copper |
+  | board | `boardPx` (70) | outer copper, barrels, silkscreen, paste, and the body |
+  | body | `boxPx` (18) | the substrate and solder mask only |
+  | box | below `boxPx` | the board's box |
+
+  A finer level holds until the size drops below its threshold × `keep` (0.8).
+- **Tuning.** With the stats overlay (backquote) the view shows a slider per threshold. `setLodThresholds({fullPx?, boardPx?, boxPx?, keep?})` merges and returns the thresholds in force (kept consistent: full ≥ board ≥ box); `null` restores the defaults. Kept per browser.
+- `setLodOverride(0…3 | null)` forces a level; `getStats().lod` counts `{full, board, body, box, culled}`.
+- **Labels (R5).** Board labels are re-placed only when the view, the selection or the placements change, not on highlight-pulse frames.
