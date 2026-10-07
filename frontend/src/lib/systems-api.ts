@@ -559,6 +559,13 @@ export async function listSystemNets(systemId: string, search: string, occurrenc
   return body;
 }
 
+/** SB2-33: every system net (up to 500) with its visible board nets, for the System 3D tab's search. */
+export async function listSystemNetMembers(systemId: string, signal?: AbortSignal): Promise<SystemNetList> {
+  const query = new URLSearchParams({ members: "true", limit: "500" });
+  const { body } = await send<SystemNetList>(`${path(systemId, "nets")}?${query}`, { signal }, "Could not read the system's nets");
+  return body;
+}
+
 /**
  * SB2-32: the system net a board net belongs to, with its members and hops, or
  * null when the net stays on its board (no link carries it).

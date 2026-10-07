@@ -32,7 +32,8 @@ type DesignSearchFieldProps = {
     currentPage?: string | null;
     loading?: boolean;
     active?: boolean;
-    onPick: (hit: DesignSearchHit) => void;
+    /** `additive`: Shift+Enter or Shift-click (the System 3D tab adds the net to its highlighted set). */
+    onPick: (hit: DesignSearchHit, options?: { additive: boolean }) => void;
     /** Replaces the one-index search (the System 3D tab searches every board). */
     search?: (query: string) => DesignSearchHit[];
     /** Render in place instead of in the visualizer header's search slot. */
@@ -147,8 +148,8 @@ export function DesignSearchField({
     }, [activeIndex, hits, open]);
 
     const pick = useCallback(
-        (hit: DesignSearchHit) => {
-            onPick(hit);
+        (hit: DesignSearchHit, additive = false) => {
+            onPick(hit, { additive });
             setOpen(false);
         },
         [onPick],
@@ -183,7 +184,7 @@ export function DesignSearchField({
             const hit = hits[activeIndex];
             if (!hit) return;
             event.preventDefault();
-            pick(hit);
+            pick(hit, event.shiftKey);
             return;
         }
         if (event.key === "Escape") {
@@ -261,7 +262,11 @@ export function DesignSearchField({
                     id={listId}
                     role="listbox"
                     aria-label="Design search results"
-                    className="absolute inset-x-0 top-full z-50 mt-1 max-h-80 overflow-y-auto border border-border bg-popover text-popover-foreground shadow-md"
+                    className={cn(
+                        "absolute inset-x-0 top-full z-50 mt-1 max-h-80 overflow-y-auto border border-border bg-popover text-popover-foreground shadow-md",
+                        // Inline (the System 3D tab), hits carry board names: give them room past a narrow field.
+                        inline && "right-auto min-w-full w-[28rem] max-w-[calc(100vw-2rem)]",
+                    )}
                 >
                     {showLoading ? (
                         <p className="px-3 py-6 text-center text-sm text-muted-foreground">Loading design index…</p>
@@ -300,7 +305,7 @@ function ResultList({
     listId: string;
     hits: DesignSearchHit[];
     activeIndex: number;
-    onPick: (hit: DesignSearchHit) => void;
+    onPick: (hit: DesignSearchHit, additive: boolean) => void;
     onHover: (index: number) => void;
 }) {
     let lastKind: DesignSearchHit["kind"] | null = null;
@@ -332,7 +337,7 @@ function ResultList({
                             )}
                             onMouseMove={() => onHover(index)}
                             onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => onPick(hit)}
+                            onClick={(event) => onPick(hit, event.shiftKey)}
                         >
                             <span className="min-w-0 flex-1 truncate text-foreground">{hit.title}</span>
                             {hit.subtitle ? (

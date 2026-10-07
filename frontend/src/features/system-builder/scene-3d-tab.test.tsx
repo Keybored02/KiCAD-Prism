@@ -177,7 +177,7 @@ describe("Scene3dTab", () => {
     select({ kind: "net", sourceContext: "3D", netName: "/SPI_SCK", occurrence: "/sin_OBC-1" });
 
     expect(await screen.findByText("SPI_SCK")).toBeTruthy();
-    const lookup = fetchMock.mock.calls.map((call) => String(call[0])).find((url) => url.includes("/nets?"))!;
+    const lookup = fetchMock.mock.calls.map((call) => String(call[0])).find((url) => url.includes("/nets?") && url.includes("net="))!;
     expect(new URL(lookup, "http://x").searchParams.get("occurrence")).toBe("/sin_OBC-1");
     expect(new URL(lookup, "http://x").searchParams.get("net")).toBe("/SPI_SCK");
     await waitFor(() => expect(element.setNetEmphasis).toHaveBeenLastCalledWith([{
@@ -193,6 +193,48 @@ describe("Scene3dTab", () => {
     select(null);
     await waitFor(() => expect(element.setNetEmphasis).toHaveBeenLastCalledWith([]));
     expect(screen.queryByText("SPI_SCK")).toBeNull();
+  });
+
+  it("searches system nets: a pick traces one, Shift adds it to the highlighted nets (SB2-33)", async () => {
+    vi.stubGlobal("navigator", { ...navigator, gpu: {} });
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    const can = { groupId: "g_can", name: "CAN0_N", aliases: ["CAN0_N"], pinCount: 2, large: false, boards: 1,
+      members: [{ occurrence: "/sin_OBC-1", net: "CAN0_N" }] };
+    const fetchMock = vi.fn(async (url: string) => {
+      const text = String(url);
+      if (text.endsWith("/scene")) return json(mixed);
+      if (text.includes("/semantic-index/")) return json({
+        schema: "prism.semantic_index_a0", sourceRevisionKey: "src", components: [], terminals: [], indexes: {},
+        nets: [{ netUid: "n1", name: "CAN0_N", netCode: 1 }],
+      });
+      if (text.includes("/nets?")) return json({ systemId: "sys_1", groups: [can], total: 1 });
+      return json({ ...can, members: [{ occurrence: "/sin_OBC-1", displayPath: "OBC-1", net: "CAN0_N" }], hops: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Scene3dTab {...props} />);
+    await screen.findByText("4 boards");
+    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
+    element.setSelection = vi.fn();
+    element.setNetEmphasis = vi.fn(() => []);
+    element.frameNetEmphasis = vi.fn(() => true);
+    await act(async () => undefined);
+    const field = screen.getByRole("combobox", { name: "Find component or net" });
+    const find = async (query: string) => {
+      fireEvent.change(field, { target: { value: query } });
+      return screen.findByRole("option", { name: /CAN0_N\s*System net · OBC-1/ });
+    };
+
+    fireEvent.click(await find("can0"));
+    expect(element.setSelection).toHaveBeenCalledWith({ occurrence: "/sin_OBC-1", netName: "CAN0_N" });
+    expect(await screen.findByLabelText("System net CAN0_N")).toBeTruthy();
+
+    await find("can0_n");
+    fireEvent.keyDown(field, { key: "Enter", shiftKey: true });
+    await waitFor(() => expect(element.setNetEmphasis).toHaveBeenLastCalledWith([
+      expect.objectContaining({ key: "trace" }),
+      { key: "g_can", members: [{ occurrence: "/sin_OBC-1", net: "CAN0_N" }] },
+    ]));
+    expect(screen.getByRole("button", { name: /Nets \(1\)/ })).toBeTruthy();
   });
 
   it("asks before lighting a net over 200 pins, then lights its members", async () => {

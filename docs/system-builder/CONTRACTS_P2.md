@@ -334,6 +334,7 @@ Evaluation compares, **for the exports this parent's links and harness ends use*
 - Search (`?search=&occurrence=`) matches aliases case-insensitively, using fuzzy ranking.
 - Groups with `pinCount > 200` carry `"large": true`. The UI confirms before highlighting.
 - Restricted occurrences appear as `{"occurrence": null, "redacted": true}` members, and their hops are dropped.
+- **Members (SB2-33, P2-1.34):** `?members=true` adds each listed group's visible board nets, `"members": [{"occurrence", "net"}]` (restricted boards left out). The System 3D tab reads `?members=true&limit=500` once per system version to map board nets to system nets.
 - **Exact lookup (SB2-32, P2-1.33):** `?occurrence=<path>&net=<board net>` lists only the group holding exactly that board net on that occurrence (zero or one group). `net` without `occurrence` is 400. A board net no link carries is in no group.
 
 **As built (SB2-20, P2-1.21): harness wires.**
@@ -732,6 +733,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.34 | 2026-10-07 | SB2-33: §20.10, net search in the System 3D tab: a board picker, one result per system net found by any of its names, Shift-pick adds it to the highlighted nets. `GET …/nets?members=true` (§8.2). |
 | P2-1.33 | 2026-10-07 | SB2-32 (D-P2-28): §20.9, click to trace. `GET …/nets?occurrence=&net=` exact lookup (§8.2); the clicked board net's system net lit in the selection green on every board; the System net card with boards and ordered hops; `frameParts`. Move panel: Revert undoes saved moves (SB2-31f follow-up, #490). |
 | P2-1.32 | 2026-10-07 | SB2-31f: §20.8. Move mode, board labels, the key list and one GPU budget in the 3D tab's viewer; stackup separation per placement (user request); `<prism-system-scene>` retired. No API change. |
 | P2-1.31 | 2026-10-07 | SB2-31e.2: §20.7, the System 3D tab on the 3D tab's viewer: left rail with a Layers section per board, the 3D tab inspector on the board's design index, search over every board, system nets in the right rail. Move mode and labels wait for SB2-31f. |
@@ -937,3 +939,14 @@ Clicking a trace (or a pad) in the System 3D tab selects its **system net**.
   - pins and boards (restricted members counted), and each board frames the net there (`frameNetEmphasis("trace", occurrence)`);
   - the path: hops breadth first from the clicked board, each turned to run away from it (`OBC-1 J3.12 → CMBD J1.12`, then the link or harness wire and its signal). Fifty are listed until "Show all". A hop frames its two connectors with `frameParts([{occurrence, reference}])`.
 - The Selection rail follows the selection, as on the board 3D tab: a selection opens it and clearing it closes it (the Nets tab stays put).
+
+### 20.10 Net search (SB2-33, D-P2-19)
+
+The System 3D tab's toolbar search (`/` or Cmd+F, as on the board 3D tab) searches parts and nets with the header search's ranking.
+
+- **Board picker** beside it: "All boards", or one placed board (its display path). The search covers that board alone.
+- **System nets.** A board net that belongs to a system net (from `GET …/nets?members=true`) is one result for the system net, "System net · OBC-1, CMBD", whichever board matched best. A system net also matches by any of its names (aliases), so on one board it is found by the name it has on another; picking it selects that board's member net. Nets that stay on their board remain per board ("OBC-1 · Default"); parts are per board as before.
+- **Pick** selects the board net (on the picked board, else the best match) and so traces its system net (§20.9).
+- **Shift-pick** (Shift-click or Shift+Enter) adds the system net to the highlighted nets in the next palette colour and opens the Nets tab. A net over 200 pins asks first (D-P2-8).
+- **Esc** closes the list, then clears the query; with the field left, Esc clears the selection.
+- More than 500 system nets: the rest are searched per board only.

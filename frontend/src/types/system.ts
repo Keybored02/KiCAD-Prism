@@ -602,9 +602,17 @@ export interface SystemNetSummary {
   large: boolean;
 }
 
+/** A net as `GET …/nets` lists it. */
+export interface SystemNetListed extends SystemNetSummary {
+  /** Visible boards it reaches. */
+  boards?: number;
+  /** With `members=true` (SB2-33): its visible board nets. */
+  members?: { occurrence: string; net: string }[];
+}
+
 export interface SystemNetList {
   systemId: string;
-  groups: SystemNetSummary[];
+  groups: SystemNetListed[];
   total: number;
 }
 
