@@ -456,6 +456,15 @@ class AssembliesMixin:
         if last and last["status"] in ("failed", "cancelled"):
             # Never re-queued by a read: a retry is a deliberate Regenerate on the board's 3D tab.
             return {**entry, "status": "failed", "jobId": last["jobId"], "error": last["error"]}
+        if last and last["status"] == "completed":
+            # The job finished but its bundle is not readable here: pruned, invalidated, or built
+            # by a different generator build than this server's. Asking again would return the
+            # same completed job, and the board would read as "building" forever.
+            logger.warning("3D bundle job %s for %s@%s completed but no bundle is available",
+                           last["jobId"], project_id, commit)
+            return {**entry, "status": "failed", "jobId": last["jobId"],
+                    "error": "The 3D build finished but its bundle is not available on this server. "
+                             "Regenerate it from the board's 3D tab."}
         if caller.role in _BUNDLE_BUILDERS:
             try:
                 entry.update(status="building", jobId=self._bundles.build(project_id, commit, requested_by=caller.email))

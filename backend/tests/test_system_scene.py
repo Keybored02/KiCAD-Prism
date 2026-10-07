@@ -201,6 +201,19 @@ class FlatSceneTest(SceneCase):
                          ("failed", "job-old", "Missing required executable: kicad-cli"))
         self.assertNotIn(key, [(p, c) for p, c, _u in self.bundles.builds])
 
+    def test_a_completed_build_without_a_bundle_is_failed_not_building(self) -> None:
+        # E.g. the worker built under another generator build, or the bundle was pruned:
+        # a new request would return the same completed job, so "building" would never end.
+        row = self.store.get_instance(self.sid, self.instances["PWR"])
+        key = (row["project_id"], row["baseline_commit"])
+        self.bundles.jobs[key] = {"jobId": "job-done", "status": "completed", "error": None}
+        with self.assertLogs("app.services.systems.service", "WARNING"):
+            scene = self.service.scene(DESIGNER, self.sid)
+        [asset] = [a for a in scene["assets"] if a["projectId"] == "prj_pwr"]
+        self.assertEqual((asset["status"], asset["jobId"]), ("failed", "job-done"))
+        self.assertIn("Regenerate", asset["error"])
+        self.assertNotIn(key, [(p, c) for p, c, _u in self.bundles.builds])
+
     def test_a_ready_bundle_carries_its_url_and_frame(self) -> None:
         row = self.store.get_instance(self.sid, self.instances["OBC-A"])
         self.bundles.ready.add((row["project_id"], row["baseline_commit"]))
