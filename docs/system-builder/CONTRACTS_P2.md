@@ -773,6 +773,17 @@ Frozen for M5 (PLAN §7). Both placement-library halves hold them (`placement/ha
 
 **Wire diameters** `dᵢ` are M22759/16 finished diameters (SAE AS22759/16: ETFE, 600 V, medium weight, tin-coated copper, 150 °C), nominal, from NASA NEPP's AS22759/16 table, inches × 25.4: 24 AWG 1.143 mm, 22 → 1.3208, 20 → 1.524, 18 → 1.8034, 16 → 2.0066, 14 → 2.3622, 12 → 2.8956, 10 → 3.5306, 8 → 5.0546, 6 → 6.35, 4 → 7.9248, 2 → 9.8552, 1 → 10.9474, 0 → 12.1666, 00 → 13.8684. M22759/16 starts at 24 AWG, so a wire without a gauge, or with one the table lacks (26 AWG and finer, or a typo), takes the 24 AWG diameter and is marked **assumed**; the UI says so.
 
+### 17.6 End poses and exit legs (SB2-41)
+
+Python `placement/harness_ends.py`, TypeScript `placement/harness-ends.ts`; goldens in `placement_cases.json` `harnessEnds`.
+
+- **Mating plane.** A harness end's housing meets its board connector at the top of the connector's body along `F_c`'s z: the body's height in `F_c` (§14.8: model bounds when given, else courtyard × 5 mm), never below the board surface. *(Refines PLAN §7 item 1, which put the housing face on `F_c`'s origin, inside the connector.)*
+- **End pose.** `E = board pose · F_c · T(0, 0, h) · Rx(180°) · Rz(k · 90°)`: the housing's mating frame (§18.2: mating face on z = 0, mating toward +z, pin 1 toward −x), `k` the end's quarter-turns (default 0: pin 1 meets pad 1).
+- **Cable exit.** The centre of the housing's rear face: the part model's bounds under its alignment (`T(offset) · Rz · Ry · Rx · S`, §18.2), the face at the lowest z; without a model, 8 mm deep (§17.5). A model aligned inside out (nothing behind the mating face) exits on the mating face.
+- **Exit leg.** The **outward axis** is the connector's mating axis (`F_c` z in the world, away from the board). The **leg point** is the exit plus one boot (10 mm) along it; the curve (SB2-43) leaves the leg point tangent to that axis.
+- An end on a connector without a frame (`low` inference, nothing stored) has no pose: "Mating details needed".
+- Result: `{pose, exitMm, outward, legMm, depthMm, modeled, matingPlaneMm}`.
+
 ## 18. Mating parts in the catalog: mates with (SB2-16) and models (SB2-17)
 
 ### 18.1 "Mates with" **[T7]**
@@ -810,6 +821,7 @@ Frozen for M5 (PLAN §7). Both placement-library halves hold them (`placement/ha
 | P2-1.38 | 2026-10-07 | Follow-up review finding 3, D-P2-31: delete archives a referenced system (frozen parent snapshots count), `archivedAt`, 409 `system_archived`; `DELETE` answers 200 with the outcome. Workspace migration 42. |
 | P2-1.39 | 2026-10-07 | SB2-21 review: the mezzanine fixtures move from Hirose DF12(3.0) to Samtec ADM6-30-03.5-L-4-0-A / ADF6-30-03.5-L-4-0-A (the JTYU OBC–CMBD pair; user choice). Footprints written from Samtec's recommended PCB layouts; goldens: mated height 7.00 mm (Samtec ADX6 mated views, Table 1), top pose (0, 0, 8.6) mm, frames at `medium` confidence (no orientation keyword, §15.1). Vendor models are not redistributed. No contract rule changes. |
 | P2-1.40 | 2026-10-07 | D-P2-30 dead-code removal: the board viewer's one-board multi-occurrence mode (`setOccurrences` on the element and controller) is gone, with `setMoveAllowed()` (the `move-allowed` attribute remains), the `"gizmo"` pick kind, the `systemstatus` event, the viewer's Euler helpers and the frontend's unused `getPoses`. `projectComponent` / `projectPoint` take an occurrence in mode="system". §20.3–§20.5 marked superseded where §20.6–§20.8 replaced them. Board 3D tab pixel diff on JTYU-OBC: 0 px. |
+| P2-1.48 | 2026-10-08 | SB2-41: §17.6 harness end poses and exit legs (library pair, goldens `harnessEnds`); the housing meets the top of the connector body, not the board surface. |
 | P2-1.47 | 2026-10-08 | SB2-40: §17.5 the frozen harness geometry numbers (PLAN §7 defaults, signed off as D-P2-35) and the M22759/16 wire diameter table (NASA NEPP), default 24 AWG; unknown gauges assumed 24. |
 | P2-1.46 | 2026-10-08 | SB2-39: §20.14 mating in link details: `GET …/placement` and `GET …/links/{lid}/mate`; the solve's status per link with the V11 numbers, the driving choice, and a live preview of the mated pair while a frame is picked. Completes M4. |
 | P2-1.45 | 2026-10-08 | SB2-38: §20.13 moving mated boards: the stack prompt (Move with its stack / Break the mate), stack moves and their Revert as one `PATCH …/poses` (§14.7), Mated / Mate overridden badges and Snap back. |

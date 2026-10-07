@@ -22,7 +22,7 @@ from pathlib import Path
 from kicad_monkey import kicad_pcb_footprint, kicad_sexpr
 
 from app.services.systems.interface_extractor import _footprint_geometry, extract_interface
-from app.services.systems.placement import mate, poses, solve
+from app.services.systems.placement import harness_ends, mate, poses, solve
 from app.services.systems.placement.frames import connector_frame, infer
 
 SOURCES = Path(__file__).resolve().parent / "sources"
@@ -270,6 +270,39 @@ def solve_cases() -> list[dict]:
     return out
 
 
+def harness_end_cases() -> list[dict]:
+    """Harness end poses and exit legs (§17.6), computed by the Python half."""
+    s = math.sqrt(0.5)
+    tilted = {"translationMm": [100.0, -20.0, 5.0], "rotation": poses.canonical_rotation([0.0, 0.3, 0.2, 0.93])}
+    housing = {"boundsMm": {"minMm": [-6.0, -3.0, -14.0], "maxMm": [6.0, 3.0, 0.0]},
+               "alignment": {"offsetMm": [0.5, 0.0, 0.0], "rotationDeg": [0.0, 0.0, 90.0], "scale": 1.0}}
+    scaled = {"boundsMm": {"minMm": [-0.6, -0.3, -1.4], "maxMm": [0.6, 0.3, 0.0]},
+              "alignment": {"offsetMm": [0.0, 0.0, 0.0], "rotationDeg": [0.0, 180.0, 0.0], "scale": 10.0}}
+    header_v, header_h = pose(stock("header_v"), x=50, y=-10, angle=0), pose(stock("header_h"), x=0, y=0, angle=0)
+    specs = [
+        ("vertical header, no housing model", poses.IDENTITY, header_v, None, 0, None, None),
+        ("right-angle header: the exit runs along the board", poses.IDENTITY, header_h, None, 0, None, None),
+        ("back-side header on a tilted board, a quarter turn", tilted,
+         pose(stock("header_v"), x=20, y=-30, angle=90, side="bottom"), None, 1, None, None),
+        ("a housing model aligned by a quarter turn sets the depth", poses.IDENTITY, header_v, None, 0, housing, None),
+        ("a scaled, flipped housing model", poses.IDENTITY, header_v, None, 0, scaled, None),
+        ("connector body bounds set the mating plane", poses.IDENTITY, header_v, None, 0, None,
+         {"minMm": [-1.27, -8.89, 0.0], "maxMm": [1.27, 1.27, 8.5]}),
+        ("an override frame: the right-angle header turned to +y", poses.IDENTITY, header_h,
+         {"axis": "+y", "quarterTurns": 0}, 0, None, None),
+        ("no frame: details needed", poses.IDENTITY, dict(pose(stock("df40"), x=0, y=0, angle=0), courtyard=None),
+         None, 0, None, None),
+    ]
+    out = []
+    for name, world, geometry, stored, turns, housing_model, body in specs:
+        args = {"boardWorld": world, "geometry": geometry, "thicknessMm": THICKNESS, "stored": stored,
+                "quarterTurns": turns, "housing": housing_model, "bodyMm": body}
+        out.append({"name": name, "input": args,
+                    "expected": harness_ends.board_end(world, geometry, THICKNESS, stored, turns, housing_model, body)})
+    del s
+    return out
+
+
 def compact(value, indent: int = 0) -> str:
     """JSON with every container that fits in 120 columns on one line (pads stay one per line)."""
     flat = json.dumps(value)
@@ -287,7 +320,7 @@ def main() -> None:
     OUT.write_text(compact({"schema": "prism.placement_cases.v1", "kicad": "10.0.6 stock footprints",
                             "tolerance": {"mm": 1e-6, "unit": 1e-9}, "frames": cases(),
                             "poses": pose_cases(), "mates": mate_cases(),
-                            "solves": solve_cases(), "mateEnds": MATE_ENDS}) + "\n")
+                            "solves": solve_cases(), "harnessEnds": harness_end_cases(), "mateEnds": MATE_ENDS}) + "\n")
 
 
 if __name__ == "__main__":

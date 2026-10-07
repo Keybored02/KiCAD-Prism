@@ -152,7 +152,7 @@ export function bodyCorners(geometry: ConnectorGeometry, thicknessMm: number | n
   return corners;
 }
 
-function boxIn(frame: ConnectorFrame, corners: readonly Vec3[]): [number[], number[]] {
+export function boxIn(frame: ConnectorFrame, corners: readonly Vec3[]): [number[], number[]] {
   const points = corners.map((c) => local(frame, c));
   return [
     [0, 1, 2].map((i) => Math.min(...points.map((p) => p[i]))),
