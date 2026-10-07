@@ -22,7 +22,7 @@ from __future__ import annotations
 import wx
 
 from . import prism_theme as th
-from .widgets import Button, Card
+from .widgets import Button, Card, ui_font
 
 
 def _c(hex_value):
@@ -44,6 +44,7 @@ class _Prompt(wx.Dialog):
     def __init__(self, parent, message, title, pal=None):
         super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE)
         self.pal = pal or palette()
+        self.SetFont(ui_font(self))
         self.result = None
 
         self.SetBackgroundColour(_c(self.pal["background"]))

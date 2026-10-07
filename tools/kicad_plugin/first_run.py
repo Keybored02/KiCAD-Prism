@@ -20,7 +20,7 @@ import wx
 from . import prism_theme as th
 from . import prompts
 from .agent_client import PROBE_TIMEOUT, AgentClient, AgentUnavailable
-from .widgets import Button, Card
+from .widgets import Button, Card, Checkbox, ui_font
 
 MARKER = "first_run_done"
 
@@ -55,6 +55,7 @@ class FirstRunDialog(wx.Dialog):
             style=wx.DEFAULT_DIALOG_STYLE,
         )
         self.pal = pal
+        self.SetFont(ui_font(self))
         self.agent_ok = False
         self.SetBackgroundColour(_c(pal["background"]))
         self._build()
@@ -69,7 +70,9 @@ class FirstRunDialog(wx.Dialog):
         title.SetForegroundColour(_c(self.pal["foreground"]))
         f = title.GetFont()
         f.SetPointSize(th.FONT_TITLE)
-        f.SetWeight(wx.FONTWEIGHT_BOLD)
+        # The web's headings are semibold, and this title carries the themed
+        # face inherited from the dialog's own font.
+        f.SetWeight(wx.FONTWEIGHT_SEMIBOLD)
         title.SetFont(f)
         root.Add(title, 0, wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
 
@@ -188,12 +191,11 @@ class FirstRunDialog(wx.Dialog):
             th.SP_SM,
         )
 
-        self.autostart = wx.CheckBox(card, label="Start the Prism agent at login")
+        self.autostart = Checkbox(card, "Start the Prism agent at login", self.pal)
         # Pre-ticked on a fresh setup: it's what makes the agent behave as
         # advertised (there whether or not KiCad is open), and declining is one
         # click. If it's already on, that's what we show.
         self.autostart.SetValue(True)
-        self._style_check(self.autostart)
         card.body.Add(self.autostart, 0)
         card.body.Add(
             card.label(self._autostart_detail(), tone="muted_fg", small=True),
@@ -203,9 +205,8 @@ class FirstRunDialog(wx.Dialog):
         )
 
         if proto.get("supported"):
-            self.handler = wx.CheckBox(card, label="Open prism:// links with Prism")
+            self.handler = Checkbox(card, "Open prism:// links with Prism", self.pal)
             self.handler.SetValue(bool(proto.get("registered")))
-            self._style_check(self.handler)
             card.body.Add(self.handler, 0)
             card.body.Add(
                 card.label(self._handler_detail(), tone="muted_fg", small=True),
@@ -275,10 +276,6 @@ class FirstRunDialog(wx.Dialog):
         self.body.Clear(delete_windows=True)
         self._render_options()
         self._relayout()
-
-    def _style_check(self, ctrl):
-        ctrl.SetForegroundColour(_c(self.pal["foreground"]))
-        ctrl.SetBackgroundColour(_c(self.pal["card"]))
 
     def _autostart_detail(self) -> str:
         """Say exactly what will be written. Vague reassurance is what makes people

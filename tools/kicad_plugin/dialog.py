@@ -14,7 +14,6 @@ import sys
 import threading
 
 import wx
-import wx.adv
 
 from . import agent_launcher
 from . import prism_theme as th
@@ -29,9 +28,11 @@ from .widgets import (
     ChangeRow,
     Disclosure,
     IconButton,
+    LinkLabel,
     ScrollThumb,
     StatusIcon,
     draw_kind_icon,
+    ui_font,
 )
 
 try:
@@ -86,6 +87,7 @@ class PrismDialog(wx.Dialog):
         # Follow the OS/KiCad appearance: a light dialog inside a dark KiCad (or
         # the reverse) looks broken.
         self.pal = th.palette(dark=wx.SystemSettings.GetAppearance().IsDark())
+        self.SetFont(ui_font(self))
         self.board_path = board_path
         self.data = None
         self.changes = None  # None = couldn't fetch; [] = genuinely nothing
@@ -123,7 +125,7 @@ class PrismDialog(wx.Dialog):
         header = wx.BoxSizer(wx.HORIZONTAL)
         if os.path.isfile(LOGO):
             img = wx.Image(LOGO, wx.BITMAP_TYPE_PNG).Scale(
-                28, 28, wx.IMAGE_QUALITY_HIGH
+                24, 24, wx.IMAGE_QUALITY_HIGH
             )
             header.Add(
                 wx.StaticBitmap(self, bitmap=wx.Bitmap(img)),
@@ -136,44 +138,62 @@ class PrismDialog(wx.Dialog):
         self.title.SetForegroundColour(_c(self.pal["foreground"]))
         tf = self.title.GetFont()
         tf.SetPointSize(th.FONT_TITLE)
-        tf.SetWeight(wx.FONTWEIGHT_BOLD)
+        # The web's headings are semibold (600), not heavy bold.
+        tf.SetWeight(wx.FONTWEIGHT_SEMIBOLD)
         self.title.SetFont(tf)
         header.Add(self.title, 0, wx.ALIGN_CENTER_VERTICAL)
 
         header.AddStretchSpacer()
 
-        # Who you are on the SERVER, over the three things whose state you would
-        # otherwise go looking for. The git identity is on the tooltip: it is a
-        # different identity, and the two can silently disagree.
-        corner = wx.BoxSizer(wx.VERTICAL)
-
-        self.user = wx.StaticText(self, label="", style=wx.ALIGN_RIGHT)
+        # The right side is ONE line: who you are, the health dots, and the two
+        # utilities. A two-line corner stack aligned badly against the single-line
+        # title, and refresh/settings crowded the footer beside the primary action.
+        #
+        # The user label is the SERVER identity, and only that. The git identity is a
+        # different person and lives on the tooltip: showing both inline would suggest
+        # they're the same thing, and they are exactly the thing worth telling apart.
+        self.user = wx.StaticText(self, label="")
         self.user.SetForegroundColour(_c(self.pal["muted_fg"]))
         uf = self.user.GetFont()
         uf.SetPointSize(th.FONT_SMALL)
         self.user.SetFont(uf)
-        corner.Add(self.user, 0, wx.ALIGN_RIGHT | wx.BOTTOM, th.SP_XS)
+        header.Add(self.user, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, th.SP_SM)
 
-        icons = wx.BoxSizer(wx.HORIZONTAL)
         # First, because it's the precondition for the rest: with no agent, the other
         # three know nothing and go grey.
         self.agent_icon = StatusIcon(
             self, "agent", self.pal, tooltip="Contacting the agent"
         )
-        icons.Add(self.agent_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        header.Add(self.agent_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
         self.server_icon = StatusIcon(
             self, "server", self.pal, tooltip="Contacting the agent"
         )
-        icons.Add(self.server_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        header.Add(self.server_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
         self.git_icon = StatusIcon(self, "git", self.pal, tooltip="No repository yet")
-        icons.Add(self.git_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
+        header.Add(self.git_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
         self.library_icon = StatusIcon(
             self, "library", self.pal, tooltip="Symbol library"
         )
-        icons.Add(self.library_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
-        corner.Add(icons, 0, wx.ALIGN_RIGHT)
+        header.Add(self.library_icon, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_XS)
 
-        header.Add(corner, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_SM)
+        header.Add(
+            IconButton(
+                self, "refresh", self.pal, tooltip="Refresh",
+                variant="ghost", on_click=self._load,
+            ),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
+            th.SP_SM,
+        )
+        header.Add(
+            IconButton(
+                self, "settings", self.pal, tooltip="Settings",
+                variant="ghost", on_click=self._on_settings,
+            ),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
+            th.SP_XS,
+        )
 
         root.Add(header, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, th.SP_LG)
 
@@ -214,6 +234,9 @@ class PrismDialog(wx.Dialog):
         root.Add(body, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, th.SP_LG)
 
         buttons = wx.BoxSizer(wx.HORIZONTAL)
+        # The footer carries the one destination action only. Refresh and settings
+        # moved up to the header, where utilities belong; a row mixing them with the
+        # primary action read as three unrelated buttons.
         self.open_btn = Button(
             self,
             "Open",
@@ -223,33 +246,15 @@ class PrismDialog(wx.Dialog):
             icon="open",
         )
         self.open_btn.Enable(False)
-        buttons.Add(self.open_btn, 0, wx.RIGHT, th.SP_SM)
-        buttons.Add(
-            IconButton(
-                self,
-                "refresh",
-                self.pal,
-                tooltip="Refresh",
-                variant="secondary",
-                on_click=self._load,
-            ),
-            0,
-        )
+        buttons.Add(self.open_btn, 0)
         buttons.AddStretchSpacer()
-        buttons.Add(
-            IconButton(
-                self,
-                "settings",
-                self.pal,
-                tooltip="Settings",
-                variant="secondary",
-                on_click=self._on_settings,
-            ),
-            0,
-        )
-        root.Add(buttons, 0, wx.EXPAND | wx.ALL, th.SP_LG)
+        root.Add(buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, th.SP_LG)
 
         self.SetSizer(root)
+        # The height the dialog ASKED for at open. While the window still matches
+        # it, the height follows the content downward (see _fit_height_to_content);
+        # a user resize takes over and the height stops tracking.
+        self._asked_h = self.GetSize().height
 
     def _max_scroll_pos(self) -> int:
         """The furthest down the view may legally sit, in scroll units.
@@ -322,6 +327,45 @@ class PrismDialog(wx.Dialog):
         self.thumb.Refresh()  # the thumb size depends on the new content height
         self.Layout()
         self.Refresh()
+        self._fit_height_to_content()
+
+    def _fit_height_to_content(self):
+        """Shrink the window down to the content while the content is shorter.
+
+        The dialog asks for 731px at open because an expanded section needs it;
+        the collapsed panel is two-thirds empty, and dead space below the last
+        card reads as a blank screenshot rather than a finished layout. So while
+        the user has not resized the window themselves (the height is still what
+        we asked at open, +/- a few px), the height follows the content down.
+        It never grows back on its own: content taller than the window scrolls,
+        which is what the scroll area is for.
+        """
+        size = self.GetSize()
+        ours = getattr(self, "_auto_h", None)
+        # Stop once the user has resized: the height is theirs. It is ours to
+        # move only while it is still the height we asked at open, or a height
+        # this fit last set.
+        if ours is not None and abs(size.height - ours) > 4:
+            return
+        if ours is None and abs(size.height - self._asked_h) > 4:
+            return
+        # Height the ROOT sizer needs around the scroll area (header, footer,
+        # the window frame), plus what the content itself wants. Computed from the
+        # sizers rather than from scroll-position slack, which can be stale
+        # mid-layout and left the collapsed panel at its full asked height.
+        root_min = self.GetSizer().GetMinSize().height          # scroll pane at ~0
+        scroll_need = self.content.GetMinSize().height
+        chrome = size.height - self.GetClientSize().height       # title bar + borders
+        # Never below a usable floor, never above the height we asked at open:
+        # content taller than that scrolls, which is what the scroll area is for.
+        want_h = max(root_min + scroll_need, self.FromDIP(320)) + chrome
+        want_h = min(want_h, self._asked_h)
+        # Bidirectional, not shrink-only: the diff loads after the first fit, and
+        # a collapse that opened before its rows arrived must be allowed to grow
+        # back to the newly computed height.
+        if abs(want_h - size.height) > 8:
+            self._auto_h = want_h
+            self.SetSize(wx.Size(size.width, want_h))
 
     # -- data --------------------------------------------------------------
 
@@ -901,9 +945,12 @@ class PrismDialog(wx.Dialog):
         self.status.SetToolTip("Open this folder")
         self.Layout()
 
+        # The changes card first: seeing what changed and committing it is why the
+        # panel is opened, and it used to sit below the fold behind the git card.
+        # The repository card answers where that work goes.
         self._render_detached_banner(git)
-        self._render_git(git, prism)
         self._render_changes()
+        self._render_git(git, prism)
         self.open_btn.Enable(bool(prism))
 
     def _add_branch_row(self, card, git):
@@ -947,14 +994,12 @@ class PrismDialog(wx.Dialog):
             th.SP_XS,
         )
 
-        badge = Badge(card, label, self.pal, tone=tone)
+        badge = Badge(card, label, self.pal, tone=tone, on_click=self._switch_branch)
         badge.SetToolTip(tip)
-        badge.SetCursor(wx.Cursor(wx.CURSOR_HAND))
-        badge.Bind(wx.EVT_LEFT_UP, lambda _e: self._switch_branch())
         line.Add(badge, 0, wx.ALIGN_CENTER_VERTICAL)
         line.AddStretchSpacer()
 
-        card.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
+        card.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_SM)
 
     # -- publishing ---------------------------------------------------------
 
@@ -1111,14 +1156,14 @@ class PrismDialog(wx.Dialog):
         # commit. Testing it alone made the whole card claim "Not a git repository" for a
         # repo that is plainly fine, so ask about the repo, not about the branch.
         if not git or not git.get("last_commit_hash"):
-            card = Card(self.scroll, "Git", self.pal)
+            card = Card(self.scroll, "Repository", self.pal)
             card.row("Status", "Not a git repository", tone="muted_fg")
             self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
 
-        # No heading: the branch and commit icons already say what this card is, and a
-        # "GIT" caption above them was one label too many.
-        card = Card(self.scroll, "", self.pal)
+        # Titled: the changes card above has its own header, and an untitled card
+        # floating after it read as a second list rather than a section.
+        card = Card(self.scroll, "Repository", self.pal)
 
         # The branch, first, as a clickable pill: it says which version you have open and
         # is the way to switch. No separate "Switch branch" button, the tag is the control.
@@ -1408,6 +1453,10 @@ class PrismDialog(wx.Dialog):
                 wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
                 th.SP_SM,
             )
+
+        # The push/publish button right-aligns: it is this row's primary action
+        # and belongs at the far end, like a form's submit.
+        row.AddStretchSpacer()
 
         # Push only when ahead and NOT diverged (diverged needs a merge first).
         if ahead and not behind:
@@ -1936,16 +1985,16 @@ class PrismDialog(wx.Dialog):
 
         if subject:
             if prism:
-                text = wx.adv.HyperlinkCtrl(card, label=subject, url="")
-                text.SetNormalColour(_c(self.pal["foreground"]))
-                text.SetHoverColour(_c(self.pal["primary"]))
-                text.SetVisitedColour(_c(self.pal["foreground"]))
-                text.SetBackgroundColour(_c(self.pal["card"]))
-                text.SetToolTip("Open this commit in Prism")
-                text.Bind(
-                    wx.adv.EVT_HYPERLINK,
-                    lambda _e, h=commit_hash, p=prism: self._open_commit(p, h),
+                # Plain text that tints on hover, not an underlined native
+                # hyperlink: the underline read as a browser link pasted into
+                # the panel, and the web UI's text links never underline.
+                text = LinkLabel(
+                    card,
+                    subject,
+                    self.pal,
+                    on_click=lambda h=commit_hash, p=prism: self._open_commit(p, h),
                 )
+                text.SetToolTip("Open this commit in Prism")
                 # The tag is part of the link: clicking the SHA is the obvious gesture,
                 # and having it do nothing would be a small betrayal.
                 sha.SetToolTip("Open this commit in Prism")
@@ -1963,7 +2012,7 @@ class PrismDialog(wx.Dialog):
             row.Add(text, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, th.SP_SM)
 
         row.AddStretchSpacer()
-        card.body.Add(row, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
+        card.body.Add(row, 0, wx.EXPAND | wx.BOTTOM, th.SP_SM)
 
     def _open_commit(self, prism, commit_hash):
         """Open this commit on the project's page in Prism, in its own branch.
@@ -2006,19 +2055,19 @@ class PrismDialog(wx.Dialog):
             # The diff is still being computed in the background; the rest of the
             # dialog is already up. Say so rather than looking empty or broken.
             card.row("Uncommitted changes", "Computing…", tone="muted_fg")
-            self.content.Add(card, 0, wx.EXPAND)
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
 
         if self.changes is None:
             card.row("Uncommitted changes", "Couldn't read", tone="muted_fg")
-            self.content.Add(card, 0, wx.EXPAND)
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
 
         if not self.changes:
             card.row(
                 "Uncommitted changes", "Nothing to commit", badge=True, tone="success"
             )
-            self.content.Add(card, 0, wx.EXPAND)
+            self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
             return
 
         # KiCad's own droppings (backup archives, -bak files, autosaves, caches) are
@@ -2071,7 +2120,7 @@ class PrismDialog(wx.Dialog):
             self._add_staging(card, has_design=bool(design))
             self._add_commit_box(card, has_design=bool(design))
 
-        self.content.Add(card, 0, wx.EXPAND)
+        self.content.Add(card, 0, wx.EXPAND | wx.BOTTOM, th.SP_MD)
 
     def _staged_paths(self):
         """Files currently staged, from the git status the dialog already fetched."""
@@ -2089,10 +2138,12 @@ class PrismDialog(wx.Dialog):
         # Only when there is something staged: a "Staged:" heading over nothing is a
         # label explaining its own emptiness.
         if staged:
+            # A section caption, same style as the card headings: the staged list
+            # under it is indented, which is how it reads as a sub-list.
             card.body.Add(
-                card.label("Staged:", tone="foreground", bold=True),
+                card.label("Staged", tone="muted_fg", small=True, bold=True),
                 0,
-                wx.LEFT | wx.TOP,
+                wx.TOP,
                 th.SP_SM,
             )
             # The files themselves, not a count. "3 files staged" told you the number
@@ -2107,7 +2158,7 @@ class PrismDialog(wx.Dialog):
                 )
                 line.Add(
                     Button(
-                        card, "Unstage", self.pal, variant="secondary",
+                        card, "Unstage", self.pal, variant="secondary", size="sm",
                         on_click=lambda p=path: self._unstage_paths([p]),
                     ),
                     0,
@@ -2119,16 +2170,20 @@ class PrismDialog(wx.Dialog):
         # Outlined, not ghost: a ghost button is invisible until hovered, and this is
         # the control most people are looking for in this card. Hidden when there is no
         # design work, since it stages only design files and would refuse outright.
+        # Compact ("sm"), like the per-file toggles above: a full-height button in
+        # this row read as a second tier of primary actions.
         if has_design:
             row.Add(
-                Button(card, "Stage all", self.pal, variant="secondary", on_click=self._stage_all),
+                Button(card, "Stage all", self.pal, variant="secondary", size="sm",
+                       on_click=self._stage_all),
                 0,
                 wx.RIGHT,
                 th.SP_XS,
             )
         if staged:
             row.Add(
-                Button(card, "Unstage all", self.pal, variant="secondary", on_click=self._unstage_all),
+                Button(card, "Unstage all", self.pal, variant="secondary", size="sm",
+                       on_click=self._unstage_all),
                 0,
                 wx.RIGHT,
                 th.SP_XS,
@@ -2137,7 +2192,8 @@ class PrismDialog(wx.Dialog):
         # away", and a stash that took only half of it would leave the tree in a state
         # nobody asked for.
         row.Add(
-            Button(card, "Stash", self.pal, variant="secondary", on_click=self._stash),
+            Button(card, "Stash", self.pal, variant="secondary", size="sm",
+                   on_click=self._stash),
             0,
             wx.RIGHT,
             th.SP_XS,
@@ -2151,12 +2207,13 @@ class PrismDialog(wx.Dialog):
                 tooltip="Discard uncommitted changes",
                 variant="destructive-ghost",
                 on_click=self._discard,
+                size="sm",
             ),
             0,
             wx.ALIGN_CENTER_VERTICAL,
         )
-        # Breathing room under the "N files staged" line; the buttons sat right on it.
-        card.body.Add(row, 0, wx.LEFT | wx.TOP, th.SP_SM)
+        # Breathing room under the staged list; the buttons sat right on it.
+        card.body.Add(row, 0, wx.TOP, th.SP_SM)
 
     def _stage_all(self):
         self._staging_action(lambda repo: AgentClient().stage(repo, all=True))
@@ -2171,14 +2228,18 @@ class PrismDialog(wx.Dialog):
         self._staging_action(lambda repo: AgentClient().unstage(repo, paths=paths))
 
     def _file_stage_button(self, card, path):
-        """A per-file stage/unstage toggle, reflecting whether the path is staged now."""
+        """A per-file stage/unstage toggle, reflecting whether the path is staged now.
+
+        Compact ("sm"): it rides on a change row, and a default-height button
+        next to an 18px row made the row look like a billboard.
+        """
         if path in set(self._staged_paths()):
             return Button(
-                card, "Unstage", self.pal, variant="secondary",
+                card, "Unstage", self.pal, variant="secondary", size="sm",
                 on_click=lambda p=path: self._unstage_paths([p]),
             )
         return Button(
-            card, "Stage", self.pal, variant="secondary",
+            card, "Stage", self.pal, variant="secondary", size="sm",
             on_click=lambda p=path: self._stage_paths([p]),
         )
 
@@ -2211,29 +2272,32 @@ class PrismDialog(wx.Dialog):
         self._rebuild()
 
     def _add_commit_box(self, card, has_design=True):
-        """A message field and the commit buttons beneath the uncommitted changes.
+        """A message field and the commit button beneath the uncommitted changes.
 
-        Two buttons, because there are two intents. "Commit staged" honours exactly what
-        the user ticked, and only shows when something is staged. "Commit all" stages
-        every design change first (never churn) and commits, the quick path. A detached
-        HEAD is handled by the agent, which refuses and prompts to make a branch first.
+        One button, because there is only one intent: commit what this panel says will
+        be committed. Two buttons ("Commit staged" beside a "Commit" that staged
+        everything first) meant the second silently overrode the staging the user had
+        just done, which was a trap rather than a shortcut. When nothing is staged the
+        button falls back to staging every design change, so the quick path still works.
+        A detached HEAD is handled by the agent, which refuses and prompts to make a
+        branch first.
         """
         # SP_MD above the label separates the commit box from the staging controls;
         # they are two different steps and were running together.
         card.body.Add(
             card.label("Commit message", tone="muted_fg", small=True),
             0,
-            wx.LEFT | wx.TOP,
+            wx.TOP,
             th.SP_MD,
         )
-        # The field: taller, bordered, with a placeholder and real inner padding.
-        # wx.TextCtrl cannot be owner-drawn the way the buttons are, but BORDER_SIMPLE
-        # plus the muted fill and a themed border gives it the same shape as the rest
-        # of the panel instead of the raw native sunken box.
+        # The field: control height, bordered, with a placeholder and real inner
+        # padding. wx.TextCtrl cannot be owner-drawn the way the buttons are, but
+        # BORDER_SIMPLE plus the muted fill and a themed border gives it the same
+        # shape as the rest of the panel instead of the raw native sunken box.
         self.commit_message = wx.TextCtrl(
             card,
             value="",
-            size=wx.Size(-1, 32),
+            size=wx.Size(-1, self.FromDIP(th.CONTROL_HEIGHT)),
             style=wx.BORDER_SIMPLE,
         )
         self.commit_message.SetBackgroundColour(_c(self.pal["muted"]))
@@ -2246,7 +2310,7 @@ class PrismDialog(wx.Dialog):
         card.body.Add(
             self.commit_message,
             0,
-            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP,
+            wx.EXPAND | wx.TOP,
             th.SP_SM,
         )
 
@@ -2273,7 +2337,7 @@ class PrismDialog(wx.Dialog):
             button.Enable(False)
             button.SetToolTip("Stage a file first: there are no design changes to commit.")
         row.Add(button, 0)
-        card.body.Add(row, 0, wx.LEFT | wx.TOP | wx.BOTTOM, th.SP_SM)
+        card.body.Add(row, 0, wx.TOP, th.SP_SM)
 
     def _commit(self, staged_only=False):
         """Commit. `staged_only` commits exactly what is staged; otherwise all design work.
@@ -2397,7 +2461,7 @@ class PrismDialog(wx.Dialog):
                     0,
                     wx.ALIGN_CENTER_VERTICAL,
                 )
-            card.body.Add(line, 0, wx.EXPAND | wx.LEFT, th.SP_MD)
+            card.body.Add(line, 0, wx.EXPAND | wx.LEFT | wx.BOTTOM, th.SP_SM)
 
         card.body.Add(
             card.label(
@@ -2434,7 +2498,7 @@ class PrismDialog(wx.Dialog):
                 wx.ALIGN_CENTER_VERTICAL,
             )
             line.Add(self._file_stage_button(card, path), 0, wx.ALIGN_CENTER_VERTICAL)
-            card.body.Add(line, 0, wx.EXPAND | wx.LEFT | wx.BOTTOM, th.SP_MD)
+            card.body.Add(line, 0, wx.EXPAND | wx.LEFT | wx.BOTTOM, th.SP_SM)
             return
 
         holder = wx.BoxSizer(wx.VERTICAL)
@@ -2497,10 +2561,10 @@ class PrismDialog(wx.Dialog):
                     ),
                     0,
                     wx.LEFT | wx.TOP,
-                    th.SP_MD * 2 + 12,
+                    th.SP_MD * 2 + 6,
                 )
 
-        card.body.Add(holder, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS)
+        card.body.Add(holder, 0, wx.EXPAND | wx.BOTTOM, th.SP_SM)
 
     # -- actions -----------------------------------------------------------
 
@@ -2582,6 +2646,7 @@ class StashesDialog(wx.Dialog):
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
         )
         self.pal = pal
+        self.SetFont(ui_font(self))
         self.result = (None, None)
 
         self.SetBackgroundColour(_c(pal["background"]))

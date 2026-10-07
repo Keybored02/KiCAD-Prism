@@ -13,7 +13,7 @@ import wx
 from . import prism_theme as th
 from . import prompts
 from .agent_client import AgentClient, AgentUnavailable
-from .widgets import Badge, Button, Card, IconButton
+from .widgets import Badge, Button, Card, Checkbox, IconButton, ui_font
 
 
 def _c(hex_value):
@@ -47,6 +47,7 @@ class SettingsDialog(wx.Dialog):
         )
         self.SetMinSize(wx.Size(560, 480))
         self.pal = pal
+        self.SetFont(ui_font(self))
         self.data = None
         self.SetBackgroundColour(_c(pal["background"]))
         self._build()
@@ -329,8 +330,11 @@ class SettingsDialog(wx.Dialog):
         self.roots = wx.ListBox(
             projects,
             choices=list(settings.get("projects_roots") or []),
-            size=wx.Size(-1, 90),
         )
+        # Sized to the rows it can hold (max 4), not a fixed 90px slab: a list
+        # with one entry sat mostly empty and dragged the rest of the panel down.
+        rows = max(1, min(len(self.roots.GetStrings()) + (0 if self.roots.GetStrings() else 1), 4))
+        self.roots.SetSize(wx.Size(-1, rows * (self.roots.GetCharHeight() + 2) + 8))
         self.roots.SetForegroundColour(_c(self.pal["foreground"]))
         self.roots.SetBackgroundColour(_c(self.pal["background"]))
         projects.body.Add(self.roots, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS)
@@ -355,7 +359,7 @@ class SettingsDialog(wx.Dialog):
                 "minus",
                 self.pal,
                 tooltip="Remove the selected folder",
-                variant="destructive-ghost",
+                variant="secondary",
                 on_click=self._remove_root,
             ),
             0,
@@ -371,7 +375,7 @@ class SettingsDialog(wx.Dialog):
         """
         # -- startup --------------------------------------------------------
         startup = Card(self.scroll, "Startup", self.pal)
-        self.autostart = wx.CheckBox(startup, label="Start the Prism agent at login")
+        self.autostart = Checkbox(startup, "Start the Prism agent at login", self.pal)
         self.autostart.SetValue(bool(auto.get("enabled")))
         self.autostart.SetForegroundColour(_c(self.pal["foreground"]))
         self.autostart.SetBackgroundColour(_c(self.pal["card"]))
@@ -400,8 +404,8 @@ class SettingsDialog(wx.Dialog):
         # -- links ----------------------------------------------------------
         links = Card(self.scroll, "prism:// links", self.pal)
         if proto.get("supported"):
-            self.handler = wx.CheckBox(
-                links, label="Let this machine open prism:// links"
+            self.handler = Checkbox(
+                links, "Let this machine open prism:// links", self.pal
             )
             self.handler.SetValue(bool(proto.get("registered")))
             self.handler.SetForegroundColour(_c(self.pal["foreground"]))

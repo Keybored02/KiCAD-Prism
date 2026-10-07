@@ -112,6 +112,7 @@ def _reload_for_dev() -> "_Modules":
     for name in (
         "prism_theme",
         "widgets",
+        "prompts",
         "agent_client",
         "agent_launcher",
         "version",

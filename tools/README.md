@@ -293,6 +293,29 @@ python tools/build_agent.py --console  # debug only: keep a console so crashes s
 `find_binary()` looks in `tools/dist/` too, so a local build is picked up
 automatically.
 
+### Plugin dialog styling
+
+The wx dialog mirrors Prism's compact component defaults: square buttons/cards/
+badges, 32-DIP buttons, medium-weight labels, and a consistent 12px-equivalent
+body type scale. It uses installed Inter when available, otherwise the system
+GUI font; it never installs fonts or modifies KiCad's application bundle.
+Monospaced values use an installed platform monospace face with a generic fallback.
+Text fields remain native for clipboard, selection, and IME support. Custom
+buttons support Tab focus, Space/Enter activation, and a visible focus outline;
+destructive confirmation prompts still suppress their default Enter action.
+
+The layout follows the web app's information hierarchy: a single-line header
+(identity, health dots, refresh, settings), then the uncommitted-changes card
+with its staging controls and commit box, then the repository card (branch,
+commits, sync), then generated-file offers. The footer carries only the primary
+"Open in Prism" action. Spacing runs on the 4px grid; rows are 8px apart and
+cards 12px apart.
+
+In a source-linked dev install, close and reopen the dialog to see edits. Test
+the main dialog, Settings, first-run setup, and prompts in light/dark appearance,
+including resizing and keyboard navigation. Point-size fonts are scaled by wx;
+only control geometry uses `FromDIP`, avoiding double scaling on Retina displays.
+
 ### Building the release packages
 
 ```bash

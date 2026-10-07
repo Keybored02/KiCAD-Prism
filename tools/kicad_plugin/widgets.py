@@ -13,10 +13,37 @@ platform and genuinely match the web UI's button styles.
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 
 import wx
 
 from . import prism_theme as th
+
+
+@lru_cache(maxsize=1)
+def _font_faces():
+    return set(wx.FontEnumerator.GetFacenames())
+
+
+def ui_font(window, size=None, weight=wx.FONTWEIGHT_NORMAL, mono=False):
+    """Use installed Inter, otherwise the native GUI face; never modify KiCad.
+
+    Point-size fonts are already scaled by wx. FromDIP is for geometry only,
+    not a second scale factor on fonts. Native text entry keeps IME/clipboard.
+    """
+    font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
+    candidates = ("SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono") if mono else (
+        "Inter", "Inter Variable"
+    )
+    if mono:
+        font.SetFamily(wx.FONTFAMILY_TELETYPE)
+    for face in candidates:
+        if face in _font_faces():
+            font.SetFaceName(face)
+            break
+    font.SetFractionalPointSize(th.FONT_BODY if size is None else size)
+    font.SetWeight(weight)
+    return font
 
 
 def _c(hex_value: str) -> wx.Colour:
@@ -65,26 +92,30 @@ class Button(wx.Panel):
                                  something and must not look like its neighbour
     """
 
-    RADIUS = 6
-    PAD_X = 14
-    PAD_Y = 7
+    RADIUS = 0
+    PAD_X = th.CONTROL_PADDING_X
     ICON = 15
     ICON_GAP = 6
 
-    def __init__(self, parent, label, pal, variant="secondary", on_click=None, icon=None):
+    def __init__(self, parent, label, pal, variant="secondary", on_click=None,
+                 icon=None, size=None):
         super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
         self.label = label
         self.pal = pal
         self.variant = variant
         self.on_click = on_click
+        # None = the default height; "sm" = the web's h-7, for compact actions
+        # that sit inside rows (Stage/Unstage) next to normal-height primaries.
+        self.size = size
         # An optional glyph before the label, e.g. "open" for Open + the same
         # ExternalLink icon the web UI's "Open in KiCad" button uses.
         self.icon = icon
         self._hover = False
         self._pressed = False
-        self._enabled = True
 
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)  # we paint every pixel
+        self.SetFont(ui_font(self, weight=wx.FONTWEIGHT_MEDIUM))
+        self.SetName(label)
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
         self.SetMinSize(self._measure())
 
@@ -93,28 +124,40 @@ class Button(wx.Panel):
         self.Bind(wx.EVT_LEAVE_WINDOW, self._on_leave)
         self.Bind(wx.EVT_LEFT_DOWN, self._on_down)
         self.Bind(wx.EVT_LEFT_UP, self._on_up)
+        self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self._on_capture_lost)
+        self.Bind(wx.EVT_SET_FOCUS, self._on_focus)
+        self.Bind(wx.EVT_KILL_FOCUS, self._on_focus)
+        self.Bind(wx.EVT_KEY_DOWN, self._on_key_down)
+        self.Bind(wx.EVT_KEY_UP, self._on_key_up)
+
+    def AcceptsFocus(self):
+        return self.IsEnabled()
+
+    def AcceptsFocusFromKeyboard(self):
+        return self.IsEnabled()
 
     # -- sizing ------------------------------------------------------------
 
     def _font(self) -> wx.Font:
-        f = self.GetFont()
-        f.SetPointSize(th.FONT_BODY)
-        f.SetWeight(wx.FONTWEIGHT_SEMIBOLD)
-        return f
+        return ui_font(self, weight=wx.FONTWEIGHT_MEDIUM)
+
+    def _control_height(self) -> int:
+        return th.CONTROL_SM if self.size == "sm" else th.CONTROL_HEIGHT
 
     def _measure(self) -> wx.Size:
         dc = wx.ClientDC(self)
         dc.SetFont(self._font())
         w, h = dc.GetTextExtent(self.label)
         if self.icon:
-            w += self.ICON + self.ICON_GAP
-            h = max(h, self.ICON)
-        return wx.Size(w + self.PAD_X * 2, h + self.PAD_Y * 2)
+            w += self.FromDIP(self.ICON + self.ICON_GAP)
+        return wx.Size(w + self.FromDIP(self.PAD_X * 2),
+                       max(self.FromDIP(self._control_height()), h + self.FromDIP(8)))
 
     # -- state -------------------------------------------------------------
 
     def Enable(self, enable=True):  # noqa: N802 - wx naming
-        self._enabled = enable
+        # No Python-side enabled mirror: C++ Disable() calls Enable() in C++ and
+        # would leave a mirror stale, so IsEnabled() is the only source of truth.
         self.SetCursor(wx.Cursor(wx.CURSOR_HAND if enable else wx.CURSOR_ARROW))
         self.Refresh()
         return super().Enable(enable)
@@ -124,27 +167,65 @@ class Button(wx.Panel):
         self.Refresh()
 
     def _on_leave(self, _e):
-        self._hover = self._pressed = False
+        self._hover = False
         self.Refresh()
 
     def _on_down(self, _e):
-        if self._enabled:
+        if self.IsEnabled():
+            self.SetFocus()
+            self.CaptureMouse()
             self._pressed = True
             self.Refresh()
 
-    def _on_up(self, _e):
+    def _on_up(self, event):
         was_pressed = self._pressed
+        if self.HasCapture():
+            self.ReleaseMouse()
         self._pressed = False
         self.Refresh()
-        if was_pressed and self._enabled and self.on_click:
+        if (was_pressed and self.GetClientRect().Contains(event.GetPosition())
+                and self.IsEnabled() and self.on_click):
             self.on_click()
+
+    def _on_capture_lost(self, _e):
+        self._pressed = False
+        self.Refresh()
+
+    def _on_focus(self, event):
+        self._pressed = False
+        self.Refresh()
+        event.Skip()
+
+    def _on_key_down(self, event):
+        if event.GetKeyCode() in (wx.WXK_SPACE, wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            if self.IsEnabled():
+                self._pressed = True
+                self.Refresh()
+            return
+        event.Skip()
+
+    def _on_key_up(self, event):
+        if event.GetKeyCode() in (wx.WXK_SPACE, wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            activate = self._pressed and self.IsEnabled()
+            self._pressed = False
+            self.Refresh()
+            if activate and self.on_click:
+                self.on_click()
+            return
+        event.Skip()
+
+    def _draw_focus(self, gc, w, h):
+        if self.HasFocus():
+            gc.SetBrush(wx.TRANSPARENT_BRUSH)
+            gc.SetPen(wx.Pen(_c(self.pal["primary"]), self.FromDIP(1)))
+            gc.DrawRectangle(1.5, 1.5, max(0, w - 3), max(0, h - 3))
 
     # -- painting ----------------------------------------------------------
 
     def _colours(self) -> tuple[wx.Colour, wx.Colour, wx.Colour | None]:
         """(fill, text, border)"""
         p = self.pal
-        if not self._enabled:
+        if not self.IsEnabled():
             return _c(p["muted"]), _c(p["muted_fg"]), None
 
         if self.variant == "primary":
@@ -201,18 +282,22 @@ class Button(wx.Panel):
         if fill is not None:
             gc.SetBrush(wx.Brush(fill))
             gc.SetPen(wx.Pen(border) if border else wx.TRANSPARENT_PEN)
-            gc.DrawRoundedRectangle(0.5, 0.5, w - 1, h - 1, self.RADIUS)
+            gc.DrawRectangle(0.5, 0.5, w - 1, h - 1)
+
+        self._draw_focus(gc, w, h)
 
         gc.SetFont(self._font(), text_colour)
         tw, tht = gc.GetTextExtent(self.label)[:2]
 
         if self.icon:
-            content_w = self.ICON + self.ICON_GAP + tw
+            icon_size = self.FromDIP(self.ICON)
+            icon_gap = self.FromDIP(self.ICON_GAP)
+            content_w = icon_size + icon_gap + tw
             x = (w - content_w) / 2
             draw_kind_icon(
-                gc, self.icon, x, (h - self.ICON) / 2, text_colour, size=self.ICON
+                gc, self.icon, x, (h - icon_size) / 2, text_colour, size=icon_size
             )
-            gc.DrawText(self.label, x + self.ICON + self.ICON_GAP, (h - tht) / 2)
+            gc.DrawText(self.label, x + icon_size + icon_gap, (h - tht) / 2)
         else:
             gc.DrawText(self.label, (w - tw) / 2, (h - tht) / 2)
 
@@ -230,15 +315,17 @@ class IconButton(Button):
     COUNT_GAP = 5
 
     def __init__(
-        self, parent, kind, pal, tooltip, variant="ghost", on_click=None, count=None
+        self, parent, kind, pal, tooltip, variant="ghost", on_click=None, count=None,
+        size=None,
     ):
         self.kind = kind
         # A number carried INSIDE the button rather than a separate badge next to it:
         # the count belongs to the action, and a pill floating beside the outline read
         # as a second thing to click.
         self.count = count
-        super().__init__(parent, "", pal, variant=variant, on_click=on_click)
+        super().__init__(parent, "", pal, variant=variant, on_click=on_click, size=size)
         self.SetToolTip(tooltip)
+        self.SetName(tooltip)
 
     def _count_text(self) -> str:
         return "" if self.count is None else str(self.count)
@@ -250,7 +337,7 @@ class IconButton(Button):
             return 0
         dc = wx.ClientDC(self)
         dc.SetFont(self._count_font())
-        return dc.GetTextExtent(text).GetWidth() + self.COUNT_GAP
+        return dc.GetTextExtent(text).GetWidth() + self.FromDIP(self.COUNT_GAP)
 
     def _count_font(self) -> wx.Font:
         font = self.GetFont()
@@ -258,9 +345,9 @@ class IconButton(Button):
         return font
 
     def _measure(self) -> wx.Size:
-        # Square, sized off the same vertical padding a text button uses, so an icon
-        # button lines up with the text buttons beside it instead of sitting short.
-        side = self.ICON + self.PAD_Y * 2
+        # Same fixed height as the text buttons it sits beside, independent of
+        # label/font metrics.
+        side = self.FromDIP(self._control_height())
         # A count widens the button rather than changing its height or its outline, so
         # it still reads as the same control in the row.
         return wx.Size(side + self._count_width(), side)
@@ -279,27 +366,30 @@ class IconButton(Button):
         if fill is not None:
             gc.SetBrush(wx.Brush(fill))
             gc.SetPen(wx.Pen(border) if border else wx.TRANSPARENT_PEN)
-            gc.DrawRoundedRectangle(0.5, 0.5, w - 1, h - 1, self.RADIUS)
+            gc.DrawRectangle(0.5, 0.5, w - 1, h - 1)
+
+        self._draw_focus(gc, w, h)
 
         text = self._count_text()
         # Icon and count are centred as a pair, so a two-digit count does not shove the
         # icon off to one side.
-        content = self.ICON + self._count_width()
+        icon_size = self.FromDIP(self.ICON)
+        content = icon_size + self._count_width()
         x = (w - content) / 2
 
         draw_kind_icon(
             gc,
             self.kind,
             x,
-            (h - self.ICON) / 2,
+            (h - icon_size) / 2,
             icon_colour,
-            size=self.ICON,
+            size=icon_size,
         )
 
         if text:
             gc.SetFont(self._count_font(), icon_colour)
             tw, th_, *_ = gc.GetTextExtent(text)
-            gc.DrawText(text, x + self.ICON + self.COUNT_GAP, (h - th_) / 2)
+            gc.DrawText(text, x + icon_size + self.FromDIP(self.COUNT_GAP), (h - th_) / 2)
 
 
 class StatusIcon(wx.Panel):
@@ -350,9 +440,9 @@ class StatusIcon(wx.Panel):
 class Badge(wx.Panel):
     """A status pill, like the chips in the web app."""
 
-    RADIUS = 8
+    RADIUS = 0
 
-    def __init__(self, parent, label, pal, tone="muted", size=None):
+    def __init__(self, parent, label, pal, tone="muted", size=None, on_click=None):
         super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
         self.label = label
         self.pal = pal
@@ -360,12 +450,25 @@ class Badge(wx.Panel):
         # Point size for the text. Defaults to the small type these pills normally use;
         # the branch tag wants a touch more presence.
         self.size = size or th.FONT_SMALL
+        self.on_click = on_click
+        self._hover = False
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        if on_click:
+            # A clickable pill needs an affordance painted in, not just a cursor:
+            # this deepens its fill on hover like the web's hover:bg-x/80 chips.
+            self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+            self.Bind(wx.EVT_ENTER_WINDOW, self._set_hover)
+            self.Bind(wx.EVT_LEAVE_WINDOW, self._set_hover)
+            self.Bind(wx.EVT_LEFT_UP, lambda _e: self.on_click())
 
         self._resize()
         # Bound ONCE, here. It used to live in _resize(), which set_label() calls, so
         # every relabel stacked another paint handler on the widget.
         self.Bind(wx.EVT_PAINT, self._on_paint)
+
+    def _set_hover(self, event):
+        self._hover = event.Enter()
+        self.Refresh()
 
     def set_label(self, label: str, tone: str | None = None) -> None:
         """Relabel and resize. A badge built empty and filled in later (a branch name we
@@ -380,12 +483,11 @@ class Badge(wx.Panel):
         # Set the font on the window, then measure with it, so the size we reserve and
         # the size we paint agree. Falls back to a single character for an empty label
         # (the branch tag before the agent has answered) so the pill keeps a sane height.
-        f = self.GetFont()
-        f.SetPointSize(self.size)
-        f.SetWeight(wx.FONTWEIGHT_BOLD)
+        f = ui_font(self, self.size, wx.FONTWEIGHT_MEDIUM)
         self.SetFont(f)
         w, h = self.GetTextExtent(self.label or "x")
-        self.SetMinSize(wx.Size(w + 16, h + 6))
+        self.SetMinSize(wx.Size(w + self.FromDIP(20),
+                               max(self.FromDIP(24), h + self.FromDIP(6))))
 
     def _colours(self) -> tuple[str, str, float]:
         """(fill, text, how strongly to tint the fill).
@@ -400,9 +502,13 @@ class Badge(wx.Panel):
         neutral one drags the contrast under 2:1 and makes them unreadable.
         """
         if self.tone == "muted":
-            return self.pal["muted"], self.pal["muted_fg"], 1.0
-        accent = self.pal.get(self.tone, self.pal["muted_fg"])
-        return accent, accent, 0.18
+            fill, text, strength = self.pal["muted"], self.pal["muted_fg"], 1.0
+        else:
+            accent = self.pal.get(self.tone, self.pal["muted_fg"])
+            fill, text, strength = accent, accent, 0.18
+        if self._hover and self.on_click:
+            strength = min(1.0, strength + 0.12)
+        return fill, text, strength
 
     def _on_paint(self, _e):
         dc = wx.AutoBufferedPaintDC(self)
@@ -422,11 +528,9 @@ class Badge(wx.Panel):
             wx.Brush(_mix(surface.GetAsString(wx.C2S_HTML_SYNTAX), fill, strength))
         )
         gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.DrawRoundedRectangle(0, 0, w, h, self.RADIUS)
+        gc.DrawRectangle(0, 0, w, h)
 
-        f = self.GetFont()
-        f.SetPointSize(self.size)
-        f.SetWeight(wx.FONTWEIGHT_BOLD)
+        f = ui_font(self, self.size, wx.FONTWEIGHT_MEDIUM)
         gc.SetFont(f, _c(text))
         tw, tht = gc.GetTextExtent(self.label)[:2]
         gc.DrawText(self.label, (w - tw) / 2, (h - tht) / 2)
@@ -932,7 +1036,12 @@ class Disclosure(wx.Panel):
 
         dc = wx.ClientDC(self)
         dc.SetFont(self._font())
-        self.SetMinSize(wx.Size(-1, dc.GetTextExtent(label or "X")[1] + 10))
+        # A section header reads as a control and gets a control's height; a file
+        # row stays text-tight.
+        height = dc.GetTextExtent(label or "X")[1] + 10
+        if self.strong:
+            height = max(height, self.FromDIP(28))
+        self.SetMinSize(wx.Size(-1, height))
 
         self.Bind(wx.EVT_PAINT, self._on_paint)
         self.Bind(wx.EVT_LEFT_UP, self._on_click)
@@ -942,7 +1051,9 @@ class Disclosure(wx.Panel):
     def _font(self):
         f = self.GetFont()
         f.SetPointSize(th.FONT_BODY)
-        f.SetWeight(wx.FONTWEIGHT_BOLD if self.strong else wx.FONTWEIGHT_SEMIBOLD)
+        # The web's list group headers: semibold only where the row is strong,
+        # medium otherwise. BOLD read heavier than anything the web app shows.
+        f.SetWeight(wx.FONTWEIGHT_SEMIBOLD if self.strong else wx.FONTWEIGHT_MEDIUM)
         return f
 
     def _enter(self, _e):
@@ -970,7 +1081,8 @@ class Disclosure(wx.Panel):
         if self._hover:
             gc.SetBrush(wx.Brush(_c(self.pal["accent"])))
             gc.SetPen(wx.TRANSPARENT_PEN)
-            gc.DrawRoundedRectangle(0, 0, w, h, 4)
+            # Square, like every hover surface in the web app (rounded-none).
+            gc.DrawRectangle(0, 0, w, h)
 
         font = self._font()
         text_colour = _c(self.pal["foreground"])
@@ -997,7 +1109,7 @@ class Disclosure(wx.Panel):
         if self.count is not None:
             small = wx.Font(font)
             small.SetPointSize(th.FONT_SMALL)
-            small.SetWeight(wx.FONTWEIGHT_BOLD)
+            small.SetWeight(wx.FONTWEIGHT_MEDIUM)
             gc.SetFont(small, _c(self.pal["muted_fg"]))
             txt = str(self.count)
             tw = gc.GetTextExtent(txt)[0]
@@ -1005,7 +1117,8 @@ class Disclosure(wx.Panel):
             surface = _surface_of(self, self.pal).GetAsString(wx.C2S_HTML_SYNTAX)
             gc.SetBrush(wx.Brush(_mix(surface, self.pal["muted_fg"], 0.16)))
             gc.SetPen(wx.TRANSPARENT_PEN)
-            gc.DrawRoundedRectangle(w - pill_w - 4, (h - 15) / 2, pill_w, 15, 7)
+            # Square like the web's badge chips (rounded-none).
+            gc.DrawRectangle(w - pill_w - 4, (h - 15) / 2, pill_w, 15)
             gc.SetFont(small, _c(self.pal["muted_fg"]))
             gc.DrawText(txt, w - pill_w - 4 + 7, (h - gc.GetTextExtent(txt)[1]) / 2)
 
@@ -1063,7 +1176,7 @@ class ChangeRow(wx.Panel):
         if self._hover and self.on_click:
             gc.SetBrush(wx.Brush(_c(self.pal["accent"])))
             gc.SetPen(wx.TRANSPARENT_PEN)
-            gc.DrawRoundedRectangle(0, 0, w, h, 4)
+            gc.DrawRectangle(0, 0, w, h)
 
         kind = self.group.get("kind", "changed")
         tone = self.pal[th.KIND_TONE.get(kind, "muted_fg")]
@@ -1072,7 +1185,7 @@ class ChangeRow(wx.Panel):
         body.SetPointSize(th.FONT_SMALL)
 
         bold = wx.Font(body)
-        bold.SetWeight(wx.FONTWEIGHT_BOLD)
+        bold.SetWeight(wx.FONTWEIGHT_MEDIUM)
         gc.SetFont(bold, _c(tone))
         gc.DrawText(th.KIND_SYMBOL.get(kind, "~"), 6, 2)
 
@@ -1212,17 +1325,19 @@ class ScrollThumb(wx.Panel):
         gc.SetBrush(wx.Brush(_mix(surface, self.pal["muted_fg"], strength)))
         gc.SetPen(wx.TRANSPARENT_PEN)
         w = self.GetSize().width
-        gc.DrawRoundedRectangle(1, y, w - 2, thumb_h, (w - 2) / 2)
+        # Radius 4, matching the web's themed-scrollbar thumb.
+        gc.DrawRoundedRectangle(1, y, w - 2, thumb_h, 4)
 
 
 class Card(wx.Panel):
-    """A bordered, rounded surface, the app's dominant layout primitive."""
+    """A square bordered surface matching Prism's card component."""
 
-    RADIUS = 8
+    RADIUS = 0
 
     def __init__(self, parent, title, pal):
         super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
         self.pal = pal
+        self.SetFont(ui_font(self))
         # What our children sit on. Declared so nested widgets can find it, see
         # _surface_of. Also set as the real background colour so native children
         # (StaticText, TextCtrl) inherit it instead of wx's default grey, which is
@@ -1243,13 +1358,15 @@ class Card(wx.Panel):
         inner = wx.BoxSizer(wx.VERTICAL)
 
         if title:
+            # A section label, not a card title: uppercase and muted, the weight
+            # the web section labels carry (label() maps bold to medium).
             heading = self.label(title.upper(), tone="muted_fg", bold=True, small=True)
             inner.Add(heading, 0, wx.BOTTOM, th.SP_SM)
 
         self.body = wx.BoxSizer(wx.VERTICAL)
         inner.Add(self.body, 1, wx.EXPAND)
 
-        outer.Add(inner, 1, wx.EXPAND | wx.ALL, th.SP_MD)
+        outer.Add(inner, 1, wx.EXPAND | wx.ALL, self.FromDIP(th.CARD_PADDING))
         self.SetSizer(outer)
 
     def label(self, text, tone="foreground", bold=False, small=False, mono=False, wrap=False):
@@ -1266,12 +1383,8 @@ class Card(wx.Panel):
         st = wx.StaticText(self, label=str(text))
         st.SetBackgroundColour(_c(self.pal["card"]))
         st.SetForegroundColour(_c(self.pal.get(tone, tone)))
-        f = st.GetFont()
-        f.SetPointSize(th.FONT_SMALL if small else th.FONT_BODY)
-        if bold:
-            f.SetWeight(wx.FONTWEIGHT_BOLD)
-        if mono:
-            f.SetFaceName(th.FONT_MONO_FAMILY)
+        f = ui_font(st, th.FONT_SMALL if small else th.FONT_BODY,
+                    wx.FONTWEIGHT_MEDIUM if bold else wx.FONTWEIGHT_NORMAL, mono)
         st.SetFont(f)
         if wrap:
             self._wrapping.append((st, str(text)))
@@ -1297,7 +1410,7 @@ class Card(wx.Panel):
         original text first, or successive resizes would wrap already-wrapped
         lines ever narrower.
         """
-        width = self.GetClientSize().width - 2 * th.SP_MD
+        width = self.GetClientSize().width - 2 * self.FromDIP(th.CARD_PADDING)
         if width <= 0:
             return
         st.SetLabel(text)
@@ -1313,7 +1426,7 @@ class Card(wx.Panel):
         w, h = self.GetSize()
         gc.SetBrush(wx.Brush(_c(self.pal["card"])))
         gc.SetPen(wx.Pen(_c(self.pal["border"])))
-        gc.DrawRoundedRectangle(0.5, 0.5, w - 1, h - 1, self.RADIUS)
+        gc.DrawRectangle(0.5, 0.5, w - 1, h - 1)
 
     def row(self, label, value, mono=False, tone=None, badge=False):
         """A label/value line. `badge=True` renders the value as a status pill."""
@@ -1334,7 +1447,7 @@ class Card(wx.Panel):
                 wx.ALIGN_CENTER_VERTICAL,
             )
 
-        self.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS + 2)
+        self.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_SM)
 
     def rule(self, space=None):
         """A hairline across the card, to separate one block of rows from the next.
@@ -1376,3 +1489,161 @@ class Card(wx.Panel):
             text = self.label(value, tone=tone or "foreground")
             line.Add(text, 1, wx.ALIGN_CENTER_VERTICAL)
         self.body.Add(line, 0, wx.EXPAND | wx.BOTTOM, th.SP_XS)
+
+
+class Checkbox(wx.Panel):
+    """A themed checkbox, matching the web app's component.
+
+    wx.CheckBox is a native control that follows the OS appearance, which on
+    macOS means a large rounded checkbox in the system accent colour — visually
+    a control from a different application sitting on this surface. The web's
+    checkbox is a 16px square with a primary-coloured border that fills blue and
+    shows a white check when ticked; this draws exactly that.
+
+    Keyboard-complete: Tab focuses it, Space toggles it.
+    """
+
+    BOX = 16
+    GAP = 10
+
+    def __init__(self, parent, label, pal, checked=False, on_change=None):
+        super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
+        self.pal = pal
+        self.label = label
+        self.checked = checked
+        self.on_change = on_change
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)  # we paint every pixel
+        self.SetFont(ui_font(self))
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        self.SetName(label)
+
+        dc = wx.ClientDC(self)
+        dc.SetFont(self.GetFont())
+        text_w, text_h = dc.GetTextExtent(label)
+        box = self.FromDIP(self.BOX)
+        height = max(box, text_h) + 2
+        self.SetMinSize(
+            wx.Size(box + self.FromDIP(self.GAP) + text_w, max(height, box + 2))
+        )
+
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_LEFT_UP, self._on_click)
+        self.Bind(wx.EVT_SET_FOCUS, lambda _e: self.Refresh())
+        self.Bind(wx.EVT_KILL_FOCUS, lambda _e: self.Refresh())
+        self.Bind(wx.EVT_KEY_DOWN, self._on_key)
+
+    def AcceptsFocus(self):
+        return self.IsEnabled()
+
+    def AcceptsFocusFromKeyboard(self):
+        return self.IsEnabled()
+
+    def GetValue(self):
+        return self.checked
+
+    def SetValue(self, value):
+        self.checked = bool(value)
+        self.Refresh()
+
+    def _on_click(self, _e):
+        if not self.IsEnabled():
+            return
+        self.SetFocus()
+        self.checked = not self.checked
+        self.Refresh()
+        if self.on_change:
+            self.on_change(self.checked)
+
+    def _on_key(self, event):
+        if event.GetKeyCode() == wx.WXK_SPACE:
+            self._on_click(None)
+            return
+        event.Skip()
+
+    def _on_paint(self, _e):
+        dc = wx.AutoBufferedPaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+        if not gc:
+            return
+        dc.SetBackground(wx.Brush(_surface_of(self, self.pal)))
+        dc.Clear()
+
+        w, h = self.GetSize()
+        box = self.FromDIP(self.BOX)
+        y = (h - box) / 2
+
+        if self.checked:
+            gc.SetBrush(wx.Brush(_c(self.pal["primary"])))
+            gc.SetPen(wx.Pen(_c(self.pal["primary"])))
+            gc.DrawRectangle(0, y, box, box)
+            # The lucide check the web component shows: a short stroke down to
+            # the tail, then a long one up to the tip.
+            gc.SetPen(wx.Pen(_c(self.pal["primary_fg"]), 2.0))
+            check = gc.CreatePath()
+            check.MoveToPoint(box * 0.25, y + box * 0.52)
+            check.AddLineToPoint(box * 0.42, y + box * 0.70)
+            check.AddLineToPoint(box * 0.76, y + box * 0.30)
+            gc.StrokePath(check)
+        else:
+            # The web's unchecked box carries a PRIMARY border, not grey.
+            gc.SetBrush(wx.Brush(_surface_of(self, self.pal)))
+            gc.SetPen(wx.Pen(_c(self.pal["primary"])))
+            gc.DrawRectangle(0.5, y + 0.5, box - 1, box - 1)
+
+        if self.HasFocus():
+            gc.SetBrush(wx.TRANSPARENT_BRUSH)
+            gc.SetPen(wx.Pen(_c(self.pal["primary"]), self.FromDIP(1)))
+            gc.DrawRectangle(-2.5, y - 2.5, box + 5, box + 5)
+
+        gc.SetFont(self.GetFont(), _c(self.pal["foreground"]))
+        label_h = gc.GetTextExtent(self.label)[1]
+        gc.DrawText(self.label, box + self.FromDIP(self.GAP), (h - label_h) / 2)
+
+
+class LinkLabel(wx.Panel):
+    """Clickable text that looks like text.
+
+    wx.adv.HyperlinkCtrl always underlines on macOS, and the web UI's text
+    buttons and links never do — the underline is what made the commit subject
+    read as a stray browser link inside the panel. This draws plain themed text
+    that turns primary on hover and carries the action.
+    """
+
+    def __init__(self, parent, label, pal, on_click, size_pt=None):
+        super().__init__(parent, style=wx.TRANSPARENT_WINDOW)
+        self.pal = pal
+        self.label = label
+        self.on_click = on_click
+        self._hover = False
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.SetFont(ui_font(self, size_pt or th.FONT_SMALL))
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        self.SetName(label)
+
+        dc = wx.ClientDC(self)
+        dc.SetFont(self.GetFont())
+        text_w, text_h = dc.GetTextExtent(label)
+        self.SetMinSize(wx.Size(text_w, max(text_h, self.FromDIP(18)) + 2))
+
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_ENTER_WINDOW, self._set_hover)
+        self.Bind(wx.EVT_LEAVE_WINDOW, self._set_hover)
+        self.Bind(wx.EVT_LEFT_UP, lambda _e: self.on_click())
+
+    def _set_hover(self, event):
+        self._hover = event.Enter()
+        self.Refresh()
+
+    def _on_paint(self, _e):
+        dc = wx.AutoBufferedPaintDC(self)
+        gc = wx.GraphicsContext.Create(dc)
+        if not gc:
+            return
+        dc.SetBackground(wx.Brush(_surface_of(self, self.pal)))
+        dc.Clear()
+        # Hover tints toward primary, like the web's hover:text-primary; the
+        # resting state is plain foreground text.
+        colour = self.pal["primary"] if self._hover else self.pal["foreground"]
+        gc.SetFont(self.GetFont(), _c(colour))
+        label_h = gc.GetTextExtent(self.label)[1]
+        gc.DrawText(self.label, 0, (self.GetSize().height - label_h) / 2)
