@@ -2,7 +2,59 @@ import type {
   PrismSystemSceneEmphasisResult,
   PrismSystemSceneEmphasisSet,
 } from "@/types/prism-semantic-viewer";
-import type { SystemNetDetail } from "@/types/system";
+import type { SystemNetDetail, SystemNetHop, SystemNetHopEnd } from "@/types/system";
+
+/** The key and colour of a traced net (SB2-32): the 3D tab's own selection green. */
+export const TRACE_KEY = "trace";
+export const TRACE_COLOR = "#14ff33";
+
+/** What the 3D view lights for a traced net: every member, in the selection green. */
+export function traceSet(net: SystemNetDetail): PrismSystemSceneEmphasisSet {
+  return { ...emphasisSets([net])[0], key: TRACE_KEY, color: TRACE_COLOR };
+}
+
+/**
+ * A traced net's hops in the order the net travels from `origin` (the board
+ * clicked): breadth first over boards, each hop turned to run away from the
+ * boards already reached. Hops not reachable from it follow in server order.
+ */
+export function orderedHops(net: SystemNetDetail, origin: string | null): SystemNetHop[] {
+  const left = [...net.hops];
+  const ordered: SystemNetHop[] = [];
+  const reached = new Set<string | null>(origin ? [origin] : []);
+  const touches = (end: SystemNetHopEnd) => end.occurrence !== null && reached.has(end.occurrence);
+  for (let progress = true; progress && left.length;) {
+    progress = false;
+    for (let index = 0; index < left.length;) {
+      const hop = left[index];
+      if (!touches(hop.from) && !touches(hop.to)) {
+        index += 1;
+        continue;
+      }
+      const turned = touches(hop.from) ? hop : { ...hop, from: hop.to, to: hop.from };
+      ordered.push(turned);
+      if (turned.to.occurrence) reached.add(turned.to.occurrence);
+      left.splice(index, 1);
+      progress = true;
+    }
+  }
+  return [...ordered, ...left];
+}
+
+/** One end of a hop as the card shows it: "OBC-1 J3.12", or a harness end without a board. */
+export function hopEndLabel(end: SystemNetHopEnd): string {
+  const place = end.displayPath || (end.end ? `Harness end ${end.end}` : "Unmated end");
+  const pin = end.reference ? `${end.reference}${end.pad ? `.${end.pad}` : ""}` : end.endPin ? `pin ${end.endPin}` : "";
+  return [place, pin].filter(Boolean).join(" ");
+}
+
+/** What carries a hop: the link (or harness wire) and its signal. */
+export function hopVia(hop: SystemNetHop): string {
+  const via = hop.kind === "wire"
+    ? [hop.harnessName || "Harness", hop.wireId ? `wire ${hop.wireId}` : ""].filter(Boolean).join(" ")
+    : hop.linkName || "Link";
+  return hop.signal ? `${via} · ${hop.signal}` : via;
+}
 
 /** The viewer's palette has eight colours; more nets at once would repeat them. */
 export const MAX_HIGHLIGHTED_NETS = 8;

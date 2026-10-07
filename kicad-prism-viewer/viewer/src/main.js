@@ -1432,6 +1432,7 @@ export async function mountSystemViewer(options = {}) {
       if (item) camera.frame(item.worldBounds);
       return Boolean(item);
     },
+    frameParts,
     setSelection(selection) {
       suppressSelectionChange = true;
       try {
@@ -2028,6 +2029,25 @@ function frameNetEmphasis(key = null, occurrence = null) {
   for (const [setKey, list] of system?.emphasisBounds || []) {
     if (key != null && setKey !== String(key)) continue;
     for (const lit of list) if (occurrence == null || lit.occurrence === occurrence) boxes.push(lit.box);
+  }
+  const bounds = mergeBounds(boxes);
+  if (!bounds) return false;
+  camera.frame(bounds);
+  return true;
+}
+
+/**
+ * Frame parts on their placements (SB2-32: a hop of a traced net, its two
+ * connectors): `[{ occurrence, reference }]`. Parts not drawn are skipped;
+ * false when none is.
+ */
+function frameParts(parts) {
+  const boxes = [];
+  for (const part of Array.isArray(parts) ? parts : []) {
+    const item = system?.placements.get(String(part?.occurrence));
+    const component = item?.board?.scene.componentFeatures.get(String(part?.reference));
+    const bounds = component ? item.board.scene.features.get(Number(component.featureId))?.bounds : null;
+    if (bounds) boxes.push(transformBounds(item.matrix, bounds));
   }
   const bounds = mergeBounds(boxes);
   if (!bounds) return false;

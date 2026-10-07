@@ -22,12 +22,14 @@ import type { SystemScene } from "@/types/system";
 import { drawnBoards, names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
 import { SceneInspector } from "./scene-inspector";
 import { MovePanel } from "./scene-move-panel";
-import { emphasisSets, netBoards } from "./scene-net-model";
+import { TRACE_KEY, emphasisSets, netBoards, traceSet } from "./scene-net-model";
 import { NetPanel } from "./scene-net-panel";
 import { hitOccurrence, searchBoards, type SearchableBoard } from "./scene-search";
+import { TraceCard } from "./scene-trace-card";
 import { useBoardIndexes } from "./use-board-indexes";
 import { useMoveMode } from "./use-move-mode";
 import { useNetHighlight } from "./use-net-highlight";
+import { useTracedNet } from "./use-traced-net";
 import type { SystemTabProps } from "./system-tab-content";
 
 const DiagramTab = lazy(() => import("./diagram-tab").then((module) => ({ default: module.DiagramTab })));
@@ -82,17 +84,27 @@ function useSystemScene(systemId: string, etag: string, enabled: boolean) {
 }
 
 /** What the viewer reports: the selection, the view state (isolation) and its start-up error. */
-function useViewerEvents(viewer: PrismSemanticViewerElement | null, report: (results: readonly PrismSystemSceneEmphasisResult[]) => void) {
+function useViewerEvents(
+  viewer: PrismSemanticViewerElement | null,
+  report: (results: readonly PrismSystemSceneEmphasisResult[]) => void,
+  onSelect: (selection: PrismSystemViewerSelection | null) => void,
+) {
   const [selection, setSelection] = useState<PrismSystemViewerSelection | null>(null);
   const [viewState, setViewState] = useState<PrismSemanticViewState | null>(null);
   const [viewerError, setViewerError] = useState<string | null>(null);
   const reportRef = useRef(report);
+  const selectRef = useRef(onSelect);
   useEffect(() => {
     reportRef.current = report;
-  }, [report]);
+    selectRef.current = onSelect;
+  }, [report, onSelect]);
   useEffect(() => {
     if (!viewer) return;
-    const onSelection = (event: Event) => setSelection((event as CustomEvent<{ selection: PrismSystemViewerSelection | null }>).detail.selection);
+    const onSelection = (event: Event) => {
+      const next = (event as CustomEvent<{ selection: PrismSystemViewerSelection | null }>).detail.selection;
+      setSelection(next);
+      selectRef.current(next);
+    };
     const onViewState = (event: Event) => setViewState((event as CustomEvent<PrismSemanticViewState>).detail);
     const onEmphasis = (event: Event) => reportRef.current((event as CustomEvent<{ results: PrismSystemSceneEmphasisResult[] }>).detail.results);
     const onError = (event: Event) => {
@@ -127,15 +139,23 @@ export function Scene3dTab(props: SystemTabProps) {
   const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
   const attach = useCallback((node: PrismSemanticViewerElement | null) => setViewer(node), []);
   const [leftInset, setLeftInset] = useState(0);
-  const [rail, setRail] = useState<RailTab | null>("selection");
+  const [rail, setRail] = useState<RailTab | null>(null);
   const [stats, setStats] = useState(false);
   const [labels, setLabels] = useState(true);
   const moving = useMoveMode(viewer, { systemId, etag, reload });
   const { move } = moving;
   const nets = useNetHighlight(systemId, etag);
   const { highlighted } = nets;
-  const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report);
+  // As the board 3D tab: a selection opens the Selection rail, clearing it closes it (other tabs stay).
+  const followSelection = useCallback((next: PrismSystemViewerSelection | null) => {
+    setRail((tab) => (next ? "selection" : tab === "selection" ? null : tab));
+  }, []);
+  const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report, followSelection);
   const indexes = useBoardIndexes(scene);
+  const { traced, light } = useTracedNet(systemId, etag, selection);
+  // The clicked trace's system net lights first, in the selection green (D-P2-28).
+  const tracedNet = traced?.net && !traced.waiting ? traced.net : null;
+  const traceEmphasis = useMemo(() => (tracedNet ? traceSet(tracedNet) : null), [tracedNet]);
 
   useEffect(() => {
     if (!viewer || !scene) return;
@@ -147,7 +167,7 @@ export function Scene3dTab(props: SystemTabProps) {
   useEffect(() => {
     if (!viewer) return;
     void customElements.whenDefined("prism-semantic-viewer").then(() => {
-      const report = viewer.setNetEmphasis?.(emphasisSets(highlighted));
+      const report = viewer.setNetEmphasis?.([...(traceEmphasis ? [traceEmphasis] : []), ...emphasisSets(highlighted)]);
       if (report) nets.report(report);
       // As the board 3D tab frames a selected net: close, on the first board it reaches.
       const newest = highlighted.at(-1) ?? null;
@@ -157,7 +177,7 @@ export function Scene3dTab(props: SystemTabProps) {
       framedNet.current = newest?.groupId ?? null;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-apply only when the nets or the viewer change
-  }, [highlighted, viewer]);
+  }, [highlighted, traceEmphasis, viewer]);
 
   const boards = useMemo(() => (scene ? drawnBoards(scene) : []), [scene]);
   const searchable = useMemo<SearchableBoard[]>(() => boards.flatMap((board) => {
@@ -311,6 +331,19 @@ export function Scene3dTab(props: SystemTabProps) {
               onFrameBoard={() => { if (selected) viewer?.frameBoard?.(selected.path); }}
               onOpenBoard={instance ? () => onNavigate("boards", { board: instance.id }) : undefined}
               onClear={() => { viewer?.setSelection(null); setSelection(null); }}
+              trace={traced && (
+                <TraceCard
+                  key={`${traced.origin}\n${traced.boardNet}`}
+                  traced={traced}
+                  result={nets.results.get(TRACE_KEY)}
+                  onLight={light}
+                  onFrameBoard={(occurrence) => {
+                    if (!viewer?.frameNetEmphasis?.(TRACE_KEY, occurrence)) viewer?.frameBoard?.(occurrence);
+                  }}
+                  onFrameHop={(hop) => viewer?.frameParts?.([hop.from, hop.to].flatMap((end) => (
+                    end.occurrence && end.reference ? [{ occurrence: end.occurrence, reference: end.reference }] : [])))}
+                />
+              )}
             />
           )}
         </ViewerOverlayRail>

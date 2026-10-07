@@ -334,6 +334,7 @@ Evaluation compares, **for the exports this parent's links and harness ends use*
 - Search (`?search=&occurrence=`) matches aliases case-insensitively, using fuzzy ranking.
 - Groups with `pinCount > 200` carry `"large": true`. The UI confirms before highlighting.
 - Restricted occurrences appear as `{"occurrence": null, "redacted": true}` members, and their hops are dropped.
+- **Exact lookup (SB2-32, P2-1.33):** `?occurrence=<path>&net=<board net>` lists only the group holding exactly that board net on that occurrence (zero or one group). `net` without `occurrence` is 400. A board net no link carries is in no group.
 
 **As built (SB2-20, P2-1.21): harness wires.**
 - Each wire joins the node of the pad its from-end pin lands on (after that end's `pinMap`) with the node of the pad its to-end pin lands on, using the wire's captured `netFrom`/`netTo` like a row's nets. Wires sharing an end pin therefore share a node: a splice joins every wire on it.
@@ -731,6 +732,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.33 | 2026-10-07 | SB2-32 (D-P2-28): §20.9, click to trace. `GET …/nets?occurrence=&net=` exact lookup (§8.2); the clicked board net's system net lit in the selection green on every board; the System net card with boards and ordered hops; `frameParts`. Move panel: Revert undoes saved moves (SB2-31f follow-up, #490). |
 | P2-1.32 | 2026-10-07 | SB2-31f: §20.8. Move mode, board labels, the key list and one GPU budget in the 3D tab's viewer; stackup separation per placement (user request); `<prism-system-scene>` retired. No API change. |
 | P2-1.31 | 2026-10-07 | SB2-31e.2: §20.7, the System 3D tab on the 3D tab's viewer: left rail with a Layers section per board, the 3D tab inspector on the board's design index, search over every board, system nets in the right rail. Move mode and labels wait for SB2-31f. |
 | P2-1.30 | 2026-10-06 | SB2-31e (D-P2-25, D-P2-26): §20.6, the board 3D tab's viewer with several boards (`<prism-semantic-viewer mode="system">`); per-placement copper layers; isolated picks skip unlit copper on every viewer. No API change. |
@@ -922,3 +924,16 @@ The tab hosts `<prism-semantic-viewer mode="system">` (§20.6) and the board 3D 
   - Copper keeps its realistic colours while separated: the board 3D tab's blend to layer colours is per renderer, not per placement.
   - The one-board picture is unchanged (pixel diff 0 px).
 
+### 20.9 Click to trace (SB2-32, D-P2-28)
+
+Clicking a trace (or a pad) in the System 3D tab selects its **system net**.
+
+- The tab resolves the selection's board net with `GET …/nets?occurrence=&net=` (§8.2), then reads the group. A net no link carries stays a board-net selection, as on the board 3D tab, and the card says so.
+- The system net lights on every board it reaches as the emphasis set `{key: "trace", color: "#14ff33"}` (the board 3D tab's selection green, pulsing), ahead of the Nets panel's sets. As on the board 3D tab, board bodies and parts hide and unlit copper dims; **I** isolates.
+- A group over 200 pins (D-P2-8) lights on the clicked board only; the card offers "Light on all N boards". There is no dialog for a click.
+- The selection clears the trace (Esc, a click on empty space, another selection). A system change re-reads it.
+- **The System net card** heads the Selection rail, above the board's own inspector:
+  - the name of the clicked end, with the other names as aliases;
+  - pins and boards (restricted members counted), and each board frames the net there (`frameNetEmphasis("trace", occurrence)`);
+  - the path: hops breadth first from the clicked board, each turned to run away from it (`OBC-1 J3.12 → CMBD J1.12`, then the link or harness wire and its signal). Fifty are listed until "Show all". A hop frames its two connectors with `frameParts([{occurrence, reference}])`.
+- The Selection rail follows the selection, as on the board 3D tab: a selection opens it and clearing it closes it (the Nets tab stays put).

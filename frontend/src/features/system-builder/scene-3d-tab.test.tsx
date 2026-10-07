@@ -149,6 +149,52 @@ describe("Scene3dTab", () => {
     await waitFor(() => expect(revert().disabled).toBe(true));
   });
 
+  it("traces a clicked board net to its system net and lights it on every board (D-P2-28)", async () => {
+    vi.stubGlobal("navigator", { ...navigator, gpu: {} });
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    const spi = { groupId: "g_spi", name: "OBC_SPI_SCK", aliases: ["OBC_SPI_SCK", "SPI_SCK"], pinCount: 2, large: false, boards: 2 };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/scene")) return json(mixed);
+      if (String(url).includes("/semantic-index/")) return new Response(JSON.stringify({ detail: "no index here" }), { status: 404 });
+      if (String(url).includes("/nets?")) return json({ systemId: "sys_1", groups: [spi], total: 1 });
+      return json({ ...spi, members: [
+        { occurrence: "/sin_OBC-1", displayPath: "OBC-1", net: "/SPI_SCK" },
+        { occurrence: "/sin_OBC-2", displayPath: "OBC-2", net: "OBC_SPI_SCK" },
+      ], hops: [{ kind: "row", linkName: "OBC-1 J3 ↔ OBC-2 J1",
+        from: { occurrence: "/sin_OBC-2", displayPath: "OBC-2", reference: "J1", pad: "12" },
+        to: { occurrence: "/sin_OBC-1", displayPath: "OBC-1", reference: "J3", pad: "12" } }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Scene3dTab {...props} />);
+    await screen.findByText("4 boards");
+    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
+    element.setNetEmphasis = vi.fn(() => []);
+    element.frameParts = vi.fn(() => true);
+    await act(async () => undefined);
+    const select = (selection: unknown) => act(() => {
+      element.dispatchEvent(new CustomEvent("prism-semantic-viewer:selectionchange", { detail: { selection } }));
+    });
+    select({ kind: "net", sourceContext: "3D", netName: "/SPI_SCK", occurrence: "/sin_OBC-1" });
+
+    expect(await screen.findByText("SPI_SCK")).toBeTruthy();
+    const lookup = fetchMock.mock.calls.map((call) => String(call[0])).find((url) => url.includes("/nets?"))!;
+    expect(new URL(lookup, "http://x").searchParams.get("occurrence")).toBe("/sin_OBC-1");
+    expect(new URL(lookup, "http://x").searchParams.get("net")).toBe("/SPI_SCK");
+    await waitFor(() => expect(element.setNetEmphasis).toHaveBeenLastCalledWith([{
+      key: "trace", color: "#14ff33",
+      members: [{ occurrence: "/sin_OBC-1", net: "/SPI_SCK" }, { occurrence: "/sin_OBC-2", net: "OBC_SPI_SCK" }],
+    }]));
+    // The hop reads from the clicked board outward, and frames its two connectors.
+    fireEvent.click(screen.getByTitle("Frame this connection"));
+    expect(element.frameParts).toHaveBeenCalledWith([
+      { occurrence: "/sin_OBC-1", reference: "J3" }, { occurrence: "/sin_OBC-2", reference: "J1" },
+    ]);
+
+    select(null);
+    await waitFor(() => expect(element.setNetEmphasis).toHaveBeenLastCalledWith([]));
+    expect(screen.queryByText("SPI_SCK")).toBeNull();
+  });
+
   it("asks before lighting a net over 200 pins, then lights its members", async () => {
     vi.stubGlobal("navigator", { ...navigator, gpu: {} });
     const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });

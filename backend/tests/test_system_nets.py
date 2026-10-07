@@ -9,6 +9,7 @@ from test_system_assemblies import AssemblyCase
 from test_system_snapshots import DESIGNER, VIEWER
 
 from app.services.systems import system_nets, validation
+from app.services.systems.store import Invalid
 from app.services.systems.system_nets import Level, name_mismatch, power_meets_signal
 
 
@@ -139,6 +140,18 @@ class NetApiTest(AssemblyCase):
         on_pdu = self.service.nets(VIEWER, self.bus, occurrence=next(m["occurrence"] for m in net["members"]
                                                                     if m["displayPath"] == "PDU"))
         self.assertIn(summary["groupId"], [g["groupId"] for g in on_pdu["groups"]])
+
+    def test_a_board_net_resolves_to_its_system_net(self) -> None:
+        [summary] = self.service.nets(VIEWER, self.bus, search="VIN_28V")["groups"]
+        member = next(m for m in self.service.net(VIEWER, self.bus, summary["groupId"])["members"] if m["displayPath"] == "PDU")
+        found = self.service.nets(VIEWER, self.bus, occurrence=member["occurrence"], net=member["net"])
+        self.assertEqual([g["groupId"] for g in found["groups"]], [summary["groupId"]])
+        # Exact: a prefix of the name, or the name on another board, finds nothing.
+        self.assertEqual(self.service.nets(VIEWER, self.bus, occurrence=member["occurrence"], net=member["net"][:-1])["total"], 0)
+        other = next(m for m in self.service.net(VIEWER, self.bus, summary["groupId"])["members"] if m["displayPath"] != "PDU")
+        self.assertEqual(self.service.nets(VIEWER, self.bus, occurrence=other["occurrence"], net="NO_SUCH_NET")["total"], 0)
+        with self.assertRaises(Invalid):
+            self.service.nets(VIEWER, self.bus, net=member["net"])
 
     def test_hidden_boards_are_redacted_in_nets(self) -> None:
         self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
