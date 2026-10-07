@@ -55,6 +55,13 @@ class FakeConnection:
             return _Result([{"relation": "catalog_schema_versions" if self.ledger_exists else None}])
         if statement.startswith("SELECT version FROM catalog_schema_versions"):
             return _Result([{"version": version} for version in sorted(self.ledger)])
+        if statement.startswith("SELECT version, name FROM catalog_schema_versions"):
+            return _Result([{"version": v, "name": n} for v, n in sorted(self.ledger.items())])
+        if statement.startswith("UPDATE catalog_schema_versions SET version"):
+            new_version, old_version, name = int(params[0]), int(params[1]), str(params[2])
+            if self.ledger.get(old_version) == name:
+                self.ledger[new_version] = self.ledger.pop(old_version)
+            return _Result([])
         if statement.startswith("SELECT value FROM catalog_meta"):
             value = self.catalog_meta.get(params[0])
             return _Result([{"value": value}] if value is not None else [])
@@ -154,11 +161,26 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
         self.assertNotIn(1, [version for version, _ in pending])
         self.assertEqual(conn.ledger, {}, "reporting must not modify the database")
 
-    def test_versions_are_unique_and_contiguous(self) -> None:
+    def test_versions_are_unique_and_ascending(self) -> None:
+        """Gaps are allowed: a number another branch has taken stays reserved."""
         versions = [version for version, _, _ in MIGRATIONS]
         names = [name for _, name, _ in MIGRATIONS]
-        self.assertEqual(versions, list(range(1, len(MIGRATIONS) + 1)))
+        self.assertEqual(versions, sorted(set(versions)))
         self.assertEqual(len(set(names)), len(names))
+
+    def test_renumbered_row_moves_instead_of_replaying(self) -> None:
+        """A branch database recorded agent_tokens_registry as 3 before it moved to 6."""
+        conn = FakeConnection()
+        conn.ledger = {1: "portable_column_types", 2: "import_proposal_draft_column", 3: "agent_tokens_registry"}
+
+        self.assertNotIn("agent_tokens_registry", [name for _, name in pending_catalog_migrations(conn)])
+        self.assertEqual(conn.ledger[3], "agent_tokens_registry", "reporting must not modify the database")
+
+        apply_catalog_migrations(conn)
+
+        self.assertEqual(conn.ledger[6], "agent_tokens_registry")
+        self.assertNotIn(3, conn.ledger)
+        self.assertEqual(pending_catalog_migrations(conn), [])
 
 
 if __name__ == "__main__":

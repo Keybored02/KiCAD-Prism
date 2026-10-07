@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 import uuid
+from unittest import mock
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -1787,9 +1788,42 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (23, "tracker_connectors_identities_policy"),
                 (24, "tracker_connector_delete_cascade"),
                 (25, "tracker_webhook_oauth_tables"),
-                (26, "repository_origin"),
+                (41, "repository_origin"),
             ],
         )
+
+
+class _LedgerOnlyConnection:
+    """Records ws_schema_migrations writes; every migration body is already applied."""
+
+    def __init__(self, ledger: dict[int, str]) -> None:
+        self.ledger = dict(ledger)
+
+    def execute(self, sql: str, params: tuple = ()):
+        statement = " ".join(sql.split())
+        rows: list[dict] = []
+        if statement.startswith("UPDATE ws_schema_migrations SET version"):
+            new_version, old_version, name = params
+            if self.ledger.get(old_version) == name:
+                self.ledger[new_version] = self.ledger.pop(old_version)
+        elif statement.startswith("SELECT version FROM ws_schema_migrations"):
+            rows = [{"version": version} for version in self.ledger]
+        elif statement.startswith("INSERT INTO ws_schema_migrations"):
+            raise AssertionError(f"migration {params[0]} ({params[1]}) replayed")
+        return mock.Mock(fetchall=mock.Mock(return_value=rows))
+
+
+class WorkspaceMigrationRenumberTests(unittest.TestCase):
+    def test_branch_database_keeps_repository_origin_under_its_new_number(self) -> None:
+        """repository_origin was 26 on the agent branch; 26-40 belong to System Builder."""
+        ledger = {version: name for version, name, _ in MIGRATIONS if name != "repository_origin"}
+        ledger[26] = "repository_origin"
+        conn = _LedgerOnlyConnection(ledger)
+
+        apply_workspace_migrations(conn)
+
+        self.assertEqual(conn.ledger[41], "repository_origin")
+        self.assertNotIn(26, conn.ledger)
 
 
 if __name__ == "__main__":
