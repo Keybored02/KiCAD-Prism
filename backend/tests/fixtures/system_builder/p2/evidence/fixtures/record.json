@@ -100,11 +100,11 @@
     }
    ],
    "files": {
-    "sources/ambiguous/F0/PrismFixture.kicad_sym": "e980f1ad5d838e1e33ab244c2d9a8cbec9554ea6aad31960fb4a9bf3d19865a7",
+    "sources/ambiguous/F0/PrismFixture.kicad_sym": "7a6c9068d5e53aa0510f75d466fc8efd04435281066f1c99fb1e4afa1a49275d",
     "sources/ambiguous/F0/PrismFixture.pretty/Conn_Custom_2x05.kicad_mod": "77b87430ac8ea541cd33afdedb99e6470d15afbb55bde58e3c708c55f71959e6",
-    "sources/ambiguous/F0/PrismFixture.pretty/Hirose_DF12_DF12C3.0-20DS-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "3675252fbf36a78967ba780c4a16736cad53f0c13cea6fee222892796f8f8618",
-    "sources/ambiguous/F0/PrismFixture.pretty/Hirose_DF12_DF12E3.0-20DP-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "7507e5403c7c58844e6a003d61228ca9ac954d6b08b5f60f4c7895ded91c710e",
-    "sources/ambiguous/F0/ambiguous.kicad_pcb": "fcf501bdef580544e17907685ff63ec9f6225cec2e6c3c9e1454651a39fbe795",
+    "sources/ambiguous/F0/PrismFixture.pretty/Samtec_ADF6-30-03.5-L-4-0-A.kicad_mod": "e221f20d7bb35a34f69ba315548362c3be2469135d5dc414a3043da44e3ea560",
+    "sources/ambiguous/F0/PrismFixture.pretty/Samtec_ADM6-30-03.5-L-4-0-A.kicad_mod": "d303453f91723bc6a2dedf356e8beffe1317d617a84bfb12309a48890931b2a3",
+    "sources/ambiguous/F0/ambiguous.kicad_pcb": "6804331e78e8e0ebb62ca8020bbf074bdb280d9c3aab0f5c253b6fb3f7c6f922",
     "sources/ambiguous/F0/ambiguous.kicad_pro": "268ba66f482aaaea07a2f26e28fa004a9f8e10e8ad1abcace55a16d0b0207b8e",
     "sources/ambiguous/F0/ambiguous.kicad_sch": "8673cfbb8ed7c0ba271ff6e3466834bd0406d726b9603007cd90b26d377fbcde",
     "sources/ambiguous/F0/fp-lib-table": "a7978d57a336ad74722a614ea5c65c0e7ce6d51ff68038b8f953902ada82ca8a",
@@ -211,11 +211,11 @@
     }
    ],
    "files": {
-    "sources/edge_a/F0/PrismFixture.kicad_sym": "e980f1ad5d838e1e33ab244c2d9a8cbec9554ea6aad31960fb4a9bf3d19865a7",
+    "sources/edge_a/F0/PrismFixture.kicad_sym": "7a6c9068d5e53aa0510f75d466fc8efd04435281066f1c99fb1e4afa1a49275d",
     "sources/edge_a/F0/PrismFixture.pretty/Conn_Custom_2x05.kicad_mod": "77b87430ac8ea541cd33afdedb99e6470d15afbb55bde58e3c708c55f71959e6",
-    "sources/edge_a/F0/PrismFixture.pretty/Hirose_DF12_DF12C3.0-20DS-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "3675252fbf36a78967ba780c4a16736cad53f0c13cea6fee222892796f8f8618",
-    "sources/edge_a/F0/PrismFixture.pretty/Hirose_DF12_DF12E3.0-20DP-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "7507e5403c7c58844e6a003d61228ca9ac954d6b08b5f60f4c7895ded91c710e",
-    "sources/edge_a/F0/edge_a.kicad_pcb": "19c7e9d4b089c105ca07359d65f0e2c2302076a5f842e913045316ab4f012c16",
+    "sources/edge_a/F0/PrismFixture.pretty/Samtec_ADF6-30-03.5-L-4-0-A.kicad_mod": "e221f20d7bb35a34f69ba315548362c3be2469135d5dc414a3043da44e3ea560",
+    "sources/edge_a/F0/PrismFixture.pretty/Samtec_ADM6-30-03.5-L-4-0-A.kicad_mod": "d303453f91723bc6a2dedf356e8beffe1317d617a84bfb12309a48890931b2a3",
+    "sources/edge_a/F0/edge_a.kicad_pcb": "dc886b5c6cea49a6425c5ad7253df25c04578c4c83fce9282dac78b38cb9739e",
     "sources/edge_a/F0/edge_a.kicad_pro": "ddeecaa9d93869db36ed32cb1e93ce3b3087f48dead89bbcd9d043cdd33e17d4",
     "sources/edge_a/F0/edge_a.kicad_sch": "30fa9617edbbbbe0d7f9b02a7ab7536eafe8a7a37c3008e936d6f8a10e690a28",
     "sources/edge_a/F0/fp-lib-table": "a7978d57a336ad74722a614ea5c65c0e7ce6d51ff68038b8f953902ada82ca8a",
@@ -322,11 +322,11 @@
     }
    ],
    "files": {
-    "sources/edge_b/F0/PrismFixture.kicad_sym": "e980f1ad5d838e1e33ab244c2d9a8cbec9554ea6aad31960fb4a9bf3d19865a7",
+    "sources/edge_b/F0/PrismFixture.kicad_sym": "7a6c9068d5e53aa0510f75d466fc8efd04435281066f1c99fb1e4afa1a49275d",
     "sources/edge_b/F0/PrismFixture.pretty/Conn_Custom_2x05.kicad_mod": "77b87430ac8ea541cd33afdedb99e6470d15afbb55bde58e3c708c55f71959e6",
-    "sources/edge_b/F0/PrismFixture.pretty/Hirose_DF12_DF12C3.0-20DS-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "3675252fbf36a78967ba780c4a16736cad53f0c13cea6fee222892796f8f8618",
-    "sources/edge_b/F0/PrismFixture.pretty/Hirose_DF12_DF12E3.0-20DP-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "7507e5403c7c58844e6a003d61228ca9ac954d6b08b5f60f4c7895ded91c710e",
-    "sources/edge_b/F0/edge_b.kicad_pcb": "e24c2d9fa3d49bfabb0fa5fa3aa759efc3319b216744125476f65a85871e640b",
+    "sources/edge_b/F0/PrismFixture.pretty/Samtec_ADF6-30-03.5-L-4-0-A.kicad_mod": "e221f20d7bb35a34f69ba315548362c3be2469135d5dc414a3043da44e3ea560",
+    "sources/edge_b/F0/PrismFixture.pretty/Samtec_ADM6-30-03.5-L-4-0-A.kicad_mod": "d303453f91723bc6a2dedf356e8beffe1317d617a84bfb12309a48890931b2a3",
+    "sources/edge_b/F0/edge_b.kicad_pcb": "5d85cfb9e471c5528f7b26f5e51b31f2519df5e3978f145e189c1a2a50fa8eb7",
     "sources/edge_b/F0/edge_b.kicad_pro": "6fb192032aa47c6d8fa1a16172f9bf987e41b08ca98d92875b8dbaf9c4a4d29a",
     "sources/edge_b/F0/edge_b.kicad_sch": "64028431af3ae19708a3bc7576f4050dcd530680a2d160ebf8137da8b4798352",
     "sources/edge_b/F0/fp-lib-table": "a7978d57a336ad74722a614ea5c65c0e7ce6d51ff68038b8f953902ada82ca8a",
@@ -433,14 +433,14 @@
     }
    ],
    "files": {
-    "sources/mezz_base/F0/PrismFixture.kicad_sym": "e980f1ad5d838e1e33ab244c2d9a8cbec9554ea6aad31960fb4a9bf3d19865a7",
+    "sources/mezz_base/F0/PrismFixture.kicad_sym": "7a6c9068d5e53aa0510f75d466fc8efd04435281066f1c99fb1e4afa1a49275d",
     "sources/mezz_base/F0/PrismFixture.pretty/Conn_Custom_2x05.kicad_mod": "77b87430ac8ea541cd33afdedb99e6470d15afbb55bde58e3c708c55f71959e6",
-    "sources/mezz_base/F0/PrismFixture.pretty/Hirose_DF12_DF12C3.0-20DS-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "3675252fbf36a78967ba780c4a16736cad53f0c13cea6fee222892796f8f8618",
-    "sources/mezz_base/F0/PrismFixture.pretty/Hirose_DF12_DF12E3.0-20DP-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "7507e5403c7c58844e6a003d61228ca9ac954d6b08b5f60f4c7895ded91c710e",
+    "sources/mezz_base/F0/PrismFixture.pretty/Samtec_ADF6-30-03.5-L-4-0-A.kicad_mod": "e221f20d7bb35a34f69ba315548362c3be2469135d5dc414a3043da44e3ea560",
+    "sources/mezz_base/F0/PrismFixture.pretty/Samtec_ADM6-30-03.5-L-4-0-A.kicad_mod": "d303453f91723bc6a2dedf356e8beffe1317d617a84bfb12309a48890931b2a3",
     "sources/mezz_base/F0/fp-lib-table": "a7978d57a336ad74722a614ea5c65c0e7ce6d51ff68038b8f953902ada82ca8a",
-    "sources/mezz_base/F0/mezz_base.kicad_pcb": "06174d53a2c328e1a05c8364916f404be13dd63a599e9e11d304fd1423c4a43e",
+    "sources/mezz_base/F0/mezz_base.kicad_pcb": "708a4d04657a4d79d37d0e52dc839e0c5d72d88e288b37337332d19a9c7c1c58",
     "sources/mezz_base/F0/mezz_base.kicad_pro": "1e26610321bd7a3865767b27747379b66789a1b17dafbe8f3bd5b0145a6944a9",
-    "sources/mezz_base/F0/mezz_base.kicad_sch": "520e3189f6ff1e37ae5f7b21d9b68ced5e45b195fffa9d529697592bc7034165",
+    "sources/mezz_base/F0/mezz_base.kicad_sch": "171d4421fe16f90c32bab090a390153a85d1169e6464f196fef28d1b9f2bfece",
     "sources/mezz_base/F0/sym-lib-table": "0943f506a9b2f97b172b9555a6c99c6b11938bee38daa57b5979d26204280b70"
    }
   },
@@ -544,14 +544,14 @@
     }
    ],
    "files": {
-    "sources/mezz_top/F0/PrismFixture.kicad_sym": "e980f1ad5d838e1e33ab244c2d9a8cbec9554ea6aad31960fb4a9bf3d19865a7",
+    "sources/mezz_top/F0/PrismFixture.kicad_sym": "7a6c9068d5e53aa0510f75d466fc8efd04435281066f1c99fb1e4afa1a49275d",
     "sources/mezz_top/F0/PrismFixture.pretty/Conn_Custom_2x05.kicad_mod": "77b87430ac8ea541cd33afdedb99e6470d15afbb55bde58e3c708c55f71959e6",
-    "sources/mezz_top/F0/PrismFixture.pretty/Hirose_DF12_DF12C3.0-20DS-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "3675252fbf36a78967ba780c4a16736cad53f0c13cea6fee222892796f8f8618",
-    "sources/mezz_top/F0/PrismFixture.pretty/Hirose_DF12_DF12E3.0-20DP-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "7507e5403c7c58844e6a003d61228ca9ac954d6b08b5f60f4c7895ded91c710e",
+    "sources/mezz_top/F0/PrismFixture.pretty/Samtec_ADF6-30-03.5-L-4-0-A.kicad_mod": "e221f20d7bb35a34f69ba315548362c3be2469135d5dc414a3043da44e3ea560",
+    "sources/mezz_top/F0/PrismFixture.pretty/Samtec_ADM6-30-03.5-L-4-0-A.kicad_mod": "d303453f91723bc6a2dedf356e8beffe1317d617a84bfb12309a48890931b2a3",
     "sources/mezz_top/F0/fp-lib-table": "a7978d57a336ad74722a614ea5c65c0e7ce6d51ff68038b8f953902ada82ca8a",
-    "sources/mezz_top/F0/mezz_top.kicad_pcb": "3c757c221b291090d41bcfe904d80e2e162284831cb7160cdb10dc1b36d0cb0f",
+    "sources/mezz_top/F0/mezz_top.kicad_pcb": "1011e4439ae6736b4d0e15055bd6cc4c7013cba19e7e79d77ed9274f7e0fc411",
     "sources/mezz_top/F0/mezz_top.kicad_pro": "0ce411e8e38cee636277a51813c260c89110d8aedcf8fa11e301b0329f27015f",
-    "sources/mezz_top/F0/mezz_top.kicad_sch": "ba386cd775a7cc78e6d8b022411675317e8b9e642ad03f9a40f761c313be1a97",
+    "sources/mezz_top/F0/mezz_top.kicad_sch": "2ef143cf3e148b4f9db9b775ee131e0d9fd4d0a3ceea8f14c87b62fff80d004f",
     "sources/mezz_top/F0/sym-lib-table": "0943f506a9b2f97b172b9555a6c99c6b11938bee38daa57b5979d26204280b70"
    }
   },
@@ -655,27 +655,25 @@
     }
    ],
    "files": {
-    "sources/mezz_top/F1/PrismFixture.kicad_sym": "e980f1ad5d838e1e33ab244c2d9a8cbec9554ea6aad31960fb4a9bf3d19865a7",
+    "sources/mezz_top/F1/PrismFixture.kicad_sym": "7a6c9068d5e53aa0510f75d466fc8efd04435281066f1c99fb1e4afa1a49275d",
     "sources/mezz_top/F1/PrismFixture.pretty/Conn_Custom_2x05.kicad_mod": "77b87430ac8ea541cd33afdedb99e6470d15afbb55bde58e3c708c55f71959e6",
-    "sources/mezz_top/F1/PrismFixture.pretty/Hirose_DF12_DF12C3.0-20DS-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "3675252fbf36a78967ba780c4a16736cad53f0c13cea6fee222892796f8f8618",
-    "sources/mezz_top/F1/PrismFixture.pretty/Hirose_DF12_DF12E3.0-20DP-0.5V_2x10_P0.50mm_Vertical.kicad_mod": "7507e5403c7c58844e6a003d61228ca9ac954d6b08b5f60f4c7895ded91c710e",
+    "sources/mezz_top/F1/PrismFixture.pretty/Samtec_ADF6-30-03.5-L-4-0-A.kicad_mod": "e221f20d7bb35a34f69ba315548362c3be2469135d5dc414a3043da44e3ea560",
+    "sources/mezz_top/F1/PrismFixture.pretty/Samtec_ADM6-30-03.5-L-4-0-A.kicad_mod": "d303453f91723bc6a2dedf356e8beffe1317d617a84bfb12309a48890931b2a3",
     "sources/mezz_top/F1/fp-lib-table": "a7978d57a336ad74722a614ea5c65c0e7ce6d51ff68038b8f953902ada82ca8a",
-    "sources/mezz_top/F1/mezz_top.kicad_pcb": "99cd008d26141c43773c775e7d3b71a9369cd2fa5820829e26b939986c3db130",
+    "sources/mezz_top/F1/mezz_top.kicad_pcb": "520fd51e9d798d2ddf30fcab6bb59ea7acb55f6b64ef8fb92060698f7b069d67",
     "sources/mezz_top/F1/mezz_top.kicad_pro": "0ce411e8e38cee636277a51813c260c89110d8aedcf8fa11e301b0329f27015f",
-    "sources/mezz_top/F1/mezz_top.kicad_sch": "ba386cd775a7cc78e6d8b022411675317e8b9e642ad03f9a40f761c313be1a97",
+    "sources/mezz_top/F1/mezz_top.kicad_sch": "2ef143cf3e148b4f9db9b775ee131e0d9fd4d0a3ceea8f14c87b62fff80d004f",
     "sources/mezz_top/F1/sym-lib-table": "0943f506a9b2f97b172b9555a6c99c6b11938bee38daa57b5979d26204280b70"
    }
   }
  },
  "kicad": "10.0.6",
  "vendorModels": {
-  "DF12NC(3.0)-20DP.stp": {
-   "hiroseCode": "CL0537-0398-0-51",
-   "sha256": "a41a4577653137a80ccbb3cb4c9ac0a8e744c9c5df8c2b4481c03a184fd672bb"
+  "ADF6-30-03.5-L-4-0-A-TR.stp": {
+   "sha256": "70d6a7077622222b5c02959e82581f862b494a01c96db8e737f4f614b0dbee13"
   },
-  "DF12NC(3.0)-20DS.stp": {
-   "hiroseCode": "CL0537-0193-0-51",
-   "sha256": "19a3f13852c14fb9dd00b17f4e7a5e287086097bcd73bffb23b456c759c77dc5"
+  "ADM6-30-03.5-L-4-0-A-TR.stp": {
+   "sha256": "d1ea6e0d19ec3970378cf8a2b27127fd70e82fce06ca07819ac4cdb59609c854"
   }
  }
 }

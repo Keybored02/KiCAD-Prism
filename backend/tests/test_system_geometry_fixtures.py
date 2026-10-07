@@ -63,8 +63,8 @@ class ExtractorTest(unittest.TestCase):
                 with self.subTest(snapshot=snapshot, reference=reference):
                     inferred = infer(geometry(payload, reference))
                     self.assertEqual(inferred["axis"], axis, inferred)
-                    if axis is None:
-                        self.assertEqual(inferred["confidence"], "low")  # details needed
+                    # low = details needed; the Samtec mezzanines infer from geometry alone (medium)
+                    self.assertEqual(inferred["confidence"], GOLDEN["frameConfidence"][snapshot][reference])
 
     def test_mated_pairs_line_up_pin_for_pin(self) -> None:
         base = extract(GOLDEN["mezzanine"]["base"])

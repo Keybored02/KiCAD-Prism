@@ -2,23 +2,22 @@
 
 Boards (``sources/<board>/<step>/``):
 
-* ``mezz_base`` / F0: 50×40 mm, 1.6 mm. J1 and J2 are Hirose DF12E3.0-20DP headers on
-  the top side, 30 mm apart.
-* ``mezz_top`` / F0: the same outline. J1 and J2 are DF12C3.0-20DS receptacles on the
-  bottom side, over the headers, so both pairs mate. F1 is the next commit: J2 moved
-  +1.5 mm in X.
+* ``mezz_base`` / F0: 50×40 mm, 1.6 mm. J1 and J2 are Samtec ADM6-30-03.5-L-4-0-A
+  terminals (AcceleRate HD, 4×30 at 0.635 mm) on the top side, 30 mm apart.
+* ``mezz_top`` / F0: the same outline. J1 and J2 are ADF6-30-03.5-L-4-0-A sockets on the
+  bottom side, over the terminals, so both pairs mate. F1 is the next commit: J2 moved
+  +1.5 mm in X. This is the JTYU OBC (ADM6) to CMBD (ADF6) pair.
 * ``edge_a`` / F0 and ``edge_b`` / F0: J1 is a right-angle pin header (edge_a) mating a
   vertical socket (edge_b); J2 is a right-angle socket (edge_a) mating a right-angle
   header (edge_b).
 * ``ambiguous`` / F0: J1 is a fixture-library 2×05 footprint whose name says neither
   vertical nor right-angle, with no courtyard and no 3D model.
 
-Footprints are KiCad 10.0.6 stock, placed through KiCad's IPC API (``ipc_build.py``;
-KiCad 11 drops the SWIG ``pcbnew`` module). KiCad ships
-no 3D model for the DF12, so the boards reference Hirose's own STEP files for the
-drop-in successors DF12NC(3.0)-20DP/-20DS-0.5V(51) (Hirose: compatible in mounting,
-mating and specification). They are not redistributed: put them in ``vendor/hirose/``
-(see the README) before running this.
+Footprints are placed through KiCad's IPC API (``ipc_build.py``; KiCad 11 drops the SWIG
+``pcbnew`` module). The edge and ``ambiguous`` parts are KiCad 10.0.6 stock. KiCad ships
+no ADM6/ADF6, so their footprints are written here from Samtec's recommended PCB layouts
+(``SAMTEC`` below), and the boards reference Samtec's STEP files, which are not
+redistributed: put them in ``vendor/samtec/`` (see the README) before running this.
 
 Every board is checked with ``kicad-cli`` 10.0.6: ``sch erc``, ``pcb drc
 --schematic-parity``, ``sch export netlist``, ``pcb export step`` and ``pcb export glb``.
@@ -54,18 +53,18 @@ import ipc_build  # noqa: E402
 
 SOURCES = HERE / "sources"
 EVIDENCE = HERE / "evidence" / "fixtures"
-VENDOR = HERE / "vendor" / "hirose"
+VENDOR = HERE / "vendor" / "samtec"
 KICAD = Path("/Applications/KiCad/KiCad.app/Contents")
 CLI = os.environ.get("KICAD_CLI", str(KICAD / "MacOS" / "kicad-cli"))
 STOCK = KICAD / "SharedSupport" / "footprints"
 FIXTURE_LIB = "PrismFixture"
 THICKNESS = 1.6
 
-# Hirose STEP files for the DF12 successors, with their SHA-256 as downloaded from
-# https://www.hirose.com/api/v1/products/<code>/documents/model_3d_step/content (2026-10-01).
+# Samtec's STEP files (PARTsolutions exports). Samtec serves them only after an e-mail
+# sign-up; these are the copies in the JTYU repositories' packages3D folders (README).
 VENDOR_MODELS = {
-    "DP": ("DF12NC(3.0)-20DP.stp", "CL0537-0398-0-51"),
-    "DS": ("DF12NC(3.0)-20DS.stp", "CL0537-0193-0-51"),
+    "ADM6": "ADM6-30-03.5-L-4-0-A-TR.stp",
+    "ADF6": "ADF6-30-03.5-L-4-0-A-TR.stp",
 }
 
 
@@ -74,31 +73,87 @@ def _mod(board: str, step: str) -> str:
     return "${KIPRJMOD}/" + os.path.relpath(VENDOR, SOURCES / board / step)
 
 
-# Placement of each vendor model on its KiCad footprint (mm, KiCad model space: y up).
-# Hirose's models have their origin at a body corner (Geometer bounds: DP x 0..7.2,
-# y -0.4..4.2, z 0..2.3; DS x 0..7.1, y -0.5..4.1, z 0..2.2). The offsets put each body's
-# XY centre on the centre of its footprint's F.Fab outline (y up: DP x ±3.6, y -2.65..1.9;
-# DS x ±3.55, y -1.8..2.55) with its seat on the board (z 0). KiCad's GLB export of the
-# fixtures confirms it to 0.025 mm (README). The bounds cannot show pin 1, so the vendor
-# body's own pin-1 end is not checked; the models are for the M2 scene only.
-MODEL_PLACEMENT = {
-    "DP": {"offsetMm": [-3.6, -2.275, 0.0], "rotationDeg": [0.0, 0.0, 0.0]},
-    "DS": {"offsetMm": [-3.55, -1.425, 0.0], "rotationDeg": [0.0, 0.0, 0.0]},
+# ADM6 / ADF6, 30 positions per row, from Samtec's drawings (README, "Where the numbers
+# come from"): recommended PCB layouts ADM6-XXX-XX.X-XXX-X-X-X-FOOTPRINT rev G and
+# ADF6-…-FOOTPRINT rev H (sheet 1, -0 column termination, -A alignment pins). Page mm,
+# y down, origin at the centre. Both drawings are top views of the part's own board:
+# the ADM6 has row A at the top, the ADF6 row A at the bottom, pin 01 at the right.
+POSITIONS = 30
+PITCH = 0.635  # along a row
+ROWS_Y = {"A": -1.75, "B": -0.79, "C": 0.79, "D": 1.75}  # 3.50 between A and D, 1.58 between B and C
+PAD_DIAMETER = 0.356
+NPTH_DIAMETER = 0.950
+ENVELOPE = (23.77, 5.00)  # Table 1 "A" for -30 × 5.00, with 1.00 × 45° chamfers on the row-A side
+NPTH_SPACING = 21.22  # Table 1 "C" (-A option)
+NPTH_OFFSET = 1.27  # one hole sits 1.27 off the centreline
+SAMTEC = {
+    # kind: (footprint name, row-A side (-1 top / +1 bottom), NPTHs (x sign, y), part, model)
+    "ADM6": ("Samtec_ADM6-30-03.5-L-4-0-A", -1, ((-1, -NPTH_OFFSET), (1, 0.0)), "ADM6-30-03.5-L-4-0-A-TR"),
+    "ADF6": ("Samtec_ADF6-30-03.5-L-4-0-A", 1, ((-1, 0.0), (1, -NPTH_OFFSET)), "ADF6-30-03.5-L-4-0-A-TR"),
 }
+SAMTEC_PINS = [f"{row}{n:02d}" for row in "ABCD" for n in range(1, POSITIONS + 1)]
+
+# The models (Y up, origin at the seating plane, centred) need only KiCad's usual turn
+# from Y up to Z up. Their alignment pins sit on the NPTHs above at this placement, which
+# fixes both the turn and the pin-1 end (README, "3D models").
+MODEL_PLACEMENT = {"offsetMm": [0.0, 0.0, 0.0], "rotationDeg": [-90.0, 0.0, 0.0]}
+
+
+def _samtec_footprint(kind: str, board: str, step: str) -> str:
+    name, row_a_side, holes, part = SAMTEC[kind]
+    sign = 1 if row_a_side < 0 else -1  # ADF6 rows are the ADM6 rows mirrored
+    width, height = ENVELOPE
+    hw, hh, c = width / 2, height / 2, 1.0
+    a = row_a_side * hh  # the chamfered (row-A) edge
+    outline = [(-hw, -a), (hw, -a), (hw, a - row_a_side * c), (hw - c, a), (-hw + c, a), (-hw, a - row_a_side * c)]
+    lines = []
+    for (x0, y0), (x1, y1) in zip(outline, outline[1:] + outline[:1]):
+        lines.append(f'\t(fp_line (start {x0:g} {y0:g}) (end {x1:g} {y1:g}) (stroke (width 0.1) (type solid)) (layer "F.Fab"))')
+    pin1_x = (POSITIONS - 1) / 2 * PITCH
+    pads = []
+    for pin in SAMTEC_PINS:
+        x = round(pin1_x - (int(pin[1:]) - 1) * PITCH, 4)
+        y = sign * ROWS_Y[pin[0]]
+        pads.append(f'\t(pad "{pin}" smd circle (at {x:g} {y:g}) (size {PAD_DIAMETER:g} {PAD_DIAMETER:g}) '
+                    '(layers "F.Cu" "F.Paste" "F.Mask"))')
+    for x_sign, y in holes:
+        pads.append(f'\t(pad "" np_thru_hole circle (at {x_sign * NPTH_SPACING / 2:g} {y:g}) '
+                    f'(size {NPTH_DIAMETER:g} {NPTH_DIAMETER:g}) (drill {NPTH_DIAMETER:g}) (layers "*.Cu" "*.Mask"))')
+    offset, rotation = MODEL_PLACEMENT["offsetMm"], MODEL_PLACEMENT["rotationDeg"]
+    return f"""(footprint "{name}"
+\t(version 20260206)
+\t(generator "prism_fixture")
+\t(layer "F.Cu")
+\t(descr "SB2-21 fixture: Samtec {part}, from Samtec's recommended PCB layout")
+\t(property "Reference" "REF**" (at 0 {-row_a_side * (hh + 1.2):g} 0) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15))))
+\t(property "Value" "{name}" (at 0 {row_a_side * (hh + 1.2):g} 0) (layer "F.Fab") (effects (font (size 1 1) (thickness 0.15))))
+\t(attr smd)
+{chr(10).join(lines)}
+\t(fp_rect (start {-hw - 0.25:g} {-hh - 0.25:g}) (end {hw + 0.25:g} {hh + 0.25:g}) (stroke (width 0.05) (type solid)) (fill no) (layer "F.CrtYd"))
+{chr(10).join(pads)}
+\t(model "{_mod(board, step)}/{VENDOR_MODELS[kind]}"
+\t\t(offset (xyz {" ".join(f"{v:g}" for v in offset)}))
+\t\t(scale (xyz 1 1 1))
+\t\t(rotate (xyz {" ".join(f"{v:g}" for v in rotation)}))
+\t)
+\t(embedded_fonts no)
+)
+"""
 
 
 # --------------------------------------------------------------------------
 # Symbols: one fixture-library symbol per footprint, so the schematic's Footprint
 # field and the board agree (DRC schematic parity).
 
-def _conn(name: str, pins: int, footprint: str) -> g.LibSymbol:
+def _conn(name: str, pins: int | list[str], footprint: str) -> g.LibSymbol:
+    numbers = [str(i) for i in range(1, pins + 1)] if isinstance(pins, int) else pins
     return g.LibSymbol(f"{FIXTURE_LIB}:{name}", "J", name, footprint,
-                       tuple(g.LibPin(str(i), f"Pin_{i}") for i in range(1, pins + 1)))
+                       tuple(g.LibPin(n, n if isinstance(pins, list) else f"Pin_{n}") for n in numbers))
 
 
 SYMBOLS = {
-    "DF12_DP": _conn("DF12_Header_2x10", 20, f"{FIXTURE_LIB}:Hirose_DF12_DF12E3.0-20DP-0.5V_2x10_P0.50mm_Vertical"),
-    "DF12_DS": _conn("DF12_Receptacle_2x10", 20, f"{FIXTURE_LIB}:Hirose_DF12_DF12C3.0-20DS-0.5V_2x10_P0.50mm_Vertical"),
+    "ADM6": _conn("ADM6_4x30", SAMTEC_PINS, f"{FIXTURE_LIB}:{SAMTEC['ADM6'][0]}"),
+    "ADF6": _conn("ADF6_4x30", SAMTEC_PINS, f"{FIXTURE_LIB}:{SAMTEC['ADF6'][0]}"),
     "HDR_RA": _conn("Header_1x04_RA", 4, "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Horizontal"),
     "SKT_RA": _conn("Socket_1x04_RA", 4, "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Horizontal"),
     "SKT_V": _conn("Socket_1x04_V", 4, "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical"),
@@ -134,18 +189,18 @@ def _custom_pads() -> str:
 # --------------------------------------------------------------------------
 # Boards. Page coordinates in mm (y down), as KiCad stores them.
 
-def _part(key: str, reference: str, at: tuple[float, float], side: str, rotation: float, prefix: str,
-          model: str | None = None) -> dict:
+def _part(key: str, reference: str, at: tuple[float, float], side: str, rotation: float, prefix: str) -> dict:
     return {"symbol": key, "reference": reference, "atMm": list(at), "side": side, "rotationDeg": rotation,
-            "netPrefix": prefix, "model": model}
+            "netPrefix": prefix}
 
 
 # Each net joins two pins of one connector (a loopback), routed on the board, so every
-# net is real (no ERC isolated labels, no DRC unconnected items). DF12 pins n and n+10
-# face each other across the rows; the others pair neighbours on the same row.
+# net is real (no ERC isolated labels, no DRC unconnected items). Samtec pins An and Bn,
+# Cn and Dn sit 0.96 mm apart in neighbouring rows; the others pair neighbours on one row.
+SAMTEC_LOOPBACKS = [(f"{a}{n:02d}", f"{b}{n:02d}") for a, b in ("AB", "CD") for n in range(1, POSITIONS + 1)]
 LOOPBACKS = {
-    "DF12_DP": [(str(n), str(n + 10)) for n in range(1, 11)],
-    "DF12_DS": [(str(n), str(n + 10)) for n in range(1, 11)],
+    "ADM6": SAMTEC_LOOPBACKS,
+    "ADF6": SAMTEC_LOOPBACKS,
     "HDR_RA": [("1", "2"), ("3", "4")],
     "SKT_RA": [("1", "2"), ("3", "4")],
     "SKT_V": [("1", "2"), ("3", "4")],
@@ -154,20 +209,20 @@ LOOPBACKS = {
 
 
 def _net(part: dict, pin: str) -> str:
-    """The loopback net a pin is on, named after its first pin (A1 joins J1 pins 1 and 11)."""
+    """The loopback net a pin is on, named after its first pin (A_A01 joins J1 pins A01 and B01)."""
     first = next(a for a, b in LOOPBACKS[part["symbol"]] if pin in (a, b))
     return f"{part['netPrefix']}{first}"
 
 
 def boards() -> list[dict]:
-    base = [_part("DF12_DP", "J1", (110, 120), "top", 0, "A", "DP"),
-            _part("DF12_DP", "J2", (140, 120), "top", 0, "B", "DP")]
-    # Flipped to the bottom with no further turn, the receptacle's pin n lands on the
-    # header's pin n: the stock DS and DP footprints are drawn mirrored for exactly this.
+    base = [_part("ADM6", "J1", (125, 105), "top", 0, "A_"),
+            _part("ADM6", "J2", (125, 135), "top", 0, "B_")]
+    # Flipped to the bottom with no further turn, the socket's pin An lands on the
+    # terminal's pin An: Samtec draws the ADF6 rows mirrored for exactly this.
     # The generator checks it from the placed pads (and kicad-cli's IPC-D-356 agrees).
-    top = [_part("DF12_DS", "J1", (110, 120), "bottom", 0, "A", "DS"),
-           _part("DF12_DS", "J2", (140, 120), "bottom", 0, "B", "DS")]
-    shifted = [top[0], {**top[1], "atMm": [141.5, 120]}]
+    top = [_part("ADF6", "J1", (125, 105), "bottom", 0, "A_"),
+           _part("ADF6", "J2", (125, 135), "bottom", 0, "B_")]
+    shifted = [top[0], {**top[1], "atMm": [126.5, 135]}]
     return [
         {"board": "mezz_base", "step": "F0", "outlineMm": [100, 100, 150, 140], "parts": base},
         {"board": "mezz_top", "step": "F0", "outlineMm": [100, 100, 150, 140], "parts": top},
@@ -216,27 +271,9 @@ def _tables(directory: Path) -> None:
     pretty = directory / f"{FIXTURE_LIB}.pretty"
     pretty.mkdir(exist_ok=True)
     (pretty / "Conn_Custom_2x05.kicad_mod").write_text(CUSTOM_FOOTPRINT.format(pads=_custom_pads()))
-    # The DF12 footprints are KiCad's stock files with one change: the (model ...) block names
-    # Hirose's STEP (KiCad ships none), placed on the footprint as MODEL_PLACEMENT says.
     board, step = directory.parent.name, directory.name
-    for kind, stock in DF12_STOCK.items():
-        text = (STOCK / "Connector_Hirose.pretty" / f"{stock}.kicad_mod").read_text()
-        file, _code = VENDOR_MODELS[kind]
-        offset, rotation = MODEL_PLACEMENT[kind]["offsetMm"], MODEL_PLACEMENT[kind]["rotationDeg"]
-        model = (f'(model "{_mod(board, step)}/{file}"\n\t\t(offset\n\t\t\t(xyz {" ".join(f"{v:g}" for v in offset)})\n\t\t)'
-                 '\n\t\t(scale\n\t\t\t(xyz 1 1 1)\n\t\t)'
-                 f'\n\t\t(rotate\n\t\t\t(xyz {" ".join(f"{v:g}" for v in rotation)})\n\t\t)\n\t)')
-        replaced, count = re.subn(r'\(model "[^"]*"\s*\(offset\s*\(xyz [^)]*\)\s*\)\s*\(scale\s*\(xyz [^)]*\)\s*\)\s*\(rotate\s*\(xyz [^)]*\)\s*\)\s*\)',
-                                  lambda _m: model, text)
-        if count != 1:
-            raise SystemExit(f"{stock}: expected one model block, found {count}")
-        (pretty / f"{stock}.kicad_mod").write_text(replaced)
-
-
-DF12_STOCK = {
-    "DP": "Hirose_DF12_DF12E3.0-20DP-0.5V_2x10_P0.50mm_Vertical",
-    "DS": "Hirose_DF12_DF12C3.0-20DS-0.5V_2x10_P0.50mm_Vertical",
-}
+    for kind, (name, *_rest) in SAMTEC.items():
+        (pretty / f"{name}.kicad_mod").write_text(_samtec_footprint(kind, board, step))
 
 
 def _pcb_spec(spec: dict, directory: Path, board: g.Board) -> dict:
@@ -380,12 +417,11 @@ def main() -> int:
     if version != "10.0.6":
         print(f"expected kicad-cli 10.0.6, found {version!r}", file=sys.stderr)
         return 1
-    missing = [f for f, _code in VENDOR_MODELS.values() if not (VENDOR / f).is_file()]
+    missing = [f for f in VENDOR_MODELS.values() if not (VENDOR / f).is_file()]
     if missing:
-        print(f"missing Hirose models in {VENDOR}: {', '.join(missing)} (see the README)", file=sys.stderr)
+        print(f"missing Samtec models in {VENDOR}: {', '.join(missing)} (see the README)", file=sys.stderr)
         return 1
-    record = {"kicad": version, "vendorModels": {f: {"hiroseCode": code, "sha256": _sha(VENDOR / f)}
-                                                 for f, code in VENDOR_MODELS.values()},
+    record = {"kicad": version, "vendorModels": {f: {"sha256": _sha(VENDOR / f)} for f in VENDOR_MODELS.values()},
               "boards": {}}
     for spec in boards():
         build(spec, record)

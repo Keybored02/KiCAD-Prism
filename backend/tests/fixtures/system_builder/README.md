@@ -89,55 +89,71 @@ checks the evidence and reads every board through Prism's extractor.
 
 | Board / step | Contents |
 | --- | --- |
-| `mezz_base` / F0 | 50×40 mm, 1.6 mm. J1 and J2: Hirose DF12E3.0-20DP headers, top side, 30 mm apart. |
-| `mezz_top` / F0 | Same outline. J1 and J2: DF12C3.0-20DS receptacles on the bottom side, pin n over the header's pin n. |
+| `mezz_base` / F0 | 50×40 mm, 1.6 mm. J1 and J2: Samtec ADM6-30-03.5-L-4-0-A terminals (AcceleRate HD, 4×30 at 0.635 mm), top side, 30 mm apart in Y. |
+| `mezz_top` / F0 | Same outline. J1 and J2: ADF6-30-03.5-L-4-0-A sockets on the bottom side, pin An over the terminal's pin An. The JTYU OBC (ADM6) to CMBD (ADF6) pair. |
 | `mezz_top` / F1 | The next commit: J2 moved +1.5 mm in X. |
 | `edge_a` / F0 | J1: right-angle pin header (2.54 mm, 1×04). J2: right-angle pin socket. |
 | `edge_b` / F0 | J1: vertical pin socket (mates edge_a J1 at 90°). J2: right-angle pin header (mates edge_a J2, coplanar). |
 | `ambiguous` / F0 | J1: a fixture-library 2×05 footprint whose name says neither vertical nor right-angle, with no courtyard and no model. |
 
-Every net is a loopback between two pins of one connector (DF12 pin n with
-n+10, the pins facing it across the rows; the others pair neighbours), routed on
-the board, so ERC has no isolated labels and DRC no unconnected items.
+Every net is a loopback between two pins of one connector (Samtec An with Bn
+and Cn with Dn, 0.96 mm apart in neighbouring rows; the others pair
+neighbours), routed on the board, so ERC has no isolated labels and DRC no
+unconnected items.
 
 ### Where the numbers come from
 
-- **Mated height 3.0 mm (+0.2/−0):** Hirose drawing EDC-390687-51-77, sheet 1
-  (DF12NC(3.0)-*DP-0.5V(51)), mated section with DF12N#(3.0)-*DS-0.5V.
-- **Body heights:** header 2.3 ± 0.2 mm (EDC-390687-51-77); receptacle
-  2.2 ± 0.2 mm (EDC-390688-51-77).
-- KiCad's footprints are for DF12C(3.0)-20DS-0.5V(81) and
-  DF12E(3.0)-20DP-0.5V(81), now discontinued. Hirose names
-  DF12NC(3.0)-20DS-0.5V(51) and DF12NC(3.0)-20DP-0.5V(51) as replacements,
-  compatible in mounting, mating and specification; their drawings and models
-  are the ones used.
-- **Frames:** from the stock footprints' own geometry. The right-angle header's
-  F.Fab outline runs to x = +10.04 (pins point +X), the right-angle socket's to
-  x = −10.03 (−X), and the vertical parts' outlines sit over their pads.
+All from Samtec's public drawings (suddendocs.samtec.com, read 2026-10-07):
+
+- **Mated height 7.00 mm (7.46 max):** *ADX6 Mated Views* rev E, Table 1, ADM6
+  lead style -03.5 with ADF6 lead style -03.5. Samtec gives it for its
+  recommended PCB layouts.
+- **Body heights:** ADM6 -03.5 "G" = 4.900 mm (*ADM6-XXX-XX.X-XXX-4-X-X-XR* rev
+  AA, Table 3); ADF6 -03.5 "K" = 3.230 mm (*ADF6-XXX-XX.X-XXX-4-X-X-XR* rev Y,
+  Table 7). Each has a 0.13 mm polyimide pick-up pad on top.
+- **Footprints:** Samtec's recommended PCB layouts, sheet 1 (-0 column
+  termination): *ADM6-XXX-XX.X-XXX-X-X-X-FOOTPRINT* rev G and
+  *ADF6-XXX-XX.X-XXX-X-X-X-FOOTPRINT* rev H. 0.635 mm pitch, pin 01 at the
+  right; rows A–D 3.50 mm and B–C 1.58 mm apart; Ø0.356 mm pads; the -30
+  envelope 23.77 × 5.00 mm with 1.00 × 45° chamfers on the row-A side; -A
+  alignment NPTHs Ø0.950 mm, 21.22 mm apart, one on the centreline and one
+  1.27 mm off it. Both drawings are top views of the part's own board: the ADM6
+  has row A at the top, the ADF6 at the bottom, so a socket flipped onto the
+  underside of the top board puts An over An. KiCad ships no ADM6/ADF6, so
+  `geometry_fixtures.py` writes the footprints from these numbers. Every pad
+  and NPTH (position and size) matches Pixxel's library ADM6-30 footprint and
+  the ADF6-30 placed on JTYU-CMBD.
+- **Frames:** from the footprints' own geometry. The Samtec footprints name no
+  orientation (as on JTYU), so they infer `top`/`bottom` from the body over the
+  pads at `medium` confidence. The right-angle header's F.Fab outline runs to
+  x = +10.04 (pins point +X), the right-angle socket's to x = −10.03 (−X), and
+  the vertical 2.54 mm parts' outlines sit over their pads.
 - Board thickness and positions are fixture choices. KiCad's generic 2.54 mm
   parts have no manufacturer drawing, so the edge assemblies have frame goldens
   but no pose goldens.
 
 ### 3D models
 
-KiCad 10.0.6 ships no DF12 model: the stock footprints name
-`Connector_Hirose.3dshapes`, which is not in KiCad's 3D library. The fixtures
-use Hirose's own STEP files, which are **not committed** (Hirose's terms). Put
-them in `p2/vendor/hirose/` (git-ignored) before regenerating:
+KiCad ships no ADM6/ADF6 model, and Samtec serves its STEP files only after an
+e-mail sign-up. The fixtures use Samtec's files (PARTsolutions exports) as found
+in the JTYU repositories, which are **not committed** (Samtec's terms). Put
+them in `p2/vendor/samtec/` (git-ignored) before regenerating:
 
-| File | Hirose code | Source |
-| --- | --- | --- |
-| `DF12NC(3.0)-20DP.stp` | CL0537-0398-0-51 | `https://www.hirose.com/api/v1/products/CL0537-0398-0-51/documents/model_3d_step/content` (zip) |
-| `DF12NC(3.0)-20DS.stp` | CL0537-0193-0-51 | `https://www.hirose.com/api/v1/products/CL0537-0193-0-51/documents/model_3d_step/content` (zip) |
+| File | Copied from |
+| --- | --- |
+| `ADM6-30-03.5-L-4-0-A-TR.stp` | `jtyu-hardware-development/AVI/JTYU-OBC/packages3D/` |
+| `ADF6-30-03.5-L-4-0-A-TR.stp` | `jtyu-hardware-development/AVI/JTYU-CMBD/packages3D/` |
 
-`p2/evidence/fixtures/record.json` records their SHA-256. The two DF12
-footprints are copied into each board's `PrismFixture.pretty`, identical to
-KiCad's stock files except the `(model …)` block, which names the vendor file
-and places it: body centred on the footprint's F.Fab outline, seated on the
-board. KiCad's GLB export of the boards confirms the placement to 0.025 mm
-(headers x 106.4–143.6, page y 118.075–122.675, 2.3 mm tall; receptacles 7.1 mm
-wide, 2.2 mm tall). The body's pin-1 end is not verified. The models serve the
-M2 3D scene; no golden depends on them.
+`p2/evidence/fixtures/record.json` records their SHA-256. The models are Y up,
+centred, with the seating plane at Y = 0: the body tops sit at the drawings' "G"
+(4.90) and "K" (3.23), the pick-up pads 0.13 mm higher, and the column tails
+reach 0.34 mm below. Each footprint places its model with KiCad's usual
+`rotate (-90 0 0)` and no offset. The alignment pins are asymmetric, so they fix
+both the turn and the pin-1 end: in KiCad's GLB export of the boards every pin
+lands on its NPTH to 0.01 mm, and every body spans the footprint's
+23.77 × 5.00 mm envelope. KiCad's export seats the terminals 0.005 mm below the
+top face and the sockets 0.085 mm below the bottom face. The models serve the
+3D scene; no golden depends on them.
 
 ### Regenerating
 
