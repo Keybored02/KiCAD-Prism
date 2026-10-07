@@ -485,15 +485,6 @@ export function ProjectManufacturing({
 
             {subTab === "production" ? (
                 <section className="flex min-h-[24rem] flex-col gap-3">
-                    <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-sm font-medium">Production</h3>
-                        {canEdit && (
-                            <Button size="sm" onClick={() => setNewRunOpen(true)}>
-                                <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
-                                New production
-                            </Button>
-                        )}
-                    </div>
                     <ProductionList
                         runs={runs}
                         filters={filters}
@@ -501,6 +492,14 @@ export function ProjectManufacturing({
                         selectedId={drawerRunId}
                         onOpen={setDrawerRunId}
                         hideProject
+                        actions={
+                            canEdit ? (
+                                <Button size="sm" onClick={() => setNewRunOpen(true)}>
+                                    <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
+                                    New production
+                                </Button>
+                            ) : undefined
+                        }
                         emptyAction={
                             canEdit ? (
                                 <Button size="sm" onClick={() => setNewRunOpen(true)}>
@@ -664,7 +663,7 @@ export function ProjectManufacturing({
                                 </div>
                             </div>
 
-                            <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+                            <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
                                 {/* The spec form */}
                                 <section className="min-w-0 space-y-3">
                                     {!specId ? (

@@ -58,7 +58,7 @@ export function CapabilityCheck({ fields, capabilities, meta, boardRules, proces
                 <ul className="divide-y border text-sm">
                     {findings.map(({ row, board }) => (
                         <li key={row.key} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
-                            <span className="min-w-0 truncate">{row.label}</span>
+                            <span className="min-w-0">{row.label}</span>
                             <span className="shrink-0 tabular-nums">
                                 <span className="font-medium text-warning">{formatValue(board, row.unit)}</span>
                                 <span className="text-muted-foreground"> &lt; {formatValue(row.value, row.unit)}</span>

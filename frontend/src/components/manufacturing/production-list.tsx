@@ -30,7 +30,7 @@ import {
     type SortKey,
     type StatusFilter,
 } from "./production-filters";
-import { RunStatusBadge } from "./status-badge";
+import { RunStatusBadge, SOLID_DESTRUCTIVE } from "./status-badge";
 import { YieldBar } from "./yield-bar";
 
 const CHIPS: { value: StatusFilter; label: string }[] = [
@@ -53,6 +53,8 @@ interface ProductionListProps {
     hideProject?: boolean;
     /** Shown in the "no production yet" state, e.g. a New production button. */
     emptyAction?: ReactNode;
+    /** Page actions, shown at the right end of the filter row (e.g. New production). */
+    actions?: ReactNode;
     className?: string;
 }
 
@@ -70,6 +72,7 @@ export function ProductionList({
     onOpen,
     hideProject = false,
     emptyAction,
+    actions,
     className,
 }: ProductionListProps) {
     const counts = useMemo(() => statusCounts(runs, filters), [runs, filters]);
@@ -133,6 +136,7 @@ export function ProductionList({
                     Open defects
                     <span className="text-xs tabular-nums">{openDefectRuns}</span>
                 </button>
+                {actions && <div className="ml-auto">{actions}</div>}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -315,7 +319,7 @@ function RunRow({
             </div>
             <div className="min-w-0 text-right">
                 {openDefects > 0 ? (
-                    <Badge variant="destructive" title={`${openDefects} open defect(s)`}>
+                    <Badge variant="destructive" className={SOLID_DESTRUCTIVE} title={`${openDefects} open defect(s)`}>
                         {openDefects}
                     </Badge>
                 ) : (

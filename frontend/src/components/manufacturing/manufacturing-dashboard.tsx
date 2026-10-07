@@ -141,18 +141,12 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
                         </TabsTrigger>
                     </TabsList>
                 </Tabs>
-                {canEdit &&
-                    (view === "manufacturers" ? (
-                        <Button size="sm" onClick={() => setAddManufacturer(true)}>
-                            <Plus className="mr-1.5 h-4 w-4" />
-                            Add manufacturer
-                        </Button>
-                    ) : (
-                        <Button size="sm" onClick={() => setWizardOpen(true)}>
-                            <Plus className="mr-1.5 h-4 w-4" />
-                            New production
-                        </Button>
-                    ))}
+                {canEdit && view === "manufacturers" && (
+                    <Button size="sm" onClick={() => setAddManufacturer(true)}>
+                        <Plus className="mr-1.5 h-4 w-4" />
+                        Add manufacturer
+                    </Button>
+                )}
             </div>
 
             {view === "manufacturers" ? (
@@ -179,6 +173,14 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
                         onFiltersChange={setFilters}
                         selectedId={drawerRunId}
                         onOpen={openRun}
+                        actions={
+                            canEdit ? (
+                                <Button size="sm" onClick={() => setWizardOpen(true)}>
+                                    <Plus className="mr-1.5 h-4 w-4" />
+                                    New production
+                                </Button>
+                            ) : undefined
+                        }
                         emptyAction={
                             canEdit ? (
                                 <Button size="sm" onClick={() => setWizardOpen(true)}>

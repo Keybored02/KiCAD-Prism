@@ -21,6 +21,10 @@ export const SEVERITY_VARIANT: Record<DefectSeverity, BadgeVariant> = {
     critical: "destructive",
 };
 
+// The soft destructive badge reads as near-black red on the dark theme. Counts and
+// "critical" need to be seen at a glance, so they use the solid fill.
+export const SOLID_DESTRUCTIVE = "border-transparent bg-destructive text-destructive-foreground dark:bg-destructive";
+
 export function RunStatusBadge({ status }: { status: RunStatus }) {
     return <Badge variant={RUN_STATUS_VARIANT[status]}>{RUN_STATUS_LABELS[status]}</Badge>;
 }

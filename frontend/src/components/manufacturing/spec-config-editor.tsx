@@ -205,13 +205,13 @@ function ConfigEditorPane({
                 </div>
                 <textarea
                     id={textId}
-                    className="h-[22rem] w-full resize-none rounded-md border bg-background p-3 font-mono text-xs leading-relaxed"
+                    className="h-[clamp(22rem,calc(100vh-22rem),52rem)] w-full resize-none rounded-md border bg-background p-4 font-mono text-sm leading-relaxed"
                     spellCheck={false}
                     value={text}
                     onChange={(e) => handleChange(e.target.value)}
                     placeholder={SYNTAX_HELP}
                 />
-                <details className="text-xs text-muted-foreground">
+                <details className="text-sm text-muted-foreground">
                     <summary className="cursor-pointer">Syntax</summary>
                     <pre className="mt-1 whitespace-pre-wrap rounded bg-muted/40 p-2">{SYNTAX_HELP}</pre>
                 </details>
@@ -227,11 +227,11 @@ function ConfigEditorPane({
                     </span>
                 </div>
 
-                <div className="h-[22rem] overflow-y-auto rounded-md border p-3">
+                <div className="h-[clamp(22rem,calc(100vh-22rem),52rem)] overflow-y-auto rounded-md border p-4">
                     {parsed.errors.length > 0 && (
                         <ul className="mb-3 space-y-1">
                             {parsed.errors.map((error, index) => (
-                                <li key={index} className="flex items-start gap-1.5 text-xs text-destructive">
+                                <li key={index} className="flex items-start gap-1.5 text-sm text-destructive">
                                     <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                                     {error}
                                 </li>
@@ -247,14 +247,14 @@ function ConfigEditorPane({
                         <div className="space-y-4">
                             {parsed.sections.map((section) => (
                                 <div key={section.title}>
-                                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    <div className="text-sm font-semibold text-muted-foreground">
                                         {section.title}
                                     </div>
                                     <ul className="mt-1.5 space-y-1">
                                         {section.fields.map((field) => (
-                                            <li key={field.key} className="flex items-center justify-between gap-2 text-sm">
+                                            <li key={field.key} className="flex items-center justify-between gap-2 text-base">
                                                 <span>{field.label}</span>
-                                                <Badge variant="outline" className="font-mono text-[10px]">
+                                                <Badge variant="outline" className="font-mono text-xs">
                                                     {field.type === "choice"
                                                         ? `choice(${field.options.length})`
                                                         : field.type}
@@ -361,7 +361,7 @@ export function SchemaCapabilitiesDialog({
 
     return (
         <Dialog open onOpenChange={(next) => !next && !saving && onClose()}>
-            <DialogContent className="w-[min(56rem,calc(100vw-2rem))] max-w-none">
+            <DialogContent className="max-h-[calc(100vh-2rem)] w-[min(92rem,calc(100vw-2rem))] max-w-none overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>

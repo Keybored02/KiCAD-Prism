@@ -66,7 +66,7 @@ import {
     type SpecFieldDef,
 } from "@/types/manufacturing";
 import { boardName } from "./production-filters";
-import { RunStatusBadge, SEVERITY_VARIANT } from "./status-badge";
+import { RunStatusBadge, SEVERITY_VARIANT, SOLID_DESTRUCTIVE } from "./status-badge";
 import { StatusStepper, nextRunStatus } from "./status-stepper";
 import { CompactSelect } from "./ui";
 
@@ -297,7 +297,7 @@ export function RunView({
             </header>
 
             <ScrollArea className="min-h-0 flex-1">
-                <main className="grid w-full gap-6 p-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
+                <main className="grid w-full gap-6 p-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
                     <div className="min-w-0 space-y-6">
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                             <Stat label="Ordered" value={run.quantity_ordered} />
@@ -443,7 +443,7 @@ export function RunView({
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
     return (
-        <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 px-4 py-2">
+        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3 px-4 py-2">
             <dt className="text-muted-foreground">{label}</dt>
             <dd className="min-w-0 break-words">{value}</dd>
         </div>
@@ -730,7 +730,12 @@ function DefectCard({ runId, defect, canEdit, onChanged }: DefectCardProps) {
                 <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{defectCategoryLabel(defect.category)}</span>
-                        <Badge variant={SEVERITY_VARIANT[defect.severity]}>{defect.severity}</Badge>
+                        <Badge
+                            variant={SEVERITY_VARIANT[defect.severity]}
+                            className={defect.severity === "critical" ? SOLID_DESTRUCTIVE : undefined}
+                        >
+                            {defect.severity}
+                        </Badge>
                         <Badge variant="outline">{defect.quantity_affected} affected</Badge>
                         {defect.status === "resolved" && <Badge variant="success">Resolved</Badge>}
                         {defect.status === "accepted" && <Badge variant="info">Accepted as is</Badge>}
