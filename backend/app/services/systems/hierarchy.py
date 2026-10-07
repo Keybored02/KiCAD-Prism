@@ -39,6 +39,8 @@ class ChildSystem:
     links: Sequence[Mapping[str, Any]] = ()  # manifest v1 links (with rows), for system nets
     harnesses: Sequence[Mapping[str, Any]] = ()  # manifest v1 harnesses (with wires), for system nets
     poses: Sequence[Mapping[str, Any]] = ()  # manifest v1 placement.poses: the members' frozen poses
+    mating: Sequence[Mapping[str, Any]] = ()  # manifest v1 mating[]: stored connector frames (§15.2)
+    driving_mates: Sequence[Mapping[str, Any]] = ()  # manifest v1 placement.drivingMates (§14.9)
 
 
 # revision_id -> ChildSystem, or None when the revision or its snapshot cannot be read

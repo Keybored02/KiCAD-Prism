@@ -549,6 +549,28 @@ export interface SystemSceneOccurrence {
   pose: { translationMm: number[]; rotation: number[]; source: "default" | "manual" | "auto" };
   worldMatrix: number[];
   boundsMm: { minMm: number[]; maxMm: number[] } | null;
+  /** SB2-37: the driving mate that placed it (null: a root, or not mated); absent from older servers. */
+  mate?: SystemSceneMate | null;
+}
+
+/** How a mated occurrence is placed (CONTRACTS_P2 §14.9). */
+export interface SystemSceneMate {
+  linkId: string;
+  /** The occurrence path it hangs from. */
+  from: string;
+  /** A manual pose replaced the mated one ("Mated position overridden"). */
+  overridden: boolean;
+  /** Where "Snap back" returns it. */
+  autoPose: { translationMm: number[]; rotation: number[] };
+}
+
+/** The root level's solve (CONTRACTS_P2 §14.9). */
+export interface SystemScenePlacement {
+  roots: string[];
+  mismatches: { linkId: string; offsetMm: number[]; lateralMm: number; axialMm: number; angleDeg: number }[];
+  /** B2B links that can't place yet: an end without a confirmed frame, or an unreadable connector. */
+  unusable: string[];
+  ignoredOverrides: { member: string; linkId: string; reason: "not_a_usable_mate" | "root" | "unreachable" }[];
 }
 
 /** A stored pose (CONTRACTS_P2 §14.3); an instance without one takes its default pose. */
@@ -570,6 +592,8 @@ export interface SystemScene {
   occurrences: SystemSceneOccurrence[];
   /** SB2-34: harnesses drawn as proxies; absent from older servers. */
   harnesses?: SystemSceneHarness[];
+  /** SB2-37: the root level's mate solve; null without B2B links, absent from older servers. */
+  placement?: SystemScenePlacement | null;
 }
 
 /** A harness in the scene (CONTRACTS_P2 §20.11): its ends on board placements, its wires as end pairs. */

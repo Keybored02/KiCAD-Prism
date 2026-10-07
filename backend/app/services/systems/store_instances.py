@@ -356,6 +356,42 @@ class InstancesStore:
             change.audit("poses_reset", {"instanceIds": reset, "sources": sorted(sources)})
         return reset
 
+    # ------------------------------------------------------------------
+    # Driving mates (CONTRACTS_P2 §14.9)
+
+    def list_driving_mates(self, system_id: str) -> dict[str, str]:
+        """``instance_id -> link_id``: the user's choice of which B2B link places an instance."""
+        rows = self.conn.execute(
+            "SELECT instance_id, link_id FROM system_driving_mates WHERE system_id = %s ORDER BY instance_id",
+            (system_id,),
+        ).fetchall()
+        return {row["instance_id"]: row["link_id"] for row in rows}
+
+    def set_driving_mate(self, change: Mutation, instance_id: str, link_id: Optional[str]) -> None:
+        """Choose the B2B link that places ``instance_id`` (one of its ends), or clear the choice (``None``)."""
+        self.get_instance(change.system_id, instance_id)
+        before = self.list_driving_mates(change.system_id).get(instance_id)
+        if link_id is None:
+            self.conn.execute("DELETE FROM system_driving_mates WHERE instance_id = %s", (instance_id,))
+        else:
+            link = self.get_link(change.system_id, link_id)
+            if link.get("type") != "b2b":
+                raise Invalid("a driving mate must be a board-to-board link")
+            if instance_id not in (link["a_instance_id"], link["b_instance_id"]):
+                raise Invalid("a driving mate must be one of the instance's own links")
+            self.conn.execute(
+                """
+                INSERT INTO system_driving_mates (instance_id, system_id, link_id, updated_by)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (instance_id) DO UPDATE SET
+                    link_id = EXCLUDED.link_id, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+                """,
+                (instance_id, change.system_id, link_id, change.actor),
+            )
+        after = self.list_driving_mates(change.system_id).get(instance_id)
+        if before != after:
+            change.audit("driving_mate_updated", {"instanceId": instance_id, "before": before, "after": after})
+
     def set_override(
         self, change: Mutation, instance_id: str, port_key: str, state: Optional[str]
     ) -> None:

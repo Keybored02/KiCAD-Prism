@@ -145,12 +145,27 @@ class Level:
     exports: Sequence[Mapping[str, Any]] = ()
     harnesses: Sequence[Mapping[str, Any]] = ()  # store rows or manifest harnesses
     children: dict[str, "Level"] = field(default_factory=dict)  # assembly instance ID -> its level
+    # Placement only (§14.9): stored frames {instance: {portKey: {mode, axis, quarterTurns, geometryDigest}}}
+    # and driving mate overrides {instance: linkId}.
+    mating: dict[str, dict[str, dict]] = field(default_factory=dict)
+    driving: dict[str, str] = field(default_factory=dict)
 
 
 def level_from_child(prefix: str, child: ChildSystem) -> Level:
     return Level(prefix=prefix, kinds={i["id"]: i.get("kind", "board") for i in child.instances},
                  labels={i["id"]: i["label"] for i in child.instances}, links=child.links, exports=child.exports,
-                 harnesses=child.harnesses)
+                 harnesses=child.harnesses, mating=_manifest_mating(child.mating),
+                 driving={d["instanceId"]: d["linkId"] for d in child.driving_mates})
+
+
+def _manifest_mating(records: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, dict]]:
+    out: dict[str, dict[str, dict]] = {}
+    for record in records:
+        frame = record.get("frame") or {}
+        out.setdefault(record["instanceId"], {})[record["portKey"]] = {
+            "mode": record["mode"], "axis": frame.get("axis"), "quarterTurns": int(frame.get("quarterTurns") or 0),
+            "geometryDigest": record.get("geometryDigest")}
+    return out
 
 
 def attach_children(root: Level, tree: Tree) -> None:

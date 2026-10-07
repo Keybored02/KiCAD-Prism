@@ -367,7 +367,7 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 |---|---|---|---|
 | SYS-V09 | `net_name_mismatch` | warning, **opt-in** | Runs only when the system lists it in `optionalRules` (P2-1.10; off by default). At a join (row or wire), no token on one side is **related** to a token on the other (P2-1.8). Related: equal; one a prefix or suffix of the other (2+ characters, digits kept, so `GPIO4`/`IO4` match and `GPIO4`/`IO5` do not); an in-order abbreviation with the same first letter (`RST`/`RESET`); an acronym of the other side's tokens (`PG`/`PWR_GOOD`); or a crossed pair (`TX`/`RX`, `TXD`/`RXD`, `SDO`/`SDI`, `DOUT`/`DIN`, `CTS`/`RTS`). It is reported once per join, with both names. Unnamed auto-nets and unconnected pins never trigger it. |
 | SYS-V10 | `power_meets_signal` | error | At a join, exactly one side's pin has `powerNet: true` and the other side's net is a named, non-power net. |
-| SYS-V11 | `mate_mismatch` | warning | Reserved for M4 (PLAN §5.3). |
+| SYS-V11 | `mate_mismatch` | warning | A B2B link of this system whose connectors don't line up where the driving mates put its boards (§14.9): lateral > 0.2 mm, angle > 0.5°, or axial > 0.2 mm with a stack height. Detail `{offsetMm, lateralMm, axialMm, angleDeg}`. Only evaluated when the system has B2B links. |
 | SYS-V12 | `harness_collision` | warning | Reserved for M5. |
 | SYS-V13 | `length_mismatch` | warning | Reserved for M5. |
 | SYS-V14 | `child_revision_unreleased` | warning | An assembly or module instance pins a revision that is not `released`, or whose snapshot had open reviews. |
@@ -619,6 +619,22 @@ Python `systems/placement/mate.py`, TypeScript `placement/mate.ts`; goldens in `
 - **Poses.** A stored `manual` pose wins. A root without one takes its default slot, and every other mated member takes `auto`: its driving parent's pose composed with the mate. Unmated members take their default slot (§14.3). `driving[member]` gives `{linkId, from, autoPose, overridden}`: `overridden` is true when a manual pose replaced the auto one, and `autoPose` is where "Snap back" returns it.
 - **`SYS-V11 mate_mismatch`.** Every usable mate that isn't driving is measured with `residual` (§14.8) on the **designed** layout (every member where its mates put it, so a board moved by hand shows as overridden, never as a mismatch). A mismatch is a lateral offset above **0.2 mm**, an angle above **0.5°**, or, when the link has a stack height, an axial offset above 0.2 mm. `mismatches[]` gives `{linkId, offsetMm, lateralMm, axialMm, angleDeg}`. The finding itself is raised by the server in SB2-37.
 
+### 14.10 Auto placement on the server (SB2-37)
+
+- **Where.** Poses are solved on read, never stored: `GET …/scene` and the validation report run the same placement (`scene.place_tree`). A change of baseline, mating frame, link, stack height, driving choice or stored pose therefore shows on the next read. Only `manual` poses are stored (§14.7).
+- **Levels.** Each system level is solved on its own: the root from the live system; a child system from its snapshot (its links, `mating[]`, `placement.poses` and `placement.drivingMates`), after which it moves as a rigid group. An end on an assembly follows the export down to its board; `inMember` is that board's pose in the assembly.
+- **Inputs read.** Each board's outline and thickness, and only the mated connectors' components from the interface artifact. A stored frame whose geometry digest no longer matches is stale (§15.2) and the link is `unusable`, as is a link whose connector can't be read.
+- **Driving mate choices.** Table `system_driving_mates (instance_id PK, system_id, link_id, updated_by, updated_at)` (migration 43); deleting the instance or the link drops the choice. API (P1 conventions: If-Match, 412/428):
+
+  | Method and path | Role | Body / result |
+  |---|---|---|
+  | `GET …/driving-mates` | reader | `{systemId, version, drivingMates: [{instanceId, linkId}]}` |
+  | `PUT …/driving-mates/{iid}` | designer | `{linkId}`, a `b2b` link with the instance at one end, else 422 → `{instanceId, linkId}` |
+  | `DELETE …/driving-mates/{iid}` | designer | back to the solve's pick → `{instanceId, linkId: null}` |
+
+  Audited `driving_mate_updated` (before, after); bumps the version; placement-only like poses (full digest, never connectivity). Manifests write and import `placement.drivingMates`.
+- **Scene.** Each occurrence gains `mate`: `{linkId, from (occurrence path), overridden, autoPose}` when a driving mate placed it, else null; `pose.source` is `auto` for those. The descriptor gains `placement`: the root level's `{roots, mismatches, unusable, ignoredOverrides}`, or null without B2B links.
+
 ## 15. Mating frames (SB2-12)
 
 ### 15.1 Inference **[T2]**
@@ -772,6 +788,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 | P2-1.38 | 2026-10-07 | Follow-up review finding 3, D-P2-31: delete archives a referenced system (frozen parent snapshots count), `archivedAt`, 409 `system_archived`; `DELETE` answers 200 with the outcome. Workspace migration 42. |
 | P2-1.39 | 2026-10-07 | SB2-21 review: the mezzanine fixtures move from Hirose DF12(3.0) to Samtec ADM6-30-03.5-L-4-0-A / ADF6-30-03.5-L-4-0-A (the JTYU OBC–CMBD pair; user choice). Footprints written from Samtec's recommended PCB layouts; goldens: mated height 7.00 mm (Samtec ADX6 mated views, Table 1), top pose (0, 0, 8.6) mm, frames at `medium` confidence (no orientation keyword, §15.1). Vendor models are not redistributed. No contract rule changes. |
 | P2-1.40 | 2026-10-07 | D-P2-30 dead-code removal: the board viewer's one-board multi-occurrence mode (`setOccurrences` on the element and controller) is gone, with `setMoveAllowed()` (the `move-allowed` attribute remains), the `"gizmo"` pick kind, the `systemstatus` event, the viewer's Euler helpers and the frontend's unused `getPoses`. `projectComponent` / `projectPoint` take an occurrence in mode="system". §20.3–§20.5 marked superseded where §20.6–§20.8 replaced them. Board 3D tab pixel diff on JTYU-OBC: 0 px. |
+| P2-1.44 | 2026-10-08 | SB2-37: §14.10 auto placement on the server: the scene and validation solve every level on read; `SYS-V11 mate_mismatch` (warning) is live; migration 43 `system_driving_mates` with `GET/PUT/DELETE …/driving-mates`; manifests carry `placement.drivingMates`; scene occurrences gain `mate`, the descriptor `placement`. |
 | P2-1.43 | 2026-10-07 | SB2-36: §14.9 the tree solve pair: usable mates (stored frames only), roots by the hub rule, driving mates by rows then reference with user overrides (and the reasons one is ignored), `auto` poses, snap-back poses, and SYS-V11 residuals on the designed layout. The misplacement fixture yields V11 at exactly 1.5 mm. |
 | P2-1.42 | 2026-10-07 | SB2-35: §14.8 the mate library pair (`mate`, `residual`, body boxes, clearance); §14.5 spells out `k` (unturned frames, user turns on top) and the clearance height; §14.4 builds `F_c` from **numbered** pads only (unnumbered holes when there is no numbered pad). The stock-footprint goldens are unchanged; the Samtec mezzanine now poses exactly. |
 | P2-1.41 | 2026-10-07 | SB2-30a (R2, R5): §20.12 level of detail in mode="system": a body level (substrate and mask) between board and box, thresholds in CSS pixels, live tuning with the stats overlay (`setLodThresholds`, kept per browser), labels re-placed only when the view changes. Perf-25 fit-all: 52.5 → ~118 fps, p95 25 → 9.3 ms, 50.1 M → 11 M triangles; JTYU six boards: 58 → 81 fps, p95 25 → 17.5 ms. Board 3D tab pixel diff 0 px. |

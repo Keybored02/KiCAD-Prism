@@ -85,6 +85,24 @@ class HarnessesMixin:
         body = {"instanceId": instance_id, **stored} if stored else {"instanceId": instance_id, "source": "default"}
         return Result(body, system_id, change.version)
 
+    def driving_mates(self, caller: Caller, system_id: str) -> dict:
+        """``GET …/driving-mates``: the user's driving mate choices (§14.9); the scene shows the ones in use."""
+        with self._tx() as store:
+            version = int(self._system(store, system_id, caller)["version"])
+            chosen = store.list_driving_mates(system_id)
+        return {"systemId": system_id, "version": version,
+                "drivingMates": [{"instanceId": key, "linkId": value} for key, value in chosen.items()]}
+
+    def set_driving_mate(self, caller: Caller, system_id: str, version: int, instance_id: str,
+                         link_id: Optional[str]) -> Result:
+        """``PUT`` (a B2B link of the instance) or ``DELETE`` (``None``, back to the solve's pick)."""
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                store.set_driving_mate(change, instance_id, link_id)
+                chosen = store.list_driving_mates(system_id).get(instance_id)
+        return Result({"instanceId": instance_id, "linkId": chosen}, system_id, change.version)
+
     def reset_poses(self, caller: Caller, system_id: str, version: int) -> Result:
         """``DELETE …/poses``: every manual pose goes back to its default (D-P2-14)."""
         with self._tx() as store:

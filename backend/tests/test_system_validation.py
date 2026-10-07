@@ -197,7 +197,7 @@ class ValidationRuleTest(unittest.TestCase):
         report = self.run_rules([_link("L1", [("3", "1")])],
                                 reviews=[{"id": "r1", "instance_id": "i1", "kind": "source_update"}])
         self.assertEqual([f["severity"] for f in report["findings"]], ["error", "info"])
-        self.assertEqual(set(RULES), {f"SYS-V0{n}" for n in range(1, 10)} | {"SYS-V10", "SYS-V14", "SYS-V15", "SYS-V16", "SYS-V17", "SYS-V18", "SYS-V19"})
+        self.assertEqual(set(RULES), {f"SYS-V0{n}" for n in range(1, 10)} | {"SYS-V10", "SYS-V11", "SYS-V14", "SYS-V15", "SYS-V16", "SYS-V17", "SYS-V18", "SYS-V19"})
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@
 ``import_manifest`` recreates a system from a manifest, keeping its IDs, so a
 manifest round-trips DB → manifest → DB (and, in M7, Git → DB).
 
-P2 objects that have no tables yet (harness nodes, driving mates) are
+P2 objects that have no tables yet (harness nodes) are
 emitted empty; their tickets extend both directions.
 """
 
@@ -142,7 +142,8 @@ def build(
         "placement": {"poses": [{"instanceId": instance_id, "translationMm": pose["translationMm"],
                                  "rotation": pose["rotation"], "source": pose["source"]}
                                 for instance_id, pose in sorted(store.list_poses(system_id).items())],
-                      "drivingMates": []},
+                      "drivingMates": [{"instanceId": instance_id, "linkId": link_id}
+                                       for instance_id, link_id in sorted(store.list_driving_mates(system_id).items())]},
         "layout": {"positions": {key: {"x": float(p["x"]), "y": float(p["y"])}
                                  for key, p in sorted(layout.items())}},
     }
@@ -171,8 +172,6 @@ def import_manifest(
     unsupported = []
     if any(harness.nodes for harness in manifest.harnesses):
         unsupported.append("harness nodes")
-    if manifest.placement.drivingMates:
-        unsupported.append("driving mates")
     if unsupported:
         raise Invalid(f"manifest sections not supported yet: {', '.join(unsupported)}")
 
@@ -241,6 +240,8 @@ def import_manifest(
         for pose in manifest.placement.poses:
             store.set_pose(change, pose.instanceId,
                            {**placement_poses.pose_from(pose.translationMm, pose.rotation), "source": pose.source})
+        for driving in manifest.placement.drivingMates:
+            store.set_driving_mate(change, driving.instanceId, driving.linkId)
         change.audit("system_imported", {"schema": SCHEMA, "sourceVersion": manifest.meta.sourceVersion,
                                          "snapshot": manifest.meta.snapshot.id if manifest.meta.snapshot else None})
     if manifest.layout.positions:

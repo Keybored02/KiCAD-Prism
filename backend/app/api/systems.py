@@ -476,6 +476,39 @@ async def clear_pose(
     return _respond(result, response)
 
 
+class DrivingMateRequest(BaseModel):
+    linkId: str = Field(min_length=1, max_length=200)
+
+
+@router.get("/{system_id}/driving-mates")
+async def get_driving_mates(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
+    return await _run(system_id, lambda: system_service.service.driving_mates(_caller(user), system_id))
+
+
+@router.put("/{system_id}/driving-mates/{instance_id}", dependencies=[Depends(require_designer)])
+async def set_driving_mate(
+    system_id: str, instance_id: str, body: DrivingMateRequest, request: Request, response: Response,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    version = _expected_version(request, system_id)
+    result = await _run(system_id, lambda: system_service.service.set_driving_mate(
+        _caller(user), system_id, version, instance_id, body.linkId,
+    ))
+    return _respond(result, response)
+
+
+@router.delete("/{system_id}/driving-mates/{instance_id}", dependencies=[Depends(require_designer)])
+async def clear_driving_mate(
+    system_id: str, instance_id: str, request: Request, response: Response,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    version = _expected_version(request, system_id)
+    result = await _run(system_id, lambda: system_service.service.set_driving_mate(
+        _caller(user), system_id, version, instance_id, None,
+    ))
+    return _respond(result, response)
+
+
 @router.delete("/{system_id}/poses", dependencies=[Depends(require_designer)])
 async def reset_poses(
     system_id: str, request: Request, response: Response, user: AuthenticatedUser = Depends(require_viewer),

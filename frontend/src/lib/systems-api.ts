@@ -436,6 +436,18 @@ export function resetPoses(systemId: string, etag: string) {
     "Could not reset positions");
 }
 
+/** Choose the B2B link that places an instance (CONTRACTS_P2 §14.9). */
+export function setDrivingMate(systemId: string, etag: string, instanceId: string, linkId: string) {
+  return versioned<{ instanceId: string; linkId: string | null }>(path(systemId, "driving-mates", instanceId),
+    { method: "PUT", etag, body: json({ linkId }) }, "Could not choose the driving mate");
+}
+
+/** Back to the solve's choice (most rows, then the lower reference). */
+export function clearDrivingMate(systemId: string, etag: string, instanceId: string) {
+  return versioned<{ instanceId: string; linkId: string | null }>(path(systemId, "driving-mates", instanceId),
+    { method: "DELETE", etag }, "Could not reset the driving mate");
+}
+
 // ---------------------------------------------------------------------------
 // Harnesses (CONTRACTS_P2 §17.3)
 

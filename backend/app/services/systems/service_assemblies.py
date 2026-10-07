@@ -235,7 +235,9 @@ class AssembliesMixin:
             return hierarchy.ChildSystem(source["systemId"], source["snapshotId"], manifest["system"]["name"],
                                          manifest["instances"], manifest.get("exports") or [],
                                          manifest.get("links") or [], manifest.get("harnesses") or [],
-                                         (manifest.get("placement") or {}).get("poses") or [])
+                                         (manifest.get("placement") or {}).get("poses") or [],
+                                         manifest.get("mating") or [],
+                                         (manifest.get("placement") or {}).get("drivingMates") or [])
 
         return load
 
@@ -406,12 +408,9 @@ class AssembliesMixin:
         with self._tx() as store:
             version = int(self._system(store, system_id, caller)["version"])
             tree = self._tree(store, system_id)
-            harnesses = system_nets.harness_layout(self._net_level(store, system_id, tree))
-            # Only the outline and thickness: a full artifact is megabytes per board.
-            interfaces = {(o.project_id, o.baseline_commit): store.get_interface_extent(o.project_id, o.baseline_commit,
-                                                                                        EXTRACTOR_VERSION)
-                          for o in tree.boards if o.project_id and o.baseline_commit}
-            stored = store.list_poses(system_id)
+            level = self._net_level(store, system_id, tree)
+            harnesses = system_nets.harness_layout(level)
+            placement, interfaces = self._placement(store, system_id, tree, level)
         for (project_id, commit), found in interfaces.items():
             if found is None:  # not extracted yet, or by an older extractor: the bounds come with it
                 self._enqueue_quietly(project_id, commit, caller)
@@ -424,9 +423,41 @@ class AssembliesMixin:
             return assets[key]
 
         built = scene_module.build(system_id, version, tree.occurrences, shown,
-                                   lambda o: interfaces.get((o.project_id, o.baseline_commit)), asset, stored)
+                                   lambda o: interfaces.get((o.project_id, o.baseline_commit)), asset,
+                                   placement=placement)
         built["harnesses"] = scene_module.redact_harnesses(harnesses, shown)
+        root = placement["results"].get("")
+        built["placement"] = {k: root[k] for k in ("roots", "mismatches", "unusable", "ignoredOverrides")} \
+            if root else None
         return built
+
+    def _placement(self, store: SystemStore, system_id: str, tree: Optional[hierarchy.Tree] = None,
+                   level: Optional[system_nets.Level] = None) -> tuple[dict, dict]:
+        """Every occurrence placed with its mates solved (§14.9), and the board extents used.
+
+        Reads only each board's outline and thickness and the mated connectors, never a
+        whole artifact (megabytes per board).
+        """
+        tree = tree or self._tree(store, system_id)
+        level = level or self._net_level(store, system_id, tree)
+        level.mating = {i["id"]: store.list_mating(i["id"]) for i in store.list_instances(system_id)}
+        level.driving = store.list_driving_mates(system_id)
+        extents = {(o.project_id, o.baseline_commit): store.get_interface_extent(o.project_id, o.baseline_commit,
+                                                                                 EXTRACTOR_VERSION)
+                   for o in tree.boards if o.project_id and o.baseline_commit}
+        components: dict[tuple[str, str, str], Optional[dict]] = {}
+
+        def component(occurrence: hierarchy.Occurrence, port_key: str) -> Optional[dict]:
+            if not occurrence.project_id or not occurrence.baseline_commit:
+                return None
+            key = (occurrence.project_id, occurrence.baseline_commit, port_key)
+            if key not in components:
+                components[key] = store.get_interface_component(*key[:2], EXTRACTOR_VERSION, port_key)
+            return components[key]
+
+        placement = scene_module.place_tree(tree.occurrences, lambda o: extents.get((o.project_id, o.baseline_commit)),
+                                            store.list_poses(system_id), level, component)
+        return placement, extents
 
     def _scene_asset(self, caller: Caller, project_id: str, commit: str) -> dict:
         entry = {"assetId": scene_module.asset_id(project_id, commit), "projectId": project_id, "commit": commit,
