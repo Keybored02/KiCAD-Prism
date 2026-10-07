@@ -42,7 +42,7 @@ PLUGIN_MIN = "0.3.0"
 # than sending users to a public repo they may not be able to reach.
 DOWNLOAD_URL = os.environ.get(
     "PRISM_PLUGIN_DOWNLOAD_URL",
-    "https://github.com/Keybored02/KiCAD-Prism/releases/latest",
+    "https://github.com/krishna-swaroop/KiCAD-Prism/releases/latest",
 )
 
 

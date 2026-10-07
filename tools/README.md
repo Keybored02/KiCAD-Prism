@@ -43,7 +43,7 @@ per-user integrations, each of which you can decline:
 Nothing is written unless you tick the box. You can change both later, or re-run
 setup, from **Settings** in the plugin.
 
-[releases]: https://github.com/Keybored02/KiCAD-Prism/releases
+[releases]: https://github.com/krishna-swaroop/KiCAD-Prism/releases
 
 ### macOS may ask you to authorise the agent
 

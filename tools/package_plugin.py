@@ -115,10 +115,10 @@ def metadata(version: str, platform: str) -> dict:
         "type": "plugin",
         "author": {
             "name": "Matteo Parenti",
-            "contact": {"web": "https://github.com/Keybored02/KiCAD-Prism"},
+            "contact": {"web": "https://github.com/krishna-swaroop/KiCAD-Prism"},
         },
         "license": "MIT",
-        "resources": {"homepage": "https://github.com/Keybored02/KiCAD-Prism"},
+        "resources": {"homepage": "https://github.com/krishna-swaroop/KiCAD-Prism"},
         "versions": [
             {
                 "version": version,
