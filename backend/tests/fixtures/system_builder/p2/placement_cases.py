@@ -22,7 +22,7 @@ from pathlib import Path
 from kicad_monkey import kicad_pcb_footprint, kicad_sexpr
 
 from app.services.systems.interface_extractor import _footprint_geometry, extract_interface
-from app.services.systems.placement import mate, poses
+from app.services.systems.placement import mate, poses, solve
 from app.services.systems.placement.frames import connector_frame, infer
 
 SOURCES = Path(__file__).resolve().parent / "sources"
@@ -196,6 +196,80 @@ def mate_cases() -> list[dict]:
     return out
 
 
+def confirmed(end: dict) -> dict:
+    """The end with its inference confirmed (§15.2: auto-placement uses stored frames only)."""
+    return {**end, "stored": {"axis": infer(resolve(end)["geometry"])["axis"], "quarterTurns": 0}}
+
+
+def solve_cases() -> list[dict]:
+    """The tree solve (§14.9), computed by the Python half; ``test_system_placement_solve.py`` checks the meaning."""
+    board = {"minMm": [100.0, -125.0, -0.8], "maxMm": [150.0, -85.0, 0.8]}
+    edge = {"minMm": [95.0, -130.0, -0.8], "maxMm": [145.0, -95.0, 0.8]}
+    base = {r: confirmed(fixture_end("mezz_base/F0", r)) for r in ("J1", "J2")}
+    top = {r: confirmed(fixture_end("mezz_top/F0", r)) for r in ("J1", "J2")}
+    shifted = {r: confirmed(fixture_end("mezz_top/F1", r)) for r in ("J1", "J2")}
+
+    def pair(link_id, a_member, a_end, b_member, b_end, ref, rows=30, stack=7.0, a_in=None, b_in=None):
+        a = {"member": a_member, "reference": ref, "end": a_end}
+        b = {"member": b_member, "reference": ref, "end": b_end}
+        if a_in:
+            a["inMember"] = a_in
+        if b_in:
+            b["inMember"] = b_in
+        return {"linkId": link_id, "rows": rows, "stackHeightMm": stack, "a": a, "b": b}
+
+    stack = [pair("lnk_j1", "base", base["J1"], "top", shifted["J1"], "J1"),
+             pair("lnk_j2", "base", base["J2"], "top", shifted["J2"], "J2")]
+    items = [["base", board], ["top", board]]
+    edges = [pair("lnk_edge", "edge_a", confirmed(fixture_end("edge_a/F0", "J1")), "edge_b",
+                  confirmed(fixture_end("edge_b/F0", "J1")), "J1", rows=4, stack=None)]
+    inside = {"translationMm": [5.0, -2.0, 1.5], "rotation": poses.canonical_rotation([0.0, 0.0, 1.0, 1.0])}
+    moved = {"translationMm": [0.0, 0.0, 30.0], "rotation": [0.0, 0.0, 0.0, 1.0], "source": "manual"}
+    specs = [
+        ("misplacement fixture: J1 drives (equal rows, lower reference), J2 misses by 1.5 mm",
+         items, {}, [["base", "top"], ["base", "top"]], stack, None),
+        ("the aligned commit checks clean",
+         items, {}, [["base", "top"], ["base", "top"]],
+         [pair("lnk_j1", "base", base["J1"], "top", top["J1"], "J1"),
+          pair("lnk_j2", "base", base["J2"], "top", top["J2"], "J2")], None),
+        ("the mate with more rows drives",
+         items, {}, [["base", "top"], ["base", "top"]], [stack[0], {**stack[1], "rows": 40}], None),
+        ("a driving override wins over rows",
+         items, {}, [["base", "top"], ["base", "top"]], [stack[0], {**stack[1], "rows": 40}], {"top": "lnk_j1"}),
+        ("an unconfirmed end makes its mate unusable",
+         items, {}, [["base", "top"]],
+         [pair("lnk_j1", "base", base["J1"], "top", fixture_end("mezz_top/F1", "J1"), "J1")], None),
+        ("a manual pose on the driven board: overridden, the auto pose kept for snap-back",
+         items, {"top": moved}, [["base", "top"], ["base", "top"]], stack, None),
+        ("the root is the most-connected member; others hang off it",
+         [["top", board], ["base", board], ["radio", board]], {},
+         [["base", "top"], ["base", "radio"], ["base", "top"]], stack[:1], None),
+        ("an assembly member: the connector's board sits inside it",
+         [["base", board], ["cdh", board]], {}, [["base", "cdh"]],
+         [pair("lnk_j1", "base", base["J1"], "cdh", top["J1"], "J1", b_in=inside)], None),
+        ("two mated groups and a loose board",
+         [["base", board], ["edge_a", edge], ["edge_b", edge], ["loose", board], ["top", board]], {},
+         [["base", "top"], ["edge_a", "edge_b"]], stack[:1] + edges, None),
+        ("an override naming no usable mate, or one only reachable through itself, is ignored",
+         [["a", board], ["b", board], ["c", board], ["d", board]], {}, [["a", "b"], ["a", "c"], ["a", "d"]],
+         [pair("lnk_ab", "a", base["J1"], "b", top["J1"], "J1"), pair("lnk_bc", "b", base["J2"], "c", top["J2"], "J2"),
+          pair("lnk_cd", "c", base["J1"], "d", top["J1"], "J1", stack=12.0)],
+         {"b": "lnk_nope", "c": "lnk_cd"}),
+        ("every member overridden: the hub is root and its override is ignored",
+         [["a", board], ["b", board]], {}, [["a", "b"]],
+         [pair("lnk_ab", "a", base["J1"], "b", top["J1"], "J1")], {"a": "lnk_ab", "b": "lnk_ab"}),
+    ]
+    out = []
+    for name, members, stored, connections, mates, overrides in specs:
+        resolved = [{**m, "a": {**m["a"], "end": resolve(m["a"]["end"])}, "b": {**m["b"], "end": resolve(m["b"]["end"])}}
+                    for m in mates]
+        out.append({"name": name, "input": {"items": members, "stored": stored, "connections": connections,
+                                            "mates": mates, "overrides": overrides},
+                    "expected": solve.solve([tuple(i) for i in members], stored, [tuple(c) for c in connections],
+                                            resolved, overrides)})
+    return out
+
+
 def compact(value, indent: int = 0) -> str:
     """JSON with every container that fits in 120 columns on one line (pads stay one per line)."""
     flat = json.dumps(value)
@@ -212,7 +286,8 @@ def compact(value, indent: int = 0) -> str:
 def main() -> None:
     OUT.write_text(compact({"schema": "prism.placement_cases.v1", "kicad": "10.0.6 stock footprints",
                             "tolerance": {"mm": 1e-6, "unit": 1e-9}, "frames": cases(),
-                            "poses": pose_cases(), "mates": mate_cases(), "mateEnds": MATE_ENDS}) + "\n")
+                            "poses": pose_cases(), "mates": mate_cases(),
+                            "solves": solve_cases(), "mateEnds": MATE_ENDS}) + "\n")
 
 
 if __name__ == "__main__":

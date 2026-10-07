@@ -66,7 +66,8 @@ function naturalKey(pad: string): [string, number, string] {
   return [head, tail ? Number.parseInt(tail, 10) : -1, pad];
 }
 
-function compareNatural(a: string, b: string): number {
+/** Pad or reference order: letters, then the trailing number (J2 before J10). */
+export function compareNatural(a: string, b: string): number {
   const [ha, na, pa] = naturalKey(a);
   const [hb, nb, pb] = naturalKey(b);
   if (ha !== hb) return ha < hb ? -1 : 1;
