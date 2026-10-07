@@ -627,6 +627,8 @@ export interface SystemNetList {
   systemId: string;
   groups: SystemNetListed[];
   total: number;
+  /** The page's start (`GET …/nets?offset=`); absent from older servers. */
+  offset?: number;
 }
 
 /** A member: a board net on one occurrence; restricted boards are `{occurrence: null, redacted: true}`. */

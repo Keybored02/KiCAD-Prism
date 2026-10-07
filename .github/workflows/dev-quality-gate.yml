@@ -6,6 +6,7 @@ on:
       - dev
       - main
       - feature/release-studio
+      - feature/system-builder
   push:
     branches:
       - dev

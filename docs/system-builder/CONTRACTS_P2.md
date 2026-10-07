@@ -163,6 +163,8 @@ A revision **never copies** the manifest. Readers load the snapshot through `sou
 
   A `module` needs only a non-empty interface until M6 adds its model gates.
 
+**Deleting a published system (D-P2-29, retro D3).** A catalog revision resolves its boards through the snapshot it was published from, so `DELETE …/systems/{id}` answers 409 `published_in_catalog` while the system's catalog component is active (naming the revisions), and, once it is retired, while any system instance still pins one of its revisions. With neither, the system and its snapshots go as before.
+
 ### 3.4 "Mates with" (M1; shape frozen here)
 
 `catalog_mates_with(part_a, part_b)` is stored once with `part_a < part_b`, read in both directions, and only between `part` components. The M1 behaviour (suggest, warning, error) is in PLAN D-P2-13.
@@ -255,6 +257,8 @@ Redaction recurses. For each board occurrence, P1 §8.2 applies with the reader'
 - **Parent access never grants child access.**
 - **Deleted projects:** P1 v1.12 applies at every depth.
 
+**As built (retro D1/D2, P2-1.36).** A reader's view of a document (live or a snapshot's, by today's access) is a set of restricted boards plus **hidden export ends**: each `(assembly instance, export)` whose export resolves, through the child tree, to a board the reader cannot see, or inside a child system they cannot open, or does not resolve at all. Such an end keeps the export, its pins and its pin numbers. Its row nets (`net*`, `observed*`), the wire nets on that side, the link end's `export` landing point, finding details on it, and the assembly interface's pin nets and power flags are null; rows list the end in `redactedEnds`. Documents, snapshots, ICDs, diffs, reviews and `GET …/instances/{iid}/interface` all apply it. A snapshot's manifest and publishing still need the whole document (403 when anything is hidden).
+
 ## 6. Links, exports as ends, and harnesses
 
 ### 6.1 Link ends
@@ -335,6 +339,7 @@ Evaluation compares, **for the exports this parent's links and harness ends use*
 - Groups with `pinCount > 200` carry `"large": true`. The UI confirms before highlighting.
 - Restricted occurrences appear as `{"occurrence": null, "redacted": true}` members, and their hops are dropped.
 - **Members (SB2-33, P2-1.34):** `?members=true` adds each listed group's visible board nets, `"members": [{"occurrence", "net"}]` (restricted boards left out). The System 3D tab reads `?members=true&limit=500` once per system version to map board nets to system nets.
+- **Paging (retro D6, P2-1.36):** `?offset=` (default 0) pages the sorted list; the response echoes `offset`. The System 3D tab reads every page.
 - **Exact lookup (SB2-32, P2-1.33):** `?occurrence=<path>&net=<board net>` lists only the group holding exactly that board net on that occurrence (zero or one group). `net` without `occurrence` is 400. A board net no link carries is in no group.
 
 **As built (SB2-20, P2-1.21): harness wires.**
@@ -733,6 +738,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.36 | 2026-10-07 | Retrospective fixes (RETRO-M0-M3): §5.4 hidden export ends (D1 snapshot crash, D2 nets through exports); D-P2-29 delete refusal (409 `published_in_catalog`); release jobs report `superseded` / `not_following` instead of rolling back (D4); `GET …/nets?offset=` (D6). Viewer: a staged bundle that turns ready at the same URL loads (D5). |
 | P2-1.35 | 2026-10-07 | SB2-34: §20.11, proxy harnesses. The scene gains `harnesses`; emphasis sets take `wires`; the viewer draws each harness as straight segments that light per wire and glow their ends. Completes M3. |
 | P2-1.34 | 2026-10-07 | SB2-33: §20.10, net search in the System 3D tab: a board picker, one result per system net found by any of its names, Shift-pick adds it to the highlighted nets. `GET …/nets?members=true` (§8.2). |
 | P2-1.33 | 2026-10-07 | SB2-32 (D-P2-28): §20.9, click to trace. `GET …/nets?occurrence=&net=` exact lookup (§8.2); the clicked board net's system net lit in the selection green on every board; the System net card with boards and ordered hops; `frameParts`. Move panel: Revert undoes saved moves (SB2-31f follow-up, #490). |

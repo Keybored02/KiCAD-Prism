@@ -232,6 +232,15 @@ class SystemStore:
         ).fetchone()
         change.version = int(bumped["version"])
 
+    def count_instances_of_revisions(self, revision_ids: Sequence[str]) -> int:
+        """Assembly instances, in any system, that pin one of ``revision_ids`` (D-P2-29)."""
+        if not revision_ids:
+            return 0
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM system_instances WHERE catalog_revision_id = ANY(%s)", (list(revision_ids),)
+        ).fetchone()
+        return int(row["n"])
+
     def bind_catalog_component(self, change: Mutation, component_id: str) -> None:
         """First publish (CONTRACTS_P2 §3.3): the system's assembly, set once."""
         row = self.conn.execute(

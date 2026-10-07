@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiHttpError } from "./api";
-import { StaleSystemError, addInstance, clearPose, getPoses, getSystem, resetPoses, setPose } from "./systems-api";
+import { StaleSystemError, addInstance, clearPose, getPoses, getSystem, listSystemNetMembers, resetPoses, setPose } from "./systems-api";
 
 function reply(status: number, body: unknown, etag?: string): Response {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -63,5 +63,26 @@ describe("systems-api", () => {
   it("reads the document with its ETag", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => reply(200, { system: { id: "s1" } }, '"sys:s1:2"')));
     await expect(getSystem("s1")).resolves.toEqual({ body: { system: { id: "s1" } }, etag: '"sys:s1:2"' });
+  });
+
+  it("reads every system net a page at a time (retro D6)", async () => {
+    const group = (n: number) => ({ groupId: `g${n}`, name: `N${n}`, aliases: [], pinCount: 2, large: false, members: [] });
+    const all = Array.from({ length: 1203 }, (_, n) => group(n));
+    const fetchMock = vi.fn(async (url: string) => {
+      const query = new URL(url, "http://x").searchParams;
+      const offset = Number(query.get("offset"));
+      const limit = Number(query.get("limit"));
+      return reply(200, { systemId: "s1", groups: all.slice(offset, offset + limit), total: all.length, offset });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const list = await listSystemNetMembers("s1");
+    expect(list.groups.map((g) => g.groupId)).toEqual(all.map((g) => g.groupId));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    // A server without paging returns its first page and stops there.
+    fetchMock.mockImplementation(async () => reply(200, { systemId: "s1", groups: all.slice(0, 500), total: all.length }));
+    fetchMock.mockClear();
+    expect((await listSystemNetMembers("s1")).groups).toHaveLength(500);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

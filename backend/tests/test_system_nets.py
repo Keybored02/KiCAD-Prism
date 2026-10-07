@@ -153,6 +153,15 @@ class NetApiTest(AssemblyCase):
         with self.assertRaises(Invalid):
             self.service.nets(VIEWER, self.bus, net=member["net"])
 
+    def test_the_list_pages_with_offset(self) -> None:
+        everything = self.service.nets(VIEWER, self.bus, limit=500)
+        self.assertGreater(everything["total"], 2)
+        first = self.service.nets(VIEWER, self.bus, limit=2)
+        rest = self.service.nets(VIEWER, self.bus, limit=500, offset=2)
+        self.assertEqual((first["total"], rest["offset"]), (everything["total"], 2))
+        self.assertEqual([g["groupId"] for g in first["groups"] + rest["groups"]],
+                         [g["groupId"] for g in everything["groups"]])
+
     def test_the_list_can_carry_members_for_search(self) -> None:
         [summary] = self.service.nets(VIEWER, self.bus, search="VIN_28V")["groups"]
         self.assertNotIn("members", summary)

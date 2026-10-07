@@ -327,7 +327,8 @@ async def list_nets(
     occurrence: Optional[str] = Query(default=None, max_length=2000),
     net: Optional[str] = Query(default=None, max_length=1000),
     members: bool = Query(default=False),
-    limit: int = Query(default=50, ge=1, le=500), user: AuthenticatedUser = Depends(require_viewer),
+    limit: int = Query(default=50, ge=1, le=500), offset: int = Query(default=0, ge=0),
+    user: AuthenticatedUser = Depends(require_viewer),
 ):
     """P2 §8.2: system nets matching ``search``, optionally on one board occurrence.
 
@@ -337,6 +338,7 @@ async def list_nets(
     """
     return await _run(system_id, lambda: system_service.service.nets(
         _caller(user), system_id, search=search, occurrence=occurrence, net=net, members=members, limit=limit,
+        offset=offset,
     ))
 
 
