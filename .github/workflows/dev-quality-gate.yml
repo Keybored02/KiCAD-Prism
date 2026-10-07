@@ -221,6 +221,11 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
+      - name: Install test-only dependencies
+        # Starlette's TestClient needs httpx, which the locked runtime does not
+        # ship. Installed here, not in the lock, so the image stays unchanged.
+        run: python -m pip install "httpx==0.28.1"
+
       - name: Create the isolated catalog test database
         run: |
           psql "$PRISM_DATABASE_URL" -c 'CREATE DATABASE kicad_prism_catalog_test'
@@ -239,6 +244,16 @@ jobs:
           python -m unittest tests.test_component_catalog_postgres_integration -v 2>&1 | tee result.log
           if grep -q "skipped" result.log; then
             echo "Catalog integration tests skipped; check TEST_POSTGRES_URL." >&2
+            exit 1
+          fi
+
+      - name: Require the agent API suite to have run
+        run: |
+          # It skips itself without httpx or PRISM_DATABASE_URL, and a skip
+          # looks green while the sign-in routes go untested.
+          python -m unittest tests.test_agent_api -v 2>&1 | tee agent-api-result.log
+          if grep -q "skipped" agent-api-result.log; then
+            echo "Agent API tests skipped; check httpx and PRISM_DATABASE_URL." >&2
             exit 1
           fi
 
