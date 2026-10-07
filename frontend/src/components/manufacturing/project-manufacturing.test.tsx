@@ -65,7 +65,13 @@ vi.mock("./spec-config-editor", () => ({
 
 // The drawer and the dialog are children with their own suites; stub them to see what the tab hands them.
 vi.mock("./run-drawer", () => ({
-    RunDrawer: (props: { runId: string | null }) => (props.runId ? <div>drawer:{props.runId}</div> : null),
+    RunDrawer: (props: { runId: string | null; onOpenFull?: () => void }) =>
+        props.runId ? (
+            <div>
+                drawer:{props.runId}
+                <button type="button" onClick={props.onOpenFull}>open full</button>
+            </div>
+        ) : null,
 }));
 vi.mock("./run-view", () => ({
     RunView: (props: { runId: string; onBack?: () => void }) => (
@@ -179,6 +185,23 @@ describe("ProjectManufacturing", () => {
             fireEvent.mouseDown(screen.getByRole("tab", { name: /Production/ }));
             fireEvent.click(await screen.findByText("JOB-2026-0001"));
             expect(await screen.findByText("drawer:run_1")).toBeTruthy();
+        });
+
+        it("opens a production as a full page in the tab and comes back to the drawer", async () => {
+            listRuns.mockResolvedValue([run()]);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
+            await waitForForm();
+            fireEvent.mouseDown(screen.getByRole("tab", { name: /Production/ }));
+            fireEvent.click(await screen.findByText("JOB-2026-0001"));
+            fireEvent.click(await screen.findByRole("button", { name: "open full" }));
+
+            expect(await screen.findByText("page:run_1")).toBeTruthy();
+            expect(screen.queryByText("drawer:run_1")).toBeNull();
+            expect(screen.queryByRole("tab", { name: /Production/ })).toBeNull();
+
+            fireEvent.click(screen.getByRole("button", { name: "back" }));
+            expect(await screen.findByText("drawer:run_1")).toBeTruthy();
+            expect(screen.queryByText("page:run_1")).toBeNull();
         });
 
         it("counts the project's productions on the sub-tab", async () => {

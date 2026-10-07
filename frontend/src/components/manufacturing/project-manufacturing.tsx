@@ -431,7 +431,7 @@ export function ProjectManufacturing({
 
     if (fullRunId) {
         return (
-            <div className="-mx-4 -my-2 h-[calc(100vh-10rem)] min-h-[28rem] border">
+            <div className="h-[calc(100vh-12rem)] min-h-[28rem] border">
                 <RunView
                     runId={fullRunId}
                     variant="page"
