@@ -204,6 +204,8 @@ export interface SpecFieldDef {
     key: string;
     label: string;
     type: SpecFieldType;
+    /** Unit of a numeric field, split from its label by the backend (e.g. "mm"). */
+    unit?: string;
     options: string[];
     default: unknown;
     /** Show this field only when the condition holds; null = always. */
@@ -290,3 +292,85 @@ export const EXTRACTABLE_KEYS = new Set<string>([
     "castellated",
     "edge_plating",
 ]);
+
+/** The value a field shows: the stored one, else the schema's declared default. */
+export function effectiveFieldValue(field: SpecFieldDef, values: Record<string, unknown>): unknown {
+    const stored = values[field.key];
+    return stored === undefined || stored === null ? field.default : stored;
+}
+
+/** Whether a field has a value to show (a default counts, a blank does not). */
+export function isFieldSet(field: SpecFieldDef, values: Record<string, unknown>): boolean {
+    const value = effectiveFieldValue(field, values);
+    return value !== undefined && value !== null && value !== "";
+}
+
+/** The fields of a section that are in play: those whose gate holds. */
+export function visibleFields(section: SpecSectionDef, values: Record<string, unknown>): SpecFieldDef[] {
+    return section.fields.filter((f) => evaluateCondition(f.when, values));
+}
+
+export interface SpecProgress {
+    set: number;
+    total: number;
+}
+
+/** How many of a section's visible fields have a value. */
+export function sectionProgress(section: SpecSectionDef, values: Record<string, unknown>): SpecProgress {
+    const fields = visibleFields(section, values);
+    return { set: fields.filter((f) => isFieldSet(f, values)).length, total: fields.length };
+}
+
+/** Progress over every section in play (gate met, optional ones switched on). */
+export function specProgress(
+    sections: SpecSectionDef[],
+    values: Record<string, unknown>,
+    activeSections: Set<string>,
+): SpecProgress {
+    let set = 0;
+    let total = 0;
+    for (const section of sections) {
+        if (!evaluateCondition(section.when, values)) continue;
+        if (section.optional && !activeSections.has(section.title)) continue;
+        const progress = sectionProgress(section, values);
+        set += progress.set;
+        total += progress.total;
+    }
+    return { set, total };
+}
+
+export interface CapabilityFinding {
+    row: CapabilityRow;
+    board: number;
+}
+
+export interface CapabilityCheckResult {
+    /** Rows where the board's value is below the process minimum. */
+    findings: CapabilityFinding[];
+    /** Rows that had both a minimum and a board value to compare. */
+    compared: number;
+}
+
+/**
+ * Compare the board's extracted rules with a process's minimums. Display only:
+ * a row counts when it has a minimum and a numeric board value, and is a finding
+ * when the board is below that minimum. Nothing here blocks anything.
+ */
+export function checkCapabilities(
+    rows: CapabilityRow[],
+    boardRules: Record<string, unknown> | null,
+): CapabilityCheckResult {
+    const findings: CapabilityFinding[] = [];
+    let compared = 0;
+    if (!boardRules) return { findings, compared };
+    for (const row of rows) {
+        if (!row.kicad || row.value === undefined) continue;
+        const raw = boardRules[row.key];
+        if (raw === undefined || raw === null || raw === "" || typeof raw === "boolean") continue;
+        const board = Number(raw);
+        if (!Number.isFinite(board)) continue;
+        compared += 1;
+        if (board < row.value) findings.push({ row, board });
+    }
+    return { findings, compared };
+}

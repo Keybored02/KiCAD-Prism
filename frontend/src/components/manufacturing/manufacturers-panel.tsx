@@ -30,7 +30,7 @@ interface ManufacturersPanelProps {
     onChanged: () => void;
 }
 
-type EditTarget = { mode: "create" } | { mode: "edit"; manufacturer: Manufacturer } | null;
+export type EditTarget = { mode: "create" } | { mode: "edit"; manufacturer: Manufacturer } | null;
 
 export function ManufacturersPanel({ manufacturers, canEdit, addOpen, onAddOpenChange, onChanged }: ManufacturersPanelProps) {
     const [editing, setEditing] = useState<EditTarget>(null);
@@ -156,10 +156,11 @@ export function ManufacturersPanel({ manufacturers, canEdit, addOpen, onAddOpenC
 interface ManufacturerDialogProps {
     target: Exclude<EditTarget, null>;
     onClose: () => void;
-    onSaved: () => void;
+    /** Called with the saved manufacturer's id. */
+    onSaved: (id: string) => void;
 }
 
-function ManufacturerDialog({ target, onClose, onSaved }: ManufacturerDialogProps) {
+export function ManufacturerDialog({ target, onClose, onSaved }: ManufacturerDialogProps) {
     const existing = target.mode === "edit" ? target.manufacturer : null;
     const [name, setName] = useState(existing?.name ?? "");
     const [contact, setContact] = useState(existing?.contact ?? "");
@@ -175,13 +176,15 @@ function ManufacturerDialog({ target, onClose, onSaved }: ManufacturerDialogProp
         setSaving(true);
         try {
             const body = { name: name.trim(), contact, website, notes };
+            let savedId: string;
             if (existing) {
                 await updateManufacturer(existing.id, body);
+                savedId = existing.id;
             } else {
-                await createManufacturer(body);
+                savedId = (await createManufacturer(body)).id;
             }
             toast.success(existing ? "Manufacturer updated." : "Manufacturer added.");
-            onSaved();
+            onSaved(savedId);
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to save.");
         } finally {
