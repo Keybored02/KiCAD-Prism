@@ -58,6 +58,7 @@ _RUN_STATUS_LABELS = {
     "in_production": "In production",
     "received": "Received",
     "closed": "Closed",
+    "cancelled": "Cancelled",
 }
 
 _DEFECT_STATUS_LABELS = {"open": "Open", "resolved": "Resolved", "accepted": "Accepted"}

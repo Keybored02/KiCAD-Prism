@@ -24,8 +24,12 @@ from app.services.workspace_service import workspace
 logger = logging.getLogger(__name__)
 
 
-# Run lifecycle, in order. A run only ever moves forward through these.
+# Run lifecycle, in order: the stages a production moves through.
 RUN_STATUSES = ("draft", "ordered", "in_production", "received", "closed")
+# A production that was called off. It is not a stage of the lifecycle and is not
+# the same as deleting the run: the run, its spec snapshot and defects are kept.
+CANCELLED_STATUS = "cancelled"
+RUN_STATUS_VALUES = RUN_STATUSES + (CANCELLED_STATUS,)
 
 DEFECT_SEVERITIES = ("aesthetic", "minor", "major", "critical")
 DEFECT_STATUSES = ("open", "resolved", "accepted")
@@ -984,7 +988,7 @@ def update_run(run_id: str, **fields: Any) -> bool:
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
         return False
-    if "status" in updates and updates["status"] not in RUN_STATUSES:
+    if "status" in updates and updates["status"] not in RUN_STATUS_VALUES:
         raise ManufacturingError(f"Unknown run status: {updates['status']!r}")
     for qty_key in ("quantity_ordered", "quantity_good"):
         if qty_key in updates and int(updates[qty_key]) < 0:

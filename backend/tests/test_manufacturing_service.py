@@ -36,6 +36,12 @@ class ManufacturingValidationTests(unittest.TestCase):
         self.assertEqual(mfg.RUN_STATUSES[0], "draft")
         self.assertEqual(mfg.RUN_STATUSES[-1], "closed")
 
+    def test_cancelled_is_a_status_outside_the_lifecycle(self) -> None:
+        # Valid to set, but not one of the stages a production moves through.
+        self.assertNotIn("cancelled", mfg.RUN_STATUSES)
+        self.assertIn("cancelled", mfg.RUN_STATUS_VALUES)
+        self.assertEqual(mfg.RUN_STATUS_VALUES[: len(mfg.RUN_STATUSES)], mfg.RUN_STATUSES)
+
 
 @unittest.skipUnless(
     os.environ.get("PRISM_DATABASE_URL"),
@@ -310,6 +316,12 @@ class ManufacturingStoreTests(unittest.TestCase):
         # Advance and mark good.
         self.assertTrue(mfg.update_run(run_id, status="received", quantity_good=95))
         self.assertEqual(mfg.get_run(run_id)["quantity_good"], 95)
+
+        # Cancelling keeps the run and its data; it can be moved back afterwards.
+        self.assertTrue(mfg.update_run(run_id, status="cancelled"))
+        cancelled = mfg.get_run(run_id)
+        self.assertEqual((cancelled["status"], cancelled["quantity_good"]), ("cancelled", 95))
+        self.assertTrue(mfg.update_run(run_id, status="received"))
 
         def listed_counts(rid: str):
             row = {r["id"]: r for r in mfg.list_runs(self.project_id)}[rid]
