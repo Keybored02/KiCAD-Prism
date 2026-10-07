@@ -149,6 +149,52 @@ describe("Scene3dTab", () => {
     await waitFor(() => expect(revert().disabled).toBe(true));
   });
 
+  it("asks before moving a mated board, moves its stack in one save and reverts it (SB2-38)", async () => {
+    vi.stubGlobal("navigator", { ...navigator, gpu: {} });
+    const flip = [1, 0, 0, 0];
+    const mated = scene([
+      occurrence("CMBD"),
+      occurrence("OBC-1", { pose: { translationMm: [-8, -1, -9], rotation: flip, source: "auto" },
+        mate: { linkId: "slk_j15", from: "/sin_CMBD", overridden: false, autoPose: { translationMm: [-8, -1, -9], rotation: flip } } }),
+    ], [asset("CMBD"), asset("OBC-1")]);
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi.fn(async (url: string) => (String(url).endsWith("/scene") ? json(mated) : json({ poses: [] })));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Scene3dTab {...props} />);
+    await screen.findByText("2 boards");
+    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
+    await act(async () => undefined);
+    element.cancelMove = vi.fn();
+    const send = (phase: string, pose: unknown, unsaved: boolean) => act(() => {
+      element.dispatchEvent(new CustomEvent("prism-semantic-viewer:move", { detail: {
+        phase, allowed: true, enabled: true, space: "world", dragging: false,
+        target: { occurrence: "/sin_OBC-1", instanceId: "sin_OBC-1", displayPath: "OBC-1", kind: "board", restricted: false,
+          pose, source: "auto", unsaved },
+      } }));
+    });
+    const poseCalls = () => fetchMock.mock.calls.filter((call) => String(call[0]).includes("/poses")) as unknown as [string, RequestInit][];
+    send("target", { translationMm: [-8, -1, -9], rotation: flip }, false);
+    expect(screen.getByText("Mated")).toBeTruthy();
+    send("commit", { translationMm: [2, -1, -9], rotation: flip }, true);
+    await screen.findByRole("group", { name: "Moving a mated board" });
+    expect(poseCalls()).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Move with its stack" }));
+    await waitFor(() => expect(poseCalls()).toHaveLength(1));
+    const [url, init] = poseCalls()[0];
+    expect([url.endsWith("/poses"), init.method]).toEqual([true, "PATCH"]);
+    const body = JSON.parse(String(init.body));
+    expect(body.clear).toEqual([]);
+    expect(body.poses.map((p: { instanceId: string }) => p.instanceId)).toEqual(["sin_CMBD"]);
+    expect(body.poses[0].translationMm.map((v: number) => Math.round(v * 1e6) / 1e6)).toEqual([10, 0, 0]);
+
+    const revert = screen.getByRole("button", { name: "Revert" }) as HTMLButtonElement;
+    await waitFor(() => expect(revert.disabled).toBe(false));
+    fireEvent.click(revert);
+    await waitFor(() => expect(poseCalls()).toHaveLength(2));
+    expect(JSON.parse(String(poseCalls()[1][1].body))).toEqual({ poses: [], clear: ["sin_CMBD"] });
+  });
+
   it("traces a clicked board net to its system net and lights it on every board (D-P2-28)", async () => {
     vi.stubGlobal("navigator", { ...navigator, gpu: {} });
     const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });

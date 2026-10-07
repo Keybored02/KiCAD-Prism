@@ -145,7 +145,7 @@ export function Scene3dTab(props: SystemTabProps) {
   const [stats, setStats] = useState(false);
   const [labels, setLabels] = useState(true);
   const [harnesses, setHarnesses] = useState(true);
-  const moving = useMoveMode(viewer, { systemId, etag, reload });
+  const moving = useMoveMode(viewer, { systemId, etag, reload, scene });
   const { move } = moving;
   const nets = useNetHighlight(systemId, etag);
   const { highlighted } = nets;
@@ -329,6 +329,13 @@ export function Scene3dTab(props: SystemTabProps) {
               onDefault={(target) => void moving.backToDefault(target)}
               onResetAll={() => moving.setConfirmReset(true)}
               onSpace={(space) => viewer?.setMoveSpace?.(space)}
+              mate={moving.mate}
+              stackSize={moving.stack?.members.length ?? 0}
+              pending={moving.pending}
+              onBreakMate={() => void moving.breakMate()}
+              onMoveWithStack={() => void moving.moveWithStack()}
+              onCancelPending={moving.cancelPending}
+              onSnapBack={(target) => void moving.snapBack(target)}
             />
           </div>
         )}
