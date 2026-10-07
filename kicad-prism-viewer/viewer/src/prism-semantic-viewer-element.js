@@ -24,6 +24,21 @@ function shellHtml() {
       #scene-stats[hidden] { display: none; }
       #scene-stats dt { color: #8a97a8; }
       #scene-stats dd { margin: 0; text-align: right; }
+      /* SB2-30a: level-of-detail thresholds, beside the stats in mode="system". */
+      #lod-tuning {
+        position: absolute; right: 12px; bottom: 12px; z-index: 4; width: 230px; padding: 8px 10px;
+        background: rgb(15 20 28 / 0.86); color: #dbe4f0; border-radius: 6px;
+        font: 11px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      #lod-tuning[hidden] { display: none; }
+      #lod-tuning h2 { margin: 0 0 6px; font-size: 11px; font-weight: 600; }
+      #lod-tuning label { display: grid; grid-template-columns: 64px 1fr 30px; align-items: center; gap: 6px; }
+      #lod-tuning input { width: 100%; margin: 0; }
+      #lod-tuning output { text-align: right; font: 11px "SFMono-Regular", Consolas, monospace; font-variant-numeric: tabular-nums; }
+      #lod-tuning button {
+        margin-top: 6px; font: inherit; color: inherit; background: rgb(255 255 255 / 0.12);
+        border: 0; border-radius: 4px; padding: 2px 8px; cursor: pointer;
+      }
       /* System mode (SB2-31f): board labels, the move gizmo and the key list. */
       #system-labels { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
       /* SB2-34: proxy harnesses, straight segments between connectors until M5's geometry. */
@@ -80,6 +95,7 @@ function shellHtml() {
         <div id="selection-card" hidden></div>
         <canvas id="axis-gizmo" width="112" height="112" title="Click an axis to align the camera"></canvas>
         <dl id="scene-stats" hidden></dl>
+        <div id="lod-tuning" role="group" aria-label="Level of detail thresholds" hidden></div>
         <svg id="system-harnesses" hidden aria-hidden="true"></svg>
         <div id="system-labels" hidden></div>
         <svg id="move-gizmo" hidden aria-hidden="true"></svg>
@@ -545,9 +561,19 @@ export class PrismSemanticViewerElement extends HTMLElement {
     return this.controller?.stats?.() ?? null;
   }
 
-  /** Force a level of detail on every occurrence (0 full, 1 board, 2 box), or null for automatic. */
+  /** Force a level of detail on every occurrence (0 full, 1 board, 2 body, 3 box), or null for automatic. */
   setLodOverride(lod) {
     this.controller?.setLodOverride?.(lod);
+  }
+
+  /**
+   * mode="system" (SB2-30a): level-of-detail thresholds in CSS pixels of a
+   * board's projected radius, `{ fullPx, boardPx, boxPx, keep }`, merged into
+   * the current ones; null restores the defaults. Kept per browser. Returns
+   * the thresholds in force, or null before ready.
+   */
+  setLodThresholds(thresholds) {
+    return this.controller?.setLodThresholds?.(thresholds) ?? null;
   }
 
   /** The GPU memory budget in bytes (default 1.5 GB); over it, unused tiers are evicted. */

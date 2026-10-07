@@ -5,7 +5,7 @@
 //
 // Paste into the console of a system's 3D tab (e.g. the Perf-25 system), then:
 //   await captureFrameTimes(document.querySelector('prism-semantic-viewer[mode="system"]'));
-// `lod` forces a level of detail (0 full, 1 board, 2 box); omit it for automatic.
+// `lod` forces a level of detail (0 full, 1 board, 2 body, 3 box); omit it for automatic.
 window.captureFrameTimes = async function captureFrameTimes(element, options = {}) {
   const { lod = null, settleMs = 3000, orbitMs = 4000, stepPx = 3 } = options;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -41,7 +41,7 @@ window.captureFrameTimes = async function captureFrameTimes(element, options = {
   const mean = intervals.reduce((sum, value) => sum + value, 0) / intervals.length;
   return {
     boards: stats.occurrences,
-    lod: lod == null ? "auto" : ["full", "board", "box"][lod],
+    lod: lod == null ? "auto" : ["full", "board", "body", "box"][lod],
     canvas: [canvas.width, canvas.height],
     frames: intervals.length,
     meanMs: +mean.toFixed(2),

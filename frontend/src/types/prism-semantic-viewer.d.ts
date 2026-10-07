@@ -31,10 +31,21 @@ export interface PrismViewerPick {
     selection: Record<string, unknown> | null;
 }
 
+export interface PrismViewerLodThresholds {
+    /** Components draw at or above this projected radius. */
+    fullPx: number;
+    /** Copper, barrels, silkscreen and paste draw at or above this. */
+    boardPx: number;
+    /** Below this the board is a box; between it and boardPx only the substrate and mask draw. */
+    boxPx: number;
+    /** Hysteresis: a finer level holds until the size drops below threshold × keep. */
+    keep: number;
+}
+
 export interface PrismViewerStats {
     occurrences: number;
     /** Occurrences per level of detail in the last culled frame. */
-    lod: { full: number; board: number; box: number; culled: number };
+    lod: { full: number; board: number; body: number; box: number; culled: number };
     triangles: number;
     draws: number;
     gpuMemoryBytes: number;
@@ -131,8 +142,10 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     setStatsOverlay?: (visible: boolean) => void;
     /** The numbers behind the stats overlay, or null before ready. */
     getStats?: () => PrismViewerStats | null;
-    /** Force a level of detail on every occurrence (0 full, 1 board, 2 box), or null for automatic. */
-    setLodOverride?: (lod: 0 | 1 | 2 | null) => void;
+    /** Force a level of detail on every occurrence (0 full, 1 board, 2 body, 3 box), or null for automatic. */
+    setLodOverride?: (lod: 0 | 1 | 2 | 3 | null) => void;
+    /** mode="system" (SB2-30a): thresholds in CSS px of a board's projected radius, merged; null restores the defaults. Kept per browser. */
+    setLodThresholds?: (thresholds: Partial<PrismViewerLodThresholds> | null) => PrismViewerLodThresholds | null;
     /** GPU memory budget in bytes (default 1.5 GB); over it, tiers no occurrence needs are evicted. */
     setGpuBudget?: (bytes: number) => void;
     /** Every component reference on the board; empty until the viewer is ready. */

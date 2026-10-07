@@ -26,7 +26,9 @@ import {
   AXES, SNAP, axisAmount, canonicalPose, localAxes, moveDescriptor, moveTarget, perpendicular,
   ringRotation, rotatePoseAbout, screenAngle, snapTo, translatePose,
 } from "./move-gizmo.js";
-import { IDENTITY, isIdentity, projectToViewport, transformBounds, transformPoint } from "./occurrences.js";
+import {
+  IDENTITY, LOD_THRESHOLDS, isIdentity, normalizeLodThresholds, projectToViewport, transformBounds, transformPoint,
+} from "./occurrences.js";
 import { Renderer } from "./renderer.js";
 import { SceneRenderer } from "./scene-renderer.js";
 import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
@@ -56,6 +58,7 @@ let viewerKindEl;
 let selectionEl;
 let diagnosticsEl;
 let sceneStatsEl;
+let lodTuningEl;
 let layersEl;
 let searchControlsEl;
 let viewControlsEl;
@@ -90,6 +93,7 @@ function resolveDom(root = document) {
   selectionEl = query("#selection") || { set textContent(v) {} };
   diagnosticsEl = query("#diagnostics") || { set innerHTML(v) {} };
   sceneStatsEl = query("#scene-stats");
+  lodTuningEl = query("#lod-tuning");
   layersEl = query("#layers");
   searchControlsEl = query("#search-controls");
   viewControlsEl = query("#view-controls");
@@ -467,7 +471,7 @@ export async function mountStandaloneViewer(options = {}) {
     stats() {
       return sceneStats();
     },
-    // Force a level of detail on every occurrence (0 full, 1 board, 2 box), or null for automatic.
+    // Force a level of detail on every occurrence (0 full, 1 board, 2 body, 3 box), or null for automatic.
     setLodOverride(lod) {
       board.renderer?.setLodOverride(lod);
     },
@@ -1228,11 +1232,11 @@ function cameraLod(viewportHeight, orthographic) {
 // Scene numbers for the stats overlay and for measurements through the element.
 function sceneStats() {
   if (system) return systemStats();
-  const counts = board.renderer?.cullCounts || { full: 0, board: 0, box: 0, culled: 0 };
+  const counts = board.renderer?.cullCounts || { full: 0, board: 0, body: 0, box: 0, culled: 0 };
   const single = !board.renderer || board.renderer.identityOnly;
   return {
     occurrences: board.renderer?.occurrenceMatrices.length || 0,
-    lod: single ? { full: 1, board: 0, box: 0, culled: 0 } : { ...counts },
+    lod: single ? { full: 1, board: 0, body: 0, box: 0, culled: 0 } : { ...counts },
     triangles: board.renderer?.frameStats.triangles || 0,
     draws: board.renderer?.frameStats.draws || 0,
     gpuMemoryBytes: board.renderer?.gpuMemoryBytes() || 0,
@@ -1280,16 +1284,95 @@ function systemStats() {
 function setStatsOverlay(visible) {
   state.showStats = Boolean(visible);
   if (sceneStatsEl) sceneStatsEl.hidden = !state.showStats;
+  if (lodTuningEl) lodTuningEl.hidden = !(state.showStats && system);
+  if (state.showStats && system) buildLodTuning();
   updateSceneStats();
+}
+
+// ----- level-of-detail thresholds (SB2-30a) -----------------------------------
+//
+// In projected CSS pixels of a board's radius: components draw at or above
+// `fullPx`, copper, barrels, silkscreen and paste at or above `boardPx`, the
+// substrate and mask (the body) down to `boxPx`, and a box below it. Tuned live
+// beside the stats overlay; kept per browser.
+
+const LOD_STORAGE_KEY = "prism.systemScene.lodThresholds";
+const LOD_TUNING_FIELDS = Object.freeze([
+  { key: "fullPx", label: "Parts", max: 600 },
+  { key: "boardPx", label: "Copper", max: 400 },
+  { key: "boxPx", label: "Box below", max: 120 },
+]);
+
+function readLodThresholds() {
+  try {
+    const saved = JSON.parse(globalThis.localStorage?.getItem(LOD_STORAGE_KEY) || "null");
+    if (saved && typeof saved === "object") return normalizeLodThresholds(saved);
+  } catch {
+    // Storage can be missing or throw: the defaults apply.
+  }
+  return { ...LOD_THRESHOLDS };
+}
+
+function writeLodThresholds(thresholds) {
+  try {
+    if (thresholds) globalThis.localStorage?.setItem(LOD_STORAGE_KEY, JSON.stringify(thresholds));
+    else globalThis.localStorage?.removeItem(LOD_STORAGE_KEY);
+  } catch {
+    // Tuning still applies for this page.
+  }
+}
+
+/** Set the thresholds (merged into the current ones); null restores the defaults. Returns those in force. */
+function setSystemLodThresholds(thresholds) {
+  if (!system) return null;
+  const next = thresholds == null ? { ...LOD_THRESHOLDS } : { ...system.scene.lodThresholds, ...thresholds };
+  const applied = system.scene.setLodThresholds(next);
+  writeLodThresholds(thresholds == null ? null : applied);
+  syncLodTuning();
+  return applied;
+}
+
+function buildLodTuning() {
+  if (!lodTuningEl || lodTuningEl.childElementCount) return syncLodTuning();
+  const title = document.createElement("h2");
+  title.textContent = "Detail thresholds (CSS px)";
+  lodTuningEl.append(title);
+  for (const field of LOD_TUNING_FIELDS) {
+    const label = document.createElement("label");
+    const name = document.createElement("span");
+    name.textContent = field.label;
+    const input = document.createElement("input");
+    Object.assign(input, { type: "range", min: "0", max: String(field.max), step: "1" });
+    input.dataset.key = field.key;
+    const output = document.createElement("output");
+    input.addEventListener("input", () => setSystemLodThresholds({ [field.key]: Number(input.value) }));
+    label.append(name, input, output);
+    lodTuningEl.append(label);
+  }
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.textContent = "Defaults";
+  reset.addEventListener("click", () => setSystemLodThresholds(null));
+  lodTuningEl.append(reset);
+  syncLodTuning();
+}
+
+function syncLodTuning() {
+  if (!lodTuningEl || !system) return;
+  const values = system.scene.lodThresholds;
+  for (const input of lodTuningEl.querySelectorAll("input[data-key]")) {
+    input.value = String(values[input.dataset.key]);
+    input.nextElementSibling.value = String(Math.round(values[input.dataset.key]));
+  }
 }
 
 function updateSceneStats() {
   if (!sceneStatsEl || !state.showStats) return;
   const stats = sceneStats();
-  const { full, board: boardLod, box, culled } = stats.lod;
+  const { full, board: boardLod, body, box, culled } = stats.lod;
   const rows = [
-    ["Occurrences", `${stats.occurrences} (${full + boardLod + box} visible)`],
-    ["Detail", `${full} full · ${boardLod} board · ${box} box · ${culled} culled`],
+    ["Occurrences", `${stats.occurrences} (${full + boardLod + body + box} visible)`],
+    ["Detail", `${full} full · ${boardLod} board · ${body} body · ${box} box · ${culled} culled`],
     ["Triangles", stats.triangles.toLocaleString()],
     ["Draws", stats.draws.toLocaleString()],
     ["GPU memory", `${(stats.gpuMemoryBytes / 1048576).toFixed(1)} / ${(stats.gpuBudgetBytes / 1048576).toFixed(0)} MB`],
@@ -1337,6 +1420,7 @@ export async function mountSystemViewer(options = {}) {
     scene.dispose();
     return null;
   }
+  scene.setLodThresholds(readLodThresholds());
   system = {
     scene,
     loadBundle: options.loadBundle,
@@ -1430,6 +1514,7 @@ export async function mountSystemViewer(options = {}) {
     setLodOverride(lod) {
       for (const b of systemBoards()) b.renderer.setLodOverride(lod);
     },
+    setLodThresholds: setSystemLodThresholds,
     setGpuBudget(bytes) {
       const value = Number(bytes);
       state.gpuBudgetBytes = Number.isFinite(value) && value > 0 ? value : DEFAULT_GPU_BUDGET_BYTES;
@@ -1666,7 +1751,8 @@ function frameSystem(now, token) {
     layerId: 0,
     viewport: { x: 0, y: 0, width: canvas.width, height: canvas.height },
     matrix: camera.matrix(canvas.width, canvas.height, false),
-    lod: cameraLod(canvas.height, false),
+    // Thresholds are in CSS pixels, so a 2× screen does not keep every board at full detail (SB2-30a).
+    lod: cameraLod(canvas.height / Math.min(devicePixelRatio || 1, 2), false),
   };
   const emphasis = anyEmphasis();
   const inputs = new Map();
@@ -2485,6 +2571,7 @@ function updateSystemHarnesses() {
 
 function renderSystemLabels() {
   if (!systemLabelsEl) return;
+  system.labelsDrawn = null; // new label elements start unplaced
   systemLabelsEl.replaceChildren(...system.placed.map((item) => {
     const label = document.createElement("div");
     label.className = `scene-label${item.standIn ? ` stand-in ${item.standIn}` : ""}`;
@@ -2505,11 +2592,18 @@ function renderSystemLabels() {
 function updateSystemLabels() {
   if (!systemLabelsEl || !panel) return;
   systemLabelsEl.hidden = !system.showLabels;
-  if (!system.showLabels) return;
+  if (!system.showLabels) {
+    system.labelsDrawn = null;
+    return;
+  }
   const rect = canvas.getBoundingClientRect();
+  const selected = selectionKey();
+  // R5: labels move only when the view, the selection or the placements change, not on pulse frames.
+  const key = `${selected}|${rect.width}x${rect.height}|${Array.prototype.join.call(panel.matrix, ",")}`;
+  if (system.labelsDrawn?.placed === system.placed && system.labelsDrawn.key === key) return;
+  system.labelsDrawn = { placed: system.placed, key };
   const sx = rect.width / Math.max(1, canvas.width);
   const sy = rect.height / Math.max(1, canvas.height);
-  const selected = selectionKey();
   for (const item of system.placed) {
     if (!item.label) continue;
     const [x0, y0, , x1, y1, z1] = item.worldBounds;
@@ -2547,7 +2641,10 @@ async function loadComponents(token = activeViewerToken, b = board) {
     if (component) mergeFeatureBounds(component.featureId, primitive.position, b);
   }
   // Harness ends anchor at their connector's bounds, known only now; until then they sat at the board's centre.
-  if (system) system.harnessDrawn = null;
+  if (system) {
+    system.harnessDrawn = null;
+    system.labelsDrawn = null;
+  }
   // A reference whose GLB has two top-level model nodes is an
   // alternate-footprint pair; the group builder keeps it visible.
   for (const [designator, count] of loaded.componentNodeCounts || []) {
