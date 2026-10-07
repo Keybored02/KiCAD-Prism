@@ -264,6 +264,11 @@ export class PrismSemanticViewerElement extends HTMLElement {
     return this.controller?.frameNetEmphasis?.(key, occurrence) ?? false;
   }
 
+  /** Frame every placed board (mode="system"). */
+  frameAll() {
+    this.controller?.frameAll?.();
+  }
+
   /** Frame one placed board (mode="system"). */
   frameBoard(key) {
     return this.controller?.frameBoard?.(key) ?? false;

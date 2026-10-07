@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.30 · 2026-10-06 · tickets SB2-00 to SB2-31e.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.31 · 2026-10-07 · tickets SB2-00 to SB2-31e.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -731,6 +731,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.31 | 2026-10-07 | SB2-31e.2: §20.7, the System 3D tab on the 3D tab's viewer: left rail with a Layers section per board, the 3D tab inspector on the board's design index, search over every board, system nets in the right rail. Move mode and labels wait for SB2-31f. |
 | P2-1.30 | 2026-10-06 | SB2-31e (D-P2-25, D-P2-26): §20.6, the board 3D tab's viewer with several boards (`<prism-semantic-viewer mode="system">`); per-placement copper layers; isolated picks skip unlit copper on every viewer. No API change. |
 | P2-1.29 | 2026-10-05 | SB2-31 follow-up 2 (user feedback): framing per occurrence with no padding, as the board 3D tab frames a net; isolated clicks on hidden copper are empty space; outer copper and barrels take the board's surface finish from its topology, as on its 3D tab. |
 | P2-1.28 | 2026-10-05 | SB2-31 follow-up (user feedback): highlighting follows a board's 3D tab net probe (no board body or components; all copper, unlit dimmed, lit nets pulsing; inner copper at every detail level); **I** isolates the lit copper (`setNetIsolation`, `isolation` event); a newly shown net is framed (`frameNetEmphasis`). |
@@ -884,4 +885,14 @@ The System 3D tab becomes the board 3D tab's own viewer showing several boards. 
   - The instanced draw and pick shaders collapse a copper or paste draw whose layer the occurrence hides. The draw's layer id + 1 travels in `draw.offset.w`, which the one-board shaders do not read.
   - `SceneRenderer` writes each board's exploded-stackup offsets.
   - The one-board picture is unchanged: pixel diff on JTYU-OBC at 1280×800, 0 px.
+
+### 20.7 The System 3D tab on the 3D tab's viewer (SB2-31e.2)
+
+The tab hosts `<prism-semantic-viewer mode="system">` (§20.6) and the board 3D tab's own controls around it.
+
+- **Left rail (D-P2-26).** The board 3D tab's rail, titled *System 3D*, with Net layers, Isolate, stackup separation and the Settings toggles. Layers has a section per placed board: its layer count, a frame button, and when opened the preset and layer list for that placement only. The board holding the selection opens and is marked. There is no 2D toggle (D-P2-27).
+- **Right rail.** *Selection*: the selected board heads it (frame, Open in Boards), and below it the board 3D tab's inspector reads that board's design index (`GET /api/projects/{id}/semantic-index/identity?commit=` at the commit the system pins), so a part, pad or net shows as on the board's own tab. A board selection, or a box (restricted, building), explains itself. *Nets*: the SB2-31 system net panel.
+- **Search.** One field (`/`, ⌘F) over every placed board's parts and nets, each hit named with its board; two copies of a board give two hits. Picking one selects it on that placement.
+- **Toolbar.** Board counts, search, Nets, Fit all, Stats. **Move** and board **labels** return with SB2-31f.
+- **Opening view.** The camera frames the system as boards load, until all are in or the reviewer moves it.
 

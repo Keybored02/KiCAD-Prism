@@ -8,17 +8,18 @@ import { instance, systemDocument } from "./test-fixtures";
 // render. Nothing it calls may set state, or the tab re-renders forever (SB2-31
 // froze the page this way through the emphasis report).
 const calls = { setNetEmphasis: 0 };
-class FakeSystemScene extends HTMLElement {
-  setScene() {}
-  setLabelsVisible() {}
+class FakeSemanticViewer extends HTMLElement {
+  setSystemScene() {}
   setStatsOverlay() {}
-  setMoveAllowed() {}
+  getViewState() {
+    return null;
+  }
   setNetEmphasis() {
     calls.setNetEmphasis += 1;
     return [];
   }
 }
-if (!customElements.get("prism-system-scene")) customElements.define("prism-system-scene", FakeSystemScene);
+if (!customElements.get("prism-semantic-viewer")) customElements.define("prism-semantic-viewer", FakeSemanticViewer);
 
 afterEach(() => vi.unstubAllGlobals());
 

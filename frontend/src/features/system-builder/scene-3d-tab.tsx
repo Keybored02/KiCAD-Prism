@@ -1,29 +1,36 @@
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
-import { Activity, Box, Keyboard, Loader2, Maximize, Move3d, Spline, Tag } from "lucide-react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import { Activity, Box, Cpu, Loader2, Maximize, Spline } from "lucide-react";
 
+import { DesignSearchField } from "@/components/design-search-field";
+import { Semantic3dControls } from "@/components/semantic-3d-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { toast } from "sonner";
-import { clearPose, getScene, resetPoses, setPose } from "@/lib/systems-api";
+import { ViewerOverlayRail } from "@/components/viewer-overlay-rail";
+import { selectionFromDesignSearchHit, type DesignSearchHit } from "@/lib/design-search";
+import { getScene } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type {
-  PrismSystemSceneElement,
+  PrismSemanticViewerElement,
+  PrismSemanticViewState,
   PrismSystemSceneEmphasisResult,
-  PrismSystemSceneMoveState,
-  PrismSystemSceneSelection,
+  PrismSystemViewerSelection,
 } from "@/types/prism-semantic-viewer";
-import type { SystemNetDetail, SystemScene } from "@/types/system";
+import type { SystemScene } from "@/types/system";
 
-import { names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
-import { MovePanel } from "./scene-move-panel";
+import { drawnBoards, names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
+import { SceneInspector } from "./scene-inspector";
 import { emphasisSets, netBoards } from "./scene-net-model";
 import { NetPanel } from "./scene-net-panel";
+import { hitOccurrence, searchBoards, type SearchableBoard } from "./scene-search";
+import { useBoardIndexes } from "./use-board-indexes";
 import { useNetHighlight } from "./use-net-highlight";
 import type { SystemTabProps } from "./system-tab-content";
-import { useSystemMutation } from "./use-system-mutation";
 
 const DiagramTab = lazy(() => import("./diagram-tab").then((module) => ({ default: module.DiagramTab })));
+
+type RailTab = "selection" | "nets";
 
 function Notice({ tone = "info", children }: { tone?: "info" | "warning" | "error"; children: React.ReactNode }) {
   return (
@@ -41,37 +48,13 @@ function Notice({ tone = "info", children }: { tone?: "info" | "warning" | "erro
   );
 }
 
-/**
- * CONTRACTS_P2 §20 / SB2-27: every board of the system in one WebGPU view, in the
- * default side-by-side layout from the scene descriptor. Restricted boards are
- * boxes; boards whose 3D bundle is still building are boxes until it is ready.
- * Without WebGPU, the 2D diagram with a notice.
- */
-export function Scene3dTab(props: SystemTabProps) {
-  const { systemId, document, etag, canEdit, reload, onNavigate } = props;
+/** Read the scene on open, on every system change, and again while bundles build or boxes are unknown. */
+function useSystemScene(systemId: string, etag: string, enabled: boolean) {
   const [scene, setScene] = useState<SystemScene | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selection, setSelection] = useState<PrismSystemSceneSelection | null>(null);
-  const [viewerError, setViewerError] = useState<string | null>(null);
-  const [labels, setLabels] = useState(true);
-  const [stats, setStats] = useState(false);
   const [reads, setReads] = useState(0);
-  const [move, setMove] = useState<PrismSystemSceneMoveState | null>(null);
-  // Bumped whenever the view saves, cancels or changes target: the move panel starts over.
-  const [moveEpoch, setMoveEpoch] = useState(0);
-  const [confirmReset, setConfirmReset] = useState(false);
-  // SB2-31: highlighted system nets, lit in the view in their own colours.
-  const [netsOpen, setNetsOpen] = useState(false);
-  const [isolated, setIsolated] = useState(false);
-  const nets = useNetHighlight(systemId, etag);
-  const { highlighted } = nets;
-  const { busy, run } = useSystemMutation(reload);
-  const elementRef = useRef<PrismSystemSceneElement | null>(null);
-  const supported = webgpuAvailable();
-
-  // Read the scene on open and on every system change ...
   useEffect(() => {
-    if (!supported) return;
+    if (!enabled) return;
     let cancelled = false;
     getScene(systemId).then(
       (next) => {
@@ -86,102 +69,106 @@ export function Scene3dTab(props: SystemTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [supported, systemId, etag, reads]);
-
-  // ... and again while bundles build or boxes are unknown.
+  }, [enabled, systemId, etag, reads]);
   useEffect(() => {
     const delay = scene ? scenePollDelay(scene) : null;
     if (!delay) return;
     const timer = setTimeout(() => setReads((count) => count + 1), delay);
     return () => clearTimeout(timer);
   }, [scene]);
+  return { scene, error };
+}
+
+/** What the viewer reports: the selection, the view state (isolation) and its start-up error. */
+function useViewerEvents(viewer: PrismSemanticViewerElement | null, report: (results: readonly PrismSystemSceneEmphasisResult[]) => void) {
+  const [selection, setSelection] = useState<PrismSystemViewerSelection | null>(null);
+  const [viewState, setViewState] = useState<PrismSemanticViewState | null>(null);
+  const [viewerError, setViewerError] = useState<string | null>(null);
+  const reportRef = useRef(report);
+  useEffect(() => {
+    reportRef.current = report;
+  }, [report]);
+  useEffect(() => {
+    if (!viewer) return;
+    const onSelection = (event: Event) => setSelection((event as CustomEvent<{ selection: PrismSystemViewerSelection | null }>).detail.selection);
+    const onViewState = (event: Event) => setViewState((event as CustomEvent<PrismSemanticViewState>).detail);
+    const onEmphasis = (event: Event) => reportRef.current((event as CustomEvent<{ results: PrismSystemSceneEmphasisResult[] }>).detail.results);
+    const onError = (event: Event) => {
+      const detail = (event as CustomEvent<{ error?: { message?: string } | string }>).detail;
+      setViewerError(typeof detail?.error === "string" ? detail.error : detail?.error?.message || "The 3D view could not start");
+    };
+    viewer.addEventListener("prism-semantic-viewer:selectionchange", onSelection);
+    viewer.addEventListener("prism-semantic-viewer:viewstatechange", onViewState);
+    viewer.addEventListener("prism-semantic-viewer:emphasis", onEmphasis);
+    viewer.addEventListener("prism-semantic-viewer:error", onError);
+    return () => {
+      viewer.removeEventListener("prism-semantic-viewer:selectionchange", onSelection);
+      viewer.removeEventListener("prism-semantic-viewer:viewstatechange", onViewState);
+      viewer.removeEventListener("prism-semantic-viewer:emphasis", onEmphasis);
+      viewer.removeEventListener("prism-semantic-viewer:error", onError);
+    };
+  }, [viewer]);
+  return { selection, setSelection, viewState, viewerError };
+}
+
+/**
+ * CONTRACTS_P2 §20.6 / SB2-31e.2: the board 3D tab with every board of the
+ * system (D-P2-25). The 3D tab's own viewer, left rail (a Layers section per
+ * board) and inspector (on the selected board's design index), a search over
+ * every board, and the system nets. Restricted boards and boards still
+ * building are boxes. Without WebGPU, the 2D diagram with a notice.
+ */
+export function Scene3dTab(props: SystemTabProps) {
+  const { systemId, document, etag, onNavigate } = props;
+  const supported = webgpuAvailable();
+  const { scene, error } = useSystemScene(systemId, etag, supported);
+  const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
+  const attach = useCallback((node: PrismSemanticViewerElement | null) => setViewer(node), []);
+  const [leftInset, setLeftInset] = useState(0);
+  const [rail, setRail] = useState<RailTab | null>("selection");
+  const [stats, setStats] = useState(false);
+  const nets = useNetHighlight(systemId, etag);
+  const { highlighted } = nets;
+  const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report);
+  const indexes = useBoardIndexes(scene);
 
   useEffect(() => {
-    if (scene) elementRef.current?.setScene?.(scene);
-  }, [scene]);
+    if (!viewer || !scene) return;
+    void customElements.whenDefined("prism-semantic-viewer").then(() => viewer.setSystemScene?.(scene));
+  }, [viewer, scene]);
 
-  const showEmphasis = (node: PrismSystemSceneElement | null, list: readonly SystemNetDetail[]) => {
-    const report = node?.setNetEmphasis?.(emphasisSets(list));
-    if (report) nets.report(report);
-  };
   // The net added last is framed once, so a few-millimetre trace is not lost in the whole system.
   const framedNet = useRef<string | null>(null);
   useEffect(() => {
-    showEmphasis(elementRef.current, highlighted);
-    // As the board 3D tab frames a selected net: close, on the first board it reaches.
-    const newest = highlighted.at(-1) ?? null;
-    if (newest && newest.groupId !== framedNet.current) {
-      elementRef.current?.frameNetEmphasis?.(newest.groupId, netBoards(newest).boards[0]?.occurrence ?? null);
-    }
-    framedNet.current = newest?.groupId ?? null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-apply only when the nets change
-  }, [highlighted]);
-
-  // The element's events (it is defined by the viewer bundle; it may upgrade after mount).
-  const attach = (node: PrismSystemSceneElement | null) => {
-    elementRef.current = node;
-    if (!node) return;
-    void customElements.whenDefined("prism-system-scene").then(() => {
-      if (elementRef.current !== node) return;
-      if (scene) node.setScene(scene);
-      node.setLabelsVisible(labels);
-      node.setStatsOverlay(stats);
-      node.setMoveAllowed(canEdit);
-      // No state here: this ref runs on every render. The element reports what it lit by event.
-      node.setNetEmphasis?.(emphasisSets(highlighted));
+    if (!viewer) return;
+    void customElements.whenDefined("prism-semantic-viewer").then(() => {
+      const report = viewer.setNetEmphasis?.(emphasisSets(highlighted));
+      if (report) nets.report(report);
+      // As the board 3D tab frames a selected net: close, on the first board it reaches.
+      const newest = highlighted.at(-1) ?? null;
+      if (newest && newest.groupId !== framedNet.current) {
+        viewer.frameNetEmphasis?.(newest.groupId, netBoards(newest).boards[0]?.occurrence ?? null);
+      }
+      framedNet.current = newest?.groupId ?? null;
     });
-  };
-  useEffect(() => {
-    elementRef.current?.setMoveAllowed?.(canEdit);
-  }, [canEdit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-apply only when the nets or the viewer change
+  }, [highlighted, viewer]);
 
-  /** Store the target's position (a released drag, Enter, or Save); on failure the view goes back. */
-  const savePose = async (target: NonNullable<PrismSystemSceneMoveState["target"]>) => {
-    const saved = await run("pose", () => setPose(systemId, etag, target.instanceId, target.pose));
-    if (!saved) elementRef.current?.cancelMove?.();
+  const boards = useMemo(() => (scene ? drawnBoards(scene) : []), [scene]);
+  const searchable = useMemo<SearchableBoard[]>(() => boards.flatMap((board) => {
+    const index = board.assetId ? indexes.get(board.assetId)?.index : null;
+    return index ? [{ occurrence: board.path, name: board.displayPath, index }] : [];
+  }), [boards, indexes]);
+  const search = useCallback((query: string) => searchBoards(searchable, query), [searchable]);
+  const pick = (hit: DesignSearchHit) => {
+    const occurrence = hitOccurrence(hit);
+    const picked = selectionFromDesignSearchHit(hit, "3D", null);
+    if (!picked) return;
+    viewer?.setSelection(picked.kind === "net" ? { occurrence, netName: picked.netName } : { occurrence, reference: picked.reference });
+    // A host selection is not echoed back by the viewer.
+    setSelection({ ...picked, occurrence });
+    setRail("selection");
   };
-  const backToDefault = async (target: NonNullable<PrismSystemSceneMoveState["target"]>) => {
-    await run("pose", () => clearPose(systemId, etag, target.instanceId), `${target.displayPath} is back in its default place`);
-  };
-  const resetAll = async () => {
-    const done = await run("pose", () => resetPoses(systemId, etag));
-    setConfirmReset(false);
-    if (done) {
-      const count = done.body.reset.length;
-      toastReset(count);
-    }
-  };
-
-  useEffect(() => {
-    const node = elementRef.current;
-    if (!node) return;
-    const onSelection = (event: Event) => setSelection((event as CustomEvent<{ selection: PrismSystemSceneSelection | null }>).detail.selection);
-    const onError = (event: Event) => setViewerError(String((event as CustomEvent<{ error: string }>).detail.error));
-    const onMove = (event: Event) => {
-      const state = (event as CustomEvent<PrismSystemSceneMoveState>).detail;
-      setMove(state);
-      if (state.phase === "commit" && state.target) void savePose(state.target);
-      // Start the panel over when the view's state changed under it; a re-read during
-      // typing ("sync" with an unsaved preview) keeps what is typed.
-      if (state.phase !== "preview" && !(state.phase === "sync" && state.target?.unsaved)) setMoveEpoch((count) => count + 1);
-    };
-    node.addEventListener("prism-system-scene:selectionchange", onSelection);
-    node.addEventListener("prism-system-scene:error", onError);
-    node.addEventListener("prism-system-scene:move", onMove);
-    const onEmphasis = (event: Event) => {
-      nets.report((event as CustomEvent<{ report: PrismSystemSceneEmphasisResult[] }>).detail.report);
-    };
-    node.addEventListener("prism-system-scene:emphasis", onEmphasis);
-    const onIsolation = (event: Event) => setIsolated((event as CustomEvent<{ isolated: boolean }>).detail.isolated);
-    node.addEventListener("prism-system-scene:isolation", onIsolation);
-    return () => {
-      node.removeEventListener("prism-system-scene:isolation", onIsolation);
-      node.removeEventListener("prism-system-scene:emphasis", onEmphasis);
-      node.removeEventListener("prism-system-scene:selectionchange", onSelection);
-      node.removeEventListener("prism-system-scene:error", onError);
-      node.removeEventListener("prism-system-scene:move", onMove);
-    };
-  });
 
   if (!supported) {
     return (
@@ -199,7 +186,8 @@ export function Scene3dTab(props: SystemTabProps) {
   }
 
   const summary = scene ? summarizeScene(scene) : null;
-  const instance = selection ? document.instances.find((item) => item.id === selection.instanceId) : undefined;
+  const selected = selection?.occurrence ? scene?.occurrences.find((item) => item.path === selection.occurrence) ?? null : null;
+  const instance = selected ? document.instances.find((item) => item.id === selected.instanceId) : undefined;
 
   return (
     <div className="flex h-full min-h-[480px] flex-col">
@@ -213,105 +201,79 @@ export function Scene3dTab(props: SystemTabProps) {
           <Badge variant="info" className="gap-1"><Loader2 className="size-3 animate-spin" aria-hidden />{summary.building.length} building</Badge>
         )}
         {summary && summary.failed.length > 0 && <Badge variant="destructive">{summary.failed.length} failed</Badge>}
+        <div className="mx-2 min-w-48 max-w-sm flex-1">
+          <DesignSearchField semanticIndex={null} search={search} loading={boards.length > 0 && !searchable.length} onPick={pick} inline />
+        </div>
         <span className="ml-auto flex items-center gap-1">
-          {canEdit && (
-            <Button
-              variant={move?.enabled ? "secondary" : "ghost"} size="sm" aria-pressed={Boolean(move?.enabled)}
-              title="Move boards (M)" onClick={() => elementRef.current?.setMoveMode(!move?.enabled)}
-            >
-              <Move3d className="size-4" aria-hidden /> Move
-            </Button>
-          )}
           <Button
-            variant={netsOpen || highlighted.length ? "secondary" : "ghost"} size="sm" aria-pressed={netsOpen}
-            title="Highlight system nets" onClick={() => setNetsOpen(!netsOpen)}
+            variant={rail === "nets" || highlighted.length ? "secondary" : "ghost"} size="sm" aria-pressed={rail === "nets"}
+            title="Highlight system nets" onClick={() => setRail(rail === "nets" ? null : "nets")}
           >
             <Spline className="size-4" aria-hidden /> Nets{highlighted.length ? ` (${highlighted.length})` : ""}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => elementRef.current?.frameAll()} title="Fit every board (A)">
+          <Button variant="ghost" size="sm" onClick={() => viewer?.frameAll?.()} title="Fit every board (Home)">
             <Maximize className="size-4" aria-hidden /> Fit all
           </Button>
           <Button
-            variant={labels ? "secondary" : "ghost"} size="sm" aria-pressed={labels}
-            onClick={() => { setLabels(!labels); elementRef.current?.setLabelsVisible(!labels); }}
-          >
-            <Tag className="size-4" aria-hidden /> Labels
-          </Button>
-          <Button
             variant={stats ? "secondary" : "ghost"} size="sm" aria-pressed={stats} title="Scene statistics (`)"
-            onClick={() => { setStats(!stats); elementRef.current?.setStatsOverlay(!stats); }}
+            onClick={() => { setStats(!stats); viewer?.setStatsOverlay?.(!stats); }}
           >
             <Activity className="size-4" aria-hidden /> Stats
-          </Button>
-          <Button variant="ghost" size="icon-sm" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"
-            onClick={() => elementRef.current?.setHelpVisible(true)}>
-            <Keyboard className="size-4" aria-hidden />
           </Button>
         </span>
       </div>
 
       <SceneNotices error={error} viewerError={viewerError} summary={summary} />
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-muted/20" style={themeBridge(leftInset)}>
         {/* React 18 does not map className onto custom elements: size it with a style. */}
-        <prism-system-scene ref={attach} style={{ position: "absolute", inset: 0, display: "block" }} />
+        <prism-semantic-viewer
+          ref={attach} mode="system" hide-panel="true" active="true"
+          style={{ position: "absolute", inset: 0, display: "block" }}
+        />
+        <Semantic3dControls viewer={viewer} onVisibleWidthChange={setLeftInset} />
         {!scene && !error && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-muted-foreground">
             <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden /> Loading the system scene…</span>
           </div>
         )}
-        {move?.enabled && (
-          <div className="absolute left-3 top-3">
-            <MovePanel
-              key={moveEpoch}
-              state={move}
-              busy={busy !== null}
-              onPreview={(pose) => elementRef.current?.previewPose(pose)}
-              onSave={(target) => void savePose(target)}
-              onRevert={() => elementRef.current?.cancelMove()}
-              onDefault={(target) => void backToDefault(target)}
-              onResetAll={() => setConfirmReset(true)}
-              onSpace={(space) => elementRef.current?.setMoveSpace(space)}
-            />
-          </div>
-        )}
-        {netsOpen && (
-          <div className="absolute bottom-12 right-3 top-3 flex flex-col justify-start">
+        <ViewerOverlayRail
+          activeTab={rail}
+          tabs={[
+            { id: "selection", label: "Selection", icon: <Cpu className="mr-1.5 size-3.5" /> },
+            { id: "nets", label: "Nets", icon: <Spline className="mr-1.5 size-3.5" />,
+              badge: highlighted.length ? <span className="rounded-full bg-muted px-1.5 text-[10px]">{highlighted.length}</span> : null },
+          ]}
+          onTabChange={setRail}
+          onClose={() => setRail(null)}
+          ariaLabel="System 3D details"
+        >
+          {rail === "nets" ? (
             <NetPanel
+              embedded
               systemId={systemId}
               highlighted={highlighted}
               results={nets.results}
               adding={nets.adding}
               onAdd={(net) => void nets.add(net)}
               onRemove={nets.remove}
-              onFrame={(groupId, occurrence) => elementRef.current?.frameNetEmphasis?.(groupId, occurrence ?? null)}
-              isolated={isolated}
-              onIsolate={(next) => setIsolated(elementRef.current?.setNetIsolation?.(next) ?? false)}
+              onFrame={(groupId, occurrence) => viewer?.frameNetEmphasis?.(groupId, occurrence ?? null)}
+              isolated={Boolean(viewState?.isolateNet)}
+              onIsolate={(next) => viewer?.setNetIsolation?.(next)}
               onClear={nets.clear}
-              onClose={() => setNetsOpen(false)}
+              onClose={() => setRail(null)}
             />
-          </div>
-        )}
-        {selection && (
-          <div className="absolute bottom-3 left-3 w-72 rounded-lg border bg-card/95 p-3 text-sm shadow-md backdrop-blur" aria-live="polite">
-            <p className="font-medium">{selection.displayPath}</p>
-            <p className="text-xs text-muted-foreground">
-              {selection.restricted ? "Restricted board" : selection.reference ? `Component ${selection.reference}` : "Board"}
-              {instance?.label && instance.label !== selection.displayPath ? ` · ${instance.label}` : ""}
-            </p>
-            <div className="mt-2 flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => elementRef.current?.frameOccurrence(selection.occurrence)}>Frame</Button>
-              {instance && (
-                <Button size="sm" variant="ghost" onClick={() => onNavigate("boards", { board: instance.id })}>Open in Boards</Button>
-              )}
-            </div>
-          </div>
-        )}
-        <p className="pointer-events-none absolute bottom-3 right-3 rounded bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
-          {move?.enabled
-            ? "Drag an arrow to slide · a ring to turn · Shift for fine steps · Esc undoes · ? keys"
-            : "Drag to orbit · Shift-drag to pan · Scroll to zoom · Double-click to frame · F frame · A fit all · ? keys"}
-        </p>
+          ) : (
+            <SceneInspector
+              selection={selection}
+              boardName={selected?.displayPath ?? null}
+              indexState={selected?.assetId ? indexes.get(selected.assetId) ?? null : null}
+              onFrameBoard={() => { if (selected) viewer?.frameBoard?.(selected.path); }}
+              onOpenBoard={instance ? () => onNavigate("boards", { board: instance.id }) : undefined}
+              onClear={() => { viewer?.setSelection(null); setSelection(null); }}
+            />
+          )}
+        </ViewerOverlayRail>
       </div>
       <ConfirmDialog
         open={nets.confirmLarge !== null}
@@ -323,22 +285,25 @@ export function Scene3dTab(props: SystemTabProps) {
         busy={nets.adding !== null}
         onConfirm={() => { if (nets.confirmLarge) void nets.add(nets.confirmLarge, true); }}
       />
-      <ConfirmDialog
-        open={confirmReset}
-        onOpenChange={setConfirmReset}
-        title="Reset every board's position?"
-        description="Every board you or others moved goes back to the default side-by-side row. Earlier snapshots keep the positions they froze."
-        confirmLabel="Reset positions"
-        busy={busy !== null}
-        onConfirm={() => void resetAll()}
-      />
     </div>
   );
 }
 
-function toastReset(count: number) {
-  toast.success(count === 0 ? "Every board was already in its default place"
-    : `${count} ${count === 1 ? "board is" : "boards are"} back in the default layout`);
+/** The app's tokens for the viewer's shadow tree, as the board 3D tab passes them (see webgpu-3d-tab.tsx). */
+function themeBridge(leftInset: number): CSSProperties {
+  return {
+    "--prism-shell": "hsl(var(--background))",
+    "--prism-panel": "hsl(var(--card))",
+    "--prism-panel-raised": "hsl(var(--muted))",
+    "--prism-control": "hsl(var(--secondary))",
+    "--prism-control-hover": "hsl(var(--accent))",
+    "--prism-foreground": "hsl(var(--foreground))",
+    "--prism-muted": "hsl(var(--muted-foreground))",
+    "--prism-border": "hsl(var(--border))",
+    "--prism-primary": "hsl(var(--primary))",
+    "--prism-primary-foreground": "hsl(var(--primary-foreground))",
+    "--prism-viewport-inset-left": `${leftInset}px`,
+  } as CSSProperties;
 }
 
 /** Why some boards are boxes, missing or failed; nothing when every board is drawn. */

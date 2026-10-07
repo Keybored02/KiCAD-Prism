@@ -5,6 +5,11 @@ export function drawnOccurrences(scene: SystemScene): SystemSceneOccurrence[] {
   return scene.occurrences.filter((occurrence) => occurrence.kind === "board" || occurrence.restricted);
 }
 
+/** The drawn boards whose geometry can load (not restricted, with an asset), in scene order. */
+export function drawnBoards(scene: SystemScene): SystemSceneOccurrence[] {
+  return drawnOccurrences(scene).filter((occurrence) => occurrence.kind === "board" && !occurrence.restricted && occurrence.assetId);
+}
+
 export interface SceneSummary {
   boards: number;
   restricted: SystemSceneOccurrence[];
