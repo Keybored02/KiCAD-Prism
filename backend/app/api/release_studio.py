@@ -76,6 +76,7 @@ class ReviewDecisionRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Vendor profiles and source discovery
 # ---------------------------------------------------------------------------
+@router.get("/{project_id}/release-studio/vendor-profiles")
 async def list_vendor_profiles(
     project_id: str, user: AuthenticatedUser = Depends(require_viewer)
 ):
@@ -110,7 +111,15 @@ async def get_source(
             repo_root, commit_sha, str(project.get("relative_path") or "")
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.exception(
+            "Could not discover Release Studio source for project %s at %s",
+            project_id,
+            commit_sha,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Could not inspect this revision's Release Studio source.",
+        ) from exc
     try:
         source = apply_source_defaults(source, store.get_source_defaults(project_id))
     except Exception:
@@ -428,8 +437,13 @@ def _released_member_response(
                 )
             data = extracted.read()
     except tarfile.TarError as exc:
+        logger.exception(
+            "Could not read stored Release Studio dossier for build %s member %s",
+            build_id or build["id"],
+            member_path,
+        )
         raise HTTPException(
-            status_code=500, detail=f"The stored dossier could not be read: {exc}"
+            status_code=500, detail="The stored dossier could not be read."
         ) from exc
 
     actual = hashlib.sha256(data).hexdigest()

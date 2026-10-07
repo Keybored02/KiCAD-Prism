@@ -5,7 +5,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException, Request, Response
 
@@ -99,7 +99,7 @@ class PasswordLoginEndpointTests(unittest.TestCase):
         with patch.object(settings, "AUTH_ENABLED_OVERRIDE", True), \
              patch.object(settings, "PASSWORD_AUTH_ENABLED", True), \
              patch.object(auth_api, "authenticate_password", return_value=result), \
-             patch.object(auth_api, "_enforce_login_rate_limit", return_value="bucket"), \
+             patch.object(auth_api, "_enforce_login_rate_limit", AsyncMock(return_value="bucket")), \
              patch.object(auth_api.rate_limit_service, "clear"), \
              patch.object(auth_api, "_issue_session"):
             return asyncio.run(auth_api.login_with_password(req, _fake_request(), Response()))
@@ -127,7 +127,7 @@ class PasswordLoginEndpointTests(unittest.TestCase):
         clear = MagicMock()
         with patch.object(settings, "AUTH_ENABLED_OVERRIDE", True), \
              patch.object(settings, "PASSWORD_AUTH_ENABLED", True), \
-             patch.object(auth_api, "_enforce_login_rate_limit", return_value="bucket"), \
+             patch.object(auth_api, "_enforce_login_rate_limit", AsyncMock(return_value="bucket")), \
              patch.object(auth_api.rate_limit_service, "clear", clear), \
              patch.object(auth_api, "authenticate_password", side_effect=HTTPException(status_code=401, detail="Invalid email or password.")):
             with self.assertRaises(HTTPException) as ctx:

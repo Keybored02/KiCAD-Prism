@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { cancelPrismJob, jobPipeline, throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
+import { useCommittedRef } from "@/hooks/use-committed-ref";
 import type { UserRole } from "@/types/auth";
 
 import * as api from "./api";
@@ -72,11 +73,13 @@ function resolveCommitSelection(value: string, commits: ProjectCommit[]): string
     return commits.find((commit) => commit.full_hash === revision || commit.hash === revision)?.full_hash ?? revision;
 }
 
+// react-doctor-disable-next-line no-giant-component - build lifecycle orchestration: polling, stages, uploads, and logs share one state machine
 export function ReleaseStudioPanel({
     projectId,
     canMutate,
     userRole,
     defaultCommit = "HEAD",
+// react-doctor-disable-next-line prefer-useReducer - the states belong to separate concerns: build lifecycle, detail cache, upload fields
 }: Props) {
     const [view, setView] = useState<StudioView>(() => {
         if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("build")) return "history";
@@ -85,7 +88,9 @@ export function ReleaseStudioPanel({
     const [stage, setStage] = useState<RunStage>("source");
     // Set when the user opens a specific run, so a newer build does not pull
     // the view out from under someone reading an older release's evidence.
-    const pinnedRef = useRef(false);
+    const pinnedRef = useRef(
+        typeof window !== "undefined" && Boolean(new URLSearchParams(window.location.search).get("build")),
+    );
     // "New release" opens the Source stage so a revision and configuration can
     // be chosen. Building immediately took that choice away and made the button
     // fire an expensive job on a single click.
@@ -93,8 +98,7 @@ export function ReleaseStudioPanel({
         if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("build")) return false;
         return true;
     });
-    const draftingRef = useRef(false);
-    draftingRef.current = drafting;
+    const draftingRef = useCommittedRef(drafting);
     const [commits, setCommits] = useState<ProjectCommit[]>([]);
     const [commitsLoading, setCommitsLoading] = useState(true);
     const [commitSha, setCommitSha] = useState(defaultCommit);
@@ -118,7 +122,8 @@ export function ReleaseStudioPanel({
     });
     const [impedanceCsv, setImpedanceCsv] = useState("");
     const [stackupName, setStackupName] = useState("");
-    const [stackupB64, setStackupB64] = useState("");
+    // The stackup upload is read only when a build starts, never on screen.
+    const stackupB64Ref = useRef("");
     const [profiles, setProfiles] = useState<VendorProfile[]>([]);
     const [candidates, setCandidates] = useState<ReleaseCandidate[]>([]);
     // The run lives in the URL so it survives a reload and can be shared --
@@ -126,12 +131,9 @@ export function ReleaseStudioPanel({
     // about, not on whatever happens to be newest.
     const [selectedBuildId, setSelectedBuildId] = useState<string | null>(() => {
         if (typeof window === "undefined") return null;
-        const fromUrl = new URLSearchParams(window.location.search).get("build");
-        if (fromUrl) pinnedRef.current = true;
-        return fromUrl;
+        return new URLSearchParams(window.location.search).get("build");
     });
-    const selectedBuildIdRef = useRef<string | null>(selectedBuildId);
-    selectedBuildIdRef.current = selectedBuildId;
+    const selectedBuildIdRef = useCommittedRef(selectedBuildId);
     const detailRequestRef = useRef(0);
     const [detail, setDetail] = useState<BuildDetail | null>(null);
     const [busy, setBusy] = useState("");
@@ -142,9 +144,9 @@ export function ReleaseStudioPanel({
     const [jobPercent, setJobPercent] = useState(0);
     const [liveLogs, setLiveLogs] = useState<string[]>([]);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
-    const activeJobIdRef = useRef<string | null>(activeJobId);
-    activeJobIdRef.current = activeJobId;
-    const [currentBuildId, setCurrentBuildId] = useState<string | null>(null);
+    const activeJobIdRef = useCommittedRef(activeJobId);
+    // Read only by the select-build handler; not part of the rendered state.
+    const currentBuildIdRef = useRef<string | null>(null);
     // Never let a retained response drive a different selected run.
     const selectedDetail = detail?.build.id === selectedBuildId ? detail : null;
     // A full 40-character SHA is the whole requirement. Membership of the
@@ -172,7 +174,7 @@ export function ReleaseStudioPanel({
             }
             return null;
         }
-    }, [projectId]);
+    }, [projectId, selectedBuildIdRef]);
 
     const refresh = useCallback(async (preferredJobId?: string) => {
         try {
@@ -199,13 +201,13 @@ export function ReleaseStudioPanel({
                 if (pinnedRef.current && current) return current;
                 return current;
             });
-            if (preferredBuild) setCurrentBuildId(preferredBuild.id);
+            if (preferredBuild) currentBuildIdRef.current = preferredBuild.id;
             return preferredBuild?.id ?? null;
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : String(cause));
             return null;
         }
-    }, [projectId]);
+    }, [draftingRef, projectId]);
 
     useEffect(() => {
         void refresh();
@@ -266,6 +268,9 @@ export function ReleaseStudioPanel({
         // Do not render the preceding run while this run's detail is loading.
         // The id guard below is a second line of defence for batched updates.
         setDetail(null);
+        // Nothing here reaches a parent: setDetail, setError and refreshDetail
+        // are all this component's own, so there is no extra render to save.
+        // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
         void refreshDetail(selectedBuildId).catch((cause: unknown) => {
             setError(cause instanceof Error ? cause.message : String(cause));
         });
@@ -283,7 +288,7 @@ export function ReleaseStudioPanel({
         const jobId = selectedDetail?.build.job_id;
         if (!jobId || selectedDetail.build.status !== "running" || activeJobIdRef.current === jobId) return;
         const controller = new AbortController();
-        setCurrentBuildId(selectedDetail.build.id);
+        currentBuildIdRef.current = selectedDetail.build.id;
         void watchPrismJob(jobId, {
             signal: controller.signal,
             includeLogs: true,
@@ -303,7 +308,7 @@ export function ReleaseStudioPanel({
             setError(cause instanceof Error ? cause.message : String(cause));
         });
         return () => controller.abort();
-    }, [refresh, refreshDetail, selectedDetail?.build.id, selectedDetail?.build.job_id, selectedDetail?.build.status]);
+    }, [activeJobIdRef, refresh, refreshDetail, selectedDetail?.build.id, selectedDetail?.build.job_id, selectedDetail?.build.status]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -355,7 +360,7 @@ export function ReleaseStudioPanel({
                 setBusy("");
             }
         },
-        [refresh, refreshDetail],
+        [refresh, refreshDetail, selectedBuildIdRef],
     );
 
     const handleBuild = () => {
@@ -389,7 +394,7 @@ export function ReleaseStudioPanel({
                 identity,
                 manufacturing,
                 impedance_csv: impedanceCsv,
-                stackup_pdf_b64: stackupB64,
+                stackup_pdf_b64: stackupB64Ref.current,
             });
             setActiveJobId(job.job_id);
             const finished = await watchPrismJob(job.job_id, {
@@ -408,7 +413,7 @@ export function ReleaseStudioPanel({
             const builtId = await refresh(job.job_id);
             if (builtId) {
                 pinnedRef.current = true;
-                setCurrentBuildId(builtId);
+                currentBuildIdRef.current = builtId;
                 setSelectedBuildId(builtId);
             }
             setActiveJobId(null);
@@ -508,7 +513,7 @@ export function ReleaseStudioPanel({
                                 }
                                 setDrafting(false);
                                 if (id === "current") {
-                                    setSelectedBuildId(currentBuildId);
+                                    setSelectedBuildId(currentBuildIdRef.current);
                                     setStage(activeJobId ? "build" : "outputs");
                                 } else if (id === "history") {
                                     pinnedRef.current = false;
@@ -665,13 +670,13 @@ export function ReleaseStudioPanel({
                                             onStackup={(file) => {
                                                 if (!file) {
                                                     setStackupName("");
-                                                    setStackupB64("");
+                                                    stackupB64Ref.current = "";
                                                     setError("");
                                                     return;
                                                 }
                                                 if (file.size > MAX_STACKUP_BYTES) {
                                                     setStackupName("");
-                                                    setStackupB64("");
+                                                    stackupB64Ref.current = "";
                                                     setError(
                                                         `${file.name} is ${(file.size / 1_000_000).toFixed(1)} MB. `
                                                         + `The stackup PDF must be under ${MAX_STACKUP_BYTES / 1_000_000} MB.`,
@@ -681,7 +686,7 @@ export function ReleaseStudioPanel({
                                                 setStackupName(file.name);
                                                 setError("");
                                                 void file.arrayBuffer().then((buffer) => {
-                                                    setStackupB64(base64FromBytes(new Uint8Array(buffer)));
+                                                    stackupB64Ref.current = base64FromBytes(new Uint8Array(buffer));
                                                 });
                                             }}
                                             onBuild={() => void handleBuild()}

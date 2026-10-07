@@ -19,10 +19,11 @@ import io
 import os
 import re
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from app.release_studio.documents.layout import Artwork, Rect
 
@@ -77,8 +78,8 @@ def sanitize_artwork(svg_text: str) -> str:
     cleaned = _KICAD_TITLE.sub("", svg_text)
     return _DATED_COMMENT.sub("", cleaned)
 _VIEWBOX = re.compile(r'viewBox\s*=\s*"([^"]+)"', re.IGNORECASE)
-_WIDTH = re.compile(r'\bwidth\s*=\s*"([0-9.]+)([a-z]*)"', re.IGNORECASE)
-_HEIGHT = re.compile(r'\bheight\s*=\s*"([0-9.]+)([a-z]*)"', re.IGNORECASE)
+_WIDTH = re.compile(r'(?<![-\w])width\s*=\s*"([0-9.]+)([a-z]*)"', re.IGNORECASE)
+_HEIGHT = re.compile(r'(?<![-\w])height\s*=\s*"([0-9.]+)([a-z]*)"', re.IGNORECASE)
 
 # `kicad-cli pcb export svg` writes user units per millimetre; anything else
 # would make the scale contract below wrong, so it is asserted, not assumed.
@@ -261,8 +262,9 @@ def _coordinate_pairs(svg_text: str, limit: int = 64) -> list[tuple[float, float
 #: input closure, and the closure digest would then depend on the build.
 PCB_SVG_CONFIG = Path(__file__).with_name("pcb-svg.config.json")
 
-#: The testpoint views, which need a per-board component map (see its own
-#: ``_prism`` note for why it cannot share the assembly configuration).
+#: Testpoint-only views. They use a derived staging board so Cruncher receives
+#: only TP footprints; see the config's ``_prism`` note for the compatibility
+#: contract with legacy KiCad boards.
 PCB_SVG_TESTPOINT_CONFIG = Path(__file__).with_name("pcb-svg.testpoints.config.json")
 
 #: Cruncher view name per assembly side.
@@ -277,10 +279,10 @@ TESTPOINT_VIEWS: dict[str, str] = {
     "bottom": "testpoint_bottom_view",
 }
 
-#: Every view kind Prism's checked-in Cruncher configuration declares.
+#: Views safe to render directly from the source board. Testpoints are
+#: deliberately absent: they must pass through :func:`_stage_testpoint_board`.
 VIEW_KINDS: dict[str, dict[str, str]] = {
     "assembly": ASSEMBLY_VIEWS,
-    "testpoint": TESTPOINT_VIEWS,
 }
 
 #: What Cruncher *actually* drew each component from.
@@ -428,42 +430,6 @@ def acquire_board_render(
     )
 
 
-def testpoint_config(
-    designators: Sequence[str],
-    workdir: Path,
-    *,
-    prefix: str = "TP",
-    base: Path | None = None,
-) -> Path:
-    """Write the testpoint configuration for one board, and return its path.
-
-    Cruncher draws a component's outline unless that component says otherwise,
-    and it has no wildcard for saying so -- ``components`` is keyed by exact
-    designator.  So "only the testpoints" is written as every other designator
-    switched off.  The map is a pure function of the board's sorted designator
-    list, which keeps two builds of one board byte-identical here.
-    """
-
-    import json
-
-    source = base or PCB_SVG_TESTPOINT_CONFIG
-    if not source.is_file():
-        raise ArtworkError(f"the Prism testpoint configuration is missing: {source}")
-    config = json.loads(source.read_text(encoding="utf-8"))
-    marker = prefix.strip().upper()
-    config["components"] = {
-        designator: {"assembly_hlr": {"enabled": False}}
-        for designator in sorted({str(d).strip() for d in designators if str(d).strip()})
-        if not designator.strip().upper().startswith(marker)
-    }
-    workdir.mkdir(parents=True, exist_ok=True)
-    written = workdir / "pcb-svg.testpoints.generated.json"
-    written.write_text(
-        json.dumps(config, indent=2, sort_keys=False) + "\n", encoding="utf-8"
-    )
-    return written
-
-
 def acquire_testpoint_views(
     cruncher_path: str,
     board: Path,
@@ -474,7 +440,16 @@ def acquire_testpoint_views(
     runner=subprocess.run,
     timeout_seconds: int = 900,
 ) -> dict[str, AcquiredArtwork]:
-    """Render the testpoint views, keyed ``"testpoint-<side>"``."""
+    """Render the testpoint views, keyed ``"testpoint-<side>"``.
+
+    Cruncher 2026.8.x resolves a footprint designator from the modern
+    ``Reference`` property and otherwise falls back to its library link. Older
+    KiCad boards store the reference in ``fp_text reference`` instead, which
+    makes both the ``TP*`` label selector and component filtering miss. Rather
+    than interpret either the board file or Cruncher's SVG, derive a staging
+    board through Monkey's public object model: retain only testpoint
+    footprints and promote each legacy reference to the modern property.
+    """
 
     views = []
     for side in sides:
@@ -485,18 +460,118 @@ def acquire_testpoint_views(
     if not views:
         return {}
 
-    workdir.mkdir(parents=True, exist_ok=True)
-    config = testpoint_config(designators, workdir)
+    source_board = Path(board).resolve()
+    staged_board, staged_designators = _stage_testpoint_board(source_board, workdir)
+    expected = tuple(
+        sorted(
+            {
+                str(reference).strip()
+                for reference in designators
+                if str(reference).strip().upper().startswith("TP")
+            }
+        )
+    )
+    if designators and expected != staged_designators:
+        missing = sorted(set(expected) - set(staged_designators))
+        unexpected = sorted(set(staged_designators) - set(expected))
+        detail = []
+        if missing:
+            detail.append(f"missing {', '.join(missing)}")
+        if unexpected:
+            detail.append(f"unexpected {', '.join(unexpected)}")
+        raise ArtworkError(
+            "testpoint drawing and board projection disagree: "
+            + ("; ".join(detail) or "designator sets differ")
+        )
+
+    # Cruncher owns and may clean its output directory. Resolve the viewport
+    # while the staged board still exists rather than reading a file that the
+    # renderer is allowed to remove.
+    viewport = _cruncher_board_viewport(staged_board, PCB_SVG_TESTPOINT_CONFIG)
     _run_pcb_svg(
-        cruncher_path, board, views, workdir,
-        config_path=config, runner=runner, timeout_seconds=timeout_seconds,
+        cruncher_path, staged_board, views, workdir,
+        config_path=PCB_SVG_TESTPOINT_CONFIG,
+        project_dir=source_board.parent,
+        runner=runner,
+        timeout_seconds=timeout_seconds,
     )
     return {
         f"testpoint-{side}": _read_assembly_view(
-            workdir, f"testpoint-{side}", TESTPOINT_VIEWS[side]
+            workdir, f"testpoint-{side}", TESTPOINT_VIEWS[side], viewport
         )
         for side in sides
     }
+
+
+def _stage_testpoint_board(
+    board: Path,
+    workdir: Path,
+    *,
+    prefix: str = "TP",
+    pcb_loader: Callable[[Path], Any] | None = None,
+) -> tuple[Path, tuple[str, ...]]:
+    """Write a testpoint-only Monkey board into *workdir*.
+
+    The input board is never edited. Legacy ``fp_text reference`` values are
+    copied into ``property \"Reference\"`` on the retained staging footprints
+    because that is the public designator contract consumed by released
+    Cruncher 2026.8.x.
+    """
+
+    source = Path(board).resolve()
+    destination_dir = Path(workdir).resolve()
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    if pcb_loader is None:
+        try:
+            from kicad_monkey.kicad_pcb import KiCadPcb
+        except Exception as exc:  # noqa: BLE001 - normalize worker dependency failures
+            raise ArtworkError(f"could not load Monkey for testpoint staging: {exc}") from exc
+        pcb_loader = KiCadPcb.from_file
+
+    try:
+        pcb = pcb_loader(source)
+    except Exception as exc:  # noqa: BLE001 - normalize board parse failures
+        raise ArtworkError(f"could not parse board for testpoint staging: {exc}") from exc
+
+    marker = prefix.strip().upper()
+    if not marker:
+        raise ArtworkError("testpoint prefix cannot be empty")
+
+    retained = []
+    designators: set[str] = set()
+    for footprint in getattr(pcb, "footprints", ()) or ():
+        reference = ""
+        get_property = getattr(footprint, "get_property_value", None)
+        if callable(get_property):
+            reference = str(get_property("Reference", "") or "").strip()
+        if not reference:
+            for fp_text in getattr(footprint, "fp_texts", ()) or ():
+                if str(getattr(fp_text, "text_type", "") or "").lower() == "reference":
+                    reference = str(getattr(fp_text, "text", "") or "").strip()
+                    if reference:
+                        break
+        if not reference.upper().startswith(marker):
+            continue
+        if reference in designators:
+            raise ArtworkError(f"duplicate testpoint designator: {reference}")
+        upsert_property = getattr(footprint, "upsert_property", None)
+        if not callable(upsert_property):
+            raise ArtworkError(
+                f"Monkey footprint {reference} cannot set its Reference property"
+            )
+        upsert_property("Reference", reference)
+        designators.add(reference)
+        retained.append(footprint)
+
+    pcb.footprints = retained
+    destination = destination_dir / f"{source.stem}.testpoints.kicad_pcb"
+    try:
+        pcb.save(destination)
+    except Exception as exc:  # noqa: BLE001 - normalize staging write failures
+        raise ArtworkError(f"could not save testpoint staging board: {exc}") from exc
+    if not destination.is_file():
+        raise ArtworkError("Monkey did not write the testpoint staging board")
+    return destination, tuple(sorted(designators))
 
 
 def acquire_board_views(
@@ -515,9 +590,9 @@ def acquire_board_views(
     Keyed ``"<kind>-<side>"``.
 
     Loading the board dominates: on a 35 MB ``.kicad_pcb`` it is ~70 s against
-    a couple of seconds to render one more view off the same load.  So every
-    view Prism wants is declared in the one checked-in configuration and asked
-    for together -- the testpoint views cost the render, not another load.
+    a couple of seconds to render one more assembly view off the same load, so
+    the source-board assembly views are asked for together. Testpoint views are
+    intentionally acquired separately from a normalized TP-only staging board.
     """
 
     wanted: dict[str, str] = {}
@@ -543,8 +618,9 @@ def acquire_board_views(
         runner=runner,
         timeout_seconds=timeout_seconds,
     )
+    viewport = _cruncher_board_viewport(board, config_path or PCB_SVG_CONFIG)
     return {
-        key: _read_assembly_view(workdir, key, view)
+        key: _read_assembly_view(workdir, key, view, viewport)
         for key, view in wanted.items()
     }
 
@@ -593,7 +669,8 @@ def acquire_assembly_view(
         runner=runner,
         timeout_seconds=timeout_seconds,
     )
-    return _read_assembly_view(workdir, side, view)
+    viewport = _cruncher_board_viewport(board, config_path or PCB_SVG_CONFIG)
+    return _read_assembly_view(workdir, side, view, viewport)
 
 
 def _run_pcb_svg(
@@ -603,6 +680,7 @@ def _run_pcb_svg(
     workdir: Path,
     *,
     config_path: Path | None,
+    project_dir: Path | None = None,
     runner,
     timeout_seconds: int,
 ) -> None:
@@ -623,7 +701,10 @@ def _run_pcb_svg(
     # directory that contains the board.  Without this binding Geometer cannot
     # open STEPs that are already present in the closed tree.
     env = os.environ.copy()
-    env["KIPRJMOD"] = str(Path(board).resolve().parent)
+    env["KIPRJMOD"] = str(
+        (Path(project_dir) if project_dir is not None else Path(board).resolve().parent)
+        .resolve()
+    )
     try:
         result = runner(
             argv, capture_output=True, text=True, timeout=timeout_seconds, env=env
@@ -643,7 +724,173 @@ def _run_pcb_svg(
         raise ArtworkError(f"kicad-cruncher pcb-svg failed for {named}: {detail[:400]}")
 
 
-def _read_assembly_view(workdir: Path, label: str, view: str) -> AcquiredArtwork:
+@dataclass(frozen=True, slots=True)
+class _CruncherViewport:
+    """Configured board viewport relative to Cruncher's all-geometry canvas."""
+
+    x_mm: float
+    y_mm: float
+    width_mm: float
+    height_mm: float
+    canvas_width_mm: float
+    canvas_height_mm: float
+
+
+def _cruncher_board_viewport(
+    board: Path, config_path: Path
+) -> _CruncherViewport | None:
+    """Resolve Cruncher's declared canvas policy through public Monkey bounds.
+
+    Published Cruncher 2026.8.x parses ``global.canvas`` but does not apply it
+    when it creates the root SVG; every view instead inherits Monkey's
+    all-geometry canvas. Prism's configurations request ``board_outline``, so
+    use the same public Monkey bounding-box API that Cruncher uses and express
+    that policy as a viewport relative to the emitted canvas. No SVG geometry
+    is parsed or reinterpreted here.
+    """
+
+    try:
+        try:
+            from kicad_cruncher.config_json import load_json_config
+        except ModuleNotFoundError:
+            # The generic API/backend image does not install Cruncher; only
+            # the release worker does. Prism's bundled configs are strict JSON,
+            # so unit tests and non-worker imports retain a standard-library
+            # path without growing another config parser.
+            import json
+
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        else:
+            # The worker accepts Cruncher's full JSON/JSONC configuration
+            # contract through the released loader.
+            config = load_json_config(config_path)
+
+        canvas_policy = (config.get("global") or {}).get("canvas") or {}
+        bounds_mode = str(
+            canvas_policy.get("bounds") or "board_outline"
+        ).strip().lower()
+        bounds_mode = {
+            "board": "board_outline",
+            "outline": "board_outline",
+            "board_profile": "board_outline",
+        }.get(bounds_mode, bounds_mode)
+        if bounds_mode == "all_geometry":
+            return None
+        if bounds_mode != "board_outline":
+            raise ValueError(f"unsupported bounds mode {bounds_mode!r}")
+        margin_mm = float(canvas_policy.get("margin_mm", 1.0))
+        if not (0.0 <= margin_mm < float("inf")):
+            raise ValueError("margin_mm must be a finite non-negative number")
+
+        from kicad_monkey.kicad_pcb import KiCadPcb
+        from kicad_monkey.kicad_pcb_bounds import compute_pcb_svg_bounding_box
+
+        pcb = KiCadPcb.from_file(board)
+        canvas = compute_pcb_svg_bounding_box(pcb, None)
+        outline = compute_pcb_svg_bounding_box(pcb, ["Edge.Cuts"])
+        values = (
+            float(canvas.min_x),
+            float(canvas.min_y),
+            float(canvas.width),
+            float(canvas.height),
+            float(outline.min_x),
+            float(outline.min_y),
+            float(outline.width),
+            float(outline.height),
+        )
+        if not all(
+            value == value and abs(value) < float("inf") for value in values
+        ):
+            raise ValueError("Monkey returned non-finite bounds")
+        if (
+            canvas.width <= 0
+            or canvas.height <= 0
+            or outline.width <= 0
+            or outline.height <= 0
+        ):
+            raise ValueError("Monkey returned an empty canvas or board outline")
+    except Exception as exc:  # noqa: BLE001 - normalize all acquisition failures
+        raise ArtworkError(f"could not resolve Cruncher board viewport: {exc}") from exc
+
+    return _CruncherViewport(
+        x_mm=float(outline.min_x - canvas.min_x) - margin_mm,
+        y_mm=float(outline.min_y - canvas.min_y) - margin_mm,
+        width_mm=float(outline.width) + 2.0 * margin_mm,
+        height_mm=float(outline.height) + 2.0 * margin_mm,
+        canvas_width_mm=float(canvas.width),
+        canvas_height_mm=float(canvas.height),
+    )
+
+
+def _fmt_svg_number(value: float) -> str:
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _apply_cruncher_viewport(svg_text: str, viewport: _CruncherViewport | None) -> str:
+    """Apply a resolved canvas policy by changing only root SVG attributes."""
+
+    if viewport is None:
+        return svg_text
+    opened = _SVG_OPEN.search(svg_text)
+    if opened is None:
+        raise ArtworkError("kicad-cruncher output is not an SVG document")
+    header = opened.group(0)
+    box = _VIEWBOX.search(header)
+    width = _WIDTH.search(header)
+    height = _HEIGHT.search(header)
+    if box is None or width is None or height is None:
+        raise ArtworkError("kicad-cruncher SVG has no explicit root viewport")
+    try:
+        vx, vy, vw, vh = (float(part) for part in box.group(1).replace(",", " ").split())
+        physical_width = float(width.group(1))
+        physical_height = float(height.group(1))
+    except (TypeError, ValueError) as exc:
+        raise ArtworkError("kicad-cruncher SVG has an invalid root viewport") from exc
+    if min(vw, vh, physical_width, physical_height) <= 0:
+        raise ArtworkError("kicad-cruncher SVG has an empty root viewport")
+
+    scale_x = vw / viewport.canvas_width_mm
+    scale_y = vh / viewport.canvas_height_mm
+    new_x = vx + viewport.x_mm * scale_x
+    new_y = vy + viewport.y_mm * scale_y
+    new_width = viewport.width_mm * scale_x
+    new_height = viewport.height_mm * scale_y
+    physical_view_width = (
+        physical_width * viewport.width_mm / viewport.canvas_width_mm
+    )
+    physical_view_height = (
+        physical_height * viewport.height_mm / viewport.canvas_height_mm
+    )
+    new_header = _VIEWBOX.sub(
+        'viewBox="{} {} {} {}"'.format(
+            _fmt_svg_number(new_x),
+            _fmt_svg_number(new_y),
+            _fmt_svg_number(new_width),
+            _fmt_svg_number(new_height),
+        ),
+        header,
+        count=1,
+    )
+    new_header = _WIDTH.sub(
+        f'width="{_fmt_svg_number(physical_view_width)}{width.group(2)}"',
+        new_header,
+        count=1,
+    )
+    new_header = _HEIGHT.sub(
+        f'height="{_fmt_svg_number(physical_view_height)}{height.group(2)}"',
+        new_header,
+        count=1,
+    )
+    return svg_text[:opened.start()] + new_header + svg_text[opened.end():]
+
+
+def _read_assembly_view(
+    workdir: Path,
+    label: str,
+    view: str,
+    viewport: _CruncherViewport | None,
+) -> AcquiredArtwork:
     """Turn one written Cruncher view into placeable artwork.
 
     ``label`` names the view on the sheet (``assembly-top``, ``testpoint-top``,
@@ -654,7 +901,9 @@ def _read_assembly_view(workdir: Path, label: str, view: str) -> AcquiredArtwork
     if not found:
         raise ArtworkError(f"kicad-cruncher produced no {view}")
 
-    svg_text = found[0].read_text(encoding="utf-8")
+    svg_text = _apply_cruncher_viewport(
+        found[0].read_text(encoding="utf-8"), viewport
+    )
     x, y, width, height = extents(svg_text)
     return AcquiredArtwork(
         layers=(f"Cruncher.{label}",),
@@ -681,12 +930,46 @@ def render_pdf_page(svg_text: str) -> bytes:
     sheet does.
     """
 
+    _configure_cairo_library_path()
     import cairosvg
 
     try:
         return cairosvg.svg2pdf(bytestring=svg_text.encode("utf-8"))
     except Exception as exc:  # noqa: BLE001 - any cairo failure is one failure here
         raise ArtworkError(f"the assembly view could not be rendered to PDF: {exc}") from exc
+
+
+def _configure_cairo_library_path() -> None:
+    """Make Homebrew Cairo visible to uv's portable macOS Python.
+
+    Framework Python happens to search Homebrew's library directory, while the
+    standalone interpreter managed by uv does not. Without this explicit path,
+    an otherwise identical locked venv can build SVG documents but fails only
+    when Release Studio asks CairoSVG for the matching PDF page.
+    """
+
+    if sys.platform != "darwin":
+        return
+    candidates = [
+        os.environ.get("PRISM_CAIRO_LIBRARY_DIR", ""),
+        "/opt/homebrew/lib",
+        "/usr/local/lib",
+    ]
+    library_dir = next(
+        (
+            Path(candidate)
+            for candidate in candidates
+            if candidate and (Path(candidate) / "libcairo.2.dylib").is_file()
+        ),
+        None,
+    )
+    if library_dir is None:
+        return
+    variable = "DYLD_FALLBACK_LIBRARY_PATH"
+    current = os.environ.get(variable, "")
+    entries = [entry for entry in current.split(os.pathsep) if entry]
+    if str(library_dir) not in entries:
+        os.environ[variable] = os.pathsep.join([str(library_dir), *entries])
 
 
 def acquire_drill_map(

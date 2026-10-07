@@ -12,12 +12,14 @@ import type {
     PipelineStepStatus,
 } from "../types";
 
+const NO_LIVE_LOGS: string[] = [];
+
 export function ObserveBuildStep({
     pipeline,
     jobStatus,
     message,
     percent,
-    liveLogs = [],
+    liveLogs = NO_LIVE_LOGS,
     canCancel = false,
     cancelling = false,
     onCancel,
@@ -40,13 +42,13 @@ export function ObserveBuildStep({
     errorMessage?: string;
 }) {
     const jobs = useMemo(() => pipeline?.jobs ?? [], [pipeline]);
-    const [selectedId, setSelectedId] = useState(
+    const [selectedId, setSelectedId] = useState(() =>
         jobs.find((job) => job.status === "failure" || job.status === "in_progress")?.id
             ?? jobs[0]?.id
             ?? "",
     );
     const selected = jobs.find((job) => job.id === selectedId) ?? jobs[0];
-    const [openStep, setOpenStep] = useState<string | null>(
+    const [openStep, setOpenStep] = useState<string | null>(() =>
         selected?.steps.find((step) => step.status === "failure" || step.status === "in_progress")?.id ?? null,
     );
     const logRef = useRef<HTMLPreElement>(null);
@@ -76,7 +78,7 @@ export function ObserveBuildStep({
             <div className="space-y-4">
                 <h3 className="text-lg font-semibold">Build</h3>
                 <BuildFailure code={errorCode} message={errorMessage} />
-                <ArchivedStepLogs projectId={projectId} buildId={buildId} />
+                <ArchivedStepLogs key={`${projectId}:${buildId}`} projectId={projectId} buildId={buildId} />
             </div>
         );
     }
@@ -220,11 +222,10 @@ function ArchivedStepLogs({ projectId, buildId }: { projectId: string; buildId: 
     const [openStep, setOpenStep] = useState<string | null>(null);
     const [logs, setLogs] = useState<Record<string, string>>({});
 
+    // Keyed on the build by its call site, so a different build is a different
+    // panel and starts empty without being emptied.
     useEffect(() => {
         let cancelled = false;
-        setSteps([]);
-        setOpenStep(null);
-        setLogs({});
         void api.listBuildLogs(projectId, buildId)
             .then((index) => {
                 if (!cancelled) setSteps(index.steps ?? []);

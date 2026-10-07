@@ -7,10 +7,11 @@ Configuration can be set via:
 
 See .env.example for available configuration options.
 """
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 from typing import List
 import os
+import re
 
 
 # Placeholders that appear in this repository's examples and in copy-pasted guides.
@@ -24,6 +25,7 @@ _WEAK_SESSION_SECRETS = {
     "your-session-secret",
     "replace-with-a-long-random-string",
 }
+_TRACKER_KEY_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
 class Settings(BaseSettings):
@@ -284,6 +286,15 @@ class Settings(BaseSettings):
             "the workspace SSH key can clone but cannot publish."
         ),
     )
+    PRISM_FORGE_HOSTS: str = Field(
+        default="",
+        description=(
+            "Extra GitLab hosts allowed for Release publishing, as comma-separated "
+            "host=gitlab pairs or a structured JSON array with per-host api_root "
+            "and token_name values. github.com and gitlab.com are always included. "
+            "A hostname that merely contains 'gitlab' is not treated as GitLab."
+        ),
+    )
 
     COMMENTS_API_BASE_URL: str = Field(
         default="",
@@ -293,6 +304,16 @@ class Settings(BaseSettings):
             "If empty, URL helpers derive host from PUBLIC_BASE_URL or the incoming request."
         ),
     )
+
+    PRISM_COMMENT_LIVE_ENABLED: bool = Field(
+        default=True,
+        description="Enable the comment WebSocket gateway; disable during staged rollout to use HTTP refresh fallback.",
+    )
+
+    TRACKER_CREDENTIAL_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
+    TRACKER_CREDENTIAL_ROOT_KEY_ID: str = Field(default="v1")
+    TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
+    TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID: str = Field(default="")
 
     PUBLIC_BASE_URL: str = Field(
         default="",
@@ -440,6 +461,13 @@ class Settings(BaseSettings):
         description="PostgreSQL queue polling interval for prism-worker.",
     )
 
+    PRISM_AUTO_SYNC_INTERVAL_SECONDS: int = Field(
+        default=300,
+        ge=0,
+        le=86400,
+        description="Background Git fetch interval per repository; 0 disables automatic fetch.",
+    )
+
     PRISM_JOB_LEASE_SECONDS: int = Field(
         default=30,
         ge=10,
@@ -466,6 +494,41 @@ class Settings(BaseSettings):
         description=(
             "Root for immutable V3 job artifacts and attempt logs. Defaults to "
             "KICAD_PROJECTS_ROOT/.kicad-prism."
+        ),
+    )
+
+    COMMENT_ATTACHMENT_ROOT: str = Field(
+        default="",
+        description=(
+            "Content-addressed store for review-comment attachments. Defaults to "
+            "KICAD_PROJECTS_ROOT/.kicad-prism/comment-attachments."
+        ),
+    )
+    COMMENT_ATTACHMENT_MAX_BYTES: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1024,
+        le=100 * 1024 * 1024,
+        description="Largest single file a reviewer can attach to a comment.",
+    )
+    COMMENT_ATTACHMENT_PROJECT_QUOTA_BYTES: int = Field(
+        default=2 * 1024 * 1024 * 1024,
+        ge=0,
+        description="Total attachment storage one project may use. 0 means no limit.",
+    )
+    COMMENT_ATTACHMENT_LINK_SECRET: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Signs session-less image links in forge issues (GitHub). Give the same value "
+            "to backend and prism-worker; unset sends the file name instead of an image."
+        ),
+    )
+    COMMENT_ATTACHMENT_LINK_TTL_DAYS: int = Field(
+        default=365,
+        ge=0,
+        le=3650,
+        description=(
+            "Lifetime of the signed image links Prism puts in forge issues that cannot "
+            "host uploads (GitHub). 0 sends a plain link that needs a Prism session."
         ),
     )
 
@@ -758,7 +821,56 @@ class Settings(BaseSettings):
                 "password, so a bootstrap secret is not left in the environment."
             )
 
+        status = self.tracker_credential_status()
+        if status == "disabled":
+            warnings.append("TRACKER_CREDENTIAL_ROOT_KEY is unset: tracker tokens cannot be stored.")
+        elif status == "locked":
+            warnings.extend(self.tracker_credential_key_errors())
+
         return warnings
+
+    @staticmethod
+    def _tracker_secret_text(value: SecretStr | str | None) -> str:
+        return value.get_secret_value() if isinstance(value, SecretStr) else str(value or "")
+
+    def tracker_credential_key_errors(self) -> List[str]:
+        from app.services.trackers.secrets import root_key_problem
+
+        errors: List[str] = []
+        current = self._tracker_secret_text(self.TRACKER_CREDENTIAL_ROOT_KEY).strip()
+        previous = self._tracker_secret_text(self.TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY).strip()
+        current_id = self.TRACKER_CREDENTIAL_ROOT_KEY_ID.strip()
+        previous_id = self.TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID.strip()
+        for label, value, key_id in (
+            ("TRACKER_CREDENTIAL_ROOT_KEY", current, current_id),
+            ("TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY", previous, previous_id),
+        ):
+            if value:
+                problem = root_key_problem(value)
+                if problem:
+                    errors.append(f"{label} is locked: {problem}")
+                if not _TRACKER_KEY_ID_RE.fullmatch(key_id):
+                    errors.append(f"{label}_ID must be 1–64 characters [A-Za-z0-9._-]")
+            elif key_id and (label != "TRACKER_CREDENTIAL_ROOT_KEY" or key_id != "v1"):
+                errors.append(f"{label}_ID is set without {label}")
+        if previous and previous_id == current_id:
+            errors.append("TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID must differ from the current key id")
+        return errors
+
+    def tracker_credential_status(self) -> str:
+        if self.tracker_credential_key_errors():
+            return "locked"
+        return "ready" if self._tracker_secret_text(self.TRACKER_CREDENTIAL_ROOT_KEY).strip() else "disabled"
+
+    @staticmethod
+    def tracker_deployment_env_keys() -> tuple[str, ...]:
+        return (
+            "PUBLIC_BASE_URL",
+            "TRACKER_CREDENTIAL_ROOT_KEY",
+            "TRACKER_CREDENTIAL_ROOT_KEY_ID",
+            "TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY",
+            "TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID",
+        )
 
     def auth_configuration_errors(self) -> List[str]:
         """Return every reason this deployment must not serve authenticated traffic."""

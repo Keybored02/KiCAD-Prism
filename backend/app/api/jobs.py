@@ -14,6 +14,7 @@ from app.core.security import AuthenticatedUser, require_viewer
 from app.services.job_runtime import job_state_root
 from app.services.job_service import jobs
 from app.services.postgres_database import database
+from app.services.comment_live_broker import broker as comment_live_broker
 
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
@@ -112,6 +113,7 @@ async def benchmark_metrics(
     limiter = anyio.to_thread.current_default_thread_limiter()
     limiter_stats = limiter.statistics()
     snapshot["apiDatabasePool"] = database.metrics_snapshot()
+    snapshot["apiCommentLive"] = comment_live_broker.metrics_snapshot()
     snapshot["apiThreadPool"] = {
         "borrowedTokens": int(limiter.borrowed_tokens),
         "totalTokens": int(limiter.total_tokens),

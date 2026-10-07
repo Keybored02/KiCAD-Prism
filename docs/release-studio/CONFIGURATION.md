@@ -13,15 +13,20 @@ At the chosen commit, Prism discovers KiCad files from the imported project
 
 - board (`.kicad_pcb`)
 - schematic (`.kicad_sch`)
-- variants
+- variants (the shared catalog discovery, with the explicit `default` entry first)
 - BOM presets from the schematic (`kicad-cli sch export bom --preset`)
+
+The variant list is the same service behind the Visualizer's variant selector;
+`default` is the native design, not a KiCad variant name.
 
 The user confirms board, schematic, variant, and BOM preset. These paths
 and the commit SHA are sent with the build request. The Source picks are
 also stored on `ws_projects.release_studio_defaults` so a later release of the
 same project can pre-fill them. A saved path is applied only when it still
 exists at the selected commit (`GET .../source` after `PUT .../source/defaults`).
-Identity, manufacturing, and the commit SHA are not stored there.
+A saved named variant that the revision no longer has falls back to `default`
+rather than another named variant. Identity, manufacturing, and the commit SHA
+are not stored there.
 
 ### Identity
 
@@ -151,7 +156,10 @@ files inside the selected commit.
   immediately resolves that input to the listed full SHA before calling either
   API. Arbitrary branches and other refs are rejected.
 - **Variant:** the requested named variant is part of the technical build
-  identity. It changes population-dependent artifacts such as BOM/CPL.
+  identity. It changes population-dependent artifacts such as BOM/CPL. The
+  `default` entry maps to the executor's native-design sentinel: no
+  `--variant` flag is passed and the sentinel is never persisted as a KiCad
+  variant name.
 - **Documents:** composed PDFs are released members, not editable UI output.
 - **Vendors:** selected profile IDs are technical inputs. A selected profile is
   vendor-ready only when its complete profile artifacts are present. JLCPCB

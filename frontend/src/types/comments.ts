@@ -43,10 +43,56 @@ export interface CommentLocation {
     bounds?: [number, number, number, number];
 }
 
+/** ``plain`` bodies predate rich comments and render verbatim. */
+export type CommentContentFormat = "plain" | "md";
+
+export interface CommentAttachment {
+    id: string;
+    filename: string;
+    mediaType: string;
+    size: number;
+    state?: "pending" | "attached";
+    width?: number;
+    height?: number;
+    /** Present only on the upload response. */
+    url?: string;
+}
+
+/** A fixed set; the server carries names and the client owns the glyphs. */
+export type CommentReactionName = "thumbs_up" | "eyes" | "check" | "question" | "heart" | "tada";
+
+export interface CommentReaction {
+    reaction: CommentReactionName;
+    count: number;
+    /** Display names, in the order people reacted. */
+    users: string[];
+    /** Whether the current reader is one of them. */
+    mine?: boolean;
+}
+
+export interface ReplySync {
+    /** ``unsynced_local``: saved in Prism only; ``confirmed``: posted on the issue. */
+    state: string;
+    reason?: string | null;
+    externalCommentId?: string | null;
+    externalUrl?: string | null;
+}
+
 export interface CommentReply {
+    id?: string;
     author: string;
     timestamp: string;
     content: string;
+    contentFormat?: CommentContentFormat;
+    attachments?: CommentAttachment[];
+    reactions?: CommentReaction[];
+    /** Latest content edit; absent while the text is as first posted. */
+    editedAt?: string;
+    revision?: number;
+    /** ``remote`` replies were imported from the linked issue. */
+    origin?: "prism" | "remote" | string;
+    sync?: ReplySync | null;
+    permissions?: { canEdit?: boolean; canDelete?: boolean; canShare?: boolean };
 }
 
 export interface Comment {
@@ -57,6 +103,11 @@ export interface Comment {
     context: CommentContext;
     location: CommentLocation;
     content: string;
+    contentFormat?: CommentContentFormat;
+    attachments?: CommentAttachment[];
+    reactions?: CommentReaction[];
+    /** Latest content edit; absent while the text is as first posted. */
+    editedAt?: string;
     replies: CommentReply[];
     elementRef?: string;
     elementType?: string;
@@ -77,6 +128,28 @@ export interface Comment {
     forgeIssueId?: string;
     forgeIssueUrl?: string;
     forgeSyncState?: string;
+    tracker?: {
+        linkState?: string | null;
+        provider?: string | null;
+        externalUrl?: string | null;
+        syncState?: string | null;
+        lastError?: { message?: string; retryable?: boolean } | null;
+        notPromotableReason?: string | null;
+    };
+    revision?: number;
+    permissions?: { canReply?: boolean; canEdit?: boolean; canDelete?: boolean; canResolve?: boolean;
+        canPublish?: boolean; canRetry?: boolean };
+    anchor?: { state: string; commit?: string | null; source?: string | null };
+    anchorResolution?:
+        | { state: "candidate"; binding: {
+            commit: string;
+            elementId?: string | null;
+            location: CommentLocation;
+            relativePoint?: [number, number] | null;
+        } }
+        | { state: "unresolved"; reason: string; lastBinding?: {
+            commit: string; location: CommentLocation;
+        } };
 }
 
 export interface CommentsMeta {
@@ -87,6 +160,18 @@ export interface CommentsMeta {
 export interface CommentsFile {
     meta: CommentsMeta;
     comments: Comment[];
+    /** Last committed project comment event represented by this snapshot. */
+    cursor?: number;
+}
+
+export interface CommentChangeEvent {
+    type: "change";
+    cursor: number;
+    commentId: string;
+    scope: "canvas" | "comparison";
+    baseCommit?: string | null;
+    compareCommit?: string | null;
+    changeKind: string;
 }
 
 export interface CreateCommentRequest {
@@ -101,6 +186,8 @@ export interface CreateCommentRequest {
     severity?: CommentSeverity;
     mentions?: string[];
     metadata?: Record<string, unknown>;
+    /** Exact revision displayed when this canvas comment was created. */
+    revision?: { commit: string };
 }
 
 export interface CreateReplyRequest {

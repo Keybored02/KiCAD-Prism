@@ -132,6 +132,7 @@ class WorkspaceService:
                 display_name    TEXT,
                 description     TEXT NOT NULL DEFAULT '',
                 relative_path   TEXT NOT NULL DEFAULT '.',
+                project_file_rel TEXT NOT NULL DEFAULT '',
                 folder_id       TEXT REFERENCES ws_folders(id) ON DELETE SET NULL,
                 schematic_rel   TEXT,
                 pcb_rel         TEXT,
@@ -142,7 +143,12 @@ class WorkspaceService:
                 registered_at   TIMESTAMPTZ NOT NULL,
                 last_modified   TIMESTAMPTZ NOT NULL,
                 prism_json_hash TEXT,
-                UNIQUE(repo_id, relative_path)
+                -- A directory can hold more than one KiCad project, so it does
+                -- not identify one on its own. Keying uniqueness on the
+                -- directory alone made a repository with two projects in its
+                -- root importable only as one of them.
+                CONSTRAINT ws_projects_repo_path_file_key
+                    UNIQUE (repo_id, relative_path, project_file_rel)
             );
             CREATE INDEX IF NOT EXISTS idx_ws_projects_folder ON ws_projects(folder_id);
             CREATE INDEX IF NOT EXISTS idx_ws_projects_repo   ON ws_projects(repo_id);
@@ -406,6 +412,7 @@ class WorkspaceService:
         display_name: Optional[str] = None,
         description: str = "",
         folder_id: Optional[str] = None,
+        project_file_rel: str = "",
         schematic_rel: Optional[str] = None,
         pcb_rel: Optional[str] = None,
         thumbnail_rel: Optional[str] = None,
@@ -424,12 +431,14 @@ class WorkspaceService:
             conn.execute(
                 """INSERT INTO ws_projects
                    (id,repo_id,name,display_name,description,relative_path,folder_id,
+                    project_file_rel,
                     schematic_rel,pcb_rel,thumbnail_rel,thumbnail_source,thumbnail_digest,
                     thumbnail_media_type,thumbnail_size_bytes,jobset_rel,
                     has_3d_model,has_ibom,registered_at,last_modified,prism_json_hash)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     project_id, repo_id, name, display_name, description, relative_path, folder_id,
+                    project_file_rel,
                     schematic_rel, pcb_rel, thumbnail_rel, thumbnail_source, thumbnail_digest,
                     thumbnail_media_type, thumbnail_size_bytes, jobset_rel,
                     has_3d_model, has_ibom, now, now, prism_json_hash,
@@ -475,7 +484,7 @@ class WorkspaceService:
         with self._connect() as conn:
             row = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                          r.name AS parent_repo, r.import_type
+                          r.name AS parent_repo, r.import_type, r.last_synced_at AS repo_last_synced
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
                    WHERE p.id=%s""",
@@ -495,7 +504,7 @@ class WorkspaceService:
             row = conn.execute(
                 """
                 SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                       r.name AS parent_repo, r.import_type
+                       r.name AS parent_repo, r.import_type, r.last_synced_at AS repo_last_synced
                 FROM ws_projects p
                 JOIN ws_repositories r ON r.id = p.repo_id
                 LEFT JOIN ws_folders f ON f.id = p.folder_id
@@ -516,7 +525,7 @@ class WorkspaceService:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                          r.name AS parent_repo, r.import_type
+                          r.name AS parent_repo, r.import_type, r.last_synced_at AS repo_last_synced
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
                    WHERE p.repo_id=%s ORDER BY p.name""",
@@ -529,6 +538,7 @@ class WorkspaceService:
             return False
         allowed = {
             "name", "display_name", "description", "folder_id",
+            "project_file_rel",
             "schematic_rel", "pcb_rel", "thumbnail_rel", "jobset_rel",
             "thumbnail_source", "thumbnail_digest", "thumbnail_media_type",
             "thumbnail_size_bytes",
@@ -810,7 +820,7 @@ class WorkspaceService:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                          r.name AS parent_repo, r.import_type,
+                          r.name AS parent_repo, r.import_type, r.last_synced_at AS repo_last_synced,
                           f.visibility_mode, f.allowed_roles
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
@@ -826,6 +836,68 @@ class WorkspaceService:
                 continue
             results.append(d)
         return results
+
+    # ------------------------------------------------------------------
+    # Project metadata (descriptive facts about the KiCad files)
+    # ------------------------------------------------------------------
+
+    def get_project_metadata(self, project_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM ws_project_metadata WHERE project_id=%s",
+                (project_id,),
+            ).fetchone()
+        if not row:
+            return None
+        record = self._row_to_dict(row)
+        for key in ("schematic", "pcb", "repository"):
+            value = record.get(key)
+            record[key] = json.loads(value) if isinstance(value, str) else value
+        return record
+
+    def upsert_project_metadata(
+        self,
+        project_id: str,
+        *,
+        schematic: Optional[Dict[str, Any]],
+        pcb: Optional[Dict[str, Any]],
+        source_fingerprint: str,
+        board_stats_source: str = "",
+        repository: Optional[Dict[str, Any]] = None,
+        repo_fingerprint: str = "",
+    ) -> None:
+        """Record what the KiCad files say about themselves.
+
+        Written by the metadata job after an import or a sync, and read by
+        ``/properties``. Deriving this per request meant scanning the board
+        every time somebody clicked a project card.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO ws_project_metadata
+                       (project_id, schematic, pcb, source_fingerprint,
+                        board_stats_source, repository, repo_fingerprint,
+                        computed_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,NOW())
+                   ON CONFLICT(project_id) DO UPDATE SET
+                     schematic=excluded.schematic,
+                     pcb=excluded.pcb,
+                     source_fingerprint=excluded.source_fingerprint,
+                     board_stats_source=excluded.board_stats_source,
+                     repository=excluded.repository,
+                     repo_fingerprint=excluded.repo_fingerprint,
+                     computed_at=excluded.computed_at""",
+                (
+                    project_id,
+                    json.dumps(schematic) if schematic is not None else None,
+                    json.dumps(pcb) if pcb is not None else None,
+                    source_fingerprint,
+                    board_stats_source,
+                    json.dumps(repository) if repository is not None else None,
+                    repo_fingerprint,
+                ),
+            )
+            conn.commit()
 
     # ------------------------------------------------------------------
     # Portfolio CRUD
@@ -1040,7 +1112,7 @@ class WorkspaceService:
             ).fetchall()
             projects = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                          r.name AS parent_repo, r.import_type
+                          r.name AS parent_repo, r.import_type, r.last_synced_at AS repo_last_synced
                    FROM ws_projects p JOIN ws_repositories r ON r.id=p.repo_id
                    WHERE p.folder_id IS NOT DISTINCT FROM %s ORDER BY p.name""",
                 (folder_id,),

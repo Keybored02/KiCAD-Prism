@@ -16,12 +16,17 @@ normalized to that full SHA. Arbitrary branch names are rejected.
 Prism discovers board and schematic candidates from the imported KiCad
 project at the selected commit (`GET .../source?commit_sha=`). Confirm or
 adjust those paths, choose a variant, and select a KiCad BOM preset
-(`kicad-cli sch export bom --preset`). A full 40-character SHA may be pasted
-when the revision is older than the recent-commit list. Continuing from Source, or starting a
-build, stores those picks on the project (`PUT .../source/defaults`). The next
-release reuses them when the same files still exist at the selected commit;
-otherwise Prism falls back to discovery. Identity and manufacturing are not
-remembered.
+(`kicad-cli sch export bom --preset`). The variant list is the same catalog
+discovery the Visualizer uses (project registry, board header, schematic and
+footprint records) with an explicit **Default** choice first, so the native
+design stays selectable even when named variants exist. A full 40-character
+SHA may be pasted when the revision is older than the recent-commit list.
+Continuing from Source, or starting a build, stores those picks on the project
+(`PUT .../source/defaults`). The next release reuses them when the same files
+still exist at the selected commit; a saved named variant that the revision no
+longer has falls back to Default rather than silently switching to a different
+named variant. Otherwise Prism falls back to discovery. Identity and
+manufacturing are not remembered.
 
 Continue to **Identity** when board and schematic are set.
 

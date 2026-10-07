@@ -11,6 +11,8 @@
 backend/**/*.pyc
 backend/.env
 backend/venv/
+# Scratch environment the dependency-identity gate builds.
+.identity-venv/
 backend/app/static/remote_provider/
 
 # Frontend
@@ -62,3 +64,7 @@ deploy/certs/*
 # any project a tool opens. Running the fixtures through kicad-cli or Cruncher
 # drops one into fixtures/, where it is neither an input nor an output.
 *.kicad_prl
+
+# ecad-parse snapshot index cache (a stray one can appear if the CLI is run
+# with a relative root; never commit it)
+*.index-cache.json

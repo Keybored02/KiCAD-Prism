@@ -1389,6 +1389,7 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
     def test_acquire_assembly_view_binds_kiprjmod_to_the_board_directory(self) -> None:
         import tempfile
         from pathlib import Path
+        from unittest.mock import patch
 
         captured: dict[str, object] = {}
 
@@ -1411,13 +1412,16 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
             board = root / "project" / "board.kicad_pcb"
             board.parent.mkdir(parents=True)
             board.write_text("(kicad_pcb)\n", encoding="utf-8")
-            artwork_module.acquire_assembly_view(
-                "kicad-cruncher",
-                board,
-                "top",
-                root / "out",
-                runner=runner,
-            )
+            with patch.object(
+                artwork_module, "_cruncher_board_viewport", return_value=None
+            ):
+                artwork_module.acquire_assembly_view(
+                    "kicad-cruncher",
+                    board,
+                    "top",
+                    root / "out",
+                    runner=runner,
+                )
         self.assertIsInstance(captured.get("env"), dict)
         self.assertEqual(captured["env"]["KIPRJMOD"], str(board.parent.resolve()))
 
@@ -1627,6 +1631,122 @@ class AssemblySheetTests(unittest.TestCase):
             result.warnings,
         )
 
+    def test_one_failed_layer_plot_keeps_the_other_documents(self) -> None:
+        def acquirer(_cli, _board, layers, _workdir, **_kwargs):
+            if "F.Cu" in layers:
+                raise artwork_module.ArtworkError("plotter refused F.Cu")
+            return _svg_artwork(50.0, 40.0)
+
+        result = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            board=Path("/nonexistent/board.kicad_pcb"),
+            cli_path="kicad-cli",
+            workdir=Path("/tmp"),
+            acquirer=acquirer,
+            drill_acquirer=lambda *_a, **_k: _svg_artwork(50.0, 40.0),
+            board_render_acquirer=lambda *_a, **_k: None,
+        )
+        self.assertEqual(
+            [output.key for output in result.outputs],
+            ["cover", "fabrication", "assembly", "testpoint", "drill"],
+        )
+        self.assertTrue(
+            any("plotter refused F.Cu" in warning for warning in result.warnings),
+            result.warnings,
+        )
+        self.assertIn("board artwork unavailable", _page(result, "fabrication"))
+        self.assertIn("fabrication-B_Cu", result.page_svgs())
+
+
+class AcquisitionBoundaryTests(unittest.TestCase):
+    def test_one_failed_job_leaves_the_other_views(self) -> None:
+        from app.release_studio.documents.acquisition import (
+            AcquisitionRequest,
+            acquire_views,
+            fabrication_layers,
+            layer_artwork_key,
+        )
+
+        def acquirer(_cli, _board, layers, _workdir, **_kwargs):
+            if "F.Cu" in layers:
+                raise artwork_module.ArtworkError("plotter refused F.Cu")
+            return _svg_artwork(50.0, 40.0)
+
+        result = acquire_views(
+            AcquisitionRequest(
+                board=Path("/nonexistent/board.kicad_pcb"),
+                workdir=Path("/tmp"),
+                layer_pages=fabrication_layers(STACKUP),
+                cli_path="kicad-cli",
+                acquirer=acquirer,
+                drill_acquirer=lambda *_a, **_k: _svg_artwork(50.0, 40.0),
+                board_render_acquirer=lambda *_a, **_k: None,
+            )
+        )
+        self.assertTrue(
+            any("plotter refused F.Cu" in warning for warning in result.warnings),
+            result.warnings,
+        )
+        self.assertNotIn(layer_artwork_key("F.Cu"), result.layers)
+        self.assertIn(layer_artwork_key("B.Cu"), result.layers)
+        self.assertIn("drill", result.layers)
+
+
+class DocumentPipelineTests(unittest.TestCase):
+    def test_complete_composition_failure_fails_the_documents_step(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        from app.release_studio.document_pipeline import with_documents
+        from app.release_studio.steps import DOCUMENT_STEP_SPEC
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch(
+                "app.release_studio.document_pipeline.compose_documents",
+                side_effect=RuntimeError("renderer exploded"),
+            ):
+                outputs, warnings, _projections = with_documents(
+                    [],
+                    closure_root=root,
+                    config={"board": ""},
+                    candidate={"commit_sha": "a" * 40, "variant": ""},
+                    output_root=root,
+                    cli_path=None,
+                    staging=root,
+                )
+        doc = next(
+            output for output in outputs if output.step_id == DOCUMENT_STEP_SPEC.step_id
+        )
+        self.assertEqual(doc.returncode, 1)
+        self.assertIn("compose failed", doc.skipped_reason)
+        self.assertTrue(any("no sheets were composed" in warning for warning in warnings))
+
+    def test_missing_acquisitions_still_write_the_document_set(self) -> None:
+        import tempfile
+
+        from app.release_studio.document_pipeline import with_documents
+        from app.release_studio.steps import DOCUMENT_STEP_SPEC
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outputs, warnings, _projections = with_documents(
+                [],
+                closure_root=root,
+                config={"board": "", "document_number": "DOC-1"},
+                candidate={"commit_sha": "a" * 40, "variant": ""},
+                output_root=root,
+                cli_path=None,
+                staging=root,
+            )
+        doc = next(
+            output for output in outputs if output.step_id == DOCUMENT_STEP_SPEC.step_id
+        )
+        self.assertEqual(doc.returncode, 0)
+        self.assertGreater(len(doc.files), 0)
+        self.assertTrue(any("kicad-cli unavailable" in warning for warning in warnings))
+
 
 class SheetSetConsistencyTests(unittest.TestCase):
     """Properties that hold across the whole package, not one sheet."""
@@ -1747,6 +1867,190 @@ class SheetSetConsistencyTests(unittest.TestCase):
         self.assertNotIn("The files listed above are the released bytes", note)
 
 
+class TestpointStagingTests(unittest.TestCase):
+    """Legacy and modern boards reach Cruncher through one Monkey contract."""
+
+    class Text:
+        def __init__(self, text_type: str, text: str):
+            self.text_type = text_type
+            self.text = text
+
+    class Footprint:
+        def __init__(self, reference: str = "", *, legacy_reference: str = ""):
+            self.properties = {"Reference": reference} if reference else {}
+            self.fp_texts = (
+                [TestpointStagingTests.Text("reference", legacy_reference)]
+                if legacy_reference
+                else []
+            )
+
+        def get_property_value(self, name: str, default: str = "") -> str:
+            return self.properties.get(name, default)
+
+        def upsert_property(self, name: str, value: str) -> None:
+            self.properties[name] = value
+
+    class Board:
+        def __init__(self, footprints):
+            self.footprints = list(footprints)
+            self.saved_to = None
+
+        def save(self, path: Path) -> None:
+            self.saved_to = path
+            path.write_text("(kicad_pcb)\n", encoding="utf-8")
+
+    def test_stages_only_testpoints_and_promotes_legacy_references(self) -> None:
+        import tempfile
+
+        modern = self.Footprint("TP2")
+        legacy = self.Footprint(legacy_reference="TP49")
+        ordinary = self.Footprint(legacy_reference="D14")
+        parsed = self.Board([ordinary, legacy, modern])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source" / "board.kicad_pcb"
+            source.parent.mkdir()
+            source.write_text("original board\n", encoding="utf-8")
+            staged, designators = artwork_module._stage_testpoint_board(
+                source,
+                root / "staging",
+                pcb_loader=lambda path: parsed,
+            )
+
+            self.assertEqual(source.read_text(encoding="utf-8"), "original board\n")
+            self.assertEqual(staged.parent, (root / "staging").resolve())
+            self.assertTrue(staged.is_file())
+
+        self.assertEqual(designators, ("TP2", "TP49"))
+        self.assertEqual(parsed.footprints, [legacy, modern])
+        self.assertEqual(legacy.properties["Reference"], "TP49")
+        self.assertEqual(modern.properties["Reference"], "TP2")
+        self.assertNotIn(ordinary, parsed.footprints)
+
+    def test_duplicate_testpoint_designators_are_rejected(self) -> None:
+        import tempfile
+
+        parsed = self.Board(
+            [self.Footprint("TP1"), self.Footprint(legacy_reference="TP1")]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "board.kicad_pcb"
+            source.write_text("original board\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                artwork_module.ArtworkError, "duplicate testpoint designator: TP1"
+            ):
+                artwork_module._stage_testpoint_board(
+                    source,
+                    root / "staging",
+                    pcb_loader=lambda path: parsed,
+                )
+
+    def test_staged_board_keeps_the_source_project_model_root(self) -> None:
+        import tempfile
+
+        captured = {}
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        def runner(argv, **kwargs):
+            captured["env"] = kwargs["env"]
+            return Result()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staged = root / "staging" / "board.testpoints.kicad_pcb"
+            staged.parent.mkdir()
+            staged.write_text("(kicad_pcb)\n", encoding="utf-8")
+            project_dir = root / "source-project"
+            artwork_module._run_pcb_svg(
+                "kicad-cruncher",
+                staged,
+                ["testpoint_top_view"],
+                root / "out",
+                config_path=artwork_module.PCB_SVG_TESTPOINT_CONFIG,
+                project_dir=project_dir,
+                runner=runner,
+                timeout_seconds=1,
+            )
+
+        self.assertEqual(captured["env"]["KIPRJMOD"], str(project_dir.resolve()))
+
+    def test_testpoint_views_cannot_bypass_the_staging_board(self) -> None:
+        with self.assertRaisesRegex(
+            artwork_module.ArtworkError, "unknown view kind: 'testpoint'"
+        ):
+            artwork_module.acquire_board_views(
+                "kicad-cruncher",
+                Path("board.kicad_pcb"),
+                Path("out"),
+                kinds=("testpoint",),
+                sides=("top",),
+            )
+
+    def test_projection_and_staged_board_must_select_the_same_testpoints(self) -> None:
+        from unittest.mock import patch
+
+        with patch.object(
+            artwork_module,
+            "_stage_testpoint_board",
+            return_value=(Path("staging/board.testpoints.kicad_pcb"), ("TP2",)),
+        ):
+            with self.assertRaisesRegex(
+                artwork_module.ArtworkError,
+                "testpoint drawing and board projection disagree: missing TP1; unexpected TP2",
+            ):
+                artwork_module.acquire_testpoint_views(
+                    "kicad-cruncher",
+                    Path("board.kicad_pcb"),
+                    Path("out"),
+                    designators=("D1", "TP1"),
+                )
+
+    def test_testpoint_viewport_is_resolved_before_cruncher_owns_the_output(self) -> None:
+        from unittest.mock import patch
+
+        calls = []
+        staged = Path("out/board.testpoints.kicad_pcb")
+
+        def viewport(board, config):
+            calls.append(("viewport", board, config))
+            return None
+
+        def render(*args, **kwargs):
+            calls.append(("render", args[1], kwargs["config_path"]))
+
+        with (
+            patch.object(
+                artwork_module,
+                "_stage_testpoint_board",
+                return_value=(staged, ("TP1",)),
+            ),
+            patch.object(artwork_module, "_cruncher_board_viewport", side_effect=viewport),
+            patch.object(artwork_module, "_run_pcb_svg", side_effect=render),
+            patch.object(
+                artwork_module,
+                "_read_assembly_view",
+                return_value=object(),
+            ),
+        ):
+            artwork_module.acquire_testpoint_views(
+                "kicad-cruncher",
+                Path("board.kicad_pcb"),
+                Path("out"),
+                designators=("TP1",),
+                sides=("top",),
+            )
+
+        self.assertEqual([call[0] for call in calls], ["viewport", "render"])
+        self.assertEqual(calls[0][1], staged)
+        self.assertEqual(calls[1][1], staged)
+
+
 class RendererVersionTests(unittest.TestCase):
     """A rendering change must be a deliberate, versioned change.
 
@@ -1757,7 +2061,7 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d20 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d22 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
@@ -1817,7 +2121,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d20",
+            "release-studio-documents/d22",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 
@@ -1847,3 +2151,108 @@ class RendererVersionTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class CruncherViewportTests(unittest.TestCase):
+    """Cruncher canvas policy is applied from Monkey bounds, not SVG ink."""
+
+    CANVAS_W, CANVAS_H = 151.15578, 107.282993
+
+    def _canvas_svg(self) -> str:
+        # Keep stroke-width ahead of width in the root tag: the old regex
+        # accidentally read that CSS property as the viewport width.
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<svg xmlns="http://www.w3.org/2000/svg" style="stroke-width:99" '
+            f'width="{self.CANVAS_W}mm" height="{self.CANVAS_H}mm" '
+            f'viewBox="0 0 {self.CANVAS_W} {self.CANVAS_H}">'
+            '<path d="M 51 25 L 107 25 L 107 81 L 51 81 Z" '
+            'fill="none" stroke="#000000" stroke-width="0.15"/>'
+            "</svg>"
+        )
+
+    def _viewport(self) -> artwork_module._CruncherViewport:
+        return artwork_module._CruncherViewport(
+            x_mm=49.96788206559665,
+            y_mm=24.05880952380952,
+            width_mm=58.0,
+            height_mm=58.0,
+            canvas_width_mm=self.CANVAS_W,
+            canvas_height_mm=self.CANVAS_H,
+        )
+
+    def test_applies_exact_board_outline_plus_configured_margin(self) -> None:
+        cropped = artwork_module._apply_cruncher_viewport(
+            self._canvas_svg(), self._viewport()
+        )
+        x, y, width, height = artwork_module.extents(cropped)
+        self.assertAlmostEqual(x, 49.967882, places=6)
+        self.assertAlmostEqual(y, 24.05881, places=6)
+        self.assertEqual(width, 58.0)
+        self.assertEqual(height, 58.0)
+        self.assertIn('width="58mm"', cropped)
+        self.assertIn('height="58mm"', cropped)
+
+    def test_all_geometry_policy_leaves_upstream_view_unchanged(self) -> None:
+        original = self._canvas_svg()
+        self.assertEqual(
+            artwork_module._apply_cruncher_viewport(original, None), original
+        )
+
+    def test_normalized_artwork_needs_no_content_or_pdf_special_case(self) -> None:
+        svg = artwork_module._apply_cruncher_viewport(
+            self._canvas_svg(), self._viewport()
+        )
+        x, y, width, height = artwork_module.extents(svg)
+        art = artwork_module.AcquiredArtwork(
+            layers=("Cruncher.assembly-top",),
+            svg_text=svg,
+            pdf_bytes=b"",
+            view_x=x,
+            view_y=y,
+            view_width=width,
+            view_height=height,
+            digest="d" * 64,
+            page_offset_x=0.0,
+            page_offset_y=0.0,
+        )
+        self.assertIs(artwork_module.content_view(art, 56.0, 56.0), art)
+
+    def test_configured_margin_is_read_from_the_checked_in_policy(self) -> None:
+        import json
+        from unittest.mock import patch
+
+        class Box:
+            def __init__(self, min_x, min_y, max_x, max_y):
+                self.min_x = min_x
+                self.min_y = min_y
+                self.max_x = max_x
+                self.max_y = max_y
+                self.width = max_x - min_x
+                self.height = max_y - min_y
+
+        pcb = object()
+        boxes = [
+            Box(53.0321179344, 38.9411904762, 204.1878978487, 146.2241835311),
+            Box(104.0, 64.0, 160.0, 120.0),
+        ]
+        without_cruncher = {
+            "kicad_cruncher": None,
+            "kicad_cruncher.config_json": None,
+        }
+        with patch.dict(sys.modules, without_cruncher), patch(
+            "kicad_monkey.kicad_pcb.KiCadPcb.from_file", return_value=pcb
+        ), patch(
+            "kicad_monkey.kicad_pcb_bounds.compute_pcb_svg_bounding_box",
+            side_effect=boxes,
+        ):
+            viewport = artwork_module._cruncher_board_viewport(
+                Path("board.kicad_pcb"), artwork_module.PCB_SVG_CONFIG
+            )
+        self.assertIsNotNone(viewport)
+        policy = json.loads(
+            artwork_module.PCB_SVG_CONFIG.read_text(encoding="utf-8")
+        )
+        margin = float(policy["global"]["canvas"]["margin_mm"])
+        self.assertEqual(viewport.width_mm, 56.0 + 2.0 * margin)
+        self.assertEqual(viewport.height_mm, 56.0 + 2.0 * margin)

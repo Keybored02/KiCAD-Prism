@@ -1,4 +1,7 @@
-from fastapi import Depends, HTTPException, Request
+import asyncio
+
+from fastapi import Depends, HTTPException
+from starlette.requests import HTTPConnection
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -50,40 +53,51 @@ def _resolve_allowed_user_role(email: str) -> Role | None:
     return normalize_role(role)
 
 
-async def get_current_user(request: Request) -> AuthenticatedUser:
+async def get_current_user(request: HTTPConnection) -> AuthenticatedUser:
+    """Resolve the caller from the session cookie or a bearer token.
+
+    Every store this consults is synchronous (session rows, role rows, provider
+    and service tokens, external JWKS fetches). They run on the worker thread
+    pool so a slow database or identity provider stalls this request, not the
+    event loop that every other request shares.
+    """
     if not settings.AUTH_ENABLED:
         return guest_user()
 
     token = request.cookies.get(SESSION_COOKIE_NAME)
     payload = decode_session_token(token or "")
     if payload:
-        # The cookie only proves authenticity. The session store decides whether this
-        # session is still live, so logout and administrative revocation take effect
-        # immediately instead of at token expiry.
-        session = session_store_service.load_session(payload["sid"])
-        if not session:
-            raise HTTPException(status_code=401, detail="Session expired or revoked")
-
-        role = _resolve_allowed_user_role(session.email)
-        if not role:
-            raise HTTPException(status_code=403, detail="Access denied. No role assignment found for your account.")
-
-        return AuthenticatedUser(
-            email=session.email,
-            name=session.name,
-            picture=session.picture,
-            role=role,
-            auth_type="session",
-            session_id=session.session_id,
-            user_id=session.user_id,
-        )
+        return await asyncio.to_thread(_resolve_session_user, payload["sid"])
 
     authorization = request.headers.get("authorization") or ""
     scheme, _, bearer_token = authorization.partition(" ")
     if scheme.casefold() == "bearer" and bearer_token.strip():
-        return _resolve_bearer_user(bearer_token.strip())
+        return await asyncio.to_thread(_resolve_bearer_user, bearer_token.strip())
 
     raise HTTPException(status_code=401, detail="Authentication required")
+
+
+def _resolve_session_user(session_id: str) -> AuthenticatedUser:
+    # The cookie only proves authenticity. The session store decides whether this
+    # session is still live, so logout and administrative revocation take effect
+    # immediately instead of at token expiry.
+    session = session_store_service.load_session(session_id)
+    if not session:
+        raise HTTPException(status_code=401, detail="Session expired or revoked")
+
+    role = _resolve_allowed_user_role(session.email)
+    if not role:
+        raise HTTPException(status_code=403, detail="Access denied. No role assignment found for your account.")
+
+    return AuthenticatedUser(
+        email=session.email,
+        name=session.name,
+        picture=session.picture,
+        role=role,
+        auth_type="session",
+        session_id=session.session_id,
+        user_id=session.user_id,
+    )
 
 
 def _resolve_bearer_user(token: str) -> AuthenticatedUser:
@@ -136,6 +150,14 @@ async def require_designer(user: AuthenticatedUser = Depends(get_current_user)) 
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
     if not role_meets_minimum(user.role, "designer"):
         raise HTTPException(status_code=403, detail="Designer role required")
+    return user
+
+
+async def require_comment_writer(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    """Permit project participants to comment, but refuse read-only tokens."""
+    if user.auth_type == "kicad_provider":
+        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
+    _require_bearer_scope(user, "api:write")
     return user
 
 

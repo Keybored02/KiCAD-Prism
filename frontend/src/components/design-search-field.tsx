@@ -20,10 +20,15 @@ import {
 } from "@/lib/design-search";
 import { shortcutKeys } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
-import type { PrismSemanticIndex } from "@/types/prism-selection";
+import type { PrismSemanticIndex, SemanticComponent } from "@/types/prism-selection";
 
 type DesignSearchFieldProps = {
     semanticIndex: PrismSemanticIndex | null;
+    /**
+     * Effective component projection (VAR-11) to search instead of the index's
+     * base list; the base index still supplies nets, terminals and page names.
+     */
+    components?: readonly SemanticComponent[] | null;
     currentPage?: string | null;
     loading?: boolean;
     active?: boolean;
@@ -58,6 +63,7 @@ function scrollListChildIntoView(list: HTMLElement, child: HTMLElement) {
 
 export function DesignSearchField({
     semanticIndex,
+    components = null,
     currentPage,
     loading = false,
     active = true,
@@ -70,12 +76,20 @@ export function DesignSearchField({
     const [slot, setSlot] = useState<HTMLElement | null>(null);
     const [query, setQuery] = useState("");
     const [open, setOpen] = useState(false);
-    const [activeIndex, setActiveIndex] = useState(0);
+    const [rawActiveIndex, setActiveIndex] = useState(0);
 
     const hits = useMemo(
-        () => searchDesignEntities(semanticIndex, query, { currentPage }),
-        [currentPage, query, semanticIndex],
+        () =>
+            searchDesignEntities(semanticIndex, query, {
+                currentPage,
+                components: components ?? undefined,
+            }),
+        [components, currentPage, query, semanticIndex],
     );
+    // A hit list that has shrunk past the highlight takes the highlight back to
+    // the top during render, rather than after a commit that showed the wrong
+    // row. Typing resets it outright, in the handler that changes the query.
+    const activeIndex = rawActiveIndex < hits.length ? rawActiveIndex : 0;
     const activeHit = hits[activeIndex];
     const activeOptionId = activeHit ? `${listId}-opt-${activeIndex}` : undefined;
 
@@ -114,10 +128,6 @@ export function DesignSearchField({
         document.addEventListener("pointerdown", onPointerDown);
         return () => document.removeEventListener("pointerdown", onPointerDown);
     }, [open]);
-
-    useEffect(() => {
-        setActiveIndex(0);
-    }, [hits]);
 
     useLayoutEffect(() => {
         if (!open) return;
@@ -177,6 +187,7 @@ export function DesignSearchField({
             }
             if (query) {
                 setQuery("");
+                setActiveIndex(0);
                 return;
             }
             inputRef.current?.blur();
@@ -193,7 +204,7 @@ export function DesignSearchField({
     const showHits = open && !loading && hits.length > 0;
 
     return createPortal(
-        <div ref={rootRef} className="relative mx-auto w-full max-w-xl">
+        <div ref={rootRef} className="relative w-full">
             <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -219,6 +230,7 @@ export function DesignSearchField({
                     )}
                     onChange={(event) => {
                         setQuery(event.target.value);
+                        setActiveIndex(0);
                         setOpen(true);
                     }}
                     onFocus={() => setOpen(true)}

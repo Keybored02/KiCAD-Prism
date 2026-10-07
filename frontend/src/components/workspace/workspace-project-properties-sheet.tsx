@@ -14,9 +14,9 @@ import {
 } from "lucide-react";
 
 import { fetchJson } from "@/lib/api";
+import { repositoryWebUrl } from "@/lib/repository-url";
 import { cn } from "@/lib/utils";
 import type { FolderTreeItem, Project, ProjectPropertiesResponse } from "@/types/project";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -277,6 +277,7 @@ export function WorkspaceProjectPropertiesSheet({
   const panelProject = activeProject ?? project;
   const displayName = activeProject?.display_name || activeProject?.name || "Project";
   const repositoryLabel = panelProject ? resolveRepositoryLabel(panelProject) : "Standalone Project";
+  const repositoryUrl = panelProject ? repositoryWebUrl(panelProject.repo_url) : null;
   const folderPath = useMemo(
     () => buildFolderPath(panelProject?.folder_id ?? null, folderById),
     [panelProject?.folder_id, folderById]
@@ -316,10 +317,7 @@ export function WorkspaceProjectPropertiesSheet({
       <div className="flex min-h-full flex-col overflow-hidden">
         <div className="space-y-3 border-b px-6 py-5 text-left">
           <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0 space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Properties</Badge>
-              </div>
+            <div className="min-w-0">
               <div className="space-y-1">
                 <h2 className="truncate text-2xl font-semibold leading-tight">{displayName}</h2>
                 <p className="text-sm text-muted-foreground">
@@ -428,15 +426,17 @@ export function WorkspaceProjectPropertiesSheet({
                 <MetadataRow
                   label="Repository Link"
                   value={
-                    panelProject.repo_url ? (
+                    repositoryUrl ? (
                       <a
-                        href={panelProject.repo_url}
+                        href={repositoryUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="break-all underline underline-offset-4 transition-colors hover:text-primary"
                       >
-                        {panelProject.repo_url}
+                        {repositoryUrl}
                       </a>
+                    ) : panelProject.repo_url ? (
+                      <span className="break-all">{panelProject.repo_url}</span>
                     ) : (
                       repositoryLabel
                     )

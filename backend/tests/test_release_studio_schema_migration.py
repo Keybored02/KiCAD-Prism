@@ -19,10 +19,9 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
+from app.services.workspace_migrations.m008_release_studio import migrate as _release_studio  # noqa: E402
 from app.services.workspace_schema_migrations import (  # noqa: E402
     MIGRATIONS,
-    _release_studio,
-    _release_studio,
     apply_workspace_migrations,
 )
 
@@ -1782,19 +1781,26 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (17, "release_studio_terminal_and_identity_guards"),
                 (18, "release_studio_source_defaults"),
                 (19, "release_studio_project_signoff"),
-                (20, "manufacturing_spec_config"),
-                (21, "manufacturing_spec_templates"),
-                (22, "manufacturing_active_sections"),
-                (23, "manufacturing_builtin_templates"),
-                (24, "manufacturing_run_release_tag"),
-                (25, "manufacturing_project_manufacturers_and_specs"),
-                (26, "manufacturing_run_spec_id"),
-                (27, "manufacturing_manufacturer_capabilities"),
-                (28, "manufacturing_capabilities_per_template"),
-                (29, "manufacturing_run_job_number"),
-                (30, "manufacturing_capability_meta"),
-                (31, "manufacturing_capability_config"),
-                (32, "manufacturing_one_spec_per_manufacturer"),
+                (20, "project_file_anchor"),
+                (21, "project_metadata"),
+                (22, "project_metadata_repository"),
+                (23, "tracker_connectors_identities_policy"),
+                (24, "tracker_connector_delete_cascade"),
+                (25, "tracker_webhook_oauth_tables"),
+                (26, "manufacturing_spec_config"),
+                (27, "manufacturing_spec_templates"),
+                (28, "manufacturing_active_sections"),
+                (29, "manufacturing_builtin_templates"),
+                (30, "manufacturing_run_release_tag"),
+                (31, "manufacturing_project_manufacturers_and_specs"),
+                (32, "manufacturing_run_spec_id"),
+                (33, "manufacturing_manufacturer_capabilities"),
+                (34, "manufacturing_capabilities_per_template"),
+                (35, "manufacturing_run_job_number"),
+                (36, "manufacturing_capability_meta"),
+                (37, "manufacturing_capability_config"),
+                (38, "manufacturing_one_spec_per_manufacturer"),
+                (39, "manufacturing_defect_disposition"),
             ],
         )
 

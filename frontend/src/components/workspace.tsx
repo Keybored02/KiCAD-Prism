@@ -7,9 +7,10 @@ import type { User } from "@/types/auth";
 import type { FolderTreeItem, Project } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { useWorkspaceData } from "@/hooks/use-workspace-data";
+import { useWorkspaceData, workspaceSessionKey } from "@/hooks/use-workspace-data";
 import { useWorkspaceSearch } from "@/hooks/use-workspace-search";
 import { canManageProjects as roleCanManageProjects, canOpenLibraryManager } from "@/lib/roles";
+import { settingsTabFromParam } from "@/lib/settings-tabs";
 import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
 import { fetchApi, readApiError } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -19,6 +20,7 @@ import { WorkspaceListView } from "./workspace/workspace-list-view";
 import { LibraryManagerWorkspace } from "./workspace/library-manager-workspace";
 import { WorkspaceAppsPlaceholder } from "./workspace/workspace-apps-placeholder";
 import { WorkspaceLoadingState } from "./workspace/workspace-loading-state";
+import { WorkspaceRefreshNotice } from "./workspace/workspace-refresh-notice";
 import { WorkspaceProjectPropertiesSheet } from "./workspace/workspace-project-properties-sheet";
 import { WorkspaceProjectToolbar } from "./workspace/workspace-project-toolbar";
 import { WorkspaceSidebar } from "./workspace/workspace-sidebar";
@@ -57,12 +59,16 @@ interface WorkspaceProps {
   user: User | null;
 }
 
+// Closes over nothing in the component.
+const getProjectDisplayName = (project: Project) => project.display_name || project.name;
+
+// react-doctor-disable-next-line no-giant-component - multi-surface shell whose modals and tabs share session state
 export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const { projects, folders, loading, error, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
-    useWorkspaceData();
+  const { projects, folders, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
+    useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
 
   const sectionParam = searchParams.get("section");
   const requestedSection: WorkspaceSection =
@@ -76,8 +82,11 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
 
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [bulkSelectedProjectIds, setBulkSelectedProjectIds] = useState<Set<string>>(() => new Set());
+  // The project the user asked to inspect. It only counts as selected while
+  // that project is still in the workspace, so a project removed by a refresh
+  // (or another session's data) deselects itself without an adjustment effect.
+  const [requestedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [rawBulkSelection, setBulkSelectedProjectIds] = useState<Set<string>>(() => new Set());
 
   const [folderToRename, setFolderToRename] = useState<FolderTreeItem | null>(null);
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
@@ -91,12 +100,27 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
 
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  // Paging belongs to the list being paged. Carrying that scope on the value
+  // replaces both a reset effect and the clamp effect chained behind it.
+  const [pageState, setPageState] = useState({ scope: "", page: 1 });
   const canManageProjects = roleCanManageProjects(user?.role);
-  const canOpenSettings = user?.role === "admin";
+  // Everyone has personal settings (connected accounts, password); the
+  // dialog itself hides workspace pages from non-admins.
+  const canOpenSettings = Boolean(user);
+  const requestedSettingsTab = settingsTabFromParam(searchParams.get("settings"));
+  const settingsOpen = canOpenSettings && (isSettingsOpen || requestedSettingsTab !== null);
+  const setSettingsOpen = useCallback((open: boolean) => {
+    setIsSettingsOpen(open);
+    if (!open && searchParams.has("settings")) {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete("settings");
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const canOpenLibrary = canOpenLibraryManager(user?.role);
 
-  const getProjectDisplayName = (project: Project) => project.display_name || project.name;
   const folderFromUrl = searchParams.get("folder");
   const currentFolderId = folderFromUrl && folderById.has(folderFromUrl) ? folderFromUrl : null;
 
@@ -180,9 +204,29 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const listFolders = isSearching ? [] : visibleFolders;
   const allListProjects = isSearching ? searchResults : visibleProjects;
   const totalPages = Math.max(1, Math.ceil(allListProjects.length / WORKSPACE_PAGE_SIZE));
+  const pageScope = [currentFolderId ?? "", searchQuery, viewMode, section].join("|");
+  const currentPage = Math.min(
+    pageState.scope === pageScope ? pageState.page : 1,
+    totalPages,
+  );
+  const setCurrentPage = (next: number | ((page: number) => number)) =>
+    setPageState({
+      scope: pageScope,
+      page: typeof next === "function" ? next(currentPage) : next,
+    });
   const pageStart = (currentPage - 1) * WORKSPACE_PAGE_SIZE;
   const listProjects = allListProjects.slice(pageStart, pageStart + WORKSPACE_PAGE_SIZE);
-  const visibleProjectIdsKey = listProjects.map((project) => project.id).join("\u0000");
+  // A selection is only ever read against the page it was made on: the bulk
+  // actions already intersect with `listProjects`, and both views only draw
+  // checkboxes for rows they render. Narrowing here during render says that
+  // once, instead of an effect pruning the stored set a commit later.
+  const bulkSelectedProjectIds = useMemo(() => {
+    const onThisPage = new Set<string>();
+    for (const project of listProjects) {
+      if (rawBulkSelection.has(project.id)) onThisPage.add(project.id);
+    }
+    return onThisPage;
+  }, [listProjects, rawBulkSelection]);
   const selectedVisibleProjects = listProjects.filter((project) => bulkSelectedProjectIds.has(project.id));
   const allVisibleProjectsSelected =
     listProjects.length > 0 && selectedVisibleProjects.length === listProjects.length;
@@ -190,25 +234,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     allListProjects.length === 0
       ? "0 projects"
       : `${pageStart + 1}-${Math.min(pageStart + WORKSPACE_PAGE_SIZE, allListProjects.length)} / ${allListProjects.length}`;
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [currentFolderId, searchQuery, viewMode, section]);
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages));
-  }, [totalPages]);
-
-  useEffect(() => {
-    const visibleIds = new Set(visibleProjectIdsKey ? visibleProjectIdsKey.split("\u0000") : []);
-    setBulkSelectedProjectIds((current) => {
-      const retained = new Set([...current].filter((projectId) => visibleIds.has(projectId)));
-      if (retained.size === current.size && [...retained].every((projectId) => current.has(projectId))) {
-        return current;
-      }
-      return retained;
-    });
-  }, [visibleProjectIdsKey]);
 
   const toggleProjectSelection = (projectId: string, selected: boolean) => {
     setBulkSelectedProjectIds((current) => {
@@ -263,15 +288,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   };
 
   const selectedProject = useMemo(
-    () => projects.find((project) => project.id === selectedProjectId) ?? null,
-    [projects, selectedProjectId]
+    () => projects.find((project) => project.id === requestedProjectId) ?? null,
+    [projects, requestedProjectId]
   );
-
-  useEffect(() => {
-    if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) {
-      setSelectedProjectId(null);
-    }
-  }, [projects, selectedProjectId]);
+  const selectedProjectId = selectedProject?.id ?? null;
 
 
   const handleCreateFolder = async (name: string) => {
@@ -559,7 +579,9 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
               the section switcher alive — the reviewer can navigate out of a
               broken section instead of reloading. Keyed to the section so
               switching away and back retries rather than staying broken. */}
-          <main className="min-h-0 flex-1 overflow-hidden">
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <WorkspaceRefreshNotice refreshError={refreshError} refresh={refresh} />
+            <div className="min-h-0 flex-1 overflow-hidden">
             <ErrorBoundary label="this section" resetKeys={[section]}>
               {loading ? (
                 <WorkspaceLoadingState />
@@ -726,6 +748,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                 </div>
               )}
             </ErrorBoundary>
+            </div>
           </main>
         </div>
       </div>
@@ -735,9 +758,15 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
           <ImportDialog open={isImportOpen} onOpenChange={setIsImportOpen} onImportComplete={refresh} />
         </Suspense>
       )}
-      {isSettingsOpen && (
+      {settingsOpen && (
         <Suspense fallback={null}>
-          <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} user={user} />
+          <SettingsDialog
+            key={requestedSettingsTab ?? "settings"}
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            user={user}
+            initialTab={requestedSettingsTab ?? undefined}
+          />
         </Suspense>
       )}
 

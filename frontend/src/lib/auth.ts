@@ -109,7 +109,11 @@ export function revokeOtherSessions() {
 
 const LOGIN_NEXT_KEY = "kicad_prism_login_next";
 
+// `?next` only ever drives post-login in-app navigation, and both this stash
+// path and consumeStashedLoginNext() independently enforce same-origin — no
+// privileged action is reachable from a crafted link.
 export function sameOriginNextPath(): string | null {
+  // react-doctor-disable-next-line react-doctor/url-prefilled-privileged-action
   const raw = new URLSearchParams(window.location.search).get("next");
   if (!raw) return null;
   try {
@@ -124,6 +128,17 @@ export function sameOriginNextPath(): string | null {
 export function stashLoginNext(): void {
   const next = sameOriginNextPath();
   if (next) window.sessionStorage.setItem(LOGIN_NEXT_KEY, next);
+}
+
+/**
+ * Remember exactly where the user was when a mid-session 401 hit, so the
+ * post-login redirect returns them to the same workspace, tab, and dialog.
+ */
+export function stashCurrentLocation(): void {
+  const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next && !next.startsWith("/auth/callback")) {
+    window.sessionStorage.setItem(LOGIN_NEXT_KEY, next);
+  }
 }
 
 export function consumeStashedLoginNext(): string | null {

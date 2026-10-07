@@ -34,6 +34,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
+import { useCommittedRef } from "@/hooks/use-committed-ref";
 import type {
     ECadViewerElement,
     EcadPcbLayerState,
@@ -72,8 +73,7 @@ export function EcadViewerControls({
     const [resizing, setResizing] = useState(false);
     const railRef = useRef<HTMLElement | null>(null);
     const handleRef = useRef<HTMLDivElement | null>(null);
-    const openRef = useRef(open);
-    openRef.current = open;
+    const openRef = useCommittedRef(open);
     const [section, setSection] = useState<"layers" | "objects">("layers");
     const [pcbState, setPcbState] = useState<EcadPcbViewState | null>(null);
 
@@ -134,11 +134,15 @@ export function EcadViewerControls({
             observer?.disconnect();
             onVisibleWidthChange(0);
         };
-    }, [onVisibleWidthChange]);
+    }, [onVisibleWidthChange, openRef]);
 
     useLayoutEffect(() => {
         if (!onVisibleWidthChange) return;
         const target = open ? railRef.current : handleRef.current;
+        // The rail's width is a layout fact, measured after layout and reported
+        // to the host that has to leave room for it. There is no earlier event
+        // carrying it: laying out at this width *is* the event.
+        // react-doctor-disable-next-line react-doctor/no-prop-callback-in-effect
         onVisibleWidthChange(target?.getBoundingClientRect().width ?? 0);
     }, [onVisibleWidthChange, open, railWidth]);
 
@@ -284,6 +288,9 @@ export function EcadViewerControls({
                                     ["values", "Values"],
                                     ["footprintText", "Footprint text"],
                                     ["hiddenText", "Hidden text"],
+                                    ["padNumbers", "Pad numbers"],
+                                    ["padNetNames", "Net names on pads"],
+                                    ["trackNetNames", "Net names on tracks & vias"],
                                 ] as const).map(([kind, label]) => (
                                     <label key={kind} className="flex cursor-pointer items-center justify-between gap-3 text-xs">
                                         <span>{label}</span>

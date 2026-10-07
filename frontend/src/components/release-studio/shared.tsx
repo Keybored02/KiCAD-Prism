@@ -68,6 +68,7 @@ export function DocumentSheetPreview({
             {error && <p className="shrink-0 text-sm text-destructive">{error}</p>}
             <div className="relative min-h-0 flex-1 overflow-hidden border bg-preview-surface">
                 {url && (
+                    // react-doctor-disable-next-line react-doctor/iframe-missing-sandbox - unsandboxed by design: Chromium never loads its PDF viewer in a sandboxed frame, and src is a digest-checked same-origin blob on the pdf-only branch
                     <iframe
                         title={sheet.key}
                         src={url}
@@ -110,12 +111,16 @@ export function MemberViewer({
     const [failure, setFailure] = useState("");
     const kind = previewKind(member.media_type, member.path);
 
+    // Keyed on the build member by InspectOutputsStep, so a different artifact
+    // is a different viewer and starts blank without being blanked.
+    //
+    // The fetch stays here. react-doctor wants a data-fetching layer, and the
+    // project has none: this is one request for one blob, owned by the view
+    // that shows it and revoked when that view goes away.
+    // react-doctor-disable-next-line react-doctor/no-fetch-in-effect
     useEffect(() => {
         let revoked = false;
         let created = "";
-        setObjectUrl("");
-        setText("");
-        setFailure("");
         if (kind === "none") return undefined;
         void api
             .memberObjectUrl(projectId, buildId, member.path)
@@ -126,7 +131,9 @@ export function MemberViewer({
                 }
                 created = url;
                 if (kind === "text") {
-                    const body = await (await fetch(url)).text();
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`Preview unavailable (${response.status})`);
+                    const body = await response.text();
                     if (!revoked) setText(body);
                 } else {
                     setObjectUrl(url);
@@ -177,6 +184,7 @@ export function MemberViewer({
                 <p className="text-sm text-muted-foreground">No preview. Download to inspect.</p>
             )}
             {!failure && kind === "pdf" && objectUrl && (
+                // react-doctor-disable-next-line react-doctor/iframe-missing-sandbox - unsandboxed by design: Chromium never loads its PDF viewer in a sandboxed frame, and src is a digest-checked same-origin blob on the pdf-only branch
                 <iframe title={member.path} src={objectUrl} className="h-[70vh] w-full border" />
             )}
             {!failure && kind === "image" && objectUrl && (
