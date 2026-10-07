@@ -184,6 +184,8 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     getMoveState?: () => PrismSystemSceneMoveState | null;
     /** mode="system": board name labels (on by default). */
     setLabelsVisible?: (visible: boolean) => void;
+    /** mode="system": the proxy harnesses (SB2-34), shown by default. */
+    setHarnessesVisible?: (visible: boolean) => void;
     /** mode="system": the keyboard list (also `?`). */
     setHelpVisible?: (visible: boolean) => void;
     /** mode="system": frame one placed board. */
@@ -239,6 +241,8 @@ export interface PrismSystemSceneEmphasisSet {
     /** "#rrggbb"; omitted takes the next palette colour. */
     color?: string;
     members: readonly { occurrence: string; net: string }[];
+    /** SB2-34: harness wires the net runs through; `occurrence` (a board the wire reaches) tells child-system copies apart. */
+    wires?: readonly { harness: string; wire: string; occurrence?: string }[];
 }
 
 /** What a set lit (`setNetEmphasis`'s return and `prism-semantic-viewer:emphasis`). */
@@ -246,6 +250,8 @@ export interface PrismSystemSceneEmphasisResult {
     key: string;
     color: string;
     lit: number;
+    /** Harness wires lit (SB2-34). */
+    wires?: number;
     unresolved: { occurrence: string; net: string; reason: "not-drawn" | "loading" | "restricted" | "unknown-net" }[];
 }
 

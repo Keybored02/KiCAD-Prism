@@ -906,17 +906,8 @@ class SystemService:
 
         occurrences = {o["path"]: o for o in self.hierarchy(caller, system_id)["occurrences"]}
         with self._tx() as store:
-            system = self._system(store, system_id, caller)
-            instances = store.list_instances(system_id, kinds=SystemStore.ALL_KINDS)
-            root = system_nets.Level(
-                prefix="", kinds={i["id"]: i["kind"] for i in instances}, labels={i["id"]: i["label"] for i in instances},
-                links=store.list_links(system_id), harnesses=store.list_harnesses(system_id),
-                exports=[{"id": e["id"], "target": ({"instanceId": e["target_instance_id"], "portKey": e["target_port"]["portKey"],
-                                                     "port": e["target_port"]} if e["target_port"]
-                                                    else {"instanceId": e["target_instance_id"], "exportId": e["target_export_id"]})}
-                         for e in store.list_exports(system_id)],
-            )
-            system_nets.attach_children(root, self._tree(store, system_id))
+            self._system(store, system_id, caller)
+            root = self._net_level(store, system_id)
         visible = {path for path, o in occurrences.items() if not o["restricted"]}
 
         def shown(path: Optional[str]) -> bool:
@@ -948,6 +939,20 @@ class SystemService:
                 "members": members, "hops": hops,
             })
         return out, occurrences
+
+    def _net_level(self, store: SystemStore, system_id: str, tree: Optional[hierarchy.Tree] = None) -> system_nets.Level:
+        """The root level of the connectivity walk: links, exports and harnesses, with every resolved child."""
+        instances = store.list_instances(system_id, kinds=SystemStore.ALL_KINDS)
+        root = system_nets.Level(
+            prefix="", kinds={i["id"]: i["kind"] for i in instances}, labels={i["id"]: i["label"] for i in instances},
+            links=store.list_links(system_id), harnesses=store.list_harnesses(system_id),
+            exports=[{"id": e["id"], "target": ({"instanceId": e["target_instance_id"], "portKey": e["target_port"]["portKey"],
+                                                 "port": e["target_port"]} if e["target_port"]
+                                                else {"instanceId": e["target_instance_id"], "exportId": e["target_export_id"]})}
+                     for e in store.list_exports(system_id)],
+        )
+        system_nets.attach_children(root, tree or self._tree(store, system_id))
+        return root
 
     def nets(self, caller: Caller, system_id: str, *, search: str = "", occurrence: Optional[str] = None,
              net: Optional[str] = None, members: bool = False, limit: int = 50) -> dict:
@@ -1052,6 +1057,7 @@ class SystemService:
         with self._tx() as store:
             version = int(self._system(store, system_id, caller)["version"])
             tree = self._tree(store, system_id)
+            harnesses = system_nets.harness_layout(self._net_level(store, system_id, tree))
             # Only the outline and thickness: a full artifact is megabytes per board.
             interfaces = {(o.project_id, o.baseline_commit): store.get_interface_extent(o.project_id, o.baseline_commit,
                                                                                         EXTRACTOR_VERSION)
@@ -1068,8 +1074,10 @@ class SystemService:
                 assets[key] = self._scene_asset(caller, *key)
             return assets[key]
 
-        return scene_module.build(system_id, version, tree.occurrences, shown,
-                                  lambda o: interfaces.get((o.project_id, o.baseline_commit)), asset, stored)
+        built = scene_module.build(system_id, version, tree.occurrences, shown,
+                                   lambda o: interfaces.get((o.project_id, o.baseline_commit)), asset, stored)
+        built["harnesses"] = scene_module.redact_harnesses(harnesses, shown)
+        return built
 
     def _scene_asset(self, caller: Caller, project_id: str, commit: str) -> dict:
         entry = {"assetId": scene_module.asset_id(project_id, commit), "projectId": project_id, "commit": commit,

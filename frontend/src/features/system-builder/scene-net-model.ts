@@ -61,10 +61,23 @@ export const MAX_HIGHLIGHTED_NETS = 8;
 
 /** What the 3D view lights for the highlighted nets: every member on a board we can see. */
 export function emphasisSets(nets: readonly SystemNetDetail[]): PrismSystemSceneEmphasisSet[] {
-  return nets.map((net) => ({
-    key: net.groupId,
-    members: net.members.flatMap((member) => (member.occurrence && member.net ? [{ occurrence: member.occurrence, net: member.net }] : [])),
-  }));
+  return nets.map((net) => {
+    const wires = harnessWires(net);
+    return {
+      key: net.groupId,
+      members: net.members.flatMap((member) => (member.occurrence && member.net ? [{ occurrence: member.occurrence, net: member.net }] : [])),
+      ...(wires.length ? { wires } : {}),
+    };
+  });
+}
+
+/** The harness wires a net runs through (its wire hops), for the proxy harnesses (SB2-34). */
+export function harnessWires(net: SystemNetDetail): { harness: string; wire: string; occurrence?: string }[] {
+  return net.hops.flatMap((hop) => {
+    if (hop.kind !== "wire" || !hop.harnessId || !hop.wireId) return [];
+    const occurrence = hop.from.occurrence ?? hop.to.occurrence;
+    return [{ harness: hop.harnessId, wire: hop.wireId, ...(occurrence ? { occurrence } : {}) }];
+  });
 }
 
 /** The boards a net reaches (occurrence path and name), in member order, and how many members are restricted. */

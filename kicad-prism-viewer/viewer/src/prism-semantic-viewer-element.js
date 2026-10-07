@@ -26,6 +26,16 @@ function shellHtml() {
       #scene-stats dd { margin: 0; text-align: right; }
       /* System mode (SB2-31f): board labels, the move gizmo and the key list. */
       #system-labels { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+      /* SB2-34: proxy harnesses, straight segments between connectors until M5's geometry. */
+      #system-harnesses { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; overflow: hidden; }
+      #system-harnesses[hidden] { display: none; }
+      #system-harnesses .segment { stroke: #1e293b; stroke-width: 2.5; stroke-dasharray: 7 5; stroke-linecap: round; filter: drop-shadow(0 0 1.5px rgb(255 255 255 / 0.9)); }
+      #system-harnesses .segment.dim { opacity: 0.25; }
+      #system-harnesses .segment.lit { stroke-width: 4.5; stroke-dasharray: none; opacity: 1; filter: drop-shadow(0 0 4px currentColor); }
+      #system-harnesses .end { fill: #f8fafc; stroke: #1e293b; stroke-width: 2; }
+      #system-harnesses .end.dim { opacity: 0.3; }
+      #system-harnesses .end.lit { stroke: #fff; animation: harness-glow 1.9s ease-in-out infinite; }
+      @keyframes harness-glow { 50% { opacity: 0.65; } }
       #system-labels[hidden] { display: none; }
       .scene-label {
         position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center;
@@ -70,6 +80,7 @@ function shellHtml() {
         <div id="selection-card" hidden></div>
         <canvas id="axis-gizmo" width="112" height="112" title="Click an axis to align the camera"></canvas>
         <dl id="scene-stats" hidden></dl>
+        <svg id="system-harnesses" hidden aria-hidden="true"></svg>
         <div id="system-labels" hidden></div>
         <svg id="move-gizmo" hidden aria-hidden="true"></svg>
         <dl id="system-help" hidden aria-label="Keyboard shortcuts">
@@ -360,6 +371,11 @@ export class PrismSemanticViewerElement extends HTMLElement {
   setLabelsVisible(visible) {
     this.pendingLabels = Boolean(visible);
     this.controller?.setLabelsVisible?.(this.pendingLabels);
+  }
+
+  /** mode="system": the proxy harnesses (SB2-34), shown by default. */
+  setHarnessesVisible(visible) {
+    this.controller?.setHarnessesVisible?.(Boolean(visible));
   }
 
   /** The keyboard list (also `?`). */

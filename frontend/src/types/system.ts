@@ -572,6 +572,19 @@ export interface SystemScene {
   units: "mm";
   assets: SystemSceneAsset[];
   occurrences: SystemSceneOccurrence[];
+  /** SB2-34: harnesses drawn as proxies; absent from older servers. */
+  harnesses?: SystemSceneHarness[];
+}
+
+/** A harness in the scene (CONTRACTS_P2 §20.11): its ends on board placements, its wires as end pairs. */
+export interface SystemSceneHarness {
+  id: string;
+  /** The child system it belongs to (occurrence path), or null for the root. */
+  level: string | null;
+  name: string;
+  /** `occurrence` null: unmated, or a board the reader cannot see; `reference` null on a restricted board. */
+  ends: { id: string; ordinal: number; occurrence: string | null; reference: string | null }[];
+  wires: { id: string; from: string; to: string }[];
 }
 
 /** `GET …/instances/{iid}/mating` (CONTRACTS_P2 §15.3). */
