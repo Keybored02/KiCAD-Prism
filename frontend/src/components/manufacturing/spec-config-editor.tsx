@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { AlertTriangle, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -56,25 +56,23 @@ function downloadText(fileName: string, text: string): void {
  * upload. Both the single-document dialog and each tab of the unified dialog
  * render this.
  */
-function ConfigEditorPane({
-    tab,
-    onValidityChange,
-    saveSignal,
-    onSaveDone,
-}: {
-    tab: ConfigTab;
-    onValidityChange?: (errorCount: number) => void;
-    /** Increments to request a save from the parent's footer button. */
-    saveSignal: number;
-    /** Called after each save attempt, with whether it succeeded. */
-    onSaveDone: (success: boolean) => void;
-}) {
+/** What the dialog can ask of a pane: save its document, and learn whether that worked. */
+export interface ConfigEditorHandle {
+    save: () => Promise<boolean>;
+}
+
+const ConfigEditorPane = forwardRef<
+    ConfigEditorHandle,
+    {
+        tab: ConfigTab;
+        onValidityChange?: (errorCount: number) => void;
+    }
+>(function ConfigEditorPane({ tab, onValidityChange }, ref) {
     const [text, setText] = useState("");
     const [parsed, setParsed] = useState<ParsedSpecConfig>(EMPTY);
     const [loading, setLoading] = useState(true);
     const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
     const fileInput = useRef<HTMLInputElement | null>(null);
-    const lastSaveSignal = useRef(saveSignal);
     const textId = `config-text-${tab.id}`;
 
     useEffect(() => {
@@ -124,28 +122,23 @@ function ConfigEditorPane({
         [runPreview],
     );
 
-    const handleSave = useCallback(async () => {
+    const handleSave = useCallback(async (): Promise<boolean> => {
         try {
             const saved = await tab.save(text);
             setParsed(saved);
             onValidityChange?.(saved.errors.length);
             toast.success("Saved.");
-            onSaveDone(true);
+            return true;
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to save.");
-            onSaveDone(false);
+            return false;
         }
-        // tab.save/onSaveDone are stable enough for this manual trigger.
+        // tab.save is a stable closure from the caller; saving depends on the text.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [text]);
 
-    // The parent's footer Save button raises saveSignal; each editable pane saves.
-    useEffect(() => {
-        if (saveSignal !== lastSaveSignal.current) {
-            lastSaveSignal.current = saveSignal;
-            if (!tab.disabledNote) void handleSave();
-        }
-    }, [saveSignal, handleSave, tab.disabledNote]);
+    // The dialog's footer Save button asks each editable pane to save.
+    useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
 
     const handleUpload = (file: File | undefined) => {
         if (!file) return;
@@ -230,8 +223,8 @@ function ConfigEditorPane({
                 <div className="themed-scrollbar h-[clamp(22rem,calc(100vh-22rem),52rem)] overflow-y-auto rounded-md border p-4">
                     {parsed.errors.length > 0 && (
                         <ul className="mb-3 space-y-1">
-                            {parsed.errors.map((error, index) => (
-                                <li key={index} className="flex items-start gap-1.5 text-sm text-destructive">
+                            {parsed.errors.map((error) => (
+                                <li key={error} className="flex items-start gap-1.5 text-sm text-destructive">
                                     <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                                     {error}
                                 </li>
@@ -270,7 +263,7 @@ function ConfigEditorPane({
             </div>
         </div>
     );
-}
+});
 
 interface SpecConfigEditorProps {
     title: string;
@@ -332,31 +325,25 @@ export function SchemaCapabilitiesDialog({
     saveLabel = "Save",
 }: SchemaCapabilitiesDialogProps) {
     const [active, setActive] = useState(tabs[0]?.id ?? "");
-    const [saveSignal, setSaveSignal] = useState(0);
     const [saving, setSaving] = useState(false);
-    // Track how many tabs still owe a done callback, and whether all succeeded.
-    const pending = useRef(0);
-    const allOk = useRef(true);
+    const panes = useRef<Record<string, ConfigEditorHandle | null>>({});
 
-    const requestSave = () => {
-        const editable = tabs.filter((t) => !t.disabledNote).length;
-        if (editable === 0) {
+    // Save every editable tab at once; close only if all of them worked.
+    const requestSave = async () => {
+        const editable = tabs.filter((t) => !t.disabledNote);
+        if (editable.length === 0) {
             onClose();
             return;
         }
-        pending.current = editable;
-        allOk.current = true;
         setSaving(true);
-        setSaveSignal((n) => n + 1);
-    };
-
-    const handleSaveDone = (success: boolean) => {
-        if (!success) allOk.current = false;
-        pending.current -= 1;
-        if (pending.current <= 0) {
+        let saved = false;
+        try {
+            const results = await Promise.all(editable.map((t) => panes.current[t.id]?.save() ?? Promise.resolve(true)));
+            saved = results.every(Boolean);
+        } finally {
             setSaving(false);
-            if (allOk.current) onSaved();
         }
+        if (saved) onSaved();
     };
 
     return (
@@ -370,8 +357,9 @@ export function SchemaCapabilitiesDialog({
                 {tabs.length === 1 ? (
                     <ConfigEditorPane
                         tab={tabs[0]}
-                        saveSignal={saveSignal}
-                        onSaveDone={handleSaveDone}
+                        ref={(handle) => {
+                            panes.current[tabs[0].id] = handle;
+                        }}
                     />
                 ) : (
                     <Tabs value={active} onValueChange={setActive}>
@@ -392,8 +380,9 @@ export function SchemaCapabilitiesDialog({
                             <TabsContent key={tab.id} value={tab.id} forceMount>
                                 <ConfigEditorPane
                                     tab={tab}
-                                    saveSignal={saveSignal}
-                                    onSaveDone={handleSaveDone}
+                                    ref={(handle) => {
+                                        panes.current[tab.id] = handle;
+                                    }}
                                 />
                             </TabsContent>
                         ))}
@@ -404,7 +393,7 @@ export function SchemaCapabilitiesDialog({
                     <Button variant="ghost" onClick={onClose} disabled={saving}>
                         Cancel
                     </Button>
-                    <Button onClick={requestSave} disabled={saving}>
+                    <Button onClick={() => void requestSave()} disabled={saving}>
                         {saving ? "Saving…" : saveLabel}
                     </Button>
                 </div>

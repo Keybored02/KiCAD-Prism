@@ -58,16 +58,20 @@ export function mergeCapabilityRows(
         kicad: true,
         value: capabilities[f.key],
     }));
-    const custom: CapabilityRow[] = Object.keys(capabilities)
-        .concat(Object.keys(meta))
-        .filter((key, i, all) => all.indexOf(key) === i && !trackedKeys.has(key))
-        .map((key) => ({
+    // Custom capabilities: every key with a value or a label that KiCad does not track, once each.
+    const custom: CapabilityRow[] = [];
+    const seen = new Set<string>();
+    for (const key of [...Object.keys(capabilities), ...Object.keys(meta)]) {
+        if (seen.has(key) || trackedKeys.has(key)) continue;
+        seen.add(key);
+        custom.push({
             key,
             label: meta[key]?.label ?? key,
             unit: meta[key]?.unit,
             kicad: false,
             value: capabilities[key],
-        }));
+        });
+    }
     return [...tracked, ...custom];
 }
 
@@ -301,18 +305,6 @@ export interface SpecTemplate {
     created_at: string;
     updated_at: string;
 }
-
-// Keys the board extractor can fill, so the form can show a "from board" hint on
-// matching fields and the Extract button knows which values to expect.
-export const EXTRACTABLE_KEYS = new Set<string>([
-    "layer_count",
-    "board_thickness_mm",
-    "board_width_mm",
-    "board_height_mm",
-    "surface_finish",
-    "castellated",
-    "edge_plating",
-]);
 
 /** The value a field shows: the stored one, else the schema's declared default. */
 export function effectiveFieldValue(field: SpecFieldDef, values: Record<string, unknown>): unknown {

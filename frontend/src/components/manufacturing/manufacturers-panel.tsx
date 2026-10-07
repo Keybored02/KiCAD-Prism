@@ -49,6 +49,14 @@ interface ManufacturersPanelProps {
 
 export type EditTarget = { mode: "create" } | { mode: "edit"; manufacturer: Manufacturer } | null;
 
+const CREATE_TARGET: EditTarget = { mode: "create" };
+
+// Parse a config for the live preview in the process editor.
+async function previewConfig(text: string) {
+    const { previewSpecConfig } = await import("@/lib/manufacturing");
+    return previewSpecConfig(text);
+}
+
 function websiteHref(website: string): string {
     return /^https?:\/\//i.test(website) ? website : `https://${website}`;
 }
@@ -69,14 +77,13 @@ export function ManufacturersPanel({
 }: ManufacturersPanelProps) {
     const [selectedId, setSelectedId] = useState<string>("");
     const [query, setQuery] = useState("");
-    const [editing, setEditing] = useState<EditTarget>(null);
+    const [editTarget, setEditing] = useState<EditTarget>(null);
     const [deleteTarget, setDeleteTarget] = useState<Manufacturer | null>(null);
     const [deleting, setDeleting] = useState(false);
 
-    // The add action is triggered from the parent header.
-    useEffect(() => {
-        if (addOpen) setEditing({ mode: "create" });
-    }, [addOpen]);
+    // The add action is triggered from the parent header, so "add is open" there means the
+    // create dialog is showing, without copying that prop into state.
+    const editing: EditTarget = editTarget ?? (addOpen ? CREATE_TARGET : null);
 
     const closeEditing = () => {
         setEditing(null);
@@ -632,10 +639,7 @@ function TemplateEditorDialog({ manufacturer, edit, onClose, onSaved }: Template
     // The name is edited alongside the .config; keep it in state the save closures read.
     const [name, setName] = useState(existing?.name ?? "");
 
-    const preview = async (text: string) => {
-        const { previewSpecConfig } = await import("@/lib/manufacturing");
-        return previewSpecConfig(text);
-    };
+    const preview = previewConfig;
     const baseName = (existing?.name ?? "process").toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
     const schemaTab: ConfigTab = {
