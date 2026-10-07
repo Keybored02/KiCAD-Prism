@@ -22,7 +22,7 @@ import uuid
 from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
 
-from app.services import comment_live_events, comments_revisions, comments_schema_migrations, project_service
+from app.services import comment_attachments, comment_bundle, comment_live_events, comment_social, comments_revisions, comments_schema_migrations, project_service
 from app.services.comments_revisions import Editor, RevisionConflict  # noqa: F401  (re-exported for callers)
 from app.services.comments_store_codec import (
     ANCHOR_STATE_PINNED,
@@ -51,6 +51,7 @@ from app.services.comments_store_codec import (
     import_comments_payload,
 )
 from app.services.comments_store_retry import _retry_on_deadlock
+from app.services.comments_store_media import CommentsStoreMediaMixin
 from app.services.comments_store_schema import create_base_tables
 from app.services.postgres_database import database
 from app.services.trackers.promotion import (
@@ -73,7 +74,7 @@ from app.services.trackers.state_mutations import enqueue_set_state
 from app.services.trackers.thread_mutations import after_root_content_edited, after_root_deleted
 
 
-class CommentsStoreService:
+class CommentsStoreService(CommentsStoreMediaMixin):
     """PostgreSQL-backed comments service."""
 
     # Tests point a subclass at a disposable schema; production is "comments".
@@ -138,7 +139,8 @@ class CommentsStoreService:
         if existing_count == 0:
             payload = self._read_comments_json(project_path)
             if payload:
-                import_comments_payload(conn, project_id, payload)
+                bundle_dir = os.path.dirname(get_project_comments_json_path(project_path))
+                import_comments_payload(conn, project_id, payload, bundle_dir)
 
         conn.execute(
             """
@@ -204,6 +206,8 @@ class CommentsStoreService:
             for row in comment_rows
         ]
         attach_tracker_projections(conn, project_id, comments, workspace_schema=self.workspace_schema)
+        comment_attachments.decorate(conn, project_id, comments)
+        comment_social.decorate(conn, project_id, comments)
 
         return {
             "meta": dict(COMMENTS_META),
@@ -242,6 +246,8 @@ class CommentsStoreService:
         ).fetchall()
 
         comment = _row_to_comment_dict(row, [_row_to_reply_dict(reply) for reply in reply_rows])
+        comment_attachments.decorate(conn, project_id, [comment])
+        comment_social.decorate(conn, project_id, [comment])
         attach_tracker_projection(
             conn, project_id, comment,
             workspace_schema=self.workspace_schema, unsynced_reply_ids=unsynced_reply_ids,
@@ -264,6 +270,7 @@ class CommentsStoreService:
         location: Dict,
         content: str,
         author: str,
+        content_format: str = comment_attachments.CONTENT_FORMAT_PLAIN,
         element_id: Optional[str] = None,
         element_ref: Optional[str] = None,
         element_type: Optional[str] = None,
@@ -330,7 +337,7 @@ class CommentsStoreService:
                         file_path, semantic_item_id, anchor_kind,
                         author_user_id, author_kind, revision, updated_at,
                         anchor_commit, anchor_revision_key, anchor_source, anchor_state,
-                        selected_side, project_relative_path
+                        selected_side, project_relative_path, content_format
                     )
                     VALUES(
                         %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s,
@@ -338,7 +345,7 @@ class CommentsStoreService:
                         %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, 1, %s,
                         %s, %s, %s, %s,
-                        %s, %s
+                        %s, %s, %s
                     )
                     """,
                     (
@@ -379,6 +386,7 @@ class CommentsStoreService:
                         anchor_state,
                         selected_side,
                         project_relative_path,
+                        content_format,
                     ),
                 )
                 comments_revisions.record_revision(
@@ -386,6 +394,11 @@ class CommentsStoreService:
                     revision=1, change_kind=comments_revisions.CHANGE_CREATE,
                     editor=Editor(user_id=author_user_id, kind=author_kind_norm, display=author),
                     content=content, severity=severity_norm, comment_class=class_norm, mentions=mentions_norm,
+                    content_format=content_format,
+                )
+                comment_attachments.link_references(
+                    conn, project_id=project_id, content=content,
+                    linker_user_id=author_user_id, comment_id=comment_id,
                 )
 
                 created = self._get_comment_with_replies(conn, project_id, comment_id)
@@ -447,13 +460,16 @@ class CommentsStoreService:
                     ).fetchall()
                     for reply in reply_rows:
                         replies_by_comment.setdefault(reply["comment_id"], []).append(_row_to_reply_dict(reply))
+                comments = [
+                    _row_to_comment_dict(row, replies_by_comment.get(row["id"], []))
+                    for row in rows
+                ]
+                comment_attachments.decorate(conn, project_id, comments)
+                comment_social.decorate(conn, project_id, comments)
                 return {
                     "meta": dict(COMMENTS_META),
                     "cursor": cursor,
-                    "comments": [
-                        _row_to_comment_dict(row, replies_by_comment.get(row["id"], []))
-                        for row in rows
-                    ],
+                    "comments": comments,
                 }
 
     def _authorize_linked_status(self, conn, project_id: str, comment_id: str, actor: PromotionActor) -> None:
@@ -588,6 +604,7 @@ class CommentsStoreService:
         comment_class: Optional[str] = None,
         mentions: Optional[List[str]] = None,
         promotion_actor: Optional[PromotionActor] = None,
+        content_format: Optional[str] = None,
     ) -> Optional[Dict]:
         """Edit a root's prose/severity/class/mentions as one revision.
 
@@ -606,7 +623,13 @@ class CommentsStoreService:
                     severity=_normalize_severity(severity) if severity is not None else None,
                     comment_class=_normalize_comment_class(comment_class) if comment_class is not None else None,
                     mentions=_normalize_mentions(mentions) if mentions is not None else None,
+                    content_format=content_format,
                 )
+                if content is not None:
+                    comment_attachments.link_references(
+                        conn, project_id=project_id, content=content,
+                        linker_user_id=editor.user_id, comment_id=comment_id,
+                    )
                 if promotion_actor is not None:
                     self._after_root_edit(
                         conn, project_id, comment_id, promotion_actor,
@@ -630,6 +653,7 @@ class CommentsStoreService:
         mentions: Optional[List[str]] = None,
         status: Optional[str] = None,
         promotion_actor: Optional[PromotionActor] = None,
+        content_format: Optional[str] = None,
     ) -> Optional[Dict]:
         """Apply an HTTP patch atomically, even when it edits prose and status.
 
@@ -654,7 +678,13 @@ class CommentsStoreService:
                         severity=_normalize_severity(severity) if severity is not None else None,
                         comment_class=_normalize_comment_class(comment_class) if comment_class is not None else None,
                         mentions=_normalize_mentions(mentions) if mentions is not None else None,
+                        content_format=content_format,
                     )
+                    if content is not None:
+                        comment_attachments.link_references(
+                            conn, project_id=project_id, content=content,
+                            linker_user_id=editor.user_id, comment_id=comment_id,
+                        )
                     if promotion_actor is not None:
                         self._after_root_edit(
                             conn, project_id, comment_id, promotion_actor,
@@ -750,6 +780,7 @@ class CommentsStoreService:
         editor: Editor,
         expected_revision: Optional[int],
         promotion_actor: Optional[PromotionActor] = None,
+        content_format: Optional[str] = None,
     ) -> Optional[Dict]:
         self.initialize()
         with self._connect() as conn:
@@ -759,7 +790,11 @@ class CommentsStoreService:
                     return None
                 comments_revisions.edit_reply(
                     conn, project_id=project_id, reply_id=reply_id, content=content,
-                    editor=editor, expected_revision=expected_revision,
+                    editor=editor, expected_revision=expected_revision, content_format=content_format,
+                )
+                comment_attachments.link_references(
+                    conn, project_id=project_id, content=content,
+                    linker_user_id=editor.user_id, comment_id=comment_id, reply_id=reply_id,
                 )
                 updated = self._get_comment_with_replies(conn, project_id, comment_id)
                 if updated is not None and promotion_actor is not None:
@@ -819,40 +854,6 @@ class CommentsStoreService:
         with self._connect() as conn:
             row = self._live_reply(conn, project_id, comment_id, reply_id)
             return _row_to_reply_dict(row) if row else None
-
-    def get_history(self, project_id: str, target_kind: str, target_id: str) -> List[Dict]:
-        self.initialize()
-        with self._connect() as conn:
-            return comments_revisions.history(conn, project_id=project_id, target_kind=target_kind, target_id=target_id)
-
-    def get_anchor_bindings(self, project_id: str, comment_ids: List[str]) -> Dict[str, List[Dict]]:
-        """Read manual reattachments in one query; creation stays on the root row."""
-        self.initialize()
-        if not comment_ids:
-            return {}
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT id, comment_id, effective_commit, element_id, file_path,
-                          location_x, location_y, location_layer, location_page, area_bounds, relative_point
-                   FROM comment_anchor_bindings
-                   WHERE project_id = %s AND comment_id = ANY(%s)
-                   ORDER BY id""",
-                (project_id, comment_ids),
-            ).fetchall()
-        bindings: Dict[str, List[Dict]] = {}
-        for row in rows:
-            location = {
-                "x": row["location_x"], "y": row["location_y"],
-                "layer": row["location_layer"], "page": row["location_page"],
-            }
-            if row["area_bounds"] is not None:
-                location["bounds"] = row["area_bounds"]
-            bindings.setdefault(row["comment_id"], []).append({
-                "sequence": int(row["id"]), "commit": row["effective_commit"],
-                "elementId": row["element_id"], "filePath": row["file_path"],
-                "location": location, "relativePoint": row["relative_point"],
-            })
-        return bindings
 
     @_retry_on_deadlock
     def reattach_comment(
@@ -928,6 +929,7 @@ class CommentsStoreService:
         author_kind: Optional[str] = None,
         origin: str = comments_revisions.ORIGIN_PRISM,
         promotion_actor: Optional[PromotionActor] = None,
+        content_format: str = comment_attachments.CONTENT_FORMAT_PLAIN,
     ) -> Optional[Tuple[Dict, Dict]]:
         self.initialize()
         timestamp = _utc_now_iso()
@@ -946,14 +948,14 @@ class CommentsStoreService:
                     """
                     INSERT INTO comment_replies(
                         id, comment_id, project_id, author, timestamp, content,
-                        author_user_id, author_kind, revision, updated_at, origin
+                        author_user_id, author_kind, revision, updated_at, origin, content_format
                     )
-                    SELECT %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s
+                    SELECT %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, %s
                     FROM comments
                     WHERE project_id = %s AND id = %s AND deleted_at IS NULL
                     """,
                     (reply_id, comment_id, project_id, author, timestamp, content,
-                     author_user_id, author_kind_norm, timestamp, origin,
+                     author_user_id, author_kind_norm, timestamp, origin, content_format,
                      project_id, comment_id),
                 )
                 inserted = conn.execute(
@@ -966,7 +968,11 @@ class CommentsStoreService:
                     conn, project_id=project_id, target_kind=comments_revisions.REPLY, target_id=reply_id,
                     revision=1, change_kind=comments_revisions.CHANGE_CREATE,
                     editor=Editor(user_id=author_user_id, kind=author_kind_norm, display=author, origin=origin),
-                    content=content,
+                    content=content, content_format=content_format,
+                )
+                comment_attachments.link_references(
+                    conn, project_id=project_id, content=content,
+                    linker_user_id=author_user_id, comment_id=comment_id, reply_id=reply_id,
                 )
 
                 unsynced_reply_ids: set[str] = set()
@@ -994,6 +1000,7 @@ class CommentsStoreService:
 
                 created = self._live_reply(conn, project_id, comment_id, reply_id)
                 reply_payload = _row_to_reply_dict(created)
+                comment_attachments.decorate(conn, project_id, [{"replies": [reply_payload]}])
                 if reply_id in unsynced_reply_ids:
                     reply_payload["sync"] = {"state": "unsynced_local", "reason": "publication_required"}
                 return (updated_comment, reply_payload)
@@ -1049,8 +1056,6 @@ class CommentsStoreService:
                     base_commit=current.get("baseCommit"), compare_commit=current.get("compareCommit"),
                 )
                 return self._get_comment_with_replies(conn, project_id, comment_id)
-
-
 
     def delete_project_comments(self, project_id: str) -> None:
         """Remove every comment listing stored for a deleted project."""
@@ -1111,9 +1116,11 @@ class CommentsStoreService:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 snapshot = self._build_snapshot(conn, project_id)
+                comment_social.strip(snapshot["comments"])
 
                 comments_path = get_project_comments_json_path(project_path)
                 os.makedirs(os.path.dirname(comments_path), exist_ok=True)
+                comment_bundle.write_bundle(conn, project_id, os.path.dirname(comments_path), snapshot)
 
                 fd, tmp_path = tempfile.mkstemp(
                     prefix=".comments-",

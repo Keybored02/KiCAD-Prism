@@ -14,12 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.api.catalog_errors import raise_catalog_value_error
 from app.core.config import settings
-from app.core.security import (
-    AuthenticatedUser,
-    require_catalog_browser,
-    require_catalog_reader,
-    require_catalog_writer,
-)
+from app.core.security import AuthenticatedUser, require_catalog_browser, require_catalog_reader, require_catalog_writer
 from app.services.component_catalog_service import catalog_service
 from app.services.catalog import workflow_policy
 from app.services.catalog_job_service import catalog_jobs
@@ -888,107 +883,6 @@ def verify_component_audit(component_id: str, user: AuthenticatedUser = Depends(
         return catalog_service.verify_component_audit_chain(component_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-class MateRequest(BaseModel):
-    componentId: str = Field(min_length=1, max_length=200)
-
-
-def _mates_call(action):
-    try:
-        return {"items": action()}
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@router.get("/components/{component_id}/mates-with")
-def list_mates_with(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
-    """CONTRACTS_P2 §18: the parts this part mates with."""
-    return _mates_call(lambda: catalog_service.list_mates_with(component_id))
-
-
-@router.post("/components/{component_id}/mates-with")
-def add_mate(component_id: str, body: MateRequest, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    return _mates_call(lambda: catalog_service.set_mate(component_id, body.componentId, mates=True, actor=user.email))
-
-
-@router.delete("/components/{component_id}/mates-with/{other_id}")
-def remove_mate(component_id: str, other_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    return _mates_call(lambda: catalog_service.set_mate(component_id, other_id, mates=False, actor=user.email))
-
-
-class AlignmentRequest(BaseModel):
-    offsetMm: list[float] = Field(min_length=3, max_length=3)
-    rotationDeg: list[float] = Field(min_length=3, max_length=3)
-    scale: float = Field(default=1.0, gt=0, le=100)
-
-
-def _triple(text: str | None, name: str) -> list[float] | None:
-    if text is None:
-        return None
-    try:
-        values = [float(part) for part in text.split(",")]
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"{name} takes three comma-separated numbers") from None
-    if len(values) != 3:
-        raise HTTPException(status_code=422, detail=f"{name} takes three comma-separated numbers")
-    return values
-
-
-@router.get("/components/{component_id}/models")
-def list_models(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
-    """CONTRACTS_P2 §18.2: STEP models with their GLB and alignment."""
-    return _mates_call(lambda: catalog_service.list_models(component_id))
-
-
-@router.post("/components/{component_id}/models/convert")
-def convert_models(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _mates_call(lambda: catalog_service.list_models(component_id))  # 404/422 before queueing
-    job = _enqueue_catalog_job("catalog_model_glb", {"componentId": component_id}, actor=user.email,
-                               idempotency_key=f"catalog_model_glb:{component_id}")
-    return {"jobId": job.get("id"), "status": job.get("status")}
-
-
-@router.put("/components/{component_id}/models/{asset_id}/alignment")
-def set_model_alignment(component_id: str, asset_id: str, body: AlignmentRequest,
-                        user: AuthenticatedUser = Depends(require_catalog_writer)):
-    return _mates_call(lambda: catalog_service.set_model_alignment(component_id, asset_id, body.model_dump(),
-                                                                   actor=user.email))
-
-
-@router.get("/components/{component_id}/models/{asset_id}/preview.svg")
-def model_preview(
-    component_id: str, asset_id: str,
-    view: str = Query(default="front", pattern="^(front|side|top)$"),
-    offset: str | None = Query(default=None, max_length=100), rotation: str | None = Query(default=None, max_length=100),
-    scale: float | None = Query(default=None, gt=0, le=100), partner: str | None = Query(default=None, max_length=200),
-    user: AuthenticatedUser = Depends(require_catalog_browser),
-):
-    """An orthographic SVG of the model under a (possibly unsaved) alignment, optionally mated to ``partner``."""
-    alignment = None
-    if offset is not None or rotation is not None or scale is not None:
-        alignment = {"offsetMm": _triple(offset, "offset") or [0.0, 0.0, 0.0],
-                     "rotationDeg": _triple(rotation, "rotation") or [0.0, 0.0, 0.0], "scale": scale or 1.0}
-    try:
-        svg = catalog_service.model_preview(component_id, asset_id, view=view, alignment=alignment, partner_id=partner)
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return Response(content=svg, media_type="image/svg+xml", headers={"Cache-Control": "private, max-age=60"})
-
-
-@router.get("/models/{key}.glb")
-def model_glb(key: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
-    if not key.isalnum() or len(key) != 64:
-        raise HTTPException(status_code=404, detail="Model not found")
-    path = catalog_service.model_glb_path(key)
-    if path is None or not path.is_file():
-        raise HTTPException(status_code=404, detail="Model not found")
-    # Content-addressed: the key names the STEP and the converter, so the bytes never change.
-    return FileResponse(path, media_type="model/gltf-binary", headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
 
 @router.get("/components/{component_id}/usage")

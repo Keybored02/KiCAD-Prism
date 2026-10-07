@@ -18,6 +18,7 @@ Maps GitLab REST v4 issues onto the frozen tracker DTOs, mirroring
 from __future__ import annotations
 
 import re
+import uuid
 from typing import Any, Mapping, Optional, Sequence
 from urllib.parse import quote
 
@@ -296,6 +297,31 @@ class GitLabIssueAdapter:
         )
         assert_no_owner_repo(issue)
         return issue
+
+    def upload_file(self, dest: Destination, filename: str, data: bytes, media_type: str) -> str:
+        """Host a comment attachment in the project; returns the Markdown URL.
+
+        GitLab resolves the returned project-relative ``/uploads/...`` path
+        inside issue descriptions and notes of the same project.
+        """
+        boundary = f"prism-{uuid.uuid4().hex}"
+        safe_name = filename.replace('"', "").replace("\r", "").replace("\n", "") or "attachment"
+        body = b"".join([
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="file"; filename="{safe_name}"\r\n'.encode(),
+            f"Content-Type: {media_type}\r\n\r\n".encode(),
+            data,
+            f"\r\n--{boundary}--\r\n".encode(),
+        ])
+        headers = {**self.auth.bot_headers(), "Content-Type": f"multipart/form-data; boundary={boundary}"}
+        response = self.http.outcome(
+            self.http.request("POST", self._project_url(dest, "/uploads"), headers=headers, data=body)
+        )
+        payload = self._json_object(response)
+        url = str(payload.get("url") or "")
+        if not url:
+            raise ProviderError("transient", "GitLab accepted the upload but returned no URL.")
+        return url
 
     def _authored_by_bot(self, payload: Mapping[str, Any]) -> bool:
         author = payload.get("author") if isinstance(payload.get("author"), dict) else {}

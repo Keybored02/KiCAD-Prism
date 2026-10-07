@@ -33,6 +33,19 @@ def mid_plane_from_layers(layers: list[Mapping[str, Any]]) -> float:
     return body / 2.0 if body > 0 else 0.0
 
 
+def latest_job(kind: str, artifact_key: str) -> Optional[dict]:
+    """The most recent job of ``kind`` for ``artifact_key``, in any status."""
+    from app.services.systems.jobs import workspace_connection
+
+    with workspace_connection() as conn:
+        row = conn.execute(
+            "SELECT id, status, error_message, message FROM ws_jobs"
+            " WHERE kind = %s AND artifact_key = %s ORDER BY created_at DESC LIMIT 1",
+            (kind, artifact_key),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 class BundleSource:
     """The production source; tests pass a fake with the same four methods."""
 
@@ -44,18 +57,16 @@ class BundleSource:
     def last_build(self, project_id: str, commit: str) -> Optional[dict]:
         """The latest ``webgpu_3d`` job for this commit: ``{jobId, status, error}``, or None."""
         from app.services import project_service
-        from app.services.job_service import jobs
         from app.services.workspace_service import workspace
 
         row = workspace.get_project_by_id(project_id)
         if not row:
             return None
-        job = jobs.latest_for_artifact("webgpu_3d", project_service.webgpu_artifact_key(row, commit))
+        job = latest_job("webgpu_3d", project_service.webgpu_artifact_key(row, commit))
         if not job:
             return None
-        # Decoded jobs carry their id as ``job_id`` (``JobService._decode``).
-        return {"jobId": str(job["job_id"]), "status": str(job["status"]),
-                "error": job.get("error_message") or job.get("message") or None}
+        return {"jobId": str(job["id"]), "status": str(job["status"]),
+                "error": job["error_message"] or job["message"] or None}
 
     def build(self, project_id: str, commit: str, *, requested_by: str) -> Optional[str]:
         from app.services import project_service

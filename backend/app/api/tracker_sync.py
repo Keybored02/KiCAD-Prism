@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_comment_writer, require_viewer
-from app.services import comment_permissions
+from app.services import comment_permissions, comment_social
 from app.services.comment_permissions import ActorIdentity, CommentAction, CommentPermissionError
 from app.services.comments_store_service import comments_store
 from app.services.trackers.health import aggregate_project_health
@@ -146,7 +146,7 @@ async def promote_comment_to_tracker(
         )
         if promoted is None:
             raise HTTPException(status_code=404, detail="Comment not found")
-        return promoted
+        return comment_social.personalize(promoted, actor.actor_id)
 
     try:
         return await _run(write)
@@ -184,7 +184,7 @@ async def share_reply_to_tracker(
         )
         if shared is None:
             raise HTTPException(status_code=404, detail="Reply not found")
-        return shared
+        return comment_social.personalize(shared, actor.actor_id)
 
     try:
         return await _run(write)

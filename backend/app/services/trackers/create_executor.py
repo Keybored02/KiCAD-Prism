@@ -23,6 +23,7 @@ from app.services.trackers.drafts import (
     build_issue_draft,
     render_issue_body_from_draft,
 )
+from app.services.trackers import attachment_links
 from app.services.trackers.errors import ProviderError
 from app.services.trackers.executor_support import (
     NON_CONSUMING_ERROR_CLASSES,
@@ -264,6 +265,7 @@ def _comment_dict_from_row(row: Mapping[str, Any]) -> dict:
         "severity": row.get("severity") or "info",
         "commentClass": row.get("comment_class") or "general",
         "content": row.get("content") or "",
+        "contentFormat": row.get("content_format") or "plain",
         "location": {
             "x": row.get("location_x", 0),
             "y": row.get("location_y", 0),
@@ -400,6 +402,28 @@ def _prepare_execute_create(conn: Any, op: Mapping[str, Any], ops: OpStore) -> d
         )
         return {"done": True}
     draft = _build_draft(ctx)
+    try:
+        # Only the outbound copy carries forge URLs; the draft's hashes and
+        # the stored prose keep attachment:<id>.
+        draft = draft.model_copy(update={
+            "proseBlock": attachment_links.render_outbound(
+                conn, draft.proseBlock, str(ctx.comment.get("contentFormat") or "plain"),
+                project_id=ctx.project_id, destination=ctx.destination,
+                adapter_factory=lambda: _issue_adapter(ctx.connector),
+            ),
+        })
+    except ProviderError as exc:
+        apply_provider_error(
+            conn,
+            ops,
+            op=op,
+            fence=fence,
+            exc=exc,
+            connector_id=str(ctx.connector["id"]),
+            remote_container_id=str(ctx.destination.remoteContainerId),
+            pre_io=True,
+        )
+        return {"done": True}
     rendered_body = render_issue_body_from_draft(draft)
     outbound = draft.model_copy(update={"proseBlock": rendered_body, "marker": ""})
     return {

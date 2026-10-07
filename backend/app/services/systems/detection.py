@@ -311,6 +311,19 @@ def enqueue_source_check(repository_id: str, *, requested_by: str = DETECTION_AC
                     repository_id=repository_id, project_id=None, requested_by=requested_by)
 
 
+def project_synced(project_id: str) -> None:
+    """After a project sync: a fetch may have moved a branch some system tracks.
+
+    Best effort: a queue problem never fails the sync.
+    """
+    from app.services.workspace_service import workspace
+
+    try:
+        enqueue_source_check(str((workspace.get_project_by_id(project_id) or {}).get("repo_id") or ""))
+    except Exception:  # noqa: BLE001 - best effort; the next sync or a manual check catches up
+        logger.exception("Could not queue system source check for %s", project_id)
+
+
 def enqueue_instance_check(instance_id: str, project_id: str, *, requested_by: str) -> dict:
     """``POST …/check``: re-check one instance even if its tip was seen."""
 

@@ -49,6 +49,17 @@ export default defineConfig({
           ) {
             return "ui-runtime"
           }
+          if (
+            id.includes("node_modules/@tiptap/") ||
+            id.includes("node_modules/prosemirror-") ||
+            id.includes("node_modules/linkifyjs") ||
+            id.includes("node_modules/marked") ||
+            id.includes("node_modules/orderedmap") ||
+            id.includes("node_modules/rope-sequence") ||
+            id.includes("node_modules/w3c-keyname")
+          ) {
+            return "editor-runtime"
+          }
           if (id.includes("node_modules/lucide-react")) {
             return "icons-runtime"
           }

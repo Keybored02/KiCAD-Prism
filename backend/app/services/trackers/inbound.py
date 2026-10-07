@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping, Optional, Protocol, Sequence
 from uuid import uuid4
 
 from app.services.comments_revisions import Editor, edit_reply, record_revision
+from app.services.trackers import attachment_links
 from app.services.trackers.contracts import (
     CommentRead,
     GoneConfirmed,
@@ -58,6 +59,14 @@ class ApplyResult:
     outcome: str
     detail: dict[str, Any] = field(default_factory=dict)
 
+
+
+def _canonical_body(conn: Any, thread: Mapping[str, Any], body: str) -> str:
+    """A forge comment as stored locally: Prism's own image URLs become attachment:<id>."""
+    return attachment_links.canonicalize_inbound(
+        conn, body, project_id=str(thread["project_id"]),
+        connector_id=str(thread.get("connector_id") or ""), container_id=str(thread.get("remote_container_id") or ""),
+    )
 
 def _sync_op_count(conn: Any) -> int:
     row = conn.execute("SELECT COUNT(*) AS n FROM sync_ops").fetchone()
@@ -369,11 +378,13 @@ def _insert_remote_reply(
 ) -> str:
     reply_id = f"r_{uuid4().hex[:8]}"
     author_display, author_kind, origin = remote_reply_author(comment.author)
+    body = _canonical_body(conn, thread, comment.body or "")
     conn.execute(
         """
         INSERT INTO comment_replies (
-            id, comment_id, project_id, author, author_kind, origin, content, revision, timestamp, updated_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, 1, NOW(), NOW())
+            id, comment_id, project_id, author, author_kind, origin, content, revision, timestamp, updated_at,
+            content_format
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, 1, NOW(), NOW(), %s)
         """,
         (
             reply_id,
@@ -382,7 +393,8 @@ def _insert_remote_reply(
             author_display,
             author_kind,
             origin,
-            comment.body or "",
+            body,
+            attachment_links.inbound_format(body),
         ),
     )
     record_revision(
@@ -393,7 +405,8 @@ def _insert_remote_reply(
         revision=1,
         change_kind="create",
         editor=Editor(user_id=None, kind=author_kind, display=author_display, origin=origin),
-        content=comment.body or "",
+        content=body,
+        content_format=attachment_links.inbound_format(body),
     )
     link_id = f"trl_{uuid4().hex[:8]}"
     store.insert_reply_link(
@@ -489,9 +502,10 @@ def _apply_comment_to_thread(
         if link.get("deleted_at"):
             return "unchanged"
         current = str(link.get("content") or "")
-        fetched = comment.body or ""
+        raw_fetched = comment.body or ""
+        fetched = _canonical_body(conn, thread, raw_fetched)
         marker_echo = _marker_echo_for_link(
-            fetched,
+            raw_fetched,
             link=link,
             thread=thread,
             thread_ops=thread_ops,
@@ -531,6 +545,7 @@ def _apply_comment_to_thread(
             content=fetched,
             editor=editor,
             expected_revision=None,
+            content_format=attachment_links.inbound_format(fetched),
         )
         return "applied"
 

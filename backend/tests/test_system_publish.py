@@ -38,12 +38,12 @@ class PublishCase(ExportCase):
         self.catalog.initialize()
         self.service = SystemService(connect=self.connect, project_loader=self.projects.get,
                                      enqueue=lambda *a, **k: {"job_id": "j", "status": "queued"},
-                                     catalog=lambda: self.catalog)
+                                     catalog=lambda: self.catalog.system_items)
         self.ipn = f"IPN-{uuid.uuid4().hex[:8]}"
 
     def tearDown(self) -> None:
         component_id = self.store.get_system(self.sid).get("catalog_component_id") if self.sid else None
-        for cid in {component_id, self.catalog.find_system_component(self.sid)} - {None}:
+        for cid in {component_id, self.catalog.system_items.find_system_component(self.sid)} - {None}:
             self.catalog.deactivate_component(cid, actor="t@local", reason="SB2-04 test cleanup")
         self.catalog.close()
         self.tempdir.cleanup()
@@ -109,7 +109,7 @@ class PublishTest(PublishCase):
         self.export()
         cdr = self.snapshot("CDR")
         # A publish that died after writing the catalog but before binding the system.
-        orphan = self.catalog.create_system_item(
+        orphan = self.catalog.system_items.create_system_item(
             kind="assembly", ipn=self.ipn, name="CNDH", description="d", manufacturer="In-house",
             datasheet_url=f"/systems/{self.sid}", interface={"exports": [{"id": "x"}]},
             source_ref={"kind": "system_snapshot", "systemId": self.sid, "snapshotId": cdr["id"]},
