@@ -80,20 +80,15 @@ npm run build:panel
 ### Backend
 
 ```bash
-backend/venv/bin/python -m unittest discover -s backend/tests -p 'test_*.py'
-```
-
-That is the CI command. Locally, pytest runs the same `unittest` suite in
-parallel, each worker on its own copy of the test databases
-(`backend/tests/conftest.py`). The test tools are pinned in
-`requirements/test.txt`, outside the runtime lock, so `uv` layers them over the
-backend venv without changing it:
-
-```bash
 cd backend
 uv run --no-project --python venv/bin/python --with-requirements ../requirements/test.txt \
   python -m pytest -n auto
 ```
+
+This is the CI command. pytest runs the `unittest` suite in parallel, each
+worker on its own copy of the test databases (`backend/tests/conftest.py`). The
+test tools are pinned in `requirements/test.txt`, outside the runtime lock, so
+`uv` layers them over the backend venv without changing it.
 
 Add `--testmon` while iterating: it records which code each test runs and, on
 the next run, runs only the tests affected by your changes (seconds instead of

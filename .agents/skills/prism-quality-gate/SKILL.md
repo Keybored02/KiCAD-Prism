@@ -25,19 +25,15 @@ python3 scripts/check_agent_docs.py
 
 ```bash
 backend/venv/bin/python -m compileall -q backend/app
-backend/venv/bin/python -m unittest discover -s backend/tests -p 'test_*.py'
-```
-
-The second line is CI's command and runs the suite serially. For the same suite
-in parallel (about 3 minutes instead of 14 on a 10-core laptop), use pytest
-from `requirements/test.txt`, layered over the venv by `uv`, so the venv still
-matches `runtime.lock`:
-
-```bash
 cd backend
 uv run --no-project --python venv/bin/python --with-requirements ../requirements/test.txt \
   python -m pytest -n auto -rs
 ```
+
+This is CI's command: pytest (from `requirements/test.txt`) runs the
+`unittest` suite in parallel, about 3 minutes instead of 14 serially. Locally
+`uv` layers the test tools over the venv, so the venv still matches
+`runtime.lock`.
 
 While iterating, add `--testmon` to run only the tests affected by your Python
 changes. Fixtures, migrations' SQL and environment changes are invisible to it,
