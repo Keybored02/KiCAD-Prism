@@ -102,17 +102,11 @@ def build(clean: bool = True, console: bool = False) -> Path:
 
     assets = TOOLS / "prism_agent" / "assets"
 
-    # The agent loads the backend's real pcb/sch diff services (see worktree_diff:
-    # importing them beats maintaining a second copy that would drift). A shipped
-    # binary has no repo to load them from, so they get bundled, otherwise the
-    # diff silently degrades to "N changed files" with no item-level detail.
+    # The agent loads the backend's noise classifier by path (see worktree_diff), so
+    # the plugin and the web UI agree on what a KiCad backup is. A shipped binary has
+    # no repo to load it from, so it gets bundled.
     services = TOOLS.parent / "backend" / "app" / "services"
-    bundled_services = (
-        "sch_diff_service.py",
-        "pcb_diff_service.py",
-        # Shared with the web UI so both agree on what a KiCad backup is.
-        "kicad_noise_service.py",
-    )
+    bundled_services = ("kicad_noise_service.py",)
     for required in bundled_services:
         if not (services / required).is_file():
             raise SystemExit(f"can't find {required} in {services}")

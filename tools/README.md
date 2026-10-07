@@ -190,35 +190,15 @@ no such trick.
 `/changes` is the interesting one. The web app can only ever show *committed*
 history — that's all the backend can see. But while you're working in KiCad, the
 changes you care about are the ones still on disk, which exist nowhere but your
-machine. The agent diffs them locally: **old side = the blob at HEAD, new side =
-the file as it currently is**.
+machine. The agent lists them from `git status`, staged and unstaged alike.
 
-The result is grouped exactly the way the web UI groups a commit — Components /
-Nets / Zones / Graphics for boards, Symbols / Nets / Sheets / Text for schematics,
-with mixed add+remove on one net reconciled into a single "changed" row. That
-parity is deliberate: `prism_agent/diff_grouping.py` is a direct port of
-`frontend/src/lib/diff-grouping.ts`. **If you change grouping or labels in one,
-change them in the other** — the whole point is that a board reads the same in
-KiCad as it does in the browser.
+The list is per file. Item-level detail (which footprints, nets or symbols
+changed) is not computed yet: every file carries an empty `groups` list, and the
+plugin shows a plain row for it. The plugin's group rows and cross-probe are kept
+for when that detail comes back.
 
-The parse/diff itself is not reimplemented: the agent loads the backend's real
-`pcb_diff_service` / `sch_diff_service`. Their `diff_pcb(old, new)` /
-`diff_schematics(old, new)` entry points take plain strings, so only their
-module-level imports (GitPython, the workspace DB, `kicad_monkey`) need stubbing
-out — see `worktree_diff.py`. Vendoring a copy of ~2000 lines of diff logic would
-have guaranteed drift, and then the plugin and the web app would disagree about
-the same board.
-
-`kicad_monkey` is stubbed rather than required: the backend uses it to render text
-glyphs for *exact* bounding boxes, which drive the web viewer's highlight
-rectangles. The agent draws nothing — it only needs to know *which* items changed,
-and identity doesn't depend on glyph outlines. Verified: the diff output is
-identical with the real library and with the stub. Without this, the agent would
-silently report zero PCB changes on any Python that isn't the backend's venv.
-
-Diffing a big board takes a second or two, so the agent caches the result keyed on
-the mtimes of the files git reports as dirty — any edit invalidates it by itself,
-so you never see a stale answer, and reopening the dialog is instant.
+The agent caches the result keyed on the mtimes of the files git reports as
+dirty, so any edit invalidates it by itself and reopening the dialog is instant.
 
 Debuggable with curl:
 
@@ -360,18 +340,14 @@ Unfolding them is also how you notice they're being committed at all — the rea
 is a `.gitignore` entry, and both surfaces say so.
 
 `backend/app/services/kicad_noise_service.py` is the single classifier. The backend
-imports it; the agent loads it by path (and bundles it into the binary), the same way
-it loads the diff engines. Two copies of these patterns would drift the first time
+imports it; the agent loads it by path (and bundles it into the binary). Two copies of these patterns would drift the first time
 KiCad changed a suffix, and then a file hidden in one surface but shown in the other
 is just confusing.
 
-A noise file is never diffed, incidentally: a backup archive contains a *copy of the
-board*, so diffing it would produce hundreds of phantom "changes" that are really
-just the old design.
-
 ### Cross-probe
 
-Clicking a change row jumps to that item **inside KiCad** — selected and zoomed —
+Not reachable in this release, since the uncommitted list has no item rows yet
+(see above). Clicking an item row jumps to that item **inside KiCad** — selected and zoomed —
 not to a web page. You're already in the editor; that's where the item should
 appear.
 
@@ -422,7 +398,6 @@ tools/
     autostart.py          run at login (per-OS)
     protocol.py           prism:// links (per-OS)
     worktree_diff.py      uncommitted changes: HEAD vs disk
-    diff_grouping.py      port of the web UI's diff-grouping.ts — keep in sync
     assets/               the Prism logo (tray icon)
 
   kicad_plugin/         the plugin (stdlib + KiCad's wx only)
@@ -448,8 +423,6 @@ import.
 is installed on its own and cannot import the agent package. Both are tiny; keep
 them in sync.
 
-**`diff_grouping.py` is a port of the frontend's `diff-grouping.ts`.** TypeScript
-can't be imported, and both surfaces must group a board's changes identically. The
-diff *engines* and the noise classifier are genuinely shared — the agent loads the
-backend's own modules by path (and bundles them into the binary) rather than keeping
-a second copy that would drift.
+**The noise classifier is shared, not copied.** The agent loads the backend's own
+`kicad_noise_service` by path (and bundles it into the binary) rather than keeping a
+second copy that would drift.
