@@ -1,6 +1,6 @@
-import { RUN_STATUSES, type ManufacturingRun, type RunStatus } from "@/types/manufacturing";
+import { ALL_RUN_STATUSES, type ManufacturingRun, type RunStatus } from "@/types/manufacturing";
 
-/** "active" is every run that is not closed; the rest are one status each. */
+/** "active" is every run still going (not closed, not cancelled); the rest are one status each. */
 export type StatusFilter = "active" | RunStatus | "all";
 export type GroupBy = "none" | "project" | "date" | "manufacturer";
 export type SortKey = "updated" | "created" | "job";
@@ -45,9 +45,14 @@ export function boardName(run: ManufacturingRun): string {
     return "—";
 }
 
+/** A run still in progress: neither finished nor called off. */
+export function isActiveStatus(status: RunStatus): boolean {
+    return status !== "closed" && status !== "cancelled";
+}
+
 function matchesStatus(run: ManufacturingRun, status: StatusFilter): boolean {
     if (status === "all") return true;
-    if (status === "active") return run.status !== "closed";
+    if (status === "active") return isActiveStatus(run.status);
     return run.status === status;
 }
 
@@ -75,13 +80,13 @@ export function statusCounts(
     filters: Pick<ProductionFilters, "query" | "openDefectsOnly">,
 ): Record<StatusFilter, number> {
     const counts = { active: 0, all: 0 } as Record<StatusFilter, number>;
-    for (const status of RUN_STATUSES) counts[status] = 0;
+    for (const status of ALL_RUN_STATUSES) counts[status] = 0;
     for (const run of runs) {
         if (!matchesQuery(run, filters.query)) continue;
         if (filters.openDefectsOnly && !(run.open_defect_count && run.open_defect_count > 0)) continue;
         counts.all += 1;
         counts[run.status] += 1;
-        if (run.status !== "closed") counts.active += 1;
+        if (isActiveStatus(run.status)) counts.active += 1;
     }
     return counts;
 }
@@ -153,7 +158,7 @@ export function filtersFromParams(params: URLSearchParams): ProductionFilters {
     const sort = params.get("sort");
     const valid = (v: string | null, allowed: string[]) => (v && allowed.includes(v) ? v : null);
     return {
-        status: (valid(status, ["active", "all", ...RUN_STATUSES]) as StatusFilter | null) ?? DEFAULT_FILTERS.status,
+        status: (valid(status, ["active", "all", ...ALL_RUN_STATUSES]) as StatusFilter | null) ?? DEFAULT_FILTERS.status,
         query: params.get("q") ?? "",
         openDefectsOnly: params.get("defects") === "open",
         group: (valid(group, Object.keys(GROUP_LABELS)) as GroupBy | null) ?? DEFAULT_FILTERS.group,

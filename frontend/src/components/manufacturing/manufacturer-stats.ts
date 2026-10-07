@@ -18,11 +18,13 @@ export interface Scorecard {
 }
 
 /**
- * How a manufacturer has done across its productions. Yield only counts the ones
- * that have arrived (received or closed): a draft has no good units yet and would
- * drag the figure down for no reason.
+ * How a manufacturer has done across its productions. Cancelled ones are left out
+ * entirely: nothing was built. Yield only counts the ones that have arrived
+ * (received or closed): a draft has no good units yet and would drag the figure
+ * down for no reason.
  */
-export function manufacturerScorecard(runs: ManufacturingRun[]): Scorecard {
+export function manufacturerScorecard(allRuns: ManufacturingRun[]): Scorecard {
+    const runs = allRuns.filter((run) => run.status !== "cancelled");
     let units = 0;
     let finishedOrdered = 0;
     let finishedGood = 0;

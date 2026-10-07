@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
     Check,
@@ -27,6 +27,7 @@ import {
     DropdownMenuLabel,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -52,7 +53,7 @@ import {
 } from "@/lib/manufacturing";
 import {
     DEFECT_CATEGORIES,
-    RUN_STATUSES,
+    ALL_RUN_STATUSES,
     RUN_STATUS_LABELS,
     defectCategoryLabel,
     evaluateCondition,
@@ -240,7 +241,14 @@ export function RunView({
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                        <StatusStepper status={run.status} />
+                        {run.status === "cancelled" ? (
+                            // Not a stage of the lifecycle, so there is no progress bar to show.
+                            <p className="text-sm text-muted-foreground">
+                                This production was cancelled. Its spec, quantities and defects are kept.
+                            </p>
+                        ) : (
+                            <StatusStepper status={run.status} />
+                        )}
                         {canChangeStatus && (
                             // One control for status: the button moves the run to the next stage,
                             // and the arrow beside it opens every stage for a correction.
@@ -267,10 +275,14 @@ export function RunView({
                                             value={run.status}
                                             onValueChange={(value) => void changeStatus(value)}
                                         >
-                                            {RUN_STATUSES.map((status) => (
-                                                <DropdownMenuRadioItem key={status} value={status}>
-                                                    {RUN_STATUS_LABELS[status]}
-                                                </DropdownMenuRadioItem>
+                                            {ALL_RUN_STATUSES.map((status) => (
+                                                <Fragment key={status}>
+                                                    {/* Cancelled is not a stage, so it sits apart from the lifecycle. */}
+                                                    {status === "cancelled" && <DropdownMenuSeparator />}
+                                                    <DropdownMenuRadioItem value={status}>
+                                                        {RUN_STATUS_LABELS[status]}
+                                                    </DropdownMenuRadioItem>
+                                                </Fragment>
                                             ))}
                                         </DropdownMenuRadioGroup>
                                     </DropdownMenuContent>

@@ -19,6 +19,13 @@ describe("RunStatusBadge", () => {
         expect(tones.size).toBe(RUN_STATUSES.length);
     });
 
+    it("gives a cancelled run its own quiet badge, outside the five lifecycle tones", () => {
+        render(<RunStatusBadge status="cancelled" />);
+        const badge = screen.getByText("Cancelled");
+        expect(badge.getAttribute("data-variant")).toBe("secondary");
+        expect(RUN_STATUS_VARIANT.cancelled).toBe("secondary");
+    });
+
     it("escalates defect severity from quiet to destructive", () => {
         expect(SEVERITY_VARIANT).toEqual({
             aesthetic: "outline",

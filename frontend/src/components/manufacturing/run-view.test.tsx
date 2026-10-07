@@ -121,10 +121,42 @@ describe("RunView", () => {
             renderView(makeRun({ status: "received" }));
             await heading("JOB-2026-0001");
             openMenu("Set status");
-            expect(await screen.findAllByRole("menuitemradio")).toHaveLength(5);
+            expect(await screen.findAllByRole("menuitemradio")).toHaveLength(6);
             expect(screen.getByRole("menuitemradio", { name: "Received" }).getAttribute("aria-checked")).toBe("true");
             fireEvent.click(screen.getByRole("menuitemradio", { name: "Ordered" }));
             await waitFor(() => expect(updateRunStatus).toHaveBeenCalledWith("run_1", "ordered"));
+        });
+
+        it("offers Cancelled in the status menu, apart from the lifecycle", async () => {
+            renderView(makeRun({ status: "ordered" }));
+            await heading("JOB-2026-0001");
+            openMenu("Set status");
+            const items = await screen.findAllByRole("menuitemradio");
+            expect(items.map((i) => i.textContent)).toEqual([
+                "Draft", "Ordered", "In production", "Received", "Closed", "Cancelled",
+            ]);
+            fireEvent.click(screen.getByRole("menuitemradio", { name: "Cancelled" }));
+            await waitFor(() => expect(updateRunStatus).toHaveBeenCalledWith("run_1", "cancelled"));
+        });
+
+        it("keeps cancelled off the progress bar", async () => {
+            renderView(makeRun({ status: "ordered" }));
+            await heading("JOB-2026-0001");
+            const stages = screen.getByRole("list", { name: "Production status" });
+            expect(within(stages).getAllByRole("listitem")).toHaveLength(5);
+            expect(within(stages).queryByText(/Cancelled/)).toBeNull();
+        });
+
+        it("replaces the progress bar with a note on a cancelled production", async () => {
+            renderView(makeRun({ status: "cancelled" }));
+            await heading("JOB-2026-0001");
+            expect(screen.queryByRole("list", { name: "Production status" })).toBeNull();
+            expect(screen.getByText(/This production was cancelled/)).toBeTruthy();
+            // No next stage to advance to, but QA can still set the status, to reinstate it.
+            expect(screen.queryByRole("button", { name: /Mark as/ })).toBeNull();
+            openMenu("Set status");
+            fireEvent.click(await screen.findByRole("menuitemradio", { name: "Draft" }));
+            await waitFor(() => expect(updateRunStatus).toHaveBeenCalledWith("run_1", "draft"));
         });
 
         it("shows status read-only without QA rights", async () => {

@@ -224,25 +224,34 @@ describe("ProjectManufacturing", () => {
             expect(screen.getByText(/Add one above/)).toBeTruthy();
         });
 
-        it("points to New manufacturer when none exist to add", async () => {
+        it("points to the global Manufacturing page when none exist to attach", async () => {
             listProjectManufacturers.mockResolvedValue([]);
             listManufacturers.mockResolvedValue([]);
             renderTab(<ProjectManufacturing projectId="p1" canEdit />);
-            await waitFor(() => expect(screen.getByText(/create one with/)).toBeTruthy());
+            await waitFor(() => expect(screen.getByText(/add one from Manufacturing in the sidebar/)).toBeTruthy());
             expect(screen.queryByText(/Add one above/)).toBeNull();
         });
 
-        it("creates a manufacturer inline and attaches it", async () => {
-            listProjectManufacturers.mockResolvedValue([]);
-            listManufacturers.mockResolvedValue([]);
-            createManufacturer.mockResolvedValue({ id: "m7" });
-            attachManufacturer.mockResolvedValue(undefined);
+        it("has no way to create a manufacturer here, only to attach existing ones", async () => {
+            listManufacturers.mockResolvedValue([
+                { id: "m1", name: "Acme Fab", ...MFR },
+                { id: "m2", name: "Beta Fab", ...MFR },
+            ]);
             renderTab(<ProjectManufacturing projectId="p1" canEdit />);
-            fireEvent.click(await screen.findByRole("button", { name: "New manufacturer" }));
-            fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Fresh Fab" } });
-            fireEvent.click(screen.getByRole("button", { name: "Save" }));
-            await waitFor(() => expect(createManufacturer).toHaveBeenCalledWith(expect.objectContaining({ name: "Fresh Fab" })));
-            await waitFor(() => expect(attachManufacturer).toHaveBeenCalledWith("p1", "m7"));
+            await waitForForm();
+            expect(screen.queryByRole("button", { name: /New manufacturer/ })).toBeNull();
+            expect(screen.getByRole("combobox", { name: "Add a manufacturer" })).toBeTruthy();
+        });
+
+        it("does not offer a cancelled production as the last one", async () => {
+            listRuns.mockResolvedValue([
+                run({ id: "done", job_number: "JOB-DONE", status: "closed", created_at: "2025-01-01T00:00:00Z" }),
+                run({ id: "off", job_number: "JOB-OFF", status: "cancelled", created_at: "2026-06-01T00:00:00Z" }),
+            ]);
+            renderTab(<ProjectManufacturing projectId="p1" canEdit />);
+            await waitForForm();
+            expect(await screen.findByRole("button", { name: /JOB-DONE/ })).toBeTruthy();
+            expect(screen.queryByRole("button", { name: /JOB-OFF/ })).toBeNull();
         });
     });
 

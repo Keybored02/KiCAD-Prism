@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatRelative } from "@/lib/relative-time";
-import { RUN_STATUSES, RUN_STATUS_LABELS, type ManufacturingRun } from "@/types/manufacturing";
+import { ALL_RUN_STATUSES, RUN_STATUS_LABELS, type ManufacturingRun } from "@/types/manufacturing";
 import {
     DEFAULT_FILTERS,
     GROUP_LABELS,
@@ -35,7 +35,7 @@ import { YieldBar } from "./yield-bar";
 
 const CHIPS: { value: StatusFilter; label: string }[] = [
     { value: "active", label: "Active" },
-    ...RUN_STATUSES.map((s) => ({ value: s as StatusFilter, label: RUN_STATUS_LABELS[s] })),
+    ...ALL_RUN_STATUSES.map((s) => ({ value: s as StatusFilter, label: RUN_STATUS_LABELS[s] })),
     { value: "all", label: "All" },
 ];
 

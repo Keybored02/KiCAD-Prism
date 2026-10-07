@@ -36,6 +36,17 @@ describe("manufacturerScorecard", () => {
         expect(score.units).toBe(1200);
     });
 
+    it("leaves cancelled productions out entirely", () => {
+        const score = manufacturerScorecard([
+            makeRun({ status: "closed", quantity_ordered: 100, quantity_good: 100 }),
+            makeRun({ status: "cancelled", quantity_ordered: 900, quantity_good: 0, defect_severity_counts: { critical: 3 } }),
+        ]);
+        expect(score.productions).toBe(1);
+        expect(score.units).toBe(100);
+        expect(score.yieldPct).toBe(100);
+        expect(score.defects.total).toBe(0);
+    });
+
     it("has no yield when nothing has arrived", () => {
         expect(manufacturerScorecard([makeRun({ status: "ordered", quantity_good: 0 })]).yieldPct).toBeNull();
     });

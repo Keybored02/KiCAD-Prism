@@ -23,6 +23,7 @@ const RUNS = [
     makeRun({ id: "a", job_number: "JOB-0001", status: "draft", updated_at: "2026-01-01T00:00:00Z" }),
     makeRun({ id: "b", job_number: "JOB-0002", status: "in_production", manufacturer_name: "Beta Fab", open_defect_count: 2, updated_at: "2026-03-01T00:00:00Z" }),
     makeRun({ id: "c", job_number: "JOB-0003", status: "closed", updated_at: "2026-02-01T00:00:00Z" }),
+    makeRun({ id: "x", job_number: "JOB-0004", status: "cancelled", updated_at: "2026-02-02T00:00:00Z" }),
 ];
 
 function renderList(props: Partial<React.ComponentProps<typeof ProductionList>> = {}) {
@@ -54,7 +55,17 @@ describe("ProductionList", () => {
         const chips = screen.getByRole("group", { name: "Filter by status" });
         expect(within(chips).getByRole("button", { name: /^Active 2$/ }).getAttribute("aria-pressed")).toBe("true");
         expect(within(chips).getByRole("button", { name: /^Closed 1$/ })).toBeTruthy();
-        expect(within(chips).getByRole("button", { name: /^All 3$/ })).toBeTruthy();
+        expect(within(chips).getByRole("button", { name: /^Cancelled 1$/ })).toBeTruthy();
+        expect(within(chips).getByRole("button", { name: /^All 4$/ })).toBeTruthy();
+        // Cancelled runs are not active, so they stay out of the default list.
+        expect(screen.queryByText("JOB-0004")).toBeNull();
+    });
+
+    it("lists cancelled runs under their own chip, with a cancelled badge", () => {
+        renderList({ filters: { ...DEFAULT_FILTERS, status: "cancelled" } });
+        const row = screen.getByText("JOB-0004").closest("[data-run-row]") as HTMLElement;
+        expect(within(row).getByText("Cancelled")).toBeTruthy();
+        expect(screen.queryByText("JOB-0001")).toBeNull();
     });
 
     it("changes the status filter from a chip", () => {

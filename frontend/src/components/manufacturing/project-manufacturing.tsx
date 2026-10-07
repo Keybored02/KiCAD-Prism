@@ -69,7 +69,6 @@ import {
     type SpecTemplate,
 } from "@/types/manufacturing";
 import { SchemaCapabilitiesDialog } from "./spec-config-editor";
-import { ManufacturerDialog } from "./manufacturers-panel";
 import { NewProductionDialog } from "./new-production-dialog";
 import { ProductionList } from "./production-list";
 import { DEFAULT_FILTERS, type ProductionFilters } from "./production-filters";
@@ -126,7 +125,6 @@ export function ProjectManufacturing({
     const [downloading, setDownloading] = useState(false);
     const [dirty, setDirty] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
-    const [createOpen, setCreateOpen] = useState(false);
     const [allManufacturers, setAllManufacturers] = useState<Manufacturer[]>([]);
     const [ruleFields, setRuleFields] = useState<PcbRuleField[]>([]);
     // The selected spec's linked-process capabilities (read live from getProjectSpec).
@@ -432,8 +430,11 @@ export function ProjectManufacturing({
     const attachable = allManufacturers.filter((m) => !attachedIds.has(m.id));
     const selectedManufacturer = manufacturers.find((m) => m.id === manufacturerId) ?? null;
     const manufacturerRuns = runs.filter((r) => r.manufacturer_id === manufacturerId);
+    // The latest production that actually went ahead: a cancelled one says nothing about the fab.
     const lastRun =
-        [...manufacturerRuns].sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
+        [...manufacturerRuns]
+            .filter((r) => r.status !== "cancelled")
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
     const progress = specProgress(schema.sections, values, activeSections);
     const pendingProcess = templates.find((t) => t.id === pendingProcessId) ?? null;
 
@@ -532,12 +533,6 @@ export function ProjectManufacturing({
                                     </SelectContent>
                                 </Select>
                             )}
-                            {canEdit && (
-                                <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
-                                    <Plus className="mr-1.5 h-3.5 w-3.5" />
-                                    New manufacturer
-                                </Button>
-                            )}
                             {selectedManufacturer && canEdit && (
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
@@ -578,7 +573,7 @@ export function ProjectManufacturing({
                                 {canEdit
                                     ? attachable.length > 0
                                         ? " Add one above to set its fabrication specs."
-                                        : " None exist yet: create one with “New manufacturer”."
+                                        : " None exist yet: add one from Manufacturing in the sidebar, then attach it here."
                                     : ""}
                             </p>
                         </div>
@@ -842,17 +837,6 @@ export function ProjectManufacturing({
                         void reloadRuns();
                         setSubTab("production");
                         setDrawerRunId(runId);
-                    }}
-                />
-            )}
-
-            {createOpen && (
-                <ManufacturerDialog
-                    target={{ mode: "create" }}
-                    onClose={() => setCreateOpen(false)}
-                    onSaved={(id) => {
-                        setCreateOpen(false);
-                        void handleAttach(id);
                     }}
                 />
             )}

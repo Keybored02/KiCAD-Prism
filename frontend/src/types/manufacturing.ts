@@ -109,7 +109,7 @@ export interface ProjectSpec {
     updated_by: string;
 }
 
-export type RunStatus = "draft" | "ordered" | "in_production" | "received" | "closed";
+export type RunStatus = "draft" | "ordered" | "in_production" | "received" | "closed" | "cancelled";
 
 export interface ManufacturingRun {
     id: string;
@@ -171,7 +171,8 @@ export interface RunDefect {
     resolved_at: string | null;
 }
 
-// The run lifecycle, in order, for status pickers and timelines.
+// The run lifecycle, in order: the stages shown on the progress bar. A cancelled run is
+// not one of them (see ALL_RUN_STATUSES).
 export const RUN_STATUSES: RunStatus[] = ["draft", "ordered", "in_production", "received", "closed"];
 
 export const RUN_STATUS_LABELS: Record<RunStatus, string> = {
@@ -180,7 +181,11 @@ export const RUN_STATUS_LABELS: Record<RunStatus, string> = {
     in_production: "In production",
     received: "Received",
     closed: "Closed",
+    cancelled: "Cancelled",
 };
+
+/** Every status a run can have: the lifecycle, then cancelled. */
+export const ALL_RUN_STATUSES: RunStatus[] = [...RUN_STATUSES, "cancelled"];
 
 export const DEFECT_CATEGORIES: { value: string; label: string }[] = [
     { value: "soldering", label: "Soldering / assembly" },

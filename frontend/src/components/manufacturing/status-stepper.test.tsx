@@ -10,6 +10,8 @@ describe("nextRunStatus", () => {
         expect(nextRunStatus("in_production")).toBe("received");
         expect(nextRunStatus("received")).toBe("closed");
         expect(nextRunStatus("closed")).toBeNull();
+        // Cancelled is not a stage, so nothing follows it.
+        expect(nextRunStatus("cancelled")).toBeNull();
     });
 });
 
@@ -22,5 +24,10 @@ describe("StatusStepper", () => {
         expect(stages).toHaveLength(5);
         expect(stages.map((s) => s.getAttribute("aria-current"))).toEqual([null, null, "step", null, null]);
         expect(screen.getByText("In production").textContent).toContain("(current)");
+    });
+
+    it("never lists cancelled as a stage", () => {
+        render(<StatusStepper status="ordered" />);
+        expect(screen.queryByText("Cancelled")).toBeNull();
     });
 });

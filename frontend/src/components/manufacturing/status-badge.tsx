@@ -12,6 +12,8 @@ export const RUN_STATUS_VARIANT: Record<RunStatus, BadgeVariant> = {
     in_production: "progress",
     received: "warning",
     closed: "success",
+    // Called off, not failed: quiet, so it does not compete with a live production.
+    cancelled: "secondary",
 };
 
 export const SEVERITY_VARIANT: Record<DefectSeverity, BadgeVariant> = {
