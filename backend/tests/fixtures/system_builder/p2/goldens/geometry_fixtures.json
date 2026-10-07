@@ -18,11 +18,20 @@
    "translationMm": [0.0, 0.0, 8.6],
    "rotation": [0.0, 0.0, 0.0, 1.0]
   },
-  "residualMm": {"J1": 0.0, "J2": 0.0}
+  "residualMm": {"J1": 0.0, "J2": 0.0},
+  "clearance": {
+   "_comment": "CONTRACTS_P2 §14.5 fallback with the datasheet body heights (sources: terminalBodyHeight G, socketBodyHeight K) over the courtyards: 4.90 + 3.23 + 5.00 margin = 13.13; the top board at 0.8 + 13.13 + 0.8. With no bodies at all the courtyards stand 5.00 mm each: 5 + 5 + 5 = 15.00, top at 16.60.",
+   "terminalBodyHeightMm": 4.9,
+   "socketBodyHeightMm": 3.23,
+   "stackHeightMm": 13.13,
+   "topPoseZMm": 14.73,
+   "assumedStackHeightMm": 15.0,
+   "assumedTopPoseZMm": 16.6
+  }
  },
  "mezzanineShifted": {
   "top": "mezz_top/F1",
-  "_comment": "The next commit of mezz_top moves J2 +1.5 mm in X. Posed from J1, pair J2 misses by 1.5 mm (SYS-V11 in M3).",
+  "_comment": "The next commit of mezz_top moves J2 +1.5 mm in X. Posed from J1, pair J2 misses by 1.5 mm (SYS-V11, M4).",
   "moved": {"reference": "J2", "deltaMm": [1.5, 0.0]},
   "residualMm": {"J1": 0.0, "J2": 1.5}
  },
