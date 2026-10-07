@@ -36,6 +36,15 @@ class ManufacturingValidationTests(unittest.TestCase):
         self.assertEqual(mfg.RUN_STATUSES[0], "draft")
         self.assertEqual(mfg.RUN_STATUSES[-1], "closed")
 
+    def test_blanking_the_reason_of_an_accepted_defect_is_refused(self) -> None:
+        from unittest.mock import patch
+
+        accepted = {"id": "def_x", "status": "accepted", "resolution_note": "cosmetic only"}
+        with patch.object(mfg, "get_defect", return_value=accepted):
+            for blank in ("", "   "):
+                with self.assertRaises(mfg.ManufacturingError):
+                    mfg.update_defect("def_x", resolution_note=blank)
+
     def test_cancelled_is_a_status_outside_the_lifecycle(self) -> None:
         # Valid to set, but not one of the stages a production moves through.
         self.assertNotIn("cancelled", mfg.RUN_STATUSES)

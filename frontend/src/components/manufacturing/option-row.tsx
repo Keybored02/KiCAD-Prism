@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -19,6 +19,19 @@ interface OptionRowProps {
  * and an optional marker. Used by the spec form and the run facts so they align.
  */
 export function OptionRow({ htmlFor, label, marker, nested = false, children }: OptionRowProps) {
+    const control = useRef<HTMLDivElement>(null);
+
+    // A native input, select or textarea is focused by the label's `for`. A button group
+    // (Yes/No, a few choices) is not one element, so focus its tab stop instead.
+    const focusControl = () => {
+        const target = htmlFor ? document.getElementById(htmlFor) : null;
+        if (target && /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName)) return;
+        const root = control.current;
+        // The group's one tab stop (its selection) wins over the first button in the markup.
+        const focusTarget = root?.querySelector<HTMLElement>('[tabindex="0"]') ?? root?.querySelector<HTMLElement>("input, select, textarea, button");
+        focusTarget?.focus();
+    };
+
     return (
         <div
             className={cn(
@@ -26,10 +39,12 @@ export function OptionRow({ htmlFor, label, marker, nested = false, children }: 
                 nested && "ml-4 border-l pl-4 sm:grid-cols-[10rem_minmax(0,1fr)_6rem]",
             )}
         >
-            <label htmlFor={htmlFor} className="text-sm text-muted-foreground">
+            <label htmlFor={htmlFor} onClick={focusControl} className="text-sm text-muted-foreground">
                 {label}
             </label>
-            <div className="min-w-0">{children}</div>
+            <div ref={control} className="min-w-0">
+                {children}
+            </div>
             <div className="hidden justify-end sm:flex">{marker}</div>
         </div>
     );

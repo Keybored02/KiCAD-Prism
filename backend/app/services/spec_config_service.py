@@ -284,7 +284,7 @@ def parse_spec_config(text: str) -> ParsedSpecConfig:
             field_def.label = label_override
         if field_def.type in ("int", "number"):
             label, unit = _split_label_unit(field_def.label)
-            if unit:
+            if unit and _is_unit(unit):
                 field_def.label, field_def.unit = label, unit
         if default_raw is not None:
             field_def.default = _coerce_default(default_raw, field_def.type)
@@ -314,6 +314,12 @@ def parse_spec_config(text: str) -> ParsedSpecConfig:
 # --------------------------------------------------------------------------
 
 _UNIT_RE = re.compile(r"^(?P<label>.*?)\s*\((?P<unit>[^()]*)\)\s*$")
+
+
+def _is_unit(text: str) -> bool:
+    """A unit is a short single token (mm, oz, mil, um). A longer phrase in brackets
+    is part of the label, not something to print after the value."""
+    return 0 < len(text) <= 8 and not any(ch.isspace() for ch in text)
 
 
 def _split_label_unit(label: str) -> tuple[str, str]:

@@ -58,6 +58,16 @@ class SpecConfigParseTests(unittest.TestCase):
         self.assertEqual(fields["plain"].unit, "")
         self.assertEqual(fields["thickness"].to_dict()["unit"], "mm")
 
+    def test_a_phrase_in_brackets_is_not_a_unit(self) -> None:
+        parsed = parse_spec_config(
+            "[S]\n"
+            "parts: int | Unique part count (BOM lines)\n"
+            "size: number | Size (mm)\n"
+        )
+        fields = {f.key: f for f in parsed.sections[0].fields}
+        self.assertEqual((fields["parts"].label, fields["parts"].unit), ("Unique part count (BOM lines)", ""))
+        self.assertEqual((fields["size"].label, fields["size"].unit), ("Size", "mm"))
+
     def test_pdfs_print_the_unit_after_the_value(self) -> None:
         from app.services import run_report_pdf_service, spec_sheet_pdf_service
 

@@ -1070,6 +1070,12 @@ def update_defect(defect_id: str, *, resolved_by: str = "", **fields: Any) -> bo
         updates["resolution_note"] = updates["resolution_note"].strip()
     if updates.get("status") == "accepted" and not updates.get("resolution_note"):
         raise ManufacturingError("Accepting a defect as-is needs a reason.")
+    if "resolution_note" in updates and not updates["resolution_note"] and "status" not in updates:
+        # Blanking a note on its own: fine for a resolved or open defect, but an accepted
+        # one is only accepted because of its reason, so it keeps it.
+        existing = get_defect(defect_id)
+        if existing and existing.get("status") == "accepted":
+            raise ManufacturingError("An accepted defect keeps its reason.")
     if "severity" in updates and updates["severity"] not in DEFECT_SEVERITIES:
         raise ManufacturingError(f"Unknown severity: {updates['severity']!r}")
     if "status" in updates and updates["status"] not in DEFECT_STATUSES:

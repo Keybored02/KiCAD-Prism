@@ -269,9 +269,10 @@ def _project_pcb_path(project_id: str) -> tuple[dict | None, str | None]:
     return project, os.path.join(project.get("path", ""), pcb_rel)
 
 
-@router.post("/projects/{project_id}/pcb-rules/extract", dependencies=[Depends(require_designer)])
+@router.post("/projects/{project_id}/pcb-rules/extract", dependencies=[Depends(require_viewer)])
 async def extract_pcb_rules(project_id: str):
-    """Read the board's fabrication rules from its KiCad files. Read-only."""
+    """Read the board's fabrication rules from its KiCad files. Read-only, so anyone who
+    can see the project can ask: the project tab's capability check does it for every viewer."""
     project, pcb_path = await asyncio.to_thread(_project_pcb_path, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")

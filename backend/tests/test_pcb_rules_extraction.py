@@ -71,6 +71,33 @@ class PcbRulesExtractionTests(unittest.TestCase):
         rules = rs.extract_pcb_rules(self._pcb(pcb=pcb))
         self.assertEqual(rules, {"copper_finish": "HASL"})
 
+    def test_rules_are_parsed_once_per_version_of_the_files(self) -> None:
+        from unittest.mock import patch
+
+        rs._RULES_CACHE.clear()
+        pro = {"board": {"design_settings": {"rules": {"min_track_width": 0.1}}}}
+        pcb = self._pcb(pro=pro)
+        with patch.object(rs, "_rules_from_pro", wraps=rs._rules_from_pro) as parse:
+            first = rs.extract_pcb_rules(pcb)
+            second = rs.extract_pcb_rules(pcb)
+            self.assertEqual(first, second)
+            self.assertEqual(parse.call_count, 1)
+
+            # A change to the project file is a new version, so it is read again.
+            pro["board"]["design_settings"]["rules"]["min_track_width"] = 0.2
+            pro_path = self.base.with_suffix(".kicad_pro")
+            pro_path.write_text(json.dumps(pro), encoding="utf-8")
+            later = pro_path.stat().st_mtime + 5
+            os.utime(pro_path, (later, later))
+            self.assertEqual(rs.extract_pcb_rules(pcb)["min_track_width"], 0.2)
+            self.assertEqual(parse.call_count, 2)
+
+    def test_a_caller_cannot_change_what_is_cached(self) -> None:
+        rs._RULES_CACHE.clear()
+        pcb = self._pcb(pro={"board": {"design_settings": {"rules": {"min_track_width": 0.1}}}})
+        rs.extract_pcb_rules(pcb)["min_track_width"] = 99
+        self.assertEqual(rs.extract_pcb_rules(pcb)["min_track_width"], 0.1)
+
     def test_missing_board_returns_empty(self) -> None:
         self.assertEqual(rs.extract_pcb_rules(str(self.base) + "-nope.kicad_pcb"), {})
 

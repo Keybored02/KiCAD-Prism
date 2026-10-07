@@ -73,11 +73,11 @@ describe("ManufacturingDashboard", () => {
             expect(search()).toBe("?section=manufacturing&run=run_9");
         });
 
-        it("opens the new production dialog for the project in the URL, then clears the param", async () => {
+        it("ignores a leftover newRunFor link rather than opening the dialog", async () => {
             empty();
             renderAt("/?section=manufacturing&newRunFor=p1");
-            expect(await screen.findByText(/wizard:p1:/)).toBeTruthy();
-            await waitFor(() => expect(search()).toBe("?section=manufacturing"));
+            await waitFor(() => expect(listRuns).toHaveBeenCalled());
+            expect(screen.queryByText(/wizard:/)).toBeNull();
         });
 
         it("opens nothing without those params", async () => {

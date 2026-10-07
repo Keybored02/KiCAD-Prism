@@ -149,7 +149,45 @@ def _finish_from_setup(pcb_path: Path) -> dict[str, Any]:
     return {"copper_finish": finish.group(1)} if finish else {}
 
 
+_RULES_CACHE: dict[str, tuple[tuple[int, ...], dict[str, Any]]] = {}
+_RULES_CACHE_MAX = 64
+
+
+def _signature(path: Path) -> tuple[int, ...]:
+    """Modification times of the board and the sibling files its rules come from. A
+    change to any of them is a new signature, so a stale entry is never served."""
+    stamps: list[int] = []
+    for suffix in (".kicad_pcb", ".kicad_pro", ".kicad_dru"):
+        sibling = path.with_suffix(suffix)
+        try:
+            stamps.append(sibling.stat().st_mtime_ns)
+        except OSError:
+            stamps.append(-1)
+    return tuple(stamps)
+
+
 def extract_pcb_rules(pcb_path: str | Path) -> dict[str, Any]:
+    """Return the fabrication rules for a board, parsed once per version of its files.
+
+    Opening a project's Manufacturing tab asks for these every time; the answer only
+    changes when the board, its project file or its rules file does.
+    """
+    path = Path(pcb_path)
+    if not path.is_file():
+        return {}
+    key = str(path.resolve())
+    signature = _signature(path)
+    cached = _RULES_CACHE.get(key)
+    if cached and cached[0] == signature:
+        return dict(cached[1])
+    rules = _extract_pcb_rules_uncached(path)
+    if len(_RULES_CACHE) >= _RULES_CACHE_MAX:
+        _RULES_CACHE.pop(next(iter(_RULES_CACHE)))
+    _RULES_CACHE[key] = (signature, dict(rules))
+    return rules
+
+
+def _extract_pcb_rules_uncached(pcb_path: str | Path) -> dict[str, Any]:
     """Return the fabrication rules readable from a board, as ``{key: value}``.
 
     Priority: the .kicad_pro rules block (authoritative), then the .kicad_dru for

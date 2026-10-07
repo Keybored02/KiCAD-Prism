@@ -44,13 +44,11 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
     const [addManufacturer, setAddManufacturer] = useState(false);
 
     // The list's filters and the open run live in the URL, so a link, a refresh
-    // and the Back button all land where the user was. `newRunFor` is read once to
-    // start a production for a project, then cleared.
+    // and the Back button all land where the user was.
     const [searchParams, setSearchParams] = useSearchParams();
     const filters = useMemo(() => filtersFromParams(searchParams), [searchParams]);
     const drawerRunId = searchParams.get("run");
-    const [wizardProjectId] = useState<string | undefined>(() => searchParams.get("newRunFor") ?? undefined);
-    const [wizardOpen, setWizardOpen] = useState(() => searchParams.has("newRunFor"));
+    const [wizardOpen, setWizardOpen] = useState(false);
 
     const setFilters = useCallback(
         (next: ProductionFilters) =>
@@ -100,20 +98,6 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
             Refresh
         </Button>
     );
-
-    useEffect(() => {
-        if (!searchParams.has("newRunFor")) return;
-        setSearchParams(
-            (current) => {
-                const next = new URLSearchParams(current);
-                next.delete("newRunFor");
-                return next;
-            },
-            { replace: true },
-        );
-        // Only on mount: the param was consumed by the state initialisers.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
 
     const projectOptions: ProjectOption[] = useMemo(
         () => projects.map((p) => ({ id: p.id, name: projectLabel(p) })),
@@ -220,7 +204,6 @@ export function ManufacturingDashboard({ user, projects }: ManufacturingDashboar
                 <NewProductionDialog
                     open={wizardOpen}
                     projects={projectOptions}
-                    initialProjectId={wizardProjectId}
                     onClose={() => setWizardOpen(false)}
                     onCreated={(runId) => {
                         setWizardOpen(false);

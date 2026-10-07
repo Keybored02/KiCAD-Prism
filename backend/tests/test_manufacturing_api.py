@@ -158,6 +158,14 @@ class ManufacturingRouteTests(unittest.TestCase):
             result = _run(self.api.extract_pcb_rules("prj_1"))
         self.assertEqual(result, {"rules": {"min_track_width": 0.1}})
 
+    def test_extract_pcb_rules_is_open_to_viewers(self) -> None:
+        # It only reads, and the project tab's capability check asks for every viewer.
+        from app.core.security import require_viewer
+
+        route = next(r for r in self.api.router.routes if getattr(r, "path", "").endswith("/pcb-rules/extract"))
+        calls = {dep.call for dep in route.dependant.dependencies}
+        self.assertIn(require_viewer, calls)
+
     def test_extract_pcb_rules_404_for_unknown_project(self) -> None:
         with patch.object(self.api.workspace, "get_project_by_id", return_value=None):
             with self.assertRaises(HTTPException) as ctx:
