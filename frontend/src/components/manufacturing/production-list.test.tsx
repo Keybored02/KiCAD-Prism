@@ -160,6 +160,30 @@ describe("ProductionList", () => {
         expect(within(without).queryByLabelText("Has notes")).toBeNull();
     });
 
+    it("draws a page header with a title and its actions when given a title", () => {
+        renderList({
+            title: "Production",
+            icon: <span data-testid="icon" />,
+            headerActions: <button type="button">Refresh</button>,
+            actions: <button type="button">New production</button>,
+        });
+        expect(screen.getByRole("heading", { level: 2, name: "Production" })).toBeTruthy();
+        const header = screen.getByRole("banner");
+        expect(within(header).getByTestId("icon")).toBeTruthy();
+        // Refresh sits with the title; the page action stays on the filter row beneath it.
+        const titleRow = screen.getByRole("heading", { level: 2 }).closest("div")!.parentElement!;
+        expect(within(titleRow).getByRole("button", { name: "Refresh" })).toBeTruthy();
+        expect(within(titleRow).queryByRole("button", { name: "New production" })).toBeNull();
+        expect(within(header).getByRole("button", { name: "New production" })).toBeTruthy();
+        expect(within(header).getByLabelText("Search production")).toBeTruthy();
+    });
+
+    it("has no page header when used inline", () => {
+        renderList();
+        expect(screen.queryByRole("banner")).toBeNull();
+        expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+    });
+
     it("leaves out the project name when the list is one project's", () => {
         renderList({ hideProject: true });
         expect(screen.getByText("Job / Board")).toBeTruthy();

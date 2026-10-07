@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -132,6 +132,47 @@ describe("ManufacturingDashboard", () => {
             expect((screen.getByLabelText("Search production") as HTMLInputElement).value).toBe("JOB");
         });
 
+    });
+
+    describe("page headers", () => {
+        it("titles the Production tab and keeps New production on its filter row", async () => {
+            empty();
+            renderAt("/?section=manufacturing");
+            expect(await screen.findByRole("heading", { level: 2, name: "Production" })).toBeTruthy();
+            expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
+            const header = screen.getByRole("banner");
+            expect(within(header).getByRole("button", { name: /New production/ })).toBeTruthy();
+        });
+
+        it("titles the Manufacturers tab with Refresh and Add manufacturer", async () => {
+            empty();
+            renderAt("/?section=manufacturing");
+            await waitFor(() => expect(listRuns).toHaveBeenCalled());
+            fireEvent.mouseDown(screen.getByRole("tab", { name: /Manufacturers/ }));
+            expect(await screen.findByRole("heading", { level: 2, name: "Manufacturers" })).toBeTruthy();
+            const header = screen.getByRole("banner");
+            expect(within(header).getByRole("button", { name: "Refresh" })).toBeTruthy();
+            expect(within(header).getByRole("button", { name: /Add manufacturer/ })).toBeTruthy();
+        });
+
+        it("leaves Add manufacturer out of the header for viewers", async () => {
+            empty();
+            renderAt("/?section=manufacturing", { role: "viewer" } as User);
+            await waitFor(() => expect(listRuns).toHaveBeenCalled());
+            fireEvent.mouseDown(screen.getByRole("tab", { name: /Manufacturers/ }));
+            await screen.findByRole("heading", { level: 2, name: "Manufacturers" });
+            expect(screen.queryByRole("button", { name: /Add manufacturer/ })).toBeNull();
+            expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
+        });
+
+        it("Refresh reloads the data", async () => {
+            empty();
+            renderAt("/?section=manufacturing");
+            await waitFor(() => expect(listRuns).toHaveBeenCalledTimes(1));
+            fireEvent.click(await screen.findByRole("button", { name: "Refresh" }));
+            await waitFor(() => expect(listRuns).toHaveBeenCalledTimes(2));
+            expect(listManufacturers).toHaveBeenCalledTimes(2);
+        });
     });
 
     describe("actions and roles", () => {

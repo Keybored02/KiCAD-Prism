@@ -57,8 +57,17 @@ interface ProductionListProps {
     hideProject?: boolean;
     /** Shown in the "no production yet" state, e.g. a New production button. */
     emptyAction?: ReactNode;
-    /** Page actions, shown at the right end of the filter row (e.g. New production). */
+    /** Actions at the right end of the filter row (e.g. New production). */
     actions?: ReactNode;
+    /**
+     * A page heading. When set, the list draws itself as a page: a header band with this
+     * title (and `icon`, `headerActions`) above one toolbar row, like the Library tabs.
+     * Without it the list is an inline block, as in a project's tab.
+     */
+    title?: string;
+    icon?: ReactNode;
+    /** Buttons at the right of the heading, e.g. Refresh. */
+    headerActions?: ReactNode;
     className?: string;
 }
 
@@ -77,6 +86,9 @@ export function ProductionList({
     hideProject = false,
     emptyAction,
     actions,
+    title,
+    icon,
+    headerActions,
     className,
 }: ProductionListProps) {
     const counts = useMemo(() => statusCounts(runs, filters), [runs, filters]);
@@ -100,168 +112,204 @@ export function ProductionList({
         rows[Math.max(0, Math.min(rows.length - 1, next))]?.focus();
     };
 
+    const chips = (
+        <>
+            <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-1">
+                {CHIPS.map((chip) => {
+                    const pressed = filters.status === chip.value;
+                    return (
+                        <button
+                            key={chip.value}
+                            type="button"
+                            aria-pressed={pressed}
+                            onClick={() => set({ status: chip.value })}
+                            className={cn(
+                                "flex items-center gap-1.5 border px-2.5 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                pressed
+                                    ? "border-primary bg-secondary font-medium"
+                                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                            )}
+                        >
+                            {chip.label}
+                            <span className="text-xs tabular-nums text-muted-foreground">{counts[chip.value]}</span>
+                        </button>
+                    );
+                })}
+            </div>
+            <button
+                type="button"
+                aria-pressed={filters.openDefectsOnly}
+                onClick={() => set({ openDefectsOnly: !filters.openDefectsOnly })}
+                className={cn(
+                    "flex items-center gap-1.5 border px-2.5 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    filters.openDefectsOnly
+                        ? "border-destructive bg-destructive/10 font-medium text-destructive"
+                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                )}
+            >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Open defects
+                <span className="text-xs tabular-nums">{openDefectRuns}</span>
+            </button>
+        </>
+    );
+
+    const searchAndView = (
+        <>
+            <div className="relative w-full max-w-sm">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                    type="search"
+                    aria-label="Search production"
+                    placeholder="Search job, project, manufacturer..."
+                    className="h-8 pl-8"
+                    value={filters.query}
+                    onChange={(e) => set({ query: e.target.value })}
+                />
+            </div>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                        <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" />
+                        View
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                    <DropdownMenuLabel>Group by</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                        value={filters.group}
+                        onValueChange={(value) => set({ group: value as GroupBy })}
+                    >
+                        {(Object.keys(GROUP_LABELS) as GroupBy[]).map((g) => (
+                            <DropdownMenuRadioItem key={g} value={g}>
+                                {GROUP_LABELS[g]}
+                            </DropdownMenuRadioItem>
+                        ))}
+                    </DropdownMenuRadioGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                        value={filters.sort}
+                        onValueChange={(value) => set({ sort: value as SortKey })}
+                    >
+                        {(Object.keys(SORT_LABELS) as SortKey[]).map((s) => (
+                            <DropdownMenuRadioItem key={s} value={s}>
+                                {SORT_LABELS[s]}
+                            </DropdownMenuRadioItem>
+                        ))}
+                    </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </>
+    );
+
+    const table = (
+        <div className="flex min-h-0 flex-1 flex-col border">
+            {loading ? (
+                <div className="p-6 text-sm text-muted-foreground">Loading production...</div>
+            ) : runs.length === 0 ? (
+                <div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
+                    <Factory className="h-8 w-8 opacity-50" />
+                    <p className="text-sm">No production yet.</p>
+                    {emptyAction}
+                </div>
+            ) : visible.length === 0 ? (
+                <div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted-foreground">
+                    <p>No production matches these filters.</p>
+                    {narrowed && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                                onFiltersChange({
+                                    ...filters,
+                                    status: DEFAULT_FILTERS.status,
+                                    query: "",
+                                    openDefectsOnly: false,
+                                })
+                            }
+                        >
+                            Clear filters
+                        </Button>
+                    )}
+                </div>
+            ) : (
+                <>
+                    <div
+                        className={cn(
+                            "hidden shrink-0 gap-3 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground lg:grid",
+                            GRID_LG,
+                            GRID_XL,
+                        )}
+                    >
+                        <span className="min-w-0">{hideProject ? "Job / Board" : "Job / Project"}</span>
+                        <span className="min-w-0">Manufacturer</span>
+                        <span className="min-w-0">Status</span>
+                        <span className="min-w-0 text-right">Ordered</span>
+                        <span className="min-w-0">Yield</span>
+                        <span className="min-w-0">Defects</span>
+                        <span className="hidden min-w-0 xl:block">Created</span>
+                        <span className="min-w-0 text-right">Updated</span>
+                    </div>
+
+                    <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto" onKeyDown={handleKeyDown}>
+                        {groups.map((group) => (
+                            <div key={group.key}>
+                                {filters.group !== "none" && (
+                                    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-muted/60 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                                        <span className="truncate">{group.label}</span>
+                                        <span className="shrink-0 tabular-nums">{group.runs.length}</span>
+                                    </div>
+                                )}
+                                {group.runs.map((run) => (
+                                    <RunRow
+                                        key={run.id}
+                                        run={run}
+                                        selected={selectedId === run.id}
+                                        hideProject={hideProject}
+                                        onOpen={onOpen}
+                                    />
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+
+    // A page: a header band with the title and its actions, one toolbar row under it, and
+    // the table below. Matches the Library tabs.
+    if (title) {
+        return (
+            <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+                <header className="shrink-0 border-b bg-card">
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                            {icon}
+                            <h2 className="text-lg font-semibold">{title}</h2>
+                        </div>
+                        {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 border-t px-4 py-2">
+                        {chips}
+                        {searchAndView}
+                        {actions && <div className="ml-auto">{actions}</div>}
+                    </div>
+                </header>
+                <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-3">{table}</div>
+            </div>
+        );
+    }
+
     return (
         <div className={cn("flex min-h-0 flex-1 flex-col gap-3", className)}>
             <div className="flex flex-wrap items-center gap-2">
-                <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-1">
-                    {CHIPS.map((chip) => {
-                        const pressed = filters.status === chip.value;
-                        return (
-                            <button
-                                key={chip.value}
-                                type="button"
-                                aria-pressed={pressed}
-                                onClick={() => set({ status: chip.value })}
-                                className={cn(
-                                    "flex items-center gap-1.5 border px-2.5 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    pressed
-                                        ? "border-primary bg-secondary font-medium"
-                                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-                                )}
-                            >
-                                {chip.label}
-                                <span className="text-xs tabular-nums text-muted-foreground">{counts[chip.value]}</span>
-                            </button>
-                        );
-                    })}
-                </div>
-                <button
-                    type="button"
-                    aria-pressed={filters.openDefectsOnly}
-                    onClick={() => set({ openDefectsOnly: !filters.openDefectsOnly })}
-                    className={cn(
-                        "flex items-center gap-1.5 border px-2.5 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        filters.openDefectsOnly
-                            ? "border-destructive bg-destructive/10 font-medium text-destructive"
-                            : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-                    )}
-                >
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Open defects
-                    <span className="text-xs tabular-nums">{openDefectRuns}</span>
-                </button>
+                {chips}
                 {actions && <div className="ml-auto">{actions}</div>}
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-                <div className="relative w-full max-w-sm">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                        type="search"
-                        aria-label="Search production"
-                        placeholder="Search job, project, manufacturer..."
-                        className="h-8 pl-8"
-                        value={filters.query}
-                        onChange={(e) => set({ query: e.target.value })}
-                    />
-                </div>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm">
-                            <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" />
-                            View
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                        <DropdownMenuLabel>Group by</DropdownMenuLabel>
-                        <DropdownMenuRadioGroup
-                            value={filters.group}
-                            onValueChange={(value) => set({ group: value as GroupBy })}
-                        >
-                            {(Object.keys(GROUP_LABELS) as GroupBy[]).map((g) => (
-                                <DropdownMenuRadioItem key={g} value={g}>
-                                    {GROUP_LABELS[g]}
-                                </DropdownMenuRadioItem>
-                            ))}
-                        </DropdownMenuRadioGroup>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-                        <DropdownMenuRadioGroup
-                            value={filters.sort}
-                            onValueChange={(value) => set({ sort: value as SortKey })}
-                        >
-                            {(Object.keys(SORT_LABELS) as SortKey[]).map((s) => (
-                                <DropdownMenuRadioItem key={s} value={s}>
-                                    {SORT_LABELS[s]}
-                                </DropdownMenuRadioItem>
-                            ))}
-                        </DropdownMenuRadioGroup>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
-
-            <div className="flex min-h-0 flex-1 flex-col border">
-                {loading ? (
-                    <div className="p-6 text-sm text-muted-foreground">Loading production...</div>
-                ) : runs.length === 0 ? (
-                    <div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
-                        <Factory className="h-8 w-8 opacity-50" />
-                        <p className="text-sm">No production yet.</p>
-                        {emptyAction}
-                    </div>
-                ) : visible.length === 0 ? (
-                    <div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted-foreground">
-                        <p>No production matches these filters.</p>
-                        {narrowed && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                    onFiltersChange({
-                                        ...filters,
-                                        status: DEFAULT_FILTERS.status,
-                                        query: "",
-                                        openDefectsOnly: false,
-                                    })
-                                }
-                            >
-                                Clear filters
-                            </Button>
-                        )}
-                    </div>
-                ) : (
-                    <>
-                        <div
-                            className={cn(
-                                "hidden shrink-0 gap-3 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground lg:grid",
-                                GRID_LG,
-                                GRID_XL,
-                            )}
-                        >
-                            <span className="min-w-0">{hideProject ? "Job / Board" : "Job / Project"}</span>
-                            <span className="min-w-0">Manufacturer</span>
-                            <span className="min-w-0">Status</span>
-                            <span className="min-w-0 text-right">Ordered</span>
-                            <span className="min-w-0">Yield</span>
-                            <span className="min-w-0">Defects</span>
-                            <span className="hidden min-w-0 xl:block">Created</span>
-                            <span className="min-w-0 text-right">Updated</span>
-                        </div>
-
-                        <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto" onKeyDown={handleKeyDown}>
-                            {groups.map((group) => (
-                                <div key={group.key}>
-                                    {filters.group !== "none" && (
-                                        <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-muted/60 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
-                                            <span className="truncate">{group.label}</span>
-                                            <span className="shrink-0 tabular-nums">{group.runs.length}</span>
-                                        </div>
-                                    )}
-                                    {group.runs.map((run) => (
-                                        <RunRow
-                                            key={run.id}
-                                            run={run}
-                                            selected={selectedId === run.id}
-                                            hideProject={hideProject}
-                                            onOpen={onOpen}
-                                        />
-                                    ))}
-                                </div>
-                            ))}
-                        </div>
-                    </>
-                )}
-            </div>
+            <div className="flex flex-wrap items-center gap-2">{searchAndView}</div>
+            {table}
         </div>
     );
 }
