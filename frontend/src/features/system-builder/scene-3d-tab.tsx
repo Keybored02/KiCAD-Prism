@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Activity, Box, Cpu, Keyboard, Loader2, Maximize, Move3d, Spline, Tag } from "lucide-react";
+import { Activity, Box, Cable, Cpu, Keyboard, Loader2, Maximize, Move3d, Spline, Tag } from "lucide-react";
 
 import { DesignSearchField } from "@/components/design-search-field";
 import { Semantic3dControls } from "@/components/semantic-3d-controls";
@@ -144,6 +144,7 @@ export function Scene3dTab(props: SystemTabProps) {
   const [rail, setRail] = useState<RailTab | null>(null);
   const [stats, setStats] = useState(false);
   const [labels, setLabels] = useState(true);
+  const [harnesses, setHarnesses] = useState(true);
   const moving = useMoveMode(viewer, { systemId, etag, reload });
   const { move } = moving;
   const nets = useNetHighlight(systemId, etag);
@@ -283,6 +284,15 @@ export function Scene3dTab(props: SystemTabProps) {
           >
             <Tag className="size-4" aria-hidden /> Labels
           </Button>
+          {(scene?.harnesses?.length ?? 0) > 0 && (
+            <Button
+              variant={harnesses ? "secondary" : "ghost"} size="sm" aria-pressed={harnesses}
+              title="Harnesses, drawn as straight lines between their connectors until their routes are modelled"
+              onClick={() => { setHarnesses(!harnesses); viewer?.setHarnessesVisible?.(!harnesses); }}
+            >
+              <Cable className="size-4" aria-hidden /> Harnesses
+            </Button>
+          )}
           <Button
             variant={stats ? "secondary" : "ghost"} size="sm" aria-pressed={stats} title="Scene statistics (`)"
             onClick={() => { setStats(!stats); viewer?.setStatsOverlay?.(!stats); }}

@@ -32,6 +32,7 @@ import { SceneRenderer } from "./scene-renderer.js";
 import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
 import { collectStackupViaData } from "./stackup-vias.js";
 import { SvgDomSchematicRenderer } from "./svg-dom-schematic-renderer.js";
+import { harnessKey, harnessSegments, hubPoint, litEnds, litHarnessWires, segmentColor } from "./system-harness.js";
 import { allReadyBoardsDrawn, assetOccurrenceMatrix, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
@@ -71,6 +72,7 @@ let modeSwitchEl;
 let systemLabelsEl;
 let moveGizmoEl;
 let systemHelpEl;
+let systemHarnessEl;
 
 const query = (selector) => viewerRoot.querySelector(selector);
 const queryAll = (selector) => viewerRoot.querySelectorAll(selector);
@@ -103,6 +105,7 @@ function resolveDom(root = document) {
   systemLabelsEl = query("#system-labels");
   moveGizmoEl = query("#move-gizmo");
   systemHelpEl = query("#system-help");
+  systemHarnessEl = query("#system-harnesses");
   appEl.classList.add("workspace-pcb");
 }
 
@@ -1379,6 +1382,11 @@ export async function mountSystemViewer(options = {}) {
     // A selected stand-in board (it has no board of its own), or null.
     standInKey: null,
     showLabels: true,
+    // SB2-34: proxy harnesses from the descriptor, their lit wires, and the drawn overlay.
+    harnesses: [],
+    harnessLit: new Map(),
+    showHarnesses: true,
+    harnessDrawn: null,
     // SB2-30: when the first descriptor arrived and when every ready board was first drawn.
     timing: { descriptorAt: null, boardsDrawnAt: null },
     boards: new Map(),
@@ -1427,6 +1435,11 @@ export async function mountSystemViewer(options = {}) {
       if (systemLabelsEl) systemLabelsEl.hidden = !system.showLabels;
     },
     setHelpVisible: setSystemHelpVisible,
+    setHarnessesVisible(visible) {
+      if (!system) return;
+      system.showHarnesses = Boolean(visible);
+      system.harnessDrawn = null;
+    },
     frameBoard(key) {
       const item = system?.placements.get(String(key));
       if (item) camera.frame(item.worldBounds);
@@ -1496,6 +1509,8 @@ function setSystemScene(descriptor) {
     system.move.target = null;
   } else if (!system.move.drag && samePose(system.move.preview, target.pose)) system.move.preview = null;
   system.descriptor = shownDescriptor();
+  system.harnesses = Array.isArray(descriptor.harnesses) ? descriptor.harnesses : [];
+  system.harnessDrawn = null;
   const live = new Set();
   for (const asset of descriptor.assets || []) {
     live.add(asset.assetId);
@@ -1567,6 +1582,8 @@ async function loadSystemBoard(b, token) {
 function placeSystem({ relabel = true } = {}) {
   const descriptor = system?.descriptor;
   if (!descriptor) return;
+  // Harness anchors follow the boards (loaded, moved, previewed).
+  system.harnessDrawn = null;
   const selectedKey = selectedPlacementKey();
   const assetsById = new Map((descriptor.assets || []).map((asset) => [asset.assetId, asset]));
   const groups = new Map();
@@ -1713,6 +1730,7 @@ function frameSystem(now, token) {
   system.scene.render(panel, (renderer) => inputs.get(renderer) || standInInputs(now));
   drawGizmo();
   updateSystemLabels();
+  updateSystemHarnesses();
   updateMoveGizmo();
   if (system.timing.boardsDrawnAt == null && allReadyBoardsDrawn(system.placed)) system.timing.boardsDrawnAt = performance.now();
   for (const b of systemBoards()) manageTiers(now, b);
@@ -1958,6 +1976,9 @@ function setNetEmphasis(sets) {
       color: `#${(mark & 0xffffff).toString(16).padStart(6, "0")}`,
       members: (Array.isArray(set?.members) ? set.members : [])
         .filter((member) => member && typeof member.occurrence === "string" && typeof member.net === "string"),
+      // SB2-34: harness wires the net runs through, `{harness, wire, occurrence?}`.
+      wires: (Array.isArray(set?.wires) ? set.wires : [])
+        .filter((ref) => ref && typeof ref.harness === "string" && typeof ref.wire === "string"),
     };
   });
   const report = applySystemEmphasis();
@@ -2010,6 +2031,12 @@ function applySystemEmphasis() {
     }
     return result;
   });
+  system.harnessLit = litHarnessWires(system.harnesses, system.emphasisSets);
+  system.harnessDrawn = null;
+  for (const result of report) {
+    result.wires = 0;
+    for (const wires of system.harnessLit.values()) for (const color of wires.values()) if (color === result.color) result.wires += 1;
+  }
   const lit = system.emphasisSets.length > 0;
   for (const b of systemBoards()) b.renderer.setOccurrenceEmphasis(lit ? rows.get(b.key) || null : null, { dimCopper: lit });
   if (state.isolateNet) for (const b of systemBoards()) refreshBoardLayers(b);
@@ -2409,6 +2436,92 @@ function handleSystemKey(event, key) {
 
 function setSystemHelpVisible(visible) {
   if (systemHelpEl) systemHelpEl.hidden = !visible;
+}
+
+// ----- proxy harnesses (SB2-34) ----------------------------------------------------
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** An end's anchor in world space: its connector's centre, else its board's box centre. */
+function harnessAnchor(end) {
+  const item = end.occurrence ? system.placements.get(end.occurrence) : null;
+  if (!item) return null;
+  const component = end.reference && item.board ? item.board.scene.componentFeatures.get(end.reference) : null;
+  const bounds = component ? item.board.scene.features.get(Number(component.featureId))?.bounds : null;
+  if (bounds) return transformPoint(item.matrix, [0, 1, 2].map((k) => (bounds[k] + bounds[k + 3]) / 2));
+  const box = item.worldBounds;
+  return box ? [0, 1, 2].map((k) => (box[k] + box[k + 3]) / 2) : null;
+}
+
+/** Build the overlay's elements: a line per segment, a dot per end, coloured by what is lit. */
+function buildHarnessOverlay() {
+  const emphasis = system.emphasisSets.length > 0;
+  const drawn = [];
+  const nodes = [];
+  for (const harness of system.showHarnesses ? system.harnesses : []) {
+    const lit = system.harnessLit.get(harnessKey(harness));
+    const glowing = litEnds(harness, lit);
+    const anchors = new Map(harness.ends.map((end) => [end.id, harnessAnchor(end)]));
+    anchors.set("hub", harness.ends.length > 2 ? hubPoint([...anchors.values()]) : null);
+    const title = harness.name || "Harness";
+    for (const segment of harnessSegments(harness)) {
+      const color = segmentColor(segment, lit);
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("class", `segment${color ? " lit" : emphasis ? " dim" : ""}`);
+      if (color) Object.assign(line.style, { stroke: color, color });
+      const label = document.createElementNS(SVG_NS, "title");
+      label.textContent = `${title}: ${segment.wires.size} wire${segment.wires.size === 1 ? "" : "s"}`;
+      line.append(label);
+      nodes.push(line);
+      drawn.push({ node: line, kind: "line", a: anchors.get(segment.a), b: anchors.get(segment.b) });
+    }
+    for (const end of harness.ends) {
+      const color = glowing.get(end.id);
+      const dot = document.createElementNS(SVG_NS, "circle");
+      dot.setAttribute("class", `end${color ? " lit" : emphasis ? " dim" : ""}`);
+      dot.setAttribute("r", color ? "6" : "4");
+      if (color) dot.style.fill = color;
+      nodes.push(dot);
+      drawn.push({ node: dot, kind: "dot", a: anchors.get(end.id) });
+    }
+  }
+  systemHarnessEl.replaceChildren(...nodes);
+  system.harnessDrawn = { items: drawn, matrix: null };
+}
+
+/** Project the overlay for this frame; only when the view or the scene moved. */
+function updateSystemHarnesses() {
+  if (!systemHarnessEl || !panel) return;
+  if (!system.harnessDrawn) buildHarnessOverlay();
+  const drawn = system.harnessDrawn;
+  systemHarnessEl.toggleAttribute("hidden", !drawn.items.length);
+  // A moved board (preview) rebuilds `harnessDrawn`; otherwise only the camera moves the overlay.
+  const matrix = panel.matrix.join(",");
+  if (drawn.matrix === matrix) return;
+  drawn.matrix = matrix;
+  const rect = canvas.getBoundingClientRect();
+  const sx = rect.width / Math.max(1, canvas.width);
+  const sy = rect.height / Math.max(1, canvas.height);
+  const screen = (point) => {
+    const pixel = point ? projectToViewport(panel.matrix, point, panel.viewport) : null;
+    return pixel ? [pixel.x * sx, pixel.y * sy] : null;
+  };
+  for (const item of drawn.items) {
+    const a = screen(item.a);
+    const b = item.kind === "line" ? screen(item.b) : null;
+    const shown = item.kind === "line" ? Boolean(a && b) : Boolean(a);
+    item.node.style.display = shown ? "" : "none";
+    if (!shown) continue;
+    if (item.kind === "line") {
+      item.node.setAttribute("x1", a[0].toFixed(1));
+      item.node.setAttribute("y1", a[1].toFixed(1));
+      item.node.setAttribute("x2", b[0].toFixed(1));
+      item.node.setAttribute("y2", b[1].toFixed(1));
+    } else {
+      item.node.setAttribute("cx", a[0].toFixed(1));
+      item.node.setAttribute("cy", a[1].toFixed(1));
+    }
+  }
 }
 
 // ----- board labels -------------------------------------------------------------

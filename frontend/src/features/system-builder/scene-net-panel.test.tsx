@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { SystemNetDetail } from "@/types/system";
 
-import { MAX_HIGHLIGHTED_NETS, emphasisSets, netBoards, unlitSummary } from "./scene-net-model";
+import { MAX_HIGHLIGHTED_NETS, emphasisSets, harnessWires, netBoards, unlitSummary } from "./scene-net-model";
 import { NetPanel } from "./scene-net-panel";
 
 const spi: SystemNetDetail = {
@@ -17,6 +17,21 @@ const spi: SystemNetDetail = {
 };
 
 describe("net emphasis model", () => {
+  it("passes the harness wires a net runs through, with a board each reaches (SB2-34)", () => {
+    const end = (occurrence: string | null) => ({ occurrence, reference: occurrence ? "J1" : null, pad: "1" });
+    const harnessed: SystemNetDetail = { ...spi, hops: [
+      { kind: "row", linkId: "l1", from: end("/sin_obc"), to: end("/sin_cmbd") },
+      { kind: "wire", harnessId: "shn_1", wireId: "shw_1", from: end(null), to: end("/sin_psu") },
+      { kind: "wire", harnessId: "shn_1", wireId: "shw_2", from: end("/sin_obc"), to: end("/sin_psu") },
+    ] };
+    expect(harnessWires(harnessed)).toEqual([
+      { harness: "shn_1", wire: "shw_1", occurrence: "/sin_psu" },
+      { harness: "shn_1", wire: "shw_2", occurrence: "/sin_obc" },
+    ]);
+    expect(emphasisSets([harnessed])[0].wires).toHaveLength(2);
+    expect("wires" in emphasisSets([spi])[0]).toBe(false);
+  });
+
   it("lights every visible member and skips restricted ones", () => {
     expect(emphasisSets([spi])).toEqual([{ key: "g_spi", members: [
       { occurrence: "/sin_obc", net: "/SPI_SCK" },

@@ -183,6 +183,41 @@ def _resolve_export(level: Level, export_id: str, depth: int = 0) -> Optional[tu
     return _resolve_export(child, target["exportId"], depth + 1) if child else None
 
 
+def _locate(level: Level, mates: tuple[str, str, str]) -> Optional[tuple[str, str, str]]:
+    """A mated end's board occurrence, port key and reference; exports are followed down."""
+    instance_id, key, reference = mates
+    if level.kinds.get(instance_id, "board") == "assembly":
+        child = level.children.get(instance_id)
+        return _resolve_export(child, key) if child else None
+    return f"{level.prefix}/{instance_id}", key, reference
+
+
+def harness_layout(root: Level) -> list[dict]:
+    """Every harness of the tree for the scene (SB2-34): its ends located on board occurrences
+    (``occurrence``/``reference`` null for an unmated end or an export that does not resolve) and
+    its wires as end pairs. ``level`` is the system the harness belongs to ("" for the root), so two
+    copies of a child system give two harnesses with the same ``id``."""
+    out: list[dict] = []
+
+    def walk(level: Level) -> None:
+        for harness in level.harnesses:
+            ends, wires = _harness(harness)
+            located = {end_id: _locate(level, end["mates"]) if end["mates"] else None for end_id, end in ends.items()}
+            out.append({
+                "id": harness["id"], "level": level.prefix, "name": harness.get("name") or "",
+                "ends": [{"id": end_id, "ordinal": end["ordinal"],
+                          "occurrence": located[end_id][0] if located[end_id] else None,
+                          "reference": (located[end_id][2] or None) if located[end_id] else None}
+                         for end_id, end in sorted(ends.items(), key=lambda item: item[1]["ordinal"])],
+                "wires": [{"id": wire["id"], "from": wire["from"][0], "to": wire["to"][0]} for wire in wires],
+            })
+        for child in level.children.values():
+            walk(child)
+
+    walk(root)
+    return out
+
+
 def _harness(harness: Mapping[str, Any]) -> tuple[dict[str, dict], list[dict]]:
     """``(end ID -> {ordinal, mates, pinMap}, wires)`` for store rows or manifest harnesses; ``mates`` is
     ``(instance ID, port key or export ID, reference)`` or None."""
@@ -254,14 +289,6 @@ def build(root: Level) -> list[Group]:
             find(key)
         return keys
 
-    def locate(level: Level, mates: tuple[str, str, str]) -> Optional[tuple[str, str, str]]:
-        """A mated end's board occurrence, port key and reference; exports are followed down."""
-        instance_id, key, reference = mates
-        if level.kinds.get(instance_id, "board") == "assembly":
-            child = level.children.get(instance_id)
-            return _resolve_export(child, key) if child else None
-        return f"{level.prefix}/{instance_id}", key, reference
-
     def walk(level: Level) -> None:
         for link in level.links:
             ends = {}
@@ -292,7 +319,7 @@ def build(root: Level) -> list[Group]:
                 }))
         for harness in level.harnesses:
             ends, wires = _harness(harness)
-            located = {end_id: locate(level, end["mates"]) if end["mates"] else None for end_id, end in ends.items()}
+            located = {end_id: _locate(level, end["mates"]) if end["mates"] else None for end_id, end in ends.items()}
             for wire in wires:
                 sides = []
                 for (end_id, pin), nets in ((wire["from"], wire["netFrom"]), (wire["to"], wire["netTo"])):

@@ -108,3 +108,23 @@ def build(
         "assets": sorted(assets.values(), key=lambda a: a["assetId"]),
         "occurrences": out,
     }
+
+
+def redact_harnesses(harnesses: Sequence[Mapping[str, Any]], shown: Mapping[str, Mapping[str, Any]]) -> list[dict]:
+    """The scene's proxy harnesses (SB2-34) for this reader. A harness inside a child system the
+    reader cannot open is left out. An end on a restricted board keeps the board (its box is drawn)
+    but not the connector; an end on a board the reader cannot see at all has no occurrence."""
+    out = []
+    for harness in harnesses:
+        level = harness["level"]
+        if level and (level not in shown or shown[level]["restricted"]):
+            continue
+        ends = []
+        for end in harness["ends"]:
+            entry = shown.get(end["occurrence"]) if end["occurrence"] else None
+            ends.append({"id": end["id"], "ordinal": end["ordinal"],
+                         "occurrence": end["occurrence"] if entry else None,
+                         "reference": end["reference"] if entry and not entry["restricted"] else None})
+        out.append({"id": harness["id"], "level": level or None, "name": harness["name"], "ends": ends,
+                    "wires": [dict(wire) for wire in harness["wires"]]})
+    return out

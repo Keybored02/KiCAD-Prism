@@ -11,8 +11,9 @@ import unittest
 from pathlib import Path
 
 from test_system_import import DESIGNER, ImportCase
+from test_system_snapshots import VIEWER
 
-from app.services.systems import system_nets
+from app.services.systems import scene as scene_module, system_nets
 
 GOLDEN = json.loads((Path(__file__).resolve().parent / "fixtures" / "system_builder" / "p2" / "goldens"
                      / "harness_splice_nets.json").read_text())
@@ -75,6 +76,48 @@ class HarnessNetsTest(ImportCase):
         free = [h for h in group["hops"] if h["kind"] == "wire" and None in (h["from"]["occurrence"], h["to"]["occurrence"])]
         self.assertEqual(len(free), 2)
         self.assertTrue(all((h["to"] if h["to"]["occurrence"] is None else h["from"])["end"] == "End 4" for h in free))
+
+
+class SceneHarnessTest(ImportCase):
+    """SB2-34: the scene lists each harness with its ends on board occurrences, for the proxies."""
+
+    def test_the_scene_places_harness_ends_on_their_connectors(self) -> None:
+        self.assertEqual(self.service.scene(VIEWER, self.sid)["harnesses"], [])
+        harness = self.service.harness_from_label(DESIGNER, self.sid, self.version(), "WH-001").body
+        [listed] = self.service.scene(VIEWER, self.sid)["harnesses"]
+        self.assertEqual((listed["id"], listed["name"], listed["level"]), (harness["id"], "WH-001", None))
+        paths = {o["displayPath"]: o["path"] for o in self.service.scene(VIEWER, self.sid)["occurrences"]}
+        by_end = {e["id"]: e for e in harness["ends"]}
+        self.assertEqual([(e["ordinal"], e["occurrence"], e["reference"]) for e in listed["ends"]],
+                         [(by_end[e["id"]]["ordinal"], f"/{by_end[e['id']]['mates']['instanceId']}",
+                           by_end[e["id"]]["mates"]["port"]["reference"]) for e in listed["ends"]])
+        self.assertTrue(all(e["occurrence"] in paths.values() for e in listed["ends"]))
+        self.assertEqual(sorted((w["id"], w["from"], w["to"]) for w in listed["wires"]),
+                         sorted((w["id"], w["from"]["end"], w["to"]["end"]) for w in harness["wires"]))
+
+
+class SceneHarnessRedactionTest(unittest.TestCase):
+    harness = {"id": "shw_1", "level": "", "name": "W1", "wires": [{"id": "w1", "from": "e1", "to": "e2"}], "ends": [
+        {"id": "e1", "ordinal": 0, "occurrence": "/sin_a", "reference": "J1"},
+        {"id": "e2", "ordinal": 1, "occurrence": "/sin_b", "reference": "J2"},
+        {"id": "e3", "ordinal": 2, "occurrence": None, "reference": None},
+    ]}
+
+    def test_restricted_boards_keep_the_box_not_the_connector(self) -> None:
+        shown = {"/sin_a": {"restricted": False}, "/sin_b": {"restricted": True}}
+        [out] = scene_module.redact_harnesses([self.harness], shown)
+        self.assertEqual([(e["occurrence"], e["reference"]) for e in out["ends"]],
+                         [("/sin_a", "J1"), ("/sin_b", None), (None, None)])
+        # A board the reader cannot see at all is no anchor.
+        [out] = scene_module.redact_harnesses([self.harness], {"/sin_a": {"restricted": False}})
+        self.assertEqual(out["ends"][1]["occurrence"], None)
+
+    def test_a_hidden_child_systems_harnesses_are_left_out(self) -> None:
+        inner = {**self.harness, "level": "/sin_child"}
+        self.assertEqual(scene_module.redact_harnesses([inner], {"/sin_child": {"restricted": True}}), [])
+        self.assertEqual(scene_module.redact_harnesses([inner], {}), [])
+        [out] = scene_module.redact_harnesses([inner], {"/sin_child": {"restricted": False}})
+        self.assertEqual(out["level"], "/sin_child")
 
 
 class ManifestHarnessTest(unittest.TestCase):
