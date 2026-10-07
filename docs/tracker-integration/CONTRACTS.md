@@ -275,7 +275,11 @@ attribution renders as *Requested by: <display> (Prism, unverified)*.
 **Compatibility.** `comments.json` `meta.version` becomes `1.1` (additive:
 `authorUserId`, `authorKind`, `anchor`, reply `id`/`revision`). Import of 1.0
 files yields legacy rows. Desktop consumers (KiCad plugin, REST source URLs)
-ignore unknown fields; nothing is removed.
+ignore unknown fields; nothing is removed. Rich comments (#417) add, still
+within 1.1, `contentFormat` (`plain` | `md`) on roots and replies and
+`attachments[]` (`id`, `filename`, `mediaType`, `size`, `sha256`, `path`); the
+referenced files are written beside the JSON under `.comments/attachments/`,
+with `.comments/threads/<id>.md` renderings. `plain` bodies are unchanged.
 
 **Fixtures.** F1 `duplicate_display_names`, `empty_user_id_session`,
 `service_identity`, `legacy_admin_only`; F2 (all).

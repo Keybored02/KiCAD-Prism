@@ -338,6 +338,40 @@ class InboundPostgresTests(unittest.TestCase):
         self.assertEqual(row["author"], HUMAN_LOGIN)
         assert_inbound_suppresses_outbound(self.conn, before=before)
 
+    def test_rich_reply_maps_prism_image_urls_back(self) -> None:  # issue #417
+        from unittest.mock import patch as _patch
+
+        from app.core.config import settings as _settings
+        from app.services.trackers import attachment_links
+
+        self._seed_project(project_id="prj_a", comment_id=COMMENT_ID, thread_id="tt_a")
+        attachment_id = "ab" * 16
+        self.conn.execute(
+            """INSERT INTO comment_attachments(id, project_id, comment_id, sha256, filename, media_type, size_bytes, state)
+               VALUES (%s, 'prj_a', %s, %s, 'snip.png', 'image/png', 3, 'attached')""",
+            (attachment_id, COMMENT_ID, "c" * 64),
+        )
+        from pydantic import SecretStr as _Secret
+
+        with _patch.object(_settings, "COMMENT_ATTACHMENT_LINK_SECRET", _Secret("k" * 48)), \
+             _patch.object(_settings, "PUBLIC_BASE_URL", "https://prism.example.com"):
+            url = attachment_links.signed_url("prj_a", attachment_id)
+            unknown = attachment_links.signed_url("prj_a", "cd" * 16)
+        body = f"Agreed, see ![snip.png]({url}) and ![x]({unknown})"
+        fetcher = CallableFetcher(comment=lambda *_args: _remote_comment(body=body))
+        hint = self._enqueue_hint(event="created")
+        with _patch.object(_settings, "COMMENT_ATTACHMENT_LINK_SECRET", _Secret("k" * 48)):
+            result = fetch_then_apply_hint(
+                self.conn, hint, fetcher=fetcher, inbox=self.inbox, ops=self.ops, store=self.store,
+                bot_user_id=BOT_ID, bot_login=BOT_LOGIN,
+            )
+        self.assertEqual(result.outcome, "applied")
+        row = self.conn.execute(
+            "SELECT content, content_format FROM comment_replies WHERE origin = 'remote'"
+        ).fetchone()
+        self.assertEqual(row["content_format"], "md")
+        self.assertEqual(row["content"], f"Agreed, see ![snip.png](attachment:{attachment_id}) and ![x]({unknown})")
+
     def test_f4_bot_body_edited_by_human(self) -> None:
         self._seed_project(project_id="prj_a", comment_id=COMMENT_ID, thread_id="tt_a")
         original = "bot mirrored body"

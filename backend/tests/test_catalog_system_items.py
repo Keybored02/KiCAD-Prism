@@ -10,9 +10,14 @@ import uuid
 from pathlib import Path
 
 from app.api.catalog_admin import router as catalog_router
+from app.api.catalog_system_items import router as system_items_router
 from app.core.roles import CATALOG_BROWSE_ROLES, CATALOG_READ_ROLES
 from app.services.catalog import system_items
+from app.services.catalog.locking import NoopCatalogLocks
+from app.services.catalog.postgres_runtime import PostgresCatalogRuntime
+from app.services.catalog.revision_kernel import CatalogRevisionKernel
 
+CATALOG_ROUTES = [*catalog_router.routes, *system_items_router.routes]
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
 
 INTERFACE = {"schema": "prism.system_export_interface.v1", "exports": [
@@ -59,18 +64,18 @@ class ViewerBrowseRoutesTest(unittest.TestCase):
 
     def test_exactly_the_browse_routes_admit_viewers(self) -> None:
         self.assertEqual(CATALOG_BROWSE_ROLES - CATALOG_READ_ROLES, {"viewer"})
-        opened = {(sorted(r.methods)[0], r.path) for r in catalog_router.routes
+        opened = {(sorted(r.methods)[0], r.path) for r in CATALOG_ROUTES
                   if self.dependency(r) == "require_catalog_browser"}
         self.assertEqual(opened, self.BROWSE)
-        for method, path in {(sorted(r.methods)[0], r.path) for r in catalog_router.routes} - self.BROWSE:
+        for method, path in {(sorted(r.methods)[0], r.path) for r in CATALOG_ROUTES} - self.BROWSE:
             if method != "GET":
                 continue
             with self.subTest(route=path):
-                route = next(r for r in catalog_router.routes if r.path == path and "GET" in r.methods)
+                route = next(r for r in CATALOG_ROUTES if r.path == path and "GET" in r.methods)
                 self.assertNotEqual(self.dependency(route), "require_catalog_browser")
         for sensitive in ("/api/catalog/inventory/export.csv", "/api/catalog/health", "/api/catalog/import-sessions",
                           "/api/catalog/jobs/{job_id}", "/api/catalog/validation/runs/{run_id}"):
-            route = next(r for r in catalog_router.routes if r.path == sensitive)
+            route = next(r for r in CATALOG_ROUTES if r.path == sensitive)
             self.assertEqual(self.dependency(route), "require_catalog_reader", sensitive)
 
 
@@ -93,7 +98,7 @@ class SystemItemsTest(unittest.TestCase):
         self.tempdir.cleanup()
 
     def assembly(self, **ref) -> dict:
-        created = self.service.create_system_item(
+        created = self.service.system_items.create_system_item(
             kind="assembly", ipn=f"IPN-{uuid.uuid4().hex[:8]}", name="CNDH Stack", description="2x OBC on CMBD",
             manufacturer="In-house", datasheet_url="https://prism.example/systems/sys_x",
             interface=INTERFACE, source_ref=source_ref(**ref), actor="author@example.com",
@@ -124,10 +129,10 @@ class SystemItemsTest(unittest.TestCase):
         self.release(created["componentId"])
         component = self.service.get_component(created["componentId"])
         self.assertEqual(component["release_status"], "released")
-        self.assertNotIn(created["componentId"],
-                         [c["id"] for c in self.service._released_place_ready_components()])
+        # Not a KiCad library part, so the DBL export and the provider leave it out.
+        self.assertFalse(system_items.is_library_part(component))
 
-        again = self.service.add_system_revision(created["componentId"], interface=INTERFACE,
+        again = self.service.system_items.add_system_revision(created["componentId"], interface=INTERFACE,
                                                  source_ref=source_ref(snapshotId="ssn_" + "c" * 32),
                                                  actor="author@example.com")
         self.assertNotEqual(again["revisionId"], created["revisionId"])
@@ -162,7 +167,7 @@ class SystemItemsTest(unittest.TestCase):
         )
         self.created.append(str(part["id"]))
         with self.assertRaises(ValueError):
-            self.service.add_system_revision(str(part["id"]), interface=INTERFACE, source_ref=source_ref())
+            self.service.system_items.add_system_revision(str(part["id"]), interface=INTERFACE, source_ref=source_ref())
 
     def test_new_columns_do_not_change_existing_revision_hashes(self) -> None:
         """An empty payload is left out of the manifest, so pre-migration hashes still verify."""
@@ -171,8 +176,8 @@ class SystemItemsTest(unittest.TestCase):
             manufacturer_part_number=f"PG-{uuid.uuid4().hex[:8]}", actor="author@example.com",
         )
         self.created.append(str(part["id"]))
-        kernel = self.service._revision_kernel
-        with self.service._connect() as conn:
+        kernel = CatalogRevisionKernel(NoopCatalogLocks())
+        with PostgresCatalogRuntime(database_url=POSTGRES_URL).connect() as conn:
             revision_id = conn.execute("SELECT current_revision_id FROM components WHERE id = %s",
                                        (str(part["id"]),)).fetchone()["current_revision_id"]
             row = kernel.revision_row(conn, revision_id)
@@ -193,6 +198,14 @@ class SystemItemsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             system_items.item_metadata(kind="assembly", ipn=" ", name="n", description="d", manufacturer="m",
                                        datasheet_url="https://x")
+
+
+class LibraryPartTest(unittest.TestCase):
+    def test_only_parts_are_kicad_library_parts(self) -> None:
+        self.assertTrue(system_items.is_library_part({"kind": "part"}))
+        self.assertTrue(system_items.is_library_part({}), "rows from before kinds are parts")
+        self.assertFalse(system_items.is_library_part({"kind": "module"}))
+        self.assertFalse(system_items.is_library_part({"kind": "assembly"}))
 
 
 if __name__ == "__main__":

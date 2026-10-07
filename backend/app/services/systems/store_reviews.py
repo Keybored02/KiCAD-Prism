@@ -1,0 +1,377 @@
+"""Reviews, snapshots, import sessions, audit history, layout, the interface cache and detection bookkeeping."""
+
+from __future__ import annotations
+
+from typing import Any, Mapping, Optional, Sequence
+
+from psycopg.types.json import Jsonb
+
+from app.services.systems.store_base import (
+    HARNESS_END_PREFIX, NotFound, Conflict, Invalid, new_id, _given_id, _nets, Mutation,
+)
+
+
+class ReviewsStore:
+    # ------------------------------------------------------------------
+    # Reviews (§5, §6.2, §6.5, §10.1)
+
+    def open_source_review(self, instance_id: str) -> Optional[dict]:
+        """The instance's open ``source_update``, ``baseline_unreachable`` or ``child_update`` review."""
+        row = self.conn.execute(
+            """
+            SELECT * FROM system_reviews
+            WHERE instance_id = %s AND status = 'open'
+              AND kind IN ('source_update', 'baseline_unreachable', 'child_update')
+            """,
+            (instance_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def open_review(
+        self, change: Mutation, *, instance_id: Optional[str], kind: str,
+        from_commit: Optional[str], to_commit: Optional[str],
+        items: Sequence[Mapping[str, Any]] = (),
+        pending_changes: Mapping[str, Any] | None = None,
+    ) -> dict:
+        """Create an open review with its items, in order, and audit it."""
+        review_id = new_id("srv_")
+        self.conn.execute(
+            """
+            INSERT INTO system_reviews
+                (id, system_id, instance_id, kind, from_commit, to_commit, pending_changes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (review_id, change.system_id, instance_id, kind, from_commit, to_commit,
+             Jsonb(dict(pending_changes or {}))),
+        )
+        for ordinal, item in enumerate(items):
+            self.conn.execute(
+                """
+                INSERT INTO system_review_items
+                    (id, review_id, ordinal, kind, link_id, link_end, row_ids,
+                     expected, observed, candidates)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (new_id("sri_"), review_id, ordinal, item["kind"], item.get("linkId"),
+                 item.get("end"), Jsonb(list(item.get("rowIds") or [])),
+                 Jsonb(item.get("expected")), Jsonb(item.get("observed")),
+                 None if item.get("candidates") is None else Jsonb(list(item["candidates"]))),
+            )
+        change.audit(
+            "review_opened",
+            {"reviewId": review_id, "instanceId": instance_id, "kind": kind,
+             "from": from_commit, "to": to_commit, "itemCount": len(items)},
+        )
+        return self.get_review(change.system_id, review_id)
+
+    def set_review_status(
+        self, change: Mutation, review_id: str, status: str, *, audit_kind: Optional[str] = None,
+        payload: Mapping[str, Any] | None = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            UPDATE system_reviews SET status = %s, decided_by = %s, decided_at = NOW()
+            WHERE id = %s AND system_id = %s
+            """,
+            (status, change.actor, review_id, change.system_id),
+        )
+        if audit_kind:
+            change.audit(audit_kind, {"reviewId": review_id, "status": status, **dict(payload or {})})
+
+    def set_item_decision(
+        self, change: Mutation, review_id: str, item_id: str, decision: str,
+        payload: Mapping[str, Any] | None,
+    ) -> None:
+        self.conn.execute(
+            """
+            UPDATE system_review_items SET decision = %s, decision_payload = %s
+            WHERE id = %s AND review_id = %s
+            """,
+            (decision, None if payload is None else Jsonb(dict(payload)), item_id, review_id),
+        )
+        change.audit(
+            "review_item_decided",
+            {"reviewId": review_id, "itemId": item_id, "decision": decision,
+             "payload": None if payload is None else dict(payload)},
+        )
+
+    def update_row_end(
+        self, change: Mutation, link_id: str, row_id: str, end: str, *,
+        pin: Optional[str] = None, nets: Sequence[str],
+    ) -> None:
+        """Set one end's accepted net set, and optionally its pin (§7.1)."""
+        if end not in ("a", "b"):
+            raise Invalid("end must be 'a' or 'b'")
+        if link_id.startswith(HARNESS_END_PREFIX):
+            self._update_wire_end(link_id, row_id, pin=pin, nets=nets)
+            return
+        try:
+            self.conn.execute(
+                f"""
+                UPDATE system_link_rows
+                SET pin_{end} = COALESCE(%s, pin_{end}), net_{end} = %s
+                WHERE id = %s AND link_id = %s
+                """,
+                (pin, Jsonb(_nets(nets)), row_id, link_id),
+            )
+        except Exception as error:
+            if getattr(error, "sqlstate", None) == "23505":
+                raise Conflict("the remapped row would duplicate another row") from None
+            raise
+
+    def delete_rows(self, change: Mutation, link_id: str, row_ids: Sequence[str]) -> None:
+        if link_id.startswith(HARNESS_END_PREFIX):
+            self.conn.execute("DELETE FROM system_harness_wires WHERE id = ANY(%s)"
+                              " AND (from_end = %s OR to_end = %s)", (list(row_ids), link_id, link_id))
+            return
+        self.conn.execute(
+            "DELETE FROM system_link_rows WHERE link_id = %s AND id = ANY(%s)",
+            (link_id, list(row_ids)),
+        )
+
+    def get_review(self, system_id: str, review_id: str) -> dict:
+        row = self.conn.execute(
+            "SELECT * FROM system_reviews WHERE system_id = %s AND id = %s", (system_id, review_id)
+        ).fetchone()
+        if row is None:
+            raise NotFound(review_id)
+        review = dict(row)
+        review["items"] = [
+            dict(item)
+            for item in self.conn.execute(
+                "SELECT * FROM system_review_items WHERE review_id = %s ORDER BY ordinal",
+                (review_id,),
+            ).fetchall()
+        ]
+        return review
+
+    def list_reviews(self, system_id: str, *, status: Optional[str] = None) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT id FROM system_reviews
+            WHERE system_id = %s AND (%s::text IS NULL OR status = %s::text)
+            ORDER BY created_at DESC, id
+            """,
+            (system_id, status, status),
+        ).fetchall()
+        return [self.get_review(system_id, row["id"]) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Snapshots (§9.1): immutable, stored unredacted
+
+    _SNAPSHOT_META = ("id, system_id, name, note, created_by, created_at, digest, open_review_count, "
+                      "renderer_version, manifest_schema, connectivity_digest")
+
+    def create_snapshot(
+        self, change: Mutation, *, name: str, note: str, document: Mapping[str, Any], digest: str,
+        open_review_count: int, renderer_version: str, snapshot_id: Optional[str] = None,
+        manifest: Optional[Mapping[str, Any]] = None, connectivity_digest: Optional[str] = None,
+    ) -> dict:
+        if not name.strip():
+            raise Invalid("name is required")
+        snapshot_id = _given_id("ssn_", snapshot_id)
+        row = self.conn.execute(
+            f"""
+            INSERT INTO system_snapshots
+                (id, system_id, name, note, created_by, document, digest, open_review_count, renderer_version,
+                 manifest, manifest_schema, connectivity_digest)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT ON CONSTRAINT system_snapshots_name_key DO NOTHING
+            RETURNING {self._SNAPSHOT_META}
+            """,
+            (snapshot_id, change.system_id, name.strip(), note, change.actor, Jsonb(dict(document)),
+             digest, int(open_review_count), renderer_version,
+             Jsonb(dict(manifest)) if manifest is not None else None,
+             manifest.get("schema") if manifest is not None else None, connectivity_digest),
+        ).fetchone()
+        if row is None:
+            raise Conflict(f"a snapshot named {name.strip()!r} already exists")
+        change.audit("snapshot_created", {"snapshotId": snapshot_id, "name": row["name"], "digest": digest})
+        return dict(row)
+
+    def list_snapshots(self, system_id: str) -> list[dict]:
+        rows = self.conn.execute(
+            f"SELECT {self._SNAPSHOT_META} FROM system_snapshots WHERE system_id = %s ORDER BY created_at DESC, id",
+            (system_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_snapshot(self, system_id: str, snapshot_id: str) -> dict:
+        row = self.conn.execute(
+            f"SELECT {self._SNAPSHOT_META}, document, manifest FROM system_snapshots WHERE system_id = %s AND id = %s",
+            (system_id, snapshot_id),
+        ).fetchone()
+        if row is None:
+            raise NotFound("Snapshot not found")
+        return dict(row)
+
+    # ------------------------------------------------------------------
+    # Import sessions (§9.3)
+
+    IMPORT_RETENTION_DAYS = 7
+
+    def create_import_session(
+        self, system_id: str, *, actor: str, filename: str, delimiter: str, content: str, row_count: int,
+    ) -> dict:
+        self.get_system(system_id)
+        self.conn.execute(
+            """
+            DELETE FROM system_import_sessions
+            WHERE system_id = %s AND committed_at IS NULL
+              AND created_at < NOW() - make_interval(days => %s)
+            """,
+            (system_id, self.IMPORT_RETENTION_DAYS),
+        )
+        row = self.conn.execute(
+            """
+            INSERT INTO system_import_sessions (id, system_id, created_by, filename, delimiter, content, row_count)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (new_id("sim_"), system_id, actor, filename, delimiter, content, int(row_count)),
+        ).fetchone()
+        return dict(row)
+
+    def get_import_session(self, system_id: str, import_id: str, *, lock: bool = False) -> dict:
+        row = self.conn.execute(
+            "SELECT * FROM system_import_sessions WHERE system_id = %s AND id = %s"
+            + (" FOR UPDATE" if lock else ""),
+            (system_id, import_id),
+        ).fetchone()
+        if row is None:
+            raise NotFound("Import not found")
+        return dict(row)
+
+    def mark_import_committed(self, change: Mutation, import_id: str, report: Mapping[str, Any]) -> None:
+        self.conn.execute(
+            "UPDATE system_import_sessions SET committed_at = NOW(), committed_by = %s WHERE id = %s",
+            (change.actor, import_id),
+        )
+        change.audit("import_committed", {"importId": import_id, **dict(report)})
+
+    # ------------------------------------------------------------------
+    # Audit history
+
+    def instance_projects(self, system_id: str) -> dict[str, str]:
+        """Every instance the system has had, current or removed, and its project."""
+
+        rows = self.conn.execute(
+            """
+            SELECT id, project_id FROM system_instances WHERE system_id = %s AND project_id IS NOT NULL
+            UNION
+            SELECT payload->>'instanceId', payload->>'projectId' FROM system_audit_events
+            WHERE system_id = %s AND kind IN ('instance_added', 'instance_removed')
+              AND payload ? 'instanceId' AND payload->>'projectId' IS NOT NULL
+            """,
+            (system_id, system_id),
+        ).fetchall()
+        return {row["id"]: row["project_id"] for row in rows}
+
+    def history(self, system_id: str, *, before_seq: Optional[int] = None, limit: int = 100) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT seq, id, at, actor, kind, payload FROM system_audit_events
+            WHERE system_id = %s AND (%s::bigint IS NULL OR seq < %s::bigint)
+            ORDER BY seq DESC LIMIT %s
+            """,
+            (system_id, before_seq, before_seq, max(1, min(int(limit), 500))),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Layout (§1 invariant 6: no version, no audit)
+
+    def get_layout(self, system_id: str) -> dict:
+        self.get_system(system_id)
+        row = self.conn.execute(
+            "SELECT positions FROM system_layouts WHERE system_id = %s", (system_id,)
+        ).fetchone()
+        return dict(row["positions"]) if row else {}
+
+    def put_layout(self, system_id: str, positions: Mapping[str, Any]) -> None:
+        self.get_system(system_id)
+        self.conn.execute(
+            """
+            INSERT INTO system_layouts (system_id, positions) VALUES (%s, %s)
+            ON CONFLICT (system_id) DO UPDATE
+                SET positions = EXCLUDED.positions, updated_at = NOW()
+            """,
+            (system_id, Jsonb(dict(positions))),
+        )
+
+    # ------------------------------------------------------------------
+    # Interface artifact cache (§3)
+
+    def get_interface(self, project_id: str, commit: str, extractor_version: str) -> Optional[dict]:
+        row = self.conn.execute(
+            """
+            SELECT payload FROM system_interface_artifacts
+            WHERE project_id = %s AND commit = %s AND extractor_version = %s
+            """,
+            (project_id, commit, extractor_version),
+        ).fetchone()
+        return dict(row["payload"]) if row else None
+
+    def get_interface_extent(self, project_id: str, commit: str, extractor_version: str) -> Optional[dict]:
+        """The scene's slice of an artifact (outline and thickness), without the multi-MB payload."""
+        row = self.conn.execute(
+            """
+            SELECT jsonb_build_object('boardOutlineMm', payload->'boardOutlineMm',
+                                      'boardThicknessMm', payload->'boardThicknessMm') AS extent
+            FROM system_interface_artifacts
+            WHERE project_id = %s AND commit = %s AND extractor_version = %s
+            """,
+            (project_id, commit, extractor_version),
+        ).fetchone()
+        return dict(row["extent"]) if row else None
+
+    def put_interface(self, payload: Mapping[str, Any]) -> dict:
+        """Store an artifact; the first writer wins, and its copy is returned."""
+        project_id, commit = payload["projectId"], payload["commit"]
+        version = payload["extractor"]["version"]
+        self.conn.execute(
+            """
+            INSERT INTO system_interface_artifacts
+                (project_id, commit, extractor_version, digest, payload)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (project_id, commit, extractor_version) DO NOTHING
+            """,
+            (project_id, commit, version, payload["digest"], Jsonb(dict(payload))),
+        )
+        stored = self.get_interface(project_id, commit, version)
+        assert stored is not None
+        return stored
+
+    # ------------------------------------------------------------------
+    # Detection bookkeeping (§10.1)
+
+    def get_source_check(self, instance_id: str) -> Optional[dict]:
+        row = self.conn.execute(
+            "SELECT * FROM system_source_checks WHERE instance_id = %s", (instance_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def record_source_check(
+        self, instance_id: str, *, tip_commit: Optional[str], checked_commit: Optional[str],
+        outcome: str, retry: bool = False,
+    ) -> None:
+        """Record what detection saw. Not a design change: no version bump, no audit.
+
+        ``retry`` forgets the checked commit, so the next check evaluates the tip again.
+        """
+        self.conn.execute(
+            "UPDATE system_instances SET tip_commit = %s, tip_checked_at = NOW() WHERE id = %s",
+            (tip_commit, instance_id),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO system_source_checks (instance_id, last_checked_commit, last_outcome)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (instance_id) DO UPDATE SET
+                last_checked_commit = CASE WHEN %s THEN NULL ELSE COALESCE(
+                    EXCLUDED.last_checked_commit, system_source_checks.last_checked_commit) END,
+                last_outcome = EXCLUDED.last_outcome,
+                checked_at = NOW()
+            """,
+            (instance_id, checked_commit, outcome, retry),
+        )

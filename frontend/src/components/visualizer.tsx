@@ -11,6 +11,7 @@ import { EcadViewerControls } from "./ecad-viewer-controls";
 import { CommentForm, type CommentFormSubmitPayload } from "./comment-form";
 import { CommentCard } from "./comment-card";
 import { CommentPanel } from "./comment-panel";
+import { ThreadUpdateContext } from "@/features/rich-comments/thread-updates";
 import { useLiveComments } from "@/features/live-comments/use-live-comments";
 import { ViewerOverlayRail, SELECTION_INSPECTOR_RAIL_RESIZE } from "./viewer-overlay-rail";
 import { fetchApi, readApiError } from "@/lib/api";
@@ -1295,6 +1296,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     context: pendingContext,
                     location: pendingLocation,
                     content: payload.content,
+                    contentFormat: payload.contentFormat,
                     author: user?.name,
                     elementId: pendingElementRef.current?.elementId,
                     elementRef: pendingElementRef.current?.elementRef,
@@ -1341,7 +1343,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         try {
             const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}/replies`, {
                 method: "POST",
-                body: JSON.stringify({ content }),
+                body: JSON.stringify({ content, contentFormat: "md" }),
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to add reply"));
             const payload = await response.json() as { comment: Comment };
@@ -1351,6 +1353,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             toast.error(error instanceof Error ? error.message : "Failed to add reply");
         }
     }, [projectId, setComments]);
+
+    const applyThread = useCallback((updated: Comment) => {
+        setComments((prev) => prev.map((entry) => (entry.id === updated.id
+            ? { ...normalizeComment(updated), anchorResolution: entry.anchorResolution } : entry)));
+    }, [setComments]);
 
     const deleteComment = useCallback(async (commentId: string) => {
         try {
@@ -1848,7 +1855,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 </div>
                             )}
                             <div className="min-h-0 flex-1">
+                            <ThreadUpdateContext.Provider value={applyThread}>
                             <CommentPanel
+                                projectId={projectId}
                                 comments={comments}
                                 onClose={() => setRightRailTab(null)}
                                 onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
@@ -1864,6 +1873,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 onShareReply={shareReply}
                                 embedded
                             />
+                            </ThreadUpdateContext.Provider>
                             </div>
                             </div>
                         ) : inspectorHasContent ? (
@@ -1901,6 +1911,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             </div>
 
             {showCommentForm && pendingLocation && <CommentForm
+                projectId={projectId}
                 // Each pin is its own draft, so each is its own component.
                 key={`${pendingLocation.x}:${pendingLocation.y}`}
                 isOpen
@@ -1918,7 +1929,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             />}
 
             {selectedComment && (
+                <ThreadUpdateContext.Provider value={applyThread}>
                 <CommentCard
+                    projectId={projectId}
                     comment={selectedComment}
                     screenPosition={commentCardScreenPosition}
                     canModify={canModifyComments}
@@ -1929,6 +1942,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     onPromote={promoteComment}
                     onRetrySync={retryCommentSync}
                 />
+                </ThreadUpdateContext.Provider>
             )}
         </div>
     );

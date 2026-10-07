@@ -93,12 +93,11 @@ class BundleFrameTest(unittest.TestCase):
 
 
 class BundleSourceTest(unittest.TestCase):
-    def test_last_build_reads_the_decoded_job_id(self) -> None:
-        # JobService._decode renames the row's ``id`` to ``job_id``; the scene must read that.
-        decoded = {"job_id": "job_9", "status": "failed", "error_message": "kicad-cli missing"}
+    def test_last_build_reads_the_latest_job(self) -> None:
+        job = {"id": "job_9", "status": "failed", "error_message": "kicad-cli missing", "message": ""}
         with mock.patch("app.services.workspace_service.workspace.get_project_by_id", return_value={"id": "prj_1"}), \
                 mock.patch("app.services.project_service.webgpu_artifact_key", return_value="key"), \
-                mock.patch("app.services.job_service.jobs.latest_for_artifact", return_value=decoded) as latest:
+                mock.patch("app.services.systems.bundles.latest_job", return_value=job) as latest:
             last = BundleSource().last_build("prj_1", "a" * 40)
         latest.assert_called_once_with("webgpu_3d", "key")
         self.assertEqual(last, {"jobId": "job_9", "status": "failed", "error": "kicad-cli missing"})

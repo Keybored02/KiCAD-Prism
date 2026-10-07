@@ -35,6 +35,11 @@ IPN_SOURCE = "prism"
 _CATEGORY = {KIND_MODULE: "Modules", KIND_ASSEMBLY: "Assemblies"}
 
 
+
+def is_library_part(component: dict[str, Any]) -> bool:
+    """Modules and assemblies are never KiCad library parts (CONTRACTS_P2 §3.1)."""
+    return component.get("kind", "part") == "part"
+
 def _json(value: Mapping[str, Any]) -> str:
     return json.dumps(dict(value), sort_keys=True, separators=(",", ":"))
 
