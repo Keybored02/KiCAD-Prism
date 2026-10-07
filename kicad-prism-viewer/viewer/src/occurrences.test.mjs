@@ -25,8 +25,8 @@ test("the identity occurrence maps to itself exactly", () => {
   assert.deepEqual(normalMatrix([...IDENTITY]), [...IDENTITY]);
   const packed = packOccurrences([[...IDENTITY]]);
   assert.equal(packed.byteLength, OCCURRENCE_STRIDE);
-  // No layer hidden: the mask words are zero.
-  assert.deepEqual([...packed], [...IDENTITY, ...IDENTITY, 0, 0, 0, 0]);
+  // No layer hidden (the mask words are zero) and no separation of its own (NO_EXPLODE).
+  assert.deepEqual([...packed], [...IDENTITY, ...IDENTITY, 0, 0, 0, 0, 0, 1, 1, 0]);
 });
 
 test("each occurrence hides its own copper layers (SB2-31e)", () => {
@@ -36,6 +36,9 @@ test("each occurrence hides its own copper layers (SB2-31e)", () => {
   assert.deepEqual([...words.subarray(32, 36)], [2, 2, 0, 0]);
   // Ids past the mask (and non-integers) cannot be hidden per occurrence; the top bit can.
   assert.deepEqual([...words.subarray(stride + 32, stride + 36)], [0, 0, 0, 0x80000000]);
+  // The explode record follows the mask; the default is NO_EXPLODE.
+  const exploded = packOccurrences([[...IDENTITY]], [], [[0.002, 0, 0.5, 1]]);
+  assert.deepEqual([...exploded.subarray(36, 40)].map((value) => Math.round(value * 1e6) / 1e6), [0.002, 0, 0.5, 1]);
   // The matrices are untouched by the mask.
   assert.deepEqual([...packed.subarray(stride, stride + 32)], [...IDENTITY, ...IDENTITY]);
 });
@@ -108,9 +111,17 @@ test("instanced shader variants place every path by a culled occurrence", async 
   // SB2-31e: drawing and picking skip the layers an occurrence hides; the cull pass reads the same record.
   for (const name of ["main", "pick"]) {
     assert.match(INSTANCED_SHADERS[name], /hiddenLayers: vec4u,/);
-    assert.match(INSTANCED_SHADERS[name], /if \(layerHiddenAt\(occurrence(s\[index\])?, draw\.offset\.w\)\) \{ output\.position = vec4f\(0\.0, 0\.0, 2\.0, 1\.0\); \}/);
+    assert.match(INSTANCED_SHADERS[name], /if \(layerHiddenAt\(occurrence, draw\.offset\.w\) \|\| explodeHides\(occurrence, draw\.flags\.x, draw\.offset\.w\)\) \{\n    output\.position = vec4f\(0\.0, 0\.0, 2\.0, 1\.0\);/);
+    // SB2-31f: each occurrence lifts its copper and paste by its own separation.
+    assert.match(INSTANCED_SHADERS[name], /input\.position \+ draw\.offset\.xyz \+ lift/);
   }
-  assert.match(INSTANCED_SHADERS.cull, /struct Occurrence \{\n  model: mat4x4f,\n  normal: mat4x4f,\n  hiddenLayers: vec4u,\n\};/);
+  assert.match(INSTANCED_SHADERS.main, /var alpha = draw\.flags\.y \* input\.fade;/);
+  for (const name of ["barrel", "barrelPick"]) {
+    assert.match(INSTANCED_SHADERS[name], /layerOffsets\[input\.ids\.z\] \* spread/);
+    // Declared once, by the occurrence block.
+    assert.equal(INSTANCED_SHADERS[name].split("var<storage, read> layerOffsets").length, 2, name);
+  }
+  assert.match(INSTANCED_SHADERS.cull, /struct Occurrence \{\n  model: mat4x4f,\n  normal: mat4x4f,\n  hiddenLayers: vec4u,\n  explode: vec4f,\n\};/);
   // SB2-31: host-highlighted nets light per occurrence, in their own colours.
   for (const name of ["main", "barrel"]) {
     assert.match(INSTANCED_SHADERS[name], /emphasisStride: u32,/);

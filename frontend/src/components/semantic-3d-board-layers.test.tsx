@@ -10,9 +10,9 @@ const layers = [
   { id: 4, name: "B.Cu", color: "rgb(50 50 200)", visible: false },
 ];
 const boards: PrismSystemBoardViewState[] = [
-  { key: "/sin_obc1", name: "OBC-1", standIn: null, layers },
-  { key: "/sin_obc2", name: "OBC-2", standIn: null, layers },
-  { key: "/sin_cmbd", name: "CMBD", standIn: "restricted", layers: [] },
+  { key: "/sin_obc1", name: "OBC-1", standIn: null, separation: 0, layers },
+  { key: "/sin_obc2", name: "OBC-2", standIn: null, separation: 0.4, layers },
+  { key: "/sin_cmbd", name: "CMBD", standIn: "restricted", separation: 0, layers: [] },
 ];
 
 describe("BoardLayerSections", () => {
@@ -26,6 +26,9 @@ describe("BoardLayerSections", () => {
     expect(screen.getByText("Restricted")).toBeTruthy();
     // OBC-2's section is the only one open: its F.Cu eye hides F.Cu on OBC-2.
     const section = screen.getByRole("region", { name: "OBC-2 layers" });
+    // Its own stackup separation sits in its section.
+    expect(within(section).getByText("Stackup separation")).toBeTruthy();
+    expect(within(section).getByText("40%")).toBeTruthy();
     fireEvent.click(within(section).getByRole("button", { name: "Hide F.Cu" }));
     expect(setLayerVisible).toHaveBeenCalledWith(1, false, "/sin_obc2");
   });

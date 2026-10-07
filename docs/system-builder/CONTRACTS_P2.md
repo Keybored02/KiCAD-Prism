@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.31 · 2026-10-07 · tickets SB2-00 to SB2-31e.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.32 · 2026-10-07 · tickets SB2-00 to SB2-31f.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -731,6 +731,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.32 | 2026-10-07 | SB2-31f: §20.8. Move mode, board labels, the key list and one GPU budget in the 3D tab's viewer; stackup separation per placement (user request); `<prism-system-scene>` retired. No API change. |
 | P2-1.31 | 2026-10-07 | SB2-31e.2: §20.7, the System 3D tab on the 3D tab's viewer: left rail with a Layers section per board, the 3D tab inspector on the board's design index, search over every board, system nets in the right rail. Move mode and labels wait for SB2-31f. |
 | P2-1.30 | 2026-10-06 | SB2-31e (D-P2-25, D-P2-26): §20.6, the board 3D tab's viewer with several boards (`<prism-semantic-viewer mode="system">`); per-placement copper layers; isolated picks skip unlit copper on every viewer. No API change. |
 | P2-1.29 | 2026-10-05 | SB2-31 follow-up 2 (user feedback): framing per occurrence with no padding, as the board 3D tab frames a net; isolated clicks on hidden copper are empty space; outer copper and barrels take the board's surface finish from its topology, as on its 3D tab. |
@@ -893,6 +894,31 @@ The tab hosts `<prism-semantic-viewer mode="system">` (§20.6) and the board 3D 
 - **Left rail (D-P2-26).** The board 3D tab's rail, titled *System 3D*, with Net layers, Isolate, stackup separation and the Settings toggles. Layers has a section per placed board: its layer count, a frame button, and when opened the preset and layer list for that placement only. The board holding the selection opens and is marked. There is no 2D toggle (D-P2-27).
 - **Right rail.** *Selection*: the selected board heads it (frame, Open in Boards), and below it the board 3D tab's inspector reads that board's design index (`GET /api/projects/{id}/semantic-index/identity?commit=` at the commit the system pins), so a part, pad or net shows as on the board's own tab. A board selection, or a box (restricted, building), explains itself. *Nets*: the SB2-31 system net panel.
 - **Search.** One field (`/`, ⌘F) over every placed board's parts and nets, each hit named with its board; two copies of a board give two hits. Picking one selects it on that placement.
-- **Toolbar.** Board counts, search, Nets, Fit all, Stats. **Move** and board **labels** return with SB2-31f.
+- **Toolbar.** Board counts, search, Move (editors), Nets, Fit all, Labels, Stats, keyboard list (SB2-31f, §20.8).
 - **Opening view.** The camera frames the system as boards load, until all are in or the reviewer moves it.
+
+### 20.8 System features in the viewer (SB2-31f)
+
+`<prism-system-scene>` and `system-scene.js` are retired; the System 3D tab runs only on `<prism-semantic-viewer mode="system">`.
+
+- **Move mode (§20.4, SB2-29)**, unchanged for the host:
+  - `move-allowed="true"` (editors);
+  - `setMoveMode`, `setMoveSpace`, `previewPose`, `cancelMove`, `getMoveState`;
+  - `prism-semantic-viewer:move` carries `{phase, allowed, enabled, space, dragging, target}` (phases mode, target, preview, commit, cancel and sync).
+
+  The target is the top-level instance of the selected board. While moving, a click selects the board without framing it, so the gizmo stays in view. Released drags and Enter commit; Esc undoes the drag, then leaves move mode.
+- **Board labels** over each placement (`setLabelsVisible`), marked when selected.
+- **Keys.** The board 3D tab's keys keep their meaning (F flips the view). The system adds:
+  - **M**: move mode;
+  - **L**: world or board axes;
+  - **Enter**: save;
+  - **A**: frame all;
+  - **?**: the key list (`setHelpVisible`).
+- **GPU budget.** One budget for the whole scene (`setGpuBudget`, default 1.5 GB). Over it, idle boards' components and then unneeded copper tiles are evicted. `getStats().firstFrame` keeps SB2-30's first-full-frame timing.
+- **Stackup separation per placement (user request, 2026-10-07).** Each board section in the left rail has its own separation slider, so two copies of a board separate independently.
+  - `setSeparation(value, placement?)`; `getViewState().boards[].separation`.
+  - As on the board 3D tab, a separated placement spreads its copper layers (barrels stretch with them), fades its mask and silkscreen, and hides its paste. From 10% on, its parts are hidden too.
+  - Carried in the occurrence record (`explode: vec4f`; the stride grows from 144 to 160 bytes). Each renderer holds per-layer steps; each occurrence holds its gap.
+  - Copper keeps its realistic colours while separated: the board 3D tab's blend to layer colours is per renderer, not per placement.
+  - The one-board picture is unchanged (pixel diff 0 px).
 

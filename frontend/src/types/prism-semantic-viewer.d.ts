@@ -98,6 +98,8 @@ export interface PrismSystemBoardViewState {
     name: string;
     /** Why the board draws as a box (restricted, loading, building, missing, failed), or null. */
     standIn: string | null;
+    /** This placement's own stackup separation, 0..1 (SB2-31f). */
+    separation: number;
     layers: PrismSemanticLayerState[];
 }
 
@@ -160,7 +162,8 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     setShowComponents?: (visible: boolean) => void;
     setShowPlaceholders?: (visible: boolean) => void;
     setRealisticColors?: (enabled: boolean) => void;
-    setSeparation?: (value: number) => void;
+    /** In a system scene, `placement` names one placed board (every placement of the selected board when omitted). */
+    setSeparation?: (value: number, placement?: string | null) => void;
     showNetLayers?: () => void;
     setNetIsolation?: (enabled: boolean) => void;
     /** mode="system" (SB2-31e): the system to show, a `prism.system_scene.a0` descriptor. Safe before ready. */
@@ -171,23 +174,23 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     frameNetEmphasis?: (key?: string | null, occurrence?: string | null) => boolean;
     /** mode="system": frame every placed board. */
     frameAll?: () => void;
+    /** mode="system" move mode (SB2-29); state arrives as `prism-semantic-viewer:move`. */
+    setMoveAllowed?: (allowed: boolean) => void;
+    setMoveMode?: (enabled: boolean) => void;
+    setMoveSpace?: (space: "world" | "local") => void;
+    /** Show a pose for the move target without saving it; null shows the saved pose. */
+    previewPose?: (pose: PrismScenePose | null) => void;
+    cancelMove?: () => void;
+    getMoveState?: () => PrismSystemSceneMoveState | null;
+    /** mode="system": board name labels (on by default). */
+    setLabelsVisible?: (visible: boolean) => void;
+    /** mode="system": the keyboard list (also `?`). */
+    setHelpVisible?: (visible: boolean) => void;
     /** mode="system": frame one placed board. */
     frameBoard?: (key: string) => boolean;
 }
 
-/** What a click in the system scene selected (SB2-27). */
-export interface PrismSystemSceneSelection {
-    kind: "board" | "component" | "feature";
-    occurrence: string;
-    displayPath: string;
-    instanceId: string;
-    restricted: boolean;
-    /** Why the board is drawn as a box: restricted, loading, building, missing, failed. */
-    standIn: string | null;
-    featureId?: number;
-    reference?: string | null;
-}
-
+/** `prism-semantic-viewer:systemstatus` (mode="system"): board counts by how each draws. */
 export interface PrismSystemSceneStatus {
     boards: number;
     loaded: number;
@@ -207,7 +210,7 @@ export interface PrismScenePose {
     rotation: [number, number, number, number];
 }
 
-/** `prism-system-scene:move` (SB2-29). "commit" asks the host to save `target.pose`. */
+/** `prism-semantic-viewer:move` (mode="system", SB2-29). "commit" asks the host to save `target.pose`. */
 export interface PrismSystemSceneMoveState {
     /** "sync": the host gave a re-read scene (a save landed, or bundles changed). */
     phase?: "mode" | "target" | "preview" | "commit" | "cancel" | "sync";
@@ -236,7 +239,7 @@ export interface PrismSystemSceneEmphasisSet {
     members: readonly { occurrence: string; net: string }[];
 }
 
-/** What a set lit (`setNetEmphasis`'s return and `prism-system-scene:emphasis`). */
+/** What a set lit (`setNetEmphasis`'s return and `prism-semantic-viewer:emphasis`). */
 export interface PrismSystemSceneEmphasisResult {
     key: string;
     color: string;
@@ -244,37 +247,9 @@ export interface PrismSystemSceneEmphasisResult {
     unresolved: { occurrence: string; net: string; reason: "not-drawn" | "loading" | "restricted" | "unknown-net" }[];
 }
 
-export interface PrismSystemSceneElement extends HTMLElement {
-    setScene(descriptor: unknown): void;
-    select(path: string | null, featureId?: number): PrismSystemSceneSelection | null;
-    frameAll(): void;
-    frameOccurrence(path: string): void;
-    pickAt(clientX: number, clientY: number): Promise<unknown>;
-    projectOccurrence(path: string): { x: number; y: number } | null;
-    setStatsOverlay(visible: boolean): void;
-    setLabelsVisible(visible: boolean): void;
-    setGpuBudget(bytes: number | null): void;
-    getStats(): Record<string, unknown> | null;
-    setMoveAllowed(allowed: boolean): void;
-    setMoveMode(enabled: boolean): void;
-    setMoveSpace(space: "world" | "local"): void;
-    /** Show a pose for the move target without saving it; null shows the saved pose. */
-    previewPose(pose: PrismScenePose | null): void;
-    cancelMove(): void;
-    getMoveState(): PrismSystemSceneMoveState | null;
-    setHelpVisible(visible: boolean): void;
-    /** Highlight system nets; an empty list clears. Null before WebGPU starts. */
-    setNetEmphasis(sets: readonly PrismSystemSceneEmphasisSet[]): PrismSystemSceneEmphasisResult[] | null;
-    /** Frame a highlighted set's copper (by key, or all), on one occurrence (by path) or all; false when nothing is lit there. */
-    frameNetEmphasis(key?: string | null, occurrence?: string | null): boolean;
-    /** Only the highlighted copper draws (the I key); returns the state in force. */
-    setNetIsolation(enabled: boolean): boolean;
-}
-
 declare global {
     interface HTMLElementTagNameMap {
         "prism-semantic-viewer": PrismSemanticViewerElement;
-        "prism-system-scene": PrismSystemSceneElement;
     }
 
     namespace JSX {
@@ -287,12 +262,10 @@ declare global {
                     "hide-panel"?: string;
                     /** "system": several boards from `setSystemScene` (SB2-31e). */
                     mode?: "system";
+                    /** mode="system": "true" lets this reader move boards (SB2-29). */
+                    "move-allowed"?: "true" | "false";
                 },
                 PrismSemanticViewerElement
-            >;
-            "prism-system-scene": React.DetailedHTMLProps<
-                React.HTMLAttributes<PrismSystemSceneElement>,
-                PrismSystemSceneElement
             >;
         }
     }

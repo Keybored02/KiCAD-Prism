@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Activity, Box, Cpu, Loader2, Maximize, Spline } from "lucide-react";
+import { Activity, Box, Cpu, Keyboard, Loader2, Maximize, Move3d, Spline, Tag } from "lucide-react";
 
 import { DesignSearchField } from "@/components/design-search-field";
 import { Semantic3dControls } from "@/components/semantic-3d-controls";
@@ -21,10 +21,12 @@ import type { SystemScene } from "@/types/system";
 
 import { drawnBoards, names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
 import { SceneInspector } from "./scene-inspector";
+import { MovePanel } from "./scene-move-panel";
 import { emphasisSets, netBoards } from "./scene-net-model";
 import { NetPanel } from "./scene-net-panel";
 import { hitOccurrence, searchBoards, type SearchableBoard } from "./scene-search";
 import { useBoardIndexes } from "./use-board-indexes";
+import { useMoveMode } from "./use-move-mode";
 import { useNetHighlight } from "./use-net-highlight";
 import type { SystemTabProps } from "./system-tab-content";
 
@@ -119,7 +121,7 @@ function useViewerEvents(viewer: PrismSemanticViewerElement | null, report: (res
  * building are boxes. Without WebGPU, the 2D diagram with a notice.
  */
 export function Scene3dTab(props: SystemTabProps) {
-  const { systemId, document, etag, onNavigate } = props;
+  const { systemId, document, etag, canEdit, reload, onNavigate } = props;
   const supported = webgpuAvailable();
   const { scene, error } = useSystemScene(systemId, etag, supported);
   const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
@@ -127,6 +129,9 @@ export function Scene3dTab(props: SystemTabProps) {
   const [leftInset, setLeftInset] = useState(0);
   const [rail, setRail] = useState<RailTab | null>("selection");
   const [stats, setStats] = useState(false);
+  const [labels, setLabels] = useState(true);
+  const moving = useMoveMode(viewer, { systemId, etag, reload });
+  const { move } = moving;
   const nets = useNetHighlight(systemId, etag);
   const { highlighted } = nets;
   const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report);
@@ -205,6 +210,14 @@ export function Scene3dTab(props: SystemTabProps) {
           <DesignSearchField semanticIndex={null} search={search} loading={boards.length > 0 && !searchable.length} onPick={pick} inline />
         </div>
         <span className="ml-auto flex items-center gap-1">
+          {canEdit && (
+            <Button
+              variant={move?.enabled ? "secondary" : "ghost"} size="sm" aria-pressed={Boolean(move?.enabled)}
+              title="Move boards (M)" onClick={() => viewer?.setMoveMode?.(!move?.enabled)}
+            >
+              <Move3d className="size-4" aria-hidden /> Move
+            </Button>
+          )}
           <Button
             variant={rail === "nets" || highlighted.length ? "secondary" : "ghost"} size="sm" aria-pressed={rail === "nets"}
             title="Highlight system nets" onClick={() => setRail(rail === "nets" ? null : "nets")}
@@ -215,10 +228,20 @@ export function Scene3dTab(props: SystemTabProps) {
             <Maximize className="size-4" aria-hidden /> Fit all
           </Button>
           <Button
+            variant={labels ? "secondary" : "ghost"} size="sm" aria-pressed={labels} title="Board names"
+            onClick={() => { setLabels(!labels); viewer?.setLabelsVisible?.(!labels); }}
+          >
+            <Tag className="size-4" aria-hidden /> Labels
+          </Button>
+          <Button
             variant={stats ? "secondary" : "ghost"} size="sm" aria-pressed={stats} title="Scene statistics (`)"
             onClick={() => { setStats(!stats); viewer?.setStatsOverlay?.(!stats); }}
           >
             <Activity className="size-4" aria-hidden /> Stats
+          </Button>
+          <Button variant="ghost" size="icon-sm" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"
+            onClick={() => viewer?.setHelpVisible?.(true)}>
+            <Keyboard className="size-4" aria-hidden />
           </Button>
         </span>
       </div>
@@ -228,10 +251,25 @@ export function Scene3dTab(props: SystemTabProps) {
       <div className="relative min-h-0 flex-1 overflow-hidden bg-muted/20" style={themeBridge(leftInset)}>
         {/* React 18 does not map className onto custom elements: size it with a style. */}
         <prism-semantic-viewer
-          ref={attach} mode="system" hide-panel="true" active="true"
+          ref={attach} mode="system" hide-panel="true" active="true" move-allowed={canEdit ? "true" : "false"}
           style={{ position: "absolute", inset: 0, display: "block" }}
         />
         <Semantic3dControls viewer={viewer} onVisibleWidthChange={setLeftInset} />
+        {move?.enabled && (
+          <div className="absolute top-3 z-10" style={{ left: leftInset + 12 }}>
+            <MovePanel
+              key={moving.epoch}
+              state={move}
+              busy={moving.busy}
+              onPreview={(pose) => viewer?.previewPose?.(pose)}
+              onSave={(target) => void moving.savePose(target)}
+              onRevert={() => viewer?.cancelMove?.()}
+              onDefault={(target) => void moving.backToDefault(target)}
+              onResetAll={() => moving.setConfirmReset(true)}
+              onSpace={(space) => viewer?.setMoveSpace?.(space)}
+            />
+          </div>
+        )}
         {!scene && !error && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-muted-foreground">
             <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden /> Loading the system scene…</span>
@@ -284,6 +322,15 @@ export function Scene3dTab(props: SystemTabProps) {
         destructive={false}
         busy={nets.adding !== null}
         onConfirm={() => { if (nets.confirmLarge) void nets.add(nets.confirmLarge, true); }}
+      />
+      <ConfirmDialog
+        open={moving.confirmReset}
+        onOpenChange={moving.setConfirmReset}
+        title="Reset every board's position?"
+        description="Every board you or others moved goes back to the default side-by-side row. Earlier snapshots keep the positions they froze."
+        confirmLabel="Reset positions"
+        busy={moving.busy}
+        onConfirm={() => void moving.resetAll()}
       />
     </div>
   );
