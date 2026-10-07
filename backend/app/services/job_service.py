@@ -1575,17 +1575,6 @@ class JobService:
             row = conn.execute("SELECT * FROM ws_jobs WHERE id = %s", (job_id,)).fetchone()
         return self._decode(row) if row else None
 
-    def latest_for_artifact(self, kind: str, artifact_key: str) -> dict[str, Any] | None:
-        """The most recent job of ``kind`` for ``artifact_key``, in any status."""
-        self.initialize()
-        with self._connect() as conn:
-            conn.execute("SET search_path TO workspace, public")
-            row = conn.execute(
-                "SELECT * FROM ws_jobs WHERE kind = %s AND artifact_key = %s ORDER BY created_at DESC LIMIT 1",
-                (kind, artifact_key),
-            ).fetchone()
-        return self._decode(row) if row else None
-
     def get_artifact_for_job(
         self,
         job_id: str,

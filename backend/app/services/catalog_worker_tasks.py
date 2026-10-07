@@ -220,7 +220,7 @@ def run_model_glb(job: dict[str, Any], progress: Progress) -> dict[str, Any]:
     """CONTRACTS_P2 §18.2: convert a part's STEP models to GLB with Geometer."""
     component_id = str(job["payload"].get("componentId") or "")
     progress(message="Converting 3D models", progress=0.0)
-    models = catalog_service.convert_models(component_id)
+    models = catalog_service.system_items.convert_models(component_id)
     progress(message="Converted 3D models", progress=100.0)
     return {"componentId": component_id, "converted": sum(1 for m in models if m["glb"]), "models": len(models)}
 
