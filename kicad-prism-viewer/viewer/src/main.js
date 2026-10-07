@@ -1730,9 +1730,12 @@ function frameSystem(now, token) {
   }
   system.inputs = inputs;
   system.scene.setSelectedOccurrence(board.renderer && hasSystemSelection() ? board.renderer.occurrenceBase + state.selectedOccurrence : -1);
-  system.scene.render(panel, (renderer) => inputs.get(renderer) || standInInputs(now));
-  drawGizmo();
-  updateSystemLabels();
+  // As on the 3D tab (R1): an idle view skips the GPU work; labels follow the picture.
+  if (systemFrameNeedsRender(now, inputs, emphasis)) {
+    system.scene.render(panel, (renderer) => inputs.get(renderer) || standInInputs(now));
+    drawGizmo();
+    updateSystemLabels();
+  }
   updateSystemHarnesses();
   updateMoveGizmo();
   if (system.timing.boardsDrawnAt == null && allReadyBoardsDrawn(system.placed)) system.timing.boardsDrawnAt = performance.now();
@@ -2920,6 +2923,76 @@ function frameNeedsRender(now, inputs) {
   // The tile set is replaced, never mutated, so keeping the reference is enough.
   lastRender.tiles = inputs.visibleTileIds;
   lastRender.at = now;
+  return true;
+}
+
+// The system view's counterpart of `frameNeedsRender` (R1): every board's renderer
+// version (placements, moves, tiles and parts loading all bump it), the draw
+// state the per-frame inputs carry, and the camera. Lit nets pulse, at 30 fps (R3).
+const PULSE_FRAME_MS = 1000 / 30 - 2; // a little under, so a 60 Hz display draws every other frame
+const lastSystemRender = { scene: null, key: "", matrix: new Float32Array(16), tiles: new Map(), at: 0 };
+
+function systemFrameNeedsRender(now, inputs, emphasis) {
+  const matrix = panel.matrix;
+  let moved = false;
+  for (let index = 0; index < 16; index += 1) {
+    if (matrix[index] !== lastSystemRender.matrix[index]) {
+      moved = true;
+      break;
+    }
+  }
+  // A new scene (another system, or the same one reloaded) always draws its first frame.
+  if (lastSystemRender.scene !== system.scene) {
+    lastSystemRender.scene = system.scene;
+    moved = true;
+  }
+  if (moved) {
+    lastSystemRender.matrix.set(matrix);
+    lastSystemRender.key = "";
+    lastSystemRender.at = now;
+    return true;
+  }
+  const parts = [
+    canvas.width,
+    canvas.height,
+    state.showBoard,
+    state.showComponents,
+    state.isolateNet,
+    state.activeNetId,
+    state.selectedFeatureId,
+    state.selectedOccurrence,
+    system.showLabels,
+    emphasis,
+    copperRealism(),
+    selectionKey(),
+  ];
+  for (const renderer of system.scene.renderers) {
+    const options = inputs.get(renderer);
+    parts.push(
+      renderer.version,
+      renderer.occurrenceCount,
+      renderer.selectedOccurrence,
+      renderer.dimCopper,
+      renderer.standIn ? renderer.boxColor.join(",") : "",
+      options ? [...options.visibleLayers].join(",") : "",
+      options?.layerOffsets ? Array.prototype.join.call(options.layerOffsets, ",") : "",
+    );
+  }
+  const key = parts.join("|");
+  let tilesChanged = false;
+  for (const [renderer, options] of inputs) {
+    if (!sameSet(options.visibleTileIds, lastSystemRender.tiles.get(renderer))) tilesChanged = true;
+  }
+  const animating = Boolean(emphasis || state.activeNetId || state.selectedFeatureId);
+  const changed = tilesChanged || key !== lastSystemRender.key;
+  // R3: with the view still, only the highlight pulse moves; a slow sine needs no more than 30 fps.
+  const pulse = animating && now - lastSystemRender.at >= PULSE_FRAME_MS;
+  const stale = changed || pulse || now - lastSystemRender.at > IDLE_REFRESH_MS;
+  if (!stale) return false;
+  lastSystemRender.key = key;
+  // Tile sets are replaced, never mutated, so keeping the references is enough.
+  lastSystemRender.tiles = new Map([...inputs].map(([renderer, options]) => [renderer, options.visibleTileIds]));
+  lastSystemRender.at = now;
   return true;
 }
 
