@@ -108,6 +108,61 @@
       flex-wrap: nowrap;
     }
   }
+
+  /* Review-comment typography, shared by the composer (Tiptap) and the
+     rendered thread so what a reviewer types is what everyone reads. */
+  .rich-comment {
+    font-size: 0.875rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .rich-comment > * + *,
+  .rich-comment .ProseMirror > * + * {
+    margin-top: 0.4em;
+  }
+  .rich-comment ul { list-style: disc; padding-left: 1.25rem; }
+  .rich-comment ol { list-style: decimal; padding-left: 1.25rem; }
+  .rich-comment li > p { margin: 0; }
+  .rich-comment strong { font-weight: 600; }
+  .rich-comment a { color: hsl(var(--primary)); text-decoration: underline; }
+  .rich-comment blockquote {
+    border-left: 3px solid hsl(var(--border));
+    padding-left: 0.6rem;
+    color: hsl(var(--muted-foreground));
+  }
+  .rich-comment code {
+    border-radius: 0.25rem;
+    background: hsl(var(--muted));
+    padding: 0.05rem 0.3rem;
+    font-size: 0.8em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .rich-comment pre {
+    overflow-x: auto;
+    border-radius: 0.375rem;
+    background: hsl(var(--muted));
+    padding: 0.5rem 0.6rem;
+  }
+  .rich-comment pre code { background: transparent; padding: 0; }
+  .rich-comment img {
+    display: block;
+    max-width: 100%;
+    max-height: 22rem;
+    border-radius: 0.375rem;
+    border: 1px solid hsl(var(--border));
+  }
+  .rich-comment img[data-uploading] { opacity: 0.5; }
+  .rich-comment .ProseMirror { outline: none; min-height: inherit; }
+  .rich-comment .ProseMirror img.ProseMirror-selectednode {
+    outline: 2px solid hsl(var(--ring));
+  }
+  .rich-comment .ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+    color: hsl(var(--muted-foreground));
+  }
 }
 
 @layer utilities {

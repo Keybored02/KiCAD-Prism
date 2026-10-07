@@ -11,6 +11,7 @@ from app.api.projects import router as projects_router
 from app.api.project_variants import router as project_variants_router
 from app.api.project_import_followups import router as project_import_followups_router
 from app.api.comments import router as comments_router
+from app.api.comment_attachment_links import router as comment_attachment_links_router
 from app.api.comment_live import router as comment_live_router
 from app.api.design_compare import router as design_compare_router
 from app.api.release_studio import router as release_studio_router
@@ -285,3 +286,4 @@ app.include_router(tracker_identity_admin_router)
 app.include_router(project_trackers_router)
 app.include_router(tracker_sync_router)
 app.include_router(tracker_webhooks_router)
+app.include_router(comment_attachment_links_router, tags=["comments"])
