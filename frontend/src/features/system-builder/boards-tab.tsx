@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Eye, EyeOff, Layers, Lock, MoreHorizontal, Pencil, Pin, PinOff, Plus, RefreshCw, RotateCcw, Share2, Trash2 } from "lucide-react";
+import { Box, Eye, EyeOff, Layers, Lock, MoreHorizontal, Pencil, Pin, PinOff, Plus, RefreshCw, RotateCcw, Share2, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useWorkspaceData, workspaceSessionKey } from "@/hooks/use-workspace-data";
 import {
-  addAssemblyInstance,
+  addCatalogInstance,
   addInstance,
   checkNow,
   createExport,
@@ -72,7 +72,7 @@ export function BoardsTab({ systemId, document, etag, canEdit, user, reload }: S
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get("board");
   const selected = document.instances.find((instance) => instance.id === requested) ?? document.instances[0] ?? null;
-  const [adding, setAdding] = useState<"board" | "subsystem" | null>(null);
+  const [adding, setAdding] = useState<"board" | "subsystem" | "module" | null>(null);
   const { busy, run } = useSystemMutation(reload);
 
   const select = (instanceId: string) =>
@@ -95,6 +95,7 @@ export function BoardsTab({ systemId, document, etag, canEdit, user, reload }: S
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => setAdding("board")}>Board</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setAdding("subsystem")}><Layers className="mr-2 h-4 w-4" /> Subsystem</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setAdding("module")}><Box className="mr-2 h-4 w-4" /> Module</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -118,6 +119,7 @@ export function BoardsTab({ systemId, document, etag, canEdit, user, reload }: S
               <span className="flex min-w-0 items-center gap-1.5 truncate">
                 {instance.restricted && <Lock className="h-3 w-3 shrink-0" aria-label="restricted" />}
                 {instance.kind === "assembly" && <Layers className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="subsystem" />}
+                {instance.kind === "module" && <Box className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="module" />}
                 {instance.label}
               </span>
               <Badge variant={TONE_BADGE[status.tone]} className="shrink-0">{status.label}</Badge>
@@ -143,13 +145,15 @@ export function BoardsTab({ systemId, document, etag, canEdit, user, reload }: S
         )}
       </section>
 
-      {adding === "subsystem" && (
+      {(adding === "subsystem" || adding === "module") && (
         <AddSubsystemDialog
+          kind={adding === "module" ? "module" : "assembly"}
           existingLabels={document.instances.map((instance) => instance.label)}
           busy={busy === "add"}
           onClose={() => setAdding(null)}
           onSubmit={async (value) => {
-            const created = await run("add", () => addAssemblyInstance(systemId, etag, value), `Added ${value.label}`);
+            const kind = adding === "module" ? "module" : "assembly";
+            const created = await run("add", () => addCatalogInstance(systemId, etag, kind, value), `Added ${value.label}`);
             if (created) {
               setAdding(null);
               select(created.body.id);
@@ -232,7 +236,8 @@ function EditBoardDialog({ instance, busy, onClose, onSave }: EditBoardDialogPro
 }
 
 function BoardDetail(props: BoardDetailProps) {
-  return props.instance.kind === "assembly" ? <SubsystemDetail {...props} /> : <BoardDetailBody {...props} />;
+  return props.instance.kind === "assembly" || props.instance.kind === "module"
+    ? <SubsystemDetail {...props} /> : <BoardDetailBody {...props} />;
 }
 
 function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, run }: BoardDetailProps) {

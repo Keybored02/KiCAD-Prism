@@ -45,9 +45,9 @@ class UpdateSystemRequest(BaseModel):
 
 
 class CreateInstanceRequest(BaseModel):
-    """A board (``projectId``) or, P2 §5.1, a catalog assembly (``componentId``)."""
+    """A board (``projectId``) or, P2 §5.1 and §5.6, a catalog assembly or module (``componentId``)."""
 
-    kind: Literal["board", "assembly"] = "board"
+    kind: Literal["board", "assembly", "module"] = "board"
     projectId: Optional[str] = Field(default=None, min_length=1, max_length=200)
     label: str = Field(min_length=1, max_length=100)
     baselineCommit: Optional[str] = Field(default=None, max_length=40)
@@ -275,11 +275,11 @@ async def add_instance(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    if body.kind == "assembly":
+    if body.kind in ("assembly", "module"):
         if body.componentId is None or body.projectId is not None:
-            raise HTTPException(status_code=422, detail="an assembly instance takes componentId, not projectId")
+            raise HTTPException(status_code=422, detail=f"a catalog {body.kind} instance takes componentId, not projectId")
         result = await _run(system_id, lambda: system_service.service.add_catalog_instance(
-            _caller(user), system_id, version, kind="assembly", label=body.label, component_id=body.componentId,
+            _caller(user), system_id, version, kind=body.kind, label=body.label, component_id=body.componentId,
             revision_id=body.revisionId, follow=body.follow,
         ))
         return _respond(result, response, 201)

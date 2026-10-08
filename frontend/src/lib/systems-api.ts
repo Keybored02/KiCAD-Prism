@@ -152,13 +152,16 @@ export function addInstance(systemId: string, etag: string, input: InstanceInput
     "Could not add the board");
 }
 
-/** P2 §5.1: an assembly instance pinning a catalog revision (the released one when `revisionId` is omitted). */
-export function addAssemblyInstance(
-  systemId: string, etag: string,
+/**
+ * P2 §5.1, §5.6: an assembly or module instance pinning a catalog revision (the released one when
+ * `revisionId` is omitted).
+ */
+export function addCatalogInstance(
+  systemId: string, etag: string, kind: "assembly" | "module",
   input: { label: string; componentId: string; revisionId?: string; follow: "pinned" | "latest_released" },
 ) {
-  return versioned<InstanceRow>(path(systemId, "instances"), { method: "POST", etag, body: json({ kind: "assembly", ...input }) },
-    "Could not add the subsystem");
+  return versioned<InstanceRow>(path(systemId, "instances"), { method: "POST", etag, body: json({ kind, ...input }) },
+    kind === "module" ? "Could not add the module" : "Could not add the subsystem");
 }
 
 export function getHierarchy(systemId: string) {

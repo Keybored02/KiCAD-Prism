@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.57 · 2026-10-08 · tickets SB2-00 to SB2-48b.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.58 · 2026-10-08 · tickets SB2-00 to SB2-49.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -265,7 +265,7 @@ An export is `{id, name, description, target}`:
 `system_instances.kind` is `board` (every P1 instance) \| `assembly` \| `module`.
 
 - **Assembly or module instances** carry `catalog_component_id`, `catalog_revision_id` and `follow` (`pinned` \| `latest_released`). Board columns are null.
-- **Adding one:** `POST …/instances` with `{kind: "assembly", componentId, revisionId?, label, follow}`.
+- **Adding one:** `POST …/instances` with `{kind: "assembly" | "module", componentId, revisionId?, label, follow}`. The component's kind must match.
   - When `revisionId` is omitted, it resolves once to the current released revision. 409 `no_released_revision` if there is none.
   - Pinning an unreleased revision is allowed and produces warning `SYS-V14` (§8.4).
 - **Removing one** follows P1 §5.1 (`?cascade=links`).
@@ -302,6 +302,25 @@ Redaction recurses. For each board occurrence, P1 §8.2 applies with the reader'
 - `GET …/export-interface`, live and frozen: a re-export whose `(target instance, target export)` is hidden is listed with `redacted: true`, its pads, and null reference, libId, footprint, nets, pin names and pin types;
 - reviews: an item on a hidden end has `redacted: true` and null `expected`, `observed`, `candidates` and `decisionPayload`, and the review's `pendingChanges` is null. A candidate export with a hidden source keeps its name and pin count; `libId`, `footprint`, `libIdEqual` and `netOverlap` are null;
 - `GET …/history`: an event naming a hidden end (its assembly and export), or a link with such an end, has `payload: null, redacted: true`. A snapshot's manifest and publishing still need the whole document (403 when anything is hidden).
+
+### 5.6 Module instances (SB2-49)
+
+A module instance places a catalog module (§3.5) in a system. It is a leaf of the hierarchy, like a board, and its connectors are its ports.
+
+- **Ports.** The interface is built from the pinned revision's units plus the component's connector placements as they are today (§3.6; placements are not revisioned) (`systems/modules.py`). There is one component per unit:
+  - `portKey` and `memberKeys` are the unit letter; `reference` is the unit name; `mpn` and `value` are the connector part's.
+  - Each pin's net is its signal (an unnamed pin has none), so rows, wires and system nets see module signals.
+  - `geometry` is the connector part's footprint at the origin; `boardThicknessMm` is 0; `footprintPose` is where that footprint sits on the module.
+  - `matingFrame` is the frame the placement was made with (§3.6).
+
+  A unit without a placed connector is still a port: it links but has no geometry, so it can't mate. The interface also carries the module's model and its aligned bounds (`boundsMm`).
+- **Links, harness ends, exports and nets** treat these ports like a board's. A module port is always exposed (no overrides).
+- **Mating.**
+  - A module port mates as "a footprint on a zero-thickness board at `footprintPose` on the module". The solve's `inMember` and a harness end's `connector.inOccurrence` carry that pose. Both harness routers compose it onto the occurrence (`harness_route`/`harness-route.ts`).
+  - Its frame is `matingFrame`, which counts as stored (§15.2). It is never edited per system: `GET/PUT …/mating` on a module answers 422. Change the placement in the catalog instead.
+  - A board end still needs a confirmed frame before a B2B link places the module.
+- **Scene** (§20): the occurrence's box is the model's aligned bounds; with a converted model it carries `model {glbKey, matrixMm, boundsMm}` (§20.18).
+- **Release follow and drift** for modules is SB2-51; until then a module instance keeps its pinned revision.
 
 ## 6. Links, exports as ends, and harnesses
 
@@ -898,6 +917,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.58 | 2026-10-08 | SB2-49: §5.6 module instances (connectors as ports with signals as nets, footprint pose and catalog frame for mates and harness ends, the scene's model box); `POST …/instances` takes `kind: "module"`. |
 | P2-1.57 | 2026-10-08 | SB2-48b (D-P2-40): §20.18 scene occurrences with their own `model`/`box`, gizmo `move` limits, `pickSurface` and the viewer's `pickSurfaceAt`/`focusMoveTarget`/`viewAxis`; §3.6 connectors placed on modules (face frame, footprint pose `P · F_part⁻¹`, goldens `modulePorts`), catalog migration 7 `catalog_module_connectors`, `GET/PUT/DELETE …/module-connectors`, `GET …/connector-geometry`, the every-connector-placed release gate; §3.5: pads are unique within a unit, not across the symbol. |
 | P2-1.56 | 2026-10-08 | SB2-48 (D-P2-39): §3.5 modules: created through the normal component flow with `kind: "module"`; the interface (`prism.module_interface.v1`) is derived from the module's multi-unit symbol on every sealed revision (units = connectors, pin names = signals); models on modules; module release gates (interface + STEP model); revision clones keep `interface_json`/`source_ref_json` (they were dropped). |
 | P2-1.55 | 2026-10-08 | SB2-47: §20.17 housings at harness ends: scene ends carry the part's model (`housing`), the route exits at its rear face, the viewer draws the GLB under its alignment or a proxy box; a housing click picks its harness. Radius blends at breakouts deferred. |

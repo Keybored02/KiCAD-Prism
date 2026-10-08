@@ -114,7 +114,7 @@ def place_tree(
     def mate_end(level: system_nets.Level, prefix: str, end: tuple[str, str, str]) -> Optional[dict]:
         instance_id, key, reference = end
         member_path = f"{prefix}/{instance_id}"
-        if level.kinds.get(instance_id, "board") == "board":
+        if level.kinds.get(instance_id, "board") in ("board", "module"):  # a module's connectors mate like a board's
             located: Optional[tuple[str, str, str]] = (member_path, key, reference)
         else:
             child = level.children.get(instance_id)
@@ -127,16 +127,19 @@ def place_tree(
         if not found or not found.get("geometry"):
             return None
         record = levels.get(board_path.rsplit("/", 1)[0], level).mating.get(board.instance_id, {}).get(port_key)
-        frame = None if record is None or is_stale(found, record) else \
-            {"axis": record["axis"], "quarterTurns": int(record.get("quarterTurns") or 0)}
+        frame = found.get("matingFrame") or (None if record is None or is_stale(found, record) else
+                                             {"axis": record["axis"], "quarterTurns": int(record.get("quarterTurns") or 0)})
         thickness = found.get("boardThicknessMm")
         if thickness is None:
             thickness = (interface(board) or {}).get("boardThicknessMm")
         out = {"member": member_path, "reference": board_reference or found.get("reference") or "",
                "end": {"geometry": found["geometry"], "thicknessMm": thickness, "stored": frame}}
         inside = in_member(member_path, board_path)
+        if found.get("footprintPose"):
+            # A module port (§5.6): the connector's footprint on a zero-thickness board at its pose on the module.
+            inside = poses.compose(inside or poses.IDENTITY, found["footprintPose"])
         if inside is not None:
-            out["inMember"] = inside
+            out["inMember"] = {"translationMm": inside["translationMm"], "rotation": inside["rotation"]}
         return out
 
     def layout(prefix: str, kept: Mapping[str, Mapping[str, Any]]) -> Optional[dict]:
@@ -145,6 +148,8 @@ def place_tree(
         for member in members:
             if member.kind == "board":
                 local[member.path] = board_bounds(interface(member))
+            elif member.kind == "module":  # its model's aligned bounds (§5.6)
+                local[member.path] = (interface(member) or {}).get("boundsMm")
             else:
                 frozen = {p["instanceId"]: p for p in (member.child.poses if member.child else ())}
                 local[member.path] = layout(member.path, frozen)
@@ -229,6 +234,13 @@ def build(
         if mate is not None:
             item["mate"] = {"linkId": mate["linkId"], "from": mate["from"], "overridden": mate["overridden"],
                             "autoPose": {k: mate["autoPose"][k] for k in ("translationMm", "rotation")}}
+        if occurrence.kind == "module" and not entry["restricted"]:
+            model = (interface(occurrence) or {}).get("model")
+            if model:  # §20.18: the viewer draws the module's GLB under its alignment
+                from app.services.catalog.models import alignment_matrix
+
+                item["model"] = {"glbKey": model["glbKey"], "matrixMm": alignment_matrix(model["alignment"]),
+                                 "boundsMm": model["boundsMm"]}
         if occurrence.kind == "board" and not entry["restricted"]:
             found = asset(occurrence)
             assets.setdefault(found["assetId"], found)
@@ -259,10 +271,12 @@ def harness_connectors(harnesses: Sequence[dict], occurrences: Sequence[Occurren
                 continue
             level = levels.get(board.path.rsplit("/", 1)[0])
             record = level.mating.get(board.instance_id, {}).get(end["portKey"]) if level else None
-            stored = None if record is None or is_stale(found, record) else \
-                {"axis": record["axis"], "quarterTurns": int(record.get("quarterTurns") or 0)}
+            stored = found.get("matingFrame") or (None if record is None or is_stale(found, record) else
+                                                  {"axis": record["axis"], "quarterTurns": int(record.get("quarterTurns") or 0)})
             end["connector"] = {"geometry": found["geometry"], "thicknessMm": found.get("boardThicknessMm"),
                                 "stored": stored}
+            if found.get("footprintPose"):  # a module's connector: where its footprint sits on the module (§5.6)
+                end["connector"]["inOccurrence"] = found["footprintPose"]
 
 
 def redact_harnesses(harnesses: Sequence[Mapping[str, Any]], shown: Mapping[str, Mapping[str, Any]]) -> list[dict]:

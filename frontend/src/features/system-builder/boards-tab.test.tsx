@@ -249,4 +249,26 @@ describe("OverviewTab", () => {
     const [, init] = fetchMock.mock.calls.find(([url]) => url === "/api/systems/sys_1/instances") as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toEqual({ kind: "assembly", label: "CNDH-A", componentId: "cmp_1", revisionId: "rev_1", follow: "pinned" });
   });
+
+  it("adds a catalog module (SB2-49): the module list, then a module instance", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/catalog/components")) {
+        return new Response(JSON.stringify({ items: [{ id: "cmp_imu", name: "IMU", value: "IMU-1", released_revision_id: "rev_1",
+          current_revision_id: "rev_1" }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ id: "sin_imu", ...JSON.parse(String(init?.body ?? "{}")) }),
+        { status: 201, headers: { ETag: '"sys:sys_1:2"', "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderTab();
+    await chooseMenuItem(/Add/, /Module/);
+    expect(await screen.findByRole("heading", { name: "Add a module" })).toBeTruthy();
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe("/api/catalog/components?kind=module&page_size=200");
+    await chooseOption("Module", /IMU · IMU-1/);
+    fireEvent.click(screen.getByRole("button", { name: "Add module" }));
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(1));
+    const [url, init] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/systems/sys_1/instances");
+    expect(JSON.parse(String(init.body))).toEqual({ kind: "module", label: "IMU", componentId: "cmp_imu", follow: "latest_released" });
+  });
 });
