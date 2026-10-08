@@ -39,6 +39,10 @@ _COLOURS = {
 }
 _FALLBACK_COLOUR = "#7a7f87"
 
+#: Layers are screen-blended, and black is the identity for that: any lighter
+#: background would brighten a little more with every layer stacked on it.
+VIEW_BACKGROUND = "#000000"
+
 #: Top of the stack first. Within a side the order follows how a board is built.
 _ROLE_RANK = {"silk": 0, "paste": 1, "mask": 2, "copper": 3}
 _SIDE_RANK = {"top": 0, "inner": 1, "bottom": 2, "both": 3}
@@ -193,7 +197,7 @@ class FabricationPackage:
         if parsed is None or info is None or self._bounds is None:
             raise KeyError(layer_id)
         return fab.render_layer_svg(
-            parsed, self._bounds, colour=info.colour, background=fab.RENDER_BACKGROUND
+            parsed, self._bounds, colour=info.colour, background=VIEW_BACKGROUND
         )
 
     def drill_tools(self) -> List[Dict[str, Any]]:
