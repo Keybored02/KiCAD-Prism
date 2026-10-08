@@ -1059,13 +1059,12 @@ function neededTileIdsForView(b = board) {
 }
 
 /**
- * SB2-85 (user, 2026-10-08): while a net is searched or selected only the lit
- * nets' inner copper draws (a net probe hides the board, so this comes first);
- * otherwise an exploded or hidden board shows all of it and an opaque board,
- * whose substrate hides it, none.
+ * SB2-85 (user, 2026-10-08): an exploded or hidden board (a net probe hides it)
+ * shows all inner copper, as before; an opaque board, whose substrate hides it,
+ * draws only the lit nets' inner copper, or none while nothing is lit.
  */
 function innerCopperMode(revealed, lit) {
-  return lit ? "lit" : revealed ? "all" : "none";
+  return revealed ? "all" : lit ? "lit" : "none";
 }
 
 /** Inner-layer tiles load only when all inner copper shows; otherwise only those with a lit net (SB2-81, SB2-85). */
