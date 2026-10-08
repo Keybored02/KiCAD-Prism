@@ -3,16 +3,20 @@ import { PanelBottomOpen } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { updateSystem } from "@/lib/systems-api";
+import { cn } from "@/lib/utils";
 import type { Finding, SystemDocument, SystemHarness, SystemLink } from "@/types/system";
 
 import { BoardDetail } from "../board-detail";
 import { ExportsSection } from "../exports-section";
-import { findingText } from "../findings-ui";
+import { groupFindings } from "../findings-ui";
 import { endLabel } from "../link-editor";
 import { ChecksSection } from "../checks-section";
 import type { Mutate } from "../use-system-mutation";
 import type { PartDetail } from "./part-detail";
 import { PartInspector } from "./part-inspector";
+import { InspectorFacts } from "./inspector-facts";
+import { InspectorHeader } from "./inspector-header";
+import { InspectorSection } from "./inspector-section";
 import { harnessFindings } from "./use-validation";
 import type { WorkspaceSelection } from "./workspace-state";
 
@@ -34,26 +38,18 @@ interface InspectorProps {
   onEditRows: () => void;
 }
 
-function Eyebrow({ children }: { children: ReactNode }) {
-  return <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{children}</p>;
-}
-
-function Facts({ rows }: { rows: { label: string; value: ReactNode; aside?: ReactNode }[] }) {
-  return (
-    <dl className="border-t text-sm">
-      {rows.map((row) => (
-        <div key={row.label} className="flex min-h-9 items-center gap-3 border-b py-1.5">
-          <dt className="w-24 shrink-0 text-muted-foreground">{row.label}</dt>
-          <dd className="min-w-0 flex-1 break-words">{row.value}</dd>
-          {row.aside && <dd className="shrink-0 text-xs text-muted-foreground">{row.aside}</dd>}
-        </div>
-      ))}
-    </dl>
-  );
-}
-
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+function countSummary(errors: number, warnings: number): ReactNode {
+  if (!errors && !warnings) return <span className="text-muted-foreground">None</span>;
+  return (
+    <span className="inline-flex items-center gap-3 tabular-nums" title={`${plural(errors, "error")} · ${plural(warnings, "warning")}`}>
+      {errors > 0 && <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-destructive" aria-hidden />{errors}</span>}
+      {warnings > 0 && <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-warning" aria-hidden />{warnings}</span>}
+    </span>
+  );
 }
 
 function findingSummary(findings: Finding[]): ReactNode {
@@ -61,51 +57,40 @@ function findingSummary(findings: Finding[]): ReactNode {
     findings.filter((finding) => finding.severity === "warning").length);
 }
 
-function countSummary(errors: number, warnings: number): ReactNode {
-  if (!errors && !warnings) return <span className="text-muted-foreground">None</span>;
-  return (
-    <span>
-      {errors > 0 && <span className="text-destructive">{plural(errors, "error")}</span>}
-      {errors > 0 && warnings > 0 && " · "}
-      {warnings > 0 && <span className="text-warning">{plural(warnings, "warning")}</span>}
-    </span>
-  );
-}
-
 function FindingList({ findings }: { findings: Finding[] }) {
-  if (!findings.length) return null;
+  const groups = groupFindings(findings);
+  if (!groups.length) return null;
   return (
-    <section className="space-y-1.5">
-      <Eyebrow>Findings</Eyebrow>
-      <ul className="space-y-1 text-sm">
-        {findings.slice(0, 8).map((finding) => (
-          <li key={[finding.rule, finding.instanceId, finding.linkId, finding.rowId, finding.end, finding.pin].join("|")} className="flex gap-2">
-            <span className={finding.severity === "error" ? "font-mono text-xs text-destructive" : "font-mono text-xs text-warning"}>{finding.rule}</span>
-            <span className="min-w-0 flex-1">{findingText(finding)}</span>
+    <InspectorSection title="Findings" count={findings.filter((finding) => finding.severity !== "info").length}>
+      <ul className="text-sm">
+        {groups.slice(0, 6).map((entry) => (
+          <li key={entry.key} className="flex h-8 items-center gap-2 border-b last:border-b-0"
+            title={[entry.rule, entry.text, entry.reference, entry.pins.length ? `pins ${entry.pins.join(", ")}` : ""].filter(Boolean).join(" · ")}>
+            <span className={cn("size-1.5 shrink-0 rounded-full", entry.level === "error" ? "bg-destructive" : "bg-warning")} aria-label={entry.level} />
+            <span className="min-w-0 flex-1 truncate">{entry.text}</span>
+            {entry.reference && <span className="shrink-0 font-mono text-xs text-muted-foreground">{entry.reference}</span>}
+            <span className="w-8 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{entry.pins.length || ""}</span>
           </li>
         ))}
       </ul>
-      {findings.length > 8 && <p className="text-xs text-muted-foreground">and {findings.length - 8} more in the Findings tray</p>}
-    </section>
+      {groups.length > 6 && <p className="pt-1 text-xs text-muted-foreground">+{groups.length - 6} in the Findings tray</p>}
+    </InspectorSection>
   );
 }
 
 function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect }: InspectorProps) {
   const { system } = document;
   const kinds = (kind: string) => document.instances.filter((item) => (item.kind ?? "board") === kind).length;
-  const contents = [plural(kinds("board"), "board"), kinds("module") ? plural(kinds("module"), "module") : "",
-    kinds("assembly") ? plural(kinds("assembly"), "subsystem") : ""].filter(Boolean).join(", ");
   const counts = document.findingCounts;
   return (
-    <div className="space-y-6">
-      <header className="space-y-1.5">
-        <Eyebrow>System</Eyebrow>
-        <h2 className="text-2xl font-bold tracking-tight">{system.name}</h2>
-        {system.description && <p className="text-sm text-muted-foreground">{system.description}</p>}
-      </header>
-      <Facts rows={[
-        { label: "Contents", value: contents || "Empty", aside: plural(document.links.length + (document.harnesses?.length ?? 0), "connection") },
-        { label: "To review", value: document.openReviewCount ? plural(document.openReviewCount, "change") : <span className="text-muted-foreground">Nothing</span> },
+    <div className="space-y-5">
+      <InspectorHeader kind="System" title={system.name} subtitle={system.description || undefined} />
+      <InspectorFacts rows={[
+        { label: "Boards", value: String(kinds("board")) },
+        ...(kinds("module") ? [{ label: "Modules", value: String(kinds("module")) }] : []),
+        ...(kinds("assembly") ? [{ label: "Subsystems", value: String(kinds("assembly")) }] : []),
+        { label: "Connections", value: String(document.links.length + (document.harnesses?.length ?? 0)) },
+        { label: "To review", value: document.openReviewCount ? String(document.openReviewCount) : <span className="text-muted-foreground">None</span> },
         { label: "Findings", value: counts ? countSummary(counts.error, counts.warning) : <span className="text-muted-foreground">Not evaluated</span> },
       ]} />
       <ExportsSection systemId={systemId} document={document} etag={etag} canEdit={canEdit} busy={busy} run={run}
@@ -122,21 +107,24 @@ function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect
 
 function LinkSummary({ document, link, findings, onEditRows }: { document: SystemDocument; link: SystemLink; findings: Finding[]; onEditRows: () => void }) {
   const own = findings.filter((finding) => finding.linkId === link.id);
+  const a = endLabel(document, link, "a");
+  const b = endLabel(document, link, "b");
   return (
-    <div className="space-y-6">
-      <header className="space-y-1.5">
-        <Eyebrow>{link.type === "b2b" ? "Board-to-board link" : "Link"}</Eyebrow>
-        <h2 className="break-words text-2xl font-bold tracking-tight">{link.name || `${endLabel(document, link, "a")} ↔ ${endLabel(document, link, "b")}`}</h2>
-      </header>
-      <Facts rows={[
-        { label: "End A", value: endLabel(document, link, "a") },
-        { label: "End B", value: endLabel(document, link, "b") },
-        { label: "Rows", value: plural(link.rows.length, "pin") },
-        ...(link.type === "b2b" ? [{ label: "Stack height", value: link.stackHeightMm != null ? `${link.stackHeightMm} mm` : "Not set" }] : []),
+    <div className="space-y-5">
+      <InspectorHeader kind={link.type === "b2b" ? "Board-to-board link" : "Link"} title={link.name || `${a} ↔ ${b}`}
+        actions={(
+          <Button variant="ghost" size="icon-sm" aria-label="Open its rows" title="Open its rows in the tray" onClick={onEditRows}>
+            <PanelBottomOpen className="size-4" />
+          </Button>
+        )} />
+      <InspectorFacts rows={[
+        { label: "End A", value: a },
+        { label: "End B", value: b },
+        { label: "Pins", value: String(link.rows.length) },
+        ...(link.type === "b2b" ? [{ label: "Stack height", value: link.stackHeightMm != null ? `${link.stackHeightMm} mm` : <span className="text-muted-foreground">Not set</span> }] : []),
         { label: "Findings", value: findingSummary(own) },
       ]} />
       <FindingList findings={own} />
-      <Button variant="secondary" className="w-full" onClick={onEditRows}><PanelBottomOpen className="size-4" /> Open its rows</Button>
     </div>
   );
 }
@@ -145,30 +133,32 @@ function HarnessSummary({ document, harness, findings, onEditRows }: { document:
   const own = harnessFindings(findings, harness.id);
   const label = (instanceId: string | null | undefined) => document.instances.find((item) => item.id === instanceId)?.label;
   return (
-    <div className="space-y-6">
-      <header className="space-y-1.5">
-        <Eyebrow>Harness</Eyebrow>
-        <h2 className="break-words text-2xl font-bold tracking-tight">{harness.name}</h2>
-        <p className="text-sm text-muted-foreground">{plural(harness.ends.length, "end")}, {plural(harness.wires.length, "wire")}</p>
-      </header>
-      <Facts rows={[
+    <div className="space-y-5">
+      <InspectorHeader kind="Harness" title={harness.name}
+        actions={(
+          <Button variant="ghost" size="icon-sm" aria-label="Open its wires" title="Open its wires in the tray" onClick={onEditRows}>
+            <PanelBottomOpen className="size-4" />
+          </Button>
+        )} />
+      <InspectorFacts rows={[
+        { label: "Wires", value: String(harness.wires.length) },
         { label: "Cut length", value: harness.cutLengthMm != null ? `${harness.cutLengthMm} mm` : <span className="text-muted-foreground">From the route</span> },
         { label: "Findings", value: findingSummary(own) },
       ]} />
-      <section className="space-y-1.5">
-        <Eyebrow>Ends</Eyebrow>
-        <ul className="space-y-1 text-sm">
+      <InspectorSection title="Ends" count={harness.ends.length}>
+        <ul className="text-sm">
           {harness.ends.map((end) => (
-            <li key={end.id} className="flex gap-2">
-              <span className="w-12 shrink-0 font-mono text-xs leading-5 text-muted-foreground">{end.mates?.port?.reference ?? "—"}</span>
+            <li key={end.id} className="flex h-8 items-center gap-2 border-b last:border-b-0">
+              <span className="w-14 shrink-0 truncate font-mono text-xs text-muted-foreground">{end.mates?.port?.reference ?? "—"}</span>
               <span className="min-w-0 flex-1 truncate">{label(end.mates?.instanceId) ?? "Free end"}</span>
-              <span className="text-xs text-muted-foreground">{plural(harness.wires.filter((wire) => wire.from.end === end.id || wire.to.end === end.id).length, "wire")}</span>
+              <span className="w-8 shrink-0 text-right text-xs tabular-nums text-muted-foreground" title="Wires">
+                {harness.wires.filter((wire) => wire.from.end === end.id || wire.to.end === end.id).length}
+              </span>
             </li>
           ))}
         </ul>
-      </section>
+      </InspectorSection>
       <FindingList findings={own} />
-      <Button variant="secondary" className="w-full" onClick={onEditRows}><PanelBottomOpen className="size-4" /> Open its wires</Button>
     </div>
   );
 }
@@ -180,13 +170,13 @@ export function WorkspaceInspector(props: InspectorProps) {
   const link = selection?.kind === "link" ? document.links.find((item) => item.id === selection.id) : undefined;
   const harness = selection?.kind === "harness" ? document.harnesses?.find((item) => item.id === selection.id) : undefined;
   return (
-    <aside className="h-full overflow-auto p-5" aria-label="Inspector">
+    <aside className="h-full overflow-auto p-4" aria-label="Inspector">
       {props.slot && (
         <div ref={props.slot} aria-label="3D tools"
-          className="-mx-5 -mt-5 mb-5 space-y-3 border-b p-4 empty:hidden [&>*]:!w-full [&>*]:!shadow-none" />
+          className="-mx-4 -mt-4 mb-4 space-y-3 border-b p-4 empty:hidden [&>*]:!w-full [&>*]:!shadow-none" />
       )}
       {instance ? (
-        <div className="space-y-6">
+        <div className="space-y-5">
           {props.part && <PartInspector part={props.part} />}
           <BoardDetail key={instance.id} systemId={props.systemId} document={document} instance={instance} etag={props.etag}
             canEdit={props.canEdit} busy={props.busy} run={props.run} />

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { chooseMenuItem } from "@/test/select";
+import { chooseMenuItem, openMenu } from "@/test/select";
 import type { SystemDocument } from "@/types/system";
 
 import { BoardDetail, linkedPortKeys, portState } from "./board-detail";
@@ -42,13 +42,13 @@ describe("port helpers", () => {
 });
 
 describe("BoardDetail", () => {
-  it("shows a board, and refuses to hide a linked port", () => {
+  it("shows a board, and refuses to hide a linked port", async () => {
     renderTab();
     expect(screen.getByRole("heading", { name: "OBC" })).toBeTruthy();
-    const hide = screen.getByRole("button", { name: /Hide/ }) as HTMLButtonElement;
-    expect(hide.disabled).toBe(true);
-    expect(hide.title).toBe("A linked port cannot be hidden");
-    expect(screen.getByRole("button", { name: /Reset/ })).toBeTruthy();
+    expect(screen.getByLabelText("linked")).toBeTruthy();
+    expect(screen.getByLabelText("hidden")).toBeTruthy();
+    await openMenu("Actions for J7");
+    expect(screen.getByRole("menuitem", { name: /Hide \(linked\)/ }).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("sends overrides with If-Match and reloads", async () => {
@@ -57,7 +57,7 @@ describe("BoardDetail", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
     const reload = renderTab();
-    fireEvent.click(screen.getByRole("button", { name: /Reset/ }));
+    await chooseMenuItem("Actions for J5", /Reset/);
     await waitFor(() => expect(reload).toHaveBeenCalled());
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/systems/sys_1/instances/sin_OBC/ports/key-J5/override");
@@ -79,7 +79,7 @@ describe("BoardDetail", () => {
 
   it("shows a restricted board without its details or actions", () => {
     renderTab({}, "sin_SECRET");
-    expect(screen.getByText(/in a folder you cannot see/)).toBeTruthy();
+    expect(screen.getByTitle("Its project is in a folder you cannot see.").textContent).toBe("No access");
     expect(screen.queryByRole("button", { name: "Board actions" })).toBeNull();
   });
 
@@ -88,7 +88,7 @@ describe("BoardDetail", () => {
     vi.stubGlobal("fetch", fetchMock);
     const gone = instance("GONE", { restricted: true, projectId: null, ports: null, projectDeleted: true });
     renderTab({ document: systemDocument([obc, gone], []) }, gone.id);
-    expect(screen.getByText(/project has been deleted/)).toBeTruthy();
+    expect(screen.getByText("Project deleted")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Remove board/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Remove board" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -128,7 +128,7 @@ describe("BoardDetail", () => {
 
   it("offers no edits to viewers", () => {
     renderTab({ canEdit: false });
-    expect(screen.queryByRole("button", { name: /Hide/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Actions for/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Board actions" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Check now/ })).toBeNull();
   });
@@ -140,8 +140,10 @@ describe("BoardDetail ports and subsystems", () => {
     vi.stubGlobal("fetch", fetchMock);
     const board = instance("OBC", { ports: [port("J7"), port("J6")] });
     renderTab({ document: systemDocument([board, pay], [link("L1", board.id, "J7", pay.id, "J1", 3)]) });
-    expect(screen.getAllByRole("button", { name: /Export/ })).toHaveLength(1); // J7 is linked
-    fireEvent.click(screen.getByRole("button", { name: /Export/ }));
+    await openMenu("Actions for J7");
+    expect(screen.queryByRole("menuitem", { name: "Export" })).toBeNull(); // J7 is linked
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await chooseMenuItem("Actions for J6", "Export");
     fireEvent.change(await screen.findByLabelText("Export name"), { target: { value: "DEBUG" } });
     fireEvent.click(screen.getByRole("button", { name: "Export" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -150,12 +152,13 @@ describe("BoardDetail ports and subsystems", () => {
       { name: "DEBUG", description: "", instanceId: board.id, portKey: "key-J6" }]);
   });
 
-  it("badges an exported port and disables Hide on it", () => {
+  it("badges an exported port and disables Hide on it", async () => {
     const board = instance("OBC", { ports: [port("J6")] });
     renderTab({ document: systemDocument([board], [], [exportOf("DEBUG", board.id, "J6")]) });
-    expect(screen.getByText(/exported as DEBUG/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: /Hide/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByRole("button", { name: /^Export$/ })).toBeNull();
+    expect(screen.getByLabelText("exported as DEBUG")).toBeTruthy();
+    await openMenu("Actions for J6");
+    expect(screen.getByRole("menuitem", { name: /Hide \(exported\)/ }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.queryByRole("menuitem", { name: "Export" })).toBeNull();
   });
 
   it("shows a subsystem with its revision, exports and contents", async () => {
@@ -175,7 +178,7 @@ describe("BoardDetail ports and subsystems", () => {
     expect(screen.getByText("v2 released")).toBeTruthy();
     expect(screen.getByText("CDR-rc2")).toBeTruthy();
     expect(screen.getByText("PWR_IN")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Open system/ }).getAttribute("href")).toBe("/systems/sys_child");
+    expect(screen.getByRole("link", { name: "Open its system" }).getAttribute("href")).toBe("/systems/sys_child");
     const contents = await screen.findByRole("list", { name: "Subsystem contents" });
     expect(contents.textContent).toContain("OBC-1");
     expect(contents.querySelector("[aria-label=restricted]")).toBeTruthy();

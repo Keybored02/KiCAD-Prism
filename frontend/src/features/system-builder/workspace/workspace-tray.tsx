@@ -59,7 +59,7 @@ const TD = "h-9 max-w-0 truncate px-4";
 function ConnectionsTable({ document, findings, onSelect }: { document: SystemDocument; findings: Finding[]; onSelect: (selection: WorkspaceSelection) => void }) {
   const harnesses = document.harnesses ?? [];
   if (!document.links.length && !harnesses.length) {
-    return <p className="p-4 text-sm text-muted-foreground">No connections yet. Drag between two ports on the diagram, or import a wiring list.</p>;
+    return <p className="p-4 text-sm text-muted-foreground">No connections</p>;
   }
   const rows = [
     ...harnesses.map((harness) => ({ key: harness.id, selection: { kind: "harness", id: harness.id } as WorkspaceSelection, name: harness.name,

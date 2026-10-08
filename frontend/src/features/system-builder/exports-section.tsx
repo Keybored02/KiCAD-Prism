@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { Lock, MoreHorizontal, Pencil, Share2, Trash2 } from "lucide-react";
+import { Lock, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,6 +12,7 @@ import { deleteExport, updateExport } from "@/lib/systems-api";
 import type { SystemDocument, SystemExport } from "@/types/system";
 
 import type { Mutate } from "./use-system-mutation";
+import { InspectorSection } from "./workspace/inspector-section";
 
 /** The export (if any) whose target is this board port. */
 export function exportForPort(document: SystemDocument, instanceId: string, portKey: string): SystemExport | undefined {
@@ -93,40 +93,28 @@ export function ExportsSection({ systemId, document, etag, canEdit, busy, run, o
   const labels = new Map(document.instances.map((instance) => [instance.id, instance.label]));
 
   return (
-    <section className="space-y-2" aria-labelledby="exports-heading">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 id="exports-heading" className="text-sm font-semibold">Exports</h2>
-        <p className="text-xs text-muted-foreground">Connectors a parent system can link to</p>
-      </div>
-      {exports.length === 0 ? (
-        <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-          No exports yet. Export an unlinked port from its board on the Boards tab.
-        </p>
-      ) : (
-        <ul className="divide-y rounded-md border">
+    <InspectorSection title="Exports" count={exports.length}>
+      {exports.length === 0 ? <p className="h-8 text-sm text-muted-foreground">None</p> : (
+        <ul className="text-sm">
           {exports.map((entry) => {
             const status = exportStatus(entry);
+            const where = `${labels.get(entry.instanceId) ?? "Board"} ${entry.redacted ? "" : entry.port?.reference ?? "—"}`.trim();
             return (
-              <li key={entry.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                <Share2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{entry.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    <button type="button" className="hover:underline" onClick={() => onOpenBoard(entry.instanceId)}>
-                      {labels.get(entry.instanceId) ?? "Board"}
-                    </button>
-                    {" · "}
-                    {entry.redacted ? <Lock className="inline h-3 w-3" aria-label="restricted" /> : entry.port?.reference ?? "—"}
-                    {entry.port ? ` · ${entry.port.pinCount} pins` : ""}
-                    {entry.description ? ` · ${entry.description}` : ""}
-                  </p>
-                </div>
-                <Badge variant={status.variant}>{status.label}</Badge>
+              <li key={entry.id} className="flex h-8 items-center gap-2 border-b last:border-b-0"
+                title={[entry.name, where, entry.port ? `${entry.port.pinCount} pins` : "", entry.description].filter(Boolean).join(" · ")}>
+                <span className="min-w-0 flex-1 truncate font-medium">{entry.name}</span>
+                <button type="button" className="min-w-0 max-w-[45%] truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+                  onClick={() => onOpenBoard(entry.instanceId)}>
+                  {entry.redacted ? <Lock className="inline size-3" aria-label="restricted" /> : where}
+                </button>
+                {status.label !== "published" && (
+                  <span className={status.variant === "destructive" ? "shrink-0 text-xs text-destructive" : "shrink-0 text-xs text-muted-foreground"}>{status.label}</span>
+                )}
                 {canEdit && !entry.redacted && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Actions for ${entry.name}`}>
-                        <MoreHorizontal className="h-4 w-4" />
+                      <Button variant="ghost" size="icon" className="size-6 shrink-0" aria-label={`Actions for ${entry.name}`}>
+                        <MoreHorizontal className="size-3.5" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
@@ -166,6 +154,6 @@ export function ExportsSection({ systemId, document, etag, canEdit, busy, run, o
           void run("export", () => deleteExport(systemId, etag, removing.id), `Removed ${removing.name}`).then(() => setRemoving(null));
         }}
       />
-    </section>
+    </InspectorSection>
   );
 }

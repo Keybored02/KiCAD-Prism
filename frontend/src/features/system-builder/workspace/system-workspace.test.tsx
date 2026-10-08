@@ -56,7 +56,7 @@ describe("SystemWorkspace", () => {
     const onState = renderWorkspace({ view: "icd", tray: "findings", selection: { kind: "link", id: "L1" } });
     const inspector = screen.getByRole("complementary", { name: "Inspector" });
     expect(within(inspector).getByText("OBC J1")).toBeTruthy();
-    expect(await within(inspector).findByText("SYS-V03")).toBeTruthy();
+    expect(await within(inspector).findByTitle(/^SYS-V03 · /)).toBeTruthy();
     fireEvent.click(within(inspector).getByRole("button", { name: /Open its rows/ }));
     expect(onState).toHaveBeenLastCalledWith({ view: "icd", tray: "connections", selection: { kind: "link", id: "L1" } });
     const tray = screen.getByRole("region", { name: "Tray" });
@@ -108,7 +108,7 @@ describe("SystemWorkspace: what the Overview and Boards tabs did", () => {
   it("opts the system into the net-name check, read-only without edit rights", async () => {
     const fetchMock = stubWith((_url, init) => (init?.method === "PATCH" ? ok() : null));
     const { reload } = renderWith(doc);
-    const check = screen.getByRole("checkbox", { name: /Check net names across links/ });
+    const check = screen.getByRole("checkbox", { name: /Net names across links/ });
     expect(check.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(check);
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
@@ -121,7 +121,7 @@ describe("SystemWorkspace: what the Overview and Boards tabs did", () => {
     stubWith(() => null);
     const enabled = { ...doc, system: { ...doc.system, optionalRules: ["SYS-V09" as const] } };
     renderWith(enabled, false);
-    const check = screen.getByRole("checkbox", { name: /Check net names across links/ }) as HTMLButtonElement;
+    const check = screen.getByRole("checkbox", { name: /Net names across links/ }) as HTMLButtonElement;
     expect([check.getAttribute("aria-checked"), check.disabled]).toEqual(["true", true]);
     expect(screen.queryByRole("button", { name: /Add/ })).toBeNull();
   });
