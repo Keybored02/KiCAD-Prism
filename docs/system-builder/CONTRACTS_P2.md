@@ -593,7 +593,7 @@ Everything else stays on reader or writer roles, including inventory export, hea
 | 409 | `harness_not_linkable` | Converting a harness with more than two ends, splices or a pin map to a link (§16.1) |
 | 409 | `mating_not_inferable` | Confirming a `low` inference (§15.3) |
 | 409 | `port_split`, `port_b2b_mated`, `port_exported`, `subport_exported` | §22.2–§22.4 |
-| 422 | `subport_overlap`, `subport_limit`, `pin_not_on_subport` | §22.1–§22.2 |
+| 422 | `subport_overlap`, `subport_limit`, `subport_empty`, `subport_name_taken`, `pin_not_on_subport` | §22.1–§22.2 |
 
 ## 13. Audit event kinds (additions)
 
@@ -1372,8 +1372,8 @@ A system's designer can split a port on an instance into named **sub-ports**: pi
   - `id`: `spt_` ID, stable for the sub-port's life.
   - `portKey` / `port`: the connector's baseline, stored and resolved like a link end's (P1 §6, `memberKeys`). On an assembly instance `portKey` is an export ID and `port` an `ExportBaseline` (§6.1).
   - `name`: 1–32 characters of `A–Z a–z 0–9 _ + -`, unique per connector case-insensitively. Shown as `{reference}.{name}` (`J6.PWR`); exporting a sub-port defaults the export's name to that.
-  - `pads`: a non-empty, sorted (`pad_sort_key`) list of the connector's pads, at most the connector's pin count minus one: a sub-port never takes every pad (the remainder may be empty only by unwiring, never by definition).
-- **Disjoint.** Sub-ports of one connector never share a pad (422 `subport_overlap`). The remainder is every pad of the connector not in a sub-port; it has no row of its own.
+  - `pads`: a non-empty, sorted (`pad_sort_key`) list of the connector's pads. The sub-ports of a connector together always leave at least one pad on it, so the remainder is never empty by definition.
+- **Disjoint.** Sub-ports of one connector never share a pad (422 `subport_overlap`). The remainder is every pad of the connector not in a sub-port; it has no row of its own. Other 422 codes: `invalid_name`, `subport_name_taken`, `subport_empty`, `pin_not_found`.
 - **Limits.** At most 16 sub-ports per connector and 200 per system (422 `subport_limit`).
 - **Storage (workspace migration 50).** `system_subports(id, system_id, instance_id FK cascade, port_key, port JSONB, name, pads JSONB, created_by, created_at, UNIQUE(instance_id, port_key, lower(name)))`. `system_links` gains `a_subport_id` and `b_subport_id`, and `system_exports` gains `target_subport_id`, each nullable and referencing `system_subports(id)` (no cascade: deletion re-homes first, §22.3).
 
@@ -1408,7 +1408,7 @@ Every change re-homes rows so no row is on the wrong end, in one audited system 
 
 ### 22.4 Drift and findings
 
-- **Baseline.** A sub-port's `port` follows its connector like a link end: when a baseline advance or an applied review moves the connector (relabel, rebind), every sub-port, link end and export on it moves together. Binding one end of a split connector to a different connector than its others is refused (409 `port_split`): edit or remove the sub-ports first.
+- **Baseline.** A sub-port's `port` follows its connector like a link end: when a baseline advance or an applied review moves the connector (silent relabel, accepted connector change), its sub-ports move with it. `bind_candidate` on an end of a split connector is refused (409 `port_split`): ends of one connector could otherwise be bound to different connectors; remove the sub-ports, bind, and carve again.
 - **SYS-V21 `subport_pad_absent`** (warning). A sub-port names a pad its connector no longer has at the board's baseline, or that its subsystem export no longer has at the pinned revision. Detail `{subportId, name, pads}` (the missing pads). Rows on that pad are SYS-V04 as before.
 
 ### 22.5 Document, manifest, ICD
