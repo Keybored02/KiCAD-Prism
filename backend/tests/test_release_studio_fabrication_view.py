@@ -22,6 +22,7 @@ if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
 from fastapi import HTTPException  # noqa: E402
 
 from tests.test_fabrication_view_service import package_files  # noqa: E402
+from tests.test_placement_service import KICAD_BOM, KICAD_POS  # noqa: E402
 
 
 @dataclass
@@ -120,6 +121,74 @@ class FabricationViewRouteTests(unittest.TestCase):
                 self.api._fabrication_package(build)
         self.assertEqual(len(self.api._fabrication_cache), size)
         self.assertNotIn("build-0", self.api._fabrication_cache)
+
+
+def _members_dossier(files: dict[str, bytes]) -> tuple[bytes, list[dict]]:
+    buffer = io.BytesIO()
+    members = []
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for path, data in files.items():
+            info = tarfile.TarInfo(path)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+            members.append({"path": path, "released_digest": hashlib.sha256(data).hexdigest()})
+    return buffer.getvalue(), members
+
+
+class PlacementRouteTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from app.api import release_studio as api
+
+        self.api = api
+
+    def _call(self, files: dict[str, bytes]):
+        payload, members = _members_dossier(files)
+        build = {"id": "build-1", "dossier_artifact_id": "a1"}
+        with (
+            patch.object(api_module := self.api, "get_project_for_role_or_404"),
+            patch.object(api_module, "_build_or_404", lambda *_args: build),
+            patch.object(api_module.store, "build_members", lambda _id: members),
+            patch.object(api_module, "_artifact_bytes", lambda _id: payload),
+        ):
+            return api_module.get_build_placement("project", "build-1", _User())
+
+    def test_parts_are_checked_against_the_bom(self) -> None:
+        view = self._call({
+            "assembly/positions.csv": KICAD_POS.encode(),
+            "assembly/bom.csv": KICAD_BOM.encode(),
+        })
+        self.assertTrue(view["hasBom"])
+        self.assertEqual(view["counts"]["placed"], 4)
+        self.assertEqual([item["ref"] for item in view["missing"]], ["R5"])
+
+    def test_a_build_without_a_bom_still_shows_the_positions(self) -> None:
+        view = self._call({"assembly/positions.csv": KICAD_POS.encode()})
+        self.assertFalse(view["hasBom"])
+        self.assertEqual(view["counts"]["placed"], 4)
+
+    def test_a_build_without_positions_is_404(self) -> None:
+        with self.assertRaises(HTTPException) as caught:
+            self._call({"assembly/bom.csv": KICAD_BOM.encode()})
+        self.assertEqual(caught.exception.status_code, 404)
+
+    def test_an_unreadable_position_file_is_422(self) -> None:
+        with self.assertRaises(HTTPException) as caught:
+            self._call({"assembly/positions.csv": b"nothing,useful\n1,2\n"})
+        self.assertEqual(caught.exception.status_code, 422)
+
+    def test_a_digest_mismatch_is_a_hard_error(self) -> None:
+        payload, members = _members_dossier({"assembly/positions.csv": KICAD_POS.encode()})
+        members[0]["released_digest"] = "0" * 64
+        build = {"id": "build-1", "dossier_artifact_id": "a1"}
+        with (
+            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api, "_build_or_404", lambda *_args: build),
+            patch.object(self.api.store, "build_members", lambda _id: members),
+            patch.object(self.api, "_artifact_bytes", lambda _id: payload),
+            self.assertRaises(HTTPException) as caught,
+        ):
+            self.api.get_build_placement("project", "build-1", _User())
+        self.assertEqual(caught.exception.status_code, 500)
 
 
 if __name__ == "__main__":

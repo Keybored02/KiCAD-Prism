@@ -30,6 +30,8 @@ from app.core.security import (
 from app.services import forge_publish_service as forge_publish
 from app.services import release_studio_build_service as build_service
 from app.services import release_studio_service as store
+from app.services.placement_service import PlacementError
+from app.services.placement_service import build_view as build_placement_view
 from app.services.fabrication_view_service import (
     FabricationPackage,
     FabricationViewError,
@@ -566,20 +568,22 @@ _FABRICATION_CACHE_SIZE = 4
 _fabrication_cache = PackageCache(_FABRICATION_CACHE_SIZE)
 
 
-def _fabrication_files(build: dict[str, Any]) -> dict[str, bytes]:
-    """Digest-checked fabrication members out of the stored dossier.
+def _dossier_files(
+    build: dict[str, Any], prefixes: tuple[str, ...], missing_detail: str
+) -> dict[str, bytes]:
+    """Digest-checked members under ``prefixes`` out of the stored dossier.
 
-    The same rule as :func:`download_member`: the viewer only ever draws bytes
+    The same rule as :func:`download_member`: a viewer only ever shows bytes
     that match what the manifest released.
     """
 
     wanted = {
         item["path"]: item
         for item in store.build_members(build["id"])
-        if str(item["path"]).startswith(_FABRICATION_PREFIXES)
+        if str(item["path"]).startswith(prefixes)
     }
     if not wanted:
-        raise HTTPException(status_code=404, detail="This build has no fabrication files")
+        raise HTTPException(status_code=404, detail=missing_detail)
     payload = _artifact_bytes(build["dossier_artifact_id"])
     files: dict[str, bytes] = {}
     try:
@@ -605,6 +609,10 @@ def _fabrication_files(build: dict[str, Any]) -> dict[str, bytes]:
             status_code=500, detail="The stored dossier could not be read."
         ) from exc
     return files
+
+
+def _fabrication_files(build: dict[str, Any]) -> dict[str, bytes]:
+    return _dossier_files(build, _FABRICATION_PREFIXES, "This build has no fabrication files")
 
 
 def _fabrication_package(build: dict[str, Any]) -> FabricationPackage:
@@ -659,6 +667,35 @@ def get_fabrication_layer(
             "Referrer-Policy": "no-referrer",
         },
     )
+
+
+_POSITIONS_MEMBER = "assembly/positions.csv"
+_BOM_MEMBER = "assembly/bom.csv"
+
+
+@router.get("/{project_id}/release-studio/builds/{build_id}/placement")
+def get_build_placement(
+    project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_viewer)
+):
+    """Pick-and-place parts of the build, checked against its BOM when it has one."""
+
+    get_project_for_role_or_404(project_id, user.role)
+    build = _build_or_404(project_id, build_id)
+    members = {str(item["path"]) for item in store.build_members(build["id"])}
+    if _POSITIONS_MEMBER not in members:
+        raise HTTPException(status_code=404, detail="This build has no position file")
+    wanted = (_POSITIONS_MEMBER,) + ((_BOM_MEMBER,) if _BOM_MEMBER in members else ())
+    files = _dossier_files(build, wanted, "This build has no position file")
+    bom = files.get(_BOM_MEMBER)
+    try:
+        return build_placement_view(
+            files[_POSITIONS_MEMBER].decode("utf-8", errors="replace"),
+            bom.decode("utf-8", errors="replace") if bom is not None else None,
+            positions_name=_POSITIONS_MEMBER.rsplit("/", 1)[-1],
+            bom_name=_BOM_MEMBER.rsplit("/", 1)[-1],
+        )
+    except PlacementError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

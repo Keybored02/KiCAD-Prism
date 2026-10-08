@@ -183,3 +183,65 @@ class CommitFabricationViewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OutputPlacementTests(unittest.TestCase):
+    """The position file and BOM are found by content, whatever they are called."""
+
+    def setUp(self) -> None:
+        from app.api import fabrication_view as api
+        from tests.test_placement_service import JLC_BOM, JLC_CPL, KICAD_BOM, KICAD_POS
+
+        self.api = api
+        self.scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(self.scratch.cleanup)
+        self.root = Path(self.scratch.name)
+        self.texts = (KICAD_POS, KICAD_BOM, JLC_CPL, JLC_BOM)
+
+    def _folder(self, name: str, files: dict[str, str]) -> None:
+        folder = self.root / name
+        folder.mkdir()
+        for filename, text in files.items():
+            (folder / filename).write_text(text, encoding="utf-8")
+
+    def _view(self, folder: str):
+        with (
+            patch.object(self.api, "get_project_for_role_or_404", lambda *_a: object()),
+            patch.object(self.api.projects_api, "_resolve_output_dir", lambda *_a: str(self.root)),
+        ):
+            return self.api.get_output_placement("p1", "manufacturing", folder, None, _User())
+
+    def test_kicad_files_by_content(self) -> None:
+        pos, bom, _, _ = self.texts
+        self._folder("kicad", {"board-pos.csv": pos, "board.csv": bom, "notes.csv": "a,b\n1,2\n"})
+        view = self._view("kicad")
+        self.assertEqual(view["files"], {"positions": "board-pos.csv", "bom": "board.csv"})
+        self.assertEqual(view["counts"]["placed"], 4)
+        self.assertEqual([item["ref"] for item in view["missing"]], ["R5"])
+
+    def test_jlcpcb_files_where_the_bom_also_has_a_designator_column(self) -> None:
+        _, _, cpl, bom = self.texts
+        self._folder("jlc", {"CPL-board.csv": cpl, "BOM-board.csv": bom})
+        view = self._view("jlc")
+        self.assertEqual(view["files"], {"positions": "CPL-board.csv", "bom": "BOM-board.csv"})
+        self.assertEqual(view["counts"]["notInBom"], 0)
+
+    def test_positions_alone_are_enough(self) -> None:
+        self._folder("alone", {"positions.csv": self.texts[0]})
+        view = self._view("alone")
+        self.assertFalse(view["hasBom"])
+
+    def test_no_position_file_is_404(self) -> None:
+        self._folder("none", {"bom.csv": self.texts[1]})
+        with self.assertRaises(HTTPException) as caught:
+            self._view("none")
+        self.assertEqual(caught.exception.status_code, 404)
+
+    def test_a_folder_without_csv_is_404_and_traversal_is_refused(self) -> None:
+        self._folder("empty", {"readme.txt": "x"})
+        with self.assertRaises(HTTPException) as caught:
+            self._view("empty")
+        self.assertEqual(caught.exception.status_code, 404)
+        with self.assertRaises(HTTPException) as caught:
+            self._view("../x")
+        self.assertIn(caught.exception.status_code, (400, 404))

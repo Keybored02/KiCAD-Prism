@@ -23,6 +23,12 @@ from app.api._helpers import (
     resolve_path_within_root,
 )
 from app.core.security import AuthenticatedUser, require_viewer
+from app.services.placement_service import (
+    PlacementError,
+    parse_bom,
+    parse_positions,
+)
+from app.services.placement_service import build_view as build_placement_view
 from app.services.fabrication_view_service import (
     FabricationPackage,
     FabricationViewError,
@@ -51,12 +57,18 @@ def _clean_folder(folder: str) -> str:
     return normalized
 
 
-def _candidates(names_sizes: list[tuple[str, int]]) -> list[tuple[str, int]]:
-    """Layer files only, with the limits that keep a request bounded."""
+_LAYERS = (_LAYER_FILE, "No Gerber or drill files in this folder")
+_CSV_FILE = re.compile(r"\.csv$", re.IGNORECASE)
+_TABLES = (_CSV_FILE, "No CSV files in this folder")
 
-    found = [(name, size) for name, size in names_sizes if _LAYER_FILE.search(name)]
+
+def _candidates(names_sizes: list[tuple[str, int]], kind) -> list[tuple[str, int]]:
+    """The files of one kind, with the limits that keep a request bounded."""
+
+    pattern, empty = kind
+    found = [(name, size) for name, size in names_sizes if pattern.search(name)]
     if not found:
-        raise HTTPException(status_code=404, detail="No Gerber or drill files in this folder")
+        raise HTTPException(status_code=404, detail=empty)
     if len(found) > _MAX_FILES:
         raise HTTPException(status_code=413, detail="Too many files to view as one package")
     if any(size > _MAX_FILE_BYTES for _, size in found):
@@ -64,7 +76,7 @@ def _candidates(names_sizes: list[tuple[str, int]]) -> list[tuple[str, int]]:
     return found
 
 
-def _working_tree(project, output_type: str, folder: str):
+def _working_tree(project, output_type: str, folder: str, kind=_LAYERS):
     output_dir = projects_api._resolve_output_dir(project, output_type)
     directory = resolve_path_within_root(output_dir, folder, invalid_detail="Invalid folder path")
     if not directory.is_dir():
@@ -72,9 +84,9 @@ def _working_tree(project, output_type: str, folder: str):
     entries = [
         (entry.name, entry.stat())
         for entry in os.scandir(directory)
-        if entry.is_file() and _LAYER_FILE.search(entry.name)
+        if entry.is_file() and kind[0].search(entry.name)
     ]
-    _candidates([(name, stat.st_size) for name, stat in entries])
+    _candidates([(name, stat.st_size) for name, stat in entries], kind)
     signature = tuple(sorted((name, stat.st_size, stat.st_mtime_ns) for name, stat in entries))
 
     def read() -> dict[str, bytes]:
@@ -83,7 +95,7 @@ def _working_tree(project, output_type: str, folder: str):
     return signature, read
 
 
-def _at_commit(project, output_type: str, folder: str, commit: str):
+def _at_commit(project, output_type: str, folder: str, commit: str, kind=_LAYERS):
     config = projects_api._path_config_from_commit(project, commit)
     base = projects_api._join_relative_paths(
         projects_api._output_dir_from_config(config, output_type), folder
@@ -93,7 +105,7 @@ def _at_commit(project, output_type: str, folder: str, commit: str):
         for item in projects_api._files_from_commit(project, commit, base)
         if not item.is_dir and "/" not in item.path
     ]
-    found = _candidates([(item.name, item.size) for item in items])
+    found = _candidates([(item.name, item.size) for item in items], kind)
     signature = tuple(sorted(found))
 
     def read() -> dict[str, bytes]:
@@ -107,6 +119,26 @@ def _at_commit(project, output_type: str, folder: str, commit: str):
     return signature, read
 
 
+def _folder_files(
+    project_id: str,
+    user: AuthenticatedUser,
+    output_type: str,
+    folder: str,
+    commit: Optional[str],
+    kind,
+):
+    """Signature and reader for one kind of file in a project output folder."""
+
+    output_type = require_output_type(output_type)
+    project = get_project_for_role_or_404(project_id, user.role)
+    folder = _clean_folder(folder)
+    return (
+        _at_commit(project, output_type, folder, commit, kind)
+        if commit
+        else _working_tree(project, output_type, folder, kind)
+    )
+
+
 def _package(
     project_id: str,
     user: AuthenticatedUser,
@@ -115,13 +147,8 @@ def _package(
     commit: Optional[str],
 ) -> FabricationPackage:
     output_type = require_output_type(output_type)
-    project = get_project_for_role_or_404(project_id, user.role)
     folder = _clean_folder(folder)
-    signature, read = (
-        _at_commit(project, output_type, folder, commit)
-        if commit
-        else _working_tree(project, output_type, folder)
-    )
+    signature, read = _folder_files(project_id, user, output_type, folder, commit, _LAYERS)
     key = (project_id, output_type, folder, commit or "", signature)
     cached = _cache.get(key)
     if cached is not None:
@@ -178,4 +205,64 @@ def get_output_fabrication_layer(
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer",
         },
+    )
+
+
+def _is_position_file(text: str) -> bool:
+    try:
+        parse_positions(text)
+    except PlacementError:
+        return False
+    return True
+
+
+def _pick(files: dict[str, str], wanted, prefer: re.Pattern[str]) -> Optional[str]:
+    """First file `wanted` accepts, those named like `prefer` first."""
+
+    for name in sorted(files, key=lambda item: (not prefer.search(item), item.casefold())):
+        if wanted(files[name]):
+            return name
+    return None
+
+
+_POSITION_NAME = re.compile(r"pos|cpl|place|centroid", re.IGNORECASE)
+_BOM_NAME = re.compile(r"bom|parts", re.IGNORECASE)
+
+
+@router.get("/{project_id}/placement")
+def get_output_placement(
+    project_id: str,
+    type: str = "manufacturing",
+    folder: str = "",
+    commit: Optional[str] = None,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """Parts of the position file in a folder, checked against its BOM if it has one.
+
+    The files are found by what they contain, not by name: KiCad calls them
+    ``*-pos.csv`` and ``*.csv``, the JLCPCB plugin ``CPL-*.csv`` and ``BOM-*.csv``.
+    """
+
+    _, read = _folder_files(
+        project_id, user, require_output_type(type), _clean_folder(folder), commit, _TABLES
+    )
+    files = {name: data.decode("utf-8", errors="replace") for name, data in read().items()}
+    positions = _pick(files, _is_position_file, _POSITION_NAME)
+    if positions is None:
+        raise HTTPException(status_code=404, detail="No position file in this folder")
+    others = {name: text for name, text in files.items() if name != positions}
+
+    def is_bom(text: str) -> bool:
+        try:
+            parse_bom(text)
+        except PlacementError:
+            return False
+        return not _is_position_file(text)
+
+    bom = _pick(others, is_bom, _BOM_NAME)
+    return build_placement_view(
+        files[positions],
+        others[bom] if bom else None,
+        positions_name=positions,
+        bom_name=bom or "",
     )
