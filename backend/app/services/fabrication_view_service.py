@@ -12,10 +12,11 @@ Studio build, committed outputs) is the caller's business.
 
 from __future__ import annotations
 
+import re
 import tempfile
 import threading
 from collections import Counter, OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -77,16 +78,64 @@ class LayerInfo:
         }
 
 
-def classify(function: str, kind: str) -> Tuple[str, str]:
+#: Protel extensions, the convention KiCad, Altium and most CAM tools share.
+_EXTENSION_ROLES: Dict[str, Tuple[str, str]] = {
+    "gtl": ("copper", "top"), "gbl": ("copper", "bottom"),
+    "gts": ("mask", "top"), "gbs": ("mask", "bottom"),
+    "gto": ("silk", "top"), "gbo": ("silk", "bottom"),
+    "gtp": ("paste", "top"), "gbp": ("paste", "bottom"),
+    "gm1": ("outline", "both"), "gko": ("outline", "both"),
+}
+_TOKEN = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
+_TOP = {"top", "front", "f"}
+_BOTTOM = {"bottom", "bot", "back", "b"}
+
+
+def _classify_by_name(filename: str, name: str) -> Optional[Tuple[str, str]]:
+    """Role and side of a layer a CAM tool named but did not attribute.
+
+    Gerber X2 says what a file is.  Older exports and plugins (the JLCPCB one
+    writes ``CuTop.gbr``, ``SilkBottom.gbr``) say it only in the name, so this
+    reads the extension first and then the words in the name.  It is a fallback
+    for files with no declared function, never an override of one.
+    """
+
+    suffix = Path(filename).suffix.lstrip(".").casefold()
+    if suffix in _EXTENSION_ROLES:
+        return _EXTENSION_ROLES[suffix]
+    if re.fullmatch(r"g\d+", suffix):
+        return "copper", "inner"
+    tokens = [token.casefold() for token in _TOKEN.findall(name)]
+    joined = "".join(tokens)
+    if any(word in joined for word in ("edge", "outline", "profile")):
+        return "outline", "both"
+    side = "top" if _TOP & set(tokens) else "bottom" if _BOTTOM & set(tokens) else "both"
+    for word, role in (("mask", "mask"), ("paste", "paste"), ("silk", "silk"), ("legend", "silk")):
+        if word in joined:
+            return role, side
+    if {"cu", "copper"} & set(tokens):
+        inner = bool(re.search(r"(?<![a-z])(in|inner|l)\d+", joined))
+        return "copper", "inner" if inner and side == "both" else side
+    return None
+
+
+def classify(
+    function: str, kind: str, filename: str = "", name: str = ""
+) -> Tuple[str, str]:
     """Role and side of a layer from its Gerber X2 file function.
 
     ``Copper,L1,Top`` / ``Soldermask,Bot`` / ``Legend,Top`` / ``Profile,NP`` /
-    ``NCDrill``.  Anything unrecognised is ``other`` rather than dropped, so a
-    package the viewer does not understand still lists every file it holds.
+    ``NCDrill``.  A layer with no declared function falls back to its file name.
+    Anything still unrecognised is ``other`` rather than dropped, so a package the
+    viewer does not understand lists every file it holds.
     """
 
     if kind == "excellon":
         return "drill", "both"
+    if function.startswith("Unknown"):
+        guessed = _classify_by_name(filename, name or filename)
+        if guessed:
+            return guessed
     parts = [part.strip() for part in function.split(",")]
     head = parts[0].casefold()
     tail = parts[-1].casefold()
@@ -154,8 +203,11 @@ class FabricationPackage:
 
     def _load(self) -> None:
         infos: List[LayerInfo] = []
+        # Two layers can read the same ("Drill" for a PTH and an NPTH program);
+        # the file name is then the only thing that tells them apart.
+        names = Counter(layer.name for layer in self.layers)
         for layer, layer_id in zip(self.layers, _unique_ids(self.layers)):
-            role, side = classify(layer.function, layer.kind)
+            role, side = classify(layer.function, layer.kind, layer.filename, layer.name)
             colour = _COLOURS.get((role, side)) or _COLOURS.get((role, "both"), _FALLBACK_COLOUR)
             read = fab.parse_excellon if layer.kind == "excellon" else fab.parse_gerber
             try:
@@ -166,13 +218,29 @@ class FabricationPackage:
                 self._parsed[layer_id] = parsed
                 self._warnings[layer_id] = sorted(set(parsed.warnings))
             infos.append(LayerInfo(
-                id=layer_id, name=layer.name, function=layer.function, role=role,
+                id=layer_id, name=layer.filename if names[layer.name] > 1 else layer.name,
+                function=layer.function, role=role,
                 side=side, colour=colour, filename=layer.filename, kind=layer.kind,
             ))
         infos.sort(key=_sort_key)
         self.infos = infos
-        self._outline = fab._board_outline(self.layers)
+        self._outline = fab._board_outline(self._outline_candidates(infos))
         self._bounds = self._extent()
+
+    def _outline_candidates(self, infos: List[LayerInfo]) -> List[fab.FabricationLayer]:
+        """The profile layer, under the name the outline finder looks for.
+
+        It finds the board edge by KiCad's own layer name, which a plugin's
+        ``EdgeCuts.gbr`` does not carry, so the layer classified as the profile
+        is offered to it as ``Edge.Cuts``.
+        """
+
+        by_file = {layer.filename: layer for layer in self.layers}
+        return [
+            replace(by_file[info.filename], name="Edge.Cuts")
+            for info in infos
+            if info.role == "outline" and info.filename in by_file
+        ]
 
     def _extent(self) -> Optional[Tuple[float, float, float, float]]:
         boxes: List[Tuple[float, float, float, float]] = []

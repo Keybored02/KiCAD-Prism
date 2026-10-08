@@ -50,6 +50,8 @@ OUTLINE = (
     "X0Y0D01*\n"
 )
 PAD = "D11*\nX5000000Y5000000D03*\n"
+# A mark well outside the 20 x 10 mm profile.
+SILK_MARK = "D11*\nX30000000Y30000000D03*\n"
 
 JOB = {
     "FilesAttributes": [
@@ -109,6 +111,95 @@ class ClassifyTests(unittest.TestCase):
 
     def test_unknown_function_is_other_not_dropped(self) -> None:
         self.assertEqual(classify("Unknown,Mystery", "gerber"), ("other", "both"))
+
+
+class ClassifyByNameTests(unittest.TestCase):
+    """Files with no declared function are read from their name."""
+
+    def role(self, filename: str, name: str | None = None):
+        stem = filename.rsplit(".", 1)[0]
+        return classify(f"Unknown,{name or stem}", "gerber", filename, name or stem)
+
+    def test_the_jlcpcb_plugin_names(self) -> None:
+        cases = {
+            "board-CuTop.gbr": ("copper", "top"),
+            "board-CuBottom.gbr": ("copper", "bottom"),
+            "board-MaskTop.gbr": ("mask", "top"),
+            "board-MaskBottom.gbr": ("mask", "bottom"),
+            "board-SilkTop.gbr": ("silk", "top"),
+            "board-SilkBottom.gbr": ("silk", "bottom"),
+            "board-EdgeCuts.gbr": ("outline", "both"),
+        }
+        for filename, expected in cases.items():
+            with self.subTest(filename):
+                self.assertEqual(self.role(filename, filename.split("-")[1].split(".")[0]), expected)
+
+    def test_kicad_style_names_without_a_job_file(self) -> None:
+        cases = {
+            "F_Cu": ("copper", "top"),
+            "B_Cu": ("copper", "bottom"),
+            "In1_Cu": ("copper", "inner"),
+            "In12_Cu": ("copper", "inner"),
+            "F_Mask": ("mask", "top"),
+            "B_Paste": ("paste", "bottom"),
+            "F_Silkscreen": ("silk", "top"),
+            "Edge_Cuts": ("outline", "both"),
+        }
+        for name, expected in cases.items():
+            with self.subTest(name):
+                self.assertEqual(self.role(f"board-{name}.gbr", name), expected)
+
+    def test_protel_extensions_win_over_the_name(self) -> None:
+        cases = {
+            "x.GTL": ("copper", "top"),
+            "x.gbl": ("copper", "bottom"),
+            "x.gts": ("mask", "top"),
+            "x.gbo": ("silk", "bottom"),
+            "x.gtp": ("paste", "top"),
+            "x.gm1": ("outline", "both"),
+            "x.g2": ("copper", "inner"),
+        }
+        for filename, expected in cases.items():
+            with self.subTest(filename):
+                self.assertEqual(self.role(filename, "anything"), expected)
+
+    def test_a_name_with_no_hint_stays_other(self) -> None:
+        self.assertEqual(self.role("board-Courtyard.gbr", "Courtyard"), ("other", "both"))
+        self.assertEqual(self.role("document.gbr", "document"), ("other", "both"))
+
+    def test_a_declared_function_is_never_overridden(self) -> None:
+        self.assertEqual(classify("Other,User", "gerber", "board-CuTop.gbr", "CuTop"), ("other", "both"))
+        self.assertEqual(classify("Copper,L1,Top", "gerber", "board-SilkBottom.gbr", "SilkBottom"), ("copper", "top"))
+
+
+class UnattributedPackageTests(unittest.TestCase):
+    """A package from a plugin: no job file, nothing declared."""
+
+    def test_roles_outline_and_size_come_from_the_names(self) -> None:
+        files = {
+            "board-CuTop.gbr": gerber(PAD),
+            "board-CuBottom.gbr": gerber(PAD),
+            "board-SilkTop.gbr": gerber(SILK_MARK),
+            "board-EdgeCuts.gbr": gerber(OUTLINE),
+            "board-PTH.drl": DRILL,
+        }
+        view = FabricationPackage.from_files(files).view()
+        roles = {layer["file"]: (layer["role"], layer["side"]) for layer in view["layers"]}
+        self.assertEqual(roles["board-CuTop.gbr"], ("copper", "top"))
+        self.assertEqual(roles["board-EdgeCuts.gbr"], ("outline", "both"))
+        self.assertEqual(view["copperLayers"], 2)
+        # The board is the profile (20 x 10), not the silk mark outside it.
+        self.assertEqual(view["size"], {"width": 20.0, "height": 10.0})
+
+
+class LayerNameTests(unittest.TestCase):
+    def test_two_drill_programs_are_told_apart_by_file(self) -> None:
+        files = {"board-PTH.drl": DRILL, "board-NPTH.drl": DRILL, "board-F_Cu.gtl": gerber(PAD)}
+        view = FabricationPackage.from_files(files).view()
+        names = {layer["id"]: layer["name"] for layer in view["layers"]}
+        self.assertEqual(sorted(name for name in names.values() if name.endswith(".drl")),
+                         ["board-NPTH.drl", "board-PTH.drl"])
+        self.assertIn("F.Cu", names.values())
 
 
 class PackageViewTests(unittest.TestCase):

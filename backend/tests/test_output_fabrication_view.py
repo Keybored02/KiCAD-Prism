@@ -53,6 +53,7 @@ class OutputFabricationViewTests(unittest.TestCase):
         for name, data in package_files().items():
             (gerbers / name).write_bytes(data)
         (gerbers / "notes.pdf").write_bytes(b"%PDF")
+        (gerbers / "logo.gif").write_bytes(b"GIF89a")
         (self.root / "readme.txt").write_text("hi")
         self.reads = 0
 
@@ -81,6 +82,7 @@ class OutputFabricationViewTests(unittest.TestCase):
     def test_non_layer_files_are_ignored(self) -> None:
         names = [layer["file"] for layer in self._view()["layers"]]
         self.assertNotIn("notes.pdf", names)
+        self.assertNotIn("logo.gif", names)
 
     def test_layer_svg_is_served_sandboxed_and_not_cached_forever(self) -> None:
         response = self._layer("f.cu")

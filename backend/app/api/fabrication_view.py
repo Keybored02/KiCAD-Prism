@@ -32,7 +32,10 @@ from app.services.fabrication_view_service import (
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
 #: Gerber (`.gbr`, KiCad's Protel `.gtl`/`.gbl`/`.gm1`/..., inner `.g1`), job file, drill.
-_LAYER_FILE = re.compile(r"\.(g[a-z][a-z0-9]|g\d+|gbrjob|drl|xln)$", re.IGNORECASE)
+_LAYER_FILE = re.compile(
+    r"\.(gbr|gtl|gbl|gts|gbs|gto|gbo|gtp|gbp|gta|gba|gm\d|gko|g\d+|gbrjob|drl|xln)$",
+    re.IGNORECASE,
+)
 _MAX_FILES = 80
 _MAX_FILE_BYTES = 25 * 1024 * 1024
 
