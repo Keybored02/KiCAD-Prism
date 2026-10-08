@@ -29,6 +29,7 @@ def initialize_rate_limit_store() -> None:
         if _initialized:
             return
         with database.connection() as connection:
+            connection.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
             connection.execute("CREATE SCHEMA IF NOT EXISTS workspace")
             connection.execute("SET search_path TO workspace, public")
             connection.execute(
