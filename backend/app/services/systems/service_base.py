@@ -150,9 +150,12 @@ class ServiceCore:
         return instance
 
     def _instance_interface(self, store: SystemStore, instance: Mapping[str, Any]) -> Optional[dict]:
-        """A board's interface at its baseline, or an assembly's exports as one (P2 §6.1)."""
+        """A board's interface at its baseline, an assembly's exports as one (P2 §6.1), or a module's
+        connectors as one (P2 §5.6)."""
         if instance.get("kind", "board") == "board":
             return store.get_interface(instance["project_id"], instance["baseline_commit"], EXTRACTOR_VERSION)
+        if instance.get("kind") == "module":
+            return self._module_interface(instance["catalog_revision_id"])
         revision = self._catalog_revision(instance["catalog_revision_id"])
         return exports_module.as_interface((revision or {}).get("interface")) if revision else None
 
@@ -160,7 +163,8 @@ class ServiceCore:
         found = self._instance_interface(store, instance)
         if found is None:
             if instance.get("kind", "board") != "board":
-                raise Conflict("the subsystem's catalog revision cannot be read; try again")
+                raise Conflict(f"the {'module' if instance.get('kind') == 'module' else 'subsystem'}'s catalog revision "
+                               "cannot be read; try again")
             raise Conflict("interface_not_ready: the board interface at this baseline is still being extracted")
         return found
 

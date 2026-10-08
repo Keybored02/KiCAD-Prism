@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import (
-    child_drift, exports as exports_module, exposure, hierarchy, redaction, sources, system_nets, validation,
+    child_drift, exports as exports_module, exposure, hierarchy, modules, redaction, sources, system_nets, validation,
     scene as scene_module, visibility,
 )
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
@@ -99,6 +99,29 @@ class AssembliesMixin:
             logger.exception("Could not read catalog revision %s", revision_id)
             return None
 
+    def _module_interface(self, revision_id: str) -> Optional[dict]:
+        """A module revision's connectors as an interface artifact (§5.6): its units, the connector
+        parts placed on it today (§3.6) and its model. Placements or a model the catalog can't give
+        leave the ports without geometry (they link but can't mate)."""
+        revision = self._catalog_revision(revision_id)
+        if revision is None:
+            return None
+        catalog = self._catalog()
+        try:
+            connectors = catalog.module_connectors(revision["componentId"])
+        except Exception:  # the catalog is a separate service; the ports still link
+            logger.exception("Could not read the connectors of module %s", revision["componentId"])
+            connectors = None
+        try:
+            found = next((m for m in catalog.list_models(revision["componentId"]) if m["glb"]), None)
+        except Exception:
+            logger.debug("No model for module %s", revision["componentId"], exc_info=True)
+            found = None
+        model = None if found is None else {
+            "glbKey": found["glb"]["key"], "boundsMm": found["glb"]["bounds"],
+            "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
+        return modules.as_interface(revision.get("interface"), connectors, model)
+
     def _child_interface(self, revision_id: str) -> Optional[dict]:
         """reconcile.ChildLoader: a catalog revision's exports as an interface artifact."""
         revision = self._catalog_revision(revision_id)
@@ -189,9 +212,16 @@ class AssembliesMixin:
         return refs
 
     def _catalog_instance_doc(self, instance: Mapping[str, Any]) -> dict:
-        """An assembly/module instance as the document shows it: its exports are its ports."""
+        """An assembly/module instance as the document shows it: an assembly's exports, a module's
+        connectors (§5.6), are its ports."""
         revision = self._catalog_revision(instance["catalog_revision_id"])
-        exports = ((revision or {}).get("interface") or {}).get("exports") or []
+        if instance["kind"] == "module":
+            units = (self._module_interface(instance["catalog_revision_id"]) or {}).get("components") or [] \
+                if revision else []
+            exports = [{"id": c["portKey"], "name": c["reference"], "libId": None, "footprint": c.get("footprint"),
+                        "reference": c.get("mpn"), "pinCount": len(c["pins"])} for c in units]
+        else:
+            exports = ((revision or {}).get("interface") or {}).get("exports") or []
         latest = (revision or {}).get("latestReleasedRevisionId")
         return {
             "id": instance["id"], "label": instance["label"], "kind": instance["kind"], "restricted": False,
@@ -204,7 +234,8 @@ class AssembliesMixin:
             "ports": [{
                 "portKey": entry.get("id"), "memberKeys": [entry.get("id")], "reference": entry.get("name"),
                 "libId": entry.get("libId"), "footprint": entry.get("footprint"), "value": entry.get("reference"),
-                "dnp": False, "candidate": True, "candidateReason": "export", "override": None, "exposed": True,
+                "dnp": False, "candidate": True, "candidateReason": "module" if instance["kind"] == "module" else "export",
+                "override": None, "exposed": True,
                 "pinCount": int(entry.get("pinCount") or 0),
             } for entry in exports],
             "catalog": {
@@ -412,10 +443,8 @@ class AssembliesMixin:
             level = self._net_level(store, system_id, tree)
             harnesses = system_nets.harness_layout(level)
             placement, interfaces = self._placement(store, system_id, tree, level)
-            scene_module.harness_connectors(harnesses, tree.occurrences, level,
-                                            lambda o, key: store.get_interface_component(
-                                                o.project_id, o.baseline_commit, EXTRACTOR_VERSION, key)
-                                            if o.project_id and o.baseline_commit else None)
+            interface_of, component_of = self._occurrence_lookups(store, interfaces)
+            scene_module.harness_connectors(harnesses, tree.occurrences, level, component_of)
             self._attach_housings(harnesses)
         for (project_id, commit), found in interfaces.items():
             if found is None:  # not extracted yet, or by an older extractor: the bounds come with it
@@ -428,8 +457,7 @@ class AssembliesMixin:
                 assets[key] = self._scene_asset(caller, *key)
             return assets[key]
 
-        built = scene_module.build(system_id, version, tree.occurrences, shown,
-                                   lambda o: interfaces.get((o.project_id, o.baseline_commit)), asset,
+        built = scene_module.build(system_id, version, tree.occurrences, shown, interface_of, asset,
                                    placement=placement)
         built["harnesses"] = scene_module.redact_harnesses(harnesses, shown)
         root = placement["results"].get("")
@@ -468,11 +496,9 @@ class AssembliesMixin:
         tree = self._tree(store, system_id)
         level = self._net_level(store, system_id, tree)
         harnesses = [h for h in system_nets.harness_layout(level) if not h["level"]]
-        placement, _ = self._placement(store, system_id, tree, level)
+        placement, extents = self._placement(store, system_id, tree, level)
         scene_module.harness_connectors(harnesses, tree.occurrences, level,
-                                        lambda o, key: store.get_interface_component(
-                                            o.project_id, o.baseline_commit, EXTRACTOR_VERSION, key)
-                                        if o.project_id and o.baseline_commit else None)
+                                        self._occurrence_lookups(store, extents)[1])
         self._attach_housings(harnesses)
         matrices = {path: poses_module.matrix(pose)
                     for path, pose in scene_module.world_poses(tree.occurrences, placement["placed"]).items()}
@@ -502,14 +528,37 @@ class AssembliesMixin:
         """
         tree = tree or self._tree(store, system_id)
         level = level or self._net_level(store, system_id, tree)
-        level.mating = {i["id"]: store.list_mating(i["id"]) for i in store.list_instances(system_id)}
+        # Modules mate like boards (§5.6): their stored frames count too.
+        level.mating = {i["id"]: store.list_mating(i["id"])
+                        for i in store.list_instances(system_id, kinds=("board", "module"))}
         level.driving = store.list_driving_mates(system_id)
         extents = {(o.project_id, o.baseline_commit): store.get_interface_extent(o.project_id, o.baseline_commit,
                                                                                  EXTRACTOR_VERSION)
                    for o in tree.boards if o.project_id and o.baseline_commit}
+        interface_of, component_of = self._occurrence_lookups(store, extents)
+        placement = scene_module.place_tree(tree.occurrences, interface_of, store.list_poses(system_id), level,
+                                            component_of)
+        return placement, extents
+
+    def _occurrence_lookups(self, store: SystemStore, extents: Mapping[tuple, Optional[dict]]):
+        """``(interface_of, component_of)`` for an occurrence: a board's extent and one connector read from
+        its artifact (never the whole artifact), a module's interface (§5.6), cached per call."""
+        modules_read: dict[str, Optional[dict]] = {}
         components: dict[tuple[str, str, str], Optional[dict]] = {}
 
-        def component(occurrence: hierarchy.Occurrence, port_key: str) -> Optional[dict]:
+        def module(occurrence: hierarchy.Occurrence) -> Optional[dict]:
+            if occurrence.revision_id not in modules_read:
+                modules_read[occurrence.revision_id] = self._module_interface(occurrence.revision_id)
+            return modules_read[occurrence.revision_id]
+
+        def interface_of(occurrence: hierarchy.Occurrence) -> Optional[dict]:
+            if occurrence.kind == "module":
+                return module(occurrence) if occurrence.revision_id else None
+            return extents.get((occurrence.project_id, occurrence.baseline_commit))
+
+        def component_of(occurrence: hierarchy.Occurrence, port_key: str) -> Optional[dict]:
+            if occurrence.kind == "module":
+                return modules.component(module(occurrence), port_key) if occurrence.revision_id else None
             if not occurrence.project_id or not occurrence.baseline_commit:
                 return None
             key = (occurrence.project_id, occurrence.baseline_commit, port_key)
@@ -517,9 +566,7 @@ class AssembliesMixin:
                 components[key] = store.get_interface_component(*key[:2], EXTRACTOR_VERSION, port_key)
             return components[key]
 
-        placement = scene_module.place_tree(tree.occurrences, lambda o: extents.get((o.project_id, o.baseline_commit)),
-                                            store.list_poses(system_id), level, component)
-        return placement, extents
+        return interface_of, component_of
 
     def _scene_asset(self, caller: Caller, project_id: str, commit: str) -> dict:
         entry = {"assetId": scene_module.asset_id(project_id, commit), "projectId": project_id, "commit": commit,

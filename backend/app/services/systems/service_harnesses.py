@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import (
-    drift, exposure, generators, harnesses as harnesses_module, mating as mating_module, redaction,
+    drift, exposure, generators, harnesses as harnesses_module, mating as mating_module, modules, redaction,
 )
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.placement import poses as placement_poses
@@ -19,6 +19,8 @@ class HarnessesMixin:
 
     def _mating_board(self, store: SystemStore, system_id: str, instance_id: str, caller: Caller) -> tuple[dict, dict]:
         instance = self._open_instance(store, system_id, instance_id, caller)
+        if instance.get("kind") == "module":
+            raise Invalid("a module's connector frames come from its connector placement in the catalog (§3.6)")
         if instance.get("kind", "board") != "board":
             raise Invalid("a subsystem's connector frames are frozen in its snapshot; change them in the child system")
         return instance, self._interface(store, instance)
@@ -58,6 +60,10 @@ class HarnessesMixin:
                         state = mating_module.port_state(component, record)
                         entry.update(geometry=component.get("geometry"), thicknessMm=component.get("boardThicknessMm"),
                                      inferred=state["inferred"], stored=state["stored"])
+                elif entry["kind"] == "module":
+                    component = modules.component(self._interface(store, instance), port["portKey"])
+                    if component is not None and component.get("geometry"):
+                        entry.update(geometry=component["geometry"], thicknessMm=0.0, stored=component["matingFrame"])
                 ends[end] = entry
         return {"linkId": link_id, "stackHeightMm": link.get("stack_height_mm"), **ends}
 

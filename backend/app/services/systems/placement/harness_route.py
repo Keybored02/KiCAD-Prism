@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Optional, Sequence
 
-from app.services.systems.placement import harness_curves, harness_ends, harness_nodes, harness_topology
+from app.services.systems.placement import harness_curves, harness_ends, harness_nodes, harness_topology, poses
 from app.services.systems.placement.frames import quaternion
 
 Matrix = Sequence[float]
@@ -47,7 +47,10 @@ def route(harness: Mapping[str, Any], world_matrix_of: Callable[[str], Optional[
         if matrix is None or not connector:
             continue
         # SB2-47: the end's part model (§18.2) sets where the cable leaves the housing.
-        pose = harness_ends.board_end(matrix_pose(matrix), connector["geometry"], connector.get("thicknessMm"),
+        board = matrix_pose(matrix)
+        if connector.get("inOccurrence"):  # a module's connector: its footprint's pose on the module (§5.6)
+            board = poses.compose(board, connector["inOccurrence"])
+        pose = harness_ends.board_end(board, connector["geometry"], connector.get("thicknessMm"),
                                       connector.get("stored"), housing=end.get("housing"))
         if pose is not None:
             posed[end["id"]] = {**pose, "occurrence": end["occurrence"]}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Layers, Lock, Share2, Trash2 } from "lucide-react";
+import { Box, ExternalLink, Layers, Lock, Share2, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,8 +31,13 @@ interface SubsystemDetailProps {
   run: Mutate;
 }
 
-/** An assembly instance: the catalog revision it pins and the boards inside it (CONTRACTS_P2 §5). */
+/**
+ * An assembly instance: the catalog revision it pins and the boards inside it (CONTRACTS_P2 §5). A module
+ * instance (§5.6) shows the same revision facts and its connectors.
+ */
 export function SubsystemDetail({ systemId, document, instance, etag, canEdit, busy, run }: SubsystemDetailProps) {
+  const isModule = instance.kind === "module";
+  const noun = isModule ? "module" : "subsystem";
   const [removing, setRemoving] = useState(false);
   const [tree, setTree] = useState<{ key: string; body: SystemHierarchy } | null>(null);
   const ref = instance.catalog;
@@ -56,13 +61,13 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Layers className="h-4 w-4 text-muted-foreground" aria-hidden />
+            {isModule ? <Box className="h-4 w-4 text-muted-foreground" aria-hidden /> : <Layers className="h-4 w-4 text-muted-foreground" aria-hidden />}
             <h2 className="text-lg font-semibold">{instance.label}</h2>
-            <Badge variant="outline">Subsystem</Badge>
+            <Badge variant="outline">{isModule ? "Module" : "Subsystem"}</Badge>
             <Badge variant={TONE_BADGE[status.tone]} title={status.detail}>{status.label}</Badge>
           </div>
           <p className="text-sm text-muted-foreground">
-            {instance.projectName ?? "Catalog assembly"}{ref?.identity ? ` · ${ref.identity}` : ""}
+            {instance.projectName ?? (isModule ? "Catalog module" : "Catalog assembly")}{ref?.identity ? ` · ${ref.identity}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -89,10 +94,12 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
           <dt className="text-xs text-muted-foreground">Revision</dt>
           <dd className="mt-1">{ref?.version ? `v${ref.version}` : "—"} {ref?.releaseStatus ? `· ${STAGE[ref.releaseStatus] ?? ref.releaseStatus}` : ""}</dd>
         </div>
-        <div className="bg-card px-4 py-3">
-          <dt className="text-xs text-muted-foreground">Source snapshot</dt>
-          <dd className="mt-1">{ref?.snapshotName ?? "—"}</dd>
-        </div>
+        {!isModule && (
+          <div className="bg-card px-4 py-3">
+            <dt className="text-xs text-muted-foreground">Source snapshot</dt>
+            <dd className="mt-1">{ref?.snapshotName ?? "—"}</dd>
+          </div>
+        )}
         <div className="bg-card px-4 py-3">
           <dt className="text-xs text-muted-foreground">Updates</dt>
           <dd className="mt-1 flex items-center gap-2">
@@ -112,10 +119,14 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
       </dl>
 
       <section className="space-y-2">
-        <h3 className="text-sm font-semibold">Exports</h3>
-        <p className="text-xs text-muted-foreground">The connectors this subsystem offers. Link to them on the Diagram.</p>
+        <h3 className="text-sm font-semibold">{isModule ? "Connectors" : "Exports"}</h3>
+        <p className="text-xs text-muted-foreground">
+          {isModule
+            ? "One per unit of the module's symbol, each a catalog connector part placed on its model. Link to them on the Diagram."
+            : "The connectors this subsystem offers. Link to them on the Diagram."}
+        </p>
         {(instance.ports ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">This revision exports nothing.</p>
+          <p className="text-sm text-muted-foreground">{isModule ? "This revision has no connectors." : "This revision exports nothing."}</p>
         ) : (
           <ul className="divide-y rounded-md border text-sm">
             {(instance.ports ?? []).map((port) => (
@@ -129,7 +140,7 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
         )}
       </section>
 
-      <section className="space-y-2">
+      {!isModule && <section className="space-y-2">
         <h3 className="text-sm font-semibold">Inside</h3>
         {inside.length === 0 ? (
           <p className="text-sm text-muted-foreground">{tree ? "Nothing you can see." : "Reading the hierarchy…"}</p>
@@ -144,16 +155,16 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
             ))}
           </ul>
         )}
-      </section>
+      </section>}
 
       <ConfirmDialog
         open={removing}
         onOpenChange={setRemoving}
         title={`Remove ${instance.label}?`}
         description={linkCount > 0
-          ? `This subsystem is an end of ${linkCount} ${linkCount === 1 ? "link" : "links"}. Removing it deletes those links and their rows.`
-          : "The subsystem is removed from this system. The catalog item is not touched."}
-        confirmLabel="Remove subsystem"
+          ? `This ${noun} is an end of ${linkCount} ${linkCount === 1 ? "link" : "links"}. Removing it deletes those links and their rows.`
+          : `The ${noun} is removed from this system. The catalog item is not touched.`}
+        confirmLabel={`Remove ${noun}`}
         destructive
         busy={busy === "remove"}
         onConfirm={() => {
@@ -166,14 +177,17 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
 }
 
 interface AddSubsystemDialogProps {
+  /** `module`: a bought-out catalog module (§5.6); an assembly otherwise. */
+  kind?: "assembly" | "module";
   existingLabels: string[];
   busy: boolean;
   onClose: () => void;
   onSubmit: (value: { label: string; componentId: string; revisionId?: string; follow: "pinned" | "latest_released" }) => void | Promise<void>;
 }
 
-/** Pick a catalog assembly to place in this system. */
-export function AddSubsystemDialog({ existingLabels, busy, onClose, onSubmit }: AddSubsystemDialogProps) {
+/** Pick a catalog assembly (or module) to place in this system. */
+export function AddSubsystemDialog({ kind = "assembly", existingLabels, busy, onClose, onSubmit }: AddSubsystemDialogProps) {
+  const isModule = kind === "module";
   const [items, setItems] = useState<CatalogComponent[] | null>(null);
   const [componentId, setComponentId] = useState("");
   const [label, setLabel] = useState("");
@@ -181,13 +195,13 @@ export function AddSubsystemDialog({ existingLabels, busy, onClose, onSubmit }: 
 
   useEffect(() => {
     let cancelled = false;
-    fetchJson<{ items: CatalogComponent[] }>("/api/catalog/components?kind=assembly&page_size=200")
+    fetchJson<{ items: CatalogComponent[] }>(`/api/catalog/components?kind=${kind}&page_size=200`)
       .then((body) => !cancelled && setItems(body.items))
       .catch((error: unknown) => !cancelled && setFailed(error instanceof Error ? error.message : "Could not read the catalog"));
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [kind]);
 
   const chosen = items?.find((item) => item.id === componentId);
   const released = Boolean(chosen?.released_revision_id);
@@ -198,8 +212,12 @@ export function AddSubsystemDialog({ existingLabels, busy, onClose, onSubmit }: 
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add a subsystem</DialogTitle>
-          <DialogDescription>Place a published assembly in this system. Link to its exports like any other port.</DialogDescription>
+          <DialogTitle>{isModule ? "Add a module" : "Add a subsystem"}</DialogTitle>
+          <DialogDescription>
+            {isModule
+              ? "Place a catalog module (a bought-out unit). Its connectors are ports: link, harness and mate them like a board's."
+              : "Place a published assembly in this system. Link to its exports like any other port."}
+          </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={(event) => {
           event.preventDefault();
@@ -209,15 +227,16 @@ export function AddSubsystemDialog({ existingLabels, busy, onClose, onSubmit }: 
             : { label: label.trim(), componentId: chosen.id, revisionId: chosen.current_revision_id, follow: "pinned" });
         }}>
           <div className="space-y-1.5">
-            <Label htmlFor="subsystem-component">Assembly</Label>
+            <Label htmlFor="subsystem-component">{isModule ? "Module" : "Assembly"}</Label>
             {failed ? <p className="text-sm text-destructive">{failed}</p> : (
               <Select value={componentId} onValueChange={(value) => {
                 setComponentId(value);
                 const item = items?.find((candidate) => candidate.id === value);
                 if (item && !label.trim()) setLabel(item.name);
               }}>
-                <SelectTrigger id="subsystem-component" aria-label="Assembly">
-                  <SelectValue placeholder={items ? (items.length ? "Choose an assembly" : "No assemblies published yet") : "Loading…"} />
+                <SelectTrigger id="subsystem-component" aria-label={isModule ? "Module" : "Assembly"}>
+                  <SelectValue placeholder={items ? (items.length ? `Choose ${isModule ? "a module" : "an assembly"}`
+                    : isModule ? "No modules in the catalog yet" : "No assemblies published yet") : "Loading…"} />
                 </SelectTrigger>
                 <SelectContent>
                   {(items ?? []).map((item) => (
@@ -233,11 +252,11 @@ export function AddSubsystemDialog({ existingLabels, busy, onClose, onSubmit }: 
           <div className="space-y-1.5">
             <Label htmlFor="subsystem-label">Label in this system</Label>
             <Input id="subsystem-label" value={label} maxLength={100} placeholder="e.g. CNDH-A" onChange={(event) => setLabel(event.target.value)} />
-            {taken && <p className="text-xs text-destructive">Another board or subsystem already has this label.</p>}
+            {taken && <p className="text-xs text-destructive">Another instance already has this label.</p>}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={busy || !ready}>{busy ? "Adding…" : "Add subsystem"}</Button>
+            <Button type="submit" disabled={busy || !ready}>{busy ? "Adding…" : isModule ? "Add module" : "Add subsystem"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -11,13 +11,14 @@ import { type Curve, harnessCurves } from "./harness-curves";
 import { type EndPose, type Housing, boardEnd } from "./harness-ends";
 import { type HarnessNodeInput, breakouts, segmentWaypoints } from "./harness-nodes";
 import { type Topology, topology } from "./harness-topology";
-import type { Pose } from "./poses";
+import { type Pose, compose } from "./poses";
 
 export interface SceneHarnessEnd {
   id: string;
   ordinal: number;
   occurrence: string | null;
-  connector?: { geometry: ConnectorGeometry; thicknessMm: number | null; stored: StoredFrame | null } | null;
+  /** `inOccurrence`: a module connector's footprint pose on the module (§5.6). */
+  connector?: { geometry: ConnectorGeometry; thicknessMm: number | null; stored: StoredFrame | null; inOccurrence?: Pose | null } | null;
   /** SB2-47: the end's part model (§18.2); null for a Generic end or a part without a converted model. */
   housing?: SceneHousing | null;
 }
@@ -78,7 +79,9 @@ export function route(harness: SceneHarness, worldMatrixOf: WorldMatrixOf): Rout
   for (const end of [...harness.ends].sort((a, b) => a.ordinal - b.ordinal)) {
     const matrix = end.occurrence ? worldMatrixOf(end.occurrence) : null;
     if (!matrix || !end.connector || !end.occurrence) continue;
-    const pose = boardEnd(matrixPose(matrix), end.connector.geometry, end.connector.thicknessMm, end.connector.stored, 0, end.housing);
+    // A module's connector: its footprint's pose on the module (CONTRACTS_P2 §5.6).
+    const board = end.connector.inOccurrence ? compose(matrixPose(matrix), end.connector.inOccurrence) : matrixPose(matrix);
+    const pose = boardEnd(board, end.connector.geometry, end.connector.thicknessMm, end.connector.stored, 0, end.housing);
     if (pose) posed[end.id] = { ...pose, occurrence: end.occurrence };
   }
   if (Object.keys(posed).length < 2) return null;
