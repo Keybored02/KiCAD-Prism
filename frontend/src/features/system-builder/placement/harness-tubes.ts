@@ -10,6 +10,7 @@
  */
 
 import { type Board, collisions } from "./harness-checks";
+import { type HousingItem, harnessHousings } from "./harness-housings";
 import { type Matrix, type SceneHarness, route } from "./harness-route";
 
 export type { SceneHarness } from "./harness-route";
@@ -42,10 +43,21 @@ export function harnessTubes(
   worldMatrixOf: (path: string) => Matrix | null,
   boards: readonly Board[] = [],
 ): Tube[] {
+  return harnessScene(harnesses, worldMatrixOf, boards).tubes;
+}
+
+/** The tubes and, at every posed end, its housing (SB2-47), from one route per harness. */
+export function harnessScene(
+  harnesses: readonly SceneHarness[],
+  worldMatrixOf: (path: string) => Matrix | null,
+  boards: readonly Board[] = [],
+): { tubes: Tube[]; housings: HousingItem[] } {
   const tubes: Tube[] = [];
+  const housings: HousingItem[] = [];
   for (const harness of harnesses) {
     const routed = route(harness, worldMatrixOf);
     if (!routed) continue;
+    housings.push(...harnessHousings(harness, routed));
     const hits = new Map<string, string[]>();
     for (const hit of boards.length ? collisions(routed, boards) : []) hits.set(hit.segmentId, [...(hits.get(hit.segmentId) ?? []), hit.board]);
     for (const curve of routed.curves) {
@@ -64,5 +76,5 @@ export function harnessTubes(
       });
     }
   }
-  return tubes;
+  return { tubes, housings };
 }

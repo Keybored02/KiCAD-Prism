@@ -179,3 +179,33 @@ class ManifestHarnessTest(unittest.TestCase):
                          [("/sin_a", "/EN"), ("/sin_b", "/ENABLE")])
         [hop] = group.hops
         self.assertEqual((hop["kind"], hop["to"]["endPin"], hop["to"]["pad"], group.pin_count), ("wire", "1", "2", 2))
+
+
+class HousingModelTest(unittest.TestCase):
+    """SB2-47: a scene end with a part gets the part's first converted model (§18.2)."""
+
+    def test_first_converted_model_or_none(self) -> None:
+        from app.services.systems.service import SystemService
+
+        class Catalog:
+            calls = 0
+
+            def list_models(self, component_id):
+                Catalog.calls += 1
+                if component_id == "broken":
+                    raise LookupError("not a part")
+                return [{"glb": None, "alignment": {}},
+                        {"glb": {"key": "k2", "bounds": {"minMm": [0, 0, -9], "maxMm": [1, 1, 0]}},
+                         "alignment": {"offsetMm": [0, 0, 1], "rotationDeg": [0, 0, 90], "scale": 1.0,
+                                       "updatedBy": "user:x", "updatedAt": None}}] if component_id == "cmp_a" else []
+
+        service = SystemService.__new__(SystemService)
+        service._catalog = lambda: Catalog()
+        harnesses = [{"ends": [{"part": "cmp_a"}, {"part": "cmp_a"}, {"part": "cmp_b"}, {"part": None}, {"part": "broken"}]}]
+        service._attach_housings(harnesses)
+        ends = harnesses[0]["ends"]
+        self.assertEqual(ends[0]["housing"], {"glbKey": "k2", "boundsMm": {"minMm": [0, 0, -9], "maxMm": [1, 1, 0]},
+                                              "alignment": {"offsetMm": [0, 0, 1], "rotationDeg": [0, 0, 90], "scale": 1.0}})
+        self.assertIs(ends[1]["housing"], ends[0]["housing"])
+        self.assertEqual([e["housing"] for e in ends[2:]], [None, None, None])
+        self.assertEqual(Catalog.calls, 3, "each part is asked once")

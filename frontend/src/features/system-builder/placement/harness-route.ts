@@ -8,7 +8,7 @@
 
 import { type ConnectorGeometry, type StoredFrame, type Vec3, quaternion } from "./frames";
 import { type Curve, harnessCurves } from "./harness-curves";
-import { type EndPose, boardEnd } from "./harness-ends";
+import { type EndPose, type Housing, boardEnd } from "./harness-ends";
 import { type HarnessNodeInput, breakouts, segmentWaypoints } from "./harness-nodes";
 import { type Topology, topology } from "./harness-topology";
 import type { Pose } from "./poses";
@@ -18,6 +18,13 @@ export interface SceneHarnessEnd {
   ordinal: number;
   occurrence: string | null;
   connector?: { geometry: ConnectorGeometry; thicknessMm: number | null; stored: StoredFrame | null } | null;
+  /** SB2-47: the end's part model (§18.2); null for a Generic end or a part without a converted model. */
+  housing?: SceneHousing | null;
+}
+
+export interface SceneHousing extends Housing {
+  /** `GET /api/catalog/models/{glbKey}.glb`. */
+  glbKey: string;
 }
 
 export interface SceneHarness {
@@ -71,7 +78,7 @@ export function route(harness: SceneHarness, worldMatrixOf: WorldMatrixOf): Rout
   for (const end of [...harness.ends].sort((a, b) => a.ordinal - b.ordinal)) {
     const matrix = end.occurrence ? worldMatrixOf(end.occurrence) : null;
     if (!matrix || !end.connector || !end.occurrence) continue;
-    const pose = boardEnd(matrixPose(matrix), end.connector.geometry, end.connector.thicknessMm, end.connector.stored);
+    const pose = boardEnd(matrixPose(matrix), end.connector.geometry, end.connector.thicknessMm, end.connector.stored, 0, end.housing);
     if (pose) posed[end.id] = { ...pose, occurrence: end.occurrence };
   }
   if (Object.keys(posed).length < 2) return null;

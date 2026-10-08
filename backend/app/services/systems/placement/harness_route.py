@@ -46,8 +46,9 @@ def route(harness: Mapping[str, Any], world_matrix_of: Callable[[str], Optional[
         connector = end.get("connector")
         if matrix is None or not connector:
             continue
+        # SB2-47: the end's part model (§18.2) sets where the cable leaves the housing.
         pose = harness_ends.board_end(matrix_pose(matrix), connector["geometry"], connector.get("thicknessMm"),
-                                      connector.get("stored"))
+                                      connector.get("stored"), housing=end.get("housing"))
         if pose is not None:
             posed[end["id"]] = {**pose, "occurrence": end["occurrence"]}
     if len(posed) < 2:

@@ -38,8 +38,9 @@ import { harnessKey, harnessSegments, hubPoint, litEnds, litHarnessWires, segmen
 import { AUTO, levelMatrix, nodeHandles, toLevel, withNodePreview } from "./harness-edit.js";
 import { pickTube } from "./tube-pick.js";
 // SB2-44: the placement library is shared with the app (one implementation, CONTRACTS_P2 §17).
-import { harnessTubes } from "../../../frontend/src/features/system-builder/placement/harness-tubes.ts";
+import { harnessScene } from "../../../frontend/src/features/system-builder/placement/harness-tubes.ts";
 import { allReadyBoardsDrawn, assetLoadable, assetOccurrenceMatrix, boardTransition, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
+import { LOD_FULL } from "./occurrences.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
 const COPPER_TILE_PREFETCH_MARGIN = 0.65;
@@ -1454,6 +1455,8 @@ export async function mountSystemViewer(options = {}) {
     harnessPick: null,
     worlds: new Map(),
     nodePreview: null,
+    // SB2-47: housing models by GLB key, `{ state: "loading" | "ready" | "failed" }`.
+    housingModels: new Map(),
     // SB2-30: when the first descriptor arrived and when every ready board was first drawn.
     timing: { descriptorAt: null, boardsDrawnAt: null },
     boards: new Map(),
@@ -1509,7 +1512,7 @@ export async function mountSystemViewer(options = {}) {
       if (!system) return;
       system.showHarnesses = Boolean(visible);
       system.harnessDrawn = null;
-      refreshSystemTubes();
+      placeSystem({ relabel: false });
     },
     frameBoard(key) {
       const item = system?.placements.get(String(key));
@@ -1696,6 +1699,8 @@ function placeSystem({ relabel = true } = {}) {
     });
     placed.push({ occurrence, rendererId, board: kind ? null : b, matrix, worldBounds, standIn: kind });
   }
+  const harnessed = computeHarnessScene();
+  placeHousings(groups, harnessed.housings);
   // Renderers no longer used draw nothing.
   for (const id of system.scene.assets.keys()) if (!groups.has(id)) groups.set(id, []);
   system.scene.setOccurrences(groups);
@@ -1724,7 +1729,7 @@ function placeSystem({ relabel = true } = {}) {
     if (item?.board === board) state.selectedOccurrence = board.renderer.occurrenceKeys.indexOf(selectedKey);
     else unfocusBoard();
   }
-  refreshSystemTubes();
+  refreshSystemTubes(harnessed);
   applySystemEmphasis();
   notifyViewStateChange();
 }
@@ -1736,24 +1741,97 @@ const PICKED_RGB = [0.24, 0.39, 0.87]; // the picked harness (SB2-45b), the move
 const COLLIDING_RGB = [0.9, 0.28, 0.3]; // a segment through a board (SB2-46, SYS-V12), the gizmo's X red
 
 /** Rebuild the tubes from the shown descriptor's placements (a load, a move, a drag preview). */
-function refreshSystemTubes() {
-  if (!system?.descriptor) return;
-  let tubes = [];
+/** The harnesses' tubes and end housings for the shown placements (with an unsaved node move). */
+function computeHarnessScene() {
   system.worlds = new Map(system.descriptor.occurrences.map((occurrence) => [occurrence.path, occurrence.worldMatrix]));
-  if (system.showHarnesses && system.harnesses.length) {
-    try {
-      // SB2-46: boards as boxes (outline × thickness) for the collision check (§17.10).
-      const boards = system.descriptor.occurrences
-        .filter((occurrence) => occurrence.kind === "board" && occurrence.boundsMm)
-        .map((occurrence) => ({ id: occurrence.path, matrix: occurrence.worldMatrix, ...occurrence.boundsMm }));
-      tubes = harnessTubes(withNodePreview(system.harnesses, system.nodePreview, harnessKey), worldMatrixOf, boards);
-    } catch (error) {
-      console.warn("[prism-semantic-viewer] harness tubes failed", error);
-    }
+  if (!system.showHarnesses || !system.harnesses.length) return { tubes: [], housings: [] };
+  try {
+    // SB2-46: boards as boxes (outline × thickness) for the collision check (§17.10).
+    const boards = system.descriptor.occurrences
+      .filter((occurrence) => occurrence.kind === "board" && occurrence.boundsMm)
+      .map((occurrence) => ({ id: occurrence.path, matrix: occurrence.worldMatrix, ...occurrence.boundsMm }));
+    return harnessScene(withNodePreview(system.harnesses, system.nodePreview, harnessKey), worldMatrixOf, boards);
+  } catch (error) {
+    console.warn("[prism-semantic-viewer] harness geometry failed", error);
+    return { tubes: [], housings: [] };
   }
+}
+
+/** Rebuild the tubes (a node preview needs only these; a placement change passes what it computed). */
+function refreshSystemTubes(computed = null) {
+  if (!system?.descriptor) return;
+  const tubes = (computed ?? computeHarnessScene()).tubes;
   system.tubes = tubes;
   system.tubedHarnesses = new Set(tubes.map((tube) => tube.harness));
   system.scene.setTubes(tubes, tubeColor);
+}
+
+// ----- housings at harness ends (SB2-47) -------------------------------------------
+//
+// An end with a part model draws the model (catalog GLB, under its alignment);
+// any other end, or a model still loading or that failed, draws a proxy box.
+
+const HOUSING_PROXY_RGBA = [0.42, 0.45, 0.5, 1];
+// Geometer's GLBs keep the STEP's axes (z up) in metres; the loader reads glTF's
+// y-up as z-up ((x, y, z) → (x, −z, y)). This undoes both: loader space → STEP mm.
+const GLB_TO_STEP_MM = Object.freeze([1000, 0, 0, 0, 0, 0, -1000, 0, 0, 1000, 0, 0, 0, 0, 0, 1]);
+
+function housingInputs(now) {
+  return { ...standInInputs(now), showBoard: false, showComponents: true };
+}
+
+/** Inputs for a renderer the boards' frame inputs don't cover: a housing model, or a stand-in box. */
+function extraInputs(renderer, now) {
+  return renderer.housing ? housingInputs(now) : standInInputs(now);
+}
+
+/** Add each housing to the occurrence groups (a model's renderer once its GLB is in, else a proxy box). */
+function placeHousings(groups, housings) {
+  const push = (id, entry) => {
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push({ ...entry, hiddenLayers: [], explode: null });
+  };
+  for (const item of housings) {
+    const key = `housing:${item.key}`;
+    const model = item.model ? system.housingModels.get(item.model.glbKey) : null;
+    if (item.model && !model) void loadHousingModel(item.model.glbKey);
+    if (model?.state === "ready") {
+      push(`housing:${item.model.glbKey}`, { key, matrix: assetOccurrenceMatrix(item.matrix, GLB_TO_STEP_MM) });
+      continue;
+    }
+    system.scene.standIn("housing:proxy", HOUSING_PROXY_RGBA);
+    // A model's own bounds while it loads (or if it failed); the unit box of a proxy otherwise.
+    const bounds = item.model ? item.model.boundsMm : { minMm: [0, 0, 0], maxMm: [1, 1, 1] };
+    push("housing:proxy", { key, matrix: standInMatrix(item.matrix, bounds) });
+  }
+}
+
+/** Fetch a housing GLB once and give it a renderer; the scene is placed again when it is in. */
+async function loadHousingModel(glbKey) {
+  system.housingModels.set(glbKey, { state: "loading" });
+  const token = activeViewerToken;
+  try {
+    const loaded = await loadGltf(new URL(`/api/catalog/models/${encodeURIComponent(glbKey)}.glb`, location.href).toString(),
+      { fetchCache: "force-cache" });
+    if (!viewerSessionActive(token) || !system) return;
+    const renderer = system.scene.asset(`housing:${glbKey}`);
+    renderer.housing = true;
+    renderer.setLodOverride(LOD_FULL);
+    const bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (const primitive of loaded.primitives) {
+      for (let k = 0; k < 3; k += 1) {
+        bounds[k] = Math.min(bounds[k], primitive.bounds[k]);
+        bounds[k + 3] = Math.max(bounds[k + 3], primitive.bounds[k + 3]);
+      }
+      renderer.addPrimitive(primitive, { kind: "component", layerId: 0, material: primitive.material, color: primitive.material.baseColor });
+    }
+    if (loaded.primitives.length) renderer.setBoardBounds(bounds);
+    system.housingModels.set(glbKey, { state: "ready" });
+  } catch (error) {
+    console.warn("[prism-semantic-viewer] housing model failed", glbKey, error);
+    if (system) system.housingModels.set(glbKey, { state: "failed" });
+  }
+  if (system?.descriptor) placeSystem({ relabel: false });
 }
 
 function worldMatrixOf(path) {
@@ -1859,7 +1937,7 @@ function frameSystem(now, token) {
   system.scene.setSelectedOccurrence(board.renderer && hasSystemSelection() ? board.renderer.occurrenceBase + state.selectedOccurrence : -1);
   // As on the 3D tab (R1): an idle view skips the GPU work; labels follow the picture.
   if (systemFrameNeedsRender(now, inputs, emphasis)) {
-    system.scene.render(panel, (renderer) => inputs.get(renderer) || standInInputs(now));
+    system.scene.render(panel, (renderer) => inputs.get(renderer) || extraInputs(renderer, now));
     drawGizmo();
     updateSystemLabels();
   }
@@ -1892,11 +1970,22 @@ function standInInputs(now) {
 
 function pickSystem(x, y) {
   const now = performance.now();
-  return system.scene.pick(panel, x, y, (renderer) => system.inputs.get(renderer) || standInInputs(now));
+  return system.scene.pick(panel, x, y, (renderer) => system.inputs.get(renderer) || extraInputs(renderer, now));
 }
 
 /** A click in the system scene: a feature or a board's body selects on that board. */
 function selectSystemHit(hit) {
+  // A housing (SB2-47) picks its harness, on the segment leaving that end.
+  const housing = typeof hit.occurrenceKey === "string" && hit.occurrenceKey.startsWith("housing:")
+    ? hit.occurrenceKey.slice("housing:".length) : null;
+  if (housing) {
+    const cut = housing.lastIndexOf("/");
+    const [key, end] = [housing.slice(0, cut), housing.slice(cut + 1)];
+    const tube = system.tubes.find((item) => item.harness === key && (item.from === end || item.to === end));
+    if (tube) pickHarness({ key, segmentId: tube.segmentId, pointMm: null });
+    else clearSelection();
+    return;
+  }
   const item = hit.occurrenceKey != null ? system.placements.get(hit.occurrenceKey) : null;
   if (!item) return clearSelection();
   if (item.standIn) return selectStandIn(item);

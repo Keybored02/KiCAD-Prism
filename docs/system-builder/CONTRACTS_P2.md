@@ -862,6 +862,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.55 | 2026-10-08 | SB2-47: §20.17 housings at harness ends: scene ends carry the part's model (`housing`), the route exits at its rear face, the viewer draws the GLB under its alignment or a proxy box; a housing click picks its harness. Radius blends at breakouts deferred. |
 | P2-1.54 | 2026-10-08 | SB2-46: §17.10 routes, lengths and collisions (library pairs `harness_route`/`harness_checks`, goldens `harnessChecks`); `SYS-V12 harness_collision`, `SYS-V13 length_mismatch`, new info rule `SYS-V20 harness_tight_bend`; harness lengths in documents, the ICD and the harness editor; colliding tubes draw red. |
 | P2-1.53 | 2026-10-08 | SB2-45b: §20.16 harness picking and route editing in move mode: tube picks, `harness` events, node handles, the gizmo on a node, the harness panel (add waypoint or breakout, pin, remove), ordered picks. |
 | P2-1.52 | 2026-10-08 | SB2-45a: §17.9 harness breakouts and waypoints: migration 44, `PUT …/harnesses/{hid}/nodes`, manifest `nodes` with `between` (import no longer refused), scene harnesses carry nodes, library pair `harness_nodes` (goldens `harnessNodes`) and pinned waypoints in §17.8; tubes route through them (§20.15). |
@@ -1157,7 +1158,7 @@ Coarser levels only stop drawing parts of a board; the bundle's geometry is neve
 - **Curves in the browser.** The viewer bundles the placement library (`placement/harness-tubes.ts`, one implementation with the app) and recomputes every harness whenever a placement changes, drag previews included: end poses (§17.6), the tree (§17.7), the curves (§17.8). An end without a connector or a frame drops out; a harness with fewer than two posed ends draws only its proxy dots (§20.11); a segment no wire crosses draws nothing.
 - **Tubes on the GPU.** A compute pass gives each sample a rotation-minimising frame (double reflection; one invocation per segment walking its samples), a second writes the vertices: a 12-segment ring per sample (§17.5) at the segment's bundle radius, and flat caps at both ends. The draw shares the scene's render pass and depth buffer. Colour: harness grey; a segment carrying a lit wire takes that set's colour and pulses; the others dim while anything is lit. A harness drawn as tubes drops its proxy straight lines and keeps its end dots.
 - **Nodes.** Scene harnesses carry `nodes` (§17.9) in their level's frame; the tubes route through them, moved to world by the level's matrix (identity for the root).
-- **Not yet:** housing models at ends and radius blends at breakouts (SB2-47).
+- **Not yet:** radius blends at breakouts (§17.5's 5 mm blend needs a per-sample radius in the tube pass; deferred). A lit wire's segments already take its set's colour (bundle-segment emphasis).
 
 
 ### 20.16 Picking harnesses and editing their route (SB2-45b)
@@ -1167,3 +1168,12 @@ Coarser levels only stop drawing parts of a board; the bundle's geometry is neve
 - **Handles.** In move mode, the picked editable harness shows a handle per breakout (filled), waypoint (open; dark when pinned) and its automatic breakout (dashed). A click on a handle gives it the gizmo: translate arrows only, world axes, the board snapping (1 mm, Shift 0.1 mm). Dragging previews the tubes; releasing sends `commit`, and the host saves the harness's node list (§17.9) with the new position. Moving the automatic breakout stores a breakout there. Enter commits a preview set through `previewHarnessNode`; Delete removes the targeted node (a breakout takes its neighbouring waypoints); Esc undoes a drag, then lets go of the node, then drops the pick.
 - **Panel.** The picked harness's panel offers **Add waypoint** (on the picked segment, in order along it; a segment ending at the automatic breakout stores the breakout first) and **Add breakout** (at the end of the chain), and Pin/Unpin and Remove for the targeted node. A node added from the panel takes the gizmo once the re-read scene arrives. After a re-read, a segment renamed by a breakout change is re-picked as the one running nearest the picked point.
 - Element API: `targetHarnessNode(id | null)`, `previewHarnessNode(positionMm | null)`, `cancelHarnessNode()`, `getHarnessState()`.
+
+### 20.17 Housings at harness ends (SB2-47)
+
+- **Scene.** A harness end with a part carries `housing {glbKey, boundsMm, alignment}`: the part's first STEP model with a GLB for the current converter (§18.2), its bounds in the STEP frame and its saved alignment (identity when none). It is null for a Generic end, a part without a converted model, or when the catalog can't be read. Restricted boards keep it (it is catalog data) but lose `connector`, so nothing is drawn there.
+- **Exit.** The route passes the housing to §17.6, so the cable leaves the model's rear face (server and browser alike: lengths and V12 use it too).
+- **Drawing** (`placement/harness-housings.ts`, browser only).
+  - A posed end with a model draws the GLB from `GET /api/catalog/models/{glbKey}.glb` at its mating frame · alignment (`T·R·S`). Geometer's GLBs keep the STEP's z-up axes in metres; the viewer maps its loader's y-up reading back to STEP millimetres. While the GLB loads, or if it fails, the model's aligned bounds draw as a box.
+  - Any other posed end draws a proxy box in its mating frame: the connector body's x–y extent (y flipped, the housing faces the connector) and the housing depth behind the mating face.
+  - Housings hide with the harnesses. A click on one picks its harness on the segment leaving that end.
