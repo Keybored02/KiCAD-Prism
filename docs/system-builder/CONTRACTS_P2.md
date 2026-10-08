@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.63 · 2026-10-08 · tickets SB2-00 to SB2-53.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.64 · 2026-10-08 · tickets SB2-00 to SB2-54.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -577,7 +577,7 @@ Everything else stays on reader or writer roles, including inventory export, hea
 
 ## 13. Audit event kinds (additions)
 
-`git_linked`, `git_relinked`, `git_unlinked`, `snapshot_committed`, `snapshot_commit_refused` (§21.5), `system_imported`, `export_created`, `export_updated`, `export_retargeted`, `export_deleted`, `snapshot_published`, `child_auto_advanced`, `child_rebased`, `link_type_changed`, `harness_created`, `harness_updated`, `harness_deleted`, `pose_updated`, `poses_reset`, `mating_updated`. `harness_created` carries `fromLink` or `fromLabel` when it replaced links (§16.1, §17.2).
+`git_linked`, `git_relinked`, `git_unlinked`, `snapshot_committed`, `snapshot_commit_refused`, `manifest_imported`, `manifest_import_rejected` (§21), `system_imported`, `export_created`, `export_updated`, `export_retargeted`, `export_deleted`, `snapshot_published`, `child_auto_advanced`, `child_rebased`, `link_type_changed`, `harness_created`, `harness_updated`, `harness_deleted`, `pose_updated`, `poses_reset`, `mating_updated`. `harness_created` carries `fromLink` or `fromLabel` when it replaced links (§16.1, §17.2).
 
 ## 14. Frames and placement conventions (SB2-10)
 
@@ -930,6 +930,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.64 | 2026-10-08 | SB2-54: §21.3 `manifest_import` reviews (migration 46): opened on a new outside commit with a summary and problems, superseded by newer pushes; accept replaces the system with the manifest (same IDs), reject keeps it; both clear the outside change. §21.4 periodic fetch of linked systems. |
 | P2-1.63 | 2026-10-08 | SB2-53: §21 implemented. Migration 45 (`system_git_links`, snapshot `git`); jobs `system_git_sync` and `system_git_commit` both take the write lock; failures are recorded and retried through `git-retry`, never by the job runtime; error details are `code: …` strings. |
 | P2-1.62 | 2026-10-08 | SB2-52 (D-P2-42..45): §21 Git tracking. A system links to an existing remote and branch; snapshots commit `prism.system.json` there (author = the Prism user, committer = KiCAD Prism, lease-guarded push, no force); an outside manifest change refuses snapshots until it is imported through review (SB2-54). |
 | P2-1.61 | 2026-10-08 | SB2-51b (D-P2-41): §3.3 every assembly publish attaches a generated multi-unit symbol (one unit per export, pins = pads named by net). |
@@ -1296,11 +1297,21 @@ A system can be linked to a Git repository of its own. Snapshots then become com
 - **Known blob.** The link stores the blob ID of `prism.system.json` as Prism last pushed or imported it (`knownBlob`, null before the first one).
 - **Detection.** After every fetch (§21.4) and before every commit, Prism compares the branch tip's `prism.system.json` with `knownBlob`. A difference (including a manifest already in the repository at link time, or its removal) is an **outside change**: the link records `outsideCommit` (the tip).
 - **Refusal.** While `outsideCommit` is set, `POST …/snapshots` answers 409 `git_outside_change: <commit> …`, and a queued commit job records `refused`. Prism never overwrites or merges an outside push.
-- **Clearing it** is SB2-54: the outside manifest is imported through a review, and accepting or rejecting that review sets `knownBlob` to the outside blob and clears `outsideCommit`. Changes to other files never count.
+- **The review (SB2-54).** Detecting a new outside commit (in a fetch or a commit job) opens a `manifest_import` review: no instance, no items, `fromCommit` = Prism's last tip, `toCommit` = the outside commit, and `pendingChanges {blob, summary, problems}`. At most one is open per system; a newer outside push supersedes it, and a branch back at the known manifest closes it (`superseded`).
+  - `summary` compares the outside manifest with the one Prism last pushed or imported: per area (`instances`, `links`, `harnesses`, `exports`), the `added`, `removed` and `changed` labels or names; `system` (which of name, description and optional rules changed); and `placement` and `layout` booleans. It is null when there are `problems`.
+  - `problems` lists why the manifest cannot be imported: the file was removed, it is not JSON, it fails `prism.system_manifest.v1` validation (at most 20 messages), or it is another system's manifest.
+- **Deciding it.** `POST …/reviews/{rid}/manifest-import {decision}` (If-Match; designer or admin).
+  - **`accept`:** the system becomes the manifest. Its instances, links and rows, exports, harnesses, mating frames, poses, driving mates and layout are replaced, keeping the manifest's IDs, along with its name, description and optional rules. Snapshots, history, other reviews and the catalog binding stay; source reviews of removed instances go with them. Board interfaces are queued for extraction.
+    - Refused with 422 `manifest_invalid` while there are `problems`, and with 403 when the manifest names a board the caller cannot see.
+    - Audit: `manifest_imported {reviewId, commit}`; the review becomes `applied`.
+  - **`reject`:** nothing changes, and the next snapshot replaces the outside manifest on the branch. Audit: `manifest_import_rejected`; the review becomes `closed`.
+  - Either way, `knownBlob` becomes the outside blob and `outsideCommit` is cleared.
+  - Deciding a review whose commit is no longer the link's `outsideCommit` is 409 `review_stale`; deciding a closed one is 409 `review_closed`.
+- Changes to other files never count.
 
 ### 21.4 Fetching
 
-`system_git_sync` (pool `prism`; like `system_git_commit`, it holds the write lock `system-git:<systemId>`) clones the bare repository when it is missing, fetches with `--prune`, and runs §21.3's detection. It runs on link, before each commit (inline, within the commit job), on `POST …/git/fetch`, and with the periodic project fetch (`PRISM_AUTO_SYNC_INTERVAL_SECONDS`, SB2-54). Its outcome is stored on the link: `lastFetchedAt`, `tip`, and `lastError {reason, message}` (null on success).
+`system_git_sync` (pool `prism`; like `system_git_commit`, it holds the write lock `system-git:<systemId>`) clones the bare repository when it is missing, fetches with `--prune`, and runs §21.3's detection. It runs on link, before each commit (inline, within the commit job), on `POST …/git/fetch`, and with the periodic project fetch (`PRISM_AUTO_SYNC_INTERVAL_SECONDS`, SB2-54): each scan queues up to 8 linked, unarchived systems not fetched within the interval, oldest first. Its outcome is stored on the link: `lastFetchedAt`, `tip`, and `lastError {reason, message}` (null on success).
 
 ### 21.5 API
 
@@ -1310,6 +1321,7 @@ A system can be linked to a Git repository of its own. Snapshots then become com
 | `PUT …/git` | `{url, branch?}`: link or change the link. If-Match; designer or admin. 422 `git_url_invalid: …` (policy), 422 `git_unreachable: <reason>: <message>`, 409 `git_link_in_use` |
 | `DELETE …/git` | Unlink. If-Match; designer or admin |
 | `POST …/git/fetch` | Queue `system_git_sync`; 202 `{jobId}` |
+| `POST …/reviews/{rid}/manifest-import` | `{decision: "accept" \| "reject"}` for a `manifest_import` review (§21.3) |
 | `POST …/snapshots/{sid}/git-retry` | 202 `{jobId}`: queue the commit again for a `failed` or `refused` snapshot (`refused` only once the outside change is cleared; otherwise 409 `git_outside_change`, `git_not_linked` or `git_not_retryable`) |
 
 Link changes bump the system version and write the audit events `git_linked`, `git_relinked` and `git_unlinked`. Commits write `snapshot_committed {snapshotId, commit, branch}`, and refusals `snapshot_commit_refused {snapshotId, commit}`, as `system:git`.

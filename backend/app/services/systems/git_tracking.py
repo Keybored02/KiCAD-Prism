@@ -219,12 +219,79 @@ def _record_fetch(conn: Any, system_id: str, *, tip: Optional[str], error: Optio
     )
 
 
+def read_blob(path: Path, blob: Optional[str]) -> Optional[bytes]:
+    if blob is None:
+        return None
+    completed = subprocess.run(["git", "-C", str(path), "cat-file", "blob", blob], capture_output=True,
+                               timeout=_TIMEOUT, env=_env(), check=True)
+    return completed.stdout
+
+
+def parse_manifest(system_id: str, content: Optional[bytes]) -> tuple[Optional[dict], list[str]]:
+    """The outside manifest as JSON, and why it cannot be imported (empty when it can)."""
+    from pydantic import ValidationError
+
+    from app.services.systems.manifest_schema import Manifest
+
+    if content is None:
+        return None, [f"{MANIFEST_FILE} was removed from the branch"]
+    try:
+        data = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        return None, [f"{MANIFEST_FILE} is not JSON: {error}"]
+    try:
+        manifest = Manifest.model_validate(data)
+    except ValidationError as error:
+        return data, [f"{'.'.join(str(p) for p in problem['loc']) or 'manifest'}: {problem['msg']}"
+                      for problem in error.errors()[:20]]
+    if manifest.system.id != system_id:
+        return data, [f"the manifest is of system {manifest.system.id}, not this one"]
+    return data, []
+
+
+def _open_review(conn: Any, link: Mapping[str, Any], path: Path, outside: str) -> None:
+    """§21.3 (SB2-54): a ``manifest_import`` review of the outside manifest, replacing any open one."""
+    from app.services.systems import manifest as manifest_io
+    from app.services.systems.store import SystemStore
+
+    store = SystemStore(conn)
+    blob = blob_at(path, outside)
+    data, problems = parse_manifest(link["system_id"], read_blob(path, blob))
+    known = read_blob(path, link["known_blob"])
+    before = json.loads(known.decode("utf-8")) if known else {}
+    with store.mutation(link["system_id"], expected_version=None, actor=GIT_ACTOR, archived_ok=True) as change:
+        _close_open_reviews(store, change)
+        store.open_review(change, instance_id=None, kind="manifest_import", from_commit=link["tip"],
+                          to_commit=outside, pending_changes={
+                              "blob": blob, "problems": problems,
+                              "summary": manifest_io.difference(before, data) if data is not None and not problems
+                              else None})
+
+
+def _close_open_reviews(store: Any, change: Any) -> None:
+    rows = store.conn.execute(
+        "SELECT id FROM system_reviews WHERE system_id = %s AND kind = 'manifest_import' AND status = 'open'",
+        (change.system_id,),
+    ).fetchall()
+    for row in rows:
+        store.set_review_status(change, row["id"], "superseded", audit_kind="review_superseded")
+
+
 def _detect(conn: Any, link: Mapping[str, Any], path: Path, tip: Optional[str]) -> Optional[str]:
-    """§21.3: the outside commit, when the tip's manifest is not the known one; also stores it."""
+    """§21.3: the outside commit, when the tip's manifest is not the known one; also stores it,
+    and opens (or, back in sync, closes) its import review."""
     outside = tip if blob_at(path, tip) != link["known_blob"] else None
     if outside != link["outside_commit"]:
         conn.execute("UPDATE system_git_links SET outside_commit = %s WHERE system_id = %s",
                      (outside, link["system_id"]))
+        if outside is not None:
+            _open_review(conn, link, path, outside)
+        else:
+            from app.services.systems.store import SystemStore
+
+            store = SystemStore(conn)
+            with store.mutation(link["system_id"], expected_version=None, actor=GIT_ACTOR, archived_ok=True) as change:
+                _close_open_reviews(store, change)
     return outside
 
 
@@ -322,9 +389,15 @@ def commit_snapshot(connect: Connect, system_id: str, snapshot_id: str) -> dict:
                 return _finish(connect, snapshot, {"state": "pushed", "commit": tip, "branch": branch},
                                link_update={"tip": tip, "known_blob": ours, "outside_commit": None})
             if current != link["known_blob"] or link["outside_commit"]:
+                if current != link["known_blob"]:
+                    with connect() as conn:
+                        locked = _link(conn, system_id, lock=True)
+                        if locked is not None:
+                            _detect(conn, locked, path, tip)
+                        conn.commit()
                 outside = tip if current != link["known_blob"] else link["outside_commit"]
                 return _finish(connect, snapshot, {"state": "refused", "reason": "outside-change", "commit": outside},
-                               link_update={"tip": tip, "outside_commit": outside},
+                               link_update={"tip": tip},
                                audit=("snapshot_commit_refused", {"snapshotId": snapshot_id, "commit": outside}))
             commit = build_commit(path, tip, content, author_of(snapshot), commit_message(snapshot))
             try:
@@ -363,6 +436,25 @@ def enqueue_commit(system_id: str, snapshot_id: str, *, requested_by: str = GIT_
         artifact_key=f"system-git-commit:{snapshot_id}", requested_by=requested_by, priority=120, max_attempts=1,
         resources={"prism_worker": 1}, locks=[{"key": f"system-git:{system_id}", "mode": "write"}],
     )
+
+
+def enqueue_due_fetches(connect: Connect, *, interval_seconds: int, limit: int = 8) -> int:
+    """§21.4 (SB2-54): queue a sync for linked systems not fetched within ``interval_seconds``."""
+    if interval_seconds <= 0:
+        return 0
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT l.system_id FROM system_git_links l JOIN system_projects s ON s.id = l.system_id
+            WHERE s.archived_at IS NULL
+              AND (l.last_fetched_at IS NULL OR l.last_fetched_at < NOW() - make_interval(secs => %s))
+            ORDER BY l.last_fetched_at NULLS FIRST, l.system_id LIMIT %s
+            """,
+            (interval_seconds, limit),
+        ).fetchall()
+    for row in rows:
+        enqueue_sync(row["system_id"], requested_by="system:auto-sync")
+    return len(rows)
 
 
 def run_sync_job(context: Any) -> Any:

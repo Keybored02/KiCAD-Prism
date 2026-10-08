@@ -148,3 +148,38 @@ describe("ChangesTab", () => {
     expect(JSON.parse(String(init.body))).toEqual({ revisionId: "rev2" });
   });
 });
+
+describe("manifest import reviews (P2 §21.3)", () => {
+  const summary = {
+    instances: { added: [], removed: [], changed: [] }, links: { added: [], removed: ["L9"], changed: ["Renamed link"] },
+    harnesses: { added: [], removed: [], changed: [] }, exports: { added: [], removed: [], changed: [] },
+    system: ["name"], placement: false, layout: true,
+  };
+  const manifestReview = (pendingChanges: Review["pendingChanges"]): Review => ({
+    id: "rv9", kind: "manifest_import", status: "open", instanceId: null, createdAt: "", decidedBy: null, decidedAt: null,
+    redacted: false, fromCommit: "a".repeat(40), toCommit: "d".repeat(40), pendingChanges, items: [],
+  });
+
+  it("lists what the outside manifest changes and accepts it with If-Match", async () => {
+    const calls = stub([manifestReview({ blob: "f".repeat(40), summary, problems: [] })]);
+    renderTab();
+    expect(await screen.findByText("Repository manifest")).toBeTruthy();
+    expect(screen.getByText("System name changed")).toBeTruthy();
+    expect(screen.getByText("Links removed: L9")).toBeTruthy();
+    expect(screen.getByText("Links changed: Renamed link")).toBeTruthy();
+    expect(screen.getByText("Canvas layout changed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(calls.some(([u]) => u.endsWith("/reviews/rv9/manifest-import"))).toBe(true));
+    const [, init] = calls.find(([u]) => u.endsWith("/reviews/rv9/manifest-import"))!;
+    expect(JSON.parse(String(init.body))).toEqual({ decision: "accept" });
+    expect(new Headers(init.headers).get("If-Match")).toBe('"sys:sys_1:4"');
+  });
+
+  it("only offers Reject for a manifest that cannot be imported", async () => {
+    stub([manifestReview({ blob: "f".repeat(40), summary: null, problems: ["schema: Field required"] })]);
+    renderTab();
+    expect(await screen.findByText("schema: Field required")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Accept" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Reject" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});

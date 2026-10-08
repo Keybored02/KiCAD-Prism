@@ -380,6 +380,11 @@ export function deleteGitLink(systemId: string, etag: string) {
   return versioned<null>(path(systemId, "git"), { method: "DELETE", etag }, "Could not unlink the repository");
 }
 
+export function decideManifestImport(systemId: string, etag: string, reviewId: string, decision: "accept" | "reject") {
+  return versioned<Review>(`${path(systemId, "reviews", reviewId)}/manifest-import`,
+    { method: "POST", etag, body: json({ decision }) }, "Could not decide the import");
+}
+
 export function fetchGitLink(systemId: string) {
   return send<{ jobId: string }>(`${path(systemId, "git")}/fetch`, { method: "POST" }, "Could not fetch")
     .then((r) => r.body);

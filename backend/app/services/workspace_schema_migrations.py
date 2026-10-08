@@ -52,6 +52,7 @@ from app.services.workspace_migrations import m042_system_archive
 from app.services.workspace_migrations import m043_system_driving_mates
 from app.services.workspace_migrations import m044_system_harness_nodes
 from app.services.workspace_migrations import m045_system_git
+from app.services.workspace_migrations import m046_system_manifest_reviews
 
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (43, "system_driving_mates", m043_system_driving_mates.migrate),
     (44, "system_harness_nodes", m044_system_harness_nodes.migrate),
     (45, "system_git", m045_system_git.migrate),
+    (46, "system_manifest_reviews", m046_system_manifest_reviews.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

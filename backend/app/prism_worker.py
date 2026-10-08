@@ -518,6 +518,13 @@ class PrismWorker:
             interval_seconds=interval,
             now=datetime.now(timezone.utc),
         )
+        try:  # Git-linked systems (CONTRACTS_P2 §21.4); a failure must not stop project fetches
+            from app.services.systems import git_tracking
+            from app.services.systems.jobs import workspace_connection
+
+            git_tracking.enqueue_due_fetches(workspace_connection, interval_seconds=interval)
+        except Exception:
+            logger.exception("Could not queue system repository fetches")
         self._next_auto_sync_scan = now_mono + min(30, interval)
 
     def schedule_tracker_jobs(self) -> None:
