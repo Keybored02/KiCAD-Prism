@@ -567,6 +567,24 @@
     "HarnessNode": {
       "additionalProperties": false,
       "properties": {
+        "between": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "waypoint: the two ends or breakouts it lies between",
+          "title": "Between"
+        },
         "ends": {
           "description": "breakout: the ends it branches to",
           "items": {
