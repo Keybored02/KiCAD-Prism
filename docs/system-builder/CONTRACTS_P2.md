@@ -451,6 +451,15 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 
 **`powerNet` (extractor v5 [S4]).** A pin's net is a power net when any schematic symbol on that net is a power symbol: KiCad `power` flag set on its lib symbol, or a reference starting with `#PWR`/`#FLG`. The extractor records `powerNet: bool` per pin. `EXTRACTOR_VERSION` goes to 5, and every board re-extracts once.
 
+### 8.5 Waivers (SB2-100, D-P2-56)
+
+- **Identity.** Every finding carries `key`: its rule, instance, link, harness (`detail.harnessId`), end, reference and pin joined by `|`. Not the row ID, which a row save may replace.
+- **What can be waived.** Warnings and info only, with a note. An error is fixed or reviewed; a waiver naming one has no effect.
+- **API.** `POST …/waivers {findingKey, note}` (designer, `If-Match`) answers 201 with the waiver; 404 for a finding the reader can't see or that doesn't occur, 422 `finding_not_waivable` for an error or an empty note, 409 `finding_waived` if already waived. `DELETE …/waivers/{id}` answers 204. Both bump the version and audit `finding_waived` / `finding_unwaived`. The lookup runs without the system lock; the lock only stores the waiver (SB2-94).
+- **Effect.** A waived finding stays in `findings` with `waived {id, note, by, at}` and leaves `counts`; `counts.waived` says how many. The report lists `waivers` with `active`: whether its finding still occurs. Waivers are applied after every rule, so snapshots freeze them.
+- **Record.** Waivers are in the manifest (`waivers[]`, omitted from the full digest while empty, never in the connectivity digest), imported with it, and the ICD (renderer 5) lists them apart under "Waived findings".
+- **Redaction.** A finding on a board the reader can't see loses its `key`; a waiver on it loses `findingKey` and `note`.
+
 ## 9. Manifest `prism.system_manifest.v1`
 
 ### 9.1 Shape
@@ -931,6 +940,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.69 | 2026-10-09 | SB2-100 (D-P2-56): finding keys and waivers (§8.5): warnings and info only, with a note, versioned, in the manifest and the ICD (renderer 5); counts leave waived findings out. |
 | P2-1.68 | 2026-10-09 | SB2-98: `GET /api/systems/{id}?include=validation` returns the §7.2 report (redacted) with the document. The live document carries `sceneKey` and `netsKey`, digests of what the scene (instances, link ends and types, stack heights, harnesses, mating, poses, driving mates) and the system nets (instances, link ends, row pins and nets, exports, harnesses) depend on; readers re-read those only when the key changes. Snapshots do not freeze the keys. |
 | P2-1.67 | 2026-10-09 | SB2-97: the hierarchy limits are also checked when a manifest import is accepted (a refused import rolls back whole), and an advance is re-checked under the lock; flattened and direct limits documented together (§5.3). |
 | P2-1.66 | 2026-10-08 | SB2-71..73 (M9): the ICD renderer is version 4. Its block diagram is the Diagram tab's (`layout.py` ports `system-layout.ts`, checked by `tests/fixtures/system_builder/layout_parity.json`): harness blocks, saved canvas positions (a snapshot's from its manifest), kind colours (D-P2-50) and a legend. The document gains a contents list, section ids, a connections overview linking to each connection (`#link-{id}`), each connection's findings beside it, a Modules table and stat apart from Subsystems, and a variable-driven stylesheet with `prism-dark` and `prism-embed` classes for the workspace (D-P2-52); exports stay white. |

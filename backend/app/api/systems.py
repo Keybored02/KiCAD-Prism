@@ -1133,3 +1133,5 @@ async def put_layout(
 
 # Git tracking routes (P2 §21) live in their own module; importing it registers them on ``router``.
 from app.api import systems_git  # noqa: E402,F401
+# Finding waivers (SB2-100) too.
+from app.api import systems_findings  # noqa: E402,F401

@@ -1810,6 +1810,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (45, "system_git"),
                 (46, "system_manifest_reviews"),
                 (47, "system_bundle_frames"),
+                (48, "system_finding_waivers"),
             ],
         )
 

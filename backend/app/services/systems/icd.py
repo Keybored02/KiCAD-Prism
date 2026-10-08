@@ -18,7 +18,7 @@ from typing import Any, Mapping, Optional, Sequence
 from app.services.systems import layout as system_layout
 from app.services.systems.drift import pad_sort_key
 
-RENDERER_VERSION = "4"
+RENDERER_VERSION = "5"  # 5: waived findings listed apart (SB2-100)
 
 CSV_COLUMNS = (
     "row_id", "link_id", "link_name", "harness", "signal",
@@ -629,6 +629,8 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
     findings = validation.get("findings") or []
     labels = {i["id"]: i["label"] for i in document["instances"]}
     records = csv_records(document)
+    waived = [f for f in findings if f.get("waived")]
+    findings = [f for f in findings if not f.get("waived")]  # SB2-100: waived ones are listed apart
     errors = sum(1 for f in findings if f["severity"] == "error")
     warnings = sum(1 for f in findings if f["severity"] == "warning")
 
@@ -782,6 +784,20 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
         out.append("</tbody></table>")
     else:
         out.append('<p class="meta">No findings.</p>')
+    waivers = validation.get("waivers") or []
+    if waivers or waived:
+        out.append("<h2>Waived findings</h2>")
+        out.append("<table><thead><tr><th>Rule</th><th>Board</th><th>Connector</th><th>Pin</th><th>Note</th>"
+                   "<th>By</th><th>Date</th><th>State</th></tr></thead><tbody>")
+        for waiver in waivers:
+            parts = ((waiver.get("findingKey") or "").split("|") + [""] * 7)[:7]
+            by = (waiver.get("by") or "").removeprefix("user:")
+            state = "waived" if waiver.get("active") else "no longer raised"
+            out.append(f"<tr><td><b>{_e(waiver.get('rule') or '')}</b></td><td>{_e(labels.get(parts[1], ''))}</td>"
+                       f"<td class=\"mono\">{_e(parts[5])}</td><td class=\"mono\">{_e(parts[6])}</td>"
+                       f"<td>{_e(waiver.get('note') or '')}</td><td>{_e(by)}</td>"
+                       f"<td class=\"mono\">{_e((waiver.get('at') or '')[:10])}</td><td>{_e(state)}</td></tr>")
+        out.append("</tbody></table>")
     for entry in validation.get("notEvaluated") or []:
         out.append(f"<p class=\"meta\">Not evaluated: {_e(entry['rule'])} for "
                    f"{_e(labels.get(entry['instanceId'], ''))} ({_e(entry['reason'])}).</p>")

@@ -46,6 +46,7 @@ export function findingIndex(findings: readonly Finding[]): FindingIndex {
     let errors = 0;
     let warnings = 0;
     for (const finding of findings) {
+      if (finding.waived) continue; // SB2-100: a waived finding colours nothing and counts for nothing
       if (finding.instanceId) (byInstance.get(finding.instanceId) ?? byInstance.set(finding.instanceId, []).get(finding.instanceId)!).push(finding);
       if (finding.linkId) (byLink.get(finding.linkId) ?? byLink.set(finding.linkId, []).get(finding.linkId)!).push(finding);
       if (finding.severity === "error") errors += 1;

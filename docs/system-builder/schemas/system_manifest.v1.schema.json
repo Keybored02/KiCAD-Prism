@@ -1210,6 +1210,55 @@
       "title": "SystemHeader",
       "type": "object"
     },
+    "Waiver": {
+      "additionalProperties": false,
+      "description": "An accepted warning or info finding, named by its key, with a note.",
+      "properties": {
+        "createdAt": {
+          "title": "Createdat",
+          "type": "string"
+        },
+        "createdBy": {
+          "maxLength": 320,
+          "minLength": 1,
+          "title": "Createdby",
+          "type": "string"
+        },
+        "findingKey": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Findingkey",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^sfw_[0-9a-f]{32}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "rule": {
+          "maxLength": 20,
+          "minLength": 1,
+          "title": "Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "findingKey",
+        "rule",
+        "note",
+        "createdBy",
+        "createdAt"
+      ],
+      "title": "Waiver",
+      "type": "object"
+    },
     "Wire": {
       "additionalProperties": false,
       "properties": {
@@ -1389,6 +1438,14 @@
     },
     "system": {
       "$ref": "#/$defs/SystemHeader"
+    },
+    "waivers": {
+      "items": {
+        "$ref": "#/$defs/Waiver"
+      },
+      "maxItems": 5000,
+      "title": "Waivers",
+      "type": "array"
     }
   },
   "required": [

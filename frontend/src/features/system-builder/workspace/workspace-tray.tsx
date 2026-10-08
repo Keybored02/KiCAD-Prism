@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronUp, FileSpreadsheet, FileText, FileUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -8,14 +8,14 @@ import { cn } from "@/lib/utils";
 import type { Finding, SystemDocument, SystemHarness, SystemLink } from "@/types/system";
 
 import { ChangesTab } from "../changes-tab";
-import { FindingCountBadge, findingText } from "../findings-ui";
+import { FindingCountBadge } from "../findings-ui";
 import { HarnessEditor } from "../harness-editor";
 import { HistoryTab } from "../history-tab";
 import { ImportTab } from "../import-tab";
 import { LinkEditor, endLabel } from "../link-editor";
 import type { SystemTabProps } from "../system-tab-content";
 import type { Mutate } from "../use-system-mutation";
-import { findingKeys } from "./finding-keys";
+import { FindingsTray } from "./findings-tray";
 import { harnessFindings } from "./use-validation";
 import { TRAY_TABS, type TrayTab, type WorkspaceSelection, type WorkspaceView } from "./workspace-state";
 import { documentIndex, findingIndex, linkFindings } from "../document-index";
@@ -159,51 +159,6 @@ function ConnectionsTable({ document, findings, onSelect }: { document: SystemDo
   );
 }
 
-const SEVERITY_ORDER = { error: 0, warning: 1, info: 2 } as const;
-
-function findingPlace(document: SystemDocument, finding: Finding): string {
-  if (finding.linkId) {
-    const link = documentIndex(document).links.get(finding.linkId);
-    return link ? connectionName(document, link) : "";
-  }
-  return (finding.instanceId && documentIndex(document).instances.get(finding.instanceId)?.label) || "";
-}
-
-function findingTarget(finding: Finding): WorkspaceSelection | null {
-  const harnessId = (finding.detail as { harnessId?: string } | null)?.harnessId;
-  if (harnessId) return { kind: "harness", id: harnessId };
-  if (finding.linkId) return { kind: "link", id: finding.linkId };
-  return finding.instanceId ? { kind: "instance", id: finding.instanceId } : null;
-}
-
-function FindingsList({ findings, document, onSelect }: { findings: Finding[]; document: SystemDocument; onSelect: (selection: WorkspaceSelection) => void }) {
-  const { sorted, keys } = useMemo(() => {
-    const ordered = [...findings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
-    return { sorted: ordered, keys: findingKeys(ordered) };
-  }, [findings]);
-  if (!findings.length) return <p className="p-4 text-sm text-muted-foreground">No findings</p>;
-  return (
-    <ul aria-label="Findings" className="text-sm">
-      {sorted.map((finding, index) => {
-        const to = findingTarget(finding);
-        return (
-          <li key={keys[index]} className="flex h-8 items-center gap-3 border-b px-4" title={findingText(finding)}>
-            <span className={cn("w-16 shrink-0 font-mono text-xs font-bold",
-              finding.severity === "error" ? "text-destructive" : finding.severity === "warning" ? "text-warning" : "text-muted-foreground")}>
-              {finding.rule}
-            </span>
-            <span className="min-w-0 flex-1 truncate">{findingText(finding)}</span>
-            <span className="hidden w-48 shrink-0 truncate text-xs text-muted-foreground md:block">{findingPlace(document, finding)}</span>
-            {to ? (
-              <button type="button" className="w-12 shrink-0 text-right text-xs text-primary hover:underline" onClick={() => onSelect(to)}>Show</button>
-            ) : <span className="w-12 shrink-0" />}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 /** The workspace's bottom tray (D-P2-47): what used to be the Connections, Changes and History tabs. */
 export function WorkspaceTray(props: TrayProps) {
   const { tab, document, findings, selection, systemId, etag, canEdit, busy, run, onTab, onSelect } = props;
@@ -278,7 +233,9 @@ export function WorkspaceTray(props: TrayProps) {
           {tab === "nets" && (props.view === "3d"
             ? <div ref={props.onNetsSlot} className="h-full" />
             : <p className="p-4 text-sm text-muted-foreground">3D view only</p>)}
-          {tab === "findings" && <FindingsList findings={findings} document={document} onSelect={onSelect} />}
+          {tab === "findings" && (
+            <FindingsTray systemId={systemId} document={document} etag={etag} canEdit={canEdit} run={run} onSelect={onSelect} />
+          )}
           {tab === "changes" && <ChangesTab {...tabProps} />}
           {tab === "history" && <HistoryTab key={`history-${props.takeRequest}`} {...tabProps} startTaking={props.takeRequest > 0} />}
         </div>

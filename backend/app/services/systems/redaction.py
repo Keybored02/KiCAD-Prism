@@ -100,16 +100,30 @@ def redact_harness(harness: Mapping[str, Any], restricted: Collection[str]) -> d
 def redact_findings(report: Mapping[str, Any], restricted: Collection[str]) -> dict:
     out = copy.deepcopy(dict(report))
     ports = hidden_ports(restricted)
+    hidden_keys: set[str] = set()
     for finding in out.get("findings") or []:
         if (finding.get("instanceId"), finding.get("portKey")) in ports:
             finding.update(detail=None, redacted=True)
         elif finding["instanceId"] in restricted:
-            finding.update(reference=None, pin=None, detail=None, redacted=True)
+            hidden_keys.add(finding.get("key") or "")
+            # The key (SB2-100) names the reference and pin too.
+            finding.update(reference=None, pin=None, detail=None, key=None, redacted=True)
         else:
             finding.setdefault("redacted", False)
     for entry in out.get("exempt") or []:
         if entry["instanceId"] in restricted:
             entry.update(reference=None, pin=None, portKey=None, redacted=True)
+    # SB2-100: a waiver on a finding the reader can't see keeps neither its note nor its key (which
+    # names a reference and pin); its instance is the key's second part.
+    for finding in out.get("findings") or []:
+        if finding.get("redacted") and finding.get("waived"):
+            finding["waived"] = {**finding["waived"], "note": None}
+    for waiver in out.get("waivers") or []:
+        key = waiver.get("findingKey") or ""
+        if key in hidden_keys or (key.split("|") + ["", ""])[1] in restricted:
+            waiver.update(findingKey=None, note=None, redacted=True)
+        else:
+            waiver.setdefault("redacted", False)
     return out
 
 
