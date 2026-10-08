@@ -6,6 +6,7 @@ import {
   Controls,
   EdgeLabelRenderer,
   Handle,
+  Panel,
   Position,
   ReactFlow,
   type Connection,
@@ -43,6 +44,8 @@ import {
   type InsideEntry,
   type LinkMode,
 } from "./diagram-model";
+import { DiagramLegend } from "./diagram-legend";
+import { BLOCK_STYLE, CONNECTION_STYLE, blockKind } from "./kind-style";
 import { wirePoints } from "./system-layout";
 import type { SystemTabProps } from "./system-tab-content";
 import { TONE_BADGE, boardStatus } from "./system-format";
@@ -58,13 +61,14 @@ function HarnessNodeView({ id, data, isConnectable, selected }: NodeProps<Harnes
   const { harness, rows, height, onOpen } = data;
   return (
     <div className={cn("relative rounded-xl border-2 border-dashed bg-card text-card-foreground shadow-sm",
-      selected ? "border-primary" : "border-border")} style={{ width: NODE_WIDTH, height }} data-kind="harness">
-      <div className="flex items-center gap-2 border-b bg-muted/40 px-3" style={{ height: HEADER_HEIGHT }}>
-        <Cable className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+      BLOCK_STYLE.harness.border, selected && "ring-2 ring-foreground/70 ring-offset-2 ring-offset-background")}
+      style={{ width: NODE_WIDTH, height }} data-kind="harness">
+      <div className={cn("flex items-center gap-2 rounded-t-[10px] border-b px-3", BLOCK_STYLE.harness.tint)} style={{ height: HEADER_HEIGHT }}>
+        <Cable className="h-4 w-4 shrink-0 text-kind-harness" aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{harness.name}</p>
           <p className="truncate text-[11px] text-muted-foreground">
-            Harness · {harness.ends.length} {harness.ends.length === 1 ? "end" : "ends"} · {harness.wires.length} {harness.wires.length === 1 ? "wire" : "wires"}
+            <span className="font-medium text-kind-harness">Harness</span> · {harness.ends.length} {harness.ends.length === 1 ? "end" : "ends"} · {harness.wires.length} {harness.wires.length === 1 ? "wire" : "wires"}
           </p>
         </div>
         <button type="button" className="nodrag nopan shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
@@ -125,22 +129,25 @@ function BoardNodeView({ id, data, isConnectable, selected }: NodeProps<BoardNod
   const status = boardStatus(instance);
   const subsystem = instance.kind === "assembly";
   const [open, setOpen] = useState(false);
-  const subtitle = subsystem
+  const kind = blockKind(instance);
+  const style = BLOCK_STYLE[kind];
+  const subtitle = kind !== "board"
     ? [instance.projectName, instance.catalog?.version ? `v${instance.catalog.version}` : null].filter(Boolean).join(" · ")
     : instance.projectName ?? status.label;
   return (
-    <div className={cn("relative bg-card text-card-foreground shadow-sm",
-      subsystem ? "border-4 border-double" : "border", selected ? "border-primary" : "border-border")}
-      style={{ width: NODE_WIDTH, height }} data-kind={subsystem ? "subsystem" : "board"}>
-      <div className="flex items-center gap-2 border-b bg-muted/40 px-3" style={{ height: HEADER_HEIGHT }}>
+    <div className={cn("relative rounded-md bg-card text-card-foreground shadow-sm",
+      subsystem ? "border-4 border-double" : "border-2", style.border,
+      selected && "ring-2 ring-foreground/70 ring-offset-2 ring-offset-background")}
+      style={{ width: NODE_WIDTH, height }} data-kind={kind}>
+      <div className={cn("flex items-center gap-2 rounded-t-[4px] border-b px-3", style.tint)} style={{ height: HEADER_HEIGHT }}>
+        {instance.restricted
+          ? <Lock className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="restricted" />
+          : <style.icon className={cn("h-4 w-4 shrink-0", style.text)} aria-hidden />}
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1 truncate text-sm font-semibold">
-            {subsystem && <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="subsystem" />}
-            {instance.restricted && <Lock className="h-3 w-3" aria-label="restricted" />}
-            {instance.label}
-          </p>
+          <p className="truncate text-sm font-semibold">{instance.label}</p>
           <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            <span className="min-w-0 truncate">{subtitle || status.label}</span>
+            <span className={cn("shrink-0 font-medium", style.text)}>{style.label}</span>
+            <span className="min-w-0 truncate">· {subtitle || status.label}</span>
             {subsystem && (
               <button type="button" className="nodrag nopan shrink-0 hover:text-foreground"
                 aria-expanded={open} aria-label={`What is inside ${instance.label}`}
@@ -214,13 +221,12 @@ function WireEdgeView({ id, sourceX, sourceY, targetX, targetY, data, selected }
   const path = points.map((point, index) => `${index ? "L" : "M"}${point.x},${point.y}`).join(" ");
   const middle = points.length === 4 ? { x: points[1].x, y: (points[1].y + points[2].y) / 2 } : { x: (sourceX + targetX) / 2, y: sourceY };
   const active = selected || data!.hovered;
+  const kind = CONNECTION_STYLE[data!.b2b ? "b2b" : data!.harnessId || data!.harness ? "harness" : "link"];
   return (
     <>
+      {active && <BaseEdge id={`${id}-halo`} path={path} style={{ strokeWidth: kind.width + 6, stroke: kind.stroke, strokeOpacity: 0.25 }} />}
       <BaseEdge id={id} path={path} interactionWidth={14}
-        style={{
-          strokeWidth: (active ? 2.5 : 1.5) + (data!.b2b ? 1.5 : 0),
-          stroke: active ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
-        }} />
+        style={{ strokeWidth: kind.width + (active ? 1 : 0), stroke: kind.stroke, strokeOpacity: active ? 1 : 0.85 }} />
       {active && (
         <EdgeLabelRenderer>
           <div className="nodrag nopan pointer-events-none absolute border bg-popover px-2 py-1 text-[11px] text-popover-foreground shadow-sm"
@@ -465,6 +471,7 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
           >
             <Background gap={16} />
             <Controls showInteractive={false} />
+            <Panel position="bottom-right"><DiagramLegend document={document} /></Panel>
           </ReactFlow>
         )}
       </div>
