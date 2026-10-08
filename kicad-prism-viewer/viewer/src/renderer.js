@@ -438,6 +438,74 @@ const PICK_SHADER_INSTANCED = variant(PICK_SHADER, [
   [PICK_LIT, PICK_LIT_INSTANCED],
 ]);
 
+// Component instancing (SB2-86): a component model is uploaded once and drawn at
+// every placement. A placement is a 3×4 transform (board frame, the GLB's axes
+// already turned) and the component's feature id, in storage; the draw names its
+// first placement and how many there are. Occurrence-instanced draws run
+// occurrence × placement count + placement, as the barrels do.
+const PLACEMENT_WGSL = `struct Placement { r0: vec4f, r1: vec4f, r2: vec4f, ids: vec4u };
+@group(0) @binding(8) var<storage, read> placements: array<Placement>;
+fn place(p: Placement, v: vec3f) -> vec3f {
+  return vec3f(dot(p.r0.xyz, v) + p.r0.w, dot(p.r1.xyz, v) + p.r1.w, dot(p.r2.xyz, v) + p.r2.w);
+}
+fn turn(p: Placement, n: vec3f) -> vec3f {
+  return vec3f(dot(p.r0.xyz, n), dot(p.r1.xyz, n), dot(p.r2.xyz, n));
+}`;
+const DRAW_BINDING = "@group(0) @binding(1) var<uniform> draw: Draw;";
+const PLACEMENT_PRELUDE = [DRAW_BINDING, `${DRAW_BINDING}\n${PLACEMENT_WGSL}`];
+const MAIN_DRAW_PLACEMENT = ["  offset: vec4f,\n  flags: vec4f,\n};", "  offset: vec4f,\n  flags: vec4f,\n  placement: vec4u,\n};"];
+const PICK_DRAW_PLACEMENT = ["struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };",
+  "struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f, placement: vec4u };"];
+// A model's own per-vertex feature ids win; otherwise the placement's component.
+const PLACED_OBJECT = ["  output.objectId = input.objectId;", "  output.objectId = select(placement.ids.x, input.objectId, input.objectId != 0u);"];
+const INSTANCED_PLACEMENT = ["  let index = listedOccurrence(u32(draw.material.w + 0.5), instance);",
+  "  let placement = placements[draw.placement.x + instance % draw.placement.y];\n  let index = listedOccurrence(u32(draw.material.w + 0.5), instance / draw.placement.y);"];
+
+const COMPONENT_SHADER = variant(MAIN_SHADER, [
+  MAIN_DRAW_PLACEMENT,
+  PLACEMENT_PRELUDE,
+  [`@vertex fn vs(input: VertexInput) -> VertexOutput {
+  var output: VertexOutput;
+  output.world = input.position + draw.offset.xyz;`, `@vertex fn vs(input: VertexInput, @builtin(instance_index) instance: u32) -> VertexOutput {
+  let placement = placements[draw.placement.x + instance];
+  var output: VertexOutput;
+  output.world = place(placement, input.position) + draw.offset.xyz;`],
+  ["  output.normal = normalize(input.normal);", "  output.normal = normalize(turn(placement, input.normal));"],
+  PLACED_OBJECT,
+]);
+const COMPONENT_SHADER_INSTANCED = variant(MAIN_SHADER_INSTANCED, [
+  MAIN_DRAW_PLACEMENT,
+  PLACEMENT_PRELUDE,
+  INSTANCED_PLACEMENT,
+  ["occurrence.model * vec4f(input.position + draw.offset.xyz + lift, 1.0)",
+    "occurrence.model * vec4f(place(placement, input.position) + draw.offset.xyz + lift, 1.0)"],
+  ["(occurrence.normal * vec4f(input.normal, 0.0))", "(occurrence.normal * vec4f(turn(placement, input.normal), 0.0))"],
+  PLACED_OBJECT,
+]);
+const COMPONENT_PICK_SHADER = variant(PICK_SHADER, [
+  PICK_DRAW_PLACEMENT,
+  PLACEMENT_PRELUDE,
+  [`@vertex fn vs(input: Input) -> Output {
+  var output: Output;
+  output.position = globals.viewProjection * vec4f(input.position + draw.offset.xyz, 1.0);`, `@vertex fn vs(input: Input, @builtin(instance_index) instance: u32) -> Output {
+  let placement = placements[draw.placement.x + instance];
+  var output: Output;
+  output.position = globals.viewProjection * vec4f(place(placement, input.position) + draw.offset.xyz, 1.0);`],
+  PLACED_OBJECT,
+]);
+const COMPONENT_PICK_SHADER_INSTANCED = variant(PICK_SHADER_INSTANCED, [
+  PICK_DRAW_PLACEMENT,
+  PLACEMENT_PRELUDE,
+  INSTANCED_PLACEMENT,
+  ["occurrence.model * vec4f(input.position + draw.offset.xyz + lift, 1.0)",
+    "occurrence.model * vec4f(place(placement, input.position) + draw.offset.xyz + lift, 1.0)"],
+  PLACED_OBJECT,
+]);
+// A placement record: three rows of the transform, then the feature id.
+export const PLACEMENT_STRIDE = 64;
+// Instanced component slots carry their placement count in the class word: 6 | count << 3.
+const COMPONENT_SLOT_CLASS = 6;
+
 const BARREL_INPUT = `struct Input {
   @location(0) unit: vec3f,
   @location(1) normal: vec3f,
@@ -662,6 +730,7 @@ fn chooseLod(previous: u32, pixels: f32) -> u32 {
   else if (kind == 2u) { count = board * cull.extra.x; }
   else if (kind == 3u) { count = box; }
   else if (kind == 5u) { count = body; }
+  else if ((kind & 7u) == 6u) { count = full * (kind >> 3u); }
   args[slot * 5u + 1u] = count;
 }
 `;
@@ -683,6 +752,10 @@ export const INSTANCED_SHADERS = Object.freeze({
   box: BOX_SHADER,
   boxPick: BOX_PICK_SHADER,
   cull: CULL_SHADER,
+  component: COMPONENT_SHADER,
+  componentInstanced: COMPONENT_SHADER_INSTANCED,
+  componentPick: COMPONENT_PICK_SHADER,
+  componentPickInstanced: COMPONENT_PICK_SHADER_INSTANCED,
 });
 
 export class Renderer {
@@ -756,6 +829,9 @@ export class Renderer {
     this.occurrenceBuffer = this.createOccurrenceBuffer(this.occurrenceCapacity);
     this.device.queue.writeBuffer(this.occurrenceBuffer, 0, packOccurrences(this.occurrenceMatrices));
     this.barrelRecordBuffer = device.createBuffer({ label: "barrel-records", size: BARREL_RECORD_STRIDE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    // Component placements (SB2-86), one record per placed model; a one-record placeholder keeps bind groups valid.
+    this.placementBuffer = device.createBuffer({ label: "component-placements", size: PLACEMENT_STRIDE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.componentPipelineSets = new Map();
     this.instancedPipelines = null;
     // Culled lists the instanced shaders read (SB2-25): three u32 per occurrence.
     this.listBuffer = this.createListBuffer(this.occurrenceCapacity);
@@ -838,6 +914,7 @@ export class Renderer {
         { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
         { binding: 6, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
         { binding: 7, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+        { binding: 8, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
       ],
     });
     const layout = device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] });
@@ -1279,7 +1356,7 @@ export class Renderer {
     pass.setVertexBuffer(0, entry.vertexBuffer);
     pass.setIndexBuffer(entry.indexBuffer, entry.indexFormat);
     if (indirect) pass.drawIndexedIndirect(this.argsBuffer, entry.slot * 20);
-    else pass.drawIndexed(entry.indexCount);
+    else pass.drawIndexed(entry.indexCount, entry.placementCount || 1);
   }
 
   drawBarrels(pass, pipeline, indirect, barrelInstances) {
@@ -1453,6 +1530,7 @@ export class Renderer {
         { binding: 5, resource: { buffer: this.occurrenceBuffer } },
         { binding: 6, resource: { buffer: this.barrelRecordBuffer } },
         { binding: 7, resource: { buffer: this.listBuffer } },
+        { binding: 8, resource: { buffer: this.placementBuffer } },
       ],
     });
   }
@@ -1622,7 +1700,10 @@ export class Renderer {
     const entry = {
       ...metadata,
       drawClass,
-      slot: this.allocSlot(primitive.indices.length, drawClass),
+      // An instanced component (SB2-86) draws once per placement for each full-detail occurrence.
+      slot: this.allocSlot(primitive.indices.length, metadata.placements ? COMPONENT_SLOT_CLASS | (metadata.placements << 3) : drawClass),
+      placementCount: metadata.placements || 0,
+      placementBase: 0,
       bounds: primitive.bounds || metadata.bounds || null,
       id: this.nextEntryId++,
       vertexBuffer,
@@ -1638,6 +1719,75 @@ export class Renderer {
     return entry;
   }
 
+  /**
+   * The component pipelines (SB2-86) for a draw set, compiled on first use and
+   * shared with the host renderer: opaque, blended (component opacity) and pick.
+   */
+  componentPipelines(pipelines) {
+    const owner = this.shareFrom || this;
+    let set = owner.componentPipelineSets.get(pipelines);
+    if (!set) {
+      const instanced = pipelines !== owner.singlePipelines;
+      const layout = owner.pipelineLayout;
+      const buffers = owner.vertexBuffers;
+      const draw = instanced ? COMPONENT_SHADER_INSTANCED : COMPONENT_SHADER;
+      const pick = instanced ? COMPONENT_PICK_SHADER_INSTANCED : COMPONENT_PICK_SHADER;
+      const suffix = instanced ? "-instanced" : "";
+      set = {
+        main: owner.makePipeline(layout, draw, owner.format, buffers, `component${suffix}`, { stencil: STENCIL_OPAQUE }),
+        blend: owner.makePipeline(layout, draw, owner.format, buffers, `component-blend${suffix}`),
+        pick: owner.makePipeline(layout, pick, PICK_FORMAT, buffers, `component-pick${suffix}`),
+      };
+      owner.componentPipelineSets.set(pipelines, set);
+    }
+    return set;
+  }
+
+  /**
+   * Add component models drawn at their placements (SB2-86). Each model is
+   * `{primitive, placements, metadata}`: the primitive in the model's own frame,
+   * placements as `{rows: [12 numbers], featureId}`. Returns the entries.
+   */
+  addInstancedPrimitives(models) {
+    const entries = models.map(({ primitive, placements, metadata }) => {
+      const entry = this.addPrimitive(primitive, { ...metadata, placements: placements.length });
+      entry.placementRecords = placements;
+      return entry;
+    });
+    this.writePlacements();
+    return entries;
+  }
+
+  /** Lay every instanced entry's placements out in one storage buffer, in entry order. */
+  writePlacements() {
+    const instanced = this.entries.filter((entry) => entry.placementRecords);
+    const total = instanced.reduce((sum, entry) => sum + entry.placementRecords.length, 0);
+    const data = new ArrayBuffer(Math.max(1, total) * PLACEMENT_STRIDE);
+    const floats = new Float32Array(data);
+    const words = new Uint32Array(data);
+    let base = 0;
+    for (const entry of instanced) {
+      entry.placementBase = base;
+      for (const placement of entry.placementRecords) {
+        const word = base * (PLACEMENT_STRIDE / 4);
+        floats.set(placement.rows, word);
+        words[word + 12] = placement.featureId || 0;
+        base += 1;
+      }
+    }
+    if (this.placementBuffer.size < data.byteLength) {
+      this.placementBuffer.destroy?.();
+      this.placementBuffer = this.device.createBuffer({
+        label: "component-placements",
+        size: data.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      this.rebindAll();
+    }
+    this.device.queue.writeBuffer(this.placementBuffer, 0, data);
+    this.invalidate();
+  }
+
   removeEntries(entries) {
     if (!entries?.length) return;
     const removeIds = new Set(entries.map((entry) => entry.id));
@@ -1651,6 +1801,7 @@ export class Renderer {
       }
     }
     this.entries = this.entries.filter((entry) => !removeIds.has(entry.id));
+    if (entries.some((entry) => entry.placementRecords)) this.writePlacements();
     this.bundleCache.clear();
     this.invalidate();
   }
@@ -1829,7 +1980,7 @@ export class Renderer {
     } else {
       this.drawEntries(pass, opaqueEntries, pipelines, indirect);
     }
-    for (const entry of visibleEntries) triangles += entry.indexCount / 3 * this.countFor(entry.drawClass);
+    for (const entry of visibleEntries) triangles += entry.indexCount / 3 * this.countFor(entry.drawClass) * (entry.placementCount || 1);
     draws += visibleEntries.length;
     if (!compareMode && this.barrels && (panel.layerId === 0 || visibleLayers.has(panel.layerId))) {
       this.writeBarrelDraw(isolateNet);
@@ -1856,7 +2007,7 @@ export class Renderer {
   drawEntries(encoder, entries, pipelines, indirect) {
     let pipeline = null;
     for (const entry of entries) {
-      const next = entry.stencilMark ? pipelines.mark : pipelines.main;
+      const next = entry.placementCount ? this.componentPipelines(pipelines).main : entry.stencilMark ? pipelines.mark : pipelines.main;
       if (next !== pipeline) {
         encoder.setPipeline(next);
         pipeline = next;
@@ -1876,7 +2027,7 @@ export class Renderer {
           this.drawEntry(pass, entry, indirect);
         }
       } else {
-        pass.setPipeline(pipelines.blend);
+        pass.setPipeline(entry.placementCount ? this.componentPipelines(pipelines).blend : pipelines.blend);
         this.drawEntry(pass, entry, indirect);
       }
     }
@@ -1959,6 +2110,11 @@ export class Renderer {
     const kind = entry.kind === "copper" ? 1 : entry.kind === "component" ? 2 : 0;
     const isolate = isolateNet ? 1 : entry.innerCopper && this.innerCopperMode === "lit" ? 2 : 0;
     data.set([kind, opacity, isolate, compareMode ? 1 : 0], 12);
+    if (entry.placementCount) {
+      const words = new Uint32Array(data.buffer, data.byteOffset + 64, 2);
+      words[0] = entry.placementBase;
+      words[1] = entry.placementCount;
+    }
   }
 
   writeBarrelDraw(isolateNet = false) {
@@ -2051,7 +2207,10 @@ export class Renderer {
     }
     // One upload for the uniforms just written; the draws read them at submit.
     this.flushDraws(pickEntries);
-    for (const entry of pickEntries) this.drawEntry(pass, entry, indirect);
+    for (const entry of pickEntries) {
+      pass.setPipeline(entry.placementCount ? this.componentPipelines(pipelines).pick : pipelines.pick);
+      this.drawEntry(pass, entry, indirect);
+    }
     if (!options.compareMode && this.barrels) {
       this.writeBarrelDraw(options.isolateNet);
       this.drawBarrels(pass, pipelines.barrelPick, indirect, barrelInstances);

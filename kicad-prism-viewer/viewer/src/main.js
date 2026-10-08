@@ -20,7 +20,8 @@ import {
 } from "./component-visibility.js";
 import { escapeHtml } from "./escape-html.js";
 import { EMPHASIS_PALETTE, findNetByName, packEmphasisColor, resolveNetIds } from "./net-emphasis.js";
-import { loadGltf } from "./gltf-loader.js";
+import { componentDraws } from "./component-models.js";
+import { loadGltf, loadGltfModels } from "./gltf-loader.js";
 import { add, boundsRadius, clamp, cross, mat4Multiply, scale } from "./math.js";
 import {
   AXES, SNAP, axisAmount, canonicalPose, localAxes, moveDescriptor, moveTarget, perpendicular,
@@ -46,6 +47,9 @@ import { LOD_FULL } from "./occurrences.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
 const COPPER_TILE_PREFETCH_MARGIN = 0.65;
+// SB2-87: tiles stay loaded within this wider margin; beyond it they go after a while unused.
+const COPPER_TILE_KEEP_MARGIN = 1.5;
+const COPPER_TILE_IDLE_RELEASE_MS = 15000;
 const TILE_SCHEDULER_INTERVAL_MS = 120;
 const MAX_TILE_LOADS_PER_TICK = 12;
 const INTERACTIVE_TILE_LOADS_PER_TICK = 48;
@@ -903,6 +907,28 @@ async function loadLayer(layerId) {
   await Promise.all(tilesForLayer(layerId).map((tile) => loadTile(tile, token)));
 }
 
+/**
+ * SB2-87: GPU uploads per frame are capped, so tiles finishing together upload
+ * over a few frames instead of stalling one. A single upload larger than the
+ * cap still goes, alone in its frame.
+ */
+const UPLOAD_BYTES_PER_FRAME = 24 * 1024 * 1024;
+const uploadFrame = { bytes: 0, waiting: null };
+async function uploadBudget(bytes) {
+  for (;;) {
+    if (uploadFrame.bytes === 0 || uploadFrame.bytes + bytes <= UPLOAD_BYTES_PER_FRAME) {
+      uploadFrame.bytes += bytes;
+      uploadFrame.waiting ??= new Promise((resolve) => requestAnimationFrame(() => {
+        uploadFrame.bytes = 0;
+        uploadFrame.waiting = null;
+        resolve();
+      }));
+      return;
+    }
+    await uploadFrame.waiting;
+  }
+}
+
 async function loadTile(tile, token = activeViewerToken, b = board) {
   if (!viewerSessionActive(token)) return;
   const resident = b.scene.residentTiles.get(tile.id);
@@ -921,6 +947,8 @@ async function loadTile(tile, token = activeViewerToken, b = board) {
         fetchBytes: assetFetcher(b),
         fetchCache: "no-store",
       });
+      if (!viewerSessionActive(token) || !b.renderer) return;
+      await uploadBudget(loaded.primitives.reduce((sum, primitive) => sum + estimatePrimitiveGpuBytes(primitive), 0));
       if (!viewerSessionActive(token) || !b.renderer) return;
       b.loadedBytes += loaded.byteLength;
       const layer = b.scene.layers.find((item) => Number(item.id) === Number(tile.layerId));
@@ -1019,6 +1047,7 @@ function scheduleTileResidency(now = performance.now(), options = {}, b = board)
   }
   evictUnneededTiles(needed, undefined, b);
   releaseDeferredInnerTiles(needed, now, b);
+  releaseDistantTiles(needed, now, b);
   b.tileSchedulerMs = performance.now() - started;
 }
 
@@ -1048,14 +1077,57 @@ function neededTileIdsForView(b = board) {
     }
   }
   const deferInner = innerCopperDeferred(b);
+  // SB2-87: the view now, where the camera is heading and one step beyond, each with a margin.
+  const views = [panel.matrix, ...prefetchViews()];
+  let misses = 0;
   for (const tile of b.scene.tiles.values()) {
     if (!visibleLayers.has(Number(tile.layerId))) continue;
     if (deferInner && isInnerCopperLayer(Number(tile.layerId), b)) continue;
     const offset = state.mode === "layer" ? compareOffsets.get(Number(tile.layerId)) : null;
-    if (tileIntersectsView(tile, panel.matrix, offset, COPPER_TILE_PREFETCH_MARGIN, b)) needed.add(tile.id);
+    if (views.some((matrix) => tileIntersectsView(tile, matrix, offset, COPPER_TILE_PREFETCH_MARGIN, b))) needed.add(tile.id);
+    if (!b.scene.residentTiles.has(tile.id) && tileIntersectsView(tile, panel.matrix, offset, 0, b)) misses += 1;
   }
   for (const tileId of activeNetTiles) needed.add(tileId);
+  // On screen but not loaded yet: what a user would see arrive late (SB2-87 measures this).
+  b.visibleTileMisses = misses;
   return needed;
+}
+
+/**
+ * SB2-87: views to load for besides the current one while the camera moves:
+ * its destination and a lead one step further along the same move. Every move
+ * (frame, zoom, pan, orbit) sets the camera's targets first and eases there.
+ */
+function prefetchViews() {
+  if (!camera?.moving?.() || state.mode === "layer") return [];
+  const now = performance.now();
+  if (prefetchViewCache.at === now) return prefetchViewCache.views;
+  prefetchViewCache.at = now;
+  prefetchViewCache.views = [0, 1].map((lead) => camera.targetMatrix(canvas.width, canvas.height, false, lead));
+  return prefetchViewCache.views;
+}
+const prefetchViewCache = { at: -1, views: [] };
+
+/**
+ * SB2-87: copper tiles outside a wider ring around the view (hysteresis: wider
+ * than the load margin, so a tile at the edge does not load and unload in turn)
+ * are released once unused for a while, whether or not memory is short.
+ */
+function releaseDistantTiles(needed, now, b) {
+  if (state.mode === "layer" || !panel) return;
+  const deferInner = innerCopperDeferred(b);
+  for (const record of [...b.scene.residentTiles.values()]) {
+    if (needed.has(record.tile.id) || b.scene.loading.has(record.tile.id)) continue;
+    // Only a tile the view would otherwise want stays for being near it: a hidden
+    // layer's, or inner copper the board hides (SB2-85), ages out as before.
+    const layerId = Number(record.tile.layerId);
+    const wanted = b.visible3dLayers.has(layerId) && !(deferInner && isInnerCopperLayer(layerId, b));
+    if (wanted && tileIntersectsView(record.tile, panel.matrix, null, COPPER_TILE_KEEP_MARGIN, b)) {
+      record.lastUsed = now;
+      continue;
+    }
+    if (now - record.lastUsed > COPPER_TILE_IDLE_RELEASE_MS) evictTile(record.tile.id, b);
+  }
 }
 
 /**
@@ -1283,6 +1355,7 @@ function sceneStats() {
     componentTier: board.scene.componentTier,
     componentEvictions: board.scene.componentEvictions,
     tileEvictions: board.tileEvictions,
+    visibleTileMisses: board.visibleTileMisses || 0,
     cache: board.assetCache ? board.assetCache.summary() : { enabled: false },
     frameIntervalMs: state.frameIntervalMs,
     frameIntervalP95Ms: state.frameIntervalP95Ms,
@@ -1307,6 +1380,10 @@ function systemStats() {
     componentTier: `${tiers.filter((tier) => tier === "loaded").length}/${boards.length} loaded`,
     componentEvictions: boards.reduce((sum, b) => sum + b.scene.componentEvictions, 0),
     tileEvictions: boards.reduce((sum, b) => sum + b.tileEvictions, 0),
+    visibleTileMisses: boards.reduce((sum, b) => sum + (b.visibleTileMisses || 0), 0),
+    // Boards drawn at full detail whose components have not arrived (SB2-87): parts popping in.
+    componentMisses: boards.filter((b) => b.renderer.cullCounts.full > 0 && b.scene.componentTier !== "loaded"
+      && b.semanticGeometry.assets?.components_glb).length,
     cache: boards.find((b) => b.assetCache)?.assetCache.summary() || { enabled: false },
     frameIntervalMs: state.frameIntervalMs,
     frameIntervalP95Ms: state.frameIntervalP95Ms,
@@ -3287,7 +3364,7 @@ async function loadComponents(token = activeViewerToken, b = board) {
   b.scene.componentTier = "loading";
   let loaded;
   try {
-    loaded = await loadGltf(new URL(path, location.href).toString(), {
+    loaded = await loadGltfModels(new URL(path, location.href).toString(), {
       componentFeatures: b.scene.componentFeatures,
       fetchBytes: assetFetcher(b),
     });
@@ -3296,11 +3373,18 @@ async function loadComponents(token = activeViewerToken, b = board) {
     throw error;
   }
   if (!viewerSessionActive(token) || !b.renderer) return;
+  const draws = componentDraws(loaded.models);
+  // SB2-87: the upload waits its turn (per-frame cap); the tier stays "loading" meanwhile.
+  await uploadBudget([...draws.instanced.map((draw) => draw.primitive), ...draws.baked]
+    .reduce((sum, primitive) => sum + estimatePrimitiveGpuBytes(primitive), 0));
+  if (!viewerSessionActive(token) || !b.renderer) return;
   b.scene.componentTier = "loaded";
   b.loadedBytes += loaded.byteLength;
-  for (const primitive of loaded.primitives) {
-    const component = b.scene.componentFeatures.get(primitive.designator);
-    if (component) mergeFeatureBounds(component.featureId, primitive.position, b);
+  for (const model of loaded.models) {
+    for (const placement of model.placements) {
+      const component = b.scene.componentFeatures.get(placement.designator);
+      if (component) mergeFeatureBounds(component.featureId, placement.bounds, b);
+    }
   }
   // Harness ends anchor at their connector's bounds, known only now; until then they sat at the board's centre.
   if (system) {
@@ -3316,12 +3400,16 @@ async function loadComponents(token = activeViewerToken, b = board) {
   // alternate-footprint pairs as ordinary references and hid them; redo it now
   // that the pairs are known, so load order never changes what is hidden.
   if (b.hiddenComponentRequest) applyHiddenComponents(b.hiddenComponentRequest);
-  b.scene.componentEntries = mergePrimitivesByMaterial(loaded.primitives).map((primitive) => b.renderer.addPrimitive(primitive, {
-    kind: "component",
-    layerId: 0,
-    material: primitive.material,
-    color: primitive.material.baseColor,
-  }));
+  // SB2-86: models placed often draw once per placement from one copy; the rest bake in, merged by material.
+  const metadataOf = (primitive) => ({ kind: "component", layerId: 0, material: primitive.material, color: primitive.material.baseColor });
+  b.scene.componentEntries = [
+    ...b.renderer.addInstancedPrimitives(draws.instanced.map((model) => ({
+      primitive: model.primitive,
+      placements: model.placements,
+      metadata: metadataOf(model.primitive),
+    }))),
+    ...draws.baked.map((primitive) => b.renderer.addPrimitive(primitive, metadataOf(primitive))),
+  ];
 }
 
 // Bundle assets through the browser cache when this bundle is final (SB2-26).
@@ -3341,7 +3429,10 @@ function manageTiers(now, b = board) {
   b.tiersCheckedAt = now;
   // A deferred (system) load waits for a full-detail occurrence, not the brief
   // one-board frames before its occurrences are applied.
-  const wanted = (b.renderer.identityOnly && !b.deferComponents) || (!b.renderer.identityOnly && b.renderer.cullCounts.full > 0);
+  // SB2-87: any copy drawn above box detail wants them. Instanced (SB2-86) they cost little, and a board
+  // zoomed from afar to full detail in one move then finds them already there instead of popping in.
+  const counts = b.renderer.cullCounts;
+  const wanted = (b.renderer.identityOnly && !b.deferComponents) || (!b.renderer.identityOnly && counts.full + counts.board + counts.body > 0);
   if (wanted) b.scene.componentsWantedAt = now;
   if (wanted && b.scene.componentTier === "idle" && b.semanticGeometry.assets?.components_glb) {
     void loadComponents(activeViewerToken, b)
