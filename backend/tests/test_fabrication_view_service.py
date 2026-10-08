@@ -215,6 +215,27 @@ class DrillToolTests(unittest.TestCase):
         self.assertTrue(self.tools({"board-NPTH.drl": text})[0]["plated"])
 
 
+class ColourTests(unittest.TestCase):
+    """Layers are KiCad's colours, the same as the Visualizer draws them."""
+
+    def setUp(self) -> None:
+        view = FabricationPackage.from_files(package_files()).view()
+        self.colours = {layer["id"]: layer["colour"] for layer in view["layers"]}
+
+    def test_copper_is_red_on_top_and_blue_underneath(self) -> None:
+        self.assertEqual(self.colours["f.cu"], "#c83434")
+        self.assertEqual(self.colours["b.cu"], "#4d7fc4")
+
+    def test_the_other_roles(self) -> None:
+        self.assertEqual(self.colours["f.mask"], "#d864ff")
+        self.assertEqual(self.colours["f.silkscreen"], "#f2eda1")
+        self.assertEqual(self.colours["f.paste"], "#b4a09a")
+        self.assertEqual(self.colours["edge.cuts"], "#d0d2cd")
+
+    def test_a_fabrication_layer_has_its_own_colour(self) -> None:
+        self.assertEqual(self.colours["f.fab"], "#afafaf")
+
+
 class LayerNameTests(unittest.TestCase):
     def test_two_drill_programs_are_told_apart_by_file(self) -> None:
         files = {"board-PTH.drl": DRILL, "board-NPTH.drl": DRILL, "board-F_Cu.gtl": gerber(PAD)}

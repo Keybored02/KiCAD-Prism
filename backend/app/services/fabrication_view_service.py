@@ -25,21 +25,46 @@ from app.services import fabrication_compare_service as fab
 #: Role names the viewer groups and colours by.
 ROLES = ("silk", "paste", "mask", "copper", "outline", "drill", "other")
 
-#: Screen-blended over a dark board, so colours add up where layers overlap.
+#: KiCad's own colours, as the Visualizer and Design Comparison draw them, so a layer
+#: is the same colour wherever it is looked at. The viewer screen-blends layers over
+#: a dark board, so colours add up where they overlap.
 _COLOURS = {
-    ("copper", "top"): "#e0a030",
-    ("copper", "bottom"): "#c8553d",
-    ("copper", "inner"): "#8ab04a",
-    ("mask", "top"): "#1f8a4c",
-    ("mask", "bottom"): "#1f6f8a",
-    ("silk", "top"): "#f0f0f0",
-    ("silk", "bottom"): "#9fb4d6",
-    ("paste", "top"): "#9aa4ad",
-    ("paste", "bottom"): "#7b848d",
-    ("outline", "both"): "#f2e85c",
-    ("drill", "both"): "#6fd3ff",
+    ("copper", "top"): "#c83434",
+    ("copper", "bottom"): "#4d7fc4",
+    ("copper", "inner"): "#7fc87f",
+    ("mask", "top"): "#d864ff",
+    ("mask", "bottom"): "#02ffee",
+    ("silk", "top"): "#f2eda1",
+    ("silk", "bottom"): "#e8b2a7",
+    ("paste", "top"): "#b4a09a",
+    ("paste", "bottom"): "#00c2c2",
+    ("outline", "both"): "#d0d2cd",
+    ("drill", "both"): "#e3b72e",
 }
-_FALLBACK_COLOUR = "#7a7f87"
+#: The rest of KiCad's layers, by layer id.
+_OTHER_COLOURS = {
+    "f.adhesive": "#840084",
+    "b.adhesive": "#000084",
+    "f.fab": "#afafaf",
+    "b.fab": "#585d84",
+    "f.courtyard": "#ff26e2",
+    "b.courtyard": "#26e9ff",
+    "margin": "#ff26e2",
+    "user.drawings": "#c2c2c2",
+    "user.comments": "#5994dc",
+    "user.eco1": "#b4dbd2",
+    "user.eco2": "#d8c852",
+    "user.1": "#c2c2c2",
+    "user.2": "#5994dc",
+    "user.3": "#b4dbd2",
+    "user.4": "#d8c852",
+    "user.5": "#c2c2c2",
+    "user.6": "#5994dc",
+    "user.7": "#b4dbd2",
+    "user.8": "#d8c852",
+    "user.9": "#e8b2a7",
+}
+_FALLBACK_COLOUR = "#afafaf"
 
 #: Layers are screen-blended, and black is the identity for that: any lighter
 #: background would brighten a little more with every layer stacked on it.
@@ -208,7 +233,11 @@ class FabricationPackage:
         names = Counter(layer.name for layer in self.layers)
         for layer, layer_id in zip(self.layers, _unique_ids(self.layers)):
             role, side = classify(layer.function, layer.kind, layer.filename, layer.name)
-            colour = _COLOURS.get((role, side)) or _COLOURS.get((role, "both"), _FALLBACK_COLOUR)
+            colour = (
+                _OTHER_COLOURS.get(layer_id, _FALLBACK_COLOUR)
+                if role == "other"
+                else _COLOURS.get((role, side)) or _COLOURS.get((role, "both"), _FALLBACK_COLOUR)
+            )
             read = fab.parse_excellon if layer.kind == "excellon" else fab.parse_gerber
             try:
                 parsed = read(layer.text)
