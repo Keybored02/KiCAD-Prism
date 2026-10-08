@@ -60,12 +60,12 @@ describe("Inspect outputs, fabrication", () => {
     it("has no Fabrication tab when the build kept no layer files", async () => {
         renderStep(["assembly/bom.csv"]);
         await waitFor(() => expect(screen.getByRole("tab", { name: /Members/ })).toBeInTheDocument());
-        expect(screen.queryByRole("tab", { name: "Gerber viewer" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("tab", { name: "Gerber" })).not.toBeInTheDocument();
     });
 
     it("offers the viewer as a tab", async () => {
         renderStep(["fabrication/gerbers/board-F_Cu.gtl"]);
-        fireEvent.mouseDown(await screen.findByRole("tab", { name: "Gerber viewer" }), { button: 0 });
+        fireEvent.mouseDown(await screen.findByRole("tab", { name: "Gerber" }), { button: 0 });
         const viewer = await screen.findByTestId("viewer");
         expect(viewer).toHaveAttribute(
             "data-url",
