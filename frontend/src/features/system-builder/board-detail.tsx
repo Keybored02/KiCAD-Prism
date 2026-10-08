@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Eye, EyeOff, Lock, MoreHorizontal, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Share2, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Link2, Loader2, Lock, MoreHorizontal, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Share2, Trash2 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -36,8 +35,11 @@ import type { InstanceComponent, SystemDocument, SystemInstance, SystemPort } fr
 
 import { ExportDialog, exportForPort } from "./exports-section";
 import { SubsystemDetail } from "./subsystem-detail";
-import { TONE_BADGE, boardStatus, shortSha } from "./system-format";
+import { boardStatus, shortSha, timeAgo } from "./system-format";
 import { useSystemMutation } from "./use-system-mutation";
+import { InspectorFacts } from "./workspace/inspector-facts";
+import { InspectorHeader } from "./workspace/inspector-header";
+import { InspectorSection } from "./workspace/inspector-section";
 
 type Mutate = ReturnType<typeof useSystemMutation>["run"];
 
@@ -146,18 +148,15 @@ function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, ru
 
   if (instance.restricted) {
     return (
-      <div className="space-y-3">
-        <h2 className="flex items-center gap-2 text-lg font-semibold"><Lock className="h-4 w-4" /> {instance.label}</h2>
-        <p className="text-sm text-muted-foreground">
-          {instance.projectDeleted
-            ? "This board's project has been deleted. Only an admin can see what the system kept of it."
-            : "This board's project is in a folder you cannot see. Its details and connections on its side are hidden."}
-        </p>
-        {canEdit && instance.projectDeleted && (
-          <Button variant="outline" size="sm" onClick={() => setDialog("remove")}>
-            <Trash2 className="mr-1 h-4 w-4" /> Remove board
-          </Button>
-        )}
+      <div className="space-y-4">
+        <InspectorHeader kind="Board" title={instance.label} icon={<Lock className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+          status={{ label: instance.projectDeleted ? "Project deleted" : "No access", tone: "muted",
+            detail: instance.projectDeleted ? "Only an admin can see what the system kept of it." : "Its project is in a folder you cannot see." }}
+          actions={canEdit && instance.projectDeleted && (
+            <Button variant="ghost" size="icon-sm" aria-label="Remove board" title="Remove board" onClick={() => setDialog("remove")}>
+              <Trash2 className="size-4" />
+            </Button>
+          )} />
         {removeDialog}
       </div>
     );
@@ -171,43 +170,36 @@ function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, ru
     throwIfJobFailed(await watchPrismJob(job.job_id), "The branch check failed");
   };
 
+  const pinToggle = () => void (instance.pinned
+    ? run("update", async () => {
+      await updateInstance(systemId, etag, instance.id, { pinned: false });
+      await checkBranch();
+    }, "Unpinned and checked the branch")
+    : save({ pinned: true }, "Pinned"));
+
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold">{instance.label}</h2>
-            <Badge variant={TONE_BADGE[status.tone]} title={status.detail}>{status.label}</Badge>
-            {instance.pinned && <Badge variant="outline"><Pin className="h-3 w-3" /> Pinned</Badge>}
-          </div>
-          <p className="text-sm text-muted-foreground">{instance.projectName} · {status.detail}</p>
-        </div>
-        {editable && (
-          <div className="flex items-center gap-2">
+    <div className="space-y-5">
+      <InspectorHeader kind="Board" title={instance.label} subtitle={instance.projectName}
+        status={{ label: status.label, tone: status.tone, detail: status.detail }}
+        actions={editable && (
+          <>
             {instance.trackedRef && (
               <>
-                <Button variant="outline" size="sm" disabled={busy !== null}
+                <Button variant="ghost" size="icon-sm" disabled={busy !== null} aria-label="Check now" title="Check the branch now"
                   onClick={() => void run("check", checkBranch, "Branch checked")}>
-                  <RefreshCw className="mr-1 h-4 w-4" /> Check now
+                  <RefreshCw className="size-4" />
                 </Button>
-                <Button variant="outline" size="sm" disabled={busy !== null}
-                  title={instance.pinned ? "Apply or review new commits again" : "Keep this baseline; only report new commits"}
-                  onClick={() => void (instance.pinned
-                    ? run("update", async () => {
-                      await updateInstance(systemId, etag, instance.id, { pinned: false });
-                      await checkBranch();
-                    }, "Unpinned and checked the branch")
-                    : save({ pinned: true }, "Pinned"))}>
-                  {instance.pinned ? <PinOff className="mr-1 h-4 w-4" /> : <Pin className="mr-1 h-4 w-4" />}
-                  {instance.pinned ? "Unpin" : "Pin"}
+                <Button variant="ghost" size="icon-sm" disabled={busy !== null} aria-label={instance.pinned ? "Unpin" : "Pin"}
+                  aria-pressed={Boolean(instance.pinned)}
+                  title={instance.pinned ? "Unpin: apply or review new commits again" : "Pin: keep this baseline, only report new commits"}
+                  onClick={pinToggle}>
+                  {instance.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
                 </Button>
               </>
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Board actions">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
+                <Button variant="ghost" size="icon-sm" aria-label="Board actions"><MoreHorizontal className="size-4" /></Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem onSelect={() => setDialog("edit")}>
@@ -219,29 +211,20 @@ function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, ru
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
-        )}
-      </header>
+          </>
+        )} />
 
-      <dl className="grid gap-px border bg-border text-sm sm:grid-cols-3">
-        <div className="bg-card px-4 py-3">
-          <dt className="text-xs text-muted-foreground">Baseline</dt>
-          <dd className="mt-1 font-mono" title={instance.baselineCommit ?? undefined}>{shortSha(instance.baselineCommit)}</dd>
-        </div>
-        <div className="bg-card px-4 py-3">
-          <dt className="text-xs text-muted-foreground">Tracked branch</dt>
-          <dd className="mt-1 font-mono">{instance.trackedRef ?? <span className="font-sans text-muted-foreground">Not tracking</span>}</dd>
-        </div>
-        <div className="bg-card px-4 py-3">
-          <dt className="text-xs text-muted-foreground">Branch tip</dt>
-          <dd className="mt-1">
-            <span className="font-mono">{instance.trackedRef ? shortSha(instance.tipCommit) : "—"}</span>
-            {instance.tipCheckedAt && (
-              <span className="ml-2 text-xs text-muted-foreground">checked {new Date(instance.tipCheckedAt).toLocaleString()}</span>
-            )}
-          </dd>
-        </div>
-      </dl>
+      <InspectorFacts rows={[
+        { label: "Baseline", value: <span className="font-mono">{shortSha(instance.baselineCommit)}</span>, title: instance.baselineCommit ?? undefined },
+        { label: "Branch", value: instance.trackedRef
+          ? <span className="font-mono">{instance.trackedRef}{instance.pinned && <Pin className="ml-1.5 inline size-3 text-muted-foreground" aria-label="pinned" />}</span>
+          : <span className="text-muted-foreground">Not tracking</span>, title: instance.trackedRef ?? undefined },
+        ...(instance.trackedRef ? [{
+          label: "Tip",
+          value: <><span className="font-mono">{shortSha(instance.tipCommit)}</span>{instance.tipCheckedAt && <span className="text-muted-foreground"> · {timeAgo(instance.tipCheckedAt)}</span>}</>,
+          title: instance.tipCheckedAt ? `Checked ${new Date(instance.tipCheckedAt).toLocaleString()}` : undefined,
+        }] : []),
+      ]} />
 
       <PortsSection systemId={systemId} document={document} instance={instance} etag={etag} editable={editable} busy={busy} run={run} />
 
@@ -291,14 +274,13 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run 
 
   if (instance.interface?.status !== "ready") {
     return (
-      <section className="space-y-2">
-        <h3 className="text-sm font-semibold">Ports</h3>
-        <p className="text-sm text-muted-foreground">
+      <InspectorSection title="Ports">
+        <p className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           {instance.interface?.status === "failed"
-            ? `The board interface could not be read (${instance.interface.errorCode ?? "unknown error"}).`
-            : "Reading the board interface…"}
+            ? `Unreadable (${instance.interface.errorCode ?? "unknown error"})`
+            : <><Loader2 className="size-3.5 animate-spin" aria-hidden /> Reading…</>}
         </p>
-      </section>
+      </InspectorSection>
     );
   }
 
@@ -310,78 +292,65 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run 
     run("override", () => setPortOverride(systemId, etag, instance.id, port.portKey, state), message);
 
   return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{showAll ? "All components" : "Ports"}</h3>
-        <Button variant="ghost" size="sm" onClick={() => setShowAll((value) => !value)}>
-          {showAll ? "Show ports only" : "Show all components"}
+    <InspectorSection title={showAll ? "All parts" : "Ports"} count={rows.length}
+      action={(
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" aria-pressed={showAll}
+          title={showAll ? "Show the ports only" : "Show every part, to promote one to a port"} onClick={() => setShowAll((value) => !value)}>
+          {showAll ? "Ports only" : "All parts"}
         </Button>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Connectors are detected automatically. Promote any other component to use it as a port, or hide a
-        detected connector that is not one.
-      </p>
-      <div className="relative overflow-x-auto rounded-md border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2 font-medium">Reference</th>
-              <th className="px-3 py-2 font-medium">Value</th>
-              <th className="px-3 py-2 font-medium">Pins</th>
-              <th className="px-3 py-2 font-medium">State</th>
-              {editable && <th className="px-3 py-2 font-medium"><span className="sr-only">Actions</span></th>}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && (
-              <tr><td colSpan={5} className="px-3 py-4 text-center text-muted-foreground">No ports on this board.</td></tr>
-            )}
-            {rows.map((port) => {
-              const state = portState(port);
-              const isLinked = linked.has(port.portKey);
-              const exported = exportForPort(document, instance.id, port.portKey);
-              return (
-                <tr key={port.portKey} className="border-t">
-                  <td className="px-3 py-2 font-medium" title={port.libId ?? undefined}>{port.reference}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{port.value ?? ""}</td>
-                  <td className="px-3 py-2 tabular-nums">{port.pinCount}</td>
-                  <td className="px-3 py-2">
-                    <span className={cn(state === "hidden" || state === "not exposed" ? "text-muted-foreground" : "")}>{state}</span>
-                    {isLinked && <Badge variant="outline" className="ml-2">linked</Badge>}
-                    {exported && <Badge variant="outline" className="ml-2" title={exported.description || undefined}><Share2 className="h-3 w-3" /> exported as {exported.name}</Badge>}
-                  </td>
-                  {editable && (
-                    <td className="whitespace-nowrap px-3 py-2 text-right">
+      )}>
+      {rows.length === 0 ? <p className="h-8 text-sm text-muted-foreground">None</p> : (
+        <ul aria-label={showAll ? "All parts" : "Ports"} className="text-sm">
+          {rows.map((port) => {
+            const state = portState(port);
+            const isLinked = linked.has(port.portKey);
+            const exported = exportForPort(document, instance.id, port.portKey);
+            return (
+              <li key={port.portKey} className={cn("flex h-8 items-center gap-2 border-b last:border-b-0",
+                (state === "hidden" || state === "not exposed") && "text-muted-foreground")}>
+                <span className="w-14 shrink-0 truncate font-mono text-xs font-medium" title={port.libId ?? port.reference}>{port.reference}</span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground" title={port.value ?? undefined}>{port.value ?? ""}</span>
+                <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+                  {isLinked && <Link2 className="size-3.5" aria-label="linked" />}
+                  {exported && <Share2 className="size-3.5" aria-label={`exported as ${exported.name}`} />}
+                  {state === "hidden" && <EyeOff className="size-3.5" aria-label="hidden" />}
+                  {state === "promoted" && <Eye className="size-3.5" aria-label="promoted" />}
+                </span>
+                <span className="w-8 shrink-0 text-right text-xs tabular-nums text-muted-foreground" title={`${port.pinCount} pins`}>{port.pinCount}</span>
+                {editable && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="size-6 shrink-0" aria-label={`Actions for ${port.reference}`} disabled={busy !== null}>
+                        <MoreHorizontal className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
                       {port.exposed && !isLinked && !exported && (
-                        <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setExporting(port)}>
-                          <Share2 className="mr-1 h-3.5 w-3.5" /> Export
-                        </Button>
+                        <DropdownMenuItem onSelect={() => setExporting(port)}><Share2 className="mr-2 h-4 w-4" /> Export</DropdownMenuItem>
                       )}
                       {port.override !== null ? (
-                        <Button size="sm" variant="ghost" disabled={busy !== null || (port.override === "promoted" && isLinked && !port.candidate)}
-                          onClick={() => void setOverride(port, null, `${port.reference} reset`)}>
-                          <RotateCcw className="mr-1 h-3.5 w-3.5" /> Reset
-                        </Button>
+                        <DropdownMenuItem disabled={port.override === "promoted" && isLinked && !port.candidate}
+                          onSelect={() => void setOverride(port, null, `${port.reference} reset`)}>
+                          <RotateCcw className="mr-2 h-4 w-4" /> Reset
+                        </DropdownMenuItem>
                       ) : port.exposed ? (
-                        <Button size="sm" variant="ghost" disabled={busy !== null || isLinked || Boolean(exported)}
-                          title={isLinked ? "A linked port cannot be hidden" : exported ? "An exported port cannot be hidden" : undefined}
-                          onClick={() => void setOverride(port, "hidden", `${port.reference} hidden`)}>
-                          <EyeOff className="mr-1 h-3.5 w-3.5" /> Hide
-                        </Button>
+                        <DropdownMenuItem disabled={isLinked || Boolean(exported)}
+                          onSelect={() => void setOverride(port, "hidden", `${port.reference} hidden`)}>
+                          <EyeOff className="mr-2 h-4 w-4" /> {isLinked ? "Hide (linked)" : exported ? "Hide (exported)" : "Hide"}
+                        </DropdownMenuItem>
                       ) : (
-                        <Button size="sm" variant="ghost" disabled={busy !== null}
-                          onClick={() => void setOverride(port, "promoted", `${port.reference} promoted`)}>
-                          <Eye className="mr-1 h-3.5 w-3.5" /> Promote
-                        </Button>
+                        <DropdownMenuItem onSelect={() => void setOverride(port, "promoted", `${port.reference} promoted`)}>
+                          <Eye className="mr-2 h-4 w-4" /> Promote to port
+                        </DropdownMenuItem>
                       )}
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {exporting && (
         <ExportDialog title={`Export ${instance.label} ${exporting.reference}`}
           description="Publish this connector so a parent system can link to it. A linked port cannot be exported."
@@ -394,6 +363,6 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run 
             if (done) setExporting(null);
           }} />
       )}
-    </section>
+    </InspectorSection>
   );
 }

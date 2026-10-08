@@ -69,7 +69,7 @@ describe("Scene3dTab", () => {
     expect(await screen.findByText(/CMBD is restricted: drawn as a grey box showing only its size/)).toBeTruthy();
     expect(screen.getByText(/The 3D view of OBC-2 failed: kicad-cli missing/)).toBeTruthy();
     expect(screen.getByText(/Generating the 3D view of PSU/)).toBeTruthy();
-    expect(screen.getByText("4 boards")).toBeTruthy();
+    expect(screen.getByTitle(/^4 boards/)).toBeTruthy();
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain("/api/systems/sys_1/scene");
     // The board 3D tab's viewer, in system mode (SB2-31e.2).
     expect(document.querySelector("prism-semantic-viewer")?.getAttribute("mode")).toBe("system");
@@ -84,7 +84,7 @@ describe("Scene3dTab", () => {
     const fetchMock = vi.fn(async (url: string) => (String(url).endsWith("/scene") ? json(mixed) : responses.shift()!));
     vi.stubGlobal("fetch", fetchMock);
     render(<Scene3dTab {...props} />);
-    await screen.findByText("4 boards");
+    await screen.findByTitle(/^4 boards/);
     const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
     element.setMoveMode = vi.fn();
     // The tab listens once the element is there; give its effects a turn.
@@ -124,7 +124,7 @@ describe("Scene3dTab", () => {
     const fetchMock = vi.fn(async (url: string) => (String(url).endsWith("/scene") ? json(mixed) : json({})));
     vi.stubGlobal("fetch", fetchMock);
     render(<Scene3dTab {...props} />);
-    await screen.findByText("4 boards");
+    await screen.findByTitle(/^4 boards/);
     const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
     await act(async () => undefined);
     element.cancelMove = vi.fn();
@@ -161,7 +161,7 @@ describe("Scene3dTab", () => {
     const fetchMock = vi.fn(async (url: string) => (String(url).endsWith("/scene") ? json(mated) : json({ poses: [] })));
     vi.stubGlobal("fetch", fetchMock);
     render(<Scene3dTab {...props} />);
-    await screen.findByText("2 boards");
+    await screen.findByTitle(/^2 boards/);
     const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
     await act(async () => undefined);
     element.cancelMove = vi.fn();
@@ -212,7 +212,7 @@ describe("Scene3dTab", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<Scene3dTab {...props} />);
-    await screen.findByText("4 boards");
+    await screen.findByTitle(/^4 boards/);
     const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
     element.setNetEmphasis = vi.fn(() => []);
     element.frameParts = vi.fn(() => true);
@@ -258,7 +258,7 @@ describe("Scene3dTab", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<Scene3dTab {...props} />);
-    await screen.findByText("4 boards");
+    await screen.findByTitle(/^4 boards/);
     const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
     element.setSelection = vi.fn();
     element.setNetEmphasis = vi.fn(() => []);
@@ -280,7 +280,7 @@ describe("Scene3dTab", () => {
       expect.objectContaining({ key: "trace" }),
       { key: "g_can", members: [{ occurrence: "/sin_OBC-1", net: "CAN0_N" }] },
     ]));
-    expect(screen.getByRole("button", { name: /Nets \(1\)/ })).toBeTruthy();
+    expect(screen.getByTitle("System nets").textContent).toBe("1");
   });
 
   it("asks before lighting a net over 200 pins, then lights its members", async () => {
@@ -296,12 +296,14 @@ describe("Scene3dTab", () => {
       ] });
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<Scene3dTab {...props} />);
-    await screen.findByText("4 boards");
+    // The workspace's Nets tray holds the net list.
+    const tray = document.body.appendChild(document.createElement("div"));
+    render(<Scene3dTab {...props} netsSlot={tray} />);
+    await screen.findByTitle(/^4 boards/);
     const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
     element.setNetEmphasis = vi.fn(() => [{ key: "g1", color: "#14ff33", lit: 1, unresolved: [] }]);
     element.frameNetEmphasis = vi.fn(() => true);
-    fireEvent.click(screen.getByTitle("Highlight system nets"));
+    expect(tray.querySelector("[aria-label='Search system nets']")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Search system nets"), { target: { value: "gnd" } });
     fireEvent.click(await screen.findByRole("button", { name: "Show" }));
     expect(await screen.findByText("Highlight GND?")).toBeTruthy();

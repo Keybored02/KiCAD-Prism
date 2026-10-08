@@ -69,3 +69,12 @@ export const TONE_BADGE: Record<Tone, "success" | "info" | "warning" | "destruct
   error: "destructive",
   muted: "outline",
 };
+
+/** "just now", "5 min ago", "3 h ago", "8 d ago". */
+export function timeAgo(iso: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
+}

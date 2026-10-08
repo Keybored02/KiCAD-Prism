@@ -83,11 +83,13 @@ export function NetPanel({
         ? "flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-3 text-sm"
         : "flex max-h-full w-80 flex-col gap-2 rounded-lg border bg-card/95 p-3 text-sm shadow-md backdrop-blur"}
     >
-      <div className="flex items-center justify-between">
-        <h2 className="font-medium">Highlight system nets</h2>
-        {!embedded && <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}><X className="size-4" aria-hidden /></Button>}
-      </div>
-      <div className="relative">
+      {!embedded && (
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">System nets</h2>
+          <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}><X className="size-4" aria-hidden /></Button>
+        </div>
+      )}
+      <div className="relative max-w-sm">
         <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
         <Input
           value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Net name or alias"
@@ -127,7 +129,7 @@ export function NetPanel({
       )}
       {searching && !found && <p className="text-xs text-muted-foreground">Searching…</p>}
 
-      {highlighted.length > 0 ? (
+      {highlighted.length > 0 && (
         <>
           <ul aria-label="Highlighted nets" className="flex flex-col gap-1.5">
             {highlighted.map((net) => {
@@ -182,8 +184,6 @@ export function NetPanel({
             <Button size="sm" variant="ghost" onClick={onClear}>Clear all</Button>
           </div>
         </>
-      ) : (
-        !found && <p className="text-xs text-muted-foreground">Search for a net to light it on every board it reaches. The boards hide and other copper dims; I isolates it.</p>
       )}
     </section>
   );

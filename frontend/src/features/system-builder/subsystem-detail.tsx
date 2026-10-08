@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { Box, ExternalLink, Layers, Lock, Share2, Trash2 } from "lucide-react";
+import { BookOpen, ExternalLink, Layers, Lock, Trash2 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,8 +13,11 @@ import type { CatalogComponent } from "@/types/catalog";
 import type { SystemDocument, SystemHierarchy, SystemInstance } from "@/types/system";
 
 import { catalogComponentHref } from "./publish-dialog";
-import { TONE_BADGE, boardStatus } from "./system-format";
+import { boardStatus } from "./system-format";
 import type { Mutate } from "./use-system-mutation";
+import { InspectorFacts } from "./workspace/inspector-facts";
+import { InspectorHeader } from "./workspace/inspector-header";
+import { InspectorSection } from "./workspace/inspector-section";
 
 const STAGE: Record<string, string> = {
   open: "open", in_progress: "in progress", qa_review: "in QA review", done: "approved", released: "released", archived: "archived",
@@ -56,106 +58,80 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
   const inside = (tree?.key === treeKey ? tree.body.occurrences : [])
     .filter((occurrence) => occurrence.path.startsWith(`/${instance.id}/`));
 
+  const updates = canEdit ? (
+    <Select value={ref?.follow ?? "pinned"} disabled={busy !== null}
+      onValueChange={(value) => void run("update", () => updateInstance(systemId, etag, instance.id,
+        { follow: value as "pinned" | "latest_released" }), value === "pinned" ? "Pinned to this revision" : "Following released revisions")}>
+      <SelectTrigger aria-label="Updates" className="h-7 border-0 px-0 shadow-none"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="latest_released">Follow releases</SelectItem>
+        <SelectItem value="pinned">Keep this revision</SelectItem>
+      </SelectContent>
+    </Select>
+  ) : (ref?.follow === "pinned" ? "Keep this revision" : "Follow releases");
+
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {isModule ? <Box className="h-4 w-4 text-muted-foreground" aria-hidden /> : <Layers className="h-4 w-4 text-muted-foreground" aria-hidden />}
-            <h2 className="text-lg font-semibold">{instance.label}</h2>
-            <Badge variant="outline">{isModule ? "Module" : "Subsystem"}</Badge>
-            <Badge variant={TONE_BADGE[status.tone]} title={status.detail}>{status.label}</Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {instance.projectName ?? (isModule ? "Catalog module" : "Catalog assembly")}{ref?.identity ? ` · ${ref.identity}` : ""}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {ref?.systemId && (
-            <Button asChild variant="outline" size="sm">
-              <a href={`/systems/${encodeURIComponent(ref.systemId)}`}><ExternalLink className="mr-1 h-4 w-4" /> Open system</a>
-            </Button>
-          )}
-          {ref && (
-            <Button asChild variant="ghost" size="sm">
-              <a href={catalogComponentHref(ref.componentId)}>In library</a>
-            </Button>
-          )}
-          {canEdit && (
-            <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setRemoving(true)}>
-              <Trash2 className="mr-1 h-4 w-4" /> Remove
-            </Button>
-          )}
-        </div>
-      </header>
+    <div className="space-y-5">
+      <InspectorHeader kind={isModule ? "Module" : "Subsystem"} title={instance.label}
+        subtitle={[instance.projectName, ref?.identity].filter(Boolean).join(" · ") || undefined}
+        status={{ label: status.label, tone: status.tone, detail: status.detail }}
+        actions={(
+          <>
+            {ref?.systemId && (
+              <Button asChild variant="ghost" size="icon-sm">
+                <a href={`/systems/${encodeURIComponent(ref.systemId)}`} aria-label="Open its system" title="Open its system"><ExternalLink className="size-4" /></a>
+              </Button>
+            )}
+            {ref && (
+              <Button asChild variant="ghost" size="icon-sm">
+                <a href={catalogComponentHref(ref.componentId)} aria-label="Open in the library" title="Open in the library"><BookOpen className="size-4" /></a>
+              </Button>
+            )}
+            {canEdit && (
+              <Button variant="ghost" size="icon-sm" aria-label={`Remove ${noun}`} title={`Remove ${noun}`} onClick={() => setRemoving(true)}>
+                <Trash2 className="size-4" />
+              </Button>
+            )}
+          </>
+        )} />
 
-      <dl className="grid gap-px border bg-border text-sm sm:grid-cols-3">
-        <div className="bg-card px-4 py-3">
-          <dt className="text-xs text-muted-foreground">Revision</dt>
-          <dd className="mt-1">{ref?.version ? `v${ref.version}` : "—"} {ref?.releaseStatus ? `· ${STAGE[ref.releaseStatus] ?? ref.releaseStatus}` : ""}</dd>
-        </div>
-        {!isModule && (
-          <div className="bg-card px-4 py-3">
-            <dt className="text-xs text-muted-foreground">Source snapshot</dt>
-            <dd className="mt-1">{ref?.snapshotName ?? "—"}</dd>
-          </div>
-        )}
-        <div className="bg-card px-4 py-3">
-          <dt className="text-xs text-muted-foreground">Updates</dt>
-          <dd className="mt-1 flex items-center gap-2">
-            {canEdit ? (
-              <Select value={ref?.follow ?? "pinned"} disabled={busy !== null}
-                onValueChange={(value) => void run("update", () => updateInstance(systemId, etag, instance.id,
-                  { follow: value as "pinned" | "latest_released" }), value === "pinned" ? "Pinned to this revision" : "Following released revisions")}>
-                <SelectTrigger aria-label="Updates" className="h-8"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="latest_released">Follow released revisions</SelectItem>
-                  <SelectItem value="pinned">Keep this revision</SelectItem>
-                </SelectContent>
-              </Select>
-            ) : (ref?.follow === "pinned" ? "Keeps this revision" : "Follows released revisions")}
-          </dd>
-        </div>
-      </dl>
+      <InspectorFacts rows={[
+        { label: "Revision", value: `${ref?.version ? `v${ref.version}` : "—"}${ref?.releaseStatus ? ` · ${STAGE[ref.releaseStatus] ?? ref.releaseStatus}` : ""}` },
+        ...(!isModule ? [{ label: "Snapshot", value: ref?.snapshotName ?? "—" }] : []),
+        { label: "Updates", value: updates },
+      ]} />
 
-      <section className="space-y-2">
-        <h3 className="text-sm font-semibold">{isModule ? "Connectors" : "Exports"}</h3>
-        <p className="text-xs text-muted-foreground">
-          {isModule
-            ? "One per unit of the module's symbol, each a catalog connector part placed on its model. Link to them on the Diagram."
-            : "The connectors this subsystem offers. Link to them on the Diagram."}
-        </p>
-        {(instance.ports ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">{isModule ? "This revision has no connectors." : "This revision exports nothing."}</p>
-        ) : (
-          <ul className="divide-y rounded-md border text-sm">
+      <InspectorSection title={isModule ? "Connectors" : "Exports"} count={(instance.ports ?? []).length}>
+        {(instance.ports ?? []).length === 0 ? <p className="h-8 text-sm text-muted-foreground">None</p> : (
+          <ul className="text-sm">
             {(instance.ports ?? []).map((port) => (
-              <li key={port.portKey} className="flex items-center gap-2 px-3 py-2">
-                <Share2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-                <span className="font-medium">{port.reference}</span>
-                <span className="text-muted-foreground">{port.value ?? ""} · {port.pinCount} pins</span>
+              <li key={port.portKey} className="flex h-8 items-center gap-2 border-b last:border-b-0">
+                <span className="w-14 shrink-0 truncate font-mono text-xs font-medium" title={port.reference}>{port.reference}</span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground" title={port.value ?? undefined}>{port.value ?? ""}</span>
+                <span className="w-8 shrink-0 text-right text-xs tabular-nums text-muted-foreground" title={`${port.pinCount} pins`}>{port.pinCount}</span>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </InspectorSection>
 
-      {!isModule && <section className="space-y-2">
-        <h3 className="text-sm font-semibold">Inside</h3>
-        {inside.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{tree ? "Nothing you can see." : "Reading the hierarchy…"}</p>
-        ) : (
-          <ul className="space-y-1 text-sm" aria-label="Subsystem contents">
-            {inside.map((occurrence) => (
-              <li key={occurrence.path} className="flex items-center gap-2" style={{ paddingLeft: `${(occurrence.depth - 2) * 16}px` }}>
-                {occurrence.kind === "assembly" ? <Layers className="h-3.5 w-3.5 text-muted-foreground" aria-hidden /> : null}
-                {occurrence.restricted ? <Lock className="h-3 w-3" aria-label="restricted" /> : null}
-                <span>{occurrence.labels[occurrence.labels.length - 1]}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>}
+      {!isModule && (
+        <InspectorSection title="Inside" count={inside.length}>
+          {inside.length === 0 ? (
+            <p className="h-8 text-sm text-muted-foreground">{tree ? "Nothing visible" : "Reading…"}</p>
+          ) : (
+            <ul className="text-sm" aria-label="Subsystem contents">
+              {inside.map((occurrence) => (
+                <li key={occurrence.path} className="flex h-7 items-center gap-2" style={{ paddingLeft: `${(occurrence.depth - 2) * 16}px` }}>
+                  {occurrence.kind === "assembly" ? <Layers className="size-3.5 shrink-0 text-muted-foreground" aria-hidden /> : null}
+                  {occurrence.restricted ? <Lock className="size-3 shrink-0" aria-label="restricted" /> : null}
+                  <span className="truncate">{occurrence.labels[occurrence.labels.length - 1]}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </InspectorSection>
+      )}
 
       <ConfirmDialog
         open={removing}

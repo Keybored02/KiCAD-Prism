@@ -401,11 +401,7 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
   return (
     <div className="flex h-full min-h-[32rem] flex-col">
       <div className="flex items-center gap-3 border-b px-4 py-2 md:px-6">
-        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {canEdit
-            ? "Drag between ports to link them. Hover a wire to see it; click it to edit its pins."
-            : "Hover a wire to see it; click it to see its pins."}
-        </p>
+        <span className="flex-1" />
         {canEdit && (
           <Button variant={mode === "b2b" ? "default" : "outline"} size="sm" className="h-7" aria-pressed={mode === "b2b"}
             onClick={() => setMode((current) => (current === "b2b" ? null : "b2b"))}

@@ -3,7 +3,7 @@ import type { SystemDocument } from "@/types/system";
 
 import type { SystemTab } from "./system-tabs";
 import type { PartDetail } from "./workspace/part-detail";
-import type { WorkspaceSelection } from "./workspace/workspace-state";
+import type { TrayTab, WorkspaceSelection } from "./workspace/workspace-state";
 
 export interface SystemTabProps {
   systemId: string;
@@ -20,4 +20,12 @@ export interface SystemTabProps {
   onSelect?: (selection: WorkspaceSelection | null) => void;
   /** The 3D view reports the part picked on a board, for the inspector. */
   onPart?: (part: PartDetail | null) => void;
+  /**
+   * Where the 3D view puts its move, route and trace panels (the top of the
+   * inspector) and its net list (the Nets tray); null where they float over
+   * the view instead (below `lg`, or the tray on another tab).
+   */
+  inspectorSlot?: HTMLElement | null;
+  netsSlot?: HTMLElement | null;
+  onOpenTray?: (tab: TrayTab | null) => void;
 }

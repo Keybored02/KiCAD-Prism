@@ -7,7 +7,7 @@ import { getGitLink, listSnapshots } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { GitLink, SnapshotMeta, SystemDocument } from "@/types/system";
 
-import { shortSha } from "../system-format";
+import { shortSha, timeAgo } from "../system-format";
 import { WORKSPACE_VIEWS, type WorkspaceView } from "./workspace-state";
 
 interface TopBarProps {
@@ -24,14 +24,6 @@ interface TopBarProps {
   /** Below `lg` the outline and the inspector are sheets these open. */
   onOutline: () => void;
   onInspector: () => void;
-}
-
-function ago(iso: string): string {
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
 }
 
 /** The repository link and the latest snapshot, re-read when the system moves on. */
@@ -94,7 +86,7 @@ export function WorkspaceTopBar({ systemId, document, etag, view, canEdit, onBac
         )}
         {repository?.snapshot && (
           <button type="button" onClick={onHistory} className="hidden hover:text-foreground lg:block">
-            {repository.snapshot.name} · {ago(repository.snapshot.createdAt)}
+            {repository.snapshot.name} · {timeAgo(repository.snapshot.createdAt)}
           </button>
         )}
       </div>

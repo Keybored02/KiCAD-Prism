@@ -34,7 +34,7 @@ describe("Scene3dTab with the viewer element defined", () => {
         reload={vi.fn(async () => undefined)} onNavigate={vi.fn()}
       />,
     );
-    await screen.findByText("0 boards");
+    await screen.findByTitle(/^0 boards/);
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     const settled = calls.setNetEmphasis;
     await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));

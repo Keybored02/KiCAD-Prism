@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useState, useSyncExternalStore } from "react";
 
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -32,6 +32,20 @@ interface WorkspaceProps extends Omit<SystemTabProps, "onNavigate"> {
   onBack: () => void;
 }
 
+const LARGE = "(min-width: 1024px)";
+
+/** Whether the outline and the inspector are columns (`lg` and up) rather than sheets. */
+function useLargeScreen(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = window.matchMedia?.(LARGE);
+      query?.addEventListener("change", onChange);
+      return () => query?.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia?.(LARGE).matches ?? true,
+  );
+}
+
 function Loading({ what }: { what: string }) {
   return <div className="p-6 text-sm text-muted-foreground">Loading {what}…</div>;
 }
@@ -49,6 +63,9 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
   const [sheet, setSheet] = useState<"outline" | "inspector" | null>(null);
   const [takeRequest, setTakeRequest] = useState(0);
   const [part, setPart] = useState<PartDetail | null>(null);
+  const [inspectorSlot, setInspectorSlot] = useState<HTMLElement | null>(null);
+  const [netsSlot, setNetsSlot] = useState<HTMLElement | null>(null);
+  const large = useLargeScreen();
 
   const update = (patch: Partial<WorkspaceState>) => onState({ ...state, ...patch });
   const select = (selection: WorkspaceSelection | null) => {
@@ -70,7 +87,8 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
       selection: migrated.state.selection ?? state.selection,
     });
   };
-  const tabProps: SystemTabProps = { ...props, onNavigate, selection: state.selection, onSelect: select, onPart: setPart };
+  const tabProps: SystemTabProps = { ...props, onNavigate, selection: state.selection, onSelect: select, onPart: setPart,
+    inspectorSlot: large ? inspectorSlot : null, netsSlot: state.tray === "nets" ? netsSlot : null, onOpenTray: setTray };
   // The picked part shows while its board (or the subsystem holding it) is the selection.
   const shownPart = part && state.selection?.kind === "instance" && rootInstanceOf(part.selection.occurrence) === state.selection.id ? part : null;
 
@@ -78,8 +96,8 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
     <WorkspaceOutline document={document} findings={findings} selection={state.selection} canEdit={canEdit}
       onSelect={select} onAdd={setAdding} />
   );
-  const inspector = (
-    <WorkspaceInspector systemId={systemId} document={document} etag={etag} canEdit={canEdit} findings={findings}
+  const inspector = (slot?: (node: HTMLElement | null) => void) => (
+    <WorkspaceInspector slot={slot} systemId={systemId} document={document} etag={etag} canEdit={canEdit} findings={findings}
       selection={state.selection} part={shownPart} busy={busy} run={run} onSelect={select}
       onEditRows={() => { setSheet(null); update({ tray: "connections" }); }} />
   );
@@ -110,18 +128,19 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
         <div className="flex min-w-0 flex-1 flex-col">
           <main className="relative min-h-0 flex-1 overflow-auto">{view(state.view)}</main>
           <WorkspaceTray {...tabProps} tab={state.tray} findings={findings} selection={state.selection} busy={busy} run={run}
-            importing={importing} takeRequest={takeRequest} onTab={setTray} onSelect={select} onImporting={onImporting} />
+            importing={importing} takeRequest={takeRequest} onTab={setTray} onSelect={select} onImporting={onImporting}
+            view={state.view} onNetsSlot={setNetsSlot} />
         </div>
         <ResizablePanel side="right" storageKey="prism.system-workspace.inspector-width" defaultWidth={352} minWidth={280} maxWidth={720}
           aria-label="Inspector panel" className="hidden lg:flex">
-          {inspector}
+          {inspector(setInspectorSlot)}
         </ResizablePanel>
       </div>
 
       <Sheet open={sheet !== null} onOpenChange={(open) => { if (!open) setSheet(null); }}>
         <SheetContent side={sheet === "outline" ? "left" : "right"} className="w-[22rem] p-0">
           <SheetHeader className="sr-only"><SheetTitle>{sheet === "outline" ? "Outline" : "Details"}</SheetTitle></SheetHeader>
-          {sheet === "outline" ? outline : inspector}
+          {sheet === "outline" ? outline : inspector()}
         </SheetContent>
       </Sheet>
 

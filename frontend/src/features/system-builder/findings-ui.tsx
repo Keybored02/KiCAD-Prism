@@ -62,7 +62,7 @@ export function findingText(finding: Pick<Finding, "name">): string {
   return RULE_TEXT[finding.name] ?? finding.name.replace(/_/g, " ");
 }
 
-interface Group {
+export interface FindingGroup {
   key: string;
   level: Level;
   rule: string;
@@ -72,8 +72,8 @@ interface Group {
 }
 
 /** One line per (rule, connector), listing the pins, so 43 findings read as one. */
-function group(findings: Finding[]): Group[] {
-  const groups = new Map<string, Group>();
+export function groupFindings(findings: Finding[]): FindingGroup[] {
+  const groups = new Map<string, FindingGroup>();
   for (const finding of findings) {
     if (finding.severity === "info") continue;
     const key = [finding.severity, finding.rule, finding.instanceId, finding.reference].join("|");
@@ -97,7 +97,7 @@ export function FindingsAlert({ findings, title }: { findings: Finding[]; title?
   const warnings = findings.filter((finding) => finding.severity === "warning").length;
   const summary = [errors ? plural(errors, "error") : null, warnings ? plural(warnings, "warning") : null].filter(Boolean).join(", ");
   const Icon = level === "error" ? CircleAlert : TriangleAlert;
-  const groups = group(findings);
+  const groups = groupFindings(findings);
   return (
     <Alert variant={level === "error" ? "destructive" : "warning"}>
       <Icon />

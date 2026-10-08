@@ -13,6 +13,7 @@ export const WORKSPACE_VIEWS = [
 export type WorkspaceView = (typeof WORKSPACE_VIEWS)[number]["id"];
 
 export const TRAY_TABS = [
+  { id: "nets", label: "Nets" },
   { id: "connections", label: "Connections" },
   { id: "findings", label: "Findings" },
   { id: "changes", label: "Changes" },
