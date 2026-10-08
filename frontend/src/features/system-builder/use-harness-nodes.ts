@@ -11,6 +11,20 @@ import { useSystemMutation } from "./use-system-mutation";
 
 type Vec3 = [number, number, number];
 
+/** A segment end that is the automatic breakout is stored first, so the edit can name it. */
+function withSegment(nodes: HarnessNodeInput[], at: PrismSystemSceneHarnessState | null) {
+  const segment = at?.segment;
+  if (!segment) return null;
+  let [from, to] = [segment.from, segment.to];
+  let list = nodes;
+  if ((from === AUTO || to === AUTO) && at?.autoMm) {
+    const stored = storeAuto(list, at.autoMm);
+    list = stored.nodes;
+    [from, to] = [from === AUTO ? stored.id : from, to === AUTO ? stored.id : to];
+  }
+  return { nodes: list, from, to, along: alongSamples(segment.samplesMm) };
+}
+
 /**
  * SB2-45b: the picked harness in the System 3D tab and edits to its breakouts
  * and waypoints. The viewer previews a dragged node; a released drag ("commit")
@@ -46,19 +60,7 @@ export function useHarnessNodes(
     return Boolean(done);
   };
 
-  /** A segment end that is the automatic breakout is stored first, so the edit can name it. */
-  const withSegment = (nodes: HarnessNodeInput[], at: PrismSystemSceneHarnessState | null) => {
-    const segment = at?.segment;
-    if (!segment) return null;
-    let [from, to] = [segment.from, segment.to];
-    let list = nodes;
-    if ((from === AUTO || to === AUTO) && at?.autoMm) {
-      const stored = storeAuto(list, at.autoMm);
-      list = stored.nodes;
-      [from, to] = [from === AUTO ? stored.id : from, to === AUTO ? stored.id : to];
-    }
-    return { nodes: list, from, to, along: alongSamples(segment.samplesMm) };
-  };
+
 
   /** A waypoint where the tube was picked, in order along its segment. */
   const addWaypointAt = async (at: PrismSystemSceneHarnessState | null) => {

@@ -18,7 +18,7 @@ function harnessEvent(viewer: EventTarget, detail: Record<string, unknown>) {
 
 describe("useHarnessNodes in Route mode (D-P2-51)", () => {
   it("saves a breakout where a Shift-click lands on the picked harness", async () => {
-    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({}),
+    const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({}),
       { status: 200, headers: { "Content-Type": "application/json", ETag: '"sys:sys_1:4"' } }));
     vi.stubGlobal("fetch", fetch);
     const viewer = new EventTarget() as unknown as PrismSemanticViewerElement;
