@@ -19,6 +19,7 @@ from test_system_snapshots import DESIGNER, VIEWER
 
 from app.api import systems as systems_api
 from app.services.systems import service as service_module
+from app.services.systems import bundles
 from app.services.systems.bundles import BundleSource, BundleUnreadable, mid_plane_from_layers
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION, _arc_points, extract_interface
 from app.services.systems.placement import poses
@@ -106,11 +107,71 @@ class BundleSourceTest(unittest.TestCase):
 
     def test_a_bundle_whose_files_are_gone_is_unreadable_not_board_stage(self) -> None:
         # SB2-91: None means "board stage, wait"; files that are gone must not read the same.
+        bundles._FRAMES.clear()
         with tempfile.TemporaryDirectory() as tmp, \
-                mock.patch("app.services.semantic_visualizer_service.bundle_dir", return_value=Path(tmp) / "gone"):
+                mock.patch("app.services.semantic_visualizer_service.bundle_dir", return_value=Path(tmp) / "gone"), \
+                mock.patch("app.services.systems.bundles._stored_frame", return_value=None):
             with self.assertRaises(BundleUnreadable):
                 BundleSource().mid_plane_mm("prj_1", {"source_fingerprint": "src", "build_fingerprint": "gen",
                                                        "bundle_url": "/b/bundle.json"})
+
+    def bundle(self, root: Path) -> dict:
+        """A semantic-stage bundle in ``root``: copper inner faces 0.035 and 1.6 mm apart, so mid-plane 0.7825."""
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "bundle.json").write_text(json.dumps({"semantic_geometry": "geo.json"}))
+        (root / "geo.json").write_text(json.dumps({"assets": {"scene_manifest": "scene.json"}}))
+        (root / "scene.json").write_text(json.dumps({"layers": [
+            {"role": "copper", "z_mm": 0.0175, "thickness_mm": 0.035},
+            {"role": "copper", "z_mm": 1.6175, "thickness_mm": 0.035}]}))
+        return {"source_fingerprint": "src", "build_fingerprint": "gen", "bundle_url": "/b/bundle.json"}
+
+    def test_a_computed_mid_plane_is_kept_and_reused_without_parsing(self) -> None:
+        # SB2-96: the scene parsed three bundle files per board per request.
+        bundles._FRAMES.clear()
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("app.services.semantic_visualizer_service.bundle_dir", return_value=Path(tmp)), \
+                mock.patch("app.services.systems.bundles._stored_frame", return_value=None) as stored, \
+                mock.patch("app.services.systems.bundles._store_frame") as store:
+            status = self.bundle(Path(tmp))
+            self.assertAlmostEqual(BundleSource().mid_plane_mm("prj_1", status), 0.7825)
+            store.assert_called_once_with(("prj_1", "src", "gen"), "scene.json", mock.ANY)
+            (Path(tmp) / "geo.json").unlink()  # a parse would now fail; the kept frame must not need one
+            self.assertAlmostEqual(BundleSource().mid_plane_mm("prj_1", status), 0.7825)
+            stored.assert_called_once()
+        bundles._FRAMES.clear()
+
+    def test_a_stored_frame_is_used_by_a_fresh_process(self) -> None:
+        bundles._FRAMES.clear()
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("app.services.semantic_visualizer_service.bundle_dir", return_value=Path(tmp)), \
+                mock.patch("app.services.systems.bundles._stored_frame", return_value=("scene.json", 0.5)), \
+                mock.patch("app.services.systems.bundles._store_frame") as store:
+            status = self.bundle(Path(tmp))
+            self.assertEqual(BundleSource().mid_plane_mm("prj_1", status), 0.5)
+            store.assert_not_called()
+        bundles._FRAMES.clear()
+
+    def test_a_kept_frame_whose_files_are_gone_is_unreadable(self) -> None:
+        # SB2-91 still holds when the mid-plane is known: gone files must read as failed.
+        bundles._FRAMES.clear()
+        bundles._FRAMES[("prj_1", "src", "gen")] = ("scene.json", 0.8)
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("app.services.semantic_visualizer_service.bundle_dir", return_value=Path(tmp) / "gone"):
+            with self.assertRaises(BundleUnreadable):
+                BundleSource().mid_plane_mm("prj_1", {"source_fingerprint": "src", "build_fingerprint": "gen"})
+        self.assertNotIn(("prj_1", "src", "gen"), bundles._FRAMES)
+
+    def test_a_board_stage_bundle_is_not_kept(self) -> None:
+        bundles._FRAMES.clear()
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("app.services.semantic_visualizer_service.bundle_dir", return_value=Path(tmp)), \
+                mock.patch("app.services.systems.bundles._stored_frame", return_value=None), \
+                mock.patch("app.services.systems.bundles._store_frame") as store:
+            status = self.bundle(Path(tmp))
+            (Path(tmp) / "geo.json").write_text(json.dumps({"assets": {}}))
+            self.assertIsNone(BundleSource().mid_plane_mm("prj_1", status))
+            store.assert_not_called()
+        self.assertEqual(bundles._FRAMES, {})
 
     def test_the_job_key_names_the_generator_build(self) -> None:
         # A completed job satisfies a request with the same key; one built by an older

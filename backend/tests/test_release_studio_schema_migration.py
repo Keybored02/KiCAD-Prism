@@ -1809,6 +1809,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (44, "system_harness_nodes"),
                 (45, "system_git"),
                 (46, "system_manifest_reviews"),
+                (47, "system_bundle_frames"),
             ],
         )
 

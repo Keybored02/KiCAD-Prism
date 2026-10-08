@@ -78,12 +78,27 @@ class BundleSource:
         return project_service.start_workflow_job(project_id, "webgpu_3d", requested_by or "system-scene", commit=commit)
 
     def mid_plane_mm(self, project_id: str, status: Mapping[str, Any]) -> Optional[float]:
-        """The bundle's board mid-plane; None for a board-stage bundle; BundleUnreadable when its files fail."""
+        """The bundle's board mid-plane; None for a board-stage bundle; BundleUnreadable when its files fail.
+
+        SB2-96: a computed mid-plane is kept per (project, source, build) fingerprint, in this
+        process and in ``system_bundle_frames``; the files never change for that key, so a warm
+        read only confirms with two stats that they are still there (SB2-91)."""
         from app.services import semantic_visualizer_service
 
         try:
-            root = semantic_visualizer_service.bundle_dir(project_id, status["source_fingerprint"],
-                                                          status["build_fingerprint"])
+            key = (project_id, str(status["source_fingerprint"]), str(status["build_fingerprint"]))
+            root = semantic_visualizer_service.bundle_dir(*key)
+        except (KeyError, TypeError) as error:
+            raise BundleUnreadable(str(error)) from error
+        frame = _FRAMES.get(key) or _stored_frame(key)
+        if frame is not None:
+            manifest, mid_plane = frame
+            if (root / "bundle.json").is_file() and (root / manifest).is_file():
+                _FRAMES[key] = frame
+                return mid_plane
+            _FRAMES.pop(key, None)
+            raise BundleUnreadable(f"{root}: bundle files are gone")
+        try:
             bundle = json.loads((root / "bundle.json").read_text(encoding="utf-8"))
             geometry = json.loads((root / str(bundle.get("semantic_geometry") or "semantic_geometry.json"))
                                   .read_text(encoding="utf-8"))
@@ -94,4 +109,38 @@ class BundleSource:
         except (OSError, ValueError, KeyError, TypeError) as error:
             logger.warning("Could not read the layer table of bundle %s: %s", status.get("bundle_url"), error)
             raise BundleUnreadable(str(error)) from error
-        return mid_plane_from_layers(layers)
+        mid_plane = mid_plane_from_layers(layers)
+        _FRAMES[key] = (str(manifest), mid_plane)
+        _store_frame(key, str(manifest), mid_plane)
+        return mid_plane
+
+
+# (project, source fingerprint, build fingerprint) -> (scene manifest path, mid-plane mm).
+_FRAMES: dict[tuple[str, str, str], tuple[str, float]] = {}
+
+
+def _stored_frame(key: tuple[str, str, str]) -> Optional[tuple[str, float]]:
+    from app.services.systems.jobs import workspace_connection
+
+    try:
+        with workspace_connection() as conn:
+            row = conn.execute(
+                "SELECT manifest_path, mid_plane_mm FROM system_bundle_frames"
+                " WHERE project_id = %s AND source_fingerprint = %s AND build_fingerprint = %s", key).fetchone()
+    except Exception:
+        logger.exception("Could not read the stored frame of bundle %s", key)
+        return None
+    return (str(row["manifest_path"]), float(row["mid_plane_mm"])) if row else None
+
+
+def _store_frame(key: tuple[str, str, str], manifest: str, mid_plane: float) -> None:
+    from app.services.systems.jobs import workspace_connection
+
+    try:
+        with workspace_connection() as conn:
+            conn.execute(
+                "INSERT INTO system_bundle_frames(project_id, source_fingerprint, build_fingerprint, manifest_path,"
+                " mid_plane_mm) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING", (*key, manifest, mid_plane))
+            conn.commit()
+    except Exception:
+        logger.exception("Could not store the frame of bundle %s", key)
