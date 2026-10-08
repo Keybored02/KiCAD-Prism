@@ -20,7 +20,8 @@ import {
 } from "./component-visibility.js";
 import { escapeHtml } from "./escape-html.js";
 import { EMPHASIS_PALETTE, findNetByName, packEmphasisColor, resolveNetIds } from "./net-emphasis.js";
-import { loadGltf } from "./gltf-loader.js";
+import { componentDraws } from "./component-models.js";
+import { loadGltf, loadGltfModels } from "./gltf-loader.js";
 import { add, boundsRadius, clamp, cross, mat4Multiply, scale } from "./math.js";
 import {
   AXES, SNAP, axisAmount, canonicalPose, localAxes, moveDescriptor, moveTarget, perpendicular,
@@ -3287,7 +3288,7 @@ async function loadComponents(token = activeViewerToken, b = board) {
   b.scene.componentTier = "loading";
   let loaded;
   try {
-    loaded = await loadGltf(new URL(path, location.href).toString(), {
+    loaded = await loadGltfModels(new URL(path, location.href).toString(), {
       componentFeatures: b.scene.componentFeatures,
       fetchBytes: assetFetcher(b),
     });
@@ -3298,9 +3299,11 @@ async function loadComponents(token = activeViewerToken, b = board) {
   if (!viewerSessionActive(token) || !b.renderer) return;
   b.scene.componentTier = "loaded";
   b.loadedBytes += loaded.byteLength;
-  for (const primitive of loaded.primitives) {
-    const component = b.scene.componentFeatures.get(primitive.designator);
-    if (component) mergeFeatureBounds(component.featureId, primitive.position, b);
+  for (const model of loaded.models) {
+    for (const placement of model.placements) {
+      const component = b.scene.componentFeatures.get(placement.designator);
+      if (component) mergeFeatureBounds(component.featureId, placement.bounds, b);
+    }
   }
   // Harness ends anchor at their connector's bounds, known only now; until then they sat at the board's centre.
   if (system) {
@@ -3316,12 +3319,17 @@ async function loadComponents(token = activeViewerToken, b = board) {
   // alternate-footprint pairs as ordinary references and hid them; redo it now
   // that the pairs are known, so load order never changes what is hidden.
   if (b.hiddenComponentRequest) applyHiddenComponents(b.hiddenComponentRequest);
-  b.scene.componentEntries = mergePrimitivesByMaterial(loaded.primitives).map((primitive) => b.renderer.addPrimitive(primitive, {
-    kind: "component",
-    layerId: 0,
-    material: primitive.material,
-    color: primitive.material.baseColor,
-  }));
+  // SB2-86: models placed often draw once per placement from one copy; the rest bake in, merged by material.
+  const draws = componentDraws(loaded.models);
+  const metadataOf = (primitive) => ({ kind: "component", layerId: 0, material: primitive.material, color: primitive.material.baseColor });
+  b.scene.componentEntries = [
+    ...b.renderer.addInstancedPrimitives(draws.instanced.map((model) => ({
+      primitive: model.primitive,
+      placements: model.placements,
+      metadata: metadataOf(model.primitive),
+    }))),
+    ...draws.baked.map((primitive) => b.renderer.addPrimitive(primitive, metadataOf(primitive))),
+  ];
 }
 
 // Bundle assets through the browser cache when this bundle is final (SB2-26).
