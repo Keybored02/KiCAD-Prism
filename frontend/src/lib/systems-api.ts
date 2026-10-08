@@ -49,6 +49,7 @@ import type {
   SystemScene,
   SystemSummary,
   FindingWaiver,
+  SubportChange,
 } from "@/types/system";
 
 const BASE = "/api/systems";
@@ -218,6 +219,8 @@ export function setPortOverride(
 export interface LinkEndInput {
   instanceId: string;
   portKey: string;
+  /** A sub-port of that connector (CONTRACTS_P2 §22.2); omitted for the whole connector or its remainder. */
+  subportId?: string;
 }
 
 export function createLink(
@@ -243,7 +246,8 @@ export function deleteLink(systemId: string, etag: string, linkId: string) {
 // Exports (CONTRACTS_P2 §4)
 
 export function createExport(
-  systemId: string, etag: string, input: { name: string; description?: string; instanceId: string; portKey: string },
+  systemId: string, etag: string,
+  input: { name: string; description?: string; instanceId: string; portKey: string; subportId?: string },
 ) {
   return versioned<SystemExport>(path(systemId, "exports"), { method: "POST", etag, body: json(input) },
     "Could not export the port");
@@ -259,6 +263,30 @@ export function updateExport(
 
 export function deleteExport(systemId: string, etag: string, exportId: string) {
   return versioned<void>(path(systemId, "exports", exportId), { method: "DELETE", etag });
+}
+
+// ---------------------------------------------------------------------------
+// Sub-ports (CONTRACTS_P2 §22). `preview` answers the row moves without writing.
+
+export function createSubport(
+  systemId: string, etag: string, instanceId: string, input: { portKey: string; name: string; pads: string[] },
+  preview = false,
+) {
+  return versioned<SubportChange>(`${path(systemId, "instances", instanceId, "subports")}${preview ? "?preview=true" : ""}`,
+    { method: "POST", etag: preview ? undefined : etag, body: json(input) }, "Could not split the port");
+}
+
+export function updateSubport(
+  systemId: string, etag: string, instanceId: string, subportId: string, fields: { name?: string; pads?: string[] },
+  preview = false,
+) {
+  return versioned<SubportChange>(`${path(systemId, "instances", instanceId, "subports", subportId)}${preview ? "?preview=true" : ""}`,
+    { method: "PATCH", etag: preview ? undefined : etag, body: json(fields) }, "Could not change the sub-port");
+}
+
+export function deleteSubport(systemId: string, etag: string, instanceId: string, subportId: string, preview = false) {
+  return versioned<SubportChange>(`${path(systemId, "instances", instanceId, "subports", subportId)}${preview ? "?preview=true" : ""}`,
+    { method: "DELETE", etag: preview ? undefined : etag }, "Could not remove the sub-port");
 }
 
 export interface RowInput {

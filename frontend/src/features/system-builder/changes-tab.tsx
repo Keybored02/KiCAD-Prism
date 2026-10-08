@@ -31,6 +31,7 @@ import { entrySide } from "./import-model";
 import type { SystemTabProps } from "./system-tab-content";
 import { shortSha, timeAgo } from "./system-format";
 import { useSystemMutation } from "./use-system-mutation";
+import { endReference } from "./subport-model";
 
 type Mutate = ReturnType<typeof useSystemMutation>["run"];
 
@@ -42,7 +43,7 @@ interface Loaded {
 
 function linkName(document: SystemDocument, linkId: string | null): string {
   const link = document.links.find((candidate) => candidate.id === linkId);
-  if (link) return link.name || `${link.a.port?.reference ?? "?"} ↔ ${link.b.port?.reference ?? "?"}`;
+  if (link) return link.name || `${endReference(link.a) ?? "?"} ↔ ${endReference(link.b) ?? "?"}`;
   const harness = (document.harnesses ?? []).find((candidate) => candidate.id === linkId);
   return harness ? harness.name : "deleted link";
 }

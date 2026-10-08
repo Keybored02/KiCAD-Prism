@@ -88,6 +88,33 @@ export interface SystemInstance {
   kind?: "board" | "assembly" | "module";
   /** Set for assembly and module instances. */
   catalog?: InstanceCatalogRef;
+  /** Named pad sets carved out of its ports (CONTRACTS_P2 §22); absent before SB2-105. */
+  subports?: Subport[];
+}
+
+/** A sub-port: `J6.PWR` = some pads of J6; the pads left over stay on J6 (CONTRACTS_P2 §22). */
+export interface Subport {
+  id: string;
+  /** Null on a restricted board, with `pads`. */
+  portKey: string | null;
+  name: string;
+  pads: string[] | null;
+}
+
+/** A row move a sub-port change makes (CONTRACTS_P2 §22.3). */
+export interface SubportMove {
+  linkId: string;
+  end: "a" | "b";
+  action: "retarget" | "split";
+  rowIds: string[];
+  toSubportId: string | null;
+  newLinkName: string | null;
+  newLinkId?: string;
+}
+
+export interface SubportChange {
+  subport?: Subport & { instanceId: string; label: string };
+  moves: SubportMove[];
 }
 
 export interface InstanceCatalogRef {
@@ -122,6 +149,8 @@ export interface LinkEnd {
   export?: { name: string; reference: string | null; occurrence: string | null; description: string } | null;
   /** The port's stored mating frame (CONTRACTS_P2 §15.2); absent in documents from before SB2-19. */
   mating?: { mode: "confirmed" | "override"; axis: MatingAxis; quarterTurns: number } | null;
+  /** The sub-port this end lands on (CONTRACTS_P2 §22); null for a whole connector or its remainder. */
+  subport?: { id: string; name: string | null } | null;
 }
 
 export interface PinObservation {
@@ -188,6 +217,9 @@ export interface SystemExport {
   resolved: boolean | null;
   redacted: boolean;
   updatedAt: string;
+  /** The sub-port it publishes (CONTRACTS_P2 §22.2). */
+  subportId?: string | null;
+  subport?: { id: string; name: string | null } | null;
 }
 
 /** A harness end's mating block and what it mates (CONTRACTS_P2 §17.2). */

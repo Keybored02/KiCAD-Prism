@@ -208,7 +208,7 @@ def _block_rows(document: Mapping[str, Any], instance: Mapping[str, Any], block:
 
     rows = [(row.reference, "↔ " + ", ".join(f"{p.board_label} {p.reference or 'restricted'}" for p in row.partners), False)
             for row in block.rows]
-    exported = {e["portKey"]: e["name"] for e in document.get("exports") or []
+    exported = {system_layout.end_key(e["portKey"], e.get("subportId")): e["name"] for e in document.get("exports") or []
                 if e.get("instanceId") == instance["id"] and e.get("portKey") is not None}
     hidden = 0
     for port in block.hidden_ports:

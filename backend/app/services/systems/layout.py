@@ -71,25 +71,46 @@ def drawable_ports(document: Mapping[str, Any], instance: Mapping[str, Any]) -> 
 
     if _hidden_ports(instance):
         return [], set()
-    exposed = [{"portKey": p["portKey"], "reference": p["reference"]} for p in instance.get("ports") or [] if p.get("exposed")]
+    subports = sorted(instance.get("subports") or [], key=lambda sub: sub["name"])
+    exposed = []
+    for p in instance.get("ports") or []:
+        if not p.get("exposed"):
+            continue
+        exposed.append({"portKey": p["portKey"], "reference": p["reference"]})
+        # A split connector (CONTRACTS_P2 §22.5): its remainder, then one port per sub-port.
+        exposed += [{"portKey": end_key(p["portKey"], sub["id"]), "reference": f"{p['reference']}.{sub['name']}"}
+                    for sub in subports if sub.get("portKey") == p["portKey"]]
     known = {p["portKey"] for p in exposed}
     orphans: set[str] = set()
     for link in document["links"]:
         for end in (link["a"], link["b"]):
             port = end.get("port")
-            key = port.get("portKey") if port else None
+            key = end_key(port.get("portKey"), (end.get("subport") or {}).get("id")) if port and port.get("portKey") else None
             if end["instanceId"] == instance["id"] and port and key and key not in known:
                 known.add(key)
                 orphans.add(key)
-                exposed.append({"portKey": key, "reference": port["reference"]})
+                exposed.append({"portKey": key, "reference": _reference(end)})
     return exposed, orphans
+
+
+def end_key(port_key: str, subport_id: Optional[str]) -> str:
+    """A link end's row key: its connector, or ``{portKey}#{subportId}`` for a sub-port (subport-model.ts)."""
+    return f"{port_key}#{subport_id}" if subport_id else port_key
+
+
+def _reference(end: Mapping[str, Any]) -> Optional[str]:
+    port, name = end.get("port"), (end.get("subport") or {}).get("name")
+    if not port:
+        return None
+    return f"{port['reference']}.{name}" if name else port.get("reference")
 
 
 def _link_end(document: Mapping[str, Any], link: Mapping[str, Any], end: str) -> dict:
     instance = next((i for i in document["instances"] if i["id"] == link[end]["instanceId"]), None)
     port = None if instance is not None and _hidden_ports(instance) else link[end].get("port")
-    return {"board": link[end]["instanceId"], "portKey": port.get("portKey") if port else None,
-            "reference": port.get("reference") if port else None}
+    subport = (link[end].get("subport") or {}).get("id")
+    return {"board": link[end]["instanceId"], "portKey": end_key(port["portKey"], subport) if port else None,
+            "reference": _reference(link[end]) if port else None}
 
 
 def layout_inputs(document: Mapping[str, Any]) -> tuple[list[dict], list[dict]]:

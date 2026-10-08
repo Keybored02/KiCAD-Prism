@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Eye, EyeOff, Link2, Loader2, Lock, MoreHorizontal, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Share2, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Link2, Loader2, Lock, MoreHorizontal, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Scissors, Share2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -31,9 +31,11 @@ import {
 } from "@/lib/systems-api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
-import type { InstanceComponent, SystemDocument, SystemInstance, SystemPort } from "@/types/system";
+import type { InstanceComponent, Subport, SystemDocument, SystemInstance, SystemPort } from "@/types/system";
 
 import { ExportDialog, exportForPort } from "./exports-section";
+import { subportLabel, subportsOf } from "./subport-model";
+import { SubportDialog, SubportRows } from "./subport-section";
 import { SubsystemDetail } from "./subsystem-detail";
 import { boardStatus, shortSha, timeAgo } from "./system-format";
 import { useSystemMutation } from "./use-system-mutation";
@@ -43,11 +45,12 @@ import { InspectorSection } from "./workspace/inspector-section";
 
 type Mutate = ReturnType<typeof useSystemMutation>["run"];
 
+/** Ports a link uses as a whole connector or its remainder; an end on a sub-port counts under the sub-port. */
 export function linkedPortKeys(document: SystemDocument, instanceId: string): Set<string> {
   const keys = new Set<string>();
   for (const link of document.links) {
     for (const end of [link.a, link.b]) {
-      if (end.instanceId === instanceId && end.port) {
+      if (end.instanceId === instanceId && end.port && !end.subport) {
         keys.add(end.port.portKey);
         end.port.memberKeys.forEach((key) => keys.add(key));
       }
@@ -250,7 +253,16 @@ interface PortsSectionProps {
 
 function PortsSection({ systemId, document, instance, etag, editable, busy, run }: PortsSectionProps) {
   const [showAll, setShowAll] = useState(false);
-  const [exporting, setExporting] = useState<SystemPort | null>(null);
+  const [exporting, setExporting] = useState<{ port: SystemPort; subport?: Subport } | null>(null);
+  const [splitting, setSplitting] = useState<{ port: SystemPort; subport?: Subport } | null>(null);
+  // CONTRACTS_P2 §22.2: a connector in a board-to-board link is never split.
+  const b2bMated = new Set<string>();
+  for (const link of document.links) {
+    if (link.type !== "b2b") continue;
+    for (const end of [link.a, link.b]) {
+      if (end.instanceId === instance.id && end.port) b2bMated.add(end.port.portKey);
+    }
+  }
   const [components, setComponents] = useState<{ key: string; items: InstanceComponent[] } | null>(null);
   const linked = linkedPortKeys(document, instance.id);
   const componentsKey = `${instance.id}:${instance.baselineCommit}:${etag}`;
@@ -305,8 +317,10 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run 
             const state = portState(port);
             const isLinked = linked.has(port.portKey);
             const exported = exportForPort(document, instance.id, port.portKey);
+            const subports = subportsOf(instance, port.portKey);
             return (
-              <li key={port.portKey} className={cn("flex h-8 items-center gap-2 border-b last:border-b-0",
+              <Fragment key={port.portKey}>
+              <li className={cn("flex h-8 items-center gap-2 border-b last:border-b-0",
                 (state === "hidden" || state === "not exposed") && "text-muted-foreground")}>
                 <span className="w-14 shrink-0 truncate font-mono text-xs font-medium" title={port.libId ?? port.reference}>{port.reference}</span>
                 <span className="min-w-0 flex-1 truncate text-muted-foreground" title={port.value ?? undefined}>{port.value ?? ""}</span>
@@ -326,7 +340,12 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run 
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       {port.exposed && !isLinked && !exported && (
-                        <DropdownMenuItem onSelect={() => setExporting(port)}><Share2 className="mr-2 h-4 w-4" /> Export</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setExporting({ port })}><Share2 className="mr-2 h-4 w-4" /> Export</DropdownMenuItem>
+                      )}
+                      {port.exposed && !(exported && !subports.length) && (
+                        <DropdownMenuItem disabled={b2bMated.has(port.portKey)} onSelect={() => setSplitting({ port })}>
+                          <Scissors className="mr-2 h-4 w-4" /> {b2bMated.has(port.portKey) ? "Split (board-to-board)" : "Split"}
+                        </DropdownMenuItem>
                       )}
                       {port.override !== null ? (
                         <DropdownMenuItem disabled={port.override === "promoted" && isLinked && !port.candidate}
@@ -334,9 +353,10 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run 
                           <RotateCcw className="mr-2 h-4 w-4" /> Reset
                         </DropdownMenuItem>
                       ) : port.exposed ? (
-                        <DropdownMenuItem disabled={isLinked || Boolean(exported)}
+                        <DropdownMenuItem disabled={isLinked || Boolean(exported) || subports.length > 0}
                           onSelect={() => void setOverride(port, "hidden", `${port.reference} hidden`)}>
-                          <EyeOff className="mr-2 h-4 w-4" /> {isLinked ? "Hide (linked)" : exported ? "Hide (exported)" : "Hide"}
+                          <EyeOff className="mr-2 h-4 w-4" /> {isLinked ? "Hide (linked)" : exported ? "Hide (exported)"
+                            : subports.length ? "Hide (split)" : "Hide"}
                         </DropdownMenuItem>
                       ) : (
                         <DropdownMenuItem onSelect={() => void setOverride(port, "promoted", `${port.reference} promoted`)}>
@@ -347,22 +367,38 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run 
                   </DropdownMenu>
                 )}
               </li>
+              {subports.length > 0 && (
+                <SubportRows systemId={systemId} etag={etag} document={document} instance={instance} port={port}
+                  subports={subports} editable={editable} busy={busy} run={run}
+                  onEdit={(subport) => setSplitting({ port, subport })} onExport={(subport) => setExporting({ port, subport })} />
+              )}
+              </Fragment>
             );
           })}
         </ul>
       )}
-      {exporting && (
-        <ExportDialog title={`Export ${instance.label} ${exporting.reference}`}
-          description="Publish this connector so a parent system can link to it. A linked port cannot be exported."
-          initial={{ name: exporting.reference, description: "" }} submitLabel="Export"
-          existingNames={(document.exports ?? []).map((entry) => entry.name)} busy={busy === "export"}
-          onClose={() => setExporting(null)}
-          onSubmit={async (value) => {
-            const done = await run("export", () => createExport(systemId, etag, { ...value, instanceId: instance.id, portKey: exporting.portKey }),
-              `Exported ${exporting.reference} as ${value.name}`);
-            if (done) setExporting(null);
-          }} />
+      {splitting && (
+        <SubportDialog systemId={systemId} etag={etag} document={document} instance={instance} port={splitting.port}
+          subport={splitting.subport} busy={busy} run={run} onClose={() => setSplitting(null)}
+          others={subportsOf(instance, splitting.port.portKey).filter((other) => other.id !== splitting.subport?.id)} />
       )}
+      {exporting && (() => {
+        const { port, subport } = exporting;
+        const label = subportLabel(port.reference, subport?.name);
+        return (
+          <ExportDialog title={`Export ${instance.label} ${label}`}
+            description="Publish this connector so a parent system can link to it. A linked port cannot be exported."
+            initial={{ name: label, description: "" }} submitLabel="Export"
+            existingNames={(document.exports ?? []).map((entry) => entry.name)} busy={busy === "export"}
+            onClose={() => setExporting(null)}
+            onSubmit={async (value) => {
+              const done = await run("export", () => createExport(systemId, etag,
+                { ...value, instanceId: instance.id, portKey: port.portKey, ...(subport ? { subportId: subport.id } : {}) }),
+              `Exported ${label} as ${value.name}`);
+              if (done) setExporting(null);
+            }} />
+        );
+      })()}
     </InspectorSection>
   );
 }
