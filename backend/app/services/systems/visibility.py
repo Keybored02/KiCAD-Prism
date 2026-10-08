@@ -98,6 +98,23 @@ def visible_systems(
     return [summary(dict(row)) for row in rows]
 
 
+def hidden_systems(conn: Any, role: Role, system_ids: Iterable[str]) -> set[str]:
+    """The systems among ``system_ids`` that ``role`` may not see, in one query (SB2-95).
+    The same folder predicate as ``visible_systems``; a missing system counts as hidden."""
+
+    ids = sorted({str(sid) for sid in system_ids if sid})
+    if not ids:
+        return set()
+    rows = conn.execute(
+        f"""
+        SELECT s.id FROM system_projects s LEFT JOIN ws_folders f ON f.id = s.folder_id
+        WHERE s.id = ANY(%(ids)s) AND ({FOLDER_VISIBLE_SQL})
+        """,
+        {"ids": ids, **_params(role)},
+    ).fetchall()
+    return set(ids) - {row["id"] for row in rows}
+
+
 def folder_visible(conn: Any, folder_id: str, role: Role) -> bool:
     row = conn.execute(
         f"SELECT 1 FROM ws_folders f WHERE f.id = %(folder_id)s AND {FOLDER_VISIBLE_SQL}",

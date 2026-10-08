@@ -101,7 +101,14 @@ class InterfaceCache:
         return entry
 
 
-interfaces = InterfaceCache(
-    int(float(os.environ.get("PRISM_INTERFACE_CACHE_MB") or 256) * 1024 * 1024),
-    verify=bool(os.environ.get("PRISM_INTERFACE_CACHE_VERIFY")),
-)
+_VERIFY = bool(os.environ.get("PRISM_INTERFACE_CACHE_VERIFY"))
+interfaces = InterfaceCache(int(float(os.environ.get("PRISM_INTERFACE_CACHE_MB") or 256) * 1024 * 1024), verify=_VERIFY)
+# SB2-95: the same mechanism for the other immutable inputs of a hierarchy resolve. A child
+# snapshot's manifest never changes, nor does the snapshot a catalog revision was published from.
+manifests = InterfaceCache(64 * 1024 * 1024, verify=_VERIFY)
+revision_sources = InterfaceCache(4 * 1024 * 1024, verify=_VERIFY)
+
+
+def clear_all() -> None:
+    for cache in (interfaces, manifests, revision_sources):
+        cache.clear()
