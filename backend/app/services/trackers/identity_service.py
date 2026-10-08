@@ -640,6 +640,7 @@ def initialize_tracker_identity_service() -> None:
     from app.services.workspace_schema_migrations import apply_workspace_migrations
 
     with database.connection() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
         conn.execute("SET search_path TO workspace, public")
         apply_workspace_migrations(conn)
         conn.commit()

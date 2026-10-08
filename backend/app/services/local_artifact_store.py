@@ -47,9 +47,12 @@ class LocalArtifactStore:
         for directory in (self.objects, self.archive, self.staging, self.quarantine):
             directory.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
+            # Lock before the first DDL: CREATE SCHEMA/TABLE IF NOT EXISTS is not
+            # race-safe, and catalog jobs initialise this store from separate
+            # processes at the same moment.
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-artifacts-schema",))
             conn.execute("CREATE SCHEMA IF NOT EXISTS operations")
             conn.execute("SET search_path TO operations, catalog, public")
-            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-artifacts-schema",))
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS catalog_artifacts (
