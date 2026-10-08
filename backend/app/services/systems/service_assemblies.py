@@ -416,6 +416,7 @@ class AssembliesMixin:
                                             lambda o, key: store.get_interface_component(
                                                 o.project_id, o.baseline_commit, EXTRACTOR_VERSION, key)
                                             if o.project_id and o.baseline_commit else None)
+            self._attach_housings(harnesses)
         for (project_id, commit), found in interfaces.items():
             if found is None:  # not extracted yet, or by an older extractor: the bounds come with it
                 self._enqueue_quietly(project_id, commit, caller)
@@ -436,6 +437,28 @@ class AssembliesMixin:
             if root else None
         return built
 
+    def _attach_housings(self, harnesses: Sequence[dict]) -> None:
+        """Give each harness end with a part its model (§18.2, SB2-47): ``housing {glbKey, boundsMm,
+        alignment}`` from the part's first STEP model with a converted GLB, else null. A catalog that
+        can't be read leaves every end without one: housings then draw as proxy boxes."""
+        models: dict[str, Optional[dict]] = {}
+        for harness in harnesses:
+            for end in harness["ends"]:
+                part = end.get("part")
+                if not part:
+                    end["housing"] = None
+                    continue
+                if part not in models:
+                    try:
+                        found = next((m for m in self._catalog().list_models(part) if m["glb"]), None)
+                    except Exception:  # the catalog is optional here: no model, a proxy box
+                        logger.debug("No housing model for part %s", part, exc_info=True)
+                        found = None
+                    models[part] = None if found is None else {
+                        "glbKey": found["glb"]["key"], "boundsMm": found["glb"]["bounds"],
+                        "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
+                end["housing"] = models[part]
+
     def _harness_checks(self, store: SystemStore, system_id: str, harness_rows: Sequence[Mapping[str, Any]]) -> dict:
         """The root level's harnesses routed where the System 3D view draws them (§17.10), by harness
         ID: ``{lengths, collisions, tightBends}``; a harness with fewer than two posed ends is left out.
@@ -450,6 +473,7 @@ class AssembliesMixin:
                                         lambda o, key: store.get_interface_component(
                                             o.project_id, o.baseline_commit, EXTRACTOR_VERSION, key)
                                         if o.project_id and o.baseline_commit else None)
+        self._attach_housings(harnesses)
         matrices = {path: poses_module.matrix(pose)
                     for path, pose in scene_module.world_poses(tree.occurrences, placement["placed"]).items()}
         boards = [{"id": o.path, "matrix": matrices[o.path], **placement["local"][o.path]}
