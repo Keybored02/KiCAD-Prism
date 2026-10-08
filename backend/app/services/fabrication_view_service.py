@@ -26,8 +26,8 @@ from app.services import fabrication_compare_service as fab
 ROLES = ("silk", "paste", "mask", "copper", "outline", "drill", "other")
 
 #: KiCad's own colours, as the Visualizer and Design Comparison draw them, so a layer
-#: is the same colour wherever it is looked at. The viewer screen-blends layers over
-#: a dark board, so colours add up where they overlap.
+#: is the same colour wherever it is looked at. The viewer blends layers with
+#: "lighten" (per-channel maximum) over black, so where two overlap the brighter wins.
 _COLOURS = {
     ("copper", "top"): "#c83434",
     ("copper", "bottom"): "#4d7fc4",
@@ -66,8 +66,8 @@ _OTHER_COLOURS = {
 }
 _FALLBACK_COLOUR = "#afafaf"
 
-#: Layers are screen-blended, and black is the identity for that: any lighter
-#: background would brighten a little more with every layer stacked on it.
+#: Layers are blended with "lighten", and black is the identity for that: any lighter
+#: background would show through wherever a layer is empty.
 VIEW_BACKGROUND = "#000000"
 
 #: A drawn line is never thinner than this on screen. A 0.1 mm silkscreen or outline

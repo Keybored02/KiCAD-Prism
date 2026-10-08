@@ -32,9 +32,12 @@ export function withMargin(rect: BoardRect, margin = FIT_MARGIN): BoardRect {
  * The visible layers stacked on one board rectangle, in the pane Design Comparison
  * draws its fabrication layers in.
  *
- * Layers are screen-blended: every SVG has a black background, which is the
- * identity for that blend, so overlapping layers add up in colour and nothing
- * hides what is under it. The pane is black for the same reason, so a layer on
+ * Layers are blended with "lighten", the per-channel maximum: every SVG has a
+ * black background, which is the identity for that blend, so nothing hides what is
+ * under it. Where two layers overlap the brighter one wins, so silkscreen over
+ * copper stays silkscreen-coloured and a layer is its swatch colour wherever it is
+ * the brightest. (Screen blending added the colours instead, which turned silkscreen
+ * over red copper near-white.) The pane is black for the same reason, so a layer on
  * its own is exactly its swatch colour.
  */
 export function BoardCanvas({
@@ -93,7 +96,7 @@ export function BoardCanvas({
                                         draggable={false}
                                         className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
                                         style={{
-                                            mixBlendMode: "screen",
+                                            mixBlendMode: "lighten",
                                             opacity: highlighted && highlighted !== layer.id ? DIMMED_OPACITY : 1,
                                         }}
                                     />

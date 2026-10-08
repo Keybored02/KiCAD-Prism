@@ -114,7 +114,7 @@ Rules that are easy to break:
 - **Match columns by meaning, not by name.** KiCad and the JLCPCB plugin name the
   same columns differently, and a JLCPCB BOM has a `Designator` column, so a
   position file is recognised by having coordinates, not by its name.
-- Layers are drawn on black so the viewer can screen-blend them.
+- Layers are drawn on black so the viewer can blend them with `lighten` (per-channel maximum).
 - **A drawn line is at least 1.5 screen pixels wide.** `with_minimum_stroke` adds a
   `width` media-query ladder to each layer SVG: an image SVG evaluates those against
   its own rendered width, so the SVG can size its minimum line to the zoom without

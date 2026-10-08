@@ -206,6 +206,16 @@ describe("FabricationViewer", () => {
         expect(stack()!.querySelector("img[alt='F.CU']")).toBeInTheDocument();
     });
 
+    it("lets the brighter of two overlapping layers keep its own colour", async () => {
+        // "lighten" is the per-channel maximum. "screen" added the colours instead, which
+        // turned silkscreen over red copper near-white, so it no longer matched its swatch.
+        await openViewer();
+        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
+        for (const image of screen.getAllByRole("img")) {
+            expect(image).toHaveStyle({ mixBlendMode: "lighten" });
+        }
+    });
+
     it("draws the board on black, so a layer alone is exactly its swatch colour", async () => {
         await openViewer();
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));

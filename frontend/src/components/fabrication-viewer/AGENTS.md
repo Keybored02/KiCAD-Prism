@@ -48,12 +48,15 @@ If one of these changes, the viewer should follow it.
 
 ## Traps
 
-- **Layers are screen-blended in an isolated stack on black.** The backend draws
-  each on pure black, which is the identity for that blend, and the canvas puts
+- **Layers are blended with `lighten` in an isolated stack on black.** The backend
+  draws each on pure black, which is the identity for that blend, and the canvas puts
   them in an `isolate` group on a black pane. Without the isolation the top view
   blended with the pane behind it and came out lighter than the swatches, while
-  the bottom view, isolated by its mirror transform, came out exact. Overlapping
-  layers still mix, as they do in the Visualizer; a layer alone is its swatch colour.
+  the bottom view, isolated by its mirror transform, came out exact. `lighten` is the
+  per-channel maximum, so the brighter of two overlapping layers keeps its swatch
+  colour; `screen` added them instead and turned silkscreen over red copper
+  near-white. Keep the swatches and the drawing in agreement: the swatch is the
+  layer's colour, and the drawing should show it.
 - **The bottom view mirrors the whole pane.** `useBoardViewport` takes `mirrorX`
   and `Pane` takes `mirrored`, so dragging and zoom-to-cursor still follow the
   pointer; text drawn inside the pane (marker labels) must be flipped back.
