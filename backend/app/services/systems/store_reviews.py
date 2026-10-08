@@ -160,12 +160,13 @@ class ReviewsStore:
     # Snapshots (§9.1): immutable, stored unredacted
 
     _SNAPSHOT_META = ("id, system_id, name, note, created_by, created_at, digest, open_review_count, "
-                      "renderer_version, manifest_schema, connectivity_digest")
+                      "renderer_version, manifest_schema, connectivity_digest, git")
 
     def create_snapshot(
         self, change: Mutation, *, name: str, note: str, document: Mapping[str, Any], digest: str,
         open_review_count: int, renderer_version: str, snapshot_id: Optional[str] = None,
         manifest: Optional[Mapping[str, Any]] = None, connectivity_digest: Optional[str] = None,
+        git: Optional[Mapping[str, Any]] = None,
     ) -> dict:
         if not name.strip():
             raise Invalid("name is required")
@@ -174,15 +175,16 @@ class ReviewsStore:
             f"""
             INSERT INTO system_snapshots
                 (id, system_id, name, note, created_by, document, digest, open_review_count, renderer_version,
-                 manifest, manifest_schema, connectivity_digest)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 manifest, manifest_schema, connectivity_digest, git)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT ON CONSTRAINT system_snapshots_name_key DO NOTHING
             RETURNING {self._SNAPSHOT_META}
             """,
             (snapshot_id, change.system_id, name.strip(), note, change.actor, Jsonb(dict(document)),
              digest, int(open_review_count), renderer_version,
              Jsonb(dict(manifest)) if manifest is not None else None,
-             manifest.get("schema") if manifest is not None else None, connectivity_digest),
+             manifest.get("schema") if manifest is not None else None, connectivity_digest,
+             Jsonb(dict(git)) if git is not None else None),
         ).fetchone()
         if row is None:
             raise Conflict(f"a snapshot named {name.strip()!r} already exists")

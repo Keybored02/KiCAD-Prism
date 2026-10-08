@@ -14,6 +14,7 @@ import type {
   Decision,
   GeneratorKind,
   GeneratorResult,
+  GitLink,
   HistoryPage,
   ImportCommitReport,
   ImportPreview,
@@ -356,6 +357,32 @@ export async function publishSnapshot(
   const { body } = await send<SnapshotPublication>(`${path(systemId, "snapshots", snapshotId)}/publish`,
     { method: "POST", body: json(fields) }, "Could not publish the snapshot");
   return body;
+}
+
+export function retrySnapshotGit(systemId: string, snapshotId: string) {
+  return send<{ jobId: string }>(`${path(systemId, "snapshots", snapshotId)}/git-retry`, { method: "POST" },
+    "Could not queue the commit").then((r) => r.body);
+}
+
+// ---------------------------------------------------------------------------
+// Git tracking (P2 §21)
+
+export function getGitLink(systemId: string) {
+  return send<GitLink | null>(path(systemId, "git")).then((r) => r.body);
+}
+
+export function putGitLink(systemId: string, etag: string, input: { url: string; branch?: string }) {
+  return versioned<GitLink>(path(systemId, "git"), { method: "PUT", etag, body: json(input) },
+    "Could not link the repository");
+}
+
+export function deleteGitLink(systemId: string, etag: string) {
+  return versioned<null>(path(systemId, "git"), { method: "DELETE", etag }, "Could not unlink the repository");
+}
+
+export function fetchGitLink(systemId: string) {
+  return send<{ jobId: string }>(`${path(systemId, "git")}/fetch`, { method: "POST" }, "Could not fetch")
+    .then((r) => r.body);
 }
 
 export function manifestUrl(systemId: string, snapshotId: string): string {

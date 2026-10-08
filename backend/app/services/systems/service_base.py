@@ -36,6 +36,7 @@ _BUNDLE_BUILDERS = frozenset({"admin", "designer"})  # who may queue a board's 3
 class Caller:
     role: Role
     email: str
+    name: str = ""
 
     @property
     def actor(self) -> str:

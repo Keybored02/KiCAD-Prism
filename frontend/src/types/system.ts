@@ -405,6 +405,29 @@ export interface SnapshotMeta {
   rendererVersion: string;
   /** The catalog revision this snapshot was published as, if any. */
   publication?: SnapshotPublication | null;
+  /** Its commit to the linked repository; null when the system was not linked (P2 §21.2). */
+  git?: SnapshotGit | null;
+}
+
+export type SnapshotGit =
+  | { state: "queued" }
+  | { state: "pushed"; commit: string; branch: string }
+  | { state: "refused"; reason: "outside-change"; commit: string }
+  | { state: "failed"; reason: string; message: string }
+  | { state: "skipped" };
+
+/** A system's repository link (P2 §21.1). */
+export interface GitLink {
+  url: string;
+  branch: string;
+  tip: string | null;
+  knownBlob: string | null;
+  /** A branch tip whose manifest changed outside Prism; snapshots wait for it (P2 §21.3). */
+  outsideCommit: string | null;
+  lastFetchedAt: string | null;
+  lastError: { reason: string; message: string } | null;
+  linkedBy: string;
+  linkedAt: string;
 }
 
 export interface SnapshotPublication {

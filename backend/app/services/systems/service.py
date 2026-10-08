@@ -9,7 +9,7 @@ Detection, reviews, validation, snapshots and imports arrive with their own
 tickets (SYS-06 to SYS-10) and extend this service.
 
 The class is assembled from mixins by area (``service_documents``,
-``service_assemblies``, ``service_harnesses``, ``service_reviews``) over
+``service_assemblies``, ``service_harnesses``, ``service_reviews``, ``service_git``) over
 ``service_base.ServiceCore``; callers keep importing from this module.
 
 Documents are built unredacted (``_build``) and redacted for the reader last
@@ -24,12 +24,13 @@ from app.services.systems.interface_extractor import EXTRACTOR_VERSION  # noqa: 
 from app.services.systems.service_assemblies import AssembliesMixin
 from app.services.systems.service_base import Caller, Result, ServiceCore  # noqa: F401
 from app.services.systems.service_documents import DocumentsMixin
+from app.services.systems.service_git import GitMixin
 from app.services.systems.service_harnesses import HarnessesMixin
 from app.services.systems.service_reviews import ReviewsMixin
 from app.services.systems.store import SystemStore  # noqa: F401
 
 
-class SystemService(DocumentsMixin, AssembliesMixin, HarnessesMixin, ReviewsMixin, ServiceCore):
+class SystemService(DocumentsMixin, AssembliesMixin, HarnessesMixin, ReviewsMixin, GitMixin, ServiceCore):
     """The System Builder service. Each area lives in its own module (``service_*.py``)."""
 
 

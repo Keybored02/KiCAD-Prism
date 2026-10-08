@@ -15,6 +15,7 @@ import type { AuditEvent, RowFields, SnapshotDiff, SnapshotMeta, SystemDocument 
 
 import type { SystemTabProps } from "./system-tab-content";
 import { shortSha } from "./system-format";
+import { GitLinkPanel, SnapshotGitBadge } from "./git-link-panel";
 import { PublicationBadge, PublishDialog } from "./publish-dialog";
 import { useSystemMutation } from "./use-system-mutation";
 
@@ -43,6 +44,14 @@ export function eventSummary(event: AuditEvent, labels: Map<string, string>): st
       return `${p.rowCount ?? 0} rows (${(p.added as unknown[] | undefined)?.length ?? 0} added, ${(p.removed as unknown[] | undefined)?.length ?? 0} removed)`;
     case "snapshot_created":
       return String(p.name ?? "");
+    case "git_linked":
+    case "git_relinked":
+      return `${String(p.url ?? "")} ${String(p.branch ?? "")}`.trim();
+    case "git_unlinked":
+      return String(p.url ?? "");
+    case "snapshot_committed":
+    case "snapshot_commit_refused":
+      return shortSha(p.commit as string);
     case "import_committed":
       return `${p.created ?? 0} created, ${p.updated ?? 0} updated`;
     case "port_override_set":
@@ -121,6 +130,16 @@ function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPubli
     };
   }, [systemId, refresh]);
 
+  // A commit runs in a job after the snapshot is stored: re-read while one is queued (P2 §21.2).
+  const committing = snapshots?.items.some((snapshot) => snapshot.git?.state === "queued") ?? false;
+  useEffect(() => {
+    if (!committing) return;
+    const timer = window.setInterval(() => {
+      listSnapshots(systemId).then((items) => setSnapshots({ refresh, items })).catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [systemId, refresh, committing]);
+
   const compareKey = compare ? `${compare.snapshotId}:${compare.against}:${etag}` : null;
   useEffect(() => {
     if (!compare || !compareKey) return;
@@ -150,6 +169,7 @@ function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPubli
 
   return (
     <section className="space-y-4">
+      <GitLinkPanel systemId={systemId} etag={etag} refresh={refresh} canEdit={canEdit} busy={busy} run={run} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">Snapshots and ICD</h2>
         <div className="flex gap-2">
@@ -216,6 +236,8 @@ function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPubli
                   <Badge variant="warning">{snapshot.openReviewCount} unreviewed</Badge>
                 )}
                 {snapshot.publication && <PublicationBadge publication={snapshot.publication} />}
+                <SnapshotGitBadge systemId={systemId} snapshotId={snapshot.id} name={snapshot.name} git={snapshot.git}
+                  canEdit={canEdit} run={run} />
                 <span className="text-xs text-muted-foreground">
                   {new Date(snapshot.createdAt).toLocaleString()} · {snapshot.createdBy.replace(/^user:/, "")}
                 </span>
@@ -362,7 +384,7 @@ function AuditLog({ systemId, document, refresh }: { systemId: string; document:
                 </span>
                 <span className="text-right text-xs text-muted-foreground">{new Date(event.at).toLocaleString()}</span>
                 <span className="col-span-2 text-xs text-muted-foreground">
-                  {event.actor === "system:detection" ? "Detection" : event.actor.replace(/^user:/, "")}
+                  {event.actor === "system:detection" ? "Detection" : event.actor === "system:git" ? "Git" : event.actor.replace(/^user:/, "")}
                 </span>
               </li>
             ))}
