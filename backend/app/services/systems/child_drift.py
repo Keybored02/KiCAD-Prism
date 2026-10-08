@@ -30,10 +30,15 @@ from app.services.systems.detection import _item_row, _pending_changes, _silent_
 
 def apply_child_evaluation(
     store: Any, change: Any, instance: Mapping[str, Any], revision: Mapping[str, Any], *, auto_kind: str,
+    candidate: Optional[Mapping[str, Any]] = None,
 ) -> tuple[str, Optional[str]]:
-    """Evaluate ``revision`` for ``instance`` and apply §7.2 inside ``change``. Returns ``(outcome, review_id)``."""
+    """Evaluate ``revision`` for ``instance`` and apply §7.2 inside ``change``. Returns ``(outcome, review_id)``.
 
-    candidate = exports.as_interface(revision.get("interface")) or {"components": []}
+    ``candidate`` is the revision as an interface artifact: an assembly's exports by default, or a
+    module's connectors (§5.6, SB2-51) given by the caller.
+    """
+
+    candidate = candidate or exports.as_interface(revision.get("interface")) or {"components": []}
     links = store.drift_links(instance["system_id"])  # harness ends drift like link ends (P2 §17.2)
     outcome = drift.evaluate(links, instance["id"], candidate)
     open_review = store.open_source_review(instance["id"])
