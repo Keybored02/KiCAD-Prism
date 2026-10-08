@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Camera, FileJson, FileSpreadsheet, FileText, GitCompare, Layers, PackageCheck } from "lucide-react";
+import { FileJson, FileSpreadsheet, FileText, GitCompare, Layers, PackageCheck, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { canWriteCatalog } from "@/lib/roles";
+import { cn } from "@/lib/utils";
 import { createSnapshot, diffSnapshot, getHistory, icdUrl, listSnapshots, manifestUrl, publishSnapshot } from "@/lib/systems-api";
 import type { AuditEvent, RowFields, SnapshotDiff, SnapshotMeta, SystemDocument } from "@/types/system";
 
 import type { SystemTabProps } from "./system-tab-content";
-import { shortSha } from "./system-format";
+import { shortSha, timeAgo } from "./system-format";
 import { GitLinkPanel, SnapshotGitBadge } from "./git-link-panel";
 import { PublicationBadge, PublishDialog } from "./publish-dialog";
 import { useSystemMutation } from "./use-system-mutation";
@@ -87,6 +88,9 @@ function rowText(row: Pick<RowFields, "pinA" | "pinB" | "signal">): string {
   return `${row.pinA ?? "—"} ↔ ${row.pinB ?? "—"}${row.signal ? ` (${row.signal})` : ""}`;
 }
 
+const TH = "h-8 px-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground first:pl-0";
+const TD = "h-9 max-w-0 truncate px-2 first:pl-0";
+
 export function HistoryTab({ systemId, document, etag, canEdit, user, reload, startTaking = false }: SystemTabProps & {
   /** Open the Take snapshot dialog on mount (the workspace top bar's button). */
   startTaking?: boolean;
@@ -95,7 +99,7 @@ export function HistoryTab({ systemId, document, etag, canEdit, user, reload, st
   const [snapshotsTaken, setSnapshotsTaken] = useState(0);
   const refresh = `${etag}#${snapshotsTaken}`;
   return (
-    <div className="grid gap-6 p-4 md:p-6 xl:grid-cols-[1fr_1fr]">
+    <div className="grid min-h-full xl:grid-cols-[3fr_2fr] xl:divide-x">
       <SnapshotsSection systemId={systemId} document={document} etag={etag} refresh={refresh} canEdit={canEdit} reload={reload}
         startTaking={startTaking && canEdit}
         canPublish={canEdit && canWriteCatalog(user?.role)}
@@ -175,29 +179,19 @@ function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPubli
   const openReviews = document.openReviewCount;
 
   return (
-    <section className="space-y-4">
-      <GitLinkPanel systemId={systemId} etag={etag} refresh={refresh} canEdit={canEdit} busy={busy} run={run} />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">Snapshots and ICD</h2>
-        <div className="flex gap-2">
-          {canEdit && (
-            <Button size="sm" onClick={() => setTaking(true)}><Camera className="mr-1 h-4 w-4" /> Take snapshot</Button>
-          )}
-          <Button asChild variant="outline" size="sm">
-            <a href={icdUrl(systemId, "html")} target="_blank" rel="noreferrer"><FileText className="mr-1 h-4 w-4" /> Live ICD</a>
-          </Button>
-          {document.instances.some((instance) => instance.kind === "assembly") && (
-            <Button asChild variant="outline" size="sm">
-              <a href={icdUrl(systemId, "html", undefined, "all")} target="_blank" rel="noreferrer"
-                title="This system's links and every subsystem's own links">
-                <Layers className="mr-1 h-4 w-4" /> All levels
-              </a>
-            </Button>
-          )}
-          <Button asChild variant="outline" size="sm">
-            <a href={icdUrl(systemId, "csv")} download><FileSpreadsheet className="mr-1 h-4 w-4" /> CSV</a>
-          </Button>
+    <section className="min-w-0 space-y-2 p-4 pt-0" aria-label="Snapshots">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <GitLinkPanel systemId={systemId} etag={etag} refresh={refresh} canEdit={canEdit} busy={busy} run={run} />
         </div>
+        {document.instances.some((instance) => instance.kind === "assembly") && (
+          <Button asChild variant="ghost" size="sm" className="h-7 shrink-0">
+            <a href={icdUrl(systemId, "html", undefined, "all")} target="_blank" rel="noreferrer"
+              title="This system's links and every subsystem's own links">
+              <Layers className="size-3.5" /> ICD, all levels
+            </a>
+          </Button>
+        )}
       </div>
 
       <Dialog open={taking} onOpenChange={setTaking}>
@@ -232,58 +226,70 @@ function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPubli
       </Dialog>
 
       {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No snapshots yet.</p>
+        <p className="text-sm text-muted-foreground">No snapshots</p>
       ) : (
-        <ul className="divide-y border">
-          {items.map((snapshot) => (
-            <li key={snapshot.id} className="space-y-1 px-3 py-2 text-sm">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{snapshot.name}</span>
-                {snapshot.openReviewCount > 0 && (
-                  <Badge variant="warning">{snapshot.openReviewCount} unreviewed</Badge>
-                )}
-                {snapshot.publication && <PublicationBadge publication={snapshot.publication} />}
-                <SnapshotGitBadge systemId={systemId} snapshotId={snapshot.id} name={snapshot.name} git={snapshot.git}
-                  canEdit={canEdit} run={run} />
-                <span className="text-xs text-muted-foreground">
-                  {new Date(snapshot.createdAt).toLocaleString()} · {snapshot.createdBy.replace(/^user:/, "")}
-                </span>
-                <span className="ml-auto flex gap-1">
-                  <Button asChild variant="ghost" size="sm">
-                    <a href={icdUrl(systemId, "html", snapshot.id)} target="_blank" rel="noreferrer" aria-label={`ICD of ${snapshot.name}`}>
-                      <FileText className="h-4 w-4" />
-                    </a>
-                  </Button>
-                  <Button asChild variant="ghost" size="sm">
-                    <a href={icdUrl(systemId, "csv", snapshot.id)} download aria-label={`CSV of ${snapshot.name}`}>
-                      <FileSpreadsheet className="h-4 w-4" />
-                    </a>
-                  </Button>
-                  {canPublish && snapshot.manifestSchema && !snapshot.publication && (
-                    <Button variant="ghost" size="sm" aria-label={`Publish ${snapshot.name}`} title="Publish to the catalog"
-                      onClick={() => setPublishing(snapshot)}>
-                      <PackageCheck className="h-4 w-4" />
-                    </Button>
-                  )}
-                  {snapshot.manifestSchema && (
-                    <Button asChild variant="ghost" size="sm">
-                      <a href={manifestUrl(systemId, snapshot.id)} download={`${snapshot.name}.manifest.json`}
-                        aria-label={`Manifest of ${snapshot.name}`} title="Download the system manifest (JSON)">
-                        <FileJson className="h-4 w-4" />
+        <table className="w-full table-fixed text-sm" aria-label="Snapshots list">
+          <thead className="border-b">
+            <tr>
+              <th className={TH}>Snapshot</th>
+              <th className={cn(TH, "w-24")}>Taken</th>
+              <th className={cn(TH, "hidden w-28 md:table-cell")}>By</th>
+              <th className={cn(TH, "w-[30%]")}>State</th>
+              <th className={cn(TH, "w-36")}><span className="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((snapshot) => (
+              <tr key={snapshot.id} className="border-b hover:bg-accent/50">
+                <td className={cn(TD, "font-medium")} title={[snapshot.name, snapshot.note, snapshot.digest].filter(Boolean).join("\n")}>{snapshot.name}</td>
+                <td className={cn(TD, "text-muted-foreground")} title={new Date(snapshot.createdAt).toLocaleString()}>{timeAgo(snapshot.createdAt)}</td>
+                <td className={cn(TD, "hidden text-muted-foreground md:table-cell")}>{snapshot.createdBy.replace(/^user:/, "")}</td>
+                <td className={cn(TD, "overflow-visible")}>
+                  <span className="flex items-center gap-1.5">
+                    {snapshot.openReviewCount > 0 && (
+                      <span className="shrink-0 text-xs text-warning" title={`${snapshot.openReviewCount} unreviewed when taken`}>{snapshot.openReviewCount} unreviewed</span>
+                    )}
+                    {snapshot.publication && <PublicationBadge publication={snapshot.publication} />}
+                    <SnapshotGitBadge systemId={systemId} snapshotId={snapshot.id} name={snapshot.name} git={snapshot.git}
+                      canEdit={canEdit} run={run} />
+                  </span>
+                </td>
+                <td className="px-2 text-right">
+                  <span className="inline-flex">
+                    <Button asChild variant="ghost" size="icon-sm">
+                      <a href={icdUrl(systemId, "html", snapshot.id)} target="_blank" rel="noreferrer" aria-label={`ICD of ${snapshot.name}`} title="ICD">
+                        <FileText className="size-4" />
                       </a>
                     </Button>
-                  )}
-                  <Button variant="ghost" size="sm" aria-label={`Compare ${snapshot.name}`}
-                    onClick={() => setCompare({ snapshotId: snapshot.id, against: LIVE })}>
-                    <GitCompare className="h-4 w-4" />
-                  </Button>
-                </span>
-              </div>
-              {snapshot.note && <p className="text-xs text-muted-foreground">{snapshot.note}</p>}
-              <p className="font-mono text-[11px] text-muted-foreground" title={snapshot.digest}>{snapshot.digest.slice(0, 19)}…</p>
-            </li>
-          ))}
-        </ul>
+                    <Button asChild variant="ghost" size="icon-sm">
+                      <a href={icdUrl(systemId, "csv", snapshot.id)} download aria-label={`CSV of ${snapshot.name}`} title="CSV">
+                        <FileSpreadsheet className="size-4" />
+                      </a>
+                    </Button>
+                    {snapshot.manifestSchema && (
+                      <Button asChild variant="ghost" size="icon-sm">
+                        <a href={manifestUrl(systemId, snapshot.id)} download={`${snapshot.name}.manifest.json`}
+                          aria-label={`Manifest of ${snapshot.name}`} title="System manifest (JSON)">
+                          <FileJson className="size-4" />
+                        </a>
+                      </Button>
+                    )}
+                    {canPublish && snapshot.manifestSchema && !snapshot.publication && (
+                      <Button variant="ghost" size="icon-sm" aria-label={`Publish ${snapshot.name}`} title="Publish to the catalog"
+                        onClick={() => setPublishing(snapshot)}>
+                        <PackageCheck className="size-4" />
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="icon-sm" aria-label={`Compare ${snapshot.name}`} title="Compare"
+                      onClick={() => setCompare({ snapshotId: snapshot.id, against: LIVE })}>
+                      <GitCompare className="size-4" />
+                    </Button>
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       {publishing && (
@@ -301,18 +307,18 @@ function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPubli
       )}
 
       {compare && (
-        <div className="space-y-3 border p-3" aria-label="Snapshot comparison">
+        <div className="space-y-2 border-t pt-2" aria-label="Snapshot comparison">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="font-medium">{items.find((s) => s.id === compare.snapshotId)?.name}</span>
-            <span className="text-muted-foreground">compared with</span>
+            <span className="text-muted-foreground">vs</span>
             <Select value={compare.against} onValueChange={(value) => setCompare({ ...compare, against: value })}>
-              <SelectTrigger aria-label="Compare with" className="h-8 w-48"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="Compare with" className="h-7 w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={LIVE}>the live system</SelectItem>
+                <SelectItem value={LIVE}>Live</SelectItem>
                 {items.map((s) => (s.id === compare.snapshotId ? null : <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>))}
               </SelectContent>
             </Select>
-            <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setCompare(null)}>Close</Button>
+            <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label="Close the comparison" onClick={() => setCompare(null)}><X className="size-4" /></Button>
           </div>
           {!shown ? (
             <p className="text-sm text-muted-foreground">Comparing…</p>
@@ -376,28 +382,29 @@ function AuditLog({ systemId, document, refresh }: { systemId: string; document:
   };
 
   return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-semibold">Activity</h2>
+    <section className="min-w-0 p-4 pt-0" aria-label="Activity">
+      <h2 className="flex h-9 items-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">Activity</h2>
       {!page ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
         <>
-          <ul className="divide-y rounded-md border text-sm">
-            {page.events.map((event) => (
-              <li key={event.id} className="grid grid-cols-[1fr_auto] gap-x-3 px-3 py-2">
-                <span>
-                  <span className="font-medium">{event.kind.replace(/_/g, " ")}</span>{" "}
-                  <span className="text-muted-foreground">{eventSummary(event, labels)}</span>
-                </span>
-                <span className="text-right text-xs text-muted-foreground">{new Date(event.at).toLocaleString()}</span>
-                <span className="col-span-2 text-xs text-muted-foreground">
-                  {event.actor === "system:detection" ? "Detection" : event.actor === "system:git" ? "Git" : event.actor.replace(/^user:/, "")}
-                </span>
-              </li>
-            ))}
+          <ul className="text-sm">
+            {page.events.map((event) => {
+              const actor = event.actor === "system:detection" ? "Detection" : event.actor === "system:git" ? "Git" : event.actor.replace(/^user:/, "");
+              const summary = eventSummary(event, labels);
+              return (
+                <li key={event.id} className="flex h-8 items-center gap-2 border-b last:border-b-0"
+                  title={`${event.kind.replace(/_/g, " ")} ${summary} · ${actor} · ${new Date(event.at).toLocaleString()}`}>
+                  <span className="shrink-0 font-medium">{event.kind.replace(/_/g, " ")}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{summary}</span>
+                  <span className="hidden w-24 shrink-0 truncate text-xs text-muted-foreground 2xl:block">{actor}</span>
+                  <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">{timeAgo(event.at)}</span>
+                </li>
+              );
+            })}
           </ul>
           {page.next && (
-            <Button variant="outline" size="sm" disabled={loadingMore} onClick={() => void more()}>
+            <Button variant="ghost" size="sm" className="mt-1 h-7" disabled={loadingMore} onClick={() => void more()}>
               {loadingMore ? "Loading…" : "Load older"}
             </Button>
           )}

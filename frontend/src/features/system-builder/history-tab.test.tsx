@@ -59,11 +59,9 @@ describe("HistoryTab", () => {
       if (url.endsWith("/snapshots")) return json(snapshots);
       return json({});
     }));
-    render(<HistoryTab systemId="sys_1" document={doc} etag='"sys:sys_1:3"' canEdit user={null} reload={vi.fn(async () => undefined)} onNavigate={vi.fn()} />);
-    expect(await screen.findByText("No snapshots yet.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Live ICD/ }).getAttribute("href")).toBe("/api/systems/sys_1/icd.html");
-
-    fireEvent.click(screen.getByRole("button", { name: /Take snapshot/ }));
+    // The workspace top bar's Take snapshot opens History with the dialog.
+    render(<HistoryTab systemId="sys_1" document={doc} etag='"sys:sys_1:3"' canEdit user={null} reload={vi.fn(async () => undefined)} onNavigate={vi.fn()} startTaking />);
+    expect(await screen.findByText("No snapshots")).toBeTruthy();
     fireEvent.change(await screen.findByLabelText("Snapshot name"), { target: { value: " CDR " } });
     fireEvent.click(screen.getByRole("button", { name: "Take snapshot" }));
     expect(await screen.findByText("1 unreviewed")).toBeTruthy();
@@ -82,9 +80,9 @@ describe("HistoryTab", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("history") ? { events: [], nextCursor: null } : []), {
       status: 200, headers: { "Content-Type": "application/json" },
     })));
-    render(<HistoryTab systemId="sys_1" document={doc} etag="e" canEdit={false} user={null} reload={vi.fn()} onNavigate={vi.fn()} />);
-    expect(await screen.findByText("No snapshots yet.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Take snapshot/ })).toBeNull();
+    render(<HistoryTab systemId="sys_1" document={doc} etag="e" canEdit={false} user={null} reload={vi.fn()} onNavigate={vi.fn()} startTaking />);
+    expect(await screen.findByText("No snapshots")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
   it("offers the manifest only for snapshots that have one", async () => {
     const meta = { note: "", createdBy: "user:a@x", createdAt: "2026-09-30T10:00:00Z", digest: "sha256:abcdef0123456789abcdef",
@@ -141,11 +139,11 @@ describe("HistoryTab", () => {
       { status: 200, headers: { "Content-Type": "application/json" } })));
     const withChild = systemDocument([obc, instance("CNDH", { kind: "assembly" })]);
     const { unmount } = render(<HistoryTab systemId="sys_1" document={withChild} etag="e" canEdit={false} user={null} reload={vi.fn()} onNavigate={vi.fn()} />);
-    expect((await screen.findByRole("link", { name: /All levels/ })).getAttribute("href")).toBe("/api/systems/sys_1/icd.html?depth=all");
+    expect((await screen.findByRole("link", { name: /all levels/ })).getAttribute("href")).toBe("/api/systems/sys_1/icd.html?depth=all");
     unmount();
     render(<HistoryTab systemId="sys_1" document={doc} etag="e" canEdit={false} user={null} reload={vi.fn()} onNavigate={vi.fn()} />);
-    await screen.findByText("No snapshots yet.");
-    expect(screen.queryByRole("link", { name: /All levels/ })).toBeNull();
+    await screen.findByText("No snapshots");
+    expect(screen.queryByRole("link", { name: /all levels/ })).toBeNull();
   });
 });
 

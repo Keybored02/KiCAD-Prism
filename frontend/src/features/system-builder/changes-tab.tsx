@@ -29,7 +29,7 @@ import {
 } from "./review-model";
 import { entrySide } from "./import-model";
 import type { SystemTabProps } from "./system-tab-content";
-import { shortSha } from "./system-format";
+import { shortSha, timeAgo } from "./system-format";
 import { useSystemMutation } from "./use-system-mutation";
 
 type Mutate = ReturnType<typeof useSystemMutation>["run"];
@@ -69,10 +69,10 @@ export function ChangesTab({ systemId, document, etag, canEdit, reload, onNaviga
   }, [systemId, etag]);
 
   if (failed && !loaded) {
-    return <p className="p-6 text-sm text-destructive" role="alert">{failed}</p>;
+    return <p className="p-4 text-sm text-destructive" role="alert">{failed}</p>;
   }
   if (!loaded) {
-    return <p className="p-6 text-sm text-muted-foreground">Loading changes…</p>;
+    return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
   }
 
   const instances = new Map(document.instances.map((instance) => [instance.id, instance]));
@@ -81,12 +81,11 @@ export function ChangesTab({ systemId, document, etag, canEdit, reload, onNaviga
   const nothing = loaded.reviews.length === 0 && updates.length === 0;
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-4 p-4">
       {nothing && (
-        <div className="flex items-center gap-2 rounded-md border p-4 text-sm">
-          <CheckCircle2 className="h-4 w-4 text-success" />
-          Every board is at its accepted baseline. Nothing needs review.
-        </div>
+        <p className="flex items-center gap-2 text-sm text-muted-foreground" title="Every board is at its accepted baseline">
+          <CheckCircle2 className="size-4 text-success" /> Nothing to review
+        </p>
       )}
 
       {loaded.reviews.map((review) => (
@@ -106,7 +105,7 @@ export function ChangesTab({ systemId, document, etag, canEdit, reload, onNaviga
 
       {updates.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold">Updates available on pinned boards</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Updates on pinned boards</h2>
           {updates.map((instance) => (
             <UpdateRow key={instance.id} systemId={systemId} instance={instance} etag={etag} canEdit={canEdit} busy={busy} run={run} />
           ))}
@@ -115,17 +114,15 @@ export function ChangesTab({ systemId, document, etag, canEdit, reload, onNaviga
 
       {automatic.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold">Applied automatically</h2>
-          <p className="text-xs text-muted-foreground">
-            Changes that kept every connected pin on the same nets are applied without review.
-          </p>
-          <ul className="divide-y rounded-md border text-sm">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+            title="Changes that kept every connected pin on the same nets are applied without review">Applied automatically</h2>
+          <ul className="text-sm">
             {automatic.map((event) => (
-              <li key={event.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
-                <Wand2 className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium">{event.kind.replace(/_/g, " ")}</span>
-                <span className="text-muted-foreground">{automaticSummary(event, instances)}</span>
-                <span className="ml-auto text-xs text-muted-foreground">{new Date(event.at).toLocaleString()}</span>
+              <li key={event.id} className="flex h-8 items-center gap-2 border-b last:border-b-0">
+                <Wand2 className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="shrink-0 font-medium">{event.kind.replace(/_/g, " ")}</span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{automaticSummary(event, instances)}</span>
+                <span className="shrink-0 text-xs text-muted-foreground" title={new Date(event.at).toLocaleString()}>{timeAgo(event.at)}</span>
               </li>
             ))}
           </ul>
@@ -204,9 +201,8 @@ function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy,
 
       {review.kind === "baseline_unreachable" && instance && (
         <div className="space-y-2 text-sm">
-          <p>
-            The accepted baseline {shortSha(instance.baselineCommit)} is no longer in the repository (the branch was
-            probably rewritten). Rebase the board onto a commit that exists to re-check its connections.
+          <p title="The branch was probably rewritten. Rebase the board onto a commit that exists to re-check its connections.">
+            Baseline <span className="font-mono">{shortSha(instance.baselineCommit)}</span> is no longer in the repository.
           </p>
           {editable && <RebaseForm systemId={systemId} instance={instance} etag={etag} busy={busy} run={run} />}
         </div>
@@ -243,11 +239,6 @@ function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy,
           ))}
         </Group>
       )}
-      {total > 0 && decided < total && (
-        <p className="text-xs text-muted-foreground">
-          The review is applied, all at once, when its last item is decided. Decisions can be changed until then.
-        </p>
-      )}
     </section>
   );
 }
@@ -271,11 +262,7 @@ function ManifestImport({ systemId, review, etag, editable, busy, run }: {
     decision === "accept" ? "Repository manifest imported" : "Repository manifest rejected");
   return (
     <div className="space-y-2 text-sm">
-      <p>
-        Someone changed prism.system.json on the linked branch outside Prism. Snapshots wait until you decide. Accepting
-        replaces this system with that manifest, including edits not yet in a snapshot; rejecting keeps the system as it
-        is, and the next snapshot replaces the manifest on the branch.
-      </p>
+      <p title="Snapshots wait until you decide.">prism.system.json changed on the linked branch outside Prism.</p>
       {problems.length > 0 ? (
         <Group title="It cannot be imported" tone="error">
           {problems.map((problem) => <li key={problem} className="px-3 py-2">{problem}</li>)}
@@ -287,8 +274,10 @@ function ManifestImport({ systemId, review, etag, editable, busy, run }: {
       )}
       {editable && (
         <div className="flex gap-2">
-          <Button size="sm" disabled={busy !== null || problems.length > 0} onClick={() => void decide("accept")}>Accept</Button>
-          <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void decide("reject")}>Reject</Button>
+          <Button size="sm" disabled={busy !== null || problems.length > 0} onClick={() => void decide("accept")}
+            title="Replace this system with that manifest, including edits not yet in a snapshot">Accept</Button>
+          <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void decide("reject")}
+            title="Keep the system as it is; the next snapshot replaces the manifest on the branch">Reject</Button>
         </div>
       )}
     </div>
