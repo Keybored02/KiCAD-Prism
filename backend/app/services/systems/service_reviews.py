@@ -8,7 +8,7 @@ from typing import Any, Collection, Mapping, Optional, Sequence
 
 from app.services.systems import (
     child_drift, csv_import, drift, hierarchy, icd,
-    manifest as manifest_io, reconcile, redaction, sources, system_nets, visibility,
+    manifest as manifest_io, reconcile, redaction, report as report_io, sources, system_nets, visibility,
 )
 from app.services.systems.manifest_schema import digests as manifest_digests
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
@@ -497,6 +497,22 @@ class ReviewsMixin:
             generated = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
             content = icd.render_html(document, source=source, generated_at=generated, levels=levels, positions=positions)
         return content, document["system"]["name"], version
+
+    def report(self, caller: Caller, system_id: str, fmt: str) -> tuple[Any, str, int]:
+        """SB2-107 (P2 §8.6): ``(content, system name, version)``; the live open reviews and
+        findings as ``xlsx`` bytes or ``csv`` text, redacted for the reader like the trays."""
+
+        with self._tx(consistent=True) as store:
+            system = self._system(store, system_id, caller)
+            built, _instances, _jobs = self._build(store, system)
+            restricted = self._restricted_instances(store, system_id, caller)
+            reviews = [self._review_doc(store, review, review["instance_id"] in restricted, restricted)
+                       for review in store.list_reviews(system_id, status="open")]
+        document = redaction.redact_document(built, restricted)
+        generated = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        parts = report_io.sections(document, reviews, version=system["version"], generated_at=generated)
+        content = report_io.render_xlsx(parts) if fmt == "xlsx" else report_io.render_csv(parts)
+        return content, document["system"]["name"], system["version"]
 
     def _icd_levels(self, caller: Caller, system_id: str, snapshot_id: Optional[str]) -> list[dict]:
         """Each visible subsystem level, redacted for the reader (§5.4), in tree order."""

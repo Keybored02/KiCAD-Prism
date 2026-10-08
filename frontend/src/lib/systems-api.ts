@@ -410,6 +410,11 @@ export function icdUrl(systemId: string, format: "csv" | "html", snapshotId?: st
   return depth === "all" ? `${base}?depth=all` : base;
 }
 
+/** SB2-107: open reviews and findings, one sheet per section (P2 §8.6). */
+export function reportUrl(systemId: string, format: "xlsx" | "csv" = "xlsx"): string {
+  return `${path(systemId)}/report.${format}`;
+}
+
 // ---------------------------------------------------------------------------
 // CSV import (§9.3)
 

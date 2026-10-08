@@ -66,6 +66,8 @@ describe("SystemWorkspace", () => {
     const tray = screen.getByRole("region", { name: "Tray" });
     fireEvent.click(await within(tray).findByRole("button", { name: "Show" }));
     expect(onState).toHaveBeenLastCalledWith({ view: "icd", tray: "findings", selection: { kind: "link", id: "L1" } });
+    // SB2-107: the reviews and findings report beside the findings.
+    expect(within(tray).getByRole("link", { name: "Report" }).getAttribute("href")).toMatch(/\/report\.xlsx$/);
   });
 
   it("lists connections in the tray and opens one", async () => {
