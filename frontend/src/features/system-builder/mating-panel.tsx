@@ -68,7 +68,9 @@ function MatingEnd({ systemId, etag, side, instanceId, portKey, label, editable,
   if (current === undefined) return <p className="text-sm text-muted-foreground">{side} · {label}: loading…</p>;
   if (current === null) return <p className="text-sm text-muted-foreground">{side} · {label}: no frame (the board interface is not ready).</p>;
   const summary = matingSummary(current);
-  const canConfirm = editable && Boolean(current.inferred.axis) && current.stored?.mode !== "confirmed";
+  // Confirm accepts the inferred frame, so it is offered only while nothing is stored: a frame set
+  // by hand is already explicit, and confirming over it would silently replace it (Reset goes back).
+  const canConfirm = editable && Boolean(current.inferred.axis) && !current.stored;
   const start = picking ?? { axis: current.stored?.axis ?? current.inferred.axis ?? "top", quarterTurns: current.stored?.quarterTurns ?? 0 };
 
   return (

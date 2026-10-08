@@ -85,6 +85,18 @@ describe("board-to-board link details", () => {
     expect([url, JSON.parse(String(init.body))]).toEqual([`/api/systems/sys_1/instances/${obc.id}/mating/key-J1`, { mode: "confirmed" }]);
   });
 
+  it("does not offer Confirm over a frame set by hand", async () => {
+    stubApi({
+      [obc.id]: port({ stored: { mode: "override", axis: "bottom", quarterTurns: 0, stale: false } }),
+      [cmbd.id]: port({ stored: { mode: "confirmed", axis: "top", quarterTurns: 0, stale: false } }),
+    });
+    renderEditor();
+    expect(await screen.findByText("Set by hand: Vertical, bottom side")).toBeTruthy();
+    await screen.findByText("Confirmed: Vertical, top side");
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Reset" })).toHaveLength(2);
+  });
+
   it("sets a frame by hand with a direction and a turn", async () => {
     const calls = stubApi({ [obc.id]: port(), [cmbd.id]: port() });
     renderEditor();
