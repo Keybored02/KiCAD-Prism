@@ -65,3 +65,23 @@ test("models placed often are instanced and merged per shared placements; the re
   assert.equal(baked[0].position[0], 5); // moved to its placement
   assert.equal(baked[0].objectFeatureId[0], 19); // its component's feature
 });
+
+test("the camera's destination view is the view at its targets, and the lead goes one step further", async () => {
+  const { CameraController } = await import("./camera.js");
+  const camera = new CameraController([0, 0, 0, 0.1, 0.08, 0.002]);
+  assert.equal(camera.moving(), false);
+  const still = camera.matrix(800, 600);
+  assert.deepEqual(camera.targetMatrix(800, 600), still);
+  camera.targetDistance = camera.distance / 2;
+  camera.targetFocus = [0.02, 0.01, 0];
+  assert.equal(camera.moving(), true);
+  const destination = camera.targetMatrix(800, 600);
+  const before = [camera.focus, camera.distance];
+  camera.snap();
+  assert.deepEqual(destination, camera.matrix(800, 600));
+  // targetMatrix leaves the camera where it was.
+  const again = new CameraController([0, 0, 0, 0.1, 0.08, 0.002]);
+  again.targetDistance = again.distance / 2;
+  again.targetMatrix(800, 600, false, 1);
+  assert.equal(again.distance, before[1]);
+});
