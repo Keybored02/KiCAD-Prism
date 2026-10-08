@@ -192,6 +192,29 @@ class UnattributedPackageTests(unittest.TestCase):
         self.assertEqual(view["size"], {"width": 20.0, "height": 10.0})
 
 
+class DrillToolTests(unittest.TestCase):
+    def tools(self, files):
+        return FabricationPackage.from_files(files).view()["drill"]["tools"]
+
+    def test_a_tool_that_is_defined_but_never_used_is_not_listed(self) -> None:
+        text = excellon(
+            "; #@! TA.AperFunction,Plated,PTH,ViaDrill\nT1C0.300\n"
+            "; #@! TA.AperFunction,Plated,PTH,ComponentDrill\nT2C0.800\n",
+            "T1\nX5.0Y-5.0\n",
+        )
+        self.assertEqual([tool["diameter"] for tool in self.tools({"board.drl": text})], [0.3])
+
+    def test_a_drill_file_with_no_attributes_is_read_from_its_name(self) -> None:
+        bare = excellon("T1C0.500\n", "T1\nX1.0Y-1.0\n")
+        tools = self.tools({"board-PTH.drl": bare, "board-NPTH.drl": bare})
+        by_file = {tool["file"]: tool["plated"] for tool in tools}
+        self.assertEqual(by_file, {"board-PTH.drl": True, "board-NPTH.drl": False})
+
+    def test_a_declared_function_beats_the_file_name(self) -> None:
+        text = excellon("; #@! TA.AperFunction,Plated,PTH,ViaDrill\nT1C0.300\n", "T1\nX5.0Y-5.0\n")
+        self.assertTrue(self.tools({"board-NPTH.drl": text})[0]["plated"])
+
+
 class LayerNameTests(unittest.TestCase):
     def test_two_drill_programs_are_told_apart_by_file(self) -> None:
         files = {"board-PTH.drl": DRILL, "board-NPTH.drl": DRILL, "board-F_Cu.gtl": gerber(PAD)}

@@ -48,9 +48,11 @@ def _dossier(files: dict[str, bytes]) -> tuple[bytes, list[dict]]:
 
 class FabricationViewRouteTests(unittest.TestCase):
     def setUp(self) -> None:
-        from app.api import release_studio as api
+        from app.api import fabrication_view as api
+        from app.api import release_studio as rel
 
         self.api = api
+        self.rel = rel
         api._fabrication_cache.clear()
         self.payload, self.members = _dossier(package_files())
         self.reads = 0
@@ -63,9 +65,9 @@ class FabricationViewRouteTests(unittest.TestCase):
         build = {"id": "build-1", "dossier_artifact_id": "a1"}
         return (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.api, "_build_or_404", lambda *_args: build),
-            patch.object(self.api.store, "build_members", lambda _id: members if members is not None else self.members),
-            patch.object(self.api, "_artifact_bytes", artifact),
+            patch.object(self.rel, "_build_or_404", lambda *_args: build),
+            patch.object(self.rel.store, "build_members", lambda _id: members if members is not None else self.members),
+            patch.object(self.rel, "_artifact_bytes", artifact),
         )
 
     def _call(self, func, *args, members=None, payload=None):
@@ -115,8 +117,8 @@ class FabricationViewRouteTests(unittest.TestCase):
         for index in range(size + 2):
             build = {"id": f"build-{index}", "dossier_artifact_id": "a1"}
             with (
-                patch.object(self.api.store, "build_members", lambda _id: self.members),
-                patch.object(self.api, "_artifact_bytes", lambda _id: self.payload),
+                patch.object(self.rel.store, "build_members", lambda _id: self.members),
+                patch.object(self.rel, "_artifact_bytes", lambda _id: self.payload),
             ):
                 self.api._fabrication_package(build)
         self.assertEqual(len(self.api._fabrication_cache), size)
@@ -137,20 +139,23 @@ def _members_dossier(files: dict[str, bytes]) -> tuple[bytes, list[dict]]:
 
 class PlacementRouteTests(unittest.TestCase):
     def setUp(self) -> None:
-        from app.api import release_studio as api
+        from app.api import fabrication_view as api
+        from app.api import release_studio as rel
 
         self.api = api
+        self.rel = rel
+        api._placement_cache.clear()
 
     def _call(self, files: dict[str, bytes]):
         payload, members = _members_dossier(files)
         build = {"id": "build-1", "dossier_artifact_id": "a1"}
         with (
-            patch.object(api_module := self.api, "get_project_for_role_or_404"),
-            patch.object(api_module, "_build_or_404", lambda *_args: build),
-            patch.object(api_module.store, "build_members", lambda _id: members),
-            patch.object(api_module, "_artifact_bytes", lambda _id: payload),
+            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.rel, "_build_or_404", lambda *_args: build),
+            patch.object(self.rel.store, "build_members", lambda _id: members),
+            patch.object(self.rel, "_artifact_bytes", lambda _id: payload),
         ):
-            return api_module.get_build_placement("project", "build-1", _User())
+            return self.api.get_build_placement("project", "build-1", _User())
 
     def test_parts_are_checked_against_the_bom(self) -> None:
         view = self._call({
@@ -160,6 +165,29 @@ class PlacementRouteTests(unittest.TestCase):
         self.assertTrue(view["hasBom"])
         self.assertEqual(view["counts"]["placed"], 4)
         self.assertEqual([item["ref"] for item in view["missing"]], ["R5"])
+
+    def test_a_build_is_read_from_its_dossier_once(self) -> None:
+        reads = []
+        payload, members = _members_dossier({
+            "assembly/positions.csv": KICAD_POS.encode(),
+            "assembly/bom.csv": KICAD_BOM.encode(),
+        })
+
+        def artifact(_id):
+            reads.append(1)
+            return payload
+
+        build = {"id": "build-1", "dossier_artifact_id": "a1"}
+        with (
+            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.rel, "_build_or_404", lambda *_args: build),
+            patch.object(self.rel.store, "build_members", lambda _id: members),
+            patch.object(self.rel, "_artifact_bytes", artifact),
+        ):
+            first = self.api.get_build_placement("project", "build-1", _User())
+            second = self.api.get_build_placement("project", "build-1", _User())
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(first, second)
 
     def test_a_build_without_a_bom_still_shows_the_positions(self) -> None:
         view = self._call({"assembly/positions.csv": KICAD_POS.encode()})
@@ -182,9 +210,9 @@ class PlacementRouteTests(unittest.TestCase):
         build = {"id": "build-1", "dossier_artifact_id": "a1"}
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.api, "_build_or_404", lambda *_args: build),
-            patch.object(self.api.store, "build_members", lambda _id: members),
-            patch.object(self.api, "_artifact_bytes", lambda _id: payload),
+            patch.object(self.rel, "_build_or_404", lambda *_args: build),
+            patch.object(self.rel.store, "build_members", lambda _id: members),
+            patch.object(self.rel, "_artifact_bytes", lambda _id: payload),
             self.assertRaises(HTTPException) as caught,
         ):
             self.api.get_build_placement("project", "build-1", _User())

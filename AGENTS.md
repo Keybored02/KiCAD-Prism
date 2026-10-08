@@ -87,8 +87,8 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 `frontend/src/components/release-studio/ReleaseStudioPanel.tsx`
 
 **View a fabrication package**
-`backend/app/api/release_studio.py` (a build's `fabrication-view` and `placement`
-routes) · `backend/app/api/fabrication_view.py` (committed output folders) →
+`backend/app/api/fabrication_view.py` (a Release Studio build's package and
+committed output folders, both sources) →
 `backend/app/services/fabrication_view_service.py` (layers, drill) ·
 `backend/app/services/placement_service.py` (parts, BOM check) →
 `backend/app/services/fabrication_compare_service.py` (the Gerber parser and

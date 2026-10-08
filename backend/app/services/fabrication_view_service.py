@@ -284,10 +284,17 @@ class FabricationPackage:
             for key, aperture in parsed.apertures.items():
                 if aperture.shape != "drill":
                     continue
+                if not hits[key] and not slots[key]:
+                    # Defined in the header and never used: nothing is drilled with it.
+                    continue
                 function = (aperture.macro or "").casefold()
+                # The declared function decides; a file with none is read by its name,
+                # where KiCad writes `-NPTH.drl` for the non-plated program.
+                # The parser labels a tool with no attribute plain "drill".
+                label = function if function not in ("", "drill") else info.filename.casefold()
                 rows.append({
                     "diameter": aperture.params[0],
-                    "plated": "nonplated" not in function and "npth" not in function,
+                    "plated": "nonplated" not in label and "npth" not in label,
                     "function": aperture.macro or "",
                     "hits": hits[key],
                     "slots": slots[key],
@@ -327,28 +334,28 @@ class FabricationPackage:
         }
 
 
-class PackageCache:
-    """A small bounded cache of parsed packages, safe across request threads.
+class BoundedCache:
+    """A small bounded cache of parsed results, safe across request threads.
 
-    A package is expensive to parse and cheap to hold only a few of, so this
-    keeps the most recently used and drops the rest.
+    A parsed package or placement view is expensive to build and cheap to hold
+    only a few of, so this keeps the most recently used and drops the rest.
     """
 
     def __init__(self, size: int = 4) -> None:
         self._size = size
-        self._items: "OrderedDict[Any, FabricationPackage]" = OrderedDict()
+        self._items: "OrderedDict[Any, Any]" = OrderedDict()
         self._lock = threading.Lock()
 
-    def get(self, key: Any) -> Optional[FabricationPackage]:
+    def get(self, key: Any) -> Optional[Any]:
         with self._lock:
-            package = self._items.get(key)
-            if package is not None:
+            value = self._items.get(key)
+            if value is not None:
                 self._items.move_to_end(key)
-            return package
+            return value
 
-    def put(self, key: Any, package: FabricationPackage) -> None:
+    def put(self, key: Any, value: Any) -> None:
         with self._lock:
-            self._items[key] = package
+            self._items[key] = value
             while len(self._items) > self._size:
                 self._items.popitem(last=False)
 

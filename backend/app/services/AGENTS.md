@@ -96,9 +96,9 @@ remote recovery, or authorization behavior.
 `fabrication_view_service.py` turns a set of Gerber and drill files into a view
 model and one SVG per layer; `placement_service.py` parses a position file and a
 BOM and checks one against the other. Both are pure: files in, view out. The
-routes that feed them are in `backend/app/api/release_studio.py` (a build's
-dossier) and `backend/app/api/fabrication_view.py` (a folder of committed
-outputs).
+routes that feed them are all in `backend/app/api/fabrication_view.py`: a
+Release Studio build's dossier, and a folder of committed outputs. Keep them
+together; the Release Studio router is upstream's and carries none of this.
 
 The parsing and drawing belong to `fabrication_compare_service.py`, which is
 grandfathered at its current length and must not grow. New behavior goes in the

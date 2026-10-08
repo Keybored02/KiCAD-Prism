@@ -20,6 +20,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 _SPLIT_REFS = re.compile(r"[,;\s]+")
+_RANGE = re.compile(r"^([A-Za-z_]+)(\d+)-(?:\1)?(\d+)$")
+#: A range this long is a typo, not a run of parts.
+_MAX_RANGE = 500
 _NATURAL = re.compile(r"(\d+)")
 _NUMBER = re.compile(r"^\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*([a-zA-Z]*)\s*$")
 
@@ -58,8 +61,23 @@ def _norm(header: str) -> str:
     return re.sub(r"[^a-z0-9]", "", header.casefold())
 
 
-def _rows(text: str) -> Tuple[List[str], List[List[str]]]:
-    text = text.lstrip("﻿")
+#: Rows scanned for the header; some tools write a title or units block first.
+_HEADER_SCAN_ROWS = 25
+
+
+def _rows(
+    text: str,
+    wanted: Optional[Mapping[str, Tuple[str, ...]]] = None,
+    required: Tuple[str, ...] = (),
+) -> Tuple[List[str], List[List[str]]]:
+    """The header and the rows under it.
+
+    With ``required`` the header is the first row that has all those columns, so a
+    preamble above it is skipped. When none does, the first row is used and the
+    caller reports which columns are missing.
+    """
+
+    text = text.lstrip("\ufeff")
     if not text.strip():
         raise PlacementError("The file is empty")
     try:
@@ -69,7 +87,13 @@ def _rows(text: str) -> Tuple[List[str], List[List[str]]]:
     rows = [row for row in csv.reader(io.StringIO(text), dialect) if any(cell.strip() for cell in row)]
     if len(rows) < 1:
         raise PlacementError("The file is empty")
-    return [cell.strip() for cell in rows[0]], rows[1:]
+    start = 0
+    if wanted is not None and required:
+        for index, row in enumerate(rows[:_HEADER_SCAN_ROWS]):
+            if all(key in _columns(row, wanted) for key in required):
+                start = index
+                break
+    return [cell.strip() for cell in rows[start]], rows[start + 1:]
 
 
 def _columns(header: Sequence[str], wanted: Mapping[str, Tuple[str, ...]]) -> Dict[str, int]:
@@ -111,6 +135,22 @@ def _side(raw: str) -> str:
     return "bottom" if raw.strip().casefold().startswith("b") else "top"
 
 
+def _expand_refs(cell: str) -> Tuple[str, ...]:
+    """References in a BOM cell: ``R1, R2``, and ranges such as ``R1-R4`` or ``R1-4``."""
+
+    refs: List[str] = []
+    for token in _SPLIT_REFS.split(re.sub(r"\s*-\s*", "-", cell)):
+        match = _RANGE.match(token)
+        if match and 0 <= int(match.group(3)) - int(match.group(2)) < _MAX_RANGE:
+            refs.extend(
+                f"{match.group(1)}{number}"
+                for number in range(int(match.group(2)), int(match.group(3)) + 1)
+            )
+        elif token:
+            refs.append(token)
+    return tuple(refs)
+
+
 def natural_key(ref: str) -> List[Any]:
     return [int(part) if part.isdigit() else part.casefold() for part in _NATURAL.split(ref)]
 
@@ -129,7 +169,7 @@ class Part:
 def parse_positions(text: str) -> Tuple[List[Part], List[str]]:
     """Parts from a position file, and a warning for each row that was skipped."""
 
-    header, rows = _rows(text)
+    header, rows = _rows(text, _POSITION_COLUMNS, ("ref", "x", "y"))
     columns = _columns(header, _POSITION_COLUMNS)
     missing = [key for key in ("ref", "x", "y") if key not in columns]
     if missing:
@@ -170,13 +210,13 @@ class BomLine:
 
 
 def parse_bom(text: str) -> List[BomLine]:
-    header, rows = _rows(text)
+    header, rows = _rows(text, _BOM_COLUMNS, ("refs",))
     columns = _columns(header, _BOM_COLUMNS)
     if "refs" not in columns:
         raise PlacementError("Not a BOM: no reference column")
     lines: List[BomLine] = []
     for row in rows:
-        refs = tuple(ref for ref in _SPLIT_REFS.split(_cell(row, columns, "refs")) if ref)
+        refs = _expand_refs(_cell(row, columns, "refs"))
         if not refs:
             continue
         dnp = _norm(_cell(row, columns, "dnp")) in _TRUTHY

@@ -126,6 +126,13 @@ class OutputFabricationViewTests(unittest.TestCase):
         self._view()
         self.assertEqual(len(self.api._cache), 2)
 
+    def test_a_folder_that_is_too_big_in_total_is_refused(self) -> None:
+        # Each file is within its own limit; together they are not.
+        with patch.object(self.api, "_MAX_TOTAL_BYTES", 100), self.assertRaises(HTTPException) as caught:
+            self._view()
+        self.assertEqual(caught.exception.status_code, 413)
+        self.assertIn("too large", caught.exception.detail)
+
     def test_oversized_and_overfull_folders_are_refused(self) -> None:
         with patch.object(self.api, "_MAX_FILES", 3), self.assertRaises(HTTPException) as caught:
             self._view()
@@ -174,6 +181,14 @@ class CommitFabricationViewTests(unittest.TestCase):
         first = len(self.read_calls)
         self._view()
         self.assertEqual(len(self.read_calls), first)
+
+    def test_a_branch_name_is_never_a_cache_key(self) -> None:
+        # A branch can move without any file in the folder changing size.
+        self._view(commit="main")
+        first = len(self.read_calls)
+        self._view(commit="main")
+        self.assertGreater(len(self.read_calls), first)
+        self.assertEqual(len(self.api._cache), 0)
 
     def test_a_different_commit_is_a_different_package(self) -> None:
         self._view(commit="a" * 40)
