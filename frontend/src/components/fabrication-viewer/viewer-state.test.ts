@@ -108,3 +108,44 @@ describe("viewerReducer", () => {
         expect([...back.visible].sort()).toEqual([...start.visible].sort());
     });
 });
+
+describe("viewerReducer, parts", () => {
+    const start = initialState(LAYERS);
+
+    it("starts with markers on and nothing selected", () => {
+        expect(start.showParts).toBe(true);
+        expect(start.selected).toBeNull();
+    });
+
+    it("toggles the markers", () => {
+        const off = viewerReducer(start, { type: "parts" });
+        expect(off.showParts).toBe(false);
+        expect(viewerReducer(off, { type: "parts" }).showParts).toBe(true);
+    });
+
+    it("selecting a part on the shown side keeps the layers as they are", () => {
+        const custom = viewerReducer(start, { type: "toggle", id: "f.mask" });
+        const next = viewerReducer(custom, { type: "select", ref: "R1", side: "top", layers: LAYERS });
+        expect(next.selected).toBe("R1");
+        expect(next.visible.has("f.mask")).toBe(true);
+    });
+
+    it("selecting a part on the other side turns the board over to it", () => {
+        const next = viewerReducer(start, { type: "select", ref: "R9", side: "bottom", layers: LAYERS });
+        expect(next.side).toBe("bottom");
+        expect(next.visible.has("b.cu")).toBe(true);
+        expect(next.selected).toBe("R9");
+    });
+
+    it("selecting brings the markers back, and null clears the selection", () => {
+        const off = viewerReducer(start, { type: "parts" });
+        const picked = viewerReducer(off, { type: "select", ref: "R1", side: "top", layers: LAYERS });
+        expect(picked.showParts).toBe(true);
+        expect(viewerReducer(picked, { type: "select", ref: null, layers: LAYERS }).selected).toBeNull();
+    });
+
+    it("flipping the side by hand keeps the selection", () => {
+        const picked = viewerReducer(start, { type: "select", ref: "R1", side: "top", layers: LAYERS });
+        expect(viewerReducer(picked, { type: "side", side: "bottom", layers: LAYERS }).selected).toBe("R1");
+    });
+});

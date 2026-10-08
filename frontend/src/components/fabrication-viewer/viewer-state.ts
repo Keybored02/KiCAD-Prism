@@ -5,6 +5,10 @@ export type ViewSide = "top" | "bottom";
 export interface ViewerState {
     side: ViewSide;
     visible: ReadonlySet<string>;
+    /** Reference of the part picked in the table or on the board. */
+    selected: string | null;
+    /** Part markers are drawn over the layers. */
+    showParts: boolean;
 }
 
 export type ViewerAction =
@@ -12,7 +16,10 @@ export type ViewerAction =
     | { type: "toggle"; id: string }
     | { type: "preset"; layers: FabricationLayer[] }
     | { type: "all"; layers: FabricationLayer[] }
-    | { type: "none" };
+    | { type: "none" }
+    | { type: "parts" }
+    /** Pick a part; one on the other side turns the board over to it. */
+    | { type: "select"; ref: string | null; side?: ViewSide; layers: FabricationLayer[] };
 
 /**
  * What a reviewer wants first: the side's copper and legend, the board profile
@@ -57,6 +64,8 @@ export function initialState(layers: FabricationLayer[], focusFile?: string): Vi
     return {
         side,
         visible: focus.size > 0 ? focus : presetFor(layers, side),
+        selected: null,
+        showParts: true,
     };
 }
 
@@ -65,7 +74,15 @@ export function viewerReducer(state: ViewerState, action: ViewerAction): ViewerS
         case "side":
             return action.side === state.side
                 ? state
-                : { side: action.side, visible: presetFor(action.layers, action.side) };
+                : { ...state, side: action.side, visible: presetFor(action.layers, action.side) };
+        case "parts":
+            return { ...state, showParts: !state.showParts };
+        case "select": {
+            const turned = action.side && action.side !== state.side
+                ? { side: action.side, visible: presetFor(action.layers, action.side) }
+                : {};
+            return { ...state, ...turned, selected: action.ref, showParts: true };
+        }
         case "toggle": {
             const visible = new Set(state.visible);
             if (!visible.delete(action.id)) visible.add(action.id);

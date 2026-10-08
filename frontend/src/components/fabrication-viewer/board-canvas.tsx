@@ -1,17 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Maximize2, ZoomIn, ZoomOut } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
     paneLayout,
-    useBoardViewport,
     type BoardRect,
+    type useBoardViewport,
 } from "@/components/design-comparison/fabrication-viewport";
 
 import type { LayerImage } from "./use-fabrication-data";
 import type { FabricationLayer } from "./types";
 
 const ZOOM_STEP = 1.5;
+
+export type Viewport = ReturnType<typeof useBoardViewport>;
 
 export function toRect(box: readonly [number, number, number, number]): BoardRect {
     return { x: box[0], y: box[1], width: box[2] - box[0], height: box[3] - box[1] };
@@ -58,6 +60,8 @@ export function BoardCanvas({
     layers,
     images,
     mirrored,
+    viewport,
+    overlay,
 }: {
     board: BoardRect;
     drawn: BoardRect;
@@ -65,8 +69,12 @@ export function BoardCanvas({
     layers: FabricationLayer[];
     images: Record<string, LayerImage>;
     mirrored: boolean;
+    /** Camera and pointer handlers, owned by the parent so it can move the camera. */
+    viewport: Viewport;
+    /** Drawn over the layers, in the same rectangle; given the current pixels per millimetre. */
+    overlay?: (pxPerMm: number) => ReactNode;
 }) {
-    const { view, reset, zoomBy, handlers } = useBoardViewport(board, { mirrorX: mirrored });
+    const { view, reset, zoomBy, handlers } = viewport;
     const { ref, size } = usePaneSize();
     const layout = size.width && size.height ? paneLayout(drawn, board, view, size) : null;
     const loading = layers.some((layer) => images[layer.id]?.status === "loading");
@@ -108,6 +116,7 @@ export function BoardCanvas({
                                     />
                                 );
                             })}
+                            {overlay?.(layout.scale)}
                         </div>
                     )}
                 </div>

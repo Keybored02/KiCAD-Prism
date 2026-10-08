@@ -48,4 +48,46 @@ export interface FabricationSource {
     key: string;
     viewUrl: string;
     layerUrl: (layerId: string) => string;
+    /** Pick-and-place parts. Without it the viewer has no Placement tab. */
+    placementUrl?: string;
+}
+
+export type PartStatus = "ok" | "not-in-bom" | "dnp-placed" | "no-bom" | "not-placed";
+
+export interface PlacementPart {
+    ref: string;
+    value: string;
+    package: string;
+    /** Board millimetres, Y down, like the layers. */
+    x: number;
+    y: number;
+    /** Degrees counter-clockwise, as the position file states it. */
+    rotation: number;
+    side: "top" | "bottom";
+    status: PartStatus;
+}
+
+/** In the BOM and meant to be placed, but absent from the position file. */
+export interface MissingPart {
+    ref: string;
+    value: string;
+    package: string;
+    status: "not-placed";
+}
+
+export interface PlacementView {
+    present: boolean;
+    parts: PlacementPart[];
+    missing: MissingPart[];
+    counts: {
+        placed: number;
+        top: number;
+        bottom: number;
+        notInBom: number;
+        dnpPlaced: number;
+        notPlaced: number;
+    };
+    hasBom: boolean;
+    files: { positions: string; bom: string };
+    warnings: string[];
 }

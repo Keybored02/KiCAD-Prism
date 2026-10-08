@@ -9,6 +9,7 @@ export function buildSource(projectId: string, buildId: string): FabricationSour
         key: `build:${projectId}:${buildId}`,
         viewUrl: base,
         layerUrl: (layerId) => `${base}/layers/${encodeURIComponent(layerId)}.svg`,
+        placementUrl: `${base.replace(/\/fabrication-view$/, "")}/placement`,
     };
 }
 
@@ -32,6 +33,7 @@ export function outputsSource(
         key: `outputs:${projectId}:${type}:${folder}:${commit ?? ""}`,
         viewUrl: `${root}?${query}`,
         layerUrl: (layerId) => `${root}/layers/${encodeURIComponent(layerId)}.svg?${query}`,
+        placementUrl: `/api/projects/${encodeURIComponent(projectId)}/placement?${query}`,
     };
 }
 

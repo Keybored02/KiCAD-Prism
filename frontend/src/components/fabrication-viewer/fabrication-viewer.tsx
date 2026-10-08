@@ -1,20 +1,27 @@
 import { useMemo, useReducer, useState } from "react";
+import { X } from "lucide-react";
 
+import { useBoardViewport } from "@/components/design-comparison/fabrication-viewport";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
 
 import { BoardCanvas, toRect, withMargin } from "./board-canvas";
 import { DrillTable } from "./drill-table";
 import { LayerList } from "./layer-list";
-import type { FabricationSource, FabricationView } from "./types";
+import { PartMarkers } from "./part-markers";
+import { PlacementPanel } from "./placement-panel";
+import type { FabricationSource, FabricationView, PlacementPart } from "./types";
 import { useFabricationView, useLayerImages } from "./use-fabrication-data";
+import { usePlacement } from "./use-placement";
 import { initialState, viewerReducer, type ViewSide } from "./viewer-state";
 
 const SIDES: { side: ViewSide; label: string }[] = [
     { side: "top", label: "Top" },
     { side: "bottom", label: "Bottom" },
 ];
+
+/** Half the width of the square framed around a picked part, in millimetres. */
+const PICK_FRAME_MM = 2;
 
 function Summary({ view }: { view: FabricationView }) {
     const parts = [
@@ -25,6 +32,22 @@ function Summary({ view }: { view: FabricationView }) {
     return <span className="text-xs text-muted-foreground">{parts.join("  |  ")}</span>;
 }
 
+function PickedPart({ part, onClear }: { part: PlacementPart; onClear: () => void }) {
+    return (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border px-3 py-1.5 text-xs">
+            <span className="font-mono font-semibold">{part.ref}</span>
+            <span>{part.value || "-"}</span>
+            <span className="text-muted-foreground">{part.package}</span>
+            <span className="text-muted-foreground">
+                {part.side}, x {part.x.toFixed(2)} y {part.y.toFixed(2)}, {part.rotation} deg
+            </span>
+            <Button size="icon-xs" variant="ghost" className="ml-auto" aria-label="Clear selection" onClick={onClear}>
+                <X className="h-3 w-3" />
+            </Button>
+        </div>
+    );
+}
+
 function LoadedViewer({ source, view, focusFile }: {
     source: FabricationSource;
     view: FabricationView;
@@ -32,15 +55,37 @@ function LoadedViewer({ source, view, focusFile }: {
 }) {
     const [state, dispatch] = useReducer(viewerReducer, undefined, () => initialState(view.layers, focusFile));
     const [tab, setTab] = useState("board");
+    const placement = usePlacement(source);
+    const parts = placement.status === "ready" ? placement.data : null;
+
     const shown = useMemo(
         () => view.layers.filter((layer) => state.visible.has(layer.id)),
         [view.layers, state.visible],
     );
     const shownIds = useMemo(() => shown.map((layer) => layer.id), [shown]);
     const images = useLayerImages(source, shownIds);
+
     const drawn = view.bounds ? toRect(view.bounds) : null;
     const fitted = view.board ? toRect(view.board) : drawn;
     const board = fitted ? withMargin(fitted) : null;
+    const mirrored = state.side === "bottom";
+    const viewport = useBoardViewport(board, { mirrorX: mirrored });
+
+    const sideParts = useMemo(
+        () => (parts && state.showParts ? parts.parts.filter((part) => part.side === state.side) : []),
+        [parts, state.showParts, state.side],
+    );
+    const picked = parts?.parts.find((part) => part.ref === state.selected) ?? null;
+
+    const pick = (part: PlacementPart) => {
+        dispatch({ type: "select", ref: part.ref, side: part.side, layers: view.layers });
+        viewport.frame({
+            x: part.x - PICK_FRAME_MM,
+            y: part.y - PICK_FRAME_MM,
+            width: PICK_FRAME_MM * 2,
+            height: PICK_FRAME_MM * 2,
+        });
+    };
 
     return (
         <div className="flex h-full min-h-0 flex-1 flex-col gap-2 p-3">
@@ -51,6 +96,11 @@ function LoadedViewer({ source, view, focusFile }: {
                         <TabsTrigger value="drill" className="px-2 text-sm">
                             Drill ({view.drill.holes})
                         </TabsTrigger>
+                        {placement.status !== "absent" && placement.status !== "loading" && (
+                            <TabsTrigger value="placement" className="px-2 text-sm">
+                                Placement{parts ? ` (${parts.counts.placed})` : ""}
+                            </TabsTrigger>
+                        )}
                     </TabsList>
                 </Tabs>
                 {tab === "board" && (
@@ -68,10 +118,26 @@ function LoadedViewer({ source, view, focusFile }: {
                         ))}
                     </div>
                 )}
+                {tab === "board" && parts && (
+                    <Button
+                        size="xs"
+                        variant={state.showParts ? "default" : "outline"}
+                        aria-pressed={state.showParts}
+                        onClick={() => dispatch({ type: "parts" })}
+                    >
+                        Parts
+                    </Button>
+                )}
                 <Summary view={view} />
             </div>
-            {tab === "board" ? (
-                <div className={cn("flex min-h-0 flex-1 gap-2")}>
+            {tab === "board" && picked && (
+                <PickedPart
+                    part={picked}
+                    onClear={() => dispatch({ type: "select", ref: null, layers: view.layers })}
+                />
+            )}
+            {tab === "board" && (
+                <div className="flex min-h-0 flex-1 gap-2">
                     <LayerList
                         layers={view.layers}
                         visible={state.visible}
@@ -86,7 +152,20 @@ function LoadedViewer({ source, view, focusFile }: {
                             drawn={drawn}
                             layers={shown}
                             images={images}
-                            mirrored={state.side === "bottom"}
+                            mirrored={mirrored}
+                            viewport={viewport}
+                            overlay={sideParts.length > 0
+                                ? (pxPerMm) => (
+                                    <PartMarkers
+                                        parts={sideParts}
+                                        drawn={drawn}
+                                        pxPerMm={pxPerMm}
+                                        selected={state.selected}
+                                        mirrored={mirrored}
+                                        onSelect={pick}
+                                    />
+                                )
+                                : undefined}
                         />
                     ) : (
                         <p className="p-3 text-sm text-muted-foreground">
@@ -94,8 +173,23 @@ function LoadedViewer({ source, view, focusFile }: {
                         </p>
                     )}
                 </div>
-            ) : (
-                <DrillTable drill={view.drill} />
+            )}
+            {tab === "drill" && <DrillTable drill={view.drill} />}
+            {/* Kept mounted so its search and filters survive a look at the board. */}
+            {placement.status === "error" && tab === "placement" && (
+                <p role="alert" className="p-3 text-sm text-destructive">{placement.message}</p>
+            )}
+            {parts && (
+                <div className={tab === "placement" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+                    <PlacementPanel
+                        view={parts}
+                        selected={state.selected}
+                        onSelect={(part) => {
+                            pick(part);
+                            setTab("board");
+                        }}
+                    />
+                </div>
             )}
         </div>
     );
@@ -103,7 +197,8 @@ function LoadedViewer({ source, view, focusFile }: {
 
 /**
  * A fabrication package as a board: layers with toggles, top and bottom, pan and
- * zoom, and the drill table. Source-agnostic; key it on `source.key`.
+ * zoom, the drill table, and the pick-and-place parts when the source has them.
+ * Source-agnostic; key it on `source.key`.
  */
 export function FabricationViewer({ source, focusFile }: {
     source: FabricationSource;

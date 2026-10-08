@@ -9,6 +9,11 @@ const apiMock = vi.hoisted(() => ({
     fetchJson: vi.fn(),
     fetchApi: vi.fn(),
     readApiError: vi.fn(async () => "layer failed"),
+    ApiHttpError: class ApiHttpError extends Error {
+        constructor(public status: number, message: string) {
+            super(message);
+        }
+    },
 }));
 vi.mock("@/lib/api", () => apiMock);
 
@@ -71,7 +76,13 @@ class ImmediateResizeObserver {
 }
 
 beforeEach(() => {
-    apiMock.fetchJson.mockResolvedValue(VIEW);
+    // Most packages have no position file; the placement tests below say otherwise.
+    apiMock.fetchJson.mockImplementation(async (url: string) => {
+        if (String(url).includes("/placement")) {
+            throw new apiMock.ApiHttpError(404, "This build has no position file");
+        }
+        return VIEW;
+    });
     apiMock.fetchApi.mockImplementation(async () => ({
         ok: true,
         blob: async () => new Blob(["<svg/>"], { type: "image/svg+xml" }),

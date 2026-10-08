@@ -1,9 +1,13 @@
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 
-import type { FabricationView } from "./types";
+import type { FabricationView, PlacementView } from "./types";
 
 export function fetchFabricationView(viewUrl: string): Promise<FabricationView> {
     return fetchJson<FabricationView>(viewUrl, undefined, "Could not load the fabrication package");
+}
+
+export function fetchPlacement(placementUrl: string): Promise<PlacementView> {
+    return fetchJson<PlacementView>(placementUrl, undefined, "Could not load the placement data");
 }
 
 /**
