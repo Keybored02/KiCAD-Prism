@@ -157,27 +157,26 @@ class AssembliesMixin:
             if open_review and open_review["to_commit"] == revision_id:
                 return {"outcome": "review_current", "reviewId": open_review["id"]}
             # A revision that would break the hierarchy limits is never advanced to (§5.3).
-            candidate = {**instance, "catalog_revision_id": revision_id}
-            others = [i for i in store.list_instances(system_id, kinds=SystemStore.ALL_KINDS) if i["id"] != instance_id]
-            try:
-                hierarchy.resolve(system_id, others + [candidate], self._child_loader(store))
-            except hierarchy.HierarchyError as error:
-                store.record_source_check(instance_id, tip_commit=None, checked_commit=None,
-                                          outcome="advance_blocked")
-                logger.info("Not advancing %s to %s: %s", instance_id, revision_id, error)
-                return {"outcome": "advance_blocked", "reviewId": None, "reason": error.code}
+            blocked = self._advance_blocked(store, system_id, instance, revision_id)
+            if blocked is not None:
+                return blocked
         with self._tx() as store:
-            if auto_kind == "child_auto_advanced":
-                # A release job runs after its listing and may arrive late: under the lock (held to
-                # commit), apply it only while the instance still follows and this is still the newest
-                # release. A manual rebase ("child_rebased") may choose any revision.
-                with store.mutation(system_id, expected_version=expected_version, actor=actor, bump=False):
-                    current = store.get_instance(system_id, instance_id)
+            # Under the lock (held to commit): the checks above may be stale by now.
+            with store.mutation(system_id, expected_version=expected_version, actor=actor, bump=False):
+                current = store.get_instance(system_id, instance_id)
+                if auto_kind == "child_auto_advanced":
+                    # A release job runs after its listing and may arrive late: apply it only while the
+                    # instance still follows and this is still the newest release. A manual rebase
+                    # ("child_rebased") may choose any revision.
                     fresh = self._catalog_revision(revision_id) or revision
                     if current.get("follow") != "latest_released":
                         return {"outcome": "not_following", "reviewId": None}
                     if fresh.get("latestReleasedRevisionId") != revision_id:
                         return {"outcome": "superseded", "reviewId": None}
+                # SB2-97: another editor may have added boards since the check above.
+                blocked = self._advance_blocked(store, system_id, current, revision_id)
+            if blocked is not None:
+                return blocked
             with store.mutation(system_id, expected_version=expected_version, actor=actor) as change:
                 current = store.get_instance(system_id, instance_id)
                 # A module's revision compares as its connectors (§5.6), an assembly's as its exports (§7).
@@ -186,6 +185,20 @@ class AssembliesMixin:
                                                                         auto_kind=auto_kind, candidate=candidate)
             store.record_source_check(instance_id, tip_commit=None, checked_commit=None, outcome=outcome)
         return {"outcome": outcome, "reviewId": review_id, "version": change.version}
+
+    def _advance_blocked(self, store: SystemStore, system_id: str, instance: Mapping[str, Any],
+                         revision_id: str) -> Optional[dict]:
+        """``advance_blocked`` (recorded) when moving ``instance`` to ``revision_id`` would break the
+        hierarchy limits (§5.3), else None."""
+        candidate = {**instance, "catalog_revision_id": revision_id}
+        others = [i for i in store.list_instances(system_id, kinds=SystemStore.ALL_KINDS) if i["id"] != instance["id"]]
+        try:
+            hierarchy.resolve(system_id, others + [candidate], self._child_loader(store))
+        except hierarchy.HierarchyError as error:
+            store.record_source_check(instance["id"], tip_commit=None, checked_commit=None, outcome="advance_blocked")
+            logger.info("Not advancing %s to %s: %s", instance["id"], revision_id, error)
+            return {"outcome": "advance_blocked", "reviewId": None, "reason": error.code}
+        return None
 
     def rebase_child(self, caller: Caller, system_id: str, version: int, instance_id: str,
                      revision_id: str) -> Result:
