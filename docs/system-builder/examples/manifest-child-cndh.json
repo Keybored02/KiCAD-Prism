@@ -25,7 +25,8 @@
       "baselineCommit": "535840f9e69058b38b601cf48befd0c802aafd3a",
       "trackedRef": "main",
       "pinned": false,
-      "portOverrides": []
+      "portOverrides": [],
+      "subports": []
     },
     {
       "id": "sin_ef30e4890c270406bb166d6e117ebbb3",
@@ -35,7 +36,8 @@
       "baselineCommit": "535840f9e69058b38b601cf48befd0c802aafd3a",
       "trackedRef": null,
       "pinned": true,
-      "portOverrides": []
+      "portOverrides": [],
+      "subports": []
     },
     {
       "id": "sin_f8cdbc63b67db711b1cc76ca0d905132",
@@ -50,7 +52,8 @@
           "portKey": "/f8cdbc63-root/d74a8744-J20",
           "state": "promoted"
         }
-      ]
+      ],
+      "subports": []
     }
   ],
   "exports": [
@@ -70,7 +73,8 @@
           "libId": "Connector:Conn_01x04",
           "footprint": "Connector_JST:JST_GH_BM04B-GHS-TBT_1x04-1MP_P1.25mm_Vertical",
           "pinCount": 4
-        }
+        },
+        "subportId": null
       }
     },
     {
@@ -89,7 +93,8 @@
           "libId": "Connector:Conn_01x04",
           "footprint": "Connector_JST:JST_GH_BM04B-GHS-TBT_1x04-1MP_P1.25mm_Vertical",
           "pinCount": 4
-        }
+        },
+        "subportId": null
       }
     }
   ],
@@ -111,7 +116,8 @@
           "libId": "Connector_Generic:Conn_02x20_Odd_Even",
           "footprint": "Connector_PinHeader_2.54mm:PinHeader_2x20_P2.54mm_Vertical",
           "pinCount": 40
-        }
+        },
+        "subportId": null
       },
       "b": {
         "instanceId": "sin_f8cdbc63b67db711b1cc76ca0d905132",
@@ -125,7 +131,8 @@
           "libId": "Connector_Generic:Conn_02x20_Odd_Even",
           "footprint": "Connector_PinHeader_2.54mm:PinHeader_2x20_P2.54mm_Vertical",
           "pinCount": 40
-        }
+        },
+        "subportId": null
       },
       "rows": [
         {

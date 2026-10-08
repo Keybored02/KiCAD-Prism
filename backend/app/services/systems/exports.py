@@ -41,7 +41,9 @@ def as_interface(revision_interface: Optional[Mapping[str, Any]]) -> Optional[di
             "candidate": True, "candidateReason": "export", "dnp": False,
             "pins": [dict(pin) for pin in entry.get("pins") or []],
             "export": {"name": entry["name"], "reference": entry.get("reference"),
-                       "occurrence": entry.get("occurrence"), "description": entry.get("description", "")},
+                       "occurrence": entry.get("occurrence"), "description": entry.get("description", ""),
+                       # P2 §22.2: part of a connector in the child, so never one end of a b2b mate.
+                       **({"subport": True} if entry.get("subport") else {})},
         })
     return {"components": components, "hasPcb": False, "kind": "export_interface"}
 
@@ -91,15 +93,34 @@ def _natural(pad: str) -> tuple:
     return pad_sort_key(pad)
 
 
+def _split(component: Mapping[str, Any], export: Mapping[str, Any],
+           subports: Sequence[Mapping[str, Any]]) -> tuple[dict, Optional[str], bool]:
+    """The component an export publishes on a split connector (P2 §22.2): only its sub-port's pads,
+    or the remainder's, with the sub-port's name and whether it is part of a connector."""
+    from app.services.systems import subports as subports_module
+
+    on = subports_module.on_connector(subports, export["target_instance_id"],
+                                      {"portKey": component["portKey"], "memberKeys": component.get("memberKeys")})
+    if not on:
+        return dict(component), None, False
+    subport_id = export.get("target_subport_id")
+    pads = subports_module.end_pads(exposure.pins_by_pad(component), on, subport_id)
+    name = next((s["name"] for s in on if s["id"] == subport_id), None)
+    return {**component, "pins": [p for p in component.get("pins") or [] if str(p["pad"]) in pads]}, name, True
+
+
 def interface(
     exports: Sequence[Mapping[str, Any]], instances: Mapping[str, Mapping[str, Any]],
     interfaces: Mapping[str, Optional[Mapping[str, Any]]], overrides: Mapping[str, Mapping[str, str]],
+    subports: Sequence[Mapping[str, Any]] = (),
 ) -> dict:
     """``prism.system_export_interface.v1`` over baseline interfaces (§4.3).
 
     ``interfaces`` maps instance ID to its baseline interface (None while not
     extracted). An export that does not resolve is listed with
-    ``resolved: false`` and no pins, so a publish can refuse it.
+    ``resolved: false`` and no pins, so a publish can refuse it. An export of a
+    sub-port, or of a split connector's remainder, lists only those pads and
+    ``subport: true`` (P2 §22.2); ``subports`` are the system's sub-port rows.
     """
 
     out = []
@@ -115,10 +136,14 @@ def interface(
                               "pinCount": 0, "pins": []})
             else:
                 inner = child["export"].get("occurrence") or ""
+                child, name, partial = _split(child, export, subports)
+                reference = child["export"].get("reference")
                 entry.update({"resolved": True, "occurrence": "/" + export["target_instance_id"] + inner,
-                              "reference": child["export"].get("reference"), "libId": child.get("libId"),
-                              "footprint": child.get("footprint"), "pinCount": len(child["pins"]),
-                              "pins": _pins(child)})
+                              "reference": f"{reference}.{name}" if name and reference else reference,
+                              "libId": child.get("libId"), "footprint": child.get("footprint"),
+                              "pinCount": len(child["pins"]), "pins": _pins(child)})
+                if partial or child["export"].get("subport"):
+                    entry["subport"] = True
             out.append(entry)
             continue
         component = resolve(interfaces.get(export["target_instance_id"]), port)
@@ -130,9 +155,14 @@ def interface(
                           "footprint": None, "pinCount": 0, "pins": []})
         else:
             baseline = exposure.port_baseline(component)
-            entry.update({"resolved": True, "reference": baseline["reference"], "libId": baseline["libId"],
-                          "footprint": baseline["footprint"], "pinCount": baseline["pinCount"],
-                          "pins": _pins(component)})
+            part, name, partial = _split(component, export, subports)
+            entry.update({"resolved": True,
+                          "reference": f"{baseline['reference']}.{name}" if name else baseline["reference"],
+                          "libId": baseline["libId"], "footprint": baseline["footprint"],
+                          "pinCount": len(part["pins"]) if partial else baseline["pinCount"],
+                          "pins": _pins(part)})
+            if partial:
+                entry["subport"] = True
         out.append(entry)
     return {"schema": INTERFACE_SCHEMA, "exports": out}
 

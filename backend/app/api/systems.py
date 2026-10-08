@@ -107,6 +107,7 @@ class CreateExportRequest(BaseModel):
     instanceId: str = Field(min_length=1, max_length=200)
     portKey: Optional[str] = Field(default=None, min_length=1, max_length=2000)
     childExportId: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    subportId: Optional[str] = Field(default=None, min_length=1, max_length=100)  # P2 §22.2
 
 
 class UpdateExportRequest(BaseModel):
@@ -784,6 +785,7 @@ async def create_export(
     result = await _run(system_id, lambda: system_service.service.create_export(
         _caller(user), system_id, version, name=body.name, description=body.description,
         instance_id=body.instanceId, port_key=body.portKey, child_export_id=body.childExportId,
+        subport_id=body.subportId,
     ))
     return _respond(result, response, 201)
 

@@ -520,9 +520,10 @@ class InstancesStore:
         _check_link_type(link_type, stack_height_mm)
         if a_instance_id == b_instance_id and a_baseline["portKey"] == b_baseline["portKey"]:
             raise Invalid("both link ends are the same port")
-        for instance_id, baseline in ((a_instance_id, a_baseline), (b_instance_id, b_baseline)):
+        for instance_id, baseline, subport_id in ((a_instance_id, a_baseline, a_subport_id),
+                                                  (b_instance_id, b_baseline, b_subport_id)):
             self.get_instance(change.system_id, instance_id)
-            if self.exported_port(change.system_id, instance_id, baseline["portKey"]):
+            if self.exported_port(change.system_id, instance_id, baseline["portKey"], subport_id):
                 raise Conflict("export_port_linked: this port is exported; delete or retarget the export first")
         count = self.conn.execute(
             "SELECT count(*) AS n FROM system_links WHERE system_id = %s", (change.system_id,)

@@ -39,6 +39,7 @@ HarnessEndId = Annotated[str, _id("she")]
 WireId = Annotated[str, _id("shw")]
 HarnessNodeId = Annotated[str, _id("shd")]
 SnapshotId = Annotated[str, _id("ssn")]
+SubportId = Annotated[str, _id("spt")]
 Sha = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 Pad = Annotated[str, Field(min_length=1, max_length=100)]
 Nets = list[Annotated[str, Field(max_length=1000)]]
@@ -79,6 +80,7 @@ class PortEnd(_Model):
     instanceId: InstanceId
     portKey: str = Field(min_length=1, max_length=2000)
     port: PortBaseline
+    subportId: Optional[SubportId] = Field(default=None, description="§22: the sub-port this end lands on")
 
     @model_validator(mode="after")
     def _key_matches(self) -> "PortEnd":
@@ -91,6 +93,7 @@ class ExportEnd(_Model):
     instanceId: InstanceId
     exportId: ExportId
     export: ExportBaseline
+    subportId: Optional[SubportId] = Field(default=None, description="§22: the sub-port this end lands on")
 
     @model_validator(mode="after")
     def _id_matches(self) -> "ExportEnd":
@@ -111,6 +114,22 @@ class PortOverride(_Model):
     state: Literal["hidden", "promoted"]
 
 
+class Subport(_Model):
+    """§22.1: a named pad set carved out of a connector (or a subsystem export) on an instance."""
+
+    id: SubportId
+    portKey: str = Field(min_length=1, max_length=2000)
+    port: PortBaseline
+    name: str = Field(pattern=r"^[A-Za-z0-9_+\-]{1,32}$")
+    pads: list[Pad] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _key_matches(self) -> "Subport":
+        if self.port.portKey != self.portKey:
+            raise ValueError("port.portKey must equal portKey")
+        return self
+
+
 class BoardInstance(_Model):
     id: InstanceId
     label: Label
@@ -120,6 +139,7 @@ class BoardInstance(_Model):
     trackedRef: Optional[str] = Field(default=None, max_length=200)
     pinned: bool
     portOverrides: list[PortOverride] = Field(default_factory=list)
+    subports: list[Subport] = Field(default_factory=list)
 
 
 class CatalogRef(_Model):
@@ -135,6 +155,7 @@ class CatalogInstance(_Model):
     kind: Literal["assembly", "module"]
     catalog: CatalogRef
     follow: Literal["pinned", "latest_released"]
+    subports: list[Subport] = Field(default_factory=list)
 
 
 Instance = Annotated[Union[BoardInstance, CatalogInstance], Field(discriminator="kind")]
@@ -154,6 +175,7 @@ class ExportTarget(_Model):
 
     instanceId: InstanceId
     exportId: ExportId
+    subportId: Optional[SubportId] = None
 
 
 class ExportPortTarget(_Model):
@@ -162,6 +184,7 @@ class ExportPortTarget(_Model):
     instanceId: InstanceId
     portKey: str = Field(min_length=1, max_length=2000)
     port: PortBaseline
+    subportId: Optional[SubportId] = None
 
     @model_validator(mode="after")
     def _key_matches(self) -> "ExportPortTarget":
@@ -431,10 +454,46 @@ def reference_problems(manifest: Manifest) -> list[str]:
     for export in manifest.exports:
         end_ok(export.target, f"export {export.name}")
 
+    # §22.1: sub-ports are disjoint per connector, and an end names one of its own connector.
+    subports: dict[str, tuple[str, str, frozenset]] = {}
+    for instance in manifest.instances:
+        taken: dict[str, set] = {}
+        for sub in instance.subports:
+            subports[sub.id] = (instance.id, sub.portKey, frozenset(sub.pads))
+            pads = taken.setdefault(sub.portKey, set())
+            if pads & set(sub.pads) or len(set(sub.pads)) != len(sub.pads):
+                problems.append(f"sub-port {sub.id}: pads overlap another sub-port of its connector")
+            pads.update(sub.pads)
+
+    def end_pads(end: Any, where: str) -> Optional[frozenset]:
+        """The pads ``end`` may use, or None for any pad of its connector."""
+        key = getattr(end, "portKey", None) or getattr(end, "exportId", None)
+        if end.subportId is not None:
+            found = subports.get(end.subportId)
+            if found is None or found[:2] != (end.instanceId, key):
+                problems.append(f"{where}: sub-port {end.subportId} is not on this end's connector")
+                return None
+            return found[2]
+        return None
+
+    def remainder_taken(end: Any) -> frozenset:
+        key = getattr(end, "portKey", None) or getattr(end, "exportId", None)
+        return frozenset(p for iid, k, pads in subports.values() if (iid, k) == (end.instanceId, key) for p in pads)
+
+    for export in manifest.exports:
+        end_pads(export.target, f"export {export.name}")
+
     rows: set[str] = set()
     for link in manifest.links:
         end_ok(link.a, f"link {link.id} a")
         end_ok(link.b, f"link {link.id} b")
+        allowed = {side: end_pads(getattr(link, side), f"link {link.id} {side}") for side in ("a", "b")}
+        taken_by = {side: remainder_taken(getattr(link, side)) for side in ("a", "b")}
+        for row in link.rows:
+            for side, pin in (("a", row.pinA), ("b", row.pinB)):
+                if (allowed[side] is not None and pin not in allowed[side]) or (
+                        getattr(link, side).subportId is None and pin in taken_by[side]):
+                    problems.append(f"link {link.id}: row {row.id} pin {pin} is not on end {side}")
         seen = set()
         for row in link.rows:
             if row.id in rows:
@@ -505,6 +564,14 @@ def full_view(manifest: Manifest) -> dict:
     for link in body["links"]:
         if link["stackHeightMm"] is None:
             link.pop("stackHeightMm")
+    # §22 (P2-1.72): sub-ports and the ends that name one, omitted while unset.
+    for instance in body["instances"]:
+        if not instance["subports"]:
+            instance.pop("subports")
+    for end in [link[side] for link in body["links"] for side in ("a", "b")] + [e["target"] for e in body["exports"]] \
+            + [end["mates"] for harness in body["harnesses"] for end in harness["ends"] if end["mates"]]:
+        if end.get("subportId", 0) is None:
+            end.pop("subportId")
     for harness in body["harnesses"]:
         for end in harness["ends"]:
             if end["partPins"] is None:

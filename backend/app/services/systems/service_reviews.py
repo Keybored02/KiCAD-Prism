@@ -606,7 +606,7 @@ class ReviewsMixin:
         overrides = {iid: store.list_overrides(iid) for iid in instances}
         return csv_import.classify(parsed, column_map, board_map, instances=instances, interfaces=interfaces,
                                    overrides=overrides, links=store.list_links(system_id),
-                                   harnesses=store.list_harnesses(system_id))
+                                   harnesses=store.list_harnesses(system_id), subports=store.list_subports(system_id))
 
     def preview_import(
         self, caller: Caller, system_id: str, import_id: str, column_map: Mapping[str, str],

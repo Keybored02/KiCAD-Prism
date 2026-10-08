@@ -80,9 +80,11 @@ def csv_records(document: Mapping[str, Any]) -> list[dict[str, str]]:
                 port = link[end]["port"] or {}
                 observed = row.get(f"observed{column}") or {}
                 nets = observed.get("nets") if observed.get("present") else None
+                subport = (link[end].get("subport") or {}).get("name")
                 record.update({
                     f"{end}_board": instance["label"],
-                    f"{end}_connector": port.get("reference") or "",
+                    # P2 §22.5: "J6.PWR" for a sub-port end; import reads it back.
+                    f"{end}_connector": f"{port.get('reference') or ''}.{subport}" if subport else port.get("reference") or "",
                     f"{end}_pin": row[f"pin{column}"] or "",
                     f"{end}_pin_name": _join(observed.get("pinNames")),
                     f"{end}_net": _join(nets if nets is not None else row[f"net{column}"]),

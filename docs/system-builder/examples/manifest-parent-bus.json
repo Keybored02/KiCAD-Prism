@@ -25,7 +25,8 @@
         "revisionVersion": 2,
         "identity": "IPN-100234"
       },
-      "follow": "latest_released"
+      "follow": "latest_released",
+      "subports": []
     },
     {
       "id": "sin_8d3093aff2a6197ffe274f77f7edd4d6",
@@ -37,7 +38,8 @@
         "revisionVersion": 2,
         "identity": "IPN-100234"
       },
-      "follow": "pinned"
+      "follow": "pinned",
+      "subports": []
     },
     {
       "id": "sin_5c37779ce1ce1c9caa0f26deb6c70b76",
@@ -47,7 +49,8 @@
       "baselineCommit": "9a761b78db332c2b51aa1460dd5dc7f5dc542b2c",
       "trackedRef": "main",
       "pinned": false,
-      "portOverrides": []
+      "portOverrides": [],
+      "subports": []
     }
   ],
   "exports": [
@@ -57,7 +60,8 @@
       "description": "re-exported",
       "target": {
         "instanceId": "sin_f269164500d7369f5576156f1350c6b2",
-        "exportId": "sxp_b1da4861a4edf5615ec39f07963ea8db"
+        "exportId": "sxp_b1da4861a4edf5615ec39f07963ea8db",
+        "subportId": null
       }
     }
   ],
@@ -83,7 +87,8 @@
               "libId": "Connector:Conn_01x04",
               "footprint": "Connector_JST:JST_GH_BM04B-GHS-TBT_1x04-1MP_P1.25mm_Vertical",
               "pinCount": 4
-            }
+            },
+            "subportId": null
           },
           "part": {
             "componentId": "cmp_ghr04",
@@ -115,7 +120,8 @@
               "libId": "Connector:Conn_01x04",
               "footprint": "Connector_JST:JST_GH_BM04B-GHS-TBT_1x04-1MP_P1.25mm_Vertical",
               "pinCount": 4
-            }
+            },
+            "subportId": null
           },
           "part": null,
           "pinCount": 4,
@@ -136,7 +142,8 @@
               "libId": "Connector:Conn_01x04",
               "footprint": "Connector_JST:JST_GH_BM04B-GHS-TBT_1x04-1MP_P1.25mm_Vertical",
               "pinCount": 4
-            }
+            },
+            "subportId": null
           },
           "part": null,
           "pinCount": 4,

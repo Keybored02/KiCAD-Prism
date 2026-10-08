@@ -585,6 +585,9 @@ class HarnessesMixin:
                     override = store.list_overrides(instance["id"]).get(component["portKey"])
                     if not exposure.is_exposed(component, override):
                         raise Conflict("port is not exposed on this board")
+                    if link_type == "b2b" and (component.get("export") or {}).get("subport"):
+                        raise Conflict("port_split: this export is part of a connector in its subsystem; a "
+                                       "board-to-board link mates a whole connector")
                     baseline = exposure.port_baseline(component)
                     subport_id = end.get("subportId")
                     if subport_id is not None and subport_id not in {
@@ -607,7 +610,14 @@ class HarnessesMixin:
         with self._tx() as store:
             self._system(store, system_id, caller)
             with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
-                self._visible_link(store, system_id, link_id, caller)
+                link = self._visible_link(store, system_id, link_id, caller)
+                if fields.get("type") == "b2b":
+                    for end in ("a", "b"):
+                        found = self._instance_interface(store, store.get_instance(system_id, link[f"{end}_instance_id"]))
+                        component = exposure.component_by_key(found, link[f"{end}_port"]["portKey"]) if found else None
+                        if component and (component.get("export") or {}).get("subport"):
+                            raise Conflict("port_split: this export is part of a connector in its subsystem; a "
+                                           "board-to-board link mates a whole connector")
                 store.update_link(
                     change, link_id, name=fields.get("name"), harness=fields.get("harness", ...),
                     link_type=fields.get("type"), stack_height_mm=fields.get("stackHeightMm", ...),
