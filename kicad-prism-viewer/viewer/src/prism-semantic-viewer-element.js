@@ -69,6 +69,7 @@ function shellHtml() {
       #harness-nodes .node { fill: #f8fafc; stroke: #3e63dd; stroke-width: 2.5; pointer-events: visiblePainted; cursor: pointer; }
       #harness-nodes .node.breakout { fill: #3e63dd; stroke: #fff; }
       #harness-nodes .node.auto { fill: none; stroke: #3e63dd; stroke-dasharray: 3 2; }
+      #harness-nodes .node { cursor: grab; }
       #harness-nodes .node.pinned { fill: #0f172a; }
       #harness-nodes .node.target { stroke: #f59e0b; stroke-width: 3.5; }
       #harness-nodes .node:hover { stroke-width: 4; }

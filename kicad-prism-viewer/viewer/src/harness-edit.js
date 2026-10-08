@@ -33,11 +33,57 @@ export function withNodePreview(harnesses, preview, keyOf) {
   return harnesses.map((harness) => {
     if (keyOf(harness) !== preview.harness) return harness;
     const nodes = harness.nodes ?? [];
+    // D-P2-53: a bend being dragged is a new node, pinned as it will be saved, so the tube follows it live.
+    if (preview.insert) return { ...harness, nodes: [...nodes, preview.insert] };
+    // A dragged node is saved pinned (D-P2-53): preview it pinned, so relaxation does not pull it off the cursor.
     const moved = preview.id === AUTO
       ? [{ id: AUTO, kind: "breakout", positionMm: preview.positionMm, pinned: false, order: -1, ends: [], between: null }, ...nodes]
-      : nodes.map((node) => (node.id === preview.id ? { ...node, positionMm: preview.positionMm } : node));
+      : nodes.map((node) => (node.id === preview.id
+        ? { ...node, positionMm: preview.positionMm, pinned: node.kind === "waypoint" ? true : node.pinned }
+        : node));
     return { ...harness, nodes: moved };
   });
+}
+
+export const BEND = "__bend__"; // the node a Route-mode drag is creating (D-P2-53)
+
+/**
+ * The node a bend drag creates, placed in the route where the press landed:
+ * a waypoint between the picked segment's ends, ordered among that pair's
+ * waypoints by how far along the segment it sits (as the host will store it),
+ * or a breakout after the last one. `segment` is `{from, to, samplesMm}` in
+ * world mm (flat or as triples); `atMm` the press, world mm; `toWorldMm` maps a
+ * stored (level-frame) position to world mm.
+ */
+export function bendNode(nodes, { kind, segment, atMm, positionMm, toWorldMm }) {
+  if (kind === "breakout") {
+    const last = nodes.filter((node) => node.kind === "breakout").reduce((max, node) => Math.max(max, node.order ?? 0), -1);
+    return { id: BEND, kind: "breakout", positionMm, pinned: false, order: last + 1, ends: [], between: null };
+  }
+  const flat = segment.samplesMm.flat();
+  const along = (point) => {
+    let best = 0;
+    let bestDistance = Infinity;
+    for (let i = 0; i + 2 < flat.length; i += 3) {
+      const d = Math.hypot(flat[i] - point[0], flat[i + 1] - point[1], flat[i + 2] - point[2]);
+      if (d < bestDistance) [best, bestDistance] = [i / 3, d];
+    }
+    return best;
+  };
+  const key = (pair) => [...pair].sort().join("|");
+  const group = nodes
+    .filter((node) => node.kind === "waypoint" && node.between && key(node.between) === key([segment.from, segment.to]))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const between = group[0]?.between ?? [segment.from, segment.to];
+  const sign = between[0] === segment.from ? 1 : -1;
+  const score = (point) => sign * along(point);
+  const mine = score(atMm);
+  const index = group.filter((node) => score(toWorldMm(node.positionMm)) < mine).length;
+  const order = !group.length ? 0
+    : index === 0 ? (group[0].order ?? 0) - 1
+      : index === group.length ? (group[group.length - 1].order ?? 0) + 1
+        : ((group[index - 1].order ?? 0) + (group[index].order ?? 0)) / 2;
+  return { id: BEND, kind: "waypoint", positionMm, pinned: true, order, ends: [], between: [...between] };
 }
 
 /**

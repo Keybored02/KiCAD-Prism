@@ -62,15 +62,6 @@ export function useHarnessNodes(
 
 
 
-  /** A waypoint where the tube was picked, in order along its segment. */
-  const addWaypointAt = async (at: PrismSystemSceneHarnessState | null) => {
-    const base = stored();
-    const point = at?.pointMm;
-    const split = base && point ? withSegment(base, at) : null;
-    if (!split || !point) return;
-    const added = addWaypoint(split.nodes, split.from, split.to, point as Vec3, split.along);
-    await save(added.nodes, "Waypoint added", added.id);
-  };
   /** A breakout where the tube was picked, at the end of the chain. */
   const addBreakoutAt = async (at: PrismSystemSceneHarnessState | null) => {
     const base = stored();
@@ -82,9 +73,22 @@ export function useHarnessNodes(
 
   // The viewer's commit, delete and Route-mode clicks go through the latest closure.
   const onEvent = async (next: PrismSystemSceneHarnessState) => {
-    // D-P2-51: in Route mode a click on the picked harness adds a waypoint there (Shift: a breakout).
-    if (next.phase === "route-click") {
-      await (next.breakout ? addBreakoutAt(next) : addWaypointAt(next));
+    // D-P2-53: a bend dragged in Route mode is a waypoint (Alt: a breakout) where it was released,
+    // ordered along the segment by where the drag started.
+    if (next.phase === "route-drag") {
+      const base = stored();
+      const position = next.positionMm;
+      if (!base || !position) return;
+      if (next.breakout) {
+        await addBreakoutAt({ ...next, pointMm: position });
+        return;
+      }
+      const at = next.atMm ?? next.pointMm;
+      const split = at ? withSegment(base, next) : null;
+      if (!split || !at) return;
+      const added = addWaypoint(split.nodes, split.from, split.to, at as Vec3, split.along);
+      // Dragged means "here": pinned, so bend relaxation does not pull it back (D-P2-53).
+      await save(setPinned(moveNode(added.nodes, added.id, position as Vec3), added.id, true), "Waypoint added", added.id);
       return;
     }
     const nodes = stored();
@@ -94,7 +98,7 @@ export function useHarnessNodes(
       if (node.auto) {
         const added = storeAuto(nodes, node.positionMm);
         await save(added.nodes, undefined, added.id);
-      } else await save(moveNode(nodes, node.id, node.positionMm));
+      } else await save(setPinned(moveNode(nodes, node.id, node.positionMm), node.id, true)); // dragged: pinned (D-P2-53)
     } else if (next.phase === "delete" && !node.auto) {
       await save(removeNode(nodes, node.id), node.kind === "breakout" ? "Breakout removed" : "Waypoint removed", null);
     }
@@ -109,7 +113,7 @@ export function useHarnessNodes(
     const listener = (event: Event) => {
       const next = (event as CustomEvent<PrismSystemSceneHarnessState>).detail;
       setState(next.harness ? next : null);
-      if (next.phase === "commit" || next.phase === "delete" || next.phase === "route-click") void eventRef.current(next);
+      if (next.phase === "commit" || next.phase === "delete" || next.phase === "route-drag") void eventRef.current(next);
       if (next.phase === "sync" && pendingTarget.current !== undefined) {
         const target = pendingTarget.current;
         pendingTarget.current = undefined;
@@ -129,8 +133,6 @@ export function useHarnessNodes(
       breakouts: nodes?.filter((n) => n.kind === "breakout").length ?? 0,
       waypoints: nodes?.filter((n) => n.kind === "waypoint").length ?? 0,
     },
-    addWaypoint: () => addWaypointAt(state),
-    addBreakout: () => addBreakoutAt(state),
     setPinned: async (pinned: boolean) => {
       const base = stored();
       const node = state?.node;

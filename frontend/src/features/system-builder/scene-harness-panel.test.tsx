@@ -12,19 +12,17 @@ const state = (patch: Partial<PrismSystemSceneHarnessState> = {}): PrismSystemSc
 });
 
 function renderPanel(harness = state(), moving = true) {
-  const handlers = { onAddWaypoint: vi.fn(), onAddBreakout: vi.fn(), onPinned: vi.fn(), onRemove: vi.fn() };
+  const handlers = { onPinned: vi.fn(), onRemove: vi.fn() };
   render(<HarnessPanel state={harness} moving={moving} busy={false} counts={{ breakouts: 1, waypoints: 2 }} {...handlers} />);
   return handlers;
 }
 
 describe("harness panel", () => {
-  it("adds a waypoint or a breakout where the tube was picked", () => {
-    const handlers = renderPanel();
+  it("says how to bend the route: no separate add step (D-P2-53)", () => {
+    renderPanel();
     expect(screen.getByText("1 breakout, 2 waypoints")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Add waypoint/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Add breakout/ }));
-    expect(handlers.onAddWaypoint).toHaveBeenCalledOnce();
-    expect(handlers.onAddBreakout).toHaveBeenCalledOnce();
+    expect(screen.getByText(/Drag the harness to bend it/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add waypoint|Add breakout/ })).toBeNull();
   });
 
   it("pins and removes the targeted waypoint", () => {

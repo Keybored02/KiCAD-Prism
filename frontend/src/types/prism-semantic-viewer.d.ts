@@ -252,8 +252,11 @@ export interface PrismSystemSceneMoveState {
  * `node.positionMm`; "delete" to remove the node.
  */
 export interface PrismSystemSceneHarnessState {
-    phase?: "select" | "target" | "preview" | "commit" | "delete" | "cancel" | "sync" | "route-click";
-    /** On "route-click": Shift was held, so a breakout rather than a waypoint. */
+    phase?: "select" | "target" | "preview" | "commit" | "delete" | "cancel" | "sync" | "route-drag";
+    /** On "route-drag" (D-P2-53): where the bend started on the tube and where it was released (level frame, mm). */
+    atMm?: [number, number, number];
+    positionMm?: [number, number, number];
+    /** On "route-drag": Alt was held, so a breakout rather than a waypoint. */
     breakout?: boolean;
     harness: { id: string; level: string | null; name: string } | null;
     /** The picked segment: its tree nodes (`auto` for the automatic breakout) and samples from `from`. */

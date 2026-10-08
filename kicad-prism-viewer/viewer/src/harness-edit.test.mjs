@@ -38,3 +38,32 @@ test("handles: stored nodes in world, plus the automatic breakout where the legs
   assert.equal(handles[0].pinned, true);
   assert.deepEqual(handles[1], { id: AUTO, kind: "breakout", pinned: false, auto: true, worldMm: [7, 8, 9] });
 });
+
+
+test("a bend dragged between two waypoints slots in between them, pinned (D-P2-53)", async () => {
+  const { bendNode, BEND } = await import("./harness-edit.js");
+  const nodes = [
+    { id: "w1", kind: "waypoint", positionMm: [2, 0, 0], order: 0, between: ["a", "b"] },
+    { id: "w2", kind: "waypoint", positionMm: [8, 0, 0], order: 1, between: ["a", "b"] },
+  ];
+  const segment = { from: "a", to: "b", samplesMm: [[0, 0, 0], [2, 0, 0], [4, 0, 0], [6, 0, 0], [8, 0, 0], [10, 0, 0]] };
+  const node = bendNode(nodes, { kind: "waypoint", segment, atMm: [5, 0, 0], positionMm: [5, 0, 9], toWorldMm: (p) => p });
+  assert.deepEqual(node, { id: BEND, kind: "waypoint", positionMm: [5, 0, 9], pinned: true, order: 0.5, ends: [], between: ["a", "b"] });
+});
+
+test("a bend on a segment stored the other way round orders from that end", async () => {
+  const { bendNode } = await import("./harness-edit.js");
+  const nodes = [{ id: "w1", kind: "waypoint", positionMm: [8, 0, 0], order: 0, between: ["b", "a"] }];
+  const segment = { from: "a", to: "b", samplesMm: [[0, 0, 0], [4, 0, 0], [8, 0, 0], [10, 0, 0]] };
+  // Nearer a than w1: walking b → a it comes after w1.
+  assert.equal(bendNode(nodes, { kind: "waypoint", segment, atMm: [1, 0, 0], positionMm: [1, 0, 0], toWorldMm: (p) => p }).order, 1);
+});
+
+test("a dragged waypoint previews pinned; a bend previews as an extra node", async () => {
+  const { withNodePreview } = await import("./harness-edit.js");
+  const harnesses = [{ key: "h", nodes: [{ id: "w1", kind: "waypoint", positionMm: [0, 0, 0], pinned: false }] }];
+  const moved = withNodePreview(harnesses, { harness: "h", id: "w1", positionMm: [1, 2, 3] }, (h) => h.key);
+  assert.deepEqual(moved[0].nodes[0], { id: "w1", kind: "waypoint", positionMm: [1, 2, 3], pinned: true });
+  const bent = withNodePreview(harnesses, { harness: "h", insert: { id: "b" } }, (h) => h.key);
+  assert.equal(bent[0].nodes.length, 2);
+});

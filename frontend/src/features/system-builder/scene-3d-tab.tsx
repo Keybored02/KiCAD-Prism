@@ -294,8 +294,6 @@ export function Scene3dTab(props: SystemTabProps) {
       moving={Boolean(move?.enabled)}
       busy={route.busy}
       counts={route.counts}
-      onAddWaypoint={() => void route.addWaypoint()}
-      onAddBreakout={() => void route.addBreakout()}
       onPinned={(pinned) => void route.setPinned(pinned)}
       onRemove={() => void route.remove()}
     />
@@ -318,7 +316,7 @@ export function Scene3dTab(props: SystemTabProps) {
   // Route mode with no harness picked yet: say what to do (D-P2-51).
   const routeHint = move?.route && !route.state ? (
     <p className="flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-sm text-muted-foreground shadow-sm">
-      <Spline className="size-4 shrink-0 text-kind-harness" aria-hidden /> Click a harness
+      <Spline className="size-4 shrink-0 text-kind-harness" aria-hidden /> Drag a harness to bend it
     </p>
   ) : null;
   const tools = movePanel || routeHint || routePanel || traceCard ? <>{movePanel}{routeHint}{routePanel}{traceCard}</> : null;
@@ -386,7 +384,7 @@ export function Scene3dTab(props: SystemTabProps) {
                 <Move3d className="size-3.5" aria-hidden /> Move
               </ToolbarButton>
               {(scene?.harnesses?.length ?? 0) > 0 && (
-                <ToolbarButton active={Boolean(move?.route)} title="Edit harness routes: click a harness, then click it again to add a waypoint (Shift: a breakout)"
+                <ToolbarButton active={Boolean(move?.route)} title="Edit harness routes: drag a harness to bend it (Alt: a breakout)"
                   aria-label="Route" onClick={() => viewer?.setMoveMode?.(true, { route: true })}>
                   <Spline className="size-3.5 text-kind-harness" aria-hidden /> Route
                 </ToolbarButton>

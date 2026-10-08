@@ -1,4 +1,4 @@
-import { GitFork, MapPin, Pin, PinOff, Trash2 } from "lucide-react";
+import { GitFork, Pin, PinOff, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,6 @@ export interface HarnessPanelProps {
   moving: boolean;
   busy: boolean;
   counts: { breakouts: number; waypoints: number };
-  onAddWaypoint: () => void;
-  onAddBreakout: () => void;
   onPinned: (pinned: boolean) => void;
   onRemove: () => void;
 }
@@ -30,7 +28,7 @@ function plural(count: number, word: string) {
  * breakouts and waypoints have handles; this panel adds them where the tube
  * was picked and pins or removes the one the gizmo holds.
  */
-export function HarnessPanel({ state, moving, busy, counts, onAddWaypoint, onAddBreakout, onPinned, onRemove }: HarnessPanelProps) {
+export function HarnessPanel({ state, moving, busy, counts, onPinned, onRemove }: HarnessPanelProps) {
   const { harness, node } = state;
   if (!harness) return null;
   const route = `${plural(counts.breakouts, "breakout")}, ${plural(counts.waypoints, "waypoint")}`;
@@ -54,16 +52,6 @@ export function HarnessPanel({ state, moving, busy, counts, onAddWaypoint, onAdd
       )}
       {state.editable && moving && (
         <>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={busy || !state.segment || !state.pointMm} onClick={onAddWaypoint}
-              title="Add a waypoint where you clicked the tube">
-              <MapPin className="size-3.5" aria-hidden /> Add waypoint
-            </Button>
-            <Button size="sm" variant="outline" disabled={busy || !state.pointMm} onClick={onAddBreakout}
-              title="Add a breakout where you clicked the tube">
-              <GitFork className="size-3.5" aria-hidden /> Add breakout
-            </Button>
-          </div>
           {node ? (
             <div className="space-y-2 border-t pt-2">
               <div className="flex items-center gap-2">
@@ -93,7 +81,7 @@ export function HarnessPanel({ state, moving, busy, counts, onAddWaypoint, onAdd
               )}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Click the tube: waypoint · Shift-click: breakout · drag a handle to move it</p>
+            <p className="text-xs text-muted-foreground">Drag the harness to bend it · Alt-drag: breakout · double-click a point: remove</p>
           )}
         </>
       )}
