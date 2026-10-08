@@ -10,10 +10,10 @@ test("the GPU memory breakdown adds up to gpuMemoryBytes", () => {
   Object.assign(renderer, {
     canvas: { width: 10, height: 10 },
     entries: [
-      { kind: "copper", layerId: 0, vertexBuffer: buffer(400), indexBuffer: buffer(120) },
-      { kind: "copper", layerId: 0, vertexBuffer: buffer(40), indexBuffer: buffer(12) },
-      { kind: "board", boardRole: "soldermask", vertexBuffer: buffer(80), indexBuffer: buffer(24) },
-      { kind: "component", vertexBuffer: buffer(800), indexBuffer: buffer(240) },
+      { kind: "copper", layerId: 0, vertexAllocation: buffer(400), indexAllocation: buffer(120) },
+      { kind: "copper", layerId: 0, vertexAllocation: buffer(40), indexAllocation: buffer(12) },
+      { kind: "board", boardRole: "soldermask", vertexAllocation: buffer(80), indexAllocation: buffer(24) },
+      { kind: "component", vertexAllocation: buffer(800), indexAllocation: buffer(240) },
     ],
     barrels: { vertexBuffer: buffer(64), indexBuffer: buffer(16), instanceBuffer: buffer(32) },
     occurrenceBuffer: buffer(256),

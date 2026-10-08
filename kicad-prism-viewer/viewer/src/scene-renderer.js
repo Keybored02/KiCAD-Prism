@@ -213,6 +213,8 @@ export class SceneRenderer {
     let bytes = 0;
     for (const renderer of this.renderers) bytes += renderer.gpuMemoryBytes();
     bytes += this.tubes?.gpuMemoryBytes() || 0;
+    // SB2-90: the shared geometry arena's unused space, held by the host.
+    bytes += this.host.arenaSlackBytes();
     // Every renderer counts the shared depth and pick targets; count them once.
     return bytes - Math.max(0, this.renderers.length - 1) * this.canvas.width * this.canvas.height * 12;
   }
@@ -225,7 +227,7 @@ export class SceneRenderer {
       delete breakdown.targets;
       assets[id] = breakdown;
     }
-    return { assets, tubes: this.tubes?.gpuMemoryBytes() || 0, targets: this.canvas.width * this.canvas.height * 12 };
+    return { assets, tubes: this.tubes?.gpuMemoryBytes() || 0, targets: this.canvas.width * this.canvas.height * 12, arena: this.host.arenaStats() };
   }
 
   /** Level-of-detail thresholds for every asset, now and later (SB2-30a). */
