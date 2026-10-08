@@ -200,6 +200,7 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     setHarnessesVisible?: (visible: boolean) => void;
     /** mode="system": the keyboard list (also `?`). */
     setHelpVisible?: (visible: boolean) => void;
+    isHelpVisible?: () => boolean;
     /** mode="system": frame one placed board. */
     frameBoard?: (key: string) => boolean;
     /** mode="system": frame parts on their placements (SB2-32: a hop's two connectors); false when none is drawn. */

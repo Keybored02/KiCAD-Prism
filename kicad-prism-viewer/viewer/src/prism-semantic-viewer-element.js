@@ -434,6 +434,11 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.controller?.setHelpVisible?.(visible);
   }
 
+  /** Whether the keyboard list is open, so a host button can toggle it. */
+  isHelpVisible() {
+    return Boolean(this.controller?.isHelpVisible?.());
+  }
+
   /** Frame every placed board (mode="system"). */
   frameAll() {
     this.controller?.frameAll?.();

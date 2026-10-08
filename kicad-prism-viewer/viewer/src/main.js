@@ -1510,6 +1510,7 @@ export async function mountSystemViewer(options = {}) {
       if (systemLabelsEl) systemLabelsEl.hidden = !system.showLabels;
     },
     setHelpVisible: setSystemHelpVisible,
+    isHelpVisible: () => Boolean(systemHelpEl && !systemHelpEl.hidden),
     setHarnessesVisible(visible) {
       if (!system) return;
       system.showHarnesses = Boolean(visible);

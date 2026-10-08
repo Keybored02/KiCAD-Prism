@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { Activity, Box, Cable, Keyboard, Loader2, Maximize, MousePointer2, Move3d, Spline, Tag } from "lucide-react";
+import { Activity, Box, Cable, Keyboard, Loader2, Maximize, MousePointer2, Move3d, Search, Spline, Tag } from "lucide-react";
 
 import { DesignSearchField } from "@/components/design-search-field";
 import { Semantic3dControls } from "@/components/semantic-3d-controls";
@@ -31,7 +31,9 @@ import { useMoveMode } from "./use-move-mode";
 import { useNetHighlight } from "./use-net-highlight";
 import { useSystemNetIndex } from "./use-system-net-index";
 import { useTracedNet } from "./use-traced-net";
+import { FloatingToolbar } from "./workspace/floating-toolbar";
 import type { PartDetail } from "./workspace/part-detail";
+import { ToolbarButton } from "./workspace/toolbar-button";
 import { useViewerSelectionSync } from "./workspace/use-viewer-selection-sync";
 import type { SystemTabProps } from "./system-tab-content";
 
@@ -177,6 +179,8 @@ export function Scene3dTab(props: SystemTabProps) {
   const [stats, setStats] = useState(false);
   const [labels, setLabels] = useState(true);
   const [harnesses, setHarnesses] = useState(true);
+  const [searching, setSearching] = useState(false);
+  const [scopeOpen, setScopeOpen] = useState(false);
   const moving = useMoveMode(viewer, { systemId, etag, reload, scene });
   const { move } = moving;
   const route = useHarnessNodes(viewer, { systemId, etag, reload, scene });
@@ -319,38 +323,56 @@ export function Scene3dTab(props: SystemTabProps) {
         />
         <Semantic3dControls viewer={viewer} onVisibleWidthChange={setLeftInset} />
 
-        <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-start gap-2" style={{ left: leftInset + 12 }}>
-          <div className={cn(OVERLAY, "flex w-[30rem] min-w-0 max-w-full items-center gap-1 p-1")}>
-            <span className="flex shrink-0 items-center gap-1 px-1.5 text-xs text-muted-foreground" title={summary ? sceneTitle(summary) : undefined}>
-              <Box className="size-3.5" aria-hidden />{summary?.boards ?? "…"}
-              {summary && summary.building.length > 0 && <Loader2 className="size-3 animate-spin" aria-label="Building" />}
-            </span>
-            <Select value={scope ?? "all"} onValueChange={(value) => setSearchBoard(value === "all" ? null : value)}>
-              <SelectTrigger className="h-8 w-28 shrink-0 border-0 bg-transparent text-xs shadow-none" aria-label="Search on">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All boards</SelectItem>
-                {boards.map((board) => (
-                  <SelectItem key={board.path} value={board.path}>{board.displayPath}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="min-w-0 flex-1">
-              <DesignSearchField semanticIndex={null} search={search} loading={boards.length > 0 && !searchable.length} onPick={pick} inline />
+        <div className="pointer-events-none absolute right-3 top-3 z-10 flex flex-wrap items-start gap-2" style={{ left: leftInset + 12 }}>
+          {/* Collapsed to a button until used (M9): the field stays mounted so / and ⌘F still reach it. */}
+          <FloatingToolbar label="Search" className={cn("min-w-0", searching && "w-[30rem] max-w-full")}>
+            <div className="flex min-w-0 flex-1 items-center gap-0.5"
+              onFocusCapture={() => setSearching(true)}
+              onBlurCapture={(event) => {
+                if (scopeOpen || event.currentTarget.contains(event.relatedTarget as Node)) return;
+                if (!event.currentTarget.querySelector("input")?.value) setSearching(false);
+              }}>
+              {!searching && (
+                <ToolbarButton title="Search parts and nets (/)" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+                  setSearching(true);
+                  requestAnimationFrame(() => window.document.querySelector<HTMLInputElement>("[data-scene-search] input")?.focus());
+                }}>
+                  <Search className="size-4" aria-hidden />
+                </ToolbarButton>
+              )}
+              <span className="flex shrink-0 items-center gap-1 px-1.5 text-xs text-muted-foreground" title={summary ? sceneTitle(summary) : undefined}>
+                <Box className="size-3.5" aria-hidden />{summary?.boards ?? "…"}
+                {summary && summary.building.length > 0 && <Loader2 className="size-3 animate-spin" aria-label="Building" />}
+              </span>
+              <div data-scene-search className={searching ? "flex min-w-0 flex-1 items-center gap-0.5" : "sr-only"}>
+                <Select value={scope ?? "all"} open={scopeOpen} onOpenChange={setScopeOpen}
+                  onValueChange={(value) => setSearchBoard(value === "all" ? null : value)}>
+                  <SelectTrigger className="h-7 w-28 shrink-0 border-0 bg-transparent text-xs shadow-none" aria-label="Search on">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All boards</SelectItem>
+                    {boards.map((board) => (
+                      <SelectItem key={board.path} value={board.path}>{board.displayPath}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="min-w-0 flex-1">
+                  <DesignSearchField semanticIndex={null} search={search} loading={boards.length > 0 && !searchable.length} onPick={pick} inline />
+                </div>
+              </div>
             </div>
-          </div>
+          </FloatingToolbar>
           <div className="flex-1" />
           {canEdit && (
-            <fieldset className={cn(OVERLAY, "flex shrink-0 gap-0.5 p-0.5")}>
-              <legend className="sr-only">Mode</legend>
-              <OverlayButton active={!move?.enabled} title="Select" onClick={() => viewer?.setMoveMode?.(false)}>
+            <FloatingToolbar label="Mode" className="shrink-0">
+              <ToolbarButton active={!move?.enabled} title="Select" onClick={() => viewer?.setMoveMode?.(false)}>
                 <MousePointer2 className="size-3.5" aria-hidden /> Select
-              </OverlayButton>
-              <OverlayButton active={Boolean(move?.enabled)} title="Move boards and harness nodes (M)" onClick={() => viewer?.setMoveMode?.(true)}>
+              </ToolbarButton>
+              <ToolbarButton active={Boolean(move?.enabled)} title="Move boards and harness nodes (M)" aria-label="Move" onClick={() => viewer?.setMoveMode?.(true)}>
                 <Move3d className="size-3.5" aria-hidden /> Move
-              </OverlayButton>
-            </fieldset>
+              </ToolbarButton>
+            </FloatingToolbar>
           )}
         </div>
 
@@ -380,24 +402,26 @@ export function Scene3dTab(props: SystemTabProps) {
           </div>
         )}
 
-        <div className={cn(OVERLAY, "absolute bottom-3 right-3 z-10 flex gap-0.5 p-0.5")}>
-          <OverlayButton active={Boolean(netsSlot) || highlighted.length > 0} title="System nets" onClick={() => onOpenTray?.(netsSlot ? null : "nets")}>
+        <FloatingToolbar label="View" className="absolute bottom-3 right-3">
+          <ToolbarButton active={Boolean(netsSlot) || highlighted.length > 0} title="System nets" onClick={() => onOpenTray?.(netsSlot ? null : "nets")}>
             <Spline className="size-4" aria-hidden />{highlighted.length > 0 && <span className="text-[11px] tabular-nums">{highlighted.length}</span>}
-          </OverlayButton>
-          <OverlayButton title="Fit all (Home)" onClick={() => viewer?.frameAll?.()}><Maximize className="size-4" aria-hidden /></OverlayButton>
-          <OverlayButton active={labels} title="Board names" onClick={() => { setLabels(!labels); viewer?.setLabelsVisible?.(!labels); }}>
+          </ToolbarButton>
+          <ToolbarButton title="Fit all (Home)" onClick={() => viewer?.frameAll?.()}><Maximize className="size-4" aria-hidden /></ToolbarButton>
+          <ToolbarButton active={labels} title="Board names" onClick={() => { setLabels(!labels); viewer?.setLabelsVisible?.(!labels); }}>
             <Tag className="size-4" aria-hidden />
-          </OverlayButton>
+          </ToolbarButton>
           {(scene?.harnesses?.length ?? 0) > 0 && (
-            <OverlayButton active={harnesses} title="Harnesses" onClick={() => { setHarnesses(!harnesses); viewer?.setHarnessesVisible?.(!harnesses); }}>
+            <ToolbarButton active={harnesses} title="Harnesses" onClick={() => { setHarnesses(!harnesses); viewer?.setHarnessesVisible?.(!harnesses); }}>
               <Cable className="size-4" aria-hidden />
-            </OverlayButton>
+            </ToolbarButton>
           )}
-          <OverlayButton active={stats} title="Statistics (`)" onClick={() => { setStats(!stats); viewer?.setStatsOverlay?.(!stats); }}>
+          <ToolbarButton active={stats} title="Statistics (`)" onClick={() => { setStats(!stats); viewer?.setStatsOverlay?.(!stats); }}>
             <Activity className="size-4" aria-hidden />
-          </OverlayButton>
-          <OverlayButton title="Keyboard shortcuts (?)" onClick={() => viewer?.setHelpVisible?.(true)}><Keyboard className="size-4" aria-hidden /></OverlayButton>
-        </div>
+          </ToolbarButton>
+          <ToolbarButton title="Keyboard shortcuts (?)" onClick={() => viewer?.setHelpVisible?.(!viewer.isHelpVisible?.())}>
+            <Keyboard className="size-4" aria-hidden />
+          </ToolbarButton>
+        </FloatingToolbar>
       </div>
       <ConfirmDialog
         open={nets.confirmLarge !== null}
@@ -419,19 +443,6 @@ export function Scene3dTab(props: SystemTabProps) {
         onConfirm={() => void moving.resetAll()}
       />
     </div>
-  );
-}
-
-const OVERLAY = "pointer-events-auto rounded-md border bg-background/95 shadow-sm backdrop-blur";
-
-/** A mode or view button over the 3D view; icon-only buttons name themselves with their title. */
-function OverlayButton({ active = false, title, onClick, children }: { active?: boolean; title: string; onClick: () => void; children: ReactNode }) {
-  return (
-    <button type="button" title={title} aria-label={title} aria-pressed={active} onClick={onClick}
-      className={cn("flex h-7 min-w-7 items-center justify-center gap-1 rounded px-1.5 text-xs",
-        active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground")}>
-      {children}
-    </button>
   );
 }
 
