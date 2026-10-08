@@ -14,7 +14,9 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, ContextManager
 
-from app.services.catalog import mates as catalog_mates, models as catalog_models, system_items
+from app.services.catalog import (
+    mates as catalog_mates, models as catalog_models, module_interface, system_items,
+)
 from app.services.catalog.component_writer import CatalogComponentWriter
 from app.services.catalog.normalization import utc_now_iso
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
@@ -65,6 +67,26 @@ class CatalogSystemItemsFacade:
             )
             conn.commit()
         return {"componentId": component_id, "revisionId": revision_id}
+
+    # Modules (CONTRACTS_P2 §3.5, SB2-48) --------------------------------------------
+
+    def create_module(self, *, ipn: str, name: str, description: str, manufacturer: str, datasheet_url: str,
+                      interface: dict[str, Any], actor: str = "") -> dict[str, Any]:
+        """A new ``module`` with its first revision (stage ``open``)."""
+        return self.create_system_item(
+            kind=system_items.KIND_MODULE, ipn=ipn, name=name, description=description, manufacturer=manufacturer,
+            datasheet_url=datasheet_url, interface=module_interface.normalize(interface),
+            source_ref={"kind": "module"}, actor=actor, change_summary="Module created")
+
+    def revise_module(self, component_id: str, *, interface: dict[str, Any], actor: str = "",
+                      change_summary: str = "Interface revised") -> dict[str, Any]:
+        """A new revision of a module with a new interface; metadata and models carry over."""
+        self._initialize()
+        with self._connect() as conn:
+            if system_items.component_kind(conn, component_id) != system_items.KIND_MODULE:
+                raise ValueError("only modules take an interface revision")
+        return self.add_system_revision(component_id, interface=module_interface.normalize(interface),
+                                        source_ref={"kind": "module"}, actor=actor, change_summary=change_summary)
 
     def system_revisions(self, component_id: str) -> list[dict[str, Any]]:
         """Every revision of a module/assembly with the snapshot it came from, oldest first."""
@@ -166,7 +188,7 @@ class CatalogSystemItemsFacade:
         self._initialize()
         converter = catalog_models.converter_id()
         with self._connect() as conn:
-            catalog_mates.require_part(conn, component_id)
+            catalog_mates.require_modelled(conn, component_id)
             assets = catalog_models.step_assets(conn, component_id)
             keys = {a["id"]: catalog_models.glb_key(a["sha256"], converter) for a in assets}
             glbs = catalog_models.cached(conn, keys.values())
@@ -178,7 +200,7 @@ class CatalogSystemItemsFacade:
         self._initialize()
         converter = catalog_models.converter_id()
         with self._connect() as conn:
-            catalog_mates.require_part(conn, component_id)
+            catalog_mates.require_modelled(conn, component_id)
             for asset in catalog_models.step_assets(conn, component_id):
                 key = catalog_models.glb_key(asset["sha256"], converter)
                 if catalog_models.cached(conn, [key]):
@@ -206,7 +228,7 @@ class CatalogSystemItemsFacade:
         self._initialize()
         value = catalog_models.normalized_alignment(alignment)
         with self._connect() as conn:
-            catalog_mates.require_part(conn, component_id)
+            catalog_mates.require_modelled(conn, component_id)
             self._step_asset(conn, component_id, asset_id)
             catalog_models.set_alignment(conn, component_id, asset_id, value, actor=actor, now=utc_now_iso())
             _component, revision = self._revision_kernel.active_revision_row(conn, component_id)
@@ -222,7 +244,7 @@ class CatalogSystemItemsFacade:
         first model when given."""
         self._initialize()
         with self._connect() as conn:
-            catalog_mates.require_part(conn, component_id)
+            catalog_mates.require_modelled(conn, component_id)
             asset = self._step_asset(conn, component_id, asset_id)
             value = catalog_models.normalized_alignment(
                 alignment if alignment is not None else catalog_models.alignments(conn, component_id).get(asset_id))

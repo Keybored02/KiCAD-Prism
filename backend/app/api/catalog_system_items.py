@@ -116,3 +116,46 @@ def model_glb(key: str, user: AuthenticatedUser = Depends(require_catalog_browse
         raise HTTPException(status_code=404, detail="Model not found")
     # Content-addressed: the key names the STEP and the converter, so the bytes never change.
     return FileResponse(path, media_type="model/gltf-binary", headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+
+# Modules (CONTRACTS_P2 §3.5, SB2-48) ---------------------------------------------------
+
+
+class ModuleCreateRequest(BaseModel):
+    ipn: str = Field(min_length=1, max_length=100)
+    name: str = Field(default="", max_length=200)
+    description: str = Field(default="", max_length=2000)
+    manufacturer: str = Field(min_length=1, max_length=200)
+    datasheetUrl: str = Field(min_length=1, max_length=2000)
+    interface: dict = Field(default_factory=dict)
+
+
+class ModuleInterfaceRequest(BaseModel):
+    interface: dict
+    changeSummary: str = Field(default="Interface revised", min_length=1, max_length=500)
+
+
+def _module_call(action):
+    try:
+        return action()
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        status = 409 if "already" in str(exc).lower() or "exists" in str(exc).lower() else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+@router.post("/modules", status_code=201)
+def create_module(body: ModuleCreateRequest, user: AuthenticatedUser = Depends(require_catalog_writer)):
+    """A new ``module`` component: IPN identity, connectors as its interface; first revision stage ``open``."""
+    return _module_call(lambda: catalog_service.system_items.create_module(
+        ipn=body.ipn, name=body.name, description=body.description, manufacturer=body.manufacturer,
+        datasheet_url=body.datasheetUrl, interface=body.interface, actor=user.email))
+
+
+@router.put("/components/{component_id}/module-interface", status_code=201)
+def revise_module_interface(component_id: str, body: ModuleInterfaceRequest,
+                            user: AuthenticatedUser = Depends(require_catalog_writer)):
+    """A new revision of the module with this interface (models and metadata carry over)."""
+    return _module_call(lambda: catalog_service.system_items.revise_module(
+        component_id, interface=body.interface, actor=user.email, change_summary=body.changeSummary))

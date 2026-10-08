@@ -152,7 +152,7 @@ function AlignmentEditor({ componentId, model, partners, canMutate, onSaved }: {
  * A part's 3D models for System Builder: the STEP converted to GLB with Geometer (bounds, colours) and the
  * alignment that places it in the part's mating frame, previewed alone or mated to a partner (CONTRACTS_P2 §18.2).
  */
-export function ModelsPanel({ componentId, canMutate }: { componentId: string; canMutate: boolean }) {
+export function ModelsPanel({ componentId, canMutate, mates = true }: { componentId: string; canMutate: boolean; mates?: boolean }) {
   const [state, setState] = useState<{ id: string; models: CatalogModel[]; partners: MatingPart[] } | null>(null);
   const [converting, setConverting] = useState(false);
 
@@ -160,11 +160,13 @@ export function ModelsPanel({ componentId, canMutate }: { componentId: string; c
     const controller = new AbortController();
     Promise.all([
       fetchJson<{ items: CatalogModel[] }>(`${base(componentId)}/models`, { signal: controller.signal }),
-      fetchJson<{ items: MatingPart[] }>(`${base(componentId)}/mates-with`, { signal: controller.signal }),
+      // Only parts mate with parts (§18); a module's models have no partner to preview against.
+      mates ? fetchJson<{ items: MatingPart[] }>(`${base(componentId)}/mates-with`, { signal: controller.signal })
+        : Promise.resolve({ items: [] as MatingPart[] }),
     ]).then(([models, mates]) => setState({ id: componentId, models: models.items, partners: mates.items }))
       .catch(() => !controller.signal.aborted && setState({ id: componentId, models: [], partners: [] }));
     return () => controller.abort();
-  }, [componentId]);
+  }, [componentId, mates]);
 
   const convert = async () => {
     setConverting(true);

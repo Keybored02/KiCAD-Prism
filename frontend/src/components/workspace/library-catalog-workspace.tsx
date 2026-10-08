@@ -64,6 +64,7 @@ import type {
   WorkflowStage,
 } from "@/types/catalog";
 import { LibraryComponentQuickView } from "./library-component-quick-view";
+import { CreateModuleDialog } from "./library-module-interface";
 
 const PAGE_SIZE = 100;
 const CATALOG_ROW_HEIGHT = 64;
@@ -305,6 +306,7 @@ export function LibraryCatalogWorkspace({
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  const [moduleOpen, setModuleOpen] = useState(false);
   const selectedComponentId = searchParams.get("catalogSelection") || "";
   const [selectedComponent, setSelectedComponent] = useState<CatalogComponent | null>(null);
   const [selectedLoading, setSelectedLoading] = useState(false);
@@ -461,6 +463,7 @@ export function LibraryCatalogWorkspace({
                 explains itself tells them exactly what to ask for. */}
             <PermissionHint blocked={!canCreate} action="create catalog components" allowedRoles={["designer", "admin"]}>
               <Button size="sm" disabled={!canCreate} onClick={() => setCreateOpen(true)}><Plus className="h-3.5 w-3.5" /> New component</Button>
+              <Button size="sm" variant="outline" disabled={!canCreate} onClick={() => setModuleOpen(true)}><Plus className="h-3.5 w-3.5" /> New module</Button>
             </PermissionHint>
           </div>
         </div>
@@ -578,6 +581,7 @@ export function LibraryCatalogWorkspace({
       </div>
 
       <CreateComponentDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={(component) => onOpenComponent(component.id)} />
+      <CreateModuleDialog open={moduleOpen} onOpenChange={setModuleOpen} onCreated={onOpenComponent} />
     </div>
   );
 }

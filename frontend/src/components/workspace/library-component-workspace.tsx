@@ -102,6 +102,7 @@ import {
 } from "./library-component-evidence-panels";
 import { MatesWithPanel } from "./library-component-mates";
 import { ModelsPanel } from "./library-component-models";
+import { ModuleConnectorsPanel } from "./library-module-interface";
 import { LibraryPreviewPair } from "./library-preview-inspector";
 import {
   ASSET_LABELS,
@@ -233,7 +234,20 @@ function SystemItemOverview({ component, canMutate, onEdit }: { component: Catal
   );
 }
 
-function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogComponent; canMutate: boolean; onEdit: () => void }) {
+function OverviewPanel({ component, canMutate, onEdit, onAttachModel, onModuleSaved }: {
+  component: CatalogComponent; canMutate: boolean; onEdit: () => void; onAttachModel: () => void; onModuleSaved: () => void;
+}) {
+  if (component.kind === "module") {
+    // SB2-48 (§3.5): connectors instead of library assets; the STEP model places it in systems.
+    const hasModel = component.assets.some((asset) => asset.asset_type === "3dmodel" && /\.(step|stp)$/i.test(asset.name));
+    return (
+      <div className="space-y-4">
+        <ModuleConnectorsPanel component={component} canMutate={canMutate} hasModel={hasModel}
+          onAttachModel={onAttachModel} onSaved={onModuleSaved} />
+        <ModelsPanel componentId={component.id} canMutate={canMutate} mates={false} />
+      </div>
+    );
+  }
   if (component.kind && component.kind !== "part") {
     return <SystemItemOverview component={component} canMutate={canMutate} onEdit={onEdit} />;
   }
@@ -1043,7 +1057,10 @@ export function LibraryComponentWorkspace({
 
       <ScrollArea className="min-h-0 flex-1">
         <main className="mx-auto w-full max-w-screen-2xl p-4">
-          {activeTab === "overview" ? <OverviewPanel component={activeComponent} canMutate={canMutate} onEdit={openMetadataEditor} /> : null}
+          {activeTab === "overview" ? (
+            <OverviewPanel component={activeComponent} canMutate={canMutate} onEdit={openMetadataEditor}
+              onAttachModel={() => openAttachDialog("3dmodel")} onModuleSaved={refreshAfterMutation} />
+          ) : null}
           {activeTab === "assets" ? (
             <AssetsPanel
               component={activeComponent}

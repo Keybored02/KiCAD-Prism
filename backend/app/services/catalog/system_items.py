@@ -111,6 +111,19 @@ def assert_release_gates(conn: Any, kind: str, revision: Mapping[str, Any]) -> N
                 raise ValueError("Cannot release an assembly that pins an unreleased child revision")
     if not payload["interface"].get("exports") and not payload["interface"].get("units"):
         raise ValueError(f"Cannot release a {kind} revision without an interface")
+    if kind == KIND_MODULE:
+        # SB2-48: a module is placed in 3D by its model.
+        model = conn.execute(
+            """
+            SELECT 1 FROM revision_assets ra JOIN assets a ON a.id = ra.asset_id
+            WHERE ra.revision_id = %s AND ra.asset_type = '3dmodel'
+              AND (lower(a.canonical_path) LIKE '%%.step' OR lower(a.canonical_path) LIKE '%%.stp')
+            LIMIT 1
+            """,
+            (str(revision["id"]),),
+        ).fetchone()
+        if model is None:
+            raise ValueError("Cannot release a module revision without a STEP model")
 
 
 __all__ = [
