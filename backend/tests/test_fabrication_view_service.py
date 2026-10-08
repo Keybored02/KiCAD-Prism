@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 
 from app.services.fabrication_view_service import (
@@ -234,6 +235,63 @@ class ColourTests(unittest.TestCase):
 
     def test_a_fabrication_layer_has_its_own_colour(self) -> None:
         self.assertEqual(self.colours["f.fab"], "#afafaf")
+
+
+class MinimumStrokeTests(unittest.TestCase):
+    """A thin line stays visible, in its own colour, when the whole board is in view."""
+
+    def setUp(self) -> None:
+        self.package = FabricationPackage.from_files(package_files())
+
+    def test_a_drawn_line_is_never_thinner_than_the_minimum_on_screen(self) -> None:
+        svg = self.package.svg("edge.cuts")
+        self.assertIn('style="stroke-width:max(0.25px,var(--m,0px))"', svg)
+        # The stroke's own width is still there, for anything that ignores the rule.
+        self.assertIn('stroke-width="0.25"', svg)
+
+    def test_the_svg_learns_its_drawn_size_from_media_queries(self) -> None:
+        svg = self.package.svg("edge.cuts")
+        rungs = re.findall(r"@media \(min-width:(\d+)px\)\{svg\{--m:([0-9.]+)px\}\}", svg)
+        self.assertGreater(len(rungs), 10)
+        widths = [int(width) for width, _ in rungs]
+        self.assertEqual(widths, sorted(widths))
+        # A wider drawing has a smaller pixel, so the minimum shrinks as you zoom in.
+        pixels = [float(pixel) for _, pixel in rungs]
+        self.assertEqual(pixels, sorted(pixels, reverse=True))
+
+    def test_the_minimum_is_a_pixel_and_a_half_wherever_it_applies(self) -> None:
+        svg = self.package.svg("edge.cuts")
+        extent = float(svg.split('viewBox="')[1].split()[2])
+        for width, pixel in re.findall(r"min-width:(\d+)px\)\{svg\{--m:([0-9.]+)px", svg):
+            on_screen = float(pixel) * int(width) / extent
+            self.assertAlmostEqual(on_screen, 1.5, delta=0.02)
+
+    def test_a_pad_is_not_thickened(self) -> None:
+        # Copper here is flashes only: shapes, not lines.
+        svg = self.package.svg("f.cu")
+        self.assertNotIn("<polyline", svg)
+        self.assertNotIn("var(--m", svg.split("</style>")[1])
+
+    def test_drill_holes_get_a_minimum_size_and_pads_do_not(self) -> None:
+        drill = self.package.svg("drill")
+        self.assertIn("style=\"r:max(0.15px,calc(var(--m,0px)/2))\"", drill)
+        # A round pad on copper is true to size.
+        files = package_files()
+        files["board-F_Cu.gtl"] = gerber("%ADD12C,0.300000*%\nD12*\nX5000000Y5000000D03*\n")
+        copper = FabricationPackage.from_files(files).svg("f.cu")
+        self.assertIn("<circle", copper)
+        self.assertNotIn("r:max", copper)
+
+    def test_lines_inside_a_macro_keep_their_size(self) -> None:
+        from app.services.fabrication_view_service import with_minimum_stroke
+
+        svg = (
+            '<svg viewBox="0 0 10 10"><line x1="0" y1="0" x2="1" y2="1" stroke="#fff" stroke-width="0.1"/>'
+            '<polyline points="0,0 1,1" stroke="#fff" stroke-width="0.1"/></svg>'
+        )
+        out = with_minimum_stroke(svg, 10.0)
+        self.assertEqual(out.count("var(--m"), 1)
+        self.assertIn('<line x1="0" y1="0" x2="1" y2="1" stroke="#fff" stroke-width="0.1"/>', out)
 
 
 class LayerNameTests(unittest.TestCase):

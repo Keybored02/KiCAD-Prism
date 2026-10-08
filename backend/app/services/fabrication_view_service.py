@@ -70,6 +70,58 @@ _FALLBACK_COLOUR = "#afafaf"
 #: background would brighten a little more with every layer stacked on it.
 VIEW_BACKGROUND = "#000000"
 
+#: A drawn line is never thinner than this on screen. A 0.1 mm silkscreen or outline
+#: line is a fraction of a pixel when the whole board is in view, and anti-aliasing
+#: then dims it well below its layer colour. 1.5 px always leaves at least three
+#: quarters of a pixel fully covered, so the line reads in its own colour.
+MIN_STROKE_PX = 1.5
+#: How an SVG learns the size it is drawn at: an image SVG evaluates `width` media
+#: queries against its own rendered width. One rule per step, each setting the
+#: length of a pixel; steps are 20 % apart, so the line is at most 1.8 px.
+_LADDER_FROM_PX = 160.0
+_LADDER_TO_PX = 30000.0
+_LADDER_STEP = 1.2
+_POLYLINE_STROKE = re.compile(r'(<polyline\b[^>]*?) stroke-width="([0-9.]+)"')
+_CIRCLE_RADIUS = re.compile(r'(<circle\b[^>]*?) r="([0-9.]+)"')
+
+
+def with_minimum_stroke(svg: str, extent_mm: float, holes: bool = False) -> str:
+    """The SVG with every drawn line at least ``MIN_STROKE_PX`` wide where it is shown.
+
+    Only polylines (tracks, legend, profile, outlines); the lines inside an
+    aperture macro are part of a pad's shape and keep their size. Beyond the
+    ladder, or in a viewer that ignores it, a line is just its own width.
+
+    ``holes`` gives a drill layer's circles the same minimum as a diameter: a
+    0.3 mm hole is a dot smaller than a pixel with the whole board in view, and
+    dims the same way a thin line does. Pads and vias are left true to size.
+    """
+
+    rules = []
+    width = _LADDER_FROM_PX
+    while width <= _LADDER_TO_PX:
+        pixel_mm = MIN_STROKE_PX * extent_mm / width
+        rules.append(f"@media (min-width:{round(width)}px){{svg{{--m:{pixel_mm:.6f}px}}}}")
+        width *= _LADDER_STEP
+
+    def widen(match: "re.Match[str]") -> str:
+        value = match.group(2)
+        return (
+            f'{match.group(1)} stroke-width="{value}"'
+            f' style="stroke-width:max({value}px,var(--m,0px))"'
+        )
+
+    def enlarge(match: "re.Match[str]") -> str:
+        value = match.group(2)
+        return f'{match.group(1)} r="{value}" style="r:max({value}px,calc(var(--m,0px)/2))"'
+
+    body = _POLYLINE_STROKE.sub(widen, svg)
+    if holes:
+        body = _CIRCLE_RADIUS.sub(enlarge, body)
+    head = body.index(">", body.index("<svg")) + 1
+    return body[:head] + "<style>" + "".join(rules) + "</style>" + body[head:]
+
+
 #: Top of the stack first. Within a side the order follows how a board is built.
 _ROLE_RANK = {"silk": 0, "paste": 1, "mask": 2, "copper": 3}
 _SIDE_RANK = {"top": 0, "inner": 1, "bottom": 2, "both": 3}
@@ -294,8 +346,11 @@ class FabricationPackage:
         info = next((item for item in self.infos if item.id == layer_id), None)
         if parsed is None or info is None or self._bounds is None:
             raise KeyError(layer_id)
-        return fab.render_layer_svg(
+        svg = fab.render_layer_svg(
             parsed, self._bounds, colour=info.colour, background=VIEW_BACKGROUND
+        )
+        return with_minimum_stroke(
+            svg, self._bounds[2] - self._bounds[0], holes=info.kind == "excellon"
         )
 
     def drill_tools(self) -> List[Dict[str, Any]]:

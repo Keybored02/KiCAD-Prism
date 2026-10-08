@@ -115,3 +115,9 @@ Rules that are easy to break:
   same columns differently, and a JLCPCB BOM has a `Designator` column, so a
   position file is recognised by having coordinates, not by its name.
 - Layers are drawn on black so the viewer can screen-blend them.
+- **A drawn line is at least 1.5 screen pixels wide.** `with_minimum_stroke` adds a
+  `width` media-query ladder to each layer SVG: an image SVG evaluates those against
+  its own rendered width, so the SVG can size its minimum line to the zoom without
+  the viewer telling it. Without it a 0.1 mm silkscreen or outline line is under a
+  pixel at fit zoom and renders dimmer than its swatch. Only polylines (and drill
+  circles) are widened; pads, vias and aperture-macro lines keep their true size.
