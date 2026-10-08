@@ -28,3 +28,19 @@ test("the GPU memory breakdown adds up to gpuMemoryBytes", () => {
   assert.equal(breakdown.vertex + breakdown.index + breakdown.barrels + breakdown.occurrences + breakdown.targets,
     renderer.gpuMemoryBytes());
 });
+
+test("indices are 16-bit when every vertex fits, padded to four bytes", async () => {
+  const { packIndices, primitiveGpuBytes } = await import("./renderer.js");
+  const small = packIndices(new Uint32Array([0, 1, 2]), 3);
+  assert.equal(small.format, "uint16");
+  assert.deepEqual([...small.indices], [0, 1, 2, 0]);
+  assert.equal(small.indices.byteLength % 4, 0);
+  const edge = packIndices([0, 65535, 1, 2], 65536);
+  assert.equal(edge.format, "uint16");
+  assert.equal(edge.indices[1], 65535);
+  const large = packIndices([0, 65536, 1], 65537);
+  assert.equal(large.format, "uint32");
+  assert.equal(large.indices[1], 65536);
+  assert.equal(primitiveGpuBytes(3, 3), 3 * 32 + 8);
+  assert.equal(primitiveGpuBytes(65537, 3), 65537 * 32 + 12);
+});

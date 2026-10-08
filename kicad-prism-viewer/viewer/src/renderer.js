@@ -31,7 +31,9 @@ import {
   packOccurrences,
 } from "./occurrences.js";
 
-const VERTEX_STRIDE = 40;
+// position f32×3, normal f32×3, netId, objectId (SB2-82: the per-primitive layer
+// and material ids were never read by a shader and are no longer in the vertex).
+const VERTEX_STRIDE = 32;
 // WebGPU dynamic uniform offsets require 256-byte alignment; each draw buffer is padded to that size.
 const DRAW_UNIFORM_SIZE = 256;
 const GLOBAL_UNIFORM_SIZE = 112;
@@ -79,8 +81,6 @@ struct VertexInput {
   @location(1) normal: vec3f,
   @location(2) netId: u32,
   @location(3) objectId: u32,
-  @location(4) layerId: u32,
-  @location(5) materialId: u32,
 };
 struct VertexOutput {
   @builtin(position) position: vec4f,
@@ -179,8 +179,6 @@ struct Input {
   @location(1) normal: vec3f,
   @location(2) netId: u32,
   @location(3) objectId: u32,
-  @location(4) layerId: u32,
-  @location(5) materialId: u32,
 };
 struct Output {
   @builtin(position) position: vec4f,
@@ -847,8 +845,6 @@ export class Renderer {
         { shaderLocation: 1, offset: 12, format: "float32x3" },
         { shaderLocation: 2, offset: 24, format: "uint32" },
         { shaderLocation: 3, offset: 28, format: "uint32" },
-        { shaderLocation: 4, offset: 32, format: "uint32" },
-        { shaderLocation: 5, offset: 36, format: "uint32" },
       ],
     }];
     this.singlePipelines = {
@@ -1269,7 +1265,7 @@ export class Renderer {
   drawEntry(pass, entry, indirect) {
     pass.setBindGroup(0, entry.bindGroup);
     pass.setVertexBuffer(0, entry.vertexBuffer);
-    pass.setIndexBuffer(entry.indexBuffer, "uint32");
+    pass.setIndexBuffer(entry.indexBuffer, entry.indexFormat);
     if (indirect) pass.drawIndexedIndirect(this.argsBuffer, entry.slot * 20);
     else pass.drawIndexed(entry.indexCount);
   }
@@ -1593,7 +1589,7 @@ export class Renderer {
     const vertexF32 = new Float32Array(vertices);
     const vertexU32 = new Uint32Array(vertices);
     for (let index = 0; index < count; index += 1) {
-      const word = index * 10;
+      const word = index * 8;
       const source = index * 3;
       vertexF32[word] = primitive.position[source];
       vertexF32[word + 1] = primitive.position[source + 1];
@@ -1603,12 +1599,10 @@ export class Renderer {
       vertexF32[word + 5] = primitive.normal[source + 2];
       vertexU32[word + 6] = primitive.netId[index] || 0;
       vertexU32[word + 7] = primitive.objectFeatureId[index] || 0;
-      vertexU32[word + 8] = metadata.layerId || 0;
-      vertexU32[word + 9] = metadata.materialId || 0;
     }
     const vertexBuffer = this.device.createBuffer({ size: vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(vertexBuffer, 0, vertices);
-    const indices = primitive.indices instanceof Uint32Array ? primitive.indices : new Uint32Array(primitive.indices);
+    const { indices, format: indexFormat } = packIndices(primitive.indices, count);
     const indexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(indexBuffer, 0, indices);
     const drawSlot = this.allocateDrawSlot();
@@ -1617,12 +1611,13 @@ export class Renderer {
     const entry = {
       ...metadata,
       drawClass,
-      slot: this.allocSlot(indices.length, drawClass),
+      slot: this.allocSlot(primitive.indices.length, drawClass),
       bounds: primitive.bounds || metadata.bounds || null,
       id: this.nextEntryId++,
       vertexBuffer,
       indexBuffer,
-      indexCount: indices.length,
+      indexFormat,
+      indexCount: primitive.indices.length,
       drawSlot,
       bindGroup,
     };
@@ -2085,6 +2080,24 @@ const LIST_OF_CLASS = Object.freeze({ 0: 1, 1: 0, 5: 2 });
  * board) at full detail, substrate and mask down to body detail, the rest
  * (outer copper, silkscreen, paste) down to board detail.
  */
+/**
+ * A primitive's indices as the GPU takes them (SB2-82): 16-bit when every vertex
+ * fits, padded to a 4-byte multiple for writeBuffer; otherwise 32-bit.
+ */
+export function packIndices(indices, vertexCount) {
+  if (vertexCount <= 0x10000) {
+    const packed = new Uint16Array(indices.length + (indices.length & 1));
+    packed.set(indices);
+    return { indices: packed, format: "uint16" };
+  }
+  return { indices: indices instanceof Uint32Array ? indices : new Uint32Array(indices), format: "uint32" };
+}
+
+/** GPU bytes for a primitive with `vertexCount` vertices and `indexCount` indices, as `addPrimitive` packs it. */
+export function primitiveGpuBytes(vertexCount, indexCount) {
+  return vertexCount * VERTEX_STRIDE + (vertexCount <= 0x10000 ? (indexCount + (indexCount & 1)) * 2 : indexCount * 4);
+}
+
 function drawClassOf(entry, innerCopperAtFull) {
   if (entry.kind === "component" || (entry.innerCopper && innerCopperAtFull)) return 1;
   if (entry.kind === "board" && (entry.boardRole === "substrate" || entry.boardRole === "soldermask")) return 5;

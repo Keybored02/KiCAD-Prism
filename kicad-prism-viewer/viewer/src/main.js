@@ -29,7 +29,7 @@ import {
 import {
   IDENTITY, LOD_THRESHOLDS, isIdentity, normalizeLodThresholds, projectToViewport, transformBounds, transformPoint,
 } from "./occurrences.js";
-import { Renderer } from "./renderer.js";
+import { primitiveGpuBytes, Renderer } from "./renderer.js";
 import { SceneRenderer } from "./scene-renderer.js";
 import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
 import { collectStackupViaData } from "./stackup-vias.js";
@@ -50,8 +50,6 @@ const TILE_SCHEDULER_INTERVAL_MS = 120;
 const MAX_TILE_LOADS_PER_TICK = 12;
 const INTERACTIVE_TILE_LOADS_PER_TICK = 48;
 const COMPARE_REVEAL_DURATION_MS = 230;
-const TILE_VERTEX_STRIDE_BYTES = 40;
-const TILE_INDEX_BYTES = 4;
 
 let viewerRoot = document;
 let appEl;
@@ -981,7 +979,7 @@ function tilesForLayer(layerId, b = board) {
 }
 
 function estimatePrimitiveGpuBytes(primitive) {
-  return (primitive.position.length / 3) * TILE_VERTEX_STRIDE_BYTES + primitive.indices.length * TILE_INDEX_BYTES;
+  return primitiveGpuBytes(primitive.position.length / 3, primitive.indices.length);
 }
 
 function evictTile(tileId, b = board) {
