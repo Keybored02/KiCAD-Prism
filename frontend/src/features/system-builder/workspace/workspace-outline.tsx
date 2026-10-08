@@ -114,7 +114,7 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {document.instances.length === 0 && (
-          <p className="px-4 py-2 text-sm text-muted-foreground">No boards yet.{canEdit ? " Add one to start." : ""}</p>
+          <p className="px-4 py-2 text-sm text-muted-foreground">Empty</p>
         )}
         <Group title="Boards" count={boards.length}>{boards.map(instanceRow)}</Group>
         <Group title="Modules" count={modules.length}>{modules.map(instanceRow)}</Group>

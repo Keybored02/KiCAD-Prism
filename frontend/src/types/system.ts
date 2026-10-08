@@ -18,9 +18,10 @@ export interface SystemSummary {
   folderId: string | null;
   version: number;
   etag: string;
-  /** Board instances only (P2): subsystems are counted in `subsystemCount`. */
+  /** Board instances only (P2): subsystems and modules are counted apart. */
   instanceCount: number;
   subsystemCount?: number;
+  moduleCount?: number;
   openReviewCount: number;
   /** The catalog `assembly` this system publishes to, bound on first publish (CONTRACTS_P2 §3.3). */
   catalogComponentId?: string | null;

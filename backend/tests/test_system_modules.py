@@ -86,6 +86,9 @@ class ModuleInstanceTest(PublishCase):
         self.assertEqual([(p["portKey"], p["reference"], p["pinCount"], p["candidateReason"]) for p in doc["ports"]],
                          [("A", "POWER/SERIAL", 6, "module"), ("B", "AUX", 3, "module")])
         self.assertEqual(doc["catalog"]["releaseStatus"], "released")
+        # The systems list counts a module as a module, not a board or a subsystem.
+        [listed] = [item for item in self.service.list_systems(VIEWER) if item["id"] == self.sid]
+        self.assertEqual((listed["moduleCount"], listed["subsystemCount"]), (1, 0))
         with self.assertRaisesRegex(Invalid, "is a module, not a assembly"):
             self.service.add_catalog_instance(DESIGNER, self.sid, self.version(), kind="assembly", label="X",
                                               component_id=self.module_id, revision_id=None, follow="pinned")

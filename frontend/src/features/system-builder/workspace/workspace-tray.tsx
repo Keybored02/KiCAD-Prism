@@ -136,7 +136,7 @@ function ConnectionsTable({ document, findings, onSelect }: { document: SystemDo
     <table aria-label="Connections" className="w-full table-fixed text-sm">
       <thead className="border-b">
         <tr>
-          <th className={cn(TH, "w-[22%]")}>Name</th><th className={cn(TH, "w-28")}>Type</th><th className={TH}>Ends</th>
+          <th className={cn(TH, "md:w-[22%]")}>Name</th><th className={cn(TH, "hidden w-28 md:table-cell")}>Type</th><th className={cn(TH, "hidden md:table-cell")}>Ends</th>
           <th className={cn(TH, "w-20 text-right")}>Rows</th><th className={cn(TH, "w-24 text-right")}>Findings</th>
         </tr>
       </thead>
@@ -146,8 +146,8 @@ function ConnectionsTable({ document, findings, onSelect }: { document: SystemDo
             <td className={TD}>
               <button type="button" className="max-w-full truncate font-medium hover:underline" onClick={() => onSelect(row.selection)}>{row.name}</button>
             </td>
-            <td className={cn(TD, "text-muted-foreground")}>{row.type}</td>
-            <td className={TD}>{row.ends}</td>
+            <td className={cn(TD, "hidden text-muted-foreground md:table-cell")}>{row.type}</td>
+            <td className={cn(TD, "hidden md:table-cell")} title={row.ends}>{row.ends}</td>
             <td className={cn(TD, "text-right tabular-nums text-muted-foreground")}>{row.count}</td>
             <td className={cn(TD, "text-right")}><span className="inline-flex justify-end"><FindingCountBadge findings={row.findings} /></span></td>
           </tr>
@@ -224,12 +224,12 @@ export function WorkspaceTray(props: TrayProps) {
         <div {...tray.handle} className={cn("absolute inset-x-0 -top-1 z-20 h-2 cursor-row-resize transition-colors hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none",
           tray.dragging && "bg-primary/60")} />
       )}
-      <div className="flex h-9 shrink-0 items-center gap-5 border-b px-4 text-sm" role="tablist" aria-label="Tray">
+      <div className="flex h-9 shrink-0 items-center gap-4 overflow-x-auto border-b px-3 text-sm sm:gap-5 sm:px-4" role="tablist" aria-label="Tray">
         {TRAY_TABS.map((item) => (
           <button
             key={item.id} type="button" role="tab" aria-selected={tab === item.id}
             onClick={() => onTab(tab === item.id ? null : item.id)}
-            className={cn("flex h-9 items-center gap-1.5 border-b-2", tab === item.id
+            className={cn("flex h-9 shrink-0 items-center gap-1.5 border-b-2", tab === item.id
               ? "border-foreground font-semibold" : "border-transparent text-muted-foreground hover:text-foreground")}
           >
             {item.label}
@@ -237,15 +237,15 @@ export function WorkspaceTray(props: TrayProps) {
             {item.id === "changes" && <Count value={document.openReviewCount} />}
           </button>
         ))}
-        <span className="ml-auto flex items-center gap-1">
+        <span className="ml-auto flex shrink-0 items-center gap-1">
           {tab === "connections" && !editing && (
             <>
-              {canEdit && <Button variant="ghost" size="sm" className="h-7" onClick={() => props.onImporting(true)}><FileUp className="size-3.5" /> Import CSV</Button>}
+              {canEdit && <Button variant="ghost" size="sm" className="h-7" aria-label="Import CSV" title="Import CSV" onClick={() => props.onImporting(true)}><FileUp className="size-3.5" /><span className="hidden sm:inline"> Import CSV</span></Button>}
               <Button asChild variant="ghost" size="sm" className="h-7">
-                <a href={icdUrl(systemId, "html")} target="_blank" rel="noreferrer"><FileText className="size-3.5" /> ICD</a>
+                <a href={icdUrl(systemId, "html")} target="_blank" rel="noreferrer" aria-label="ICD" title="ICD"><FileText className="size-3.5" /><span className="hidden sm:inline"> ICD</span></a>
               </Button>
               <Button asChild variant="ghost" size="sm" className="h-7">
-                <a href={icdUrl(systemId, "csv")} download><FileSpreadsheet className="size-3.5" /> CSV</a>
+                <a href={icdUrl(systemId, "csv")} download aria-label="CSV" title="CSV"><FileSpreadsheet className="size-3.5" /><span className="hidden sm:inline"> CSV</span></a>
               </Button>
             </>
           )}
@@ -289,7 +289,7 @@ export function WorkspaceTray(props: TrayProps) {
             <SheetHeader>
               <SheetTitle>Import connections</SheetTitle>
               <SheetDescription>
-                Upload a wiring list as CSV. An ICD export of this system imports back unchanged. Nothing is written until you commit.
+                CSV wiring list or an ICD export. Nothing is written until you commit.
               </SheetDescription>
             </SheetHeader>
             <ImportTab {...tabProps} onNavigate={(next, params) => {

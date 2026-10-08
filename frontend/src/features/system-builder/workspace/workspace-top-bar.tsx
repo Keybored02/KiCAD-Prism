@@ -24,6 +24,8 @@ interface TopBarProps {
   /** Below `lg` the outline and the inspector are sheets these open. */
   onOutline: () => void;
   onInspector: () => void;
+  /** False without WebGPU: the 3D view is unavailable and the Diagram stands in. */
+  has3d: boolean;
 }
 
 /** The repository link and the latest snapshot, re-read when the system moves on. */
@@ -41,15 +43,15 @@ function useRepositoryState(systemId: string, etag: string) {
 }
 
 /** The workspace's top bar (PLAN M8): the system, the view switch, its state and Take snapshot. */
-export function WorkspaceTopBar({ systemId, document, etag, view, canEdit, onBack, onView, onFindings, onHistory, onTakeSnapshot, onOutline, onInspector }: TopBarProps) {
+export function WorkspaceTopBar({ systemId, document, etag, view, canEdit, onBack, onView, onFindings, onHistory, onTakeSnapshot, onOutline, onInspector, has3d }: TopBarProps) {
   const { system } = document;
   const counts = document.findingCounts;
   const repository = useRepositoryState(systemId, etag);
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b px-3 md:gap-5 md:px-4">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 sm:gap-3 md:gap-5 md:px-4">
       <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to the workspace"><ArrowLeft className="size-4" /></Button>
       <Button variant="ghost" size="icon-sm" className="lg:hidden" onClick={onOutline} aria-label="Outline"><ListTree className="size-4" /></Button>
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2 md:flex-none">
         <span className="hidden text-sm text-muted-foreground sm:inline">Systems</span>
         <span className="hidden text-sm text-muted-foreground sm:inline">/</span>
         <h1 className="truncate text-base font-semibold">{system.name}</h1>
@@ -60,12 +62,14 @@ export function WorkspaceTopBar({ systemId, document, etag, view, canEdit, onBac
       <div role="tablist" aria-label="View" className="flex shrink-0 gap-0.5 rounded-md border p-0.5">
         {WORKSPACE_VIEWS.map((item) => (
           <button key={item.id} type="button" role="tab" aria-selected={view === item.id} onClick={() => onView(item.id)}
-            className={cn("rounded px-3 py-1 text-xs", view === item.id ? "bg-accent font-semibold" : "text-muted-foreground hover:text-foreground")}>
+            disabled={item.id === "3d" && !has3d} title={item.id === "3d" && !has3d ? "Needs WebGPU, which this browser does not provide" : undefined}
+            className={cn("rounded px-2 py-1 text-xs disabled:opacity-40 sm:px-3",
+              view === item.id ? "bg-accent font-semibold" : "text-muted-foreground enabled:hover:text-foreground")}>
             {item.label}
           </button>
         ))}
       </div>
-      <div className="flex-1" />
+      <div className="hidden flex-1 md:block" />
       <div className="hidden items-center gap-4 text-xs text-muted-foreground md:flex">
         <button type="button" onClick={onFindings} className="flex items-center gap-1.5 hover:text-foreground" aria-label="Open the findings">
           {counts ? (

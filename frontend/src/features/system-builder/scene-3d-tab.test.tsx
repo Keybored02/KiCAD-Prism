@@ -319,7 +319,7 @@ describe("Scene3dTab", () => {
     await waitFor(() => expect(element.setNetEmphasis).toHaveBeenLastCalledWith([]));
   });
 
-  it("shows the diagram and a notice without WebGPU, and never reads the scene", async () => {
+  it("shows a notice without WebGPU, and never reads the scene", async () => {
     vi.stubGlobal("navigator", { ...navigator, gpu: undefined });
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);

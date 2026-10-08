@@ -13,6 +13,7 @@ import { useSystemMutation } from "../use-system-mutation";
 import { IcdView } from "./icd-view";
 import type { PartDetail } from "./part-detail";
 import { rootInstanceOf } from "./use-viewer-selection-sync";
+import { webgpuAvailable } from "../scene-3d-model";
 import { useValidation } from "./use-validation";
 import { WorkspaceInspector } from "./workspace-inspector";
 import { WorkspaceOutline, type AddKind } from "./workspace-outline";
@@ -66,6 +67,9 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
   const [inspectorSlot, setInspectorSlot] = useState<HTMLElement | null>(null);
   const [netsSlot, setNetsSlot] = useState<HTMLElement | null>(null);
   const large = useLargeScreen();
+  // Without WebGPU the Diagram stands in for the 3D view (SB2-65).
+  const [has3d] = useState(webgpuAvailable);
+  const shown = state.view === "3d" && !has3d ? "diagram" : state.view;
 
   const update = (patch: Partial<WorkspaceState>) => onState({ ...state, ...patch });
   const select = (selection: WorkspaceSelection | null) => {
@@ -115,7 +119,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
 
   return (
     <div className="flex h-app-viewport flex-col bg-background">
-      <WorkspaceTopBar systemId={systemId} document={document} etag={etag} view={state.view} canEdit={canEdit}
+      <WorkspaceTopBar systemId={systemId} document={document} etag={etag} view={shown} canEdit={canEdit} has3d={has3d}
         onBack={onBack} onView={(next) => update({ view: next })}
         onFindings={() => setTray("findings")} onHistory={() => setTray("history")}
         onTakeSnapshot={() => { setTakeRequest((count) => count + 1); update({ tray: "history" }); }}
@@ -126,10 +130,10 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
           {outline}
         </ResizablePanel>
         <div className="flex min-w-0 flex-1 flex-col">
-          <main className="relative min-h-0 flex-1 overflow-auto">{view(state.view)}</main>
+          <main className="relative min-h-0 flex-1 overflow-hidden">{view(shown)}</main>
           <WorkspaceTray {...tabProps} tab={state.tray} findings={findings} selection={state.selection} busy={busy} run={run}
             importing={importing} takeRequest={takeRequest} onTab={setTray} onSelect={select} onImporting={onImporting}
-            view={state.view} onNetsSlot={setNetsSlot} />
+            view={shown} onNetsSlot={setNetsSlot} />
         </div>
         <ResizablePanel side="right" storageKey="prism.system-workspace.inspector-width" defaultWidth={352} minWidth={280} maxWidth={720}
           aria-label="Inspector panel" className="hidden lg:flex">

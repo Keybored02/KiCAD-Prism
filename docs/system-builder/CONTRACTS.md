@@ -575,7 +575,8 @@ camelCase. Timestamps are ISO-8601 strings.
 
 **System summary** (list items, workspace listing, `system` in the document):
 `{id, kind: "system", name, description, folderId, version, etag,
-instanceCount, openReviewCount, createdBy, createdAt, updatedAt}`.
+instanceCount, openReviewCount, createdBy, createdAt, updatedAt}`. P2 adds `subsystemCount` and
+`moduleCount`; `instanceCount` then counts boards only (SB2-66: a module is no longer counted as a subsystem).
 
 **Workspace.** `GET /api/workspace/bootstrap` and
 `GET /api/folders/contents` gain `systems`: the summaries visible to the
