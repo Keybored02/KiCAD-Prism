@@ -47,12 +47,15 @@ const RULE_TEXT: Record<string, string> = {
   net_name_mismatch: "Joined nets share no name",
   power_meets_signal: "Power net meets a signal net",
   mate_mismatch: "Mated connectors do not line up",
+  harness_collision: "Harness runs through a board",
+  length_mismatch: "Cut length differs from the estimate",
   child_revision_unreleased: "Subsystem revision is not released",
   child_advance_blocked: "Subsystem update blocked by hierarchy limits",
   export_unresolved: "Export does not resolve",
   mating_stale: "Connector moved since its mating frame was confirmed",
   mate_pair_unknown: "Catalog does not list these parts as mating",
   mate_pin_mismatch: "Harness part pins do not land on connector pads",
+  harness_tight_bend: "Harness bends tighter than its minimum radius",
 };
 
 export function findingText(finding: Pick<Finding, "name">): string {

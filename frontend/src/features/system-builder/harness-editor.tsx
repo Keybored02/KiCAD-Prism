@@ -319,7 +319,13 @@ function DetailsDialog({ harness, busy, onClose, onSave }: {
           <div className="grid gap-2"><Label htmlFor="harness-label">Label</Label>
             <Input id="harness-label" value={label} maxLength={200} placeholder="e.g. WH-003" onChange={(event) => setLabel(event.target.value)} /></div>
           <div className="grid gap-2"><Label htmlFor="harness-cut">Cut length (mm)</Label>
-            <Input id="harness-cut" inputMode="decimal" value={cut} placeholder="Optional" onChange={(event) => setCut(event.target.value)} /></div>
+            <Input id="harness-cut" inputMode="decimal" value={cut} placeholder="Optional" onChange={(event) => setCut(event.target.value)} />
+            {harness.lengths && (
+              <p className="text-xs text-muted-foreground">
+                Estimated {harness.lengths.estimatedMm} mm from the 3D route ({harness.lengths.allowancePct} % allowance);
+                a cut length more than 15 % away is flagged.
+              </p>
+            )}</div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={busy || invalid}>Save</Button>
@@ -364,6 +370,11 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
             <span>{harness.ends.length} ends · {harness.wires.length} wires</span>
             {harness.label && <Badge variant="outline">{harness.label}</Badge>}
             {harness.cutLengthMm && <span>· cut {harness.cutLengthMm} mm</span>}
+            {harness.lengths && (
+              <span title={`Bundle ${harness.lengths.bundleMm} mm as the 3D view routes it, plus ${harness.lengths.allowancePct} % allowance`}>
+                · estimated {harness.lengths.estimatedMm} mm{harness.lengths.complete ? "" : " (ends not all placed)"}
+              </span>
+            )}
           </p>
         </div>
         {editable && (

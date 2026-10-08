@@ -178,6 +178,16 @@ def place_tree(
     return {"placed": placed, "local": local, "results": results}
 
 
+def world_poses(occurrences: Sequence[Occurrence], placed: Mapping[str, Mapping[str, Any]]) -> dict[str, dict]:
+    """Each occurrence's pose in the root system's frame (parents come before their members)."""
+    world: dict[str, dict] = {}
+    for occurrence in occurrences:
+        parent = occurrence.path.rsplit("/", 1)[0]
+        pose = {key: placed[occurrence.path][key] for key in ("translationMm", "rotation")}
+        world[occurrence.path] = poses.compose(world[parent] if parent else poses.IDENTITY, pose)
+    return world
+
+
 def build(
     system_id: str,
     system_version: int,
@@ -198,13 +208,11 @@ def build(
     placed, local = placement["placed"], placement["local"]
     driving = {path: entry for result in placement["results"].values() for path, entry in result["driving"].items()}
 
-    world: dict[str, dict] = {}
+    world = world_poses(occurrences, placed)
     assets: dict[str, dict] = {}
     out = []
-    for occurrence in occurrences:  # parents come before their members
+    for occurrence in occurrences:
         parent = occurrence.path.rsplit("/", 1)[0]
-        pose = {key: placed[occurrence.path][key] for key in ("translationMm", "rotation")}
-        world[occurrence.path] = poses.compose(world[parent] if parent else poses.IDENTITY, pose)
         entry = shown.get(occurrence.path)
         if entry is None:
             continue

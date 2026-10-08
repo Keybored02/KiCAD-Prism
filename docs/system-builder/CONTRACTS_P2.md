@@ -368,14 +368,15 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 | SYS-V09 | `net_name_mismatch` | warning, **opt-in** | Runs only when the system lists it in `optionalRules` (P2-1.10; off by default). At a join (row or wire), no token on one side is **related** to a token on the other (P2-1.8). Related: equal; one a prefix or suffix of the other (2+ characters, digits kept, so `GPIO4`/`IO4` match and `GPIO4`/`IO5` do not); an in-order abbreviation with the same first letter (`RST`/`RESET`); an acronym of the other side's tokens (`PG`/`PWR_GOOD`); or a crossed pair (`TX`/`RX`, `TXD`/`RXD`, `SDO`/`SDI`, `DOUT`/`DIN`, `CTS`/`RTS`). It is reported once per join, with both names. Unnamed auto-nets and unconnected pins never trigger it. |
 | SYS-V10 | `power_meets_signal` | error | At a join, exactly one side's pin has `powerNet: true` and the other side's net is a named, non-power net. |
 | SYS-V11 | `mate_mismatch` | warning | A B2B link of this system whose connectors don't line up where the driving mates put its boards (§14.9): lateral > 0.2 mm, angle > 0.5°, or axial > 0.2 mm with a stack height. Detail `{offsetMm, lateralMm, axialMm, angleDeg}`. Only evaluated when the system has B2B links. |
-| SYS-V12 | `harness_collision` | warning | Reserved for M5. |
-| SYS-V13 | `length_mismatch` | warning | Reserved for M5. |
+| SYS-V12 | `harness_collision` | warning | A root-level harness segment runs through a board's box (outline × thickness + 1 mm), §17.10. Detail `{harnessId, segmentId, occurrence, distanceMm, radiusMm, atMm}`. |
+| SYS-V13 | `length_mismatch` | warning | A harness's cut length differs from its estimated length by more than 15 % (§17.10). Detail `{harnessId, cutLengthMm, estimatedMm, differencePct}`. Not evaluated while an end is unplaced. |
 | SYS-V14 | `child_revision_unreleased` | warning | An assembly or module instance pins a revision that is not `released`, or whose snapshot had open reviews. |
 | SYS-V15 | `child_advance_blocked` | warning | A released revision exists but advancing would break §5.3 limits. |
 | SYS-V16 | `export_unresolved` | error | An export's connector no longer resolves at its board's baseline, or is no longer exposed (§4.2 rule 7). Not evaluated while the board's interface is missing. |
 | SYS-V17 | `mating_stale` | info | A confirmed or override mating frame whose port geometry changed since confirmation (§15.2). |
 | SYS-V18 | `mate_pair_unknown` | warning | Both parts of a harness end or `b2b` pair are known and not related by mates-with (§18). |
 | SYS-V19 | `mate_pin_mismatch` | error | A harness end's part has a different pin count from its mated connector and a wired pin has no map (§17.2). |
+| SYS-V20 | `harness_tight_bend` | info | A root-level harness segment still bends tighter than 6 × its bundle diameter after relaxation (§17.8). Detail `{harnessId, segmentId, radiusMm, minRadiusMm, atMm}`. |
 
 **Optional rules (P2-1.10, user decision 2026-09-30).** `system_projects.optional_rules` (migration 35) lists the opt-in rules a system runs; today the only one is `SYS-V09`, because real boards rename nets across connectors far more often than they miswire them (108 warnings on the JTYU C&DH set). It is set with `PATCH /systems/{id}` `{"optionalRules": ["SYS-V09"]}` (the list replaces the stored one; `null` clears it; any other rule is 422), bumps the system version, is audited as `system_updated`, and is shown in the system summary and the manifest header. The Overview tab has a **Checks** section with the switch. `SYS-V10` always runs.
 
@@ -818,6 +819,17 @@ Stored in `system_harness_nodes` (migration 44); Python `placement/harness_nodes
 - Deleting an end deletes the waypoints next to it and drops it from breakouts. Deleting a harness deletes its nodes.
 - Nodes are placement data: in the full digest, not the connectivity digest (§9.3). Manifests and snapshots carry them; child systems' harnesses route through their snapshot's nodes.
 
+### 17.10 Routes, lengths and collisions (SB2-46)
+
+Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScript `harness-route.ts` and `harness-checks.ts`; goldens `placement_cases.json` `harnessChecks`.
+
+- **Route.** From a scene harness (§20.15: ends with occurrence and connector, wires, nodes in the level's frame) and the occurrences' world matrices: the posed ends (§17.6) with their occurrence, the tree through the stored breakouts (§17.7, §17.9), the curves through the stored waypoints (§17.8), with each segment's `from`, `to`, wires, bundle diameter and assumed gauge. A harness with fewer than two posed ends has no route. The browser's tubes are drawn from the same route.
+- **Lengths.** Bundle = Σ segment arc lengths + Σ posed ends' housing depths. A wire = the segments that carry it + its two ends' depths. Estimates multiply by 1 + allowance: the harness's `serviceAllowancePct`, else 10 % (§17.5). `complete` is false while a wire touches an unplaced end; the numbers then cover only what is routed.
+- **Collisions.** A board is its scene box (`boundsMm`: outline × ±thickness/2 in its own frame) grown by 1 mm; a span between two samples is a capsule of the bundle radius. Its distance to a box is the minimum of the convex squared distance along the span, found by a 60-step golden-section search (plus both ends), in the box's frame; only squares and one square root are used, so the halves agree bit for bit. A span closer than the radius collides. The spans within the first 10 mm (the boot) of arc from an end's exit are exempt against the board that end mates. Result per colliding segment–board pair: `{segmentId, board, distanceMm, radiusMm, atMm, spans}`.
+- **Server.** Validation routes the root level's harnesses where the System 3D view draws them (the solved placement, §14.10) and checks them against every board of the tree with an outline: `SYS-V12` per colliding pair, `SYS-V13` for a cut length more than 15 % off the estimate, `SYS-V20` (info) per segment with a tight bend. Child systems' harnesses are checked in their own system.
+- **Documents and the ICD.** The live document's harnesses carry `lengths {bundleMm, estimatedMm, allowancePct, complete, wires: {id: {lengthMm, estimatedMm}}}` (0.1 mm; null without a route). The ICD's harness heading shows the estimate and each wire row its estimated length; the harness editor shows the estimate beside the cut length. The CSV columns are unchanged.
+- **Browser.** Tubes are checked against the scene's boards on every placement change, drags included; a colliding segment draws red (the whole segment; per-sample tint is not done).
+
 ## 18. Mating parts in the catalog: mates with (SB2-16) and models (SB2-17)
 
 ### 18.1 "Mates with" **[T7]**
@@ -850,6 +862,7 @@ Stored in `system_harness_nodes` (migration 44); Python `placement/harness_nodes
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.54 | 2026-10-08 | SB2-46: §17.10 routes, lengths and collisions (library pairs `harness_route`/`harness_checks`, goldens `harnessChecks`); `SYS-V12 harness_collision`, `SYS-V13 length_mismatch`, new info rule `SYS-V20 harness_tight_bend`; harness lengths in documents, the ICD and the harness editor; colliding tubes draw red. |
 | P2-1.53 | 2026-10-08 | SB2-45b: §20.16 harness picking and route editing in move mode: tube picks, `harness` events, node handles, the gizmo on a node, the harness panel (add waypoint or breakout, pin, remove), ordered picks. |
 | P2-1.52 | 2026-10-08 | SB2-45a: §17.9 harness breakouts and waypoints: migration 44, `PUT …/harnesses/{hid}/nodes`, manifest `nodes` with `between` (import no longer refused), scene harnesses carry nodes, library pair `harness_nodes` (goldens `harnessNodes`) and pinned waypoints in §17.8; tubes route through them (§20.15). |
 | P2-1.51 | 2026-10-08 | SB2-44: §20.15 harness tubes: scene ends carry their connector (geometry, thickness, stored frame) and part, wires their gauge; the viewer bundles the placement library, recomputes curves on every placement change, and builds rotation-minimising tubes in a compute pass. Ten harnesses on the JTYU stack while dragging a board: ~101 fps mean, p95 17 ms. |
@@ -1144,7 +1157,7 @@ Coarser levels only stop drawing parts of a board; the bundle's geometry is neve
 - **Curves in the browser.** The viewer bundles the placement library (`placement/harness-tubes.ts`, one implementation with the app) and recomputes every harness whenever a placement changes, drag previews included: end poses (§17.6), the tree (§17.7), the curves (§17.8). An end without a connector or a frame drops out; a harness with fewer than two posed ends draws only its proxy dots (§20.11); a segment no wire crosses draws nothing.
 - **Tubes on the GPU.** A compute pass gives each sample a rotation-minimising frame (double reflection; one invocation per segment walking its samples), a second writes the vertices: a 12-segment ring per sample (§17.5) at the segment's bundle radius, and flat caps at both ends. The draw shares the scene's render pass and depth buffer. Colour: harness grey; a segment carrying a lit wire takes that set's colour and pulses; the others dim while anything is lit. A harness drawn as tubes drops its proxy straight lines and keeps its end dots.
 - **Nodes.** Scene harnesses carry `nodes` (§17.9) in their level's frame; the tubes route through them, moved to world by the level's matrix (identity for the root).
-- **Not yet:** tight-bend and collision findings (SB2-46), housing models at ends and radius blends at breakouts (SB2-47).
+- **Not yet:** housing models at ends and radius blends at breakouts (SB2-47).
 
 
 ### 20.16 Picking harnesses and editing their route (SB2-45b)

@@ -9,6 +9,7 @@ from app.services.systems import (
     validation, visibility,
 )
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
+from app.services.systems.placement import harness_spec
 from app.services.systems.jobs import (
     EXTRACT_JOB_KIND,
     artifact_key,
@@ -156,10 +157,17 @@ class DocumentsMixin:
             if solved:
                 report = validation.with_findings(report, validation.mate_mismatch_findings(solved["mismatches"]))
         harness_rows = store.list_harnesses(system_id)
+        # SB2-46 (§17.10): routed where the System 3D view draws them, for lengths and V12/V13/V20.
+        checked = self._harness_checks(store, system_id, harness_rows)
+        report = validation.with_findings(report, validation.harness_route_findings(
+            checked, {h["id"]: h["cut_length_mm"] for h in harness_rows}, harness_spec.LENGTH_MISMATCH_TOLERANCE))
         harness_docs = []
         for harness in harness_rows:
             components = self._end_components(store, harness, interfaces)
-            harness_docs.append(self._harness_doc(harness, components))
+            doc = self._harness_doc(harness, components)
+            found = checked.get(harness["id"])
+            doc["lengths"] = _rounded_lengths(found["lengths"]) if found else None
+            harness_docs.append(doc)
             report = validation.with_findings(report, harnesses_module.findings(
                 harness, components, {i["id"]: store.list_overrides(i["id"]) for i in instances},
                 system.get("optionalRules") or (), validation.make_finding))
@@ -542,3 +550,11 @@ class DocumentsMixin:
             "catalogComponentId": row.get("catalog_component_id"), "catalogRevisionId": row.get("catalog_revision_id"),
             "follow": row.get("follow"),
         }
+
+
+def _rounded_lengths(lengths: Mapping[str, Any]) -> dict:
+    """§17.10 lengths for documents and the ICD, to 0.1 mm."""
+    return {"bundleMm": round(lengths["bundleMm"], 1), "estimatedMm": round(lengths["estimatedMm"], 1),
+            "allowancePct": round(lengths["allowancePct"], 2), "complete": lengths["complete"],
+            "wires": {wire: {"lengthMm": round(v["lengthMm"], 1), "estimatedMm": round(v["estimatedMm"], 1)}
+                      for wire, v in sorted(lengths["wires"].items())}}

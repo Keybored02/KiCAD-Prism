@@ -23,7 +23,7 @@ from kicad_monkey import kicad_pcb_footprint, kicad_sexpr
 
 from app.services.systems.interface_extractor import _footprint_geometry, extract_interface
 from app.services.systems.placement import (
-    harness_curves, harness_ends, harness_nodes, harness_topology, mate, poses, solve,
+    harness_checks, harness_curves, harness_ends, harness_nodes, harness_route, harness_topology, mate, poses, solve,
 )
 from app.services.systems.placement.frames import connector_frame, infer
 
@@ -402,6 +402,47 @@ def node_cases() -> list[dict]:
                                                                          split["pinned"])}})
     return out
 
+def check_cases() -> list[dict]:
+    """Lengths and collisions (§17.10): span–box distances, then a routed 3-end harness on header
+    connectors with a waypoint, a board standing across one leg, and a service allowance."""
+    out = []
+    lo, hi = [0.0, 0.0, 0.0], [10.0, 10.0, 2.0]
+    for name, a, b in (("a span through the box", [-5.0, 5.0, 1.0], [15.0, 5.0, 1.0]),
+                       ("a span passing above the box", [-5.0, 5.0, 6.0], [15.0, 5.0, 6.0]),
+                       ("a span past a corner", [12.0, -4.0, 1.0], [16.0, 4.0, 1.0]),
+                       ("a span ending short of the box", [-9.0, 5.0, 1.0], [-3.0, 5.0, 1.0])):
+        out.append({"name": name, "op": "span", "input": {"a": a, "b": b, "lo": lo, "hi": hi},
+                    "expected": list(harness_checks.span_box_distance(a, b, lo, hi))})
+    geometry = pose(stock("header_v"), x=50, y=-10, angle=0)
+    connector = {"geometry": geometry, "thicknessMm": THICKNESS, "stored": None}
+    translate = lambda x, y, z: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0]
+    worlds = {"/a": translate(0.0, 0.0, 0.0), "/b": translate(120.0, 30.0, 0.0), "/c": translate(120.0, -40.0, 0.0),
+              "/wall": [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 140.0, 0.0, 0.0, 1.0]}
+    harness = {
+        "id": "shn_w", "level": None,
+        "ends": [{"id": f"e{i + 1}", "ordinal": i, "occurrence": path, "connector": connector}
+                 for i, path in enumerate(("/a", "/b", "/c"))],
+        "wires": [{"id": "w1", "from": "e1", "to": "e2", "gaugeAwg": 20},
+                  {"id": "w2", "from": "e1", "to": "e2", "gaugeAwg": 22},
+                  {"id": "w3", "from": "e1", "to": "e3", "gaugeAwg": 20}],
+        "nodes": [{"id": "wp", "kind": "waypoint", "positionMm": [60.0, -20.0, 40.0], "pinned": True, "order": 0,
+                   "ends": [], "between": ["e1", "auto"]}],
+    }
+    outline = {"minMm": [0.0, -10.0, -0.8], "maxMm": [60.0, 10.0, 0.8]}
+    # A board on edge at x = 140, standing up across the e2 and e3 legs (its outline in world y-z).
+    boards = [{"id": path, "matrix": worlds[path], **outline} for path in ("/a", "/b", "/c")] + \
+             [{"id": "/wall", "matrix": worlds["/wall"], "minMm": [0.0, -60.0, -0.8], "maxMm": [60.0, 60.0, 0.8]}]
+    for name, allowance in (("WH-style harness: lengths with the default allowance, the standing board hit", None),
+                            ("the same with the harness's own 25 % allowance", 25.0)):
+        routed = harness_route.route(harness, worlds.get)
+        out.append({"name": name, "op": "harness",
+                    "input": {"harness": harness, "worlds": worlds, "boards": boards, "allowancePct": allowance},
+                    "expected": {"segments": [c["segmentId"] for c in routed["curves"]],
+                                 "lengthsMm": [c["lengthMm"] for c in routed["curves"]],
+                                 "collisions": harness_checks.collisions(routed, boards),
+                                 "lengths": harness_checks.lengths(routed, allowance)}})
+    return out
+
 def compact(value, indent: int = 0) -> str:
     """JSON with every container that fits in 120 columns on one line (pads stay one per line)."""
     flat = json.dumps(value)
@@ -420,7 +461,7 @@ def main() -> None:
                             "tolerance": {"mm": 1e-6, "unit": 1e-9}, "frames": cases(),
                             "poses": pose_cases(), "mates": mate_cases(),
                             "solves": solve_cases(), "harnessEnds": harness_end_cases(),
-                            "harnessTopologies": topology_cases(), "harnessCurves": curve_cases(), "harnessNodes": node_cases(),
+                            "harnessTopologies": topology_cases(), "harnessCurves": curve_cases(), "harnessNodes": node_cases(), "harnessChecks": check_cases(),
                             "mateEnds": MATE_ENDS}) + "\n")
 
 
