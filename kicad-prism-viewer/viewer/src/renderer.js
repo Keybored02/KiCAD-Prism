@@ -1213,6 +1213,27 @@ export class Renderer {
     return bytes;
   }
 
+  /** Where `gpuMemoryBytes()` goes (SB2-80): geometry by entry kind, per-occurrence data and targets. */
+  gpuMemoryBreakdown() {
+    const geometry = {};
+    let vertex = 0;
+    let index = 0;
+    for (const entry of this.entries) {
+      const v = entry.vertexBuffer?.size || 0;
+      const i = entry.indexBuffer?.size || 0;
+      vertex += v;
+      index += i;
+      const kind = entry.kind === "copper" ? `copper:${entry.layerId ?? "?"}`
+        : entry.boardRole ? `${entry.kind}:${entry.boardRole}` : entry.kind || "other";
+      geometry[kind] = (geometry[kind] || 0) + v + i;
+    }
+    const barrels = [this.barrels?.vertexBuffer, this.barrels?.indexBuffer, this.barrels?.instanceBuffer, this.barrelRecordBuffer]
+      .reduce((sum, buffer) => sum + (buffer?.size || 0), 0);
+    const occurrences = [this.occurrenceBuffer, this.listBuffer, this.argsBuffer, this.classesBuffer, this.featureMaskBuffer,
+      this.netMaskBuffer, this.cull?.lods].reduce((sum, buffer) => sum + (buffer?.size || 0), 0);
+    return { vertex, index, geometry, barrels, occurrences, targets: this.canvas.width * this.canvas.height * 12, entries: this.entries.length };
+  }
+
   ensureInstancedPipelines() {
     if (this.instancedPipelines) return;
     if (this.shareFrom) {

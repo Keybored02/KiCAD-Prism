@@ -217,6 +217,17 @@ export class SceneRenderer {
     return bytes - Math.max(0, this.renderers.length - 1) * this.canvas.width * this.canvas.height * 12;
   }
 
+  /** `gpuMemoryBytes()` per asset (SB2-80); the shared depth and pick targets are counted once, on the host. */
+  gpuMemoryBreakdown() {
+    const assets = {};
+    for (const [id, renderer] of this.assets) {
+      const breakdown = renderer.gpuMemoryBreakdown();
+      delete breakdown.targets;
+      assets[id] = breakdown;
+    }
+    return { assets, tubes: this.tubes?.gpuMemoryBytes() || 0, targets: this.canvas.width * this.canvas.height * 12 };
+  }
+
   /** Level-of-detail thresholds for every asset, now and later (SB2-30a). */
   setLodThresholds(thresholds) {
     this.lodThresholds = normalizeLodThresholds({ ...this.lodThresholds, ...thresholds });
