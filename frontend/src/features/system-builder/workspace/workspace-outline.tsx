@@ -112,7 +112,7 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
           </DropdownMenu>
         )}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
         {document.instances.length === 0 && (
           <p className="px-4 py-2 text-sm text-muted-foreground">Empty</p>
         )}
