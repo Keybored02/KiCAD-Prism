@@ -277,5 +277,6 @@ def redact_harnesses(harnesses: Sequence[Mapping[str, Any]], shown: Mapping[str,
                          "part": end.get("part"),
                          "connector": end.get("connector") if open_board else None})
         out.append({"id": harness["id"], "level": level or None, "name": harness["name"], "ends": ends,
-                    "wires": [dict(wire) for wire in harness["wires"]]})
+                    "wires": [dict(wire) for wire in harness["wires"]],
+                    "nodes": [dict(node) for node in harness.get("nodes") or []]})
     return out

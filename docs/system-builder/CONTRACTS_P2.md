@@ -395,7 +395,7 @@ The models in `manifest_schema.py` are normative. Top-level keys:
 | `instances` | board `{id, label, kind: "board", projectId, baselineCommit, trackedRef, pinned, portOverrides}` or catalog `{id, label, kind: "assembly"\|"module", catalog: {componentId, revisionId, revisionVersion, identity}, follow}` |
 | `exports` | §4.1. A port target is `{instanceId, portKey, port: PortBaseline}` (P2-1.3); a re-export target is `{instanceId, exportId}` |
 | `links` | `{id, name, type, harnessLabel, a, b, rows, stackHeightMm}` with P1 rows (`netA`/`netB` baselines); `stackHeightMm` is b2b-only placement data (§16.2) |
-| `harnesses` | `{id, name, label, ends[{id, ordinal, mates, part, pinCount, pinMap, bootMm}], wires[{id, from, to, signal, gaugeAwg, colour, label, netFrom, netTo}], nodes[{id, kind, positionMm, pinned, order, ends}], cutLengthMm, serviceAllowancePct}` |
+| `harnesses` | `{id, name, label, ends[{id, ordinal, mates, part, pinCount, pinMap, bootMm}], wires[{id, from, to, signal, gaugeAwg, colour, label, netFrom, netTo}], nodes[{id, kind, positionMm, pinned, order, ends, between}], cutLengthMm, serviceAllowancePct}` |
 | `mating` | `{instanceId, portKey, mode: confirmed\|override, frame: {axis, quarterTurns}, geometryDigest}` (§15.2) |
 | `placement` | `{poses[{instanceId, translationMm, rotation (xyzw unit), source}], drivingMates[{instanceId, linkId}]}` |
 | `layout` | `{positions: {<nodeKey>: {x, y}}}`, the saved diagram arrangement. Node keys are instance IDs and harness IDs at this level (at most 1000). An expanded child renders with the layout frozen in its own snapshot. |
@@ -443,7 +443,7 @@ Reading rules:
 - P1 snapshots stay readable everywhere else, but cannot be published.
 - Writers emit instances, links and rows sorted by ID, so an unchanged system snapshots to identical digests.
 
-**Import.** `manifest.import_manifest` recreates a system from a manifest, **keeping every ID** (system, instances, links, rows), and audits `system_imported`. A clash with an existing ID fails the transaction. Sections without tables yet (harness nodes, driving mates) are refused with 422 until their tickets land; mating records (SB2-12) and poses (SB2-28) import as stored. There is no HTTP route yet; M7 adds one.
+**Import.** `manifest.import_manifest` recreates a system from a manifest, **keeping every ID** (system, instances, links, rows), and audits `system_imported`. A clash with an existing ID fails the transaction. Harness nodes (SB2-45) and driving mates (SB2-37) import as stored; mating records (SB2-12) and poses (SB2-28) import as stored. There is no HTTP route yet; M7 adds one.
 
 ### 9.5 Canvas layout (revises P1 invariant 6)
 
@@ -697,7 +697,7 @@ Errors: 409 `mating_not_inferable` when confirming a `low` inference (use overri
 
 ### 17.1 Tables
 
-`system_harnesses (id, system_id, name, label, cut_length_mm, service_allowance_pct)`, `system_harness_ends (id, harness_id, ordinal, mates_instance_id, mates_port, catalog_component_id, catalog_revision_id, part_pins, pin_count, pin_map, boot_mm)`, `system_harness_wires (id, harness_id, from_end, from_pin, to_end, to_pin, signal, gauge_awg, colour, label, net_from, net_to)`, `system_harness_nodes` (M5). Field meanings are the manifest's (§9.1). `mates_port` holds a port baseline like a link end (P1 §4), or an export baseline.
+`system_harnesses (id, system_id, name, label, cut_length_mm, service_allowance_pct)`, `system_harness_ends (id, harness_id, ordinal, mates_instance_id, mates_port, catalog_component_id, catalog_revision_id, part_pins, pin_count, pin_map, boot_mm)`, `system_harness_wires (id, harness_id, from_end, from_pin, to_end, to_pin, signal, gauge_awg, colour, label, net_from, net_to)`, `system_harness_nodes (id, harness_id, kind, position_mm, pinned, ord, ends, between_ids)` (migration 44, §17.9). Field meanings are the manifest's (§9.1). `mates_port` holds a port baseline like a link end (P1 §4), or an export baseline.
 
 ### 17.2 Behaviour **[T6]**
 
@@ -731,7 +731,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 - Drift reads each mated end as a link-shaped view (`store.drift_links`): the item's `linkId` is the end ID, `rowIds` are wire IDs and `pins` are connector pads. Accept rewrites the wire's net on that side; Remap writes the end's `pinMap`; Remove rows deletes wires; a port update re-mates the end.
 - Re-mating an end or editing its pin map recaptures every wire's nets. Converting links keeps their accepted row baselines as wire baselines.
 - Harness findings carry `detail.harnessId` with `endId` or `wireId` (and `rowId` = the wire ID); duplicate wires report `duplicateOf`.
-- Manifests export and import harnesses; `nodes` stay empty and an import carrying nodes is refused until M5.
+- Manifests export and import harnesses with their `nodes` (§17.9, since SB2-45).
 
 **As built (SB2-18): mating housings as parts.**
 - `PATCH …/ends/{eid}` takes `part: {componentId} | null`. A part must be an active catalog `part` (404 otherwise) with pins: its symbol's pins, or its footprint's pads when it has no symbol (422 when it has neither). The part's current revision is recorded (`catalogRevisionId`).
@@ -806,6 +806,18 @@ Python `placement/harness_curves.py`, TypeScript `placement/harness-curves.ts`; 
 - **Length** is the polyline length of the samples.
 - Result per segment: `{segmentId, controlMm (after relaxation), samplesMm, lengthMm, minRadiusMm (null when straight), minRadiusAllowedMm, tightBend}`.
 
+### 17.9 Breakouts and waypoints (SB2-45)
+
+Stored in `system_harness_nodes` (migration 44); Python `placement/harness_nodes.py`, TypeScript `placement/harness-nodes.ts`; goldens `placement_cases.json` `harnessNodes`.
+
+- **Node** `{id (shd_…), kind, positionMm, pinned, order, ends, between}`, positions in mm in the harness's system frame.
+  - A **breakout** lists the `ends` it branches to (each end at most one breakout); breakouts chain by `order`. `pinned` is false and `between` null.
+  - A **waypoint** lies `between` two of the harness's ends or breakouts. The waypoints between one pair name them in the same order and go by `order` from `between[0]`. A **pinned** waypoint is never moved by bend relaxation (§17.8). `ends` is empty.
+- **Into the geometry.** `breakouts(nodes)` feeds §17.7 in chain order. `segment_waypoints(tree, nodes)` gives each segment the waypoints of its node pair, reversed when `between[0]` is the segment's `to`, plus their pinned flags; waypoints whose pair is not a segment of the tree (an end without a pose, a breakout that no longer joins them) are listed as `unused` and drawn nowhere. The automatic breakout `auto` is never stored: editing it means storing a breakout in its place.
+- **API.** `PUT …/harnesses/{hid}/nodes` (designer, If-Match) replaces the list and returns the harness document, which carries `nodes`. List order is chain order for breakouts and along-pair order for waypoints; `order` is derived from it. A new node may bring its own `shd_` ID (so a waypoint can name a breakout added in the same list). 422 for an unknown kind, a non-finite position or one beyond 1 km, an end or `between` node that is not the harness's, an end on two breakouts, a pinned breakout, mixed pair orders, or more than 256 nodes; 409 for an ID of another harness. Audited as `harness_updated` with `nodesAdded`/`nodesRemoved`.
+- Deleting an end deletes the waypoints next to it and drops it from breakouts. Deleting a harness deletes its nodes.
+- Nodes are placement data: in the full digest, not the connectivity digest (§9.3). Manifests and snapshots carry them; child systems' harnesses route through their snapshot's nodes.
+
 ## 18. Mating parts in the catalog: mates with (SB2-16) and models (SB2-17)
 
 ### 18.1 "Mates with" **[T7]**
@@ -838,6 +850,7 @@ Python `placement/harness_curves.py`, TypeScript `placement/harness-curves.ts`; 
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.52 | 2026-10-08 | SB2-45a: §17.9 harness breakouts and waypoints: migration 44, `PUT …/harnesses/{hid}/nodes`, manifest `nodes` with `between` (import no longer refused), scene harnesses carry nodes, library pair `harness_nodes` (goldens `harnessNodes`) and pinned waypoints in §17.8; tubes route through them (§20.15). |
 | P2-1.51 | 2026-10-08 | SB2-44: §20.15 harness tubes: scene ends carry their connector (geometry, thickness, stored frame) and part, wires their gauge; the viewer bundles the placement library, recomputes curves on every placement change, and builds rotation-minimising tubes in a compute pass. Ten harnesses on the JTYU stack while dragging a board: ~101 fps mean, p95 17 ms. |
 | P2-1.50 | 2026-10-08 | SB2-43: §17.8 harness curves (library pair, goldens `harnessCurves`): control polygons with tangent points, centripetal Catmull-Rom sampled to 0.2 mm chord error, waypoint relaxation for the 6 d bend radius, tight-bend reports, arc length. |
 | P2-1.49 | 2026-10-08 | SB2-42: §17.7 harness topology (library pair, goldens `harnessTopologies` on WH-001): runs, the automatic weighted breakout, user breakouts, segment wire sets and bundle diameters. |
@@ -1129,4 +1142,5 @@ Coarser levels only stop drawing parts of a board; the bundle's geometry is neve
 - **Scene.** A harness end in `GET …/scene` also carries `part` (its catalog component, or null for Generic) and `connector`: `{geometry (v6), thicknessMm, stored}` of the board connector it mates, with `stored` the level's confirmed or override frame (null when there is none or it is stale; the browser then infers, §15.1). `connector` is null for an end that is unmated, on a restricted board, or whose connector can't be read. Wires carry `gaugeAwg`.
 - **Curves in the browser.** The viewer bundles the placement library (`placement/harness-tubes.ts`, one implementation with the app) and recomputes every harness whenever a placement changes, drag previews included: end poses (§17.6), the tree (§17.7), the curves (§17.8). An end without a connector or a frame drops out; a harness with fewer than two posed ends draws only its proxy dots (§20.11); a segment no wire crosses draws nothing.
 - **Tubes on the GPU.** A compute pass gives each sample a rotation-minimising frame (double reflection; one invocation per segment walking its samples), a second writes the vertices: a 12-segment ring per sample (§17.5) at the segment's bundle radius, and flat caps at both ends. The draw shares the scene's render pass and depth buffer. Colour: harness grey; a segment carrying a lit wire takes that set's colour and pulses; the others dim while anything is lit. A harness drawn as tubes drops its proxy straight lines and keeps its end dots.
-- **Not yet:** picking tubes, breakouts and waypoints in move mode (SB2-45), tight-bend and collision findings (SB2-46), housing models at ends and radius blends at breakouts (SB2-47).
+- **Nodes.** Scene harnesses carry `nodes` (§17.9) in their level's frame; the tubes route through them, moved to world by the level's matrix (identity for the root).
+- **Not yet:** picking tubes and editing breakouts and waypoints in move mode (SB2-45b), tight-bend and collision findings (SB2-46), housing models at ends and radius blends at breakouts (SB2-47).

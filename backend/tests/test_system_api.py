@@ -634,6 +634,45 @@ class SystemApiTest(unittest.TestCase):
         self.assertEqual(len(back.json["wires"]), 1)
         self.mutate("DELETE", f"/{sid}/harnesses/{back.json['id']}", back.headers["etag"], expect=204)
 
+    def test_harness_node_routes(self) -> None:
+        """SB2-45 (CONTRACTS_P2 §17.9): breakouts and waypoints replace as a list, checked, and follow end deletes."""
+        sid, etag, obc, pay = self.two_boards()
+        ends = [{"instanceId": obc, "portKey": self.port_key("prj_obc", "J7")},
+                {"instanceId": pay, "portKey": self.port_key("prj_pay", "J4")}, {"pinCount": 4}]
+        created = self.mutate("POST", f"/{sid}/harnesses", etag, expect=201, body={"name": "WH-N", "ends": ends})
+        hid = created.json["id"]
+        a, b, c = (end["id"] for end in created.json["ends"])
+        self.assertEqual(created.json["nodes"], [])
+        breakout = "shd_" + "1" * 32
+        nodes = [{"id": breakout, "kind": "breakout", "positionMm": [10, 0, 20], "ends": [c]},
+                 {"kind": "waypoint", "positionMm": [5, 0, 10], "between": [a, breakout], "pinned": True},
+                 {"kind": "waypoint", "positionMm": [20, 0, 10], "between": [breakout, b]}]
+        self.assertEqual(self.call("PUT", f"/{sid}/harnesses/{hid}/nodes", body=nodes).status, 428)
+        put = self.mutate("PUT", f"/{sid}/harnesses/{hid}/nodes", created.headers["etag"], body=nodes)
+        stored = put.json["nodes"]
+        shape = sorted((n["kind"], n["order"], n["pinned"], n["between"] or [], n["ends"]) for n in stored)
+        self.assertEqual(shape, sorted([("breakout", 0, False, [], [c]), ("waypoint", 0, True, [a, breakout], []),
+                                        ("waypoint", 0, False, [breakout, b], [])]))
+        self.assertTrue(all(n["id"].startswith("shd_") for n in stored))
+        bad = [
+            [{"kind": "waypoint", "positionMm": [0, 0, 0], "between": [a, "shd_" + "9" * 32]}],
+            [{"kind": "breakout", "positionMm": [0, 0, 0], "pinned": True}],
+            [{"kind": "breakout", "positionMm": [0, 0, 0], "ends": [a]}, {"kind": "breakout", "positionMm": [1, 0, 0], "ends": [a]}],
+            [{"kind": "waypoint", "positionMm": [0, 0, 0], "between": [a, b]},
+             {"kind": "waypoint", "positionMm": [1, 0, 0], "between": [b, a]}],
+            [{"kind": "waypoint", "positionMm": [0, 0, 2e6], "between": [a, b]}],
+            [{"id": "shd_nope", "kind": "breakout", "positionMm": [0, 0, 0]}],
+            [{"kind": "waypoint", "positionMm": [0, 0, 0]}],
+        ]
+        for body in bad:
+            with self.subTest(nodes=body):
+                self.assertEqual(self.call("PUT", f"/{sid}/harnesses/{hid}/nodes", body=body,
+                                           headers={"If-Match": put.headers["etag"]}).status, 422)
+        dropped = self.mutate("DELETE", f"/{sid}/harnesses/{hid}/ends/{a}", put.headers["etag"])
+        self.assertEqual(sorted(n["between"] or [] for n in dropped.json["nodes"]), [[], [breakout, b]])
+        dropped = self.mutate("DELETE", f"/{sid}/harnesses/{hid}/ends/{c}", dropped.headers["etag"])
+        self.assertEqual([n["ends"] for n in dropped.json["nodes"] if n["kind"] == "breakout"], [[]])
+
     def test_update_and_delete_link(self) -> None:
         sid, etag, obc, pay = self.two_boards()
         created = self.link_j7_j4(sid, etag, obc, pay)

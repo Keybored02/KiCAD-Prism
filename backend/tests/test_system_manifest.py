@@ -84,6 +84,36 @@ class ManifestTest(SnapshotCase):
         self.assertEqual(self.store.list_driving_mates(self.sid), {link["b_instance_id"]: link["id"]})
         self.assertEqual(digests(self.build()), digests(before))
 
+    def test_harness_nodes_round_trip_and_stay_out_of_connectivity(self) -> None:
+        # SB2-45: breakouts and waypoints are placement data (§17.9).
+        with self.store.mutation(self.sid, expected_version=None, actor="user:t") as change:
+            harness = self.store.create_harness(change, name="WH-N")
+            ends = [self.store.add_harness_end(change, harness["id"], pin_count=4)["ends"][-1]["id"] for _ in range(3)]
+            breakout = "shd_" + "b" * 32
+            self.store.replace_nodes(change, harness["id"], [
+                {"id": breakout, "kind": "breakout", "positionMm": [1, 2, 3], "ends": [ends[2]]},
+                {"kind": "waypoint", "positionMm": [4, 5, 6], "between": [ends[0], breakout], "pinned": True},
+                {"kind": "waypoint", "positionMm": [7, 8, 9], "between": [ends[0], breakout]},
+            ])
+        self.conn.commit()
+        before = self.build()
+        [nodes] = [h.nodes for h in before.harnesses if h.id == harness["id"]]
+        self.assertEqual([(n.kind, n.order, n.pinned, n.between) for n in nodes],
+                         [("breakout", 0, False, None), ("waypoint", 0, True, [ends[0], breakout]),
+                          ("waypoint", 1, False, [ends[0], breakout])])
+        self.store.delete_system(self.sid)
+        self.conn.commit()
+        manifest_io.import_manifest(self.store, before, actor="user:importer")
+        self.conn.commit()
+        self.assertEqual(full_view(self.build()), full_view(before))
+        with self.store.mutation(self.sid, expected_version=None, actor="user:t") as change:
+            moved = [{**n, "positionMm": [0, 0, 0]} for n in self.store.get_harness(self.sid, harness["id"])["nodes"]]
+            self.store.replace_nodes(change, harness["id"], moved)
+        self.conn.commit()
+        after = self.build()
+        self.assertEqual(digests(after)["connectivity"], digests(before)["connectivity"])
+        self.assertNotEqual(digests(after)["full"], digests(before)["full"])
+
     def test_snapshot_stores_the_manifest_and_its_digests(self) -> None:
         meta = self.snapshot("CDR")
         stored = self.store.get_snapshot(self.sid, meta["id"])

@@ -3,7 +3,8 @@
  *
  * From the scene's harnesses (ends located on board occurrences, with their
  * connectors' v6 geometry) and each occurrence's world matrix, the curve of
- * every segment: end poses (§17.6), the tree (§17.7) and the curves (§17.8).
+ * every segment: end poses (§17.6), the tree (§17.7) through the stored
+ * breakouts, and the curves (§17.8) through the stored waypoints (§17.9).
  * The viewer bundles this module and runs it whenever a placement changes,
  * dragged boards included, then turns the polylines into tubes on the GPU.
  */
@@ -11,6 +12,7 @@
 import { type ConnectorGeometry, type StoredFrame, quaternion } from "./frames";
 import { harnessCurves } from "./harness-curves";
 import { boardEnd } from "./harness-ends";
+import { type HarnessNodeInput, breakouts, segmentWaypoints } from "./harness-nodes";
 import { topology } from "./harness-topology";
 import type { Pose } from "./poses";
 
@@ -26,6 +28,8 @@ export interface SceneHarness {
   level: string | null;
   ends: SceneHarnessEnd[];
   wires: { id: string; from: string; to: string; gaugeAwg?: number | string | null }[];
+  /** Breakouts and waypoints in the level's frame (absent from older servers). */
+  nodes?: HarnessNodeInput[];
 }
 
 export interface Tube {
@@ -48,6 +52,13 @@ export function matrixPose(m: readonly number[]): Pose {
   };
 }
 
+const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+/** A point through a column-major matrix. */
+function transform(m: readonly number[], p: readonly number[]): [number, number, number] {
+  return [0, 1, 2].map((k) => m[k] * p[0] + m[4 + k] * p[1] + m[8 + k] * p[2] + m[12 + k]) as [number, number, number];
+}
+
 /** Every drawable segment of every harness; ends without a connector or a frame are left out. */
 export function harnessTubes(harnesses: readonly SceneHarness[], worldMatrixOf: (path: string) => readonly number[] | null): Tube[] {
   const tubes: Tube[] = [];
@@ -63,9 +74,13 @@ export function harnessTubes(harnesses: readonly SceneHarness[], worldMatrixOf: 
     if (posed.size < 2) continue;
     const ends = [...posed].map(([id, pose]) => ({ id, legMm: pose.legMm as [number, number, number], outward: pose.outward as [number, number, number] }));
     const wires = harness.wires.map((wire) => ({ id: wire.id, from: { end: wire.from }, to: { end: wire.to }, gaugeAwg: wire.gaugeAwg ?? null }));
-    const tree = topology(ends, wires);
+    // Nodes are stored in the harness's level frame; the root level is the world.
+    const level = harness.level ? worldMatrixOf(harness.level) : IDENTITY;
+    const nodes = level ? (harness.nodes ?? []).map((node) => ({ ...node, positionMm: transform(level, node.positionMm) })) : [];
+    const tree = topology(ends, wires, breakouts(nodes));
+    const split = segmentWaypoints(tree, nodes);
     const byId = new Map(tree.segments.map((segment) => [segment.id, segment]));
-    for (const curve of harnessCurves(Object.fromEntries(posed), tree)) {
+    for (const curve of harnessCurves(Object.fromEntries(posed), tree, split.waypoints, split.pinned)) {
       const segment = byId.get(curve.segmentId)!;
       if (segment.diameterMm <= 0) continue;
       tubes.push({

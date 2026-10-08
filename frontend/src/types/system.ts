@@ -226,7 +226,24 @@ export interface SystemHarness {
   linkable: boolean;
   ends: HarnessEnd[];
   wires: HarnessWire[];
+  /** SB2-45: breakouts and waypoints; absent from older servers and frozen documents. */
+  nodes?: HarnessNode[];
   updatedAt: string;
+}
+
+/**
+ * A breakout or waypoint (CONTRACTS_P2 §17.9), in the harness's system frame (mm).
+ * Breakouts chain by `order` and list the ends they branch to; a waypoint lies
+ * `between` two ends or breakouts, `order` counting from `between[0]`.
+ */
+export interface HarnessNode {
+  id: string;
+  kind: "breakout" | "waypoint";
+  positionMm: [number, number, number];
+  pinned: boolean;
+  order: number;
+  ends: string[];
+  between: [string, string] | null;
 }
 
 export interface SystemDocument {
@@ -607,6 +624,8 @@ export interface SystemSceneHarness {
   /** `occurrence` null: unmated, or a board the reader cannot see; `reference` null on a restricted board. */
   ends: { id: string; ordinal: number; occurrence: string | null; reference: string | null }[];
   wires: { id: string; from: string; to: string }[];
+  /** SB2-45: in the level's frame; absent from older servers. */
+  nodes?: HarnessNode[];
 }
 
 /** `GET …/instances/{iid}/mating` (CONTRACTS_P2 §15.3). */

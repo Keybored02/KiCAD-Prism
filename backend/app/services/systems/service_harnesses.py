@@ -232,6 +232,7 @@ class HarnessesMixin:
         return {"id": harness["id"], "name": harness["name"], "label": harness["label"],
                 "cutLengthMm": harness["cut_length_mm"], "serviceAllowancePct": harness["service_allowance_pct"],
                 "linkable": harnesses_module.is_linkable(harness), "ends": ends, "wires": wires,
+                "nodes": [dict(node) for node in harness.get("nodes", [])],
                 "updatedAt": _iso(harness["updated_at"])}
 
     def _harness_body(self, store: SystemStore, system_id: str, harness_id: str, caller: Caller) -> dict:
@@ -417,6 +418,17 @@ class HarnessesMixin:
             with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
                 self._visible_harness(store, system_id, harness_id, caller)
                 self._replace_wires_in(store, change, harness_id, wires)
+                body = self._harness_body(store, system_id, harness_id, caller)
+        return Result(body, system_id, change.version)
+
+    def replace_nodes(self, caller: Caller, system_id: str, version: int, harness_id: str,
+                      nodes: Sequence[Mapping[str, Any]]) -> Result:
+        """``PUT …/harnesses/{hid}/nodes``: the harness's breakouts and waypoints (§17.9)."""
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                self._visible_harness(store, system_id, harness_id, caller)
+                store.replace_nodes(change, harness_id, nodes)
                 body = self._harness_body(store, system_id, harness_id, caller)
         return Result(body, system_id, change.version)
 

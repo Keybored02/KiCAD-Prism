@@ -22,7 +22,9 @@ from pathlib import Path
 from kicad_monkey import kicad_pcb_footprint, kicad_sexpr
 
 from app.services.systems.interface_extractor import _footprint_geometry, extract_interface
-from app.services.systems.placement import harness_curves, harness_ends, harness_topology, mate, poses, solve
+from app.services.systems.placement import (
+    harness_curves, harness_ends, harness_nodes, harness_topology, mate, poses, solve,
+)
 from app.services.systems.placement.frames import connector_frame, infer
 
 SOURCES = Path(__file__).resolve().parent / "sources"
@@ -366,6 +368,40 @@ def curve_cases() -> list[dict]:
     return out
 
 
+def node_cases() -> list[dict]:
+    """Stored nodes on WH-001 (§17.9): breakouts in chain order into the tree, waypoints onto its
+    segments in either direction, pinned waypoints kept still, and waypoints no segment joins."""
+    ends = next(c for c in topology_cases() if c["name"].startswith("WH-001"))["input"]
+    b1 = {"id": "b1", "kind": "breakout", "positionMm": [60.0, 0.0, 40.0], "order": 1, "ends": ["e3"], "pinned": False}
+    b2 = {"id": "b2", "kind": "breakout", "positionMm": [150.0, 0.0, 40.0], "order": 0, "ends": [], "pinned": False}
+
+    def way(node_id, between, order, at, pinned=False):
+        return {"id": node_id, "kind": "waypoint", "between": between, "order": order, "positionMm": at,
+                "pinned": pinned, "ends": []}
+
+    specs = [
+        ("two ends, waypoints listed from the far end run backwards",
+         ends["ends"][:2], ends["wires"][:2],
+         [way("w2", ["e2", "e1"], 0, [100.0, 25.0, 40.0]), way("w1", ["e2", "e1"], 1, [40.0, 5.0, 40.0])]),
+        ("breakouts chain by order; a sharp pinned waypoint stays and reports a tight bend",
+         ends["ends"], ends["wires"],
+         [b1, b2, way("p1", ["b1", "b2"], 0, [70.0, 30.0, 40.0], pinned=True)]),
+        ("the same waypoint unpinned is pulled in", ends["ends"], ends["wires"],
+         [b1, b2, way("p1", ["b1", "b2"], 0, [70.0, 30.0, 40.0])]),
+        ("a waypoint between nodes no segment joins is unused", ends["ends"], ends["wires"],
+         [b1, b2, way("x1", ["e1", "e2"], 0, [50.0, 0.0, 30.0])]),
+    ]
+    out = []
+    for name, e, w, nodes in specs:
+        tree = harness_topology.topology(e, w, harness_nodes.breakouts(nodes))
+        split = harness_nodes.segment_waypoints(tree, nodes)
+        posed = {end["id"]: WH001_ENDS[end["id"]] for end in e}
+        out.append({"name": name, "input": {"ends": e, "wires": w, "nodes": nodes, "posed": posed},
+                    "expected": {"breakouts": harness_nodes.breakouts(nodes), "tree": tree, "split": split,
+                                 "curves": harness_curves.harness_curves(posed, tree, split["waypoints"],
+                                                                         split["pinned"])}})
+    return out
+
 def compact(value, indent: int = 0) -> str:
     """JSON with every container that fits in 120 columns on one line (pads stay one per line)."""
     flat = json.dumps(value)
@@ -384,7 +420,7 @@ def main() -> None:
                             "tolerance": {"mm": 1e-6, "unit": 1e-9}, "frames": cases(),
                             "poses": pose_cases(), "mates": mate_cases(),
                             "solves": solve_cases(), "harnessEnds": harness_end_cases(),
-                            "harnessTopologies": topology_cases(), "harnessCurves": curve_cases(),
+                            "harnessTopologies": topology_cases(), "harnessCurves": curve_cases(), "harnessNodes": node_cases(),
                             "mateEnds": MATE_ENDS}) + "\n")
 
 
