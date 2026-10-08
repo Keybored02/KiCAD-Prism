@@ -15,6 +15,7 @@ import { ImportTab } from "../import-tab";
 import { LinkEditor, endLabel } from "../link-editor";
 import type { SystemTabProps } from "../system-tab-content";
 import type { Mutate } from "../use-system-mutation";
+import { findingKeys } from "./finding-keys";
 import { harnessFindings } from "./use-validation";
 import { TRAY_TABS, type TrayTab, type WorkspaceSelection, type WorkspaceView } from "./workspace-state";
 
@@ -159,11 +160,6 @@ function ConnectionsTable({ document, findings, onSelect }: { document: SystemDo
 
 const SEVERITY_ORDER = { error: 0, warning: 1, info: 2 } as const;
 
-function findingKey(finding: Finding): string {
-  return [finding.rule, finding.instanceId, finding.linkId, finding.rowId, finding.end, finding.reference, finding.pin,
-    (finding.detail as { harnessId?: string } | null)?.harnessId].join("|");
-}
-
 function findingPlace(document: SystemDocument, finding: Finding): string {
   if (finding.linkId) {
     const link = document.links.find((item) => item.id === finding.linkId);
@@ -182,12 +178,13 @@ function findingTarget(finding: Finding): WorkspaceSelection | null {
 function FindingsList({ findings, document, onSelect }: { findings: Finding[]; document: SystemDocument; onSelect: (selection: WorkspaceSelection) => void }) {
   if (!findings.length) return <p className="p-4 text-sm text-muted-foreground">No findings</p>;
   const sorted = [...findings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+  const keys = findingKeys(sorted);
   return (
     <ul aria-label="Findings" className="text-sm">
-      {sorted.map((finding) => {
+      {sorted.map((finding, index) => {
         const to = findingTarget(finding);
         return (
-          <li key={findingKey(finding)} className="flex h-8 items-center gap-3 border-b px-4" title={findingText(finding)}>
+          <li key={keys[index]} className="flex h-8 items-center gap-3 border-b px-4" title={findingText(finding)}>
             <span className={cn("w-16 shrink-0 font-mono text-xs font-bold",
               finding.severity === "error" ? "text-destructive" : finding.severity === "warning" ? "text-warning" : "text-muted-foreground")}>
               {finding.rule}
