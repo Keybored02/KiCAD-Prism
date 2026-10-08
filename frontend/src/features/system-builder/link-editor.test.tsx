@@ -57,7 +57,7 @@ describe("LinkEditor", () => {
     await chooseOption("New row pin A", "3");
     await chooseOption("New row pin B", "3");
     fireEvent.click(screen.getByRole("button", { name: /Add row/ }));
-    expect(screen.getByText(/Unsaved changes: 3 rows/)).toBeTruthy();
+    expect(screen.getByText(/Unsaved changes: 1 row$/)).toBeTruthy(); // SB2-102: the change, not the draft
     fireEvent.click(screen.getByRole("button", { name: "Save pins" }));
     await waitFor(() => expect(calls.some(([url]) => url.endsWith("/rows"))).toBe(true));
     const [, init] = calls.find(([url]) => url.endsWith("/rows"))!;
@@ -81,6 +81,22 @@ describe("LinkEditor", () => {
     expect((screen.getByRole("button", { name: "Save pins" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("offers one level of Undo after a save, sending the rows as they were (SB2-102)", async () => {
+    const calls = stubApi();
+    renderEditor();
+    await waitFor(() => expect(calls.filter(([url]) => url.endsWith("/interface"))).toHaveLength(2));
+    const before = theLink.rows.map(({ id, pinA, pinB, signal, source }) => ({ id, pinA, pinB, signal, source }));
+    const field = screen.getAllByRole("textbox", { name: /^Signal for/ })[0];
+    fireEvent.change(field, { target: { value: "RENAMED" } });
+    expect(screen.getByText(/Unsaved changes: 1 row$/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save pins" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(calls.filter(([url, init]) => url.endsWith("/rows") && init.method === "PUT")).toHaveLength(2));
+    const [, undone] = calls.filter(([url, init]) => url.endsWith("/rows") && init.method === "PUT")[1];
+    expect(JSON.parse(String(undone.body))).toEqual(expect.arrayContaining(before));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Undo" })).toBeNull());
+  });
+
   it("previews a generator and approves its rows into the draft", async () => {
     stubApi();
     renderEditor();
@@ -88,7 +104,7 @@ describe("LinkEditor", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Preview/ }));
     expect(await screen.findByText(/1 proposed · 1 skipped \(already used\)/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add 1 to the draft" }));
-    expect(screen.getByText(/Unsaved changes: 3 rows/)).toBeTruthy();
+    expect(screen.getByText(/Unsaved changes: 1 row$/)).toBeTruthy(); // SB2-102: the change, not the draft
   });
 
   it("is read-only for viewers", () => {

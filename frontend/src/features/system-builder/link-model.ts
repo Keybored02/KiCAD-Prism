@@ -59,6 +59,19 @@ export function draftToInputs(rows: DraftRow[]): RowInput[] {
   return rows.map(({ id, pinA, pinB, signal, source }) => (id ? { id, pinA, pinB, signal, source } : { pinA, pinB, signal, source }));
 }
 
+/** SB2-102: how many rows the draft adds, removes or changes against `rows` (not the draft's length). */
+export function changedRowCount(draft: DraftRow[], rows: LinkRow[]): number {
+  const before = new Map(rows.map((row) => [row.id, row]));
+  const kept = new Set<string>();
+  let changed = 0;
+  for (const row of draft) {
+    const old = row.id ? before.get(row.id) : undefined;
+    if (old) kept.add(old.id);
+    if (!old || old.pinA !== row.pinA || old.pinB !== row.pinB || old.signal !== row.signal) changed += 1;
+  }
+  return changed + rows.filter((row) => !kept.has(row.id)).length;
+}
+
 let nextDraftKey = 0;
 export function newDraftKey(): string {
   nextDraftKey += 1;
