@@ -97,7 +97,17 @@ export function paneLayout(
     };
 }
 
-export function useBoardViewport(board: BoardRect | null) {
+export interface ViewportOptions {
+    /**
+     * The pane is drawn mirrored left to right, as when a board is turned over
+     * to read its bottom side. Horizontal drag and zoom anchors flip with it,
+     * so the content still follows the pointer.
+     */
+    mirrorX?: boolean;
+}
+
+export function useBoardViewport(board: BoardRect | null, options: ViewportOptions = {}) {
+    const xSign = options.mirrorX ? -1 : 1;
     const [camera, setCamera] = useState<Camera | null>(null);
     const paneRef = useRef<PaneSize>({ width: 0, height: 0 });
     const dragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
@@ -122,15 +132,15 @@ export function useBoardViewport(board: BoardRect | null) {
             const fit = fitScale(board, pane);
             const before = fit * from.scale;
             const after = fit * scale;
-            const boardX = from.cx + (anchor.x - pane.width / 2) / before;
+            const boardX = from.cx + (xSign * (anchor.x - pane.width / 2)) / before;
             const boardY = from.cy + (anchor.y - pane.height / 2) / before;
             return {
                 scale,
-                cx: boardX - (anchor.x - pane.width / 2) / after,
+                cx: boardX - (xSign * (anchor.x - pane.width / 2)) / after,
                 cy: boardY - (anchor.y - pane.height / 2) / after,
             };
         });
-    }, [board]);
+    }, [board, xSign]);
 
     const frame = useCallback((target: BoardRect) => {
         if (!board) return;
@@ -167,11 +177,11 @@ export function useBoardViewport(board: BoardRect | null) {
             const from = current ?? centreCamera(board);
             return {
                 ...from,
-                cx: from.cx - dx / (scale * from.scale),
+                cx: from.cx - (xSign * dx) / (scale * from.scale),
                 cy: from.cy - dy / (scale * from.scale),
             };
         });
-    }, [board]);
+    }, [board, xSign]);
 
     const onPointerUp = useCallback((event: React.PointerEvent<HTMLElement>) => {
         if (dragRef.current?.pointerId !== event.pointerId) return;
