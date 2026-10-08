@@ -22,6 +22,7 @@ import type { Finding, LinkType, SystemDocument, SystemInstance, SystemLink } fr
 import { FindingsAlert } from "./findings-ui";
 import { GeneratorPanel } from "./generator-panel";
 import {
+  changedRowCount,
   componentFor,
   draftFromRows,
   draftProblems,
@@ -38,6 +39,7 @@ import { LinkRowsTable, type RowView } from "./link-rows-table";
 import { MatingPanel } from "./mating-panel";
 import { comparePads } from "./pads";
 import type { useSystemMutation } from "./use-system-mutation";
+import { useDraftGuard } from "./draft-guard";
 
 type Mutate = ReturnType<typeof useSystemMutation>["run"];
 
@@ -234,6 +236,10 @@ interface LinkEditorProps {
 export function LinkEditor({ systemId, document, link, etag, canEdit, findings, busy, run, onDeleted, onHarness }: LinkEditorProps) {
   const pins = useEndPins(systemId, link, document.instances);
   const [draft, setDraft] = useState<DraftRow[] | null>(null);
+  // SB2-102: the rows before the last save, for one level of Undo; dropped on the next edit.
+  const [undo, setUndo] = useState<{ linkId: string; rows: ReturnType<typeof draftToInputs> } | null>(null);
+  const changed = draft ? changedRowCount(draft, link.rows) : 0;
+  useDraftGuard(changed > 0);
   const [dialog, setDialog] = useState<"details" | "delete" | "generate" | null>(null);
 
   const redacted = link.a.redacted || link.b.redacted;
@@ -281,7 +287,10 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
         findings: byRow.get(row.id) ?? [], problems: [] };
     });
 
-  const editDraft = (update: (rows: DraftRow[]) => DraftRow[]) => setDraft((current) => update(current ?? draftFromRows(link.rows)));
+  const editDraft = (update: (rows: DraftRow[]) => DraftRow[]) => {
+    setUndo(null);
+    setDraft((current) => update(current ?? draftFromRows(link.rows)));
+  };
 
   const addRow = (row: { pinA: string; pinB: string; signal: string }) => {
     const nets = pins?.a?.get(row.pinA)?.nets ?? [];
@@ -293,8 +302,17 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
 
   const save = async () => {
     if (!draft) return;
+    const before = draftToInputs(draftFromRows(link.rows));
     const done = await run("rows", () => replaceRows(systemId, etag, link.id, draftToInputs(draft)), "Pins saved");
-    if (done) setDraft(null);
+    if (done) {
+      setDraft(null);
+      setUndo({ linkId: link.id, rows: before });
+    }
+  };
+  const undoSave = async () => {
+    if (!undo) return;
+    const done = await run("rows", () => replaceRows(systemId, etag, undo.linkId, undo.rows), "Pins restored");
+    if (done) setUndo(null);
   };
 
   return (
@@ -374,7 +392,7 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
       {editable && draft && (
         <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border bg-card p-3 shadow-sm">
           <p className="text-sm">
-            Unsaved changes: {draft.length} {draft.length === 1 ? "row" : "rows"}
+            Unsaved changes: {changed} {changed === 1 ? "row" : "rows"}
             {problems.length > 0 && <span className="text-destructive"> · {problems.length} to fix before saving</span>}
           </p>
           <div className="ml-auto flex gap-2">
@@ -383,6 +401,13 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
               {busy === "rows" ? "Saving…" : "Save pins"}
             </Button>
           </div>
+        </div>
+      )}
+
+      {editable && !draft && undo?.linkId === link.id && (
+        <div className="flex items-center gap-3 border bg-card px-3 py-2 text-sm">
+          <span className="text-muted-foreground">Pins saved</span>
+          <Button variant="outline" size="sm" className="ml-auto" onClick={() => void undoSave()} disabled={busy !== null}>Undo</Button>
         </div>
       )}
 

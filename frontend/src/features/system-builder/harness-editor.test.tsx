@@ -159,7 +159,7 @@ describe("HarnessEditor", () => {
     await waitFor(() => expect(screen.getAllByTestId("wire-row")).toHaveLength(7));
     const [, init] = calls.find(([url]) => url.endsWith("/generate"))!;
     expect(JSON.parse(String(init.body))).toEqual({ fromEnd: "she_b", toEnd: "she_e", generator: "identity" });
-    expect(screen.getByText(/Unsaved changes: 7 wires/)).toBeTruthy();
+    expect(screen.getByText(/Unsaved changes: 1 wire$/)).toBeTruthy(); // SB2-102: the change, not the draft
   });
 
   it("edits an end's pin map", async () => {

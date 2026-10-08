@@ -1,7 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { hasUnsavedDrafts } from "@/features/system-builder/draft-guard";
 import { useSystemDocument } from "@/features/system-builder/use-system-document";
 import { SystemWorkspace } from "@/features/system-builder/workspace/system-workspace";
 import {
@@ -37,13 +39,25 @@ export function SystemDetailPage({ user }: SystemDetailPageProps) {
     setSearchParams(params, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  const setWorkspace = (next: WorkspaceState) => setSearchParams((current) => workspaceParams(next, current));
+  // SB2-102: a change that unmounts an editor holding an unsaved draft asks first.
+  const [pending, setPending] = useState<(() => void) | null>(null);
+  const guarded = (action: () => void) => {
+    if (hasUnsavedDrafts()) setPending(() => action);
+    else action();
+  };
+  const applyWorkspace = (next: WorkspaceState) => setSearchParams((current) => workspaceParams(next, current));
+  const setWorkspace = (next: WorkspaceState) => {
+    const leaves = next.tray !== workspace.tray
+      || next.selection?.kind !== workspace.selection?.kind || next.selection?.id !== workspace.selection?.id;
+    if (leaves) guarded(() => applyWorkspace(next));
+    else applyWorkspace(next);
+  };
   const setImporting = (open: boolean) => setSearchParams((current) => {
     const params = new URLSearchParams(current);
     if (open) params.set("import", "1"); else params.delete("import");
     return params;
   });
-  const back = () => navigate(system?.folderId ? `/?folder=${encodeURIComponent(system.folderId)}` : "/");
+  const back = () => guarded(() => navigate(system?.folderId ? `/?folder=${encodeURIComponent(system.folderId)}` : "/"));
 
   if (state.notFound) {
     return (
@@ -67,6 +81,7 @@ export function SystemDetailPage({ user }: SystemDetailPageProps) {
     );
   }
   return (
+    <>
     <SystemWorkspace
       systemId={systemId}
       document={state.document}
@@ -80,5 +95,14 @@ export function SystemDetailPage({ user }: SystemDetailPageProps) {
       onImporting={setImporting}
       onBack={back}
     />
+    <ConfirmDialog open={pending !== null} onOpenChange={(open) => !open && setPending(null)}
+      title="Discard unsaved changes?" description="The pins or wires you edited and did not save will be lost."
+      confirmLabel="Discard" cancelLabel="Keep editing"
+      onConfirm={() => {
+        const action = pending;
+        setPending(null);
+        action?.();
+      }} />
+    </>
   );
 }

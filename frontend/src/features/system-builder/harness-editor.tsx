@@ -36,6 +36,7 @@ import { endLabel, endWireCount } from "./diagram-model";
 import { FindingsAlert } from "./findings-ui";
 import { comparePads } from "./pads";
 import type { Mutate } from "./use-system-mutation";
+import { useDraftGuard } from "./draft-guard";
 
 /** A wire being edited: `key` is stable across edits; `id` is kept for existing wires. */
 export interface DraftWire extends WireInput {
@@ -84,6 +85,19 @@ export function splices(draft: DraftWire[]): Set<string> {
   const spliced = new Set<string>();
   for (const [key, count] of counts) if (count > 1) spliced.add(key);
   return spliced;
+}
+
+/** SB2-102: how many wires the draft adds, removes or changes against the harness's own. */
+export function changedWireCount(draft: DraftWire[], harness: SystemHarness): number {
+  const before = new Map(draftFromHarness(harness).map((wire) => [wire.key, JSON.stringify(toInput(wire))]));
+  const kept = new Set<string>();
+  let changed = 0;
+  for (const wire of draft) {
+    const old = wire.id ? before.get(wire.id) : undefined;
+    if (old !== undefined) kept.add(wire.id!);
+    if (old === undefined || old !== JSON.stringify(toInput(wire))) changed += 1;
+  }
+  return changed + [...before.keys()].filter((key) => !kept.has(key)).length;
 }
 
 function toInput(wire: DraftWire): WireInput {
@@ -338,6 +352,10 @@ function DetailsDialog({ harness, busy, onClose, onSave }: {
 
 export function HarnessEditor({ systemId, document, harness, etag, canEdit, findings, busy, run, onDeleted, onConverted }: HarnessEditorProps) {
   const [draft, setDraft] = useState<DraftWire[] | null>(null);
+  // SB2-102: the wires before the last save, for one level of Undo; dropped on the next edit.
+  const [undo, setUndo] = useState<{ harnessId: string; wires: WireInput[] } | null>(null);
+  const changed = draft ? changedWireCount(draft, harness) : 0;
+  useDraftGuard(changed > 0);
   const [dialog, setDialog] = useState<"details" | "delete" | { pinMap: string } | null>(null);
   const [pair, setPair] = useState<{ from: string; to: string; generator: GeneratorKind }>(
     { from: harness.ends[0]?.id ?? "", to: harness.ends[1]?.id ?? "", generator: "identity" });
@@ -348,11 +366,23 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
   const own = findings.filter((finding) => (finding.detail as { harnessId?: string } | null)?.harnessId === harness.id);
   const isBusy = busy !== null;
 
-  const edit = (update: (rows: DraftWire[]) => DraftWire[]) => setDraft((current) => update(current ?? draftFromHarness(harness)));
+  const edit = (update: (rows: DraftWire[]) => DraftWire[]) => {
+    setUndo(null);
+    setDraft((current) => update(current ?? draftFromHarness(harness)));
+  };
   const save = async () => {
     if (!draft) return;
+    const before = draftFromHarness(harness).map(toInput);
     const done = await run("wires", () => replaceWires(systemId, etag, harness.id, draft.map(toInput)), "Wires saved");
-    if (done) setDraft(null);
+    if (done) {
+      setDraft(null);
+      setUndo({ harnessId: harness.id, wires: before });
+    }
+  };
+  const undoSave = async () => {
+    if (!undo) return;
+    const done = await run("wires", () => replaceWires(systemId, etag, undo.harnessId, undo.wires), "Wires restored");
+    if (done) setUndo(null);
   };
   const generate = async () => {
     const proposal = await run("generate", () => generateWires(systemId, harness.id,
@@ -549,9 +579,12 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
                 to: { end: harness.ends[1].id, pin: "" }, signal: "" }])}>
               <Plus className="mr-1 h-4 w-4" /> Add wire
             </Button>
+            {!draft && undo?.harnessId === harness.id && (
+              <Button size="sm" variant="outline" disabled={isBusy} onClick={() => void undoSave()}>Undo save</Button>
+            )}
             {draft && (
               <>
-                <span className="text-sm text-muted-foreground">Unsaved changes: {draft.length} wires</span>
+                <span className="text-sm text-muted-foreground">Unsaved changes: {changed} {changed === 1 ? "wire" : "wires"}</span>
                 <Button size="sm" disabled={isBusy || problems.size > 0} onClick={() => void save()}>Save wires</Button>
                 <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>Discard</Button>
               </>

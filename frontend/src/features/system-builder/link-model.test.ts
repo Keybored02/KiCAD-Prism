@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  changedRowCount,
   componentFor,
   draftFromRows,
   draftProblems,
@@ -81,5 +82,16 @@ describe("linkFindings", () => {
     expect(byRow.get("r1")).toHaveLength(1);
     expect(sameNets(["b", "a"], ["a", "b"])).toBe(true);
     expect(sameNets(["a"], null)).toBe(false);
+  });
+});
+
+describe("changedRowCount (SB2-102)", () => {
+  it("counts rows added, removed or changed, not the draft's length", () => {
+    const rows = link("L1", "a", "J1", "b", "J2", 19).rows;
+    const draft = draftFromRows(rows);
+    expect(changedRowCount(draft, rows)).toBe(0);
+    draft[0] = { ...draft[0], signal: "GNDX" };
+    expect(changedRowCount(draft, rows)).toBe(1);
+    expect(changedRowCount([...draft.slice(1), { key: "new-1", pinA: "40", pinB: "40", signal: "", source: "manual" }], rows)).toBe(2);
   });
 });

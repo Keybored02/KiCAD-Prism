@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chooseMenuItem, chooseOption } from "@/test/select";
@@ -192,5 +192,23 @@ describe("SystemWorkspace without WebGPU", () => {
     expect(tab.disabled).toBe(true);
     expect(screen.getByRole("tab", { name: "Diagram" }).getAttribute("aria-selected")).toBe("true");
     expect(await screen.findByText(/Loading the diagram|Board-to-board/)).toBeTruthy();
+  });
+
+  it("gives every button a name (SB2-102)", async () => {
+    stub();
+    for (const state of [
+      { view: "diagram", tray: "connections", selection: null },
+      { view: "diagram", tray: "findings", selection: { kind: "link", id: "L1" } },
+      { view: "icd", tray: null, selection: { kind: "instance", id: obc.id } },
+    ] as WorkspaceState[]) {
+      const view = render(
+        <SystemWorkspace systemId="sys_1" document={doc} etag='"sys:sys_1:1"' canEdit user={null} reload={vi.fn(async () => undefined)}
+          state={state} importing={false} onState={vi.fn()} onImporting={vi.fn()} onBack={vi.fn()} />,
+      );
+      await act(async () => undefined);
+      const unnamed = screen.queryAllByRole("button", { name: "" });
+      expect(unnamed.map((button) => button.outerHTML.slice(0, 160))).toEqual([]);
+      view.unmount();
+    }
   });
 });

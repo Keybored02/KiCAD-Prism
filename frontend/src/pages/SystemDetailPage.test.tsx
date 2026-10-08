@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resetDraftGuard, useDraftGuard } from "@/features/system-builder/draft-guard";
+
 import { SystemDetailPage } from "./SystemDetailPage";
 import type { SystemDocument } from "@/types/system";
 
@@ -71,5 +73,38 @@ describe("SystemDetailPage", () => {
     })));
     renderAt("/systems/sys_x");
     await waitFor(() => expect(screen.getByText("System not found")).toBeTruthy());
+  });
+});
+
+describe("SystemDetailPage unsaved drafts (SB2-102)", () => {
+  function Dirty() {
+    useDraftGuard(true);
+    return null;
+  }
+
+  it("asks before a tray change or Back discards an unsaved draft, and keeps editing on cancel", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const body = url.includes("/snapshots") ? [] : url.endsWith("/git") ? null : url.endsWith("/layout") ? { positions: {} } : document;
+      return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json", ETag: '"sys:sys_1:3"' } });
+    }));
+    render(
+      <MemoryRouter initialEntries={["/systems/sys_1?tray=connections"]}>
+        <Routes>
+          <Route path="/systems/:systemId" element={<><SystemDetailPage user={null} /><Dirty /><Location /></>} />
+          <Route path="/" element={<Location />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByRole("heading", { name: "Flight stack", level: 1 });
+    fireEvent.click(screen.getByRole("tab", { name: /Findings/ }));
+    expect(await screen.findByText("Discard unsaved changes?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByTestId("location").textContent).toBe("/systems/sys_1?tray=connections");
+    fireEvent.click(screen.getByRole("tab", { name: /Findings/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/systems/sys_1?tray=findings"));
+    fireEvent.click(screen.getByRole("tab", { name: "Diagram" }));  // a view change unmounts no editor
+    expect(screen.queryByText("Discard unsaved changes?")).toBeNull();
+    resetDraftGuard();
   });
 });
