@@ -35,9 +35,9 @@ function tracedFrom(selection: PrismSystemViewerSelection | null): { origin: str
  * board net is resolved on the server to the system net it belongs to, re-read
  * whenever the system changes. A net over 200 pins waits for `light` (D-P2-8).
  */
-export function useTracedNet(systemId: string, etag: string, selection: PrismSystemViewerSelection | null) {
+export function useTracedNet(systemId: string, netsKey: string, selection: PrismSystemViewerSelection | null) {
   const from = tracedFrom(selection);
-  const key = from ? `${etag}\n${from.origin}\n${from.boardNet}` : null;
+  const key = from ? `${netsKey}\n${from.origin}\n${from.boardNet}` : null;
   const [read, setRead] = useState<Read | null>(null);
   const [confirmed, setConfirmed] = useState<ReadonlySet<string>>(new Set());
 

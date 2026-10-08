@@ -271,6 +271,11 @@ export interface SystemDocument {
   exports?: SystemExport[];
   openReviewCount: number;
   findingCounts: FindingCounts | null;
+  /** SB2-98: the live document's findings, read with it (`?include=validation`); absent in frozen ones. */
+  validation?: ValidationReport;
+  /** SB2-98: digests of what the 3D scene and the system nets depend on; they change less often than the version. */
+  sceneKey?: string;
+  netsKey?: string;
 }
 
 /** A component from `GET …/interface`: artifact facts plus exposure, with pins instead of a count. */

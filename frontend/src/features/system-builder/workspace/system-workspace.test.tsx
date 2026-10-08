@@ -12,15 +12,19 @@ afterEach(() => vi.unstubAllGlobals());
 
 const obc = instance("OBC");
 const pwr = instance("PWR");
-const doc = systemDocument([obc, pwr], [link("L1", obc.id, "J1", pwr.id, "J2", 3)]);
+// SB2-98: the findings come with the document.
+const doc = {
+  ...systemDocument([obc, pwr], [link("L1", obc.id, "J1", pwr.id, "J2", 3)]),
+  validation: {
+    findings: [{ rule: "SYS-V03", name: "pin_missing", severity: "error" as const, instanceId: null, linkId: "L1", rowId: null,
+      end: "a" as const, reference: "J1", pin: "3", detail: null, redacted: false }],
+    notEvaluated: [], exempt: [], counts: { error: 1, warning: 0, info: 0, notEvaluated: 0 },
+  },
+};
 
 function stub() {
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json", ETag: '"sys:sys_1:1"' } });
-    if (url.endsWith("/validation")) {
-      return json({ findings: [{ rule: "SYS-V03", name: "pin_missing", severity: "error", instanceId: null, linkId: "L1", rowId: null,
-        end: "a", reference: "J1", pin: "3", detail: null, redacted: false }], notEvaluated: [], exempt: [], counts: { error: 1, warning: 0, info: 0, notEvaluated: 0 } });
-    }
     if (url.endsWith("/git")) return json(null);
     if (url.endsWith("/snapshots")) return json([]);
     return json({});

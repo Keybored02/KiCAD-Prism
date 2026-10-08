@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { ApiHttpError } from "@/lib/api";
 import { getSystem } from "@/lib/systems-api";
@@ -37,6 +38,7 @@ export function useSystemDocument(systemId: string): SystemDocumentState {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failure, setFailure] = useState<{ systemId: string; message: string; notFound: boolean } | null>(null);
   const controller = useRef<AbortController | null>(null);
+  const shown = useRef<string | null>(null);
 
   const reload = useCallback(async () => {
     controller.current?.abort();
@@ -48,16 +50,17 @@ export function useSystemDocument(systemId: string): SystemDocumentState {
         return;
       }
       setLoaded({ systemId, document: result.body, etag: result.etag ?? result.body.system.etag });
+      shown.current = systemId;
       setFailure(null);
     } catch (error) {
       if (abort.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
         return;
       }
-      setFailure({
-        systemId,
-        message: error instanceof Error ? error.message : "Could not load the system",
-        notFound: error instanceof ApiHttpError && error.status === 404,
-      });
+      const message = error instanceof Error ? error.message : "Could not load the system";
+      // SB2-98: with a document on screen a failed re-read was silent, and the next edit then
+      // sent an old ETag; say so, and keep the document until a re-read succeeds.
+      if (shown.current === systemId) toast.error(`Could not refresh the system: ${message}`, { id: "system-reload" });
+      setFailure({ systemId, message, notFound: error instanceof ApiHttpError && error.status === 404 });
     }
   }, [systemId]);
 

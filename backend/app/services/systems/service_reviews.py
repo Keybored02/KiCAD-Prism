@@ -298,7 +298,9 @@ class ReviewsMixin:
             if int(system["version"]) != int(version):
                 raise StaleVersion(int(system["version"]))
             built, _instances, _jobs = self._build(store, system)
-            document = json.loads(json.dumps(built, default=_iso))
+            # The read keys (SB2-98) describe the live system, not what a snapshot freezes.
+            document = json.loads(json.dumps({k: v for k, v in built.items() if k not in ("sceneKey", "netsKey")},
+                                             default=_iso))
             snapshot_id = new_id("ssn_")
             manifest = manifest_io.build(
                 store, system_id, created_by=caller.actor,

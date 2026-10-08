@@ -48,7 +48,6 @@ import type {
   SystemPort,
   SystemScene,
   SystemSummary,
-  ValidationReport,
 } from "@/types/system";
 
 const BASE = "/api/systems";
@@ -129,7 +128,8 @@ export function updateSystem(
 }
 
 export function getSystem(systemId: string, init?: RequestInit) {
-  return versioned<SystemDocument>(path(systemId), init, "Could not load the system");
+  // SB2-98: the findings come with the document, so an edit is one re-read, not two.
+  return versioned<SystemDocument>(`${path(systemId)}?include=validation`, init, "Could not load the system");
 }
 
 // ---------------------------------------------------------------------------
@@ -274,10 +274,6 @@ export function generateRows(
 ) {
   return versioned<GeneratorResult>(path(systemId, "links", linkId, "generate"),
     { method: "POST", body: json({ generator, options }) });
-}
-
-export function getValidation(systemId: string) {
-  return versioned<ValidationReport>(path(systemId, "validation"));
 }
 
 /** P2 §7.1: move an assembly instance to a catalog revision (auto-advance or a child review). */

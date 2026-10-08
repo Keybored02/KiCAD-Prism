@@ -19,19 +19,22 @@ export function indexSystemNets(groups: readonly SystemNetListed[]): SystemNetIn
 
 /**
  * SB2-33: which system net each board net belongs to, for the search to show
- * one result per system net. Read once per system version; a failed read
+ * one result per system net. SB2-98: read only once the search is opened, and
+ * again only when the system's connectivity (`netsKey`) changes; a failed read
  * leaves the search on board nets alone.
  */
-export function useSystemNetIndex(systemId: string, etag: string): SystemNetIndex {
+export function useSystemNetIndex(systemId: string, netsKey: string, wanted: boolean): SystemNetIndex {
   const [read, setRead] = useState<{ key: string; index: SystemNetIndex } | null>(null);
-  const key = `${systemId}\n${etag}`;
+  const key = `${systemId}\n${netsKey}`;
+  const needed = wanted && read?.key !== key;
   useEffect(() => {
+    if (!needed) return;
     const controller = new AbortController();
     listSystemNetMembers(systemId, controller.signal)
       .then((list) => setRead({ key, index: indexSystemNets(list.groups) }))
       .catch(() => undefined);
     return () => controller.abort();
-  }, [systemId, key]);
+  }, [systemId, key, needed]);
   // Keep the last version's index until the new one arrives.
   return read?.index ?? EMPTY;
 }

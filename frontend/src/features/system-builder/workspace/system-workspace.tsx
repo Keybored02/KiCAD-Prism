@@ -58,7 +58,7 @@ function Loading({ what }: { what: string }) {
  */
 export function SystemWorkspace({ state, importing, onState, onImporting, onBack, ...props }: WorkspaceProps) {
   const { systemId, document, etag, canEdit, reload } = props;
-  const { findings } = useValidation(systemId, etag);
+  const { findings } = useValidation(document);
   const { busy, run } = useSystemMutation(reload);
   const [adding, setAdding] = useState<AddKind | null>(null);
   const [sheet, setSheet] = useState<"outline" | "inspector" | null>(null);
