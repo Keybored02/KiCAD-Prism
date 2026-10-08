@@ -11,7 +11,7 @@ import { comparePads } from "./pads";
 
 type Level = "error" | "warning";
 
-function worst(findings: Finding[]): Level | null {
+function worst(findings: readonly Finding[]): Level | null {
   if (findings.some((finding) => finding.severity === "error")) return "error";
   if (findings.some((finding) => finding.severity === "warning")) return "warning";
   return null;
@@ -22,7 +22,7 @@ function plural(count: number, word: string): string {
 }
 
 /** Icon and count for a list entry: errors win over warnings; info never shows. */
-export function FindingCountBadge({ findings }: { findings: Finding[] }) {
+export function FindingCountBadge({ findings }: { findings: readonly Finding[] }) {
   const level = worst(findings);
   if (!level) return null;
   const count = findings.filter((finding) => finding.severity === level).length;
@@ -72,7 +72,7 @@ export interface FindingGroup {
 }
 
 /** One line per (rule, connector), listing the pins, so 43 findings read as one. */
-export function groupFindings(findings: Finding[]): FindingGroup[] {
+export function groupFindings(findings: readonly Finding[]): FindingGroup[] {
   const groups = new Map<string, FindingGroup>();
   for (const finding of findings) {
     if (finding.severity === "info") continue;

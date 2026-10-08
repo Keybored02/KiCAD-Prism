@@ -19,6 +19,7 @@ import { InspectorHeader } from "./inspector-header";
 import { InspectorSection } from "./inspector-section";
 import { harnessFindings } from "./use-validation";
 import type { WorkspaceSelection } from "./workspace-state";
+import { documentIndex, findingIndex, linkFindings } from "../document-index";
 
 interface InspectorProps {
   systemId: string;
@@ -54,12 +55,12 @@ function countSummary(errors: number, warnings: number): ReactNode {
   );
 }
 
-function findingSummary(findings: Finding[]): ReactNode {
-  return countSummary(findings.filter((finding) => finding.severity === "error").length,
-    findings.filter((finding) => finding.severity === "warning").length);
+function findingSummary(findings: readonly Finding[]): ReactNode {
+  const { errors, warnings } = findingIndex(findings);
+  return countSummary(errors, warnings);
 }
 
-function FindingList({ findings }: { findings: Finding[] }) {
+function FindingList({ findings }: { findings: readonly Finding[] }) {
   const groups = groupFindings(findings);
   if (!groups.length) return null;
   return (
@@ -108,7 +109,7 @@ function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect
 }
 
 function LinkSummary({ document, link, findings, onEditRows }: { document: SystemDocument; link: SystemLink; findings: Finding[]; onEditRows: () => void }) {
-  const own = findings.filter((finding) => finding.linkId === link.id);
+  const own = linkFindings(findings, link.id);
   const a = endLabel(document, link, "a");
   const b = endLabel(document, link, "b");
   return (
@@ -135,7 +136,7 @@ function HarnessSummary({ document, harness, findings, onEditRows, onEditRoute }
   document: SystemDocument; harness: SystemHarness; findings: Finding[]; onEditRows: () => void; onEditRoute?: (harnessId: string) => void;
 }) {
   const own = harnessFindings(findings, harness.id);
-  const label = (instanceId: string | null | undefined) => document.instances.find((item) => item.id === instanceId)?.label;
+  const label = (instanceId: string | null | undefined) => (instanceId ? documentIndex(document).instances.get(instanceId)?.label : undefined);
   return (
     <div className="space-y-5">
       <InspectorHeader kind="Harness" title={harness.name}
@@ -177,9 +178,10 @@ function HarnessSummary({ document, harness, findings, onEditRows, onEditRoute }
 /** The workspace's right column: the selection, or the system when nothing is selected (D-P2-47). */
 export function WorkspaceInspector(props: InspectorProps) {
   const { document, selection, findings } = props;
-  const instance = selection?.kind === "instance" ? document.instances.find((item) => item.id === selection.id) : undefined;
-  const link = selection?.kind === "link" ? document.links.find((item) => item.id === selection.id) : undefined;
-  const harness = selection?.kind === "harness" ? document.harnesses?.find((item) => item.id === selection.id) : undefined;
+  const index = documentIndex(document);
+  const instance = selection?.kind === "instance" ? index.instances.get(selection.id) : undefined;
+  const link = selection?.kind === "link" ? index.links.get(selection.id) : undefined;
+  const harness = selection?.kind === "harness" ? index.harnesses.get(selection.id) : undefined;
   return (
     <aside className="relative h-full overflow-auto p-4" aria-label="Inspector">
       {props.slot && (

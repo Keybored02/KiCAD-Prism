@@ -8,6 +8,7 @@
 import type { LayoutPositions } from "@/lib/systems-api";
 import type { HarnessEnd, SystemDocument, SystemHarness, SystemInstance, SystemLink, SystemOccurrence } from "@/types/system";
 
+import { documentIndex } from "./document-index";
 import {
   BOARD_WIDTH,
   HEADER_HEIGHT,
@@ -140,7 +141,7 @@ function drawablePorts(document: SystemDocument, instance: SystemInstance) {
 }
 
 function linkEnd(document: SystemDocument, link: SystemLink, end: "a" | "b") {
-  const instance = document.instances.find((candidate) => candidate.id === link[end].instanceId);
+  const instance = documentIndex(document).instances.get(link[end].instanceId);
   const port = instance?.ports === null ? null : link[end].port;
   return { board: link[end].instanceId, portKey: port?.portKey ?? null, reference: port?.reference ?? null };
 }
@@ -181,7 +182,7 @@ export function layoutInputs(document: SystemDocument): { boards: LayoutBoardInp
       ...harnesses.flatMap((harness) => harness.ends.flatMap((end) => {
         const mates = end.mates;
         if (!mates) return [];
-        const instance = document.instances.find((candidate) => candidate.id === mates.instanceId);
+        const instance = documentIndex(document).instances.get(mates.instanceId);
         const port = instance?.ports === null ? null : mates.port;
         return [{
           id: end.id,
@@ -267,12 +268,11 @@ export function buildDiagram(
     });
     return { id: harness.id, position: { x: placed.x, y: placed.y }, height: boardHeight(rows.length + 1, 0), data: { harness, rows } };
   });
-  const harnessOfEnd = new Map((document.harnesses ?? []).flatMap((h) => h.ends.map((end) => [end.id, h] as const)));
   const labels = new Map(document.links.map((link) => [link.id, link]));
   const edges = routeWires(layout, inputs.links).map((wire) => {
-    const harness = harnessOfEnd.get(wire.linkId);
-    if (harness) {
-      const end = harness.ends.find((candidate) => candidate.id === wire.linkId)!;
+    const ofEnd = documentIndex(document).ends.get(wire.linkId);
+    if (ofEnd) {
+      const { harness, end } = ofEnd;
       const handle = (side: Wire["source"]) => handleId(side.side, side.rowKey === rowKey(null) ? null : side.rowKey);
       const count = endWireCount(harness, end.id);
       return {
@@ -386,7 +386,7 @@ export function connectionIntent(connection: ConnectionLike, document: SystemDoc
     if (!portKey) return { kind: "error", error: "Drag the harness to a board port." };
     const port = { instanceId: boardId, portKey };
     if (endKey === ADD_END_HANDLE) return { kind: "add_end", harnessId: harness.id, port };
-    const end = harness.ends.find((candidate) => candidate.id === endKey);
+    const end = endKey ? documentIndex(document).ends.get(endKey)?.end : undefined;
     if (!end) return { kind: "error", error: "Drag from a harness end." };
     if (end.mates) return { kind: "error", error: `${endLabel(end)} already mates a connector.` };
     return { kind: "mate_end", harnessId: harness.id, endId: end.id, port };

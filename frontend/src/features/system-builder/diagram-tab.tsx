@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   BaseEdge,
@@ -240,8 +240,10 @@ function WireEdgeView({ id, sourceX, sourceY, targetX, targetY, data, selected }
   );
 }
 
-const NODE_TYPES = { board: BoardNodeView, harness: HarnessNodeView };
-const EDGE_TYPES = { wire: WireEdgeView };
+// SB2-99: memoised, so a node or edge whose props are unchanged skips its render.
+const NODE_TYPES = { board: memo(BoardNodeView), harness: memo(HarnessNodeView) };
+const EDGE_TYPES = { wire: memo(WireEdgeView) };
+const NO_OCCURRENCES: SystemHierarchy["occurrences"] = [];
 
 interface NodeOverride {
   position?: { x: number; y: number };
@@ -305,31 +307,51 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
     };
   }, [systemId]);
 
-  if (layout?.systemId !== systemId) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading diagram…</div>;
-  }
-
-  // Positions being dragged count as placed, so wires re-route while dragging.
-  const live: LayoutPositions = { ...layout.positions };
-  for (const [id, extra] of Object.entries(overrides)) {
-    if (extra.position) live[id] = extra.position;
-  }
-  const diagram = buildDiagram(document, live, expanded);
-  const toggle = (id: string) => setExpanded((current) => {
+  // SB2-99: the layout and the model are rebuilt only when the document, positions or expansion
+  // change, and each node's and edge's data object stays the same otherwise; with memoised node and
+  // edge views, a selection change re-renders only what it (de)selects.
+  const positions = layout?.systemId === systemId ? layout.positions : null;
+  const live = useMemo(() => {
+    if (!positions) return null;
+    // Positions being dragged count as placed, so wires re-route while dragging.
+    const placed: LayoutPositions = { ...positions };
+    for (const [id, extra] of Object.entries(overrides)) {
+      if (extra.position) placed[id] = extra.position;
+    }
+    return placed;
+  }, [positions, overrides]);
+  const diagram = useMemo(() => (live ? buildDiagram(document, live, expanded) : null), [document, live, expanded]);
+  const toggle = useCallback((id: string) => setExpanded((current) => {
     const next = new Set(current);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
-  });
-  const occurrences = tree?.key === treeKey ? tree.body.occurrences : [];
-  const openHarness = (id: string) => onNavigate("connectivity", { harness: id });
+  }), []);
+  const navigate = useRef(onNavigate);
+  useEffect(() => {
+    navigate.current = onNavigate;
+  }, [onNavigate]);
+  const openHarness = useCallback((id: string) => navigate.current("connectivity", { harness: id }), []);
+  const occurrences = tree?.key === treeKey ? tree.body.occurrences : NO_OCCURRENCES;
+  const boardData = useMemo(() => new Map((diagram?.nodes ?? []).map((node) => [node.id, {
+    ...node.data, height: node.height, onToggle: toggle,
+    inside: node.data.instance.kind === "assembly" ? subsystemContents(occurrences, node.id) : undefined,
+  }])), [diagram, toggle, occurrences]);
+  const harnessData = useMemo(() => new Map((diagram?.harnesses ?? []).map((node) => [node.id,
+    { ...node.data, height: node.height, onOpen: openHarness }])), [diagram, openHarness]);
+  const edgeData = useMemo(() => new Map((diagram?.edges ?? []).map((edge) => [edge.id,
+    { plain: { ...edge.data, hovered: false }, hovered: { ...edge.data, hovered: true } }])), [diagram]);
+
+  if (!diagram) {
+    return <div className="p-6 text-sm text-muted-foreground">Loading diagram…</div>;
+  }
+
   const boardNodes: BoardNode[] = diagram.nodes.map((node) => {
     const extra = overrides[node.id] ?? {};
-    const inside = node.data.instance.kind === "assembly" ? subsystemContents(occurrences, node.id) : undefined;
     return {
       id: node.id,
       type: "board",
       position: node.position,
-      data: { ...node.data, height: node.height, onToggle: toggle, inside },
+      data: boardData.get(node.id)!,
       measured: extra.measured,
       // In the workspace the selection is the URL's (SB2-61); alone, the canvas keeps its own.
       selected: onSelect ? selection?.kind === "instance" && selection.id === node.id : extra.selected,
@@ -342,7 +364,7 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
     const extra = overrides[node.id] ?? {};
     return {
       id: node.id, type: "harness", position: node.position,
-      data: { ...node.data, height: node.height, onOpen: openHarness },
+      data: harnessData.get(node.id)!,
       measured: extra.measured, dragging: extra.dragging, width: NODE_WIDTH, height: node.height,
       selected: onSelect ? selection?.kind === "harness" && selection.id === node.id : extra.selected,
     };
@@ -355,7 +377,7 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
     sourceHandle: edge.sourceHandle,
     target: edge.target,
     targetHandle: edge.targetHandle,
-    data: { ...edge.data, hovered: hovered === edge.id },
+    data: hovered === edge.id ? edgeData.get(edge.id)!.hovered : edgeData.get(edge.id)!.plain,
     selected: Boolean(onSelect && selection && (edge.data.harnessId
       ? selection.kind === "harness" && selection.id === edge.data.harnessId
       : selection.kind === "link" && selection.id === edge.id)),
@@ -403,7 +425,7 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
   };
 
   const dark = typeof window !== "undefined" && window.document.documentElement.classList.contains("dark");
-  const arranged = Object.keys(layout.positions).length > 0;
+  const arranged = Object.keys(positions ?? {}).length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">

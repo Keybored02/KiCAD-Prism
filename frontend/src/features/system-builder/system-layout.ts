@@ -187,13 +187,23 @@ export function layoutSystem(
     });
   }
   const height = (board: LayoutBoard) => boardHeight(board.rows.length, board.hiddenPorts.length);
-  const rowIndex = (board: LayoutBoard) => new Map(board.rows.map((row, index) => [rowKey(row.portKey), index]));
+  // SB2-99: by id, and each board's row index kept until its rows are replaced (sortRows assigns a new array).
+  const linkById = new Map(links.map((link) => [link.id, link]));
+  const rowIndexes = new WeakMap<LayoutBoard["rows"], Map<string, number>>();
+  const rowIndex = (board: LayoutBoard) => {
+    let index = rowIndexes.get(board.rows);
+    if (!index) {
+      index = new Map(board.rows.map((row, position) => [rowKey(row.portKey), position]));
+      rowIndexes.set(board.rows, index);
+    }
+    return index;
+  };
 
   // Partner row position for a (board, linkId): the other end's row centre.
   const partnerY = (self: LayoutBoard, partner: RowPartner): number | null => {
     const other = result.get(partner.board);
     if (!other) return null;
-    const link = links.find((candidate) => candidate.id === partner.linkId);
+    const link = linkById.get(partner.linkId);
     if (!link) return null;
     const end = link.a.board === self.id && link.b.board === partner.board ? link.b : link.a;
     const index = rowIndex(other).get(rowKey(end.portKey));

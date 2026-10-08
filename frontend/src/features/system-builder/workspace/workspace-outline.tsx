@@ -11,6 +11,7 @@ import { boardStatus, shortSha, type Tone } from "../system-format";
 import { BLOCK_STYLE, blockKind } from "../kind-style";
 import { harnessFindings } from "./use-validation";
 import type { WorkspaceSelection } from "./workspace-state";
+import { instanceFindings, linkFindings } from "../document-index";
 
 export type AddKind = "board" | "module" | "subsystem";
 
@@ -26,7 +27,7 @@ interface OutlineProps {
 
 const DOT: Partial<Record<Tone, string>> = { error: "bg-destructive", warning: "bg-warning" };
 
-function worst(findings: Finding[]): Tone | null {
+function worst(findings: readonly Finding[]): Tone | null {
   if (findings.some((finding) => finding.severity === "error")) return "error";
   if (findings.some((finding) => finding.severity === "warning")) return "warning";
   return null;
@@ -86,7 +87,7 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
   const harnesses = document.harnesses ?? [];
   const instanceRow = (instance: SystemInstance) => {
     const status = boardStatus(instance);
-    const own = worst(findings.filter((finding) => finding.instanceId === instance.id));
+    const own = worst(instanceFindings(findings, instance.id));
     const tone = status.tone === "error" || status.tone === "warning" ? status.tone : own;
     return (
       <Row key={instance.id} icon={instanceIcon(instance)} label={instance.label} meta={instanceMeta(instance)}
@@ -130,7 +131,7 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
           {document.links.map((link) => (
             <Row key={link.id} icon={<Spline className="size-3.5" />}
               label={link.name || `${endLabel(document, link, "a")} ↔ ${endLabel(document, link, "b")}`}
-              meta={`${link.rows.length} pins`} tone={worst(findings.filter((finding) => finding.linkId === link.id))}
+              meta={`${link.rows.length} pins`} tone={worst(linkFindings(findings, link.id))}
               selected={isSelected("link", link.id)} onClick={() => onSelect({ kind: "link", id: link.id })} />
           ))}
         </Group>
