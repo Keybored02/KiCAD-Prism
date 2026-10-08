@@ -10,7 +10,9 @@ from app.services.systems import layout as system_layout
 
 def instance(label: str, restricted: bool = False) -> dict:
     return {"id": f"sin_{label}", "label": label, "restricted": restricted, "projectName": label.lower(),
-            "baselineCommit": "a" * 40, "trackedRef": "main", "pinned": False}
+            "baselineCommit": "a" * 40, "trackedRef": "main", "pinned": False,
+            # A redacted document nulls a restricted board's ports.
+            **({"ports": None} if restricted else {})}
 
 
 def link(lid: str, a: tuple[str, str], b: tuple[str, str], name: str = "") -> dict:
@@ -100,3 +102,25 @@ class IcdDiagramTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IcdContentTest(unittest.TestCase):
+    """SB2-73: contents, a connections overview linking to each connection, findings beside it, modules apart."""
+
+    def test_contents_overview_and_findings_beside_their_connection(self) -> None:
+        module = {**instance("IMU"), "kind": "module", "catalog": {"version": 3, "releaseStatus": "open", "identity": "MOD-1"},
+                  "ports": [{"portKey": "IMU:A", "reference": "A", "exposed": True}]}
+        doc = document([instance("OBC-1"), instance("CMBD"), module],
+                       [link("l1", ("OBC-1", "J14"), ("CMBD", "J12"), name="Main stack")])
+        doc["validation"]["findings"] = [{"rule": "SYS-V03", "name": "pin_missing", "severity": "error", "instanceId": None,
+                                          "linkId": "l1", "rowId": None, "end": "a", "reference": "J14", "pin": "3",
+                                          "detail": None, "redacted": False}]
+        html = icd.render_html(doc, source="live", generated_at="2026-10-08T14:01:44+00:00")
+        self.assertIn('<nav class="toc" aria-label="Contents"><a href="#boards">Boards</a><a href="#modules">Modules</a>', html)
+        self.assertIn("<b>1</b><span>Modules</span>", html)
+        self.assertNotIn("<span>Subsystems</span>", html)
+        self.assertIn("1 module pins an unreleased revision.", html)
+        self.assertIn('<a href="#link-l1">Main stack</a>', html)
+        connection = html[html.index('<section class="link" id="link-l1">'):]
+        self.assertIn('<ul class="link-findings"><li><span class="chip error">SYS-V03</span> pin missing', connection)
+        self.assertIn("8 Oct 2026, 14:01 UTC", html)

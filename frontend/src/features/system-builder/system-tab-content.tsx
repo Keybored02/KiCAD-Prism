@@ -28,4 +28,6 @@ export interface SystemTabProps {
   inspectorSlot?: HTMLElement | null;
   netsSlot?: HTMLElement | null;
   onOpenTray?: (tab: TrayTab | null) => void;
+  /** Bumped by the inspector's Edit route: the 3D view enters Route mode (D-P2-51). */
+  routeRequest?: number;
 }

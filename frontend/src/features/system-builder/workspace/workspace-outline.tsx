@@ -8,6 +8,7 @@ import type { Finding, SystemDocument, SystemInstance } from "@/types/system";
 
 import { endLabel } from "../link-editor";
 import { boardStatus, shortSha, type Tone } from "../system-format";
+import { BLOCK_STYLE, blockKind } from "../kind-style";
 import { harnessFindings } from "./use-validation";
 import type { WorkspaceSelection } from "./workspace-state";
 
@@ -50,10 +51,10 @@ function Row({ icon, label, meta, tone, selected, onClick, mono }: {
         type="button" onClick={onClick} aria-current={selected ? "true" : undefined}
         className={cn(
           "flex h-8 w-full items-center gap-2.5 border-l-2 pl-3.5 pr-4 text-left text-sm",
-          selected ? "border-warning bg-accent font-semibold" : "border-transparent hover:bg-accent/50",
+          selected ? "border-foreground bg-accent font-semibold" : "border-transparent hover:bg-accent/50",
         )}
       >
-        <span className={cn("flex size-4 shrink-0 items-center justify-center", selected ? "text-warning" : "text-muted-foreground")}>{icon}</span>
+        <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">{icon}</span>
         <span className="min-w-0 flex-1 truncate">{label}</span>
         <span className={cn("w-16 shrink-0 truncate text-right text-xs text-muted-foreground", mono && "font-mono")}>{meta}</span>
         <span className={cn("size-2 shrink-0 rounded-full", tone ? DOT[tone] : undefined)} />
@@ -64,9 +65,8 @@ function Row({ icon, label, meta, tone, selected, onClick, mono }: {
 
 function instanceIcon(instance: SystemInstance) {
   if (instance.restricted) return <Lock className="size-3.5" aria-label="restricted" />;
-  if (instance.kind === "module") return <Box className="size-3.5" aria-label="module" />;
-  if (instance.kind === "assembly") return <Layers className="size-3.5" aria-label="subsystem" />;
-  return <RectangleHorizontal className="size-3.5" aria-label="board" />;
+  const kind = BLOCK_STYLE[blockKind(instance)];
+  return <kind.icon className={cn("size-3.5", kind.text)} aria-label={kind.label.toLowerCase()} />;
 }
 
 function instanceMeta(instance: SystemInstance): string {
@@ -121,7 +121,7 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
         <Group title="Subsystems" count={subsystems.length}>{subsystems.map(instanceRow)}</Group>
         <Group title="Harnesses" count={harnesses.length}>
           {harnesses.map((harness) => (
-            <Row key={harness.id} icon={<Cable className="size-3.5" />} label={harness.name}
+            <Row key={harness.id} icon={<Cable className="size-3.5 text-kind-harness" />} label={harness.name}
               meta={`${harness.ends.length} ends`} tone={worst(harnessFindings(findings, harness.id))}
               selected={isSelected("harness", harness.id)} onClick={() => onSelect({ kind: "harness", id: harness.id })} />
           ))}

@@ -50,7 +50,7 @@ export function HarnessPanel({ state, moving, busy, counts, onAddWaypoint, onAdd
         </p>
       )}
       {state.editable && !moving && (
-        <p className="text-xs text-muted-foreground">Turn on move mode (M) to add and drag breakouts and waypoints.</p>
+        <p className="text-xs text-muted-foreground">Switch to Route to edit</p>
       )}
       {state.editable && moving && (
         <>
@@ -93,7 +93,7 @@ export function HarnessPanel({ state, moving, busy, counts, onAddWaypoint, onAdd
               )}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Click a handle to move it; Esc lets go.</p>
+            <p className="text-xs text-muted-foreground">Click the tube: waypoint · Shift-click: breakout · drag a handle to move it</p>
           )}
         </>
       )}

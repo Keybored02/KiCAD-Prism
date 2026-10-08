@@ -1510,6 +1510,7 @@ export async function mountSystemViewer(options = {}) {
       if (systemLabelsEl) systemLabelsEl.hidden = !system.showLabels;
     },
     setHelpVisible: setSystemHelpVisible,
+    isHelpVisible: () => Boolean(systemHelpEl && !systemHelpEl.hidden),
     setHarnessesVisible(visible) {
       if (!system) return;
       system.showHarnesses = Boolean(visible);
@@ -2384,7 +2385,8 @@ function samePose(a, b) {
 
 function initialMove() {
   // `node`: a harness node the gizmo moves instead of a board (SB2-45b), or null.
-  return { allowed: false, enabled: false, space: "world", target: null, preview: null, drag: null, node: null };
+  // `route` (D-P2-51): move mode for harness routes only; boards never take the gizmo.
+  return { allowed: false, enabled: false, route: false, space: "world", target: null, preview: null, drag: null, node: null };
 }
 
 /** The host's descriptor with the unsaved preview pose applied. */
@@ -2413,6 +2415,7 @@ function moveState() {
   return {
     allowed: move.allowed,
     enabled: move.enabled,
+    route: move.route,
     space: move.space,
     dragging: Boolean(move.drag),
     target: target ? {
@@ -2438,9 +2441,12 @@ function setMoveAllowed(allowed) {
   if (!system.move.allowed && system.move.enabled) setMoveMode(false);
 }
 
-function setMoveMode(enabled) {
+function setMoveMode(enabled, { route = false } = {}) {
   const next = Boolean(enabled) && system.move.allowed;
-  if (next === system.move.enabled) return;
+  const nextRoute = next && Boolean(route);
+  if (next === system.move.enabled && nextRoute === system.move.route) return;
+  system.move.route = nextRoute;
+  if (nextRoute) dropMoveTarget();
   if (!next) {
     dropMoveTarget();
     if (system.move.node) {
@@ -2471,7 +2477,7 @@ function selectionKey() {
 function retargetMove({ quiet = false } = {}) {
   if (!system) return;
   const key = selectionKey();
-  const top = system.move.enabled && key != null ? moveTarget(system.baseDescriptor, key) : null;
+  const top = system.move.enabled && !system.move.route && key != null ? moveTarget(system.baseDescriptor, key) : null;
   const target = top && top.move !== false ? top.path : null; // `move: false` (SB2-48b): fixed in place
   if (target === system.move.target) return;
   dropMoveTarget();
@@ -2883,7 +2889,10 @@ function pickSystemTube(event) {
     return false;
   }
   const tube = system.tubes[hit.index];
+  const again = system.harnessPick?.key === tube.harness;
   pickHarness({ key: tube.harness, segmentId: tube.segmentId, pointMm: hit.pointMm });
+  // Route mode (D-P2-51): a click on the picked harness asks the host for a waypoint there (Shift: a breakout).
+  if (again && system.move.route && harnessEditable(pickedHarness())) emitHarness("route-click", { breakout: Boolean(event.shiftKey) });
   return true;
 }
 
@@ -2976,8 +2985,8 @@ function harnessState() {
   };
 }
 
-function emitHarness(phase) {
-  system.onHarness?.({ phase, ...harnessState() });
+function emitHarness(phase, extra = {}) {
+  system.onHarness?.({ phase, ...harnessState(), ...extra });
 }
 
 /** Give the gizmo to a node of the picked harness (null gives it back). */

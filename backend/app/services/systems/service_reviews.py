@@ -458,17 +458,20 @@ class ReviewsMixin:
 
     def _icd_source(
         self, caller: Caller, system_id: str, snapshot_id: Optional[str]
-    ) -> tuple[dict, str, Optional[int]]:
-        """``(redacted document, source label, live version or None)`` for an ICD."""
+    ) -> tuple[dict, str, Optional[int], dict]:
+        """``(redacted document, source label, live version or None, canvas positions)`` for an ICD."""
 
         with self._tx() as store:
             system = self._system(store, system_id, caller)
             if snapshot_id is not None:
                 meta, document = self._snapshot(store, system_id, snapshot_id, caller)
-                return document, meta["name"], None
+                # The canvas as frozen in the snapshot's manifest; older snapshots have none (default layout).
+                manifest = store.get_snapshot(system_id, snapshot_id).get("manifest") or {}
+                return document, meta["name"], None, (manifest.get("layout") or {}).get("positions") or {}
             built, _instances, _jobs = self._build(store, system)
             restricted = self._restricted_instances(store, system_id, caller)
-        return redaction.redact_document(built, restricted), "live", system["version"]
+            positions = store.get_layout(system_id)
+        return redaction.redact_document(built, restricted), "live", system["version"], positions
 
     def icd(
         self, caller: Caller, system_id: str, fmt: str, snapshot_id: Optional[str] = None, depth: str = "own",
@@ -478,13 +481,13 @@ class ReviewsMixin:
         ``depth="all"`` (P2 §10) adds every subsystem level's own links, from its pinned snapshot.
         """
 
-        document, source, version = self._icd_source(caller, system_id, snapshot_id)
+        document, source, version, positions = self._icd_source(caller, system_id, snapshot_id)
         levels = self._icd_levels(caller, system_id, snapshot_id) if depth == "all" else None
         if fmt == "csv":
             content = icd.render_csv(document, levels)
         else:
             generated = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-            content = icd.render_html(document, source=source, generated_at=generated, levels=levels)
+            content = icd.render_html(document, source=source, generated_at=generated, levels=levels, positions=positions)
         return content, document["system"]["name"], version
 
     def _icd_levels(self, caller: Caller, system_id: str, snapshot_id: Optional[str]) -> list[dict]:

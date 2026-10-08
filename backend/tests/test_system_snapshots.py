@@ -112,14 +112,14 @@ class SnapshotTest(SnapshotCase):
         self.assertEqual(flagged, [("L-J7J4", "17")])
         html = self.service.icd(DESIGNER, self.sid, "html")[0]
         self.assertEqual(html.count("This document contains 1 unreviewed change."), 2)
-        self.assertIn("Source: live", html)
+        self.assertIn("Live · generated", html)
 
         old_csv, _, version = self.service.icd(DESIGNER, self.sid, "csv", frozen["id"])
         self.assertIsNone(version)
         self.assertEqual({r["status"] for r in rows_of(old_csv)}, {"ok"})
         old_html = self.service.icd(DESIGNER, self.sid, "html", frozen["id"])[0]
         self.assertNotIn("unreviewed", old_html)
-        self.assertIn("Source: before", old_html)
+        self.assertIn("Snapshot before · generated", old_html)
         self.assertEqual(self.snapshot("with-review")["openReviewCount"], 1)
 
     def test_html_escapes_system_owned_text(self) -> None:
@@ -213,7 +213,7 @@ class SnapshotApiTest(SnapshotCase):
         self.assertTrue(live_html.headers["content-type"].startswith("text/html"))
         self.assertIn("default-src 'none'", live_html.headers["content-security-policy"])
         self.assertEqual(live_html.headers["x-content-type-options"], "nosniff")
-        self.assertIn("<h1>Interface control document — Fixture</h1>", live_html.text)
+        self.assertIn("<h1>Fixture</h1>", live_html.text)
         self.assertEqual(self.call("GET", "/icd.pdf").status, 422)
 
         current = etag(self.sid, self.version())

@@ -367,8 +367,13 @@ export class PrismSemanticViewerElement extends HTMLElement {
    * passes the re-read scene, or calls `cancelMove()` when the save fails.
    * Whether this reader may move boards is the `move-allowed` attribute.
    */
-  setMoveMode(enabled) {
-    this.controller?.setMoveMode?.(enabled);
+  setMoveMode(enabled, options) {
+    this.controller?.setMoveMode?.(enabled, options);
+  }
+
+  /** Route mode (D-P2-51): move mode for harness routes only; boards stay put. */
+  setRouteMode(enabled) {
+    this.controller?.setMoveMode?.(enabled, { route: true });
   }
 
   setMoveSpace(space) {
@@ -432,6 +437,11 @@ export class PrismSemanticViewerElement extends HTMLElement {
   /** The keyboard list (also `?`). */
   setHelpVisible(visible) {
     this.controller?.setHelpVisible?.(visible);
+  }
+
+  /** Whether the keyboard list is open, so a host button can toggle it. */
+  isHelpVisible() {
+    return Boolean(this.controller?.isHelpVisible?.());
   }
 
   /** Frame every placed board (mode="system"). */

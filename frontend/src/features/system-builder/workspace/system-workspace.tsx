@@ -64,6 +64,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
   const [sheet, setSheet] = useState<"outline" | "inspector" | null>(null);
   const [takeRequest, setTakeRequest] = useState(0);
   const [part, setPart] = useState<PartDetail | null>(null);
+  const [routeRequest, setRouteRequest] = useState(0);
   const [inspectorSlot, setInspectorSlot] = useState<HTMLElement | null>(null);
   const [netsSlot, setNetsSlot] = useState<HTMLElement | null>(null);
   const large = useLargeScreen();
@@ -92,7 +93,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
     });
   };
   const tabProps: SystemTabProps = { ...props, onNavigate, selection: state.selection, onSelect: select, onPart: setPart,
-    inspectorSlot: large ? inspectorSlot : null, netsSlot: state.tray === "nets" ? netsSlot : null, onOpenTray: setTray };
+    inspectorSlot: large ? inspectorSlot : null, netsSlot: state.tray === "nets" ? netsSlot : null, onOpenTray: setTray, routeRequest };
   // The picked part shows while its board (or the subsystem holding it) is the selection.
   const shownPart = part && state.selection?.kind === "instance" && rootInstanceOf(part.selection.occurrence) === state.selection.id ? part : null;
 
@@ -103,7 +104,12 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
   const inspector = (slot?: (node: HTMLElement | null) => void) => (
     <WorkspaceInspector slot={slot} systemId={systemId} document={document} etag={etag} canEdit={canEdit} findings={findings}
       selection={state.selection} part={shownPart} busy={busy} run={run} onSelect={select}
-      onEditRows={() => { setSheet(null); update({ tray: "connections" }); }} />
+      onEditRows={() => { setSheet(null); update({ tray: "connections" }); }}
+      onEditRoute={has3d && canEdit ? (harnessId) => {
+        setSheet(null);
+        setRouteRequest((count) => count + 1);
+        onState({ ...state, view: "3d", selection: { kind: "harness", id: harnessId } });
+      } : undefined} />
   );
 
   const view = (current: WorkspaceView) => {

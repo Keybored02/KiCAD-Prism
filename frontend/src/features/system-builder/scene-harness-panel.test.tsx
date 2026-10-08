@@ -47,7 +47,7 @@ describe("harness panel", () => {
 
   it("explains why nothing can be edited", () => {
     renderPanel(state(), false);
-    expect(screen.getByText(/Turn on move mode/)).toBeTruthy();
+    expect(screen.getByText("Switch to Route to edit")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Add waypoint/ })).toBeNull();
   });
 
