@@ -360,6 +360,21 @@ class SnapshotHeader(_Model):
     note: str = Field(default="", max_length=4000)
 
 
+# ---------------------------------------------------------------------------
+# Finding waivers (SB2-100, D-P2-56)
+
+
+class Waiver(_Model):
+    """An accepted warning or info finding, named by its key, with a note."""
+
+    id: Annotated[str, _id("sfw")]
+    findingKey: str = Field(min_length=1, max_length=2000)
+    rule: str = Field(min_length=1, max_length=20)
+    note: str = Field(min_length=1, max_length=2000)
+    createdBy: str = Field(min_length=1, max_length=320)
+    createdAt: str
+
+
 class Meta(_Model):
     createdAt: str
     createdBy: str
@@ -378,6 +393,7 @@ class Manifest(_Model):
     mating: list[Mating] = Field(default_factory=list)
     placement: Placement = Field(default_factory=Placement)
     layout: CanvasLayout = Field(default_factory=CanvasLayout)
+    waivers: list[Waiver] = Field(default_factory=list, max_length=5000)
 
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
@@ -481,6 +497,8 @@ def _sha(value: Any) -> str:
 def full_view(manifest: Manifest) -> dict:
     body = manifest.model_dump(mode="json", by_alias=True, exclude_none=False)
     body.pop("meta")
+    if not body["waivers"]:
+        body.pop("waivers")  # added in SB2-100; older manifests keep their digests
     # Fields added after M0 are omitted while unset, so older manifests keep their digests.
     if not body["system"]["optionalRules"]:
         body["system"].pop("optionalRules")
@@ -502,6 +520,7 @@ def connectivity_view(manifest: Manifest) -> dict:
 
     body = full_view(manifest)
     body["system"].pop("optionalRules", None)  # a check setting, not connectivity
+    body.pop("waivers", None)  # accepted findings, not connectivity
     for link in body["links"]:
         link.pop("stackHeightMm", None)  # placement (§16.2)
     body.pop("layout")

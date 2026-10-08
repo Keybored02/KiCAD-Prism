@@ -48,6 +48,7 @@ import type {
   SystemPort,
   SystemScene,
   SystemSummary,
+  FindingWaiver,
 } from "@/types/system";
 
 const BASE = "/api/systems";
@@ -274,6 +275,15 @@ export function generateRows(
 ) {
   return versioned<GeneratorResult>(path(systemId, "links", linkId, "generate"),
     { method: "POST", body: json({ generator, options }) });
+}
+
+/** SB2-100: waive one warning or info finding with a note (a versioned edit). */
+export function waiveFinding(systemId: string, etag: string, findingKey: string, note: string) {
+  return versioned<FindingWaiver>(path(systemId, "waivers"), { method: "POST", etag, body: json({ findingKey, note }) });
+}
+
+export function unwaiveFinding(systemId: string, etag: string, waiverId: string) {
+  return versioned<void>(path(systemId, "waivers", waiverId), { method: "DELETE", etag });
 }
 
 /** P2 §7.1: move an assembly instance to a catalog revision (auto-advance or a child review). */

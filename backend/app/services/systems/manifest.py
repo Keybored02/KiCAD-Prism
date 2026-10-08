@@ -143,6 +143,9 @@ def build(
                                        for instance_id, link_id in sorted(store.list_driving_mates(system_id).items())]},
         "layout": {"positions": {key: {"x": float(p["x"]), "y": float(p["y"])}
                                  for key, p in sorted(layout.items())}},
+        "waivers": [{"id": w["id"], "findingKey": w["finding_key"], "rule": w["rule"], "note": w["note"],
+                     "createdBy": w["created_by"], "createdAt": _iso(w["created_at"])}
+                    for w in store.list_waivers(system_id)],
     }
     return Manifest.model_validate(body)
 
@@ -181,7 +184,7 @@ def import_manifest(
 
 # Every table holding a system's engineering content, children before parents (FKs).
 _CONTENT_TABLES = ("system_driving_mates", "system_poses", "system_exports", "system_harnesses", "system_links",
-                   "system_instances", "system_layouts")
+                   "system_instances", "system_layouts", "system_finding_waivers")
 
 
 def replace_contents(store: SystemStore, change: Any, manifest: Manifest) -> None:
@@ -298,3 +301,6 @@ def _populate(store: SystemStore, change: Any, manifest: Manifest) -> None:
                        {**placement_poses.pose_from(pose.translationMm, pose.rotation), "source": pose.source})
     for driving in manifest.placement.drivingMates:
         store.set_driving_mate(change, driving.instanceId, driving.linkId)
+    for waiver in manifest.waivers:  # SB2-100: as recorded, author and date included
+        store.add_waiver(change, finding_key=waiver.findingKey, rule=waiver.rule, note=waiver.note,
+                         created_by=waiver.createdBy, waiver_id=waiver.id, created_at=waiver.createdAt)

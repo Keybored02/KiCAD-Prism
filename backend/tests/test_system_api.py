@@ -271,7 +271,7 @@ class SystemApiTest(unittest.TestCase):
         self.assertEqual(document.headers["etag"], etag)
         self.assertEqual(document.json["instances"], [])
         self.assertEqual(document.json["findingCounts"],
-                         {"error": 0, "warning": 0, "info": 0, "notEvaluated": 0})
+                         {"error": 0, "warning": 0, "info": 0, "notEvaluated": 0, "waived": 0})
 
     def test_mutations_need_designer_and_if_match(self) -> None:
         sid, etag = self.create_system()

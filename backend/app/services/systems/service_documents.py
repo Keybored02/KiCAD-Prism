@@ -14,7 +14,7 @@ from app.services.systems.jobs import (
     EXTRACT_JOB_KIND,
     artifact_key,
 )
-from app.services.systems.store import Conflict, Invalid, NotFound, SystemStore
+from app.services.systems.store import Conflict, Invalid, NotFound, StaleVersion, SystemStore
 from app.services.systems.service_base import Caller, Result, _mating_summary, _iso
 
 
@@ -181,6 +181,8 @@ class DocumentsMixin:
                 harness, components, all_overrides,
                 system.get("optionalRules") or (), validation.make_finding))
         report = validation.with_findings(report, self._mate_pair_findings(links, harness_rows, interfaces))
+        # SB2-100 (D-P2-56): waivers last, over every finding above.
+        report = validation.apply_waivers(report, store.list_waivers(system_id))
         review_rows = sorted({rid for review in open_reviews for item in review["items"] for rid in item["row_ids"]})
         link_docs = [self._link_doc(link, interfaces, overrides, mating) for link in links]
         export_docs = [self._export_doc(export, interfaces, overrides) for export in exports]
@@ -265,6 +267,35 @@ class DocumentsMixin:
             built, _instances, _jobs = self._build(store, system)
             restricted = self._restricted_instances(store, system_id, caller)
         return Result(redaction.redact_findings(built["validation"], restricted), system_id, system["version"])
+
+    def waive_finding(self, caller: Caller, system_id: str, version: int, finding_key: str, note: str) -> Result:
+        """SB2-100 (D-P2-56): waive one warning or info finding with a note. The finding is found and
+        checked from a consistent read without the lock; the lock only stores the waiver (SB2-94)."""
+        with self._tx(consistent=True) as store:
+            system = self._system(store, system_id, caller)
+            if int(system["version"]) != int(version):
+                raise StaleVersion(int(system["version"]))
+            built, _instances, _jobs = self._build(store, system)
+            restricted = self._restricted_instances(store, system_id, caller)
+        report = redaction.redact_findings(built["validation"], restricted)
+        finding = next((f for f in report["findings"] if f["key"] == finding_key and not f.get("redacted")), None)
+        if finding is None:
+            raise NotFound("Finding not found")
+        if finding["severity"] not in validation.WAIVABLE_SEVERITIES:
+            raise Invalid("finding_not_waivable: errors are fixed or reviewed, never waived")
+        with self._tx() as store:
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                row = store.add_waiver(change, finding_key=finding_key, rule=finding["rule"], note=note,
+                                       created_by=caller.actor)
+        return Result({**validation.waiver_doc(row), "findingKey": row["finding_key"], "rule": row["rule"],
+                       "active": True}, system_id, change.version)
+
+    def unwaive_finding(self, caller: Caller, system_id: str, version: int, waiver_id: str) -> Result:
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                store.delete_waiver(change, waiver_id)
+        return Result(None, system_id, change.version)
 
     def _latest_jobs(self, store: SystemStore, instances: Sequence[dict]) -> dict[str, dict]:
         keys = sorted({artifact_key(i["project_id"], i["baseline_commit"]) for i in instances})

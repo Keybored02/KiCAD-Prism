@@ -226,6 +226,44 @@ class ReviewsStore:
         return interface_cache.manifests.put(key, row["manifest"], row["stored"])
 
     # ------------------------------------------------------------------
+    # Finding waivers (SB2-100, D-P2-56)
+
+    def list_waivers(self, system_id: str) -> list[dict]:
+        return [dict(row) for row in self.conn.execute(
+            "SELECT id, finding_key, rule, note, created_by, created_at FROM system_finding_waivers"
+            " WHERE system_id = %s ORDER BY rule, finding_key", (system_id,)).fetchall()]
+
+    def add_waiver(self, change: Mutation, *, finding_key: str, rule: str, note: str, created_by: str,
+                   waiver_id: Optional[str] = None, created_at: Any = None) -> dict:
+        """Waive one finding. ``waiver_id`` and ``created_at`` are kept when a manifest restores one."""
+        if not note.strip():
+            raise Invalid("a waiver needs a note")
+        exists = self.conn.execute(
+            "SELECT 1 FROM system_finding_waivers WHERE system_id = %s AND finding_key = %s",
+            (change.system_id, finding_key)).fetchone()
+        if exists:
+            raise Conflict("finding_waived: this finding is already waived")
+        row = self.conn.execute(
+            """
+            INSERT INTO system_finding_waivers (id, system_id, finding_key, rule, note, created_by, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
+            RETURNING id, finding_key, rule, note, created_by, created_at
+            """,
+            (_given_id("sfw_", waiver_id), change.system_id, finding_key, rule, note.strip(), created_by, created_at),
+        ).fetchone()
+        change.audit("finding_waived", {"waiverId": row["id"], "rule": rule, "findingKey": finding_key,
+                                        "note": row["note"]})
+        return dict(row)
+
+    def delete_waiver(self, change: Mutation, waiver_id: str) -> None:
+        row = self.conn.execute(
+            "DELETE FROM system_finding_waivers WHERE system_id = %s AND id = %s RETURNING rule, finding_key",
+            (change.system_id, waiver_id)).fetchone()
+        if row is None:
+            raise NotFound("Waiver not found")
+        change.audit("finding_unwaived", {"waiverId": waiver_id, "rule": row["rule"], "findingKey": row["finding_key"]})
+
+    # ------------------------------------------------------------------
     # Import sessions (§9.3)
 
     IMPORT_RETENTION_DAYS = 7

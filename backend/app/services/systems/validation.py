@@ -262,6 +262,52 @@ def with_findings(report: Mapping[str, Any], extra: Sequence[Mapping[str, Any]])
     return {**report, "findings": findings, "counts": counts}
 
 
+# ---------------------------------------------------------------------------
+# Waivers (SB2-100, D-P2-56)
+
+WAIVABLE_SEVERITIES = frozenset({"warning", "info"})
+
+
+def finding_key(finding: Mapping[str, Any]) -> str:
+    """A finding's identity across re-reads: rule, instance, link, harness, end, reference and pin.
+    Not the row ID, which a row save may replace."""
+    harness = (finding.get("detail") or {}).get("harnessId") or ""
+    return "|".join(str(part or "") for part in (finding["rule"], finding.get("instanceId"), finding.get("linkId"),
+                                                 harness, finding.get("end"), finding.get("reference"),
+                                                 finding.get("pin")))
+
+
+def apply_waivers(report: Mapping[str, Any], waivers: Sequence[Mapping[str, Any]]) -> dict:
+    """``report`` with every finding keyed, waived warnings and info marked and left out of the
+    counts (``counts.waived`` says how many), and ``waivers`` listing each with ``active``: whether
+    its finding still occurs. An error is never waived, even if a waiver names it."""
+    by_key = {waiver["finding_key"]: waiver for waiver in waivers}
+    matched: set[str] = set()
+    findings = []
+    counts = {"error": 0, "warning": 0, "info": 0}
+    for finding in report["findings"]:
+        key = finding_key(finding)
+        waiver = by_key.get(key)
+        if waiver is not None and finding["severity"] in WAIVABLE_SEVERITIES:
+            matched.add(key)
+            findings.append({**finding, "key": key, "waived": waiver_doc(waiver)})
+        else:
+            counts[finding["severity"]] += 1
+            findings.append({**finding, "key": key, "waived": None})
+    counts["notEvaluated"] = report["counts"]["notEvaluated"]
+    counts["waived"] = len(matched)
+    return {**report, "findings": findings, "counts": counts,
+            "waivers": [{**waiver_doc(waiver), "findingKey": waiver["finding_key"], "rule": waiver["rule"],
+                         "active": waiver["finding_key"] in matched}
+                        for waiver in sorted(waivers, key=lambda w: (w["rule"], w["finding_key"]))]}
+
+
+def waiver_doc(waiver: Mapping[str, Any]) -> dict:
+    created = waiver["created_at"]
+    return {"id": waiver["id"], "note": waiver["note"], "by": waiver["created_by"],
+            "at": created.isoformat() if hasattr(created, "isoformat") else created}
+
+
 def mate_mismatch_findings(mismatches: Sequence[Mapping[str, Any]]) -> list[dict]:
     """SYS-V11 (CONTRACTS_P2 §14.9): a B2B mate that does not line up where the driving mates put its boards."""
     return [_finding("SYS-V11", link_id=item["linkId"],

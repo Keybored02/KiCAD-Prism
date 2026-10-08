@@ -164,6 +164,8 @@ export interface FindingCounts {
   warning: number;
   info: number;
   notEvaluated: number;
+  /** SB2-100: waived findings, left out of the counts above. */
+  waived?: number;
 }
 
 /** A connector this system publishes to parent systems (CONTRACTS_P2 §4). */
@@ -310,10 +312,30 @@ export interface Finding {
   pin: string | null;
   detail: Record<string, unknown> | null;
   redacted: boolean;
+  /** SB2-100: the finding's identity across re-reads; null when redacted. */
+  key?: string | null;
+  /** SB2-100: set when a waiver accepts this finding. */
+  waived?: WaiverStamp | null;
+}
+
+export interface WaiverStamp {
+  id: string;
+  note: string | null;
+  by: string;
+  at: string;
+}
+
+/** SB2-100 (D-P2-56): an accepted warning or info finding; `active` while the finding occurs. */
+export interface FindingWaiver extends WaiverStamp {
+  findingKey: string | null;
+  rule: string;
+  active: boolean;
+  redacted?: boolean;
 }
 
 export interface ValidationReport {
   findings: Finding[];
+  waivers?: FindingWaiver[];
   notEvaluated: { rule: string; instanceId: string; reason: string }[];
   exempt: {
     rule: string;
