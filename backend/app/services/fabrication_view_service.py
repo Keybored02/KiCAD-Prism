@@ -26,8 +26,7 @@ from app.services import fabrication_compare_service as fab
 ROLES = ("silk", "paste", "mask", "copper", "outline", "drill", "other")
 
 #: KiCad's own colours, as the Visualizer and Design Comparison draw them, so a layer
-#: is the same colour wherever it is looked at. The viewer blends layers with
-#: "lighten" (per-channel maximum) over black, so where two overlap the brighter wins.
+#: is the same colour wherever it is looked at. Each is drawn fully opaque.
 _COLOURS = {
     ("copper", "top"): "#c83434",
     ("copper", "bottom"): "#4d7fc4",
@@ -66,9 +65,14 @@ _OTHER_COLOURS = {
 }
 _FALLBACK_COLOUR = "#afafaf"
 
-#: Layers are blended with "lighten", and black is the identity for that: any lighter
-#: background would show through wherever a layer is empty.
-VIEW_BACKGROUND = "#000000"
+#: A layer is drawn as a mask: white where the plot is dark, black where it is empty or
+#: cleared. The layer's colour is then filled through that mask, so the SVG is its
+#: colour, fully opaque, where something is plotted and transparent everywhere else.
+#: That keeps Gerber's clear polarity working (a clear area cuts the layer's own
+#: artwork) without ever touching the layers around it.
+_MASK_ON = "#ffffff"
+_MASK_OFF = "#000000"
+_MASK_ID = "layer"
 
 #: A drawn line is never thinner than this on screen. A 0.1 mm silkscreen or outline
 #: line is a fraction of a pixel when the whole board is in view, and anti-aliasing
@@ -346,12 +350,19 @@ class FabricationPackage:
         info = next((item for item in self.infos if item.id == layer_id), None)
         if parsed is None or info is None or self._bounds is None:
             raise KeyError(layer_id)
-        svg = fab.render_layer_svg(
-            parsed, self._bounds, colour=info.colour, background=VIEW_BACKGROUND
+        x0, y0, x1, y1 = self._bounds
+        plot = fab.render_layer_svg(parsed, self._bounds, colour=_MASK_ON, background=_MASK_OFF)
+        # The renderer's own SVG, minus its wrapper: a black rectangle and the artwork.
+        artwork = plot[plot.index(">", plot.index("<svg")) + 1:plot.rindex("</svg>")]
+        box = f'x="{fab._fmt(x0)}" y="{fab._fmt(y0)}" width="{fab._fmt(x1 - x0)}" height="{fab._fmt(y1 - y0)}"'
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{fab._fmt(x0)} {fab._fmt(y0)}'
+            f' {fab._fmt(x1 - x0)} {fab._fmt(y1 - y0)}" preserveAspectRatio="xMidYMid meet">'
+            f'<defs><mask id="{_MASK_ID}" maskUnits="userSpaceOnUse" {box}>{artwork}</mask></defs>'
+            f'<rect {box} fill="{info.colour}" mask="url(#{_MASK_ID})"/>'
+            "</svg>"
         )
-        return with_minimum_stroke(
-            svg, self._bounds[2] - self._bounds[0], holes=info.kind == "excellon"
-        )
+        return with_minimum_stroke(svg, x1 - x0, holes=info.kind == "excellon")
 
     def drill_tools(self) -> List[Dict[str, Any]]:
         """One row per tool, hole count and slot count."""

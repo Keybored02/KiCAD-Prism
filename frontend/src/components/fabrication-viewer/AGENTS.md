@@ -48,15 +48,15 @@ If one of these changes, the viewer should follow it.
 
 ## Traps
 
-- **Layers are blended with `lighten` in an isolated stack on black.** The backend
-  draws each on pure black, which is the identity for that blend, and the canvas puts
-  them in an `isolate` group on a black pane. Without the isolation the top view
-  blended with the pane behind it and came out lighter than the swatches, while
-  the bottom view, isolated by its mirror transform, came out exact. `lighten` is the
-  per-channel maximum, so the brighter of two overlapping layers keeps its swatch
-  colour; `screen` added them instead and turned silkscreen over red copper
-  near-white. Keep the swatches and the drawing in agreement: the swatch is the
-  layer's colour, and the drawing should show it.
+- **Layers are fully opaque and never blended.** This is a viewer, not a comparison:
+  you are meant to see each layer as it is. The backend returns each layer as its
+  colour where plotted and transparent elsewhere, and `paintOrder` in
+  `viewer-state.ts` stacks them farthest first: from the top the top side is painted
+  last, from the bottom the bottom side is, and annotation, the profile and the
+  holes go over everything. An earlier version used `screen`, then `lighten`
+  blending; both mixed overlapping layers so a layer stopped matching its swatch
+  (silkscreen over red copper went near-white). Do not reintroduce a blend mode.
+  Only highlighting fades the other layers.
 - **The bottom view mirrors the whole pane.** `useBoardViewport` takes `mirrorX`
   and `Pane` takes `mirrored`, so dragging and zoom-to-cursor still follow the
   pointer; text drawn inside the pane (marker labels) must be flipped back.

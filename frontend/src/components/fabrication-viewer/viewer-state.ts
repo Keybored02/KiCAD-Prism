@@ -91,6 +91,38 @@ export function applyPreset(layers: FabricationLayer[], preset: LayerPreset): Se
     }
 }
 
+/** How far down into the board a layer sits, from the top silkscreen (0) to the bottom's (8). */
+const DEPTH = { silk: 0, paste: 1, mask: 2, copper: 3 } as const;
+/** Drawn after every board layer: annotation, then the profile, then the holes. */
+const ANNOTATION_DEPTH = 50;
+const PROFILE_DEPTH = 100;
+const HOLES_DEPTH = 101;
+
+function depthOf(layer: FabricationLayer): number {
+    if (layer.role === "outline") return PROFILE_DEPTH;
+    if (layer.role === "drill") return HOLES_DEPTH;
+    if (layer.role === "other") return ANNOTATION_DEPTH;
+    const level = DEPTH[layer.role];
+    if (layer.side === "inner") return DEPTH.copper + 1;
+    // The bottom side mirrors the top: its copper is nearest the core, its silkscreen outermost.
+    return layer.side === "bottom" ? 8 - level : level;
+}
+
+/**
+ * The layers in the order to paint them: farthest from the viewer first, so a nearer
+ * layer covers a farther one the way it does on the board. From the top, the top
+ * silkscreen is painted last; from the bottom, the bottom's is. Annotation, the
+ * profile and the holes go over all of it. Every layer is fully opaque, so what is
+ * on top is simply what you see.
+ */
+export function paintOrder(layers: FabricationLayer[], side: ViewSide): FabricationLayer[] {
+    const rank = (layer: FabricationLayer) => {
+        const depth = depthOf(layer);
+        return depth >= ANNOTATION_DEPTH ? depth : side === "top" ? -depth : depth;
+    };
+    return [...layers].sort((a, b) => rank(a) - rank(b));
+}
+
 /** A package opened on one file: that layer, with the profile to place it. */
 export function focusedOn(layers: FabricationLayer[], file: string): Set<string> {
     const target = layers.find((layer) => layer.file === file);

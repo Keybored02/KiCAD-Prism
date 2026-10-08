@@ -114,7 +114,10 @@ Rules that are easy to break:
 - **Match columns by meaning, not by name.** KiCad and the JLCPCB plugin name the
   same columns differently, and a JLCPCB BOM has a `Designator` column, so a
   position file is recognised by having coordinates, not by its name.
-- Layers are drawn on black so the viewer can blend them with `lighten` (per-channel maximum).
+- **A layer SVG is its colour, fully opaque, where plotted and transparent elsewhere.**
+  The plot is drawn white-on-black as a mask and the layer colour is filled through
+  it, so Gerber's clear polarity cuts the layer's own artwork without touching the
+  layers behind it. The viewer stacks the layers; nothing is blended.
 - **A drawn line is at least 1.5 screen pixels wide.** `with_minimum_stroke` adds a
   `width` media-query ladder to each layer SVG: an image SVG evaluates those against
   its own rendered width, so the SVG can size its minimum line to the zoom without

@@ -6,6 +6,7 @@ import {
     focusedOn,
     initialState,
     LAYER_PRESETS,
+    paintOrder,
     presetFor,
     sideOf,
     viewerReducer,
@@ -188,5 +189,50 @@ describe("viewerReducer, parts", () => {
     it("flipping the side by hand keeps the selection", () => {
         const picked = viewerReducer(start, { type: "select", ref: "R1", side: "top", layers: LAYERS });
         expect(viewerReducer(picked, { type: "side", side: "bottom", layers: LAYERS }).selected).toBe("R1");
+    });
+});
+
+describe("paintOrder", () => {
+    const names = (layers: FabricationLayer[], side: "top" | "bottom") =>
+        paintOrder(layers, side).map((item) => item.id);
+    const board = [
+        layer("b.silk", "silk", "bottom"),
+        layer("b.cu", "copper", "bottom"),
+        layer("b.mask", "mask", "bottom"),
+        layer("in1.cu", "copper", "inner"),
+        layer("f.cu", "copper", "top"),
+        layer("f.mask", "mask", "top"),
+        layer("f.silk", "silk", "top"),
+    ];
+
+    it("from the top, paints the far side first and the top silkscreen last", () => {
+        expect(names(board, "top")).toEqual(["b.silk", "b.mask", "b.cu", "in1.cu", "f.cu", "f.mask", "f.silk"]);
+    });
+
+    it("from the bottom, the bottom side is nearest", () => {
+        expect(names(board, "bottom")).toEqual(["f.silk", "f.mask", "f.cu", "in1.cu", "b.cu", "b.mask", "b.silk"]);
+    });
+
+    it("puts annotation, then the profile, then the holes over all of it, from either side", () => {
+        const all = [
+            layer("drill", "drill", "both"),
+            layer("f.fab", "other", "top"),
+            layer("edge", "outline", "both"),
+            ...board,
+        ];
+        for (const side of ["top", "bottom"] as const) {
+            expect(names(all, side).slice(-3)).toEqual(["f.fab", "edge", "drill"]);
+        }
+    });
+
+    it("does not change the list it is given", () => {
+        const before = board.map((item) => item.id);
+        paintOrder(board, "top");
+        expect(board.map((item) => item.id)).toEqual(before);
+    });
+
+    it("keeps the listed order between layers at the same depth", () => {
+        const twins = [layer("a", "other", "top"), layer("b", "other", "bottom"), layer("c", "other", "both")];
+        expect(names(twins, "top")).toEqual(["a", "b", "c"]);
     });
 });

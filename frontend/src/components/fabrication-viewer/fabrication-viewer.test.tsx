@@ -163,14 +163,14 @@ describe("FabricationViewer", () => {
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
         fireEvent.click(screen.getByText("F.CU"));
         expect(screen.getByAltText("F.SILK")).toHaveStyle({ opacity: "0.2" });
-        expect(screen.getByAltText("F.CU")).toHaveStyle({ opacity: "1" });
+        expect((screen.getByAltText("F.CU") as HTMLImageElement).style.opacity).toBe("");
         // The title is the layer, its function under it, its file in the footer.
         expect(screen.getAllByText("F.CU").length).toBeGreaterThan(1);
         expect(screen.getByText("Copper,L1,Top")).toBeInTheDocument();
         expect(screen.getByText("f.cu.gbr")).toBeInTheDocument();
 
         fireEvent.click(screen.getAllByText("F.CU")[0]!);
-        expect(screen.getByAltText("F.SILK")).toHaveStyle({ opacity: "1" });
+        expect((screen.getByAltText("F.SILK") as HTMLImageElement).style.opacity).toBe("");
     });
 
     it("turns the board over: bottom layers, mirrored, labelled", async () => {
@@ -187,40 +187,37 @@ describe("FabricationViewer", () => {
         expect(screen.getByText("Bottom (mirrored)")).toBeInTheDocument();
     });
 
-    it("blends the layers the same way from the top and from the bottom", async () => {
-        // The stack is its own isolated, black group in both views. When it was not, the
-        // top view blended with the pane behind it and came out lighter than the swatches.
-        const stack = () => document.querySelector(".isolate.bg-black");
-        await openViewer();
-        await waitFor(() => expect(stack()?.querySelectorAll("img")).toHaveLength(4));
-        expect(flipped()).not.toBeInTheDocument();
-
-        fireEvent.click(boardSide("Bottom"));
-        await waitFor(() => expect(requestedLayers()).toContain("b.cu"));
-        // Bottom copper, the profile and the holes.
-        await waitFor(() => expect(stack()?.querySelectorAll("img")).toHaveLength(3));
-        expect(flipped()).toBeInTheDocument();
-
-        fireEvent.click(boardSide("Top"));
-        await waitFor(() => expect(stack()?.querySelectorAll("img")).toHaveLength(4));
-        expect(stack()!.querySelector("img[alt='F.CU']")).toBeInTheDocument();
-    });
-
-    it("lets the brighter of two overlapping layers keep its own colour", async () => {
-        // "lighten" is the per-channel maximum. "screen" added the colours instead, which
-        // turned silkscreen over red copper near-white, so it no longer matched its swatch.
+    it("draws every layer fully opaque: no blending, no fading", async () => {
         await openViewer();
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
         for (const image of screen.getAllByRole("img")) {
-            expect(image).toHaveStyle({ mixBlendMode: "lighten" });
+            expect(image.style.mixBlendMode).toBe("");
+            expect(image.style.opacity).toBe("");
         }
+        expect(document.querySelector(".isolate")).not.toBeInTheDocument();
     });
 
-    it("draws the board on black, so a layer alone is exactly its swatch colour", async () => {
+    it("draws the board on black, behind the layers", async () => {
         await openViewer();
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
-        const pane = document.querySelector(".isolate.bg-black")!.closest(".cursor-grab")!;
-        expect(pane).toHaveClass("bg-black");
+        expect(screen.getAllByRole("img")[0]!.closest(".cursor-grab")).toHaveClass("bg-black");
+    });
+
+    it("stacks the layers like the board: from the top the top side is painted last, from the bottom the bottom side is", async () => {
+        const order = () => screen.getAllByRole("img").map((image) => (image as HTMLImageElement).alt);
+        await openViewer();
+        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
+        fireEvent.click(show("B.CU")!);
+        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(5));
+        // Farthest first, so the last one is on top. The profile and holes go over everything.
+        expect(order()).toEqual(["B.CU", "F.CU", "F.SILK", "EDGE", "DRILL"]);
+
+        fireEvent.click(boardSide("Bottom"));
+        await waitFor(() => expect(requestedLayers()).toContain("b.cu"));
+        fireEvent.click(show("F.CU")!);
+        fireEvent.click(show("F.SILK")!);
+        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(5));
+        expect(order()).toEqual(["F.SILK", "F.CU", "B.CU", "EDGE", "DRILL"]);
     });
 
     it("keeps the rail narrow, and has no Parts & filters section to take room", async () => {

@@ -32,13 +32,10 @@ export function withMargin(rect: BoardRect, margin = FIT_MARGIN): BoardRect {
  * The visible layers stacked on one board rectangle, in the pane Design Comparison
  * draws its fabrication layers in.
  *
- * Layers are blended with "lighten", the per-channel maximum: every SVG has a
- * black background, which is the identity for that blend, so nothing hides what is
- * under it. Where two layers overlap the brighter one wins, so silkscreen over
- * copper stays silkscreen-coloured and a layer is its swatch colour wherever it is
- * the brightest. (Screen blending added the colours instead, which turned silkscreen
- * over red copper near-white.) The pane is black for the same reason, so a layer on
- * its own is exactly its swatch colour.
+ * Every layer is fully opaque in its own colour and transparent where nothing is
+ * plotted, and they are stacked in the order `paintOrder` gives, so a nearer layer
+ * covers a farther one as it does on the board. There is no blending: a layer is its
+ * swatch colour wherever you can see it. Only highlighting fades the others.
  */
 export function BoardCanvas({
     label,
@@ -54,7 +51,7 @@ export function BoardCanvas({
     label: string;
     board: BoardRect;
     drawn: BoardRect;
-    /** Visible layers, in the order they are listed. */
+    /** Visible layers, in the order to paint them: farthest first. */
     layers: FabricationLayer[];
     images: Record<string, LayerImage>;
     highlighted: string | null;
@@ -80,29 +77,20 @@ export function BoardCanvas({
             >
                 {(pxPerMm) => (
                     <>
-                        {/* Isolated and on black, so layers blend with each other and nothing
-                            else. Without this the top view blended with the pane behind it and
-                            came out lighter than the swatches, while the mirrored bottom view
-                            happened to be isolated by its transform and came out exact. */}
-                        <div className="absolute inset-0 isolate bg-black">
-                            {layers.map((layer) => {
-                                const image = images[layer.id];
-                                if (image?.status !== "ready") return null;
-                                return (
-                                    <img
-                                        key={layer.id}
-                                        src={image.url}
-                                        alt={layer.name}
-                                        draggable={false}
-                                        className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
-                                        style={{
-                                            mixBlendMode: "lighten",
-                                            opacity: highlighted && highlighted !== layer.id ? DIMMED_OPACITY : 1,
-                                        }}
-                                    />
-                                );
-                            })}
-                        </div>
+                        {layers.map((layer) => {
+                            const image = images[layer.id];
+                            if (image?.status !== "ready") return null;
+                            return (
+                                <img
+                                    key={layer.id}
+                                    src={image.url}
+                                    alt={layer.name}
+                                    draggable={false}
+                                    className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
+                                    style={highlighted && highlighted !== layer.id ? { opacity: DIMMED_OPACITY } : undefined}
+                                />
+                            );
+                        })}
                         {overlay?.(pxPerMm)}
                     </>
                 )}

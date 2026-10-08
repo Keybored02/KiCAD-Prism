@@ -11,7 +11,7 @@ import type { FabricationSource, FabricationView, PlacementPart } from "./types"
 import { useFabricationView, useLayerImages } from "./use-fabrication-data";
 import { usePlacement } from "./use-placement";
 import { ViewerFooter } from "./viewer-footer";
-import { initialState, viewerReducer } from "./viewer-state";
+import { initialState, paintOrder, viewerReducer } from "./viewer-state";
 import { ViewerToolbar, type ViewerView } from "./viewer-toolbar";
 
 /** Half the width of the square framed around a picked part, in millimetres. */
@@ -42,6 +42,7 @@ function LoadedViewer({ source, view, focusFile }: {
         [view.layers, state.visible],
     );
     const shownIds = useMemo(() => shown.map((layer) => layer.id), [shown]);
+    const painted = useMemo(() => paintOrder(shown, state.side), [shown, state.side]);
     const images = useLayerImages(source, shownIds);
 
     const drawn = view.bounds ? toRect(view.bounds) : null;
@@ -120,7 +121,7 @@ function LoadedViewer({ source, view, focusFile }: {
                             label={mirrored ? "Bottom (mirrored)" : "Top"}
                             board={board}
                             drawn={drawn}
-                            layers={shown}
+                            layers={painted}
                             images={images}
                             highlighted={state.highlighted}
                             mirrored={mirrored}

@@ -237,6 +237,50 @@ class ColourTests(unittest.TestCase):
         self.assertEqual(self.colours["f.fab"], "#afafaf")
 
 
+class OpaqueLayerTests(unittest.TestCase):
+    """A layer is its colour, fully opaque, where plotted and transparent elsewhere."""
+
+    def setUp(self) -> None:
+        self.package = FabricationPackage.from_files(package_files())
+
+    def test_the_layer_colour_is_filled_through_a_mask_of_the_plot(self) -> None:
+        svg = self.package.svg("f.cu")
+        self.assertIn('<mask id="layer"', svg)
+        self.assertIn('fill="#c83434" mask="url(#layer)"', svg)
+
+    def test_nothing_is_painted_outside_the_plot(self) -> None:
+        # The only thing outside the mask is the colour fill; the black rectangle that
+        # used to be the layer's background now lives inside the mask, where it means
+        # "empty", so the layers behind show through.
+        svg = self.package.svg("f.cu")
+        outside = svg.split("</defs>")[1]
+        self.assertEqual(outside.count("<rect"), 1)
+        self.assertNotIn('fill="#000000"', outside)
+
+    def test_the_mask_plots_in_white_on_black(self) -> None:
+        mask = self.package.svg("f.cu").split("<mask")[1].split("</mask>")[0]
+        self.assertIn('fill="#000000"', mask)
+        self.assertIn('fill="#ffffff"', mask)
+        # The layer's own colour is never part of the mask.
+        self.assertNotIn("#c83434", mask)
+
+    def test_every_layer_is_its_own_colour_and_nothing_else(self) -> None:
+        view = self.package.view()
+        for layer in view["layers"]:
+            svg = self.package.svg(layer["id"])
+            outside = svg.split("</defs>")[1]
+            self.assertIn(f'fill="{layer["colour"]}"', outside, layer["id"])
+
+    def test_a_clear_area_still_cuts_the_layers_own_artwork(self) -> None:
+        files = package_files()
+        files["board-F_Cu.gtl"] = gerber(
+            "D11*\nX5000000Y5000000D03*\n%LPC*%\nD10*\nX5000000Y5000000D03*\n"
+        )
+        mask = FabricationPackage.from_files(files).svg("f.cu").split("<mask")[1].split("</mask>")[0]
+        # Dark pad, then a clear flash over it: painted white, then black.
+        self.assertLess(mask.index('fill="#ffffff"'), mask.rindex('fill="#000000"'))
+
+
 class MinimumStrokeTests(unittest.TestCase):
     """A thin line stays visible, in its own colour, when the whole board is in view."""
 
