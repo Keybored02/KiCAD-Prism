@@ -237,7 +237,7 @@ class CatalogAssetLinks:
             counterpart_asset_id=counterpart_asset_id,
         )
         if exclusive:
-            self._replace_others(conn, str(revision["id"]), asset)
+            self.replace_others(conn, str(revision["id"]), asset)
         self._finalizer.finalize_revision(
             conn,
             runtime,
@@ -256,7 +256,7 @@ class CatalogAssetLinks:
 
 
     @staticmethod
-    def _replace_others(conn: Any, revision_id: str, asset: dict[str, Any]) -> None:
+    def replace_others(conn: Any, revision_id: str, asset: dict[str, Any]) -> None:
         """Drop the revision's other assets of ``asset``'s type (the clone copied them) and point its
         representations at ``asset``, keeping one default."""
         asset_type, asset_id = str(asset["asset_type"]), str(asset["id"])

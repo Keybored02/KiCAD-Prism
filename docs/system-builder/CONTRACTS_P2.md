@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.60 · 2026-10-08 · tickets SB2-00 to SB2-51.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.61 · 2026-10-08 · tickets SB2-00 to SB2-51b.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -135,6 +135,12 @@ A revision **never copies** the manifest. Readers load the snapshot through `sou
 `POST /api/systems/{id}/snapshots/{sid}/publish`, with body `{ipn?, name?, description?}` on the first publish (creating the component) and `{}` after.
 
 - **Who:** designer on the system (P1 §8.2) **and** `CATALOG_WRITE_ROLES`.
+- **Generated symbol (SB2-51b, D-P2-41):** every publish attaches a multi-unit KiCad symbol to the new revision (`catalog/assembly_symbol.py`), replacing the previous publish's. Assemblies and modules then look alike in the catalog and in KiCad.
+  - Library `Prism_Assemblies`; the symbol is named after the IPN.
+  - One unit per resolved export, named after it.
+  - One pin per pad: numbered by pad and named by the pad's net (the last path segment; `~` when unconnected). Power nets are `power_in` pins; everything else is `passive`.
+  - The symbol is not required for release. Changed content goes to the catalog's content-addressed path, so older revisions keep their own symbol.
+  - KiCad 10.0.6 opens it (`kicad-cli sym upgrade` and `sym export svg` in the tests).
 - **Effect:** creates a new `component_revisions` row in stage `open`, with `change_kind = "publish"`.
   - On the first publish it creates the `assembly` component and binds `system_projects.catalog_component_id` **[S2]**.
   - The normal catalog workflow then applies (`open → in_progress → qa_review → done → released`).
@@ -924,6 +930,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.61 | 2026-10-08 | SB2-51b (D-P2-41): §3.3 every assembly publish attaches a generated multi-unit symbol (one unit per export, pins = pads named by net). |
 | P2-1.60 | 2026-10-08 | SB2-51: §5.6 module release follow and drift (connectors as the candidate interface); §3.5 a module's symbol import replaces its symbol. |
 | P2-1.59 | 2026-10-08 | SB2-50: §5.6 module pins in system nets and the System 3D view (lit and framed with a set, no Layers section, moved like a board). |
 | P2-1.58 | 2026-10-08 | SB2-49: §5.6 module instances (connectors as ports with signals as nets, footprint pose and catalog frame for mates and harness ends, the scene's model box); `POST …/instances` takes `kind: "module"`. |

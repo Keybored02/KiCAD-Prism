@@ -14,7 +14,12 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, ContextManager
 
-from app.services.catalog import mates as catalog_mates, models as catalog_models, module_connectors, system_items
+from app.services.catalog import (
+    assembly_symbol, mates as catalog_mates, models as catalog_models, module_connectors, system_items,
+)
+from app.services.catalog.asset_files import CatalogAssetFiles
+from app.services.catalog.asset_links import CatalogAssetLinks
+from app.services.catalog.asset_registry import CatalogAssetRegistry
 from app.services.catalog.component_writer import CatalogComponentWriter
 from app.services.catalog.normalization import utc_now_iso
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
@@ -58,6 +63,8 @@ class CatalogSystemItemsFacade:
             )
             conn.execute("UPDATE components SET kind = %s WHERE id = %s", (kind, component_id))
             system_items.set_payload(conn, revision_id, interface=interface, source_ref=source_ref)
+            if kind == system_items.KIND_ASSEMBLY:
+                self._attach_assembly_symbol(conn, revision_id, ipn, interface, description)
             self._revision_finalizer.finalize_revision(
                 conn, self._runtime, component_id=component_id, revision_id=revision_id,
                 event_type="component.created", actor=actor,
@@ -65,6 +72,20 @@ class CatalogSystemItemsFacade:
             )
             conn.commit()
         return {"componentId": component_id, "revisionId": revision_id}
+
+    def _attach_assembly_symbol(self, conn: Any, revision_id: str, identity: str, interface: dict[str, Any],
+                                description: str) -> None:
+        """D-P2-41: the published revision carries its generated multi-unit symbol (one unit per export),
+        replacing the previous publish's, before the revision is sealed."""
+        name = assembly_symbol.symbol_name(identity)
+        text = assembly_symbol.symbol_library(name, interface, description=description)
+        path = CatalogAssetFiles.write_canonical_file(
+            self._runtime, CatalogAssetFiles.symbol_destination(self._runtime, assembly_symbol.LIBRARY, name),
+            text.encode())
+        asset = CatalogAssetRegistry.register_asset(self._runtime, conn, asset_type="symbol", canonical_path=path,
+                                                    target_library=assembly_symbol.LIBRARY, target_name=name)
+        CatalogAssetLinks.link_asset_to_revision(conn, revision_id, asset, required=False)
+        CatalogAssetLinks.replace_others(conn, revision_id, asset)
 
     def system_revisions(self, component_id: str) -> list[dict[str, Any]]:
         """Every revision of a module/assembly with the snapshot it came from, oldest first."""
@@ -321,6 +342,11 @@ class CatalogSystemItemsFacade:
             )
             revision_id = str(revision["id"])
             system_items.set_payload(conn, revision_id, interface=interface, source_ref=source_ref)
+            if kind == system_items.KIND_ASSEMBLY:
+                facts = conn.execute("SELECT value, description FROM component_revisions WHERE id = %s",
+                                     (revision_id,)).fetchone()
+                self._attach_assembly_symbol(conn, revision_id, str(facts["value"] or ""), interface,
+                                             str(facts["description"] or ""))
             self._revision_finalizer.finalize_revision(
                 conn, self._runtime, component_id=component_id, revision_id=revision_id,
                 event_type="revision.created", actor=actor,
