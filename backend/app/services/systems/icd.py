@@ -12,12 +12,13 @@ import csv
 import html
 import io
 import re
+from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import layout as system_layout
 from app.services.systems.drift import pad_sort_key
 
-RENDERER_VERSION = "3"
+RENDERER_VERSION = "4"
 
 CSV_COLUMNS = (
     "row_id", "link_id", "link_name", "harness", "signal",
@@ -298,6 +299,14 @@ def _diagram(document: Mapping[str, Any], positions: Optional[Mapping[str, Any]]
     return "".join(parts)
 
 
+def _contents(page: str) -> str:
+    """The section list at the top of an exported document (the workspace has its own)."""
+
+    entries = re.findall(r'<h2 id="([^"]+)">([^<]+)</h2>', page)
+    links = "".join(f'<a href="#{slug}">{label}</a>' for slug, label in entries)
+    return f'<nav class="toc" aria-label="Contents">{links}</nav>' if entries else ""
+
+
 def _anchor_sections(page: str) -> str:
     """Give each section heading an id (``#connections``) for links and the workspace's jump list."""
 
@@ -306,6 +315,85 @@ def _anchor_sections(page: str) -> str:
         return f'<h2 id="{slug}">{match.group(1)}</h2>'
 
     return re.sub(r"<h2>([^<]+)</h2>", anchor, page)
+
+
+def _status(status: str) -> str:
+    """A row's status: quiet when ok, a chip when it needs attention."""
+    return '<span class="meta">ok</span>' if status == "ok" else _chip(status)
+
+
+def _finding_groups(findings: Sequence[Mapping[str, Any]]) -> list[tuple[dict, list[str]]]:
+    """One entry per (severity, rule, board, connector, link) with its pins, errors first."""
+
+    groups: dict[tuple, dict] = {}
+    for finding in findings:
+        key = (finding["severity"], finding["rule"], finding.get("instanceId"), finding.get("reference"), finding.get("linkId"))
+        entry = groups.setdefault(key, {"finding": finding, "pins": []})
+        if finding.get("pin"):
+            entry["pins"].append(finding["pin"])
+    order = {"error": 0, "warning": 1, "info": 2}
+    return [(groups[k]["finding"], sorted(groups[k]["pins"], key=pad_sort_key))
+            for k in sorted(groups, key=lambda k: (order.get(k[0], 3), k[1], k[3] or ""))]
+
+
+def _link_findings(findings: Sequence[Mapping[str, Any]]) -> str:
+    """A connection's own findings, above its pins."""
+
+    shown = [(f, pins) for f, pins in _finding_groups(findings) if f["severity"] != "info"]
+    if not shown:
+        return ""
+    items = "".join(
+        f'<li><span class="chip {"error" if f["severity"] == "error" else "review"}">{_e(f["rule"])}</span> '
+        f'{_e(f["name"].replace("_", " "))}'
+        + (f' <span class="meta">· {_e(f["reference"])}</span>' if f.get("reference") else "")
+        + (f' <span class="meta mono">· pin{"s" if len(pins) != 1 else ""} {_e(", ".join(pins))}</span>' if pins else "")
+        + "</li>" for f, pins in shown)
+    return f'<ul class="link-findings">{items}</ul>'
+
+
+def _connections_overview(document: Mapping[str, Any], ordered: Sequence[Mapping[str, Any]], labels: Mapping[str, str],
+                          records: Sequence[Mapping[str, Any]], findings: Sequence[Mapping[str, Any]]) -> str:
+    """Every connection on one table, each linking to its pins."""
+
+    if not ordered:
+        return '<p class="meta">No connections.</p>'
+    rows = []
+    for index, link in enumerate(ordered, start=1):
+        ends = [_end_label(labels, link[e]) for e in ("a", "b")]
+        own = [f for f in findings if f.get("linkId") == link["id"]]
+        errors = sum(1 for f in own if f["severity"] == "error")
+        warnings = sum(1 for f in own if f["severity"] == "warning")
+        state = " ".join(part for part in (f'<span class="chip error">{errors}</span>' if errors else "",
+                                           f'<span class="chip review">{warnings}</span>' if warnings else "") if part)
+        kind = "Board-to-board" if link.get("type") == "b2b" else "Link"
+        rows.append(f'<tr><td class="num">{index}</td><td><a href="#link-{_e(link["id"])}">{_e(link["name"] or ends[0] + " ↔ " + ends[1])}</a></td>'
+                    f"<td>{kind}</td><td>{_e(ends[0])}</td><td>{_e(ends[1])}</td>"
+                    f'<td class="num">{sum(1 for r in records if r["link_id"] == link["id"])}</td>'
+                    f'<td>{state or "<span class=meta>ok</span>"}</td></tr>')
+    return ("<table class=\"overview\"><thead><tr><th>#</th><th>Connection</th><th>Type</th><th>End A</th><th>End B</th>"
+            "<th>Pins</th><th>Findings</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
+
+
+def _finding_link(finding: Mapping[str, Any], names: Mapping[str, str], document: Mapping[str, Any]) -> str:
+    link_id = finding.get("linkId")
+    name = _e(names.get(link_id, "")) if link_id else ""
+    if link_id and any(link["id"] == link_id for link in document["links"]):
+        return f'<a href="#link-{_e(link_id)}">{name}</a>'
+    return name
+
+
+def _stage(stage: str) -> str:
+    return f'<span class="chip {"ok" if stage == "released" else "review"}">{_e(stage.replace("_", " "))}</span>'
+
+
+def _when(iso: str) -> str:
+    """``2026-10-08T14:01:44+00:00`` as ``8 Oct 2026, 14:01 UTC``; anything else as given."""
+
+    try:
+        moment = datetime.fromisoformat(iso).astimezone(timezone.utc)
+    except ValueError:
+        return iso
+    return f"{moment.day} {moment:%b %Y, %H:%M} UTC"
 
 
 def _clip(text: str, limit: int) -> str:
@@ -378,6 +466,10 @@ td.sig{font-weight:600}
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--kind)}
 .row-ref{font:600 11px var(--mono);fill:var(--fg)}.row-partner{font:11px var(--sans);fill:var(--muted)}
 .row-rule{stroke:var(--line)}
+.toc{display:flex;flex-wrap:wrap;gap:4px 16px;margin:16px 0 0;font-size:12px}.toc a{color:var(--accent);text-decoration:none}
+html.prism-embed .toc{display:none}
+a{color:var(--accent)}table.overview{margin:0 0 24px}table.overview a{text-decoration:none}
+.link{scroll-margin-top:16px}.link-findings{list-style:none;margin:8px 0;padding:0;display:grid;gap:4px;font-size:12px}
 footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}
 @media print{
   @page{size:A4 landscape;margin:12mm}
@@ -523,13 +615,15 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
     system = document["system"]
     open_reviews = int(document.get("openReviewCount") or 0)
     boards = [i for i in document["instances"] if i.get("kind", "board") == "board"]
-    subsystems = [i for i in document["instances"] if i.get("kind", "board") != "board"]
-    unreleased = [i for i in subsystems if (i.get("catalog") or {}).get("releaseStatus") not in (None, "released")]
+    subsystems = [i for i in document["instances"] if i.get("kind") == "assembly"]
+    modules = [i for i in document["instances"] if i.get("kind") == "module"]
     banner_parts = []
     if open_reviews:
         banner_parts.append(f'This document contains {open_reviews} unreviewed change{"s" if open_reviews != 1 else ""}.')
-    if unreleased:
-        banner_parts.append(f'{len(unreleased)} subsystem{"s pin" if len(unreleased) != 1 else " pins"} an unreleased revision.')
+    for noun, group in (("subsystem", subsystems), ("module", modules)):
+        unreleased = [i for i in group if (i.get("catalog") or {}).get("releaseStatus") not in (None, "released")]
+        if unreleased:
+            banner_parts.append(f'{len(unreleased)} {noun}{"s pin" if len(unreleased) != 1 else " pins"} an unreleased revision.')
     banner_text = " ".join(banner_parts)
     validation = document.get("validation") or {}
     findings = validation.get("findings") or []
@@ -545,13 +639,15 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
         # One copy on screen; the print copy is fixed, so it repeats on every printed page (§9.5).
         out.append(f'<div class="print-banner" role="note">{banner_text}</div>')
     out.append("<main>")
-    out.append('<header class="doc"><p class="eyebrow">System Builder · Interface control document</p>')
-    out.append(f"<h1>Interface control document — {_e(system['name'])}</h1>")
-    out.append(f'<p class="meta">Source: {_e(source)} · Generated {_e(generated_at)} · Renderer {RENDERER_VERSION}</p>')
+    out.append('<header class="doc"><p class="eyebrow">Interface control document</p>')
+    out.append(f"<h1>{_e(system['name'])}</h1>")
+    out.append(f'<p class="meta">{"Live" if source == "live" else "Snapshot " + _e(source)} · generated {_e(_when(generated_at))}'
+               f' · renderer {RENDERER_VERSION}</p>')
     if system.get("description"):
         out.append(f'<p class="description">{_e(system["description"])}</p>')
     out.append('<div class="stats">'
                f'<div class="stat"><b>{len(boards)}</b><span>Boards</span></div>'
+               + (f'<div class="stat"><b>{len(modules)}</b><span>Modules</span></div>' if modules else "")
                + (f'<div class="stat"><b>{len(subsystems)}</b><span>Subsystems</span></div>' if subsystems else "") +
                f'<div class="stat"><b>{len(document["links"])}</b><span>Links</span></div>'
                + (f'<div class="stat"><b>{len(document.get("harnesses") or [])}</b><span>Harnesses</span></div>'
@@ -563,16 +659,17 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
                "</div></header>")
     if banner_text:
         out.append(f'<div class="banner" role="note">{banner_text}</div>')
+    out.append("@@TOC@@")
 
-    out.append("<h2>Boards</h2><table><thead><tr><th>Label</th><th>Project</th><th>Baseline commit</th>"
-               "<th>Tracked branch</th><th>Pinned</th></tr></thead><tbody>")
+    out.append("<h2>Boards</h2><table><thead><tr><th>Label</th><th>Project</th><th>Baseline</th>"
+               "<th>Branch</th></tr></thead><tbody>")
     for instance in boards:
         commit = instance["baselineCommit"]
-        baseline = (f'<span class="mono"><b>{_e(commit[:12])}</b></span><br><span class="mono meta">{_e(commit)}</span>'
+        baseline = (f'<span class="mono" title="{_e(commit)}"><b>{_e(commit[:12])}</b></span>'
                     if commit else '<span class="meta">restricted</span>')
+        branch = (f'<span class="mono">{_e(instance["trackedRef"])}</span>' if instance["trackedRef"] else '<span class="meta">not tracked</span>')
         out.append(f"<tr><td><b>{_e(instance['label'])}</b></td><td>{_e(instance['projectName'] or '')}</td>"
-                   f"<td>{baseline}</td><td class=\"mono\">{_e(instance['trackedRef'] or '—')}</td>"
-                   f"<td>{'yes' if instance['pinned'] else 'no'}</td></tr>")
+                   f"<td>{baseline}</td><td>{branch}{' <span class=\"chip info\">pinned</span>' if instance['pinned'] else ''}</td></tr>")
     out.append("</tbody></table>")
 
     if subsystems:
@@ -584,21 +681,33 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
             out.append(f"<tr><td><b>{_e(instance['label'])}</b></td><td>{_e(instance.get('projectName') or '')}</td>"
                        f"<td class=\"mono\">{_e(ref.get('identity') or '')}</td>"
                        f"<td>{'v' + str(ref['version']) if ref.get('version') else '—'}</td>"
-                       f"<td>{_chip('ok' if stage == 'released' else 'review')} {_e(stage.replace('_', ' '))}</td>"
+                       f"<td>{_stage(stage)}</td>"
                        f"<td>{_e(ref.get('snapshotName') or '')}</td><td>{int(ref.get('openReviewCount') or 0)}</td></tr>")
+        out.append("</tbody></table>")
+    if modules:
+        out.append("<h2>Modules</h2><table><thead><tr><th>Label</th><th>Part</th><th>IPN</th><th>Revision</th>"
+                   "<th>Stage</th><th>Connectors</th></tr></thead><tbody>")
+        for instance in modules:
+            ref = instance.get("catalog") or {}
+            ports = ", ".join(p["reference"] for p in instance.get("ports") or [])
+            out.append(f"<tr><td><b>{_e(instance['label'])}</b></td><td>{_e(instance.get('projectName') or '')}</td>"
+                       f"<td class=\"mono\">{_e(ref.get('identity') or '')}</td>"
+                       f"<td>{'v' + str(ref['version']) if ref.get('version') else '—'}</td>"
+                       f"<td>{_stage(ref.get('releaseStatus') or 'unavailable')}</td><td class=\"mono\">{_e(ports)}</td></tr>")
         out.append("</tbody></table>")
 
     out.append(f'<h2>Block diagram</h2><div class="diagram">{_legend(document)}{_diagram(document, positions)}</div>')
 
     out.append("<h2>Connections</h2>")
     ordered = sorted(document["links"], key=lambda l: (l["name"], l["id"]))
+    out.append(_connections_overview(document, ordered, labels, records, findings))
     for index, link in enumerate(ordered, start=1):
         ends = [_end_label(labels, link[e]) for e in ("a", "b")]
         rows = [r for r in records if r["link_id"] == link["id"]]
         statuses = {status: sum(1 for r in rows if r["status"] == status) for status in ("error", "review")}
         colour = "var(--kind-board)" if link.get("type") == "b2b" else "var(--kind-link)"
         title = link["name"] or f"{ends[0]} ↔ {ends[1]}"
-        out.append('<section class="link">')
+        out.append(f'<section class="link" id="link-{_e(link["id"])}">')
         out.append(f'<div class="link-head"><span class="swatch" style="background:{colour}"></span>'
                    f"<h3>{index}. {_e(title)}</h3><span class=\"ends\">{_e(ends[0])} ↔ {_e(ends[1])}</span>"
                    f'<span class="meta">{len(rows)} pin{"s" if len(rows) != 1 else ""}'
@@ -607,6 +716,7 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
                    + (f" · stack {_mm(link['stackHeightMm'])} mm" if link.get("stackHeightMm") is not None else "")
                    + "".join(f" · {count} {status}" for status, count in statuses.items() if count)
                    + "</span></div>")
+        out.append(_link_findings([f for f in findings if f.get("linkId") == link["id"]]))
         out.append(f"<table><thead><tr><th>{_e(ends[0])}</th><th>Pin name</th><th>Net</th><th>Signal</th>"
                    f"<th class=\"side-b\">Net</th><th class=\"side-b\">Pin name</th><th class=\"side-b\">{_e(ends[1])}</th>"
                    "<th>Status</th></tr></thead><tbody>")
@@ -619,7 +729,7 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
                 f'<tr><td class="mono num"><b>{_e(record["a_pin"])}</b></td><td>{_e(record["a_pin_name"])}</td>'
                 f'<td class="mono">{_e(record["a_net"])}</td><td class="sig">{_e(record["signal"])}</td>'
                 f'<td class="mono side-b">{_e(record["b_net"])}</td><td class="side-b">{_e(record["b_pin_name"])}</td>'
-                f'<td class="mono num side-b"><b>{_e(record["b_pin"])}</b></td><td>{_chip(record["status"])}</td></tr>')
+                f'<td class="mono num side-b"><b>{_e(record["b_pin"])}</b></td><td>{_status(record["status"])}</td></tr>')
         if not rows:
             out.append('<tr><td colspan="8" class="meta">No pins mapped.</td></tr>')
         out.append("</tbody></table></section>")
@@ -667,7 +777,7 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
             out.append(f'<tr><td><span class="chip {severity}">{_e(finding["severity"])}</span></td>'
                        f'<td><b>{_e(finding["rule"])}</b> {_e(finding["name"].replace("_", " "))}</td>'
                        f"<td>{_e(labels.get(finding['instanceId'], ''))}</td><td class=\"mono\">{_e(finding['reference'] or '')}</td>"
-                       f'<td class="mono">{_e(", ".join(pins))}</td><td>{_e(link_names.get(finding["linkId"], ""))}</td></tr>')
+                       f'<td class="mono">{_e(", ".join(pins))}</td><td>{_finding_link(finding, link_names, document)}</td></tr>')
         out.append("</tbody></table>")
     else:
         out.append('<p class="meta">No findings.</p>')
@@ -676,7 +786,8 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
                    f"{_e(labels.get(entry['instanceId'], ''))} ({_e(entry['reason'])}).</p>")
     out.append(f"<footer>KiCAD-Prism System Builder · {_e(system['name'])} · {_e(source)} · {_e(generated_at)}</footer>")
     out.append("</main></body></html>")
-    return _anchor_sections("".join(out))
+    page = _anchor_sections("".join(out))
+    return page.replace("@@TOC@@", _contents(page))
 
 
 # ---------------------------------------------------------------------------
