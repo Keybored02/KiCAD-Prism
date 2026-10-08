@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronUp, FileSpreadsheet, FileText, FileUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import type { Mutate } from "../use-system-mutation";
 import { findingKeys } from "./finding-keys";
 import { harnessFindings } from "./use-validation";
 import { TRAY_TABS, type TrayTab, type WorkspaceSelection, type WorkspaceView } from "./workspace-state";
+import { documentIndex, findingIndex, linkFindings } from "../document-index";
 
 interface TrayProps extends SystemTabProps {
   tab: TrayTab | null;
@@ -51,7 +52,7 @@ function connectionName(document: SystemDocument, link: SystemLink): string {
 }
 
 function endsText(document: SystemDocument, harness: SystemHarness): string {
-  const label = (instanceId: string | null | undefined) => document.instances.find((item) => item.id === instanceId)?.label ?? "Free end";
+  const label = (instanceId: string | null | undefined) => (instanceId && documentIndex(document).instances.get(instanceId)?.label) || "Free end";
   return harness.ends.map((end) => `${label(end.mates?.instanceId)}${end.mates?.port ? ` ${end.mates.port.reference}` : ""}`).join(" · ");
 }
 
@@ -131,7 +132,7 @@ function ConnectionsTable({ document, findings, onSelect }: { document: SystemDo
       type: "Harness", ends: endsText(document, harness), count: harness.wires.length, findings: harnessFindings(findings, harness.id) })),
     ...document.links.map((link) => ({ key: link.id, selection: { kind: "link", id: link.id } as WorkspaceSelection, name: connectionName(document, link),
       type: link.type === "b2b" ? "B2B mate" : "Link", ends: `${endLabel(document, link, "a")} ↔ ${endLabel(document, link, "b")}`,
-      count: link.rows.length, findings: findings.filter((finding) => finding.linkId === link.id) })),
+      count: link.rows.length, findings: linkFindings(findings, link.id) })),
   ];
   return (
     <table aria-label="Connections" className="w-full table-fixed text-sm">
@@ -162,10 +163,10 @@ const SEVERITY_ORDER = { error: 0, warning: 1, info: 2 } as const;
 
 function findingPlace(document: SystemDocument, finding: Finding): string {
   if (finding.linkId) {
-    const link = document.links.find((item) => item.id === finding.linkId);
+    const link = documentIndex(document).links.get(finding.linkId);
     return link ? connectionName(document, link) : "";
   }
-  return document.instances.find((item) => item.id === finding.instanceId)?.label ?? "";
+  return (finding.instanceId && documentIndex(document).instances.get(finding.instanceId)?.label) || "";
 }
 
 function findingTarget(finding: Finding): WorkspaceSelection | null {
@@ -176,9 +177,11 @@ function findingTarget(finding: Finding): WorkspaceSelection | null {
 }
 
 function FindingsList({ findings, document, onSelect }: { findings: Finding[]; document: SystemDocument; onSelect: (selection: WorkspaceSelection) => void }) {
+  const { sorted, keys } = useMemo(() => {
+    const ordered = [...findings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+    return { sorted: ordered, keys: findingKeys(ordered) };
+  }, [findings]);
   if (!findings.length) return <p className="p-4 text-sm text-muted-foreground">No findings</p>;
-  const sorted = [...findings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
-  const keys = findingKeys(sorted);
   return (
     <ul aria-label="Findings" className="text-sm">
       {sorted.map((finding, index) => {
@@ -204,10 +207,10 @@ function FindingsList({ findings, document, onSelect }: { findings: Finding[]; d
 /** The workspace's bottom tray (D-P2-47): what used to be the Connections, Changes and History tabs. */
 export function WorkspaceTray(props: TrayProps) {
   const { tab, document, findings, selection, systemId, etag, canEdit, busy, run, onTab, onSelect } = props;
-  const errors = findings.filter((finding) => finding.severity === "error").length;
-  const warnings = findings.filter((finding) => finding.severity === "warning").length;
-  const link = selection?.kind === "link" ? document.links.find((item) => item.id === selection.id) : undefined;
-  const harness = selection?.kind === "harness" ? document.harnesses?.find((item) => item.id === selection.id) : undefined;
+  const { errors, warnings } = findingIndex(findings);
+  const index = documentIndex(document);
+  const link = selection?.kind === "link" ? index.links.get(selection.id) : undefined;
+  const harness = selection?.kind === "harness" ? index.harnesses.get(selection.id) : undefined;
   const editing = tab === "connections" && (link || harness);
   const tray = useTrayHeight();
   const tabProps: SystemTabProps = {
