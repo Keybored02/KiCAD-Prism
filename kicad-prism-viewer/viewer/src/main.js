@@ -1500,6 +1500,7 @@ export async function mountSystemViewer(options = {}) {
     cancelMove,
     getMoveState: () => (system ? moveState() : null),
     targetHarnessNode,
+    selectHarness,
     previewHarnessNode,
     cancelHarnessNode,
     getHarnessState: () => (system ? harnessState() : null),
@@ -2883,6 +2884,25 @@ function pickSystemTube(event) {
   }
   const tube = system.tubes[hit.index];
   pickHarness({ key: tube.harness, segmentId: tube.segmentId, pointMm: hit.pointMm });
+  return true;
+}
+
+/**
+ * The host picks a root-level harness by id (SB2-61), as a click on its first
+ * segment would; null drops the pick. Picking the picked harness again is a no-op.
+ */
+function selectHarness(id) {
+  if (!system) return false;
+  if (id == null) {
+    pickHarness(null);
+    return true;
+  }
+  const key = harnessKey({ level: "", id: String(id) });
+  if (system.harnessPick?.key === key) return true;
+  const tube = system.tubes.find((item) => item.harness === key);
+  if (!tube) return false;
+  const middle = Math.floor(tube.samplesMm.length / 6) * 3;
+  pickHarness({ key, segmentId: tube.segmentId, pointMm: tube.samplesMm.slice(middle, middle + 3) });
   return true;
 }
 

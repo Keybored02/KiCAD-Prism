@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Activity, Box, Cable, Cpu, Keyboard, Loader2, Maximize, Move3d, Spline, Tag } from "lucide-react";
+import { Activity, Box, Cable, Keyboard, Loader2, Maximize, Move3d, Spline, Tag } from "lucide-react";
 
 import { DesignSearchField } from "@/components/design-search-field";
 import { Semantic3dControls } from "@/components/semantic-3d-controls";
@@ -21,7 +21,6 @@ import type {
 import type { SystemScene } from "@/types/system";
 
 import { drawnBoards, names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
-import { SceneInspector } from "./scene-inspector";
 import { HarnessPanel } from "./scene-harness-panel";
 import { MovePanel } from "./scene-move-panel";
 import { TRACE_KEY, emphasisSets, netBoards, traceSet } from "./scene-net-model";
@@ -34,11 +33,12 @@ import { useMoveMode } from "./use-move-mode";
 import { useNetHighlight } from "./use-net-highlight";
 import { useSystemNetIndex } from "./use-system-net-index";
 import { useTracedNet } from "./use-traced-net";
+import { useViewerSelectionSync } from "./workspace/use-viewer-selection-sync";
 import type { SystemTabProps } from "./system-tab-content";
 
 const DiagramTab = lazy(() => import("./diagram-tab").then((module) => ({ default: module.DiagramTab })));
 
-type RailTab = "selection" | "nets";
+type RailTab = "nets";
 
 function Notice({ tone = "info", children }: { tone?: "info" | "warning" | "error"; children: React.ReactNode }) {
   return (
@@ -132,12 +132,12 @@ function useViewerEvents(
 /**
  * CONTRACTS_P2 §20.6 / SB2-31e.2: the board 3D tab with every board of the
  * system (D-P2-25). The 3D tab's own viewer, left rail (a Layers section per
- * board) and inspector (on the selected board's design index), a search over
+ * board) and the workspace inspector (PLAN M8: no overlay inspector), a search over
  * every board, and the system nets. Restricted boards and boards still
  * building are boxes. Without WebGPU, the 2D diagram with a notice.
  */
 export function Scene3dTab(props: SystemTabProps) {
-  const { systemId, document, etag, canEdit, reload, onNavigate } = props;
+  const { systemId, document, etag, canEdit, reload, selection: workspaceSelection = null, onSelect } = props;
   const supported = webgpuAvailable();
   const { scene, error } = useSystemScene(systemId, etag, supported);
   const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
@@ -152,10 +152,9 @@ export function Scene3dTab(props: SystemTabProps) {
   const route = useHarnessNodes(viewer, { systemId, etag, reload, scene });
   const nets = useNetHighlight(systemId, etag);
   const { highlighted } = nets;
-  // As the board 3D tab: a selection opens the Selection rail, clearing it closes it (other tabs stay).
-  const followSelection = useCallback((next: PrismSystemViewerSelection | null) => {
-    setRail((tab) => (next ? "selection" : tab === "selection" ? null : tab));
-  }, []);
+  const reportSelection = useViewerSelectionSync(viewer, scene, document, workspaceSelection, onSelect);
+  // The workspace inspector shows what is picked (PLAN M8): the viewer only reports it.
+  const followSelection = (next: PrismSystemViewerSelection | null) => reportSelection(next);
   const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report, followSelection);
   const indexes = useBoardIndexes(scene);
   const { traced, light } = useTracedNet(systemId, etag, selection);
@@ -215,7 +214,6 @@ export function Scene3dTab(props: SystemTabProps) {
     viewer?.setSelection(selection.kind === "net" ? { occurrence, netName: selection.netName } : { occurrence, reference: selection.reference });
     // A host selection is not echoed back by the viewer; a net selection traces its system net (SB2-32).
     setSelection(selection);
-    setRail("selection");
   };
 
   if (!supported) {
@@ -234,8 +232,6 @@ export function Scene3dTab(props: SystemTabProps) {
   }
 
   const summary = scene ? summarizeScene(scene) : null;
-  const selected = selection?.occurrence ? scene?.occurrences.find((item) => item.path === selection.occurrence) ?? null : null;
-  const instance = selected ? document.instances.find((item) => item.id === selected.instanceId) : undefined;
 
   return (
     <div className="flex h-full min-h-[480px] flex-col">
@@ -360,18 +356,32 @@ export function Scene3dTab(props: SystemTabProps) {
             <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden /> Loading the system scene…</span>
           </div>
         )}
+        {traced && (
+          <div className="absolute right-3 top-3 z-10 w-80 max-w-[calc(100%-1.5rem)] rounded-md border bg-background/95 p-3 shadow-sm">
+            <TraceCard
+              key={`${traced.origin}\n${traced.boardNet}`}
+              traced={traced}
+              result={nets.results.get(TRACE_KEY)}
+              onLight={light}
+              onFrameBoard={(occurrence) => {
+                if (!viewer?.frameNetEmphasis?.(TRACE_KEY, occurrence)) viewer?.frameBoard?.(occurrence);
+              }}
+              onFrameHop={(hop) => viewer?.frameParts?.([hop.from, hop.to].flatMap((end) => (
+                end.occurrence && end.reference ? [{ occurrence: end.occurrence, reference: end.reference }] : [])))}
+            />
+          </div>
+        )}
         <ViewerOverlayRail
           activeTab={rail}
           tabs={[
-            { id: "selection", label: "Selection", icon: <Cpu className="mr-1.5 size-3.5" /> },
             { id: "nets", label: "Nets", icon: <Spline className="mr-1.5 size-3.5" />,
               badge: highlighted.length ? <span className="rounded-full bg-muted px-1.5 text-[10px]">{highlighted.length}</span> : null },
           ]}
           onTabChange={setRail}
           onClose={() => setRail(null)}
-          ariaLabel="System 3D details"
+          ariaLabel="System nets"
         >
-          {rail === "nets" ? (
+          {rail === "nets" && (
             <NetPanel
               embedded
               systemId={systemId}
@@ -385,28 +395,6 @@ export function Scene3dTab(props: SystemTabProps) {
               onIsolate={(next) => viewer?.setNetIsolation?.(next)}
               onClear={nets.clear}
               onClose={() => setRail(null)}
-            />
-          ) : (
-            <SceneInspector
-              selection={selection}
-              boardName={selected?.displayPath ?? null}
-              indexState={selected?.assetId ? indexes.get(selected.assetId) ?? null : null}
-              onFrameBoard={() => { if (selected) viewer?.frameBoard?.(selected.path); }}
-              onOpenBoard={instance ? () => onNavigate("boards", { board: instance.id }) : undefined}
-              onClear={() => { viewer?.setSelection(null); setSelection(null); }}
-              trace={traced && (
-                <TraceCard
-                  key={`${traced.origin}\n${traced.boardNet}`}
-                  traced={traced}
-                  result={nets.results.get(TRACE_KEY)}
-                  onLight={light}
-                  onFrameBoard={(occurrence) => {
-                    if (!viewer?.frameNetEmphasis?.(TRACE_KEY, occurrence)) viewer?.frameBoard?.(occurrence);
-                  }}
-                  onFrameHop={(hop) => viewer?.frameParts?.([hop.from, hop.to].flatMap((end) => (
-                    end.occurrence && end.reference ? [{ occurrence: end.occurrence, reference: end.reference }] : [])))}
-                />
-              )}
             />
           )}
         </ViewerOverlayRail>

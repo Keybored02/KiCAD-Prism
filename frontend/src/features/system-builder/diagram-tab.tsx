@@ -266,7 +266,7 @@ export function applyOverrides(current: Record<string, NodeOverride>, changes: N
   return next;
 }
 
-export function DiagramTab({ systemId, document, etag, canEdit, reload, onNavigate }: SystemTabProps) {
+export function DiagramTab({ systemId, document, etag, canEdit, reload, onNavigate, selection = null, onSelect }: SystemTabProps) {
   const [layout, setLayout] = useState<{ systemId: string; positions: LayoutPositions } | null>(null);
   const [overrides, setOverrides] = useState<Record<string, NodeOverride>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -324,7 +324,8 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
       position: node.position,
       data: { ...node.data, height: node.height, onToggle: toggle, inside },
       measured: extra.measured,
-      selected: extra.selected,
+      // In the workspace the selection is the URL's (SB2-61); alone, the canvas keeps its own.
+      selected: onSelect ? selection?.kind === "instance" && selection.id === node.id : extra.selected,
       dragging: extra.dragging,
       width: NODE_WIDTH,
       height: node.height,
@@ -335,7 +336,8 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
     return {
       id: node.id, type: "harness", position: node.position,
       data: { ...node.data, height: node.height, onOpen: openHarness },
-      measured: extra.measured, selected: extra.selected, dragging: extra.dragging, width: NODE_WIDTH, height: node.height,
+      measured: extra.measured, dragging: extra.dragging, width: NODE_WIDTH, height: node.height,
+      selected: onSelect ? selection?.kind === "harness" && selection.id === node.id : extra.selected,
     };
   });
   const nodes: CanvasNode[] = [...boardNodes, ...harnessNodes];
@@ -347,6 +349,9 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
     target: edge.target,
     targetHandle: edge.targetHandle,
     data: { ...edge.data, hovered: hovered === edge.id },
+    selected: Boolean(onSelect && selection && (edge.data.harnessId
+      ? selection.kind === "harness" && selection.id === edge.data.harnessId
+      : selection.kind === "link" && selection.id === edge.id)),
   }));
 
   const savePositions = (positions: LayoutPositions) =>
@@ -448,8 +453,14 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
             onNodesChange={(changes) => setOverrides((current) => applyOverrides(current, changes))}
             onNodeDragStop={(_event, node) => saveLayout(node)}
             onConnect={connect}
-            onEdgeClick={(_event, edge) => (edge.data?.harnessId
-              ? openHarness(edge.data.harnessId) : onNavigate("connectivity", { link: edge.id }))}
+            onEdgeClick={(_event, edge) => {
+              const harnessId = edge.data?.harnessId;
+              if (onSelect) onSelect(harnessId ? { kind: "harness", id: harnessId } : { kind: "link", id: edge.id });
+              else if (harnessId) openHarness(harnessId);
+              else onNavigate("connectivity", { link: edge.id });
+            }}
+            onNodeClick={onSelect ? (_event, node) => onSelect({ kind: node.type === "harness" ? "harness" : "instance", id: node.id }) : undefined}
+            onPaneClick={onSelect ? () => onSelect(null) : undefined}
             onEdgeMouseEnter={(_event, edge) => setHovered(edge.id)}
             onEdgeMouseLeave={() => setHovered(null)}
             fitView
