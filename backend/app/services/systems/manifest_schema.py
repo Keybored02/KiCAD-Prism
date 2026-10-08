@@ -259,6 +259,8 @@ class HarnessNode(_Model):
     pinned: bool = False
     order: int = Field(ge=0)
     ends: list[HarnessEndId] = Field(default_factory=list, description="breakout: the ends it branches to")
+    between: Optional[list[str]] = Field(default=None, min_length=2, max_length=2,
+                                         description="waypoint: the two ends or breakouts it lies between")
 
 
 class Harness(_Model):
@@ -437,10 +439,16 @@ def reference_problems(manifest: Manifest) -> list[str]:
             for point in (wire.source, wire.target):
                 if point.end not in ends:
                     problems.append(f"wire {wire.id}: unknown end {point.end}")
+        breakout_ids = {n.id for n in harness.nodes if n.kind == "breakout"}
         for node in harness.nodes:
             for end_id in node.ends:
                 if end_id not in ends:
                     problems.append(f"node {node.id}: unknown end {end_id}")
+            if (node.kind == "waypoint") != (node.between is not None):
+                problems.append(f"node {node.id}: a waypoint, and only a waypoint, lies between two nodes")
+            for other in node.between or []:
+                if other not in ends and other not in breakout_ids:
+                    problems.append(f"node {node.id}: unknown node {other}")
 
     for mating in manifest.mating:
         if kinds.get(mating.instanceId) not in ("board", "module"):

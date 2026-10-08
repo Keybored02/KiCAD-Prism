@@ -228,6 +228,8 @@ def harness_layout(root: Level) -> list[dict]:
                          for end_id, end in sorted(ends.items(), key=lambda item: item[1]["ordinal"])],
                 "wires": [{"id": wire["id"], "from": wire["from"][0], "to": wire["to"][0],
                            "gaugeAwg": wire.get("gaugeAwg")} for wire in wires],
+                # Breakouts and waypoints in the level's frame (§17.9).
+                "nodes": [dict(node) for node in harness.get("nodes") or []],
             })
         for child in level.children.values():
             walk(child)

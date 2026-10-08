@@ -182,6 +182,7 @@ export function harnessCurves(
   ends: Readonly<Record<string, CurveEnd>>,
   tree: Topology,
   waypoints: Readonly<Record<string, readonly (readonly number[])[]>> = {},
+  pinned: Readonly<Record<string, readonly boolean[]>> = {},
 ): ({ segmentId: string } & Curve)[] {
   const position = new Map(tree.nodes.map((node) => [node.id, node.positionMm]));
   return tree.segments.map((segment) => {
@@ -190,7 +191,8 @@ export function harnessCurves(
     const to = side(segment.to);
     const middle = (waypoints[segment.id] ?? []).map((p) => [p[0], p[1], p[2]] as Vec3);
     const points = [...from, ...middle, ...to.reverse()];
-    const movable = [...from.map(() => false), ...middle.map(() => true), ...to.map(() => false)];
+    const fixed = pinned[segment.id] ?? [];
+    const movable = [...from.map(() => false), ...middle.map((_, i) => !fixed[i]), ...to.map(() => false)];
     return { segmentId: segment.id, ...curve(points, movable, segment.diameterMm) };
   });
 }

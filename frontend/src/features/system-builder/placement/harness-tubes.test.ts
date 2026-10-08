@@ -46,6 +46,20 @@ describe("harness tubes", () => {
     expect(moved[0].samplesMm.at(-1)).toBeCloseTo(53.8, 6);
   });
 
+  it("routes through a stored waypoint, in the harness's level frame", () => {
+    const via = (level: string | null): SceneHarness => ({
+      ...harness, level,
+      nodes: [{ id: "shd_w", kind: "waypoint", positionMm: [100, 40, 30], pinned: true, order: 0, ends: [], between: ["e2", "e1"] }],
+    });
+    const passes = (samples: number[], p: number[]) =>
+      samples.some((_, i) => i % 3 === 0 && Math.hypot(samples[i] - p[0], samples[i + 1] - p[1], samples[i + 2] - p[2]) < 1e-6);
+    const [root] = harnessTubes([via(null)], (path) => worlds[path] ?? null);
+    expect(passes(root.samplesMm, [100, 40, 30])).toBe(true);
+    // A child level moves its nodes with it.
+    const inChild = harnessTubes([via("/sub")], (path) => (path === "/sub" ? translate(0, 0, 10) : worlds[path] ?? null));
+    expect(passes(inChild[0].samplesMm, [100, 40, 40])).toBe(true);
+  });
+
   it("skips a harness with fewer than two posed ends", () => {
     expect(harnessTubes([harness], (path) => (path === "/a" ? worlds[path] : null))).toEqual([]);
   });

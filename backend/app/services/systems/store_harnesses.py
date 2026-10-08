@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping, Optional, Sequence
 
 from psycopg.types.json import Jsonb
 
 from app.services.systems.store_base import (
-    MAX_ROWS, MAX_HARNESSES, MAX_HARNESS_ENDS, MAX_WIRES, HARNESS_END_PREFIX, MAX_EXPORTS, ROW_SOURCES, NotFound,
+    MAX_ROWS, MAX_HARNESSES, MAX_HARNESS_ENDS, MAX_WIRES, MAX_HARNESS_NODES, HARNESS_END_PREFIX,
+    HARNESS_NODE_PREFIX, MAX_EXPORTS, ROW_SOURCES, NotFound,
     Conflict, Invalid, new_id, _given_id, _check_link_type, _port_baseline, _nets, Mutation,
 )
 
@@ -338,9 +340,15 @@ class HarnessesStore:
                 "SELECT * FROM system_harness_wires WHERE harness_id = ANY(%s) ORDER BY harness_id, id",
                 (ids,)).fetchall():
             wires.setdefault(row["harness_id"], []).append(dict(row))
+        nodes: dict[str, list[dict]] = {}
+        for row in self.conn.execute(
+                "SELECT * FROM system_harness_nodes WHERE harness_id = ANY(%s) ORDER BY harness_id, kind, between_ids NULLS FIRST, ord, id",
+                (ids,)).fetchall():
+            nodes.setdefault(row["harness_id"], []).append(node_doc(row))
         for harness in harnesses:
             harness["ends"] = ends.get(harness["id"], [])
             harness["wires"] = wires.get(harness["id"], [])
+            harness["nodes"] = nodes.get(harness["id"], [])
         return harnesses
 
     def get_harness(self, system_id: str, harness_id: str) -> dict:
@@ -515,7 +523,14 @@ class HarnessesStore:
             raise Invalid("a harness keeps at least one end; delete the harness instead")
         wires = [w["id"] for w in harness["wires"] if end_id in (w["from_end"], w["to_end"])]
         self.conn.execute("DELETE FROM system_harness_ends WHERE id = %s", (end_id,))
-        change.audit("harness_updated", {"harnessId": harness_id, "endRemoved": end_id, "wiresRemoved": wires})
+        # Waypoints leading to the end go with it; breakouts stop listing it (§17.9).
+        dropped = [n["id"] for n in harness["nodes"] if end_id in (n["between"] or [])]
+        self.conn.execute("DELETE FROM system_harness_nodes WHERE harness_id = %s AND %s = ANY(between_ids)",
+                          (harness_id, end_id))
+        self.conn.execute("UPDATE system_harness_nodes SET ends = array_remove(ends, %s) WHERE harness_id = %s",
+                          (end_id, harness_id))
+        change.audit("harness_updated", {"harnessId": harness_id, "endRemoved": end_id, "wiresRemoved": wires,
+                                         **({"nodesRemoved": dropped} if dropped else {})})
         return self.get_harness(change.system_id, harness_id)
 
     def replace_wires(self, change: Mutation, harness_id: str, wires: Sequence[Mapping[str, Any]],
@@ -571,6 +586,76 @@ class HarnessesStore:
                                          "wiresRemoved": sorted(existing - kept)})
         return self.get_harness(change.system_id, harness_id)["wires"]
 
+    def replace_nodes(self, change: Mutation, harness_id: str, nodes: Sequence[Mapping[str, Any]]) -> list[dict]:
+        """Replace a harness's breakouts and waypoints (§17.9). Breakouts chain in list order; the
+        waypoints between one pair of nodes go in list order from ``between[0]``. A new node may
+        bring its own ``shd_`` ID so a waypoint can name a breakout added in the same list."""
+        harness = self.get_harness(change.system_id, harness_id)
+        ends = {e["id"] for e in harness["ends"]}
+        existing = {n["id"] for n in harness["nodes"]}
+        if len(nodes) > MAX_HARNESS_NODES:
+            raise Invalid(f"limit nodes_per_harness ({MAX_HARNESS_NODES})")
+        ids: list[str] = []
+        for node in nodes:
+            node_id = node.get("id")
+            node_id = new_id(HARNESS_NODE_PREFIX) if node_id is None else _given_id(HARNESS_NODE_PREFIX, node_id)
+            if node_id in ids:
+                raise Invalid(f"node {node_id} appears twice")
+            ids.append(node_id)
+        taken = [r["id"] for r in self.conn.execute(
+            "SELECT id FROM system_harness_nodes WHERE id = ANY(%s) AND harness_id <> %s",
+            ([i for i in ids if i not in existing], harness_id)).fetchall()]
+        if taken:
+            raise Conflict(f"node {taken[0]} belongs to another harness")
+        breakout_ids = {i for i, n in zip(ids, nodes) if n.get("kind") == "breakout"}
+        branched: set[str] = set()
+        directions: dict[frozenset, tuple[str, str]] = {}
+        order = {"breakout": 0}
+        rows = []
+        for node_id, node in zip(ids, nodes):
+            kind = node.get("kind")
+            if kind not in ("breakout", "waypoint"):
+                raise Invalid("kind is breakout or waypoint")
+            position = node.get("positionMm")
+            if (not isinstance(position, (list, tuple)) or len(position) != 3
+                    or not all(isinstance(v, (int, float)) and math.isfinite(v) and abs(v) <= 1e6 for v in position)):
+                raise Invalid(f"node {node_id}: positionMm is three finite numbers within 1 km")
+            if kind == "breakout":
+                listed = list(node.get("ends") or [])
+                if node.get("pinned") or node.get("between"):
+                    raise Invalid(f"breakout {node_id}: only waypoints are pinned or lie between nodes")
+                for end_id in listed:
+                    if end_id not in ends:
+                        raise Invalid(f"breakout {node_id}: {end_id} is not an end of this harness")
+                    if end_id in branched:
+                        raise Invalid(f"end {end_id} joins one breakout")
+                    branched.add(end_id)
+                rows.append((node_id, kind, [float(v) for v in position], False, order["breakout"], listed, None))
+                order["breakout"] += 1
+            else:
+                between = list(node.get("between") or [])
+                if node.get("ends"):
+                    raise Invalid(f"waypoint {node_id}: only breakouts list ends")
+                if len(between) != 2 or between[0] == between[1] or not all(b in ends | breakout_ids for b in between):
+                    raise Invalid(f"waypoint {node_id}: between names two ends or breakouts of this harness")
+                pair = frozenset(between)
+                if directions.setdefault(pair, (between[0], between[1])) != (between[0], between[1]):
+                    raise Invalid(f"waypoint {node_id}: waypoints between the same nodes name them in the same order")
+                key = "~".join(sorted(pair))
+                rows.append((node_id, kind, [float(v) for v in position], bool(node.get("pinned")),
+                             order.get(key, 0), [], between))
+                order[key] = order.get(key, 0) + 1
+        self.conn.execute("DELETE FROM system_harness_nodes WHERE harness_id = %s", (harness_id,))
+        for row in rows:
+            self.conn.execute(
+                "INSERT INTO system_harness_nodes (id, harness_id, kind, position_mm, pinned, ord, ends, between_ids)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (row[0], harness_id, *row[1:]))
+        kept = set(ids)
+        change.audit("harness_updated", {"harnessId": harness_id, "nodeCount": len(rows),
+                                         "nodesAdded": sorted(kept - existing),
+                                         "nodesRemoved": sorted(existing - kept)})
+        return self.get_harness(change.system_id, harness_id)["nodes"]
+
     # Harness ends seen by the drift engine and review plumbing as link ends (§17.2 drift).
 
     @staticmethod
@@ -624,3 +709,10 @@ class HarnessesStore:
                               (Jsonb(pin_map) if pin_map else None, end_id))
         self.conn.execute(f"UPDATE system_harness_wires SET net_{side} = %s WHERE id = %s",
                           (Jsonb(_nets(nets)), wire_id))
+
+
+def node_doc(row: Mapping[str, Any]) -> dict:
+    """A stored node in its public shape (the manifest's ``harnesses[].nodes``, §17.9)."""
+    return {"id": row["id"], "kind": row["kind"], "positionMm": list(row["position_mm"]),
+            "pinned": row["pinned"], "order": row["ord"], "ends": list(row["ends"] or []),
+            "between": list(row["between_ids"]) if row["between_ids"] else None}

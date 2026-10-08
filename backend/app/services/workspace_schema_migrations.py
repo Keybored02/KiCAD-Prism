@@ -50,6 +50,7 @@ from app.services.trackers import migrations as tracker_migrations
 from app.services.workspace_migrations import m041_repository_origin
 from app.services.workspace_migrations import m042_system_archive
 from app.services.workspace_migrations import m043_system_driving_mates
+from app.services.workspace_migrations import m044_system_harness_nodes
 
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (41, "repository_origin", m041_repository_origin.migrate),
     (42, "system_archive", m042_system_archive.migrate),
     (43, "system_driving_mates", m043_system_driving_mates.migrate),
+    (44, "system_harness_nodes", m044_system_harness_nodes.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

@@ -4,9 +4,6 @@
 ``Manifest``: unredacted, like a snapshot document (redaction happens on read).
 ``import_manifest`` recreates a system from a manifest, keeping its IDs, so a
 manifest round-trips DB → manifest → DB (and, in M7, Git → DB).
-
-P2 objects that have no tables yet (harness nodes) are
-emitted empty; their tickets extend both directions.
 """
 
 from __future__ import annotations
@@ -116,7 +113,7 @@ def build(
                    "gaugeAwg": wire["gauge_awg"], "colour": wire["colour"], "label": wire["label"],
                    "netFrom": sorted(wire["net_from"]), "netTo": sorted(wire["net_to"])}
                   for wire in sorted(harness["wires"], key=lambda w: w["id"])],
-        "nodes": [],
+        "nodes": [dict(node) for node in harness["nodes"]],
     } for harness in sorted(store.list_harnesses(system_id), key=lambda h: h["id"])]
     mating = [
         {"instanceId": instance["id"], "portKey": port_key, "mode": record["mode"],
@@ -168,12 +165,6 @@ def import_manifest(
     baselines), so an imported system validates exactly as the source did.
     Runs inside the caller's transaction; a clash with an existing ID fails it.
     """
-
-    unsupported = []
-    if any(harness.nodes for harness in manifest.harnesses):
-        unsupported.append("harness nodes")
-    if unsupported:
-        raise Invalid(f"manifest sections not supported yet: {', '.join(unsupported)}")
 
     row = store.create_system(
         name=manifest.system.name, description=manifest.system.description, folder_id=folder_id,
@@ -233,6 +224,11 @@ def import_manifest(
                  "to": {"end": w.target.end, "pin": w.target.pin}, "signal": w.signal, "gaugeAwg": w.gaugeAwg,
                  "colour": w.colour, "label": w.label, "netFrom": w.netFrom, "netTo": w.netTo}
                 for w in harness.wires], keep_new_ids=True)
+            if harness.nodes:  # list order is chain and waypoint order (§17.9)
+                store.replace_nodes(change, harness.id, [
+                    {"id": n.id, "kind": n.kind, "positionMm": n.positionMm, "pinned": n.pinned, "ends": n.ends,
+                     "between": n.between}
+                    for n in sorted(harness.nodes, key=lambda n: (n.kind, n.order, n.id))])
         for record in manifest.mating:
             store.set_mating(change, record.instanceId, record.portKey, {
                 "mode": record.mode, "axis": record.frame.axis, "quarterTurns": record.frame.quarterTurns,

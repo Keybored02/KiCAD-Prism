@@ -95,6 +95,16 @@ class SceneHarnessTest(ImportCase):
         self.assertEqual(sorted((w["id"], w["from"], w["to"]) for w in listed["wires"]),
                          sorted((w["id"], w["from"]["end"], w["to"]["end"]) for w in harness["wires"]))
 
+    def test_scene_harnesses_carry_their_nodes(self) -> None:
+        # SB2-45: the tubes route through stored breakouts and waypoints.
+        harness = self.service.harness_from_label(DESIGNER, self.sid, self.version(), "WH-001").body
+        a, b = harness["ends"][0]["id"], harness["ends"][1]["id"]
+        self.service.replace_nodes(DESIGNER, self.sid, self.version(), harness["id"], [
+            {"kind": "waypoint", "positionMm": [1.0, 2.0, 3.0], "between": [a, b], "pinned": True}])
+        [listed] = self.service.scene(VIEWER, self.sid)["harnesses"]
+        self.assertEqual([(n["kind"], n["positionMm"], n["between"], n["pinned"]) for n in listed["nodes"]],
+                         [("waypoint", [1.0, 2.0, 3.0], [a, b], True)])
+
     def test_scene_ends_carry_their_connector_for_the_tubes(self) -> None:
         # SB2-44: the browser poses each end from its connector's v6 geometry and stored frame.
         harness = self.service.harness_from_label(DESIGNER, self.sid, self.version(), "WH-001").body

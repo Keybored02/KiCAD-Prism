@@ -164,10 +164,11 @@ def _head(end: Mapping[str, Any]) -> list[Vec]:
 
 
 def harness_curves(ends: Mapping[str, Mapping[str, Any]], tree: Mapping[str, Any],
-                   waypoints: Optional[Mapping[str, Sequence[Sequence[float]]]] = None) -> list[dict]:
+                   waypoints: Optional[Mapping[str, Sequence[Sequence[float]]]] = None,
+                   pinned: Optional[Mapping[str, Sequence[bool]]] = None) -> list[dict]:
     """A curve per segment of ``tree`` (SB2-42's ``topology``). ``ends`` maps end ID → its SB2-41 pose
     (``exitMm``, ``outward``, ``legMm``); ``waypoints`` maps segment ID → points from its ``from`` node
-    toward its ``to`` node."""
+    toward its ``to`` node, and ``pinned`` the waypoints relaxation leaves where they are (SB2-45)."""
     position = {n["id"]: n["positionMm"] for n in tree["nodes"]}
     out = []
     for segment in tree["segments"]:
@@ -180,7 +181,8 @@ def harness_curves(ends: Mapping[str, Mapping[str, Any]], tree: Mapping[str, Any
         head, head_free = side(segment["from"])
         tail, tail_free = side(segment["to"])
         middle = [list(p) for p in (waypoints or {}).get(segment["id"], [])]
+        fixed = list((pinned or {}).get(segment["id"], []))
         points = head + middle + tail[::-1]
-        movable = head_free + [True] * len(middle) + tail_free[::-1]
+        movable = head_free + [not (i < len(fixed) and fixed[i]) for i in range(len(middle))] + tail_free[::-1]
         out.append({"segmentId": segment["id"], **curve(points, movable, segment["diameterMm"])})
     return out

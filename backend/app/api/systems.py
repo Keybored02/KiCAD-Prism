@@ -612,6 +612,18 @@ class WireRequest(BaseModel):
                 "gaugeAwg": self.gaugeAwg, "colour": self.colour, "label": self.label}
 
 
+class HarnessNodeRequest(BaseModel):
+    id: Optional[str] = Field(default=None, max_length=100)
+    kind: Literal["breakout", "waypoint"]
+    positionMm: list[float] = Field(min_length=3, max_length=3)
+    pinned: bool = False
+    ends: list[str] = Field(default_factory=list, max_length=32)
+    between: Optional[list[str]] = Field(default=None, min_length=2, max_length=2)
+
+    def as_input(self) -> dict:
+        return self.model_dump()
+
+
 class GenerateWiresRequest(BaseModel):
     fromEnd: str = Field(min_length=1, max_length=100)
     toEnd: str = Field(min_length=1, max_length=100)
@@ -709,6 +721,16 @@ async def replace_wires(system_id: str, harness_id: str, body: list[WireRequest]
     wires = [wire.as_input() for wire in body]
     result = await _run(system_id, lambda: system_service.service.replace_wires(
         _caller(user), system_id, version, harness_id, wires))
+    return _respond(result, response)
+
+
+@router.put("/{system_id}/harnesses/{harness_id}/nodes", dependencies=[Depends(require_designer)])
+async def replace_harness_nodes(system_id: str, harness_id: str, body: list[HarnessNodeRequest], request: Request,
+                                response: Response, user: AuthenticatedUser = Depends(require_viewer)):
+    version = _expected_version(request, system_id)
+    nodes = [node.as_input() for node in body]
+    result = await _run(system_id, lambda: system_service.service.replace_nodes(
+        _caller(user), system_id, version, harness_id, nodes))
     return _respond(result, response)
 
 
