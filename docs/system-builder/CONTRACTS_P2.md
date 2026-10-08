@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.65 · 2026-10-08 · tickets SB2-00 to SB2-55.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.71 · 2026-10-09 · tickets SB2-00 to SB2-107.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -459,6 +459,13 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 - **Effect.** A waived finding stays in `findings` with `waived {id, note, by, at}` and leaves `counts`; `counts.waived` says how many. The report lists `waivers` with `active`: whether its finding still occurs. Waivers are applied after every rule, so snapshots freeze them.
 - **Record.** Waivers are in the manifest (`waivers[]`, omitted from the full digest while empty, never in the connectivity digest), imported with it, and the ICD (renderer 5) lists them apart under "Waived findings".
 - **Redaction.** A finding on a board the reader can't see loses its `key`; a waiver on it loses `findingKey` and `note`.
+
+### 8.6 Reviews and findings report (SB2-107)
+
+- **API.** `GET …/report.xlsx` and `GET …/report.csv` (viewer) answer the live system with its `ETag`, as an attachment `{system}-report.{fmt}`. Read-only, built in one consistent transaction; no snapshot form (a snapshot's findings are in its ICD).
+- **Sections.** *Summary*: system, version, generation time, the open finding counts by severity (equal to `findingCounts`), waived count, open reviews, review items and undecided items, and each not-evaluated rule. *Reviews*: one row per item of every open review (review, kind, board, from/to commit, opened, item, change, link, end, connector, pins, expected, observed, decision); expected and observed are the pin's net sets (`(no net)` when unconnected), a connector's lib ID and footprint, or an import's proposed row; a review with no items is one row. *Findings*: every finding, open ones first by severity, then the waived with note, author and date, then waivers no longer raised. SB2-106's rename proposals add a section when they land.
+- **Formats.** The workbook has one sheet per section, the header frozen; every cell is stored as text, so a typed `=…` or `+3V3` never evaluates. The CSV is the sections in order, each a `# {Section}` line, its header and its rows, separated by a blank line; a cell starting `=`, `+`, `-`, `@`, tab or CR is prefixed with `'`.
+- **Redaction.** As the trays: a review on a board the reader can't see is one `Restricted` row with no commits or nets; a restricted item is a `Restricted` row; findings and waivers are redacted as in §8.5.
 
 ## 9. Manifest `prism.system_manifest.v1`
 
@@ -940,6 +947,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.71 | 2026-10-09 | SB2-107: the reviews and findings report, `GET …/report.xlsx` and `…/report.csv` (§8.6). `openpyxl` becomes a direct runtime dependency (it was already locked through `kicad-cruncher`). |
 | P2-1.70 | 2026-10-09 | SB2-101: system summaries carry `boardTotal` (boards counted through every subsystem; null if the hierarchy can't be resolved). `GET /api/systems` also carries `lastSnapshot {id, name, createdAt}`, `git {branch, outsideChange, error}` and `findingCounts` (the last document build's counts, only when built at the current version). Counts live in `system_finding_counts` (migration 49), without a foreign key so a reader recording them never holds a lock an editor waits on. |
 | P2-1.69 | 2026-10-09 | SB2-100 (D-P2-56): finding keys and waivers (§8.5): warnings and info only, with a note, versioned, in the manifest and the ICD (renderer 5); counts leave waived findings out. |
 | P2-1.68 | 2026-10-09 | SB2-98: `GET /api/systems/{id}?include=validation` returns the §7.2 report (redacted) with the document. The live document carries `sceneKey` and `netsKey`, digests of what the scene (instances, link ends and types, stack heights, harnesses, mating, poses, driving mates) and the system nets (instances, link ends, row pins and nets, exports, harnesses) depend on; readers re-read those only when the key changes. Snapshots do not freeze the keys. |

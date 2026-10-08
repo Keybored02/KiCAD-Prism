@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronUp, FileSpreadsheet, FileText, FileUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, ClipboardList, FileSpreadsheet, FileText, FileUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { icdUrl } from "@/lib/systems-api";
+import { icdUrl, reportUrl } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { Finding, SystemDocument, SystemHarness, SystemLink } from "@/types/system";
 
@@ -203,6 +203,11 @@ export function WorkspaceTray(props: TrayProps) {
                 <a href={icdUrl(systemId, "csv")} download aria-label="CSV" title="CSV"><FileSpreadsheet className="size-3.5" /><span className="hidden sm:inline"> CSV</span></a>
               </Button>
             </>
+          )}
+          {(tab === "findings" || tab === "changes" || (tab === "connections" && !editing)) && (
+            <Button asChild variant="ghost" size="sm" className="h-7">
+              <a href={reportUrl(systemId)} download aria-label="Report" title="Reviews and findings (.xlsx)"><ClipboardList className="size-3.5" /><span className="hidden sm:inline"> Report</span></a>
+            </Button>
           )}
           {editing && (
             <Button variant="ghost" size="sm" className="h-7" onClick={() => onSelect(null)}><ArrowLeft className="size-3.5" /> All connections</Button>

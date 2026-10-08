@@ -79,7 +79,9 @@ numpy==2.5.3
     #   shapely
     #   trimesh
 openpyxl==3.1.5
-    # via kicad-cruncher
+    # via
+    #   -r requirements/runtime.in
+    #   kicad-cruncher
 packaging==26.3
     # via pikepdf
 pikepdf==10.13.0.post1

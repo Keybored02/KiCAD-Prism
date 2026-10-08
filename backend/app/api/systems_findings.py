@@ -1,13 +1,18 @@
-"""System Builder finding waivers (SB2-100, D-P2-56): waive a warning or info finding with a note,
-or take a waiver back. Registered on ``systems.router``."""
+"""System Builder findings: waive a warning or info finding with a note, or take a waiver back
+(SB2-100, D-P2-56); the reviews and findings report (SB2-107). Registered on ``systems.router``."""
 
 from __future__ import annotations
+
+from typing import Literal
 
 from fastapi import Depends, Request, Response
 from pydantic import BaseModel, Field
 
-from app.api.systems import _caller, _expected_version, _no_content, _respond, _run, router, system_service
+from app.api.systems import _UNSAFE_FILENAME, _caller, _expected_version, _no_content, _respond, _run, router, system_service
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
+from app.services.systems.visibility import etag
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 class WaiverRequest(BaseModel):
@@ -33,3 +38,14 @@ async def unwaive_finding(system_id: str, waiver_id: str, request: Request, user
     return _no_content(await _run(system_id, lambda: system_service.service.unwaive_finding(
         _caller(user), system_id, version, waiver_id,
     )))
+
+
+@router.get("/{system_id}/report.{fmt}")
+async def findings_report(system_id: str, fmt: Literal["xlsx", "csv"], user: AuthenticatedUser = Depends(require_viewer)):
+    """P2 §8.6: open reviews and findings, one sheet per section (``csv``: one titled block each)."""
+    content, name, version = await _run(system_id, lambda: system_service.service.report(_caller(user), system_id, fmt))
+    stem = _UNSAFE_FILENAME.sub("-", name).strip("-.") or "system"
+    headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "ETag": etag(system_id, version),
+               "Content-Disposition": f'attachment; filename="{stem}-report.{fmt}"'}
+    media = XLSX if fmt == "xlsx" else "text/csv; charset=utf-8"
+    return Response(content, media_type=media, headers=headers)
