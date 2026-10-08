@@ -91,7 +91,7 @@ describe("Scene3dTab", () => {
     await act(async () => undefined);
     element.cancelMove = vi.fn();
     fireEvent.click(screen.getByRole("button", { name: /Move/ }));
-    expect(element.setMoveMode).toHaveBeenCalledWith(true);
+    expect(element.setMoveMode).toHaveBeenCalledWith(true, { route: false });
 
     const pose = { translationMm: [10, 20, 0], rotation: [0, 0, 0, 1] };
     const commit = (phase: string) => act(() => {

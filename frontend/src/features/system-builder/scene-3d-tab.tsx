@@ -170,7 +170,7 @@ function usePartReport(
  */
 export function Scene3dTab(props: SystemTabProps) {
   const { systemId, document, etag, canEdit, reload, selection: workspaceSelection = null, onSelect, onPart } = props;
-  const { inspectorSlot = null, netsSlot = null, onOpenTray } = props;
+  const { inspectorSlot = null, netsSlot = null, onOpenTray, routeRequest = 0 } = props;
   const supported = webgpuAvailable();
   const { scene, error } = useSystemScene(systemId, etag, supported);
   const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
@@ -200,6 +200,12 @@ export function Scene3dTab(props: SystemTabProps) {
     if (!viewer || !scene) return;
     void customElements.whenDefined("prism-semantic-viewer").then(() => viewer.setSystemScene?.(scene));
   }, [viewer, scene]);
+
+  // The inspector's Edit route (D-P2-51): Route mode once the scene is in the viewer.
+  useEffect(() => {
+    if (!viewer || !scene || !routeRequest) return;
+    void customElements.whenDefined("prism-semantic-viewer").then(() => viewer.setMoveMode?.(true, { route: true }));
+  }, [viewer, scene, routeRequest]);
 
   // The net added last is framed once, so a few-millimetre trace is not lost in the whole system.
   const framedNet = useRef<string | null>(null);
@@ -260,7 +266,7 @@ export function Scene3dTab(props: SystemTabProps) {
 
   const summary = scene ? summarizeScene(scene) : null;
   // The move, route and trace panels: the top of the inspector on large screens, over the view otherwise.
-  const movePanel = move?.enabled && (move.target || !route.state) ? (
+  const movePanel = move?.enabled && !move.route && (move.target || !route.state) ? (
     <MovePanel
       key={moving.epoch}
       state={move}
@@ -309,7 +315,13 @@ export function Scene3dTab(props: SystemTabProps) {
       />
     </div>
   ) : null;
-  const tools = movePanel || routePanel || traceCard ? <>{movePanel}{routePanel}{traceCard}</> : null;
+  // Route mode with no harness picked yet: say what to do (D-P2-51).
+  const routeHint = move?.route && !route.state ? (
+    <p className="flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-sm text-muted-foreground shadow-sm">
+      <Spline className="size-4 shrink-0 text-kind-harness" aria-hidden /> Click a harness
+    </p>
+  ) : null;
+  const tools = movePanel || routeHint || routePanel || traceCard ? <>{movePanel}{routeHint}{routePanel}{traceCard}</> : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -369,9 +381,16 @@ export function Scene3dTab(props: SystemTabProps) {
               <ToolbarButton active={!move?.enabled} title="Select" onClick={() => viewer?.setMoveMode?.(false)}>
                 <MousePointer2 className="size-3.5" aria-hidden /> Select
               </ToolbarButton>
-              <ToolbarButton active={Boolean(move?.enabled)} title="Move boards and harness nodes (M)" aria-label="Move" onClick={() => viewer?.setMoveMode?.(true)}>
+              <ToolbarButton active={Boolean(move?.enabled && !move.route)} title="Move boards (M)" aria-label="Move"
+                onClick={() => viewer?.setMoveMode?.(true, { route: false })}>
                 <Move3d className="size-3.5" aria-hidden /> Move
               </ToolbarButton>
+              {(scene?.harnesses?.length ?? 0) > 0 && (
+                <ToolbarButton active={Boolean(move?.route)} title="Edit harness routes: click a harness, then click it again to add a waypoint (Shift: a breakout)"
+                  aria-label="Route" onClick={() => viewer?.setMoveMode?.(true, { route: true })}>
+                  <Spline className="size-3.5 text-kind-harness" aria-hidden /> Route
+                </ToolbarButton>
+              )}
             </FloatingToolbar>
           )}
         </div>

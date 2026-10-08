@@ -47,21 +47,44 @@ export function useHarnessNodes(
   };
 
   /** A segment end that is the automatic breakout is stored first, so the edit can name it. */
-  const withSegment = (nodes: HarnessNodeInput[]) => {
-    const segment = state?.segment;
+  const withSegment = (nodes: HarnessNodeInput[], at: PrismSystemSceneHarnessState | null) => {
+    const segment = at?.segment;
     if (!segment) return null;
     let [from, to] = [segment.from, segment.to];
     let list = nodes;
-    if ((from === AUTO || to === AUTO) && state?.autoMm) {
-      const stored = storeAuto(list, state.autoMm);
+    if ((from === AUTO || to === AUTO) && at?.autoMm) {
+      const stored = storeAuto(list, at.autoMm);
       list = stored.nodes;
       [from, to] = [from === AUTO ? stored.id : from, to === AUTO ? stored.id : to];
     }
     return { nodes: list, from, to, along: alongSamples(segment.samplesMm) };
   };
 
-  // The viewer's commit and delete go through the latest closure.
+  /** A waypoint where the tube was picked, in order along its segment. */
+  const addWaypointAt = async (at: PrismSystemSceneHarnessState | null) => {
+    const base = stored();
+    const point = at?.pointMm;
+    const split = base && point ? withSegment(base, at) : null;
+    if (!split || !point) return;
+    const added = addWaypoint(split.nodes, split.from, split.to, point as Vec3, split.along);
+    await save(added.nodes, "Waypoint added", added.id);
+  };
+  /** A breakout where the tube was picked, at the end of the chain. */
+  const addBreakoutAt = async (at: PrismSystemSceneHarnessState | null) => {
+    const base = stored();
+    const point = at?.pointMm;
+    if (!base || !point) return;
+    const added = addBreakout(base, point as Vec3);
+    await save(added.nodes, "Breakout added", added.id);
+  };
+
+  // The viewer's commit, delete and Route-mode clicks go through the latest closure.
   const onEvent = async (next: PrismSystemSceneHarnessState) => {
+    // D-P2-51: in Route mode a click on the picked harness adds a waypoint there (Shift: a breakout).
+    if (next.phase === "route-click") {
+      await (next.breakout ? addBreakoutAt(next) : addWaypointAt(next));
+      return;
+    }
     const nodes = stored();
     const node = next.node;
     if (!nodes || !node) return;
@@ -84,7 +107,7 @@ export function useHarnessNodes(
     const listener = (event: Event) => {
       const next = (event as CustomEvent<PrismSystemSceneHarnessState>).detail;
       setState(next.harness ? next : null);
-      if (next.phase === "commit" || next.phase === "delete") void eventRef.current(next);
+      if (next.phase === "commit" || next.phase === "delete" || next.phase === "route-click") void eventRef.current(next);
       if (next.phase === "sync" && pendingTarget.current !== undefined) {
         const target = pendingTarget.current;
         pendingTarget.current = undefined;
@@ -104,23 +127,8 @@ export function useHarnessNodes(
       breakouts: nodes?.filter((n) => n.kind === "breakout").length ?? 0,
       waypoints: nodes?.filter((n) => n.kind === "waypoint").length ?? 0,
     },
-    /** A waypoint where the tube was picked, in order along its segment. */
-    addWaypoint: async () => {
-      const base = stored();
-      const at = state?.pointMm;
-      const split = base && at ? withSegment(base) : null;
-      if (!split || !at) return;
-      const added = addWaypoint(split.nodes, split.from, split.to, at as Vec3, split.along);
-      await save(added.nodes, "Waypoint added", added.id);
-    },
-    /** A breakout where the tube was picked, at the end of the chain. */
-    addBreakout: async () => {
-      const base = stored();
-      const at = state?.pointMm;
-      if (!base || !at) return;
-      const added = addBreakout(base, at as Vec3);
-      await save(added.nodes, "Breakout added", added.id);
-    },
+    addWaypoint: () => addWaypointAt(state),
+    addBreakout: () => addBreakoutAt(state),
     setPinned: async (pinned: boolean) => {
       const base = stored();
       const node = state?.node;

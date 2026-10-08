@@ -180,7 +180,9 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     /** mode="system": frame every placed board. */
     frameAll?: () => void;
     /** mode="system" move mode (SB2-29); state arrives as `prism-semantic-viewer:move`. Who may move is the `move-allowed` attribute. */
-    setMoveMode?: (enabled: boolean) => void;
+    setMoveMode?: (enabled: boolean, options?: { route?: boolean }) => void;
+    /** D-P2-51: move mode for harness routes only. */
+    setRouteMode?: (enabled: boolean) => void;
     setMoveSpace?: (space: "world" | "local") => void;
     /** Show a pose for the move target without saving it; null shows the saved pose. */
     previewPose?: (pose: PrismScenePose | null) => void;
@@ -227,6 +229,8 @@ export interface PrismSystemSceneMoveState {
     phase?: "mode" | "target" | "preview" | "commit" | "cancel" | "sync";
     allowed: boolean;
     enabled: boolean;
+    /** D-P2-51: Route mode, move mode for harness routes only (boards take no gizmo). */
+    route?: boolean;
     space: "world" | "local";
     dragging: boolean;
     target: {
@@ -248,7 +252,9 @@ export interface PrismSystemSceneMoveState {
  * `node.positionMm`; "delete" to remove the node.
  */
 export interface PrismSystemSceneHarnessState {
-    phase?: "select" | "target" | "preview" | "commit" | "delete" | "cancel" | "sync";
+    phase?: "select" | "target" | "preview" | "commit" | "delete" | "cancel" | "sync" | "route-click";
+    /** On "route-click": Shift was held, so a breakout rather than a waypoint. */
+    breakout?: boolean;
     harness: { id: string; level: string | null; name: string } | null;
     /** The picked segment: its tree nodes (`auto` for the automatic breakout) and samples from `from`. */
     segment: { id: string; from: string; to: string; samplesMm: [number, number, number][] } | null;

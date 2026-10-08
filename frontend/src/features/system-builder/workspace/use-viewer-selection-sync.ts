@@ -92,7 +92,12 @@ export function useViewerSelectionSync(
         viewer.setSelection({ occurrence: action.path });
         viewer.frameBoard?.(action.path);
       } else if (action.type === "harness") {
-        viewer.selectHarness?.(action.id);
+        // Its tube exists only once the boards it joins are drawn: retry for a few seconds.
+        const attempt = (left: number) => {
+          if (fromViewer.current !== key || viewer.selectHarness?.(action.id) !== false || left === 0) return;
+          window.setTimeout(() => attempt(left - 1), 400);
+        };
+        attempt(15);
       } else if (action.type === "parts") {
         viewer.setSelection(null);
         viewer.frameParts?.(action.parts);

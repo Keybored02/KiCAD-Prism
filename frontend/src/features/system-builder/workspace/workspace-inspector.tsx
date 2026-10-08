@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { PanelBottomOpen } from "lucide-react";
+import { PanelBottomOpen, Spline } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { updateSystem } from "@/lib/systems-api";
@@ -36,6 +36,8 @@ interface InspectorProps {
   slot?: (node: HTMLElement | null) => void;
   /** Opens the tray on the selected link's or harness's rows. */
   onEditRows: () => void;
+  /** Opens the 3D view in Route mode on a harness (D-P2-51); absent without WebGPU or edit rights. */
+  onEditRoute?: (harnessId: string) => void;
 }
 
 function plural(count: number, word: string): string {
@@ -129,16 +131,25 @@ function LinkSummary({ document, link, findings, onEditRows }: { document: Syste
   );
 }
 
-function HarnessSummary({ document, harness, findings, onEditRows }: { document: SystemDocument; harness: SystemHarness; findings: Finding[]; onEditRows: () => void }) {
+function HarnessSummary({ document, harness, findings, onEditRows, onEditRoute }: {
+  document: SystemDocument; harness: SystemHarness; findings: Finding[]; onEditRows: () => void; onEditRoute?: (harnessId: string) => void;
+}) {
   const own = harnessFindings(findings, harness.id);
   const label = (instanceId: string | null | undefined) => document.instances.find((item) => item.id === instanceId)?.label;
   return (
     <div className="space-y-5">
       <InspectorHeader kind="Harness" title={harness.name}
         actions={(
-          <Button variant="ghost" size="icon-sm" aria-label="Open its wires" title="Open its wires in the tray" onClick={onEditRows}>
-            <PanelBottomOpen className="size-4" />
-          </Button>
+          <>
+            {onEditRoute && (
+              <Button variant="ghost" size="icon-sm" aria-label="Edit route" title="Edit its route in 3D" onClick={() => onEditRoute(harness.id)}>
+                <Spline className="size-4" />
+              </Button>
+            )}
+            <Button variant="ghost" size="icon-sm" aria-label="Open its wires" title="Open its wires in the tray" onClick={onEditRows}>
+              <PanelBottomOpen className="size-4" />
+            </Button>
+          </>
         )} />
       <InspectorFacts rows={[
         { label: "Wires", value: String(harness.wires.length) },
@@ -184,7 +195,7 @@ export function WorkspaceInspector(props: InspectorProps) {
       ) : link ? (
         <LinkSummary document={document} link={link} findings={findings} onEditRows={props.onEditRows} />
       ) : harness ? (
-        <HarnessSummary document={document} harness={harness} findings={findings} onEditRows={props.onEditRows} />
+        <HarnessSummary document={document} harness={harness} findings={findings} onEditRows={props.onEditRows} onEditRoute={props.onEditRoute} />
       ) : (
         <SystemOverview {...props} />
       )}
