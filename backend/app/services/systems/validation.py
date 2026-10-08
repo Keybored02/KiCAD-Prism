@@ -38,6 +38,7 @@ RULES = {
     "SYS-V18": ("mate_pair_unknown", "warning"),
     "SYS-V19": ("mate_pin_mismatch", "error"),
     "SYS-V20": ("harness_tight_bend", "info"),
+    "SYS-V21": ("subport_pad_absent", "warning"),
 }
 # Opt-in per system (``system_projects.optional_rules``, CONTRACTS_P2 §8.4): off unless enabled.
 OPTIONAL_RULES = frozenset({"SYS-V09"})
@@ -342,3 +343,22 @@ def mating_findings(stale: Sequence[Mapping[str, Any]]) -> list[dict]:
     """SYS-V17 (CONTRACTS_P2 §15.2): a stored frame whose port geometry changed since it was confirmed."""
     return [_finding("SYS-V17", instance_id=item["instanceId"], reference=item["reference"],
                      detail={"portKey": item["portKey"], "mode": item["mode"]}) for item in stale]
+
+
+def subport_findings(subports: Sequence[Mapping[str, Any]], interfaces: Mapping[str, Mapping[str, Any]]) -> list[dict]:
+    """SYS-V21 (CONTRACTS_P2 §22.4): a sub-port naming a pad its connector, or its subsystem export,
+    no longer has. A connector that no longer resolves is SYS-V03/V16 on its ends, not this."""
+    out = []
+    for subport in subports:
+        interface = interfaces.get(subport["instance_id"])
+        component = exposure.component_by_key(interface, subport["port_key"]) if interface else None
+        if component is None:
+            continue
+        pads = exposure.pins_by_pad(component)
+        missing = sorted((pad for pad in subport["pads"] if pad not in pads), key=pad_sort_key)
+        if missing:
+            # The sub-port's own label as the reference: the tray names it, and each sub-port keys apart.
+            out.append(_finding("SYS-V21", instance_id=subport["instance_id"],
+                                reference=f"{component['reference']}.{subport['name']}",
+                                detail={"subportId": subport["id"], "name": subport["name"], "pads": missing}))
+    return out

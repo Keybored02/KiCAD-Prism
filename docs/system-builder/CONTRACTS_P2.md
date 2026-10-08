@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.71 · 2026-10-09 · tickets SB2-00 to SB2-107.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.72 · 2026-10-09 · tickets SB2-00 to SB2-107.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -446,6 +446,7 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 | SYS-V18 | `mate_pair_unknown` | warning | Both parts of a harness end or `b2b` pair are known and not related by mates-with (§18). |
 | SYS-V19 | `mate_pin_mismatch` | error | A harness end's part has a different pin count from its mated connector and a wired pin has no map (§17.2). |
 | SYS-V20 | `harness_tight_bend` | info | A root-level harness segment still bends tighter than 6 × its bundle diameter after relaxation (§17.8). Detail `{harnessId, segmentId, radiusMm, minRadiusMm, atMm}`. |
+| SYS-V21 | `subport_pad_absent` | warning | A sub-port names a pad its connector (or subsystem export) no longer has (§22.4). Detail `{subportId, name, pads}`. |
 
 **Optional rules (P2-1.10, user decision 2026-09-30).** `system_projects.optional_rules` (migration 35) lists the opt-in rules a system runs; today the only one is `SYS-V09`, because real boards rename nets across connectors far more often than they miswire them (108 warnings on the JTYU C&DH set). It is set with `PATCH /systems/{id}` `{"optionalRules": ["SYS-V09"]}` (the list replaces the stored one; `null` clears it; any other rule is 422), bumps the system version, is audited as `system_updated`, and is shown in the system summary and the manifest header. The Overview tab has a **Checks** section with the switch. `SYS-V10` always runs.
 
@@ -591,10 +592,12 @@ Everything else stays on reader or writer roles, including inventory export, hea
 | 409 | `port_already_mated` | A port in a second `b2b` link or harness end (§16.2, §17.2) |
 | 409 | `harness_not_linkable` | Converting a harness with more than two ends, splices or a pin map to a link (§16.1) |
 | 409 | `mating_not_inferable` | Confirming a `low` inference (§15.3) |
+| 409 | `port_split`, `port_b2b_mated`, `port_exported`, `subport_exported` | §22.2–§22.4 |
+| 422 | `subport_overlap`, `subport_limit`, `subport_empty`, `subport_name_taken`, `pin_not_on_subport` | §22.1–§22.2 |
 
 ## 13. Audit event kinds (additions)
 
-`git_linked`, `git_relinked`, `git_unlinked`, `snapshot_committed`, `snapshot_commit_refused`, `manifest_imported`, `manifest_import_rejected` (§21), `system_imported`, `export_created`, `export_updated`, `export_retargeted`, `export_deleted`, `snapshot_published`, `child_auto_advanced`, `child_rebased`, `link_type_changed`, `harness_created`, `harness_updated`, `harness_deleted`, `pose_updated`, `poses_reset`, `mating_updated`. `harness_created` carries `fromLink` or `fromLabel` when it replaced links (§16.1, §17.2).
+`git_linked`, `git_relinked`, `git_unlinked`, `snapshot_committed`, `snapshot_commit_refused`, `manifest_imported`, `manifest_import_rejected` (§21), `system_imported`, `export_created`, `export_updated`, `export_retargeted`, `export_deleted`, `snapshot_published`, `child_auto_advanced`, `child_rebased`, `link_type_changed`, `harness_created`, `harness_updated`, `harness_deleted`, `pose_updated`, `poses_reset`, `mating_updated`. `subport_created`, `subport_updated`, `subport_deleted` (§22.3). `harness_created` carries `fromLink` or `fromLabel` when it replaced links (§16.1, §17.2).
 
 ## 14. Frames and placement conventions (SB2-10)
 
@@ -947,6 +950,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.72 | 2026-10-09 | SB2-105 (D-P2-55): sub-ports (§22). Named pad sets carved out of a connector or subsystem export, usable as link ends and export targets; the remainder stays on the connector; carving re-homes rows (retarget or split links) in one audited change with a preview; `b2b` connectors cannot be split; SYS-V21 `subport_pad_absent`; migration 50; manifest `subports` and `subportId` omitted while empty. |
 | P2-1.71 | 2026-10-09 | SB2-107: the reviews and findings report, `GET …/report.xlsx` and `…/report.csv` (§8.6). `openpyxl` becomes a direct runtime dependency (it was already locked through `kicad-cruncher`). |
 | P2-1.70 | 2026-10-09 | SB2-101: system summaries carry `boardTotal` (boards counted through every subsystem; null if the hierarchy can't be resolved). `GET /api/systems` also carries `lastSnapshot {id, name, createdAt}`, `git {branch, outsideChange, error}` and `findingCounts` (the last document build's counts, only when built at the current version). Counts live in `system_finding_counts` (migration 49), without a foreign key so a reader recording them never holds a lock an editor waits on. |
 | P2-1.69 | 2026-10-09 | SB2-100 (D-P2-56): finding keys and waivers (§8.5): warnings and info only, with a note, versioned, in the manifest and the ICD (renderer 5); counts leave waived findings out. |
@@ -1356,3 +1360,60 @@ A system can be linked to a Git repository of its own. Snapshots then become com
 | `POST …/snapshots/{sid}/git-retry` | 202 `{jobId}`: queue the commit again for a `failed` or `refused` snapshot (`refused` only once the outside change is cleared; otherwise 409 `git_outside_change`, `git_not_linked` or `git_not_retryable`) |
 
 Link changes bump the system version and write the audit events `git_linked`, `git_relinked` and `git_unlinked`. Commits write `snapshot_committed {snapshotId, commit, branch}`, and refusals `snapshot_commit_refused {snapshotId, commit}`, as `system:git`.
+
+## 22. Sub-ports (SB2-105, D-P2-55)
+
+A system's designer can split a port on an instance into named **sub-ports**: pin sets carved out of one connector (or one subsystem export), each usable as a port in its own right. `J6.PWR` = pads 1, 2, 15 of `J6`; the pads left over stay on `J6` itself (the **remainder**). Sub-ports are logical: mating, frames, stack height and 3D stay per physical connector.
+
+### 22.1 Definition and storage
+
+- **Where.** Per system, on an instance (like port overrides, P1 §5). Another system using the same board defines its own.
+- **Shape.** `{id, instanceId, portKey, port, name, pads}`.
+  - `id`: `spt_` ID, stable for the sub-port's life.
+  - `portKey` / `port`: the connector's baseline, stored and resolved like a link end's (P1 §6, `memberKeys`). On an assembly instance `portKey` is an export ID and `port` an `ExportBaseline` (§6.1).
+  - `name`: 1–32 characters of `A–Z a–z 0–9 _ + -`, unique per connector case-insensitively. Shown as `{reference}.{name}` (`J6.PWR`); exporting a sub-port defaults the export's name to that.
+  - `pads`: a non-empty, sorted (`pad_sort_key`) list of the connector's pads. The sub-ports of a connector together always leave at least one pad on it, so the remainder is never empty by definition.
+- **Disjoint.** Sub-ports of one connector never share a pad (422 `subport_overlap`). The remainder is every pad of the connector not in a sub-port; it has no row of its own. Other 422 codes: `invalid_name`, `subport_name_taken`, `subport_empty`, `pin_not_found`.
+- **Limits.** At most 16 sub-ports per connector and 200 per system (422 `subport_limit`).
+- **Storage (workspace migration 50).** `system_subports(id, system_id, instance_id FK cascade, port_key, port JSONB, name, pads JSONB, created_by, created_at, UNIQUE(instance_id, port_key, lower(name)))`. `system_links` gains `a_subport_id` and `b_subport_id`, and `system_exports` gains `target_subport_id`, each nullable and referencing `system_subports(id)` (no cascade: deletion re-homes first, §22.3).
+
+### 22.2 Use as a port
+
+A link end and an export target name a sub-port by adding `subportId` to the port they already name: `{instanceId, portKey, subportId}`. Without `subportId` an end on a split connector is its **remainder**.
+
+- **Pins.** A row's pad on a sub-port end must be in the sub-port's `pads`; on a remainder end it must be in no sub-port of that connector (422 `pin_not_on_subport`). Generators and CSV import work on the end's own pad set.
+- **Links.** Unspecified links only. A `b2b` link can neither end at a sub-port or a remainder of a split connector nor be created on one (409 `port_split`), and a connector that is an end of a `b2b` link cannot be split (409 `port_b2b_mated`); its rows all go to the partner (D-P2-55).
+- **Harnesses.** A harness end mates the whole connector, split or not. Its wires keep their pads; the document, ICD and CSV name each wire end's pad by the sub-port that holds it (`J6.PWR`), or the connector for the remainder.
+- **Exports.** A sub-port or a remainder can be exported (§4). "An export's port must be free" (§4.2 rule 1) and "an exported port cannot be linked" (rule 8) apply per sub-port and per remainder: `J6.PWR` exported and `J6` linked is allowed. The export interface (§4.3) carries the sub-port as a component of its own: `reference` `J6.PWR`, its pads only, and `subport: true`; the parent cannot use it in a `b2b` link. A connector carrying a whole-connector export (no sub-ports when exported) cannot be split while exported (409 `port_exported`): export a sub-port instead, or delete the export first.
+- **Exposure.** Only an exposed connector can be split (409 `port_not_exposed`). A split connector counts as linked for hiding (it cannot be hidden while it has sub-ports).
+- **Subsystems.** A parent splits a subsystem's export the same way: `portKey` is the export ID and `pads` are pads of that export at the pinned revision.
+- **Nets.** System nets (§8) are per pad, so splitting changes no net. Hops name the end as its sub-port.
+- **V02.** Fan-out stays keyed by `(instance, connector, pad)`; disjoint sub-ports never raise it.
+
+### 22.3 Carving, editing and removing (rows move)
+
+Every change re-homes rows so no row is on the wrong end, in one audited system change:
+
+1. For each **unspecified link** with an end on the connector, each row goes to the end (sub-port or remainder) that now holds its pad.
+2. A link whose rows all go to one other end is **retargeted** (`subportId` set or cleared). A link whose rows split across ends keeps the rows of its current end and gives the rest to **new links**, one per end, each with the same other end, `harness` label and type, named `{link name} · {sub-port name}` (or `{link name}` for the remainder); row IDs are kept.
+3. An export on a sub-port being removed, or whose sub-port loses all its pads, refuses the change (409 `subport_exported`). Changing an exported sub-port's pads is allowed and shows in the parent as child drift (§7).
+
+- **API.**
+  - `POST …/instances/{iid}/subports {portKey, name, pads}` (designer, `If-Match`) → 201 `{subport, moves}`.
+  - `PATCH …/instances/{iid}/subports/{spid} {name?, pads?}` → 200 `{subport, moves}`.
+  - `DELETE …/instances/{iid}/subports/{spid}` → 200 `{moves}`: its rows return to the remainder.
+  - Each takes `?preview=true`: the same validation and `moves` with nothing written and no version bump.
+  - `moves`: `[{linkId, action: "retarget" | "split", rowIds, toSubportId, newLinkName}]`.
+- **Audit.** `subport_created`, `subport_updated`, `subport_deleted`, each with `{instanceId, portKey, subportId, name, pads, moves}`.
+
+### 22.4 Drift and findings
+
+- **Baseline.** A sub-port's `port` follows its connector like a link end: when a baseline advance or an applied review moves the connector (silent relabel, accepted connector change), its sub-ports move with it. `bind_candidate` on an end of a split connector is refused (409 `port_split`): ends of one connector could otherwise be bound to different connectors; remove the sub-ports, bind, and carve again.
+- **SYS-V21 `subport_pad_absent`** (warning). A sub-port names a pad its connector no longer has at the board's baseline, or that its subsystem export no longer has at the pinned revision. Detail `{subportId, name, pads}` (the missing pads). Rows on that pad are SYS-V04 as before.
+
+### 22.5 Document, manifest, ICD
+
+- **Document.** `instances[].subports: [{id, portKey, name, pads}]`. A link end gains `subport: {id, name} | null`; an export gains `subportId` and `subport`. Restricted boards (§5.4) hide `pads` and the names stay.
+- **Manifest.** Board, module and assembly instances gain `subports: [{id, portKey, name, pads}]`; port and export ends and export targets gain `subportId`. Both are omitted while empty or null, so manifests written before them keep their digests. They are part of `full` and `connectivity` (§9.3). Referential rules (§9.2): a `subportId` names a sub-port of that end's instance and connector; sub-ports of a connector are disjoint; rows on an end use that end's pads.
+- **ICD and CSV.** Ends read `{label} {reference}.{name}`. The connector column in the ICD CSV is `J6.PWR`, and import resolves `J6.PWR` to the sub-port (and `J6` to the remainder of a split connector), so the round trip holds.
+- **Diagram.** A split connector shows each sub-port and the remainder as ports of their own on the board.

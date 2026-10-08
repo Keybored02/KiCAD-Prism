@@ -201,8 +201,11 @@ class HarnessesStore:
         return self.get_link(change.system_id, link_id)
 
     def _check_b2b_ports(self, system_id: str, link_id: str, ends: Sequence[tuple[str, str]]) -> None:
-        """§16.2 [T6]: a port is in at most one ``b2b`` link."""
+        """§16.2 [T6]: a port is in at most one ``b2b`` link; P2 §22.2: never a split connector."""
         for instance_id, port_key in ends:
+            if self.conn.execute("SELECT 1 FROM system_subports WHERE instance_id = %s AND port_key = %s LIMIT 1",
+                                 (instance_id, port_key)).fetchone() is not None:
+                raise Conflict("port_split: this connector has sub-ports; a board-to-board link mates a whole connector")
             clash = self.conn.execute(
                 """
                 SELECT id FROM system_links
@@ -224,11 +227,13 @@ class HarnessesStore:
         if end not in ("a", "b"):
             raise Invalid("end must be 'a' or 'b'")
         if link_id.startswith(HARNESS_END_PREFIX):  # a harness end's mate (CONTRACTS_P2 §17.2 drift)
-            self._end_as_link(change.system_id, link_id)
+            before = self._end_as_link(change.system_id, link_id)
             self.conn.execute("UPDATE system_harness_ends SET mates_port = %s WHERE id = %s",
                               (Jsonb(_port_baseline(port)), link_id))
+            self.follow_connector(before["a_instance_id"], before["a_port"], port)  # P2 §22.4
             return
-        self.get_link(change.system_id, link_id)
+        before = self.get_link(change.system_id, link_id)
+        self.follow_connector(before[f"{end}_instance_id"], before[f"{end}_port"], port)  # P2 §22.4
         self.conn.execute(
             f"UPDATE system_links SET {end}_port = %s, updated_at = NOW() WHERE id = %s",
             (Jsonb(_port_baseline(port)), link_id),

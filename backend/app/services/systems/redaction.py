@@ -49,6 +49,9 @@ def redact_instance(instance: Mapping[str, Any]) -> dict:
         "projectDeleted": instance.get("projectDeleted", False),
         "tipCommit": None, "tipCheckedAt": None, "updateAvailable": None,
         "interface": None, "ports": None,
+        # P2 §22.5: sub-port names stay (links name them); the connector and pads do not.
+        "subports": [{"id": sub["id"], "portKey": None, "name": sub["name"], "pads": None}
+                     for sub in instance.get("subports") or []],
     }
 
 
@@ -59,7 +62,7 @@ def redact_link(link: Mapping[str, Any], restricted: Collection[str]) -> dict:
     netless = [end for end in ("a", "b") if end not in hidden and _hides_nets(out[end], hidden_ports(restricted))]
     for end in hidden:
         out[end] = {"instanceId": out[end]["instanceId"], "redacted": True, "port": None,
-                    "resolved": None, "exposed": None}
+                    "resolved": None, "exposed": None, "subport": out[end].get("subport")}
     for end in netless:
         out[end]["export"] = None
     for row in out["rows"]:

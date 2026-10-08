@@ -205,21 +205,27 @@ class DocumentsMixin:
                 harness, components, all_overrides,
                 system.get("optionalRules") or (), validation.make_finding))
         report = validation.with_findings(report, self._mate_pair_findings(links, harness_rows, interfaces))
+        subport_rows = store.list_subports(system_id)  # SB2-105 (P2 §22)
+        report = validation.with_findings(report, validation.subport_findings(subport_rows, interfaces))
         # SB2-100 (D-P2-56): waivers last, over every finding above.
         report = validation.apply_waivers(report, store.list_waivers(system_id))
         store.record_finding_counts(system_id, system["version"], report["counts"])  # SB2-101: for the systems list
         review_rows = sorted({rid for review in open_reviews for item in review["items"] for rid in item["row_ids"]})
-        link_docs = [self._link_doc(link, interfaces, overrides, mating) for link in links]
+        subports_by_id = {row["id"]: row for row in subport_rows}
+        link_docs = [self._link_doc(link, interfaces, overrides, mating, subports_by_id) for link in links]
         export_docs = [self._export_doc(export, interfaces, overrides) for export in exports]
         all_instances = store.list_instances(system_id, kinds=SystemStore.ALL_KINDS)
+        instance_docs = [
+            self._instance_doc(i, names.get(i["project_id"]), interfaces.get(i["id"]),
+                               overrides.get(i["id"], {}),
+                               job_state.get(artifact_key(i["project_id"], i["baseline_commit"])))
+            for i in instances
+        ] + catalog_docs
+        for doc in instance_docs:
+            doc["subports"] = [_subport_entry(row) for row in subport_rows if row["instance_id"] == doc["id"]]
         return {
             "system": dict(system),
-            "instances": [
-                self._instance_doc(i, names.get(i["project_id"]), interfaces.get(i["id"]),
-                                   overrides.get(i["id"], {}),
-                                   job_state.get(artifact_key(i["project_id"], i["baseline_commit"])))
-                for i in instances
-            ] + catalog_docs,
+            "instances": instance_docs,
             "links": link_docs,
             "exports": export_docs,
             "harnesses": harness_docs,
@@ -388,6 +394,7 @@ class DocumentsMixin:
     def _link_doc(
         self, link: dict, interfaces: Mapping[str, dict], overrides: Mapping[str, Mapping[str, str]],
         mating: Optional[Mapping[str, Mapping[str, dict]]] = None,
+        subports: Optional[Mapping[str, Mapping[str, Any]]] = None,
     ) -> dict:
         ends: dict[str, dict] = {}
         pins: dict[str, Optional[dict]] = {}
@@ -408,6 +415,8 @@ class DocumentsMixin:
                 ),
                 # The port's stored mating frame (CONTRACTS_P2 §15.2), for the ICD's board-to-board table.
                 "mating": _mating_summary(((mating or {}).get(instance_id) or {}).get(port["portKey"])),
+                # P2 §22: the sub-port this end lands on; null for a whole connector or its remainder.
+                "subport": _end_subport(link.get(f"{end}_subport_id"), subports),
             }
             pins[end] = exposure.pins_by_pad(component) if component is not None else None
 
@@ -665,5 +674,17 @@ def _digest(value: Any) -> str:
 
 
 def _end_key(end: Mapping[str, Any]) -> list:
-    """A link end's identity for the read keys: its instance and the port or export it lands on."""
-    return [end.get("instanceId"), (end.get("port") or {}).get("portKey"), (end.get("export") or {}).get("id")]
+    """A link end's identity for the read keys: its instance and the port, export or sub-port it lands on."""
+    key = [end.get("instanceId"), (end.get("port") or {}).get("portKey"), (end.get("export") or {}).get("id")]
+    return key + [end["subport"]["id"]] if end.get("subport") else key
+
+
+def _subport_entry(row: Mapping[str, Any]) -> dict:
+    return {"id": row["id"], "portKey": row["port_key"], "name": row["name"], "pads": list(row["pads"])}
+
+
+def _end_subport(subport_id: Optional[str], subports: Optional[Mapping[str, Mapping[str, Any]]]) -> Optional[dict]:
+    if not subport_id:
+        return None
+    found = (subports or {}).get(subport_id)
+    return {"id": subport_id, "name": found["name"] if found else None}

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Optional
 
-from app.services.systems import csv_import, drift, exports, exposure
+from app.services.systems import csv_import, drift, exports, exposure, subports
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.store import Conflict, Invalid, Mutation, NotFound, SystemStore
 
@@ -110,6 +110,11 @@ def _validate(store: SystemStore, review: Mapping[str, Any], item: Mapping[str, 
         raise Invalid(f"{decision} does not apply to a {item['kind']} item")
     link = store.get_link(review["system_id"], item["link_id"])
     if decision == "bind_candidate":
+        end = item["link_end"]
+        if link.get(f"{end}_subport_id") or (link.get(f"{end}_port") and subports.on_connector(
+                store.list_subports(review["system_id"]), link[f"{end}_instance_id"], link[f"{end}_port"])):
+            raise Conflict("port_split: this connector has sub-ports; remove them before binding it to another "
+                           "connector (P2 §22.4)")
         port_key = payload.get("portKey")
         offered = {c["portKey"] for c in item.get("candidates") or []}
         if port_key not in offered:

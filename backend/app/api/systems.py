@@ -75,12 +75,14 @@ class LinkEnd(BaseModel):
     instanceId: str = Field(min_length=1, max_length=200)
     portKey: Optional[str] = Field(default=None, min_length=1, max_length=2000)
     exportId: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    subportId: Optional[str] = Field(default=None, min_length=1, max_length=100)  # P2 §22.2
 
     def key(self) -> str:
         return self.portKey or self.exportId or ""
 
     def as_end(self) -> dict:
-        return {"instanceId": self.instanceId, "portKey": self.key()}
+        end = {"instanceId": self.instanceId, "portKey": self.key()}
+        return {**end, "subportId": self.subportId} if self.subportId else end
 
 
 class CreateLinkRequest(BaseModel):
@@ -1135,3 +1137,5 @@ async def put_layout(
 from app.api import systems_git  # noqa: E402,F401
 # Finding waivers (SB2-100) too.
 from app.api import systems_findings  # noqa: E402,F401
+# Sub-ports (SB2-105) too.
+from app.api import systems_subports  # noqa: E402,F401
