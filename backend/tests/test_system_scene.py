@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,7 +19,7 @@ from test_system_snapshots import DESIGNER, VIEWER
 
 from app.api import systems as systems_api
 from app.services.systems import service as service_module
-from app.services.systems.bundles import BundleSource, mid_plane_from_layers
+from app.services.systems.bundles import BundleSource, BundleUnreadable, mid_plane_from_layers
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION, _arc_points, extract_interface
 from app.services.systems.placement import poses
 from app.services.systems.scene import asset_id, board_bounds
@@ -103,6 +104,14 @@ class BundleSourceTest(unittest.TestCase):
         self.assertEqual(last, {"jobId": "job_9", "status": "failed", "error": "kicad-cli missing"})
 
 
+    def test_a_bundle_whose_files_are_gone_is_unreadable_not_board_stage(self) -> None:
+        # SB2-91: None means "board stage, wait"; files that are gone must not read the same.
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("app.services.semantic_visualizer_service.bundle_dir", return_value=Path(tmp) / "gone"):
+            with self.assertRaises(BundleUnreadable):
+                BundleSource().mid_plane_mm("prj_1", {"source_fingerprint": "src", "build_fingerprint": "gen",
+                                                       "bundle_url": "/b/bundle.json"})
+
     def test_the_job_key_names_the_generator_build(self) -> None:
         # A completed job satisfies a request with the same key; one built by an older
         # viewer or pipeline must not, or a stale bundle reads as "building" forever.
@@ -125,6 +134,7 @@ class FakeBundles:
         self.ready: set[tuple[str, str]] = set()
         self.builds: list[tuple[str, str, str]] = []
         self.jobs: dict[tuple[str, str], dict] = {}
+        self.unreadable: set[str] = set()  # projects whose ready bundle's files are gone
 
     def status(self, project, commit: str) -> dict:
         if (project.id, commit) in self.ready:
@@ -142,6 +152,8 @@ class FakeBundles:
         return job_id
 
     def mid_plane_mm(self, project_id: str, status: dict) -> float:
+        if project_id in self.unreadable:
+            raise BundleUnreadable("bundle.json: No such file or directory")
         return 0.8
 
 
@@ -200,6 +212,18 @@ class FlatSceneTest(SceneCase):
         self.assertEqual((failed["status"], failed["jobId"], failed["error"]),
                          ("failed", "job-old", "Missing required executable: kicad-cli"))
         self.assertNotIn(key, [(p, c) for p, c, _u in self.bundles.builds])
+
+    def test_a_ready_status_over_missing_files_is_failed_not_building(self) -> None:
+        # SB2-91: the status says ready but the bundle's files are gone (replaced under another
+        # generator build, or pruned): without a frame the page showed "generating" forever.
+        row = self.store.get_instance(self.sid, self.instances["PWR"])
+        self.bundles.ready.add((row["project_id"], row["baseline_commit"]))
+        self.bundles.unreadable = {"prj_pwr"}
+        scene = self.service.scene(DESIGNER, self.sid)
+        [asset] = [a for a in scene["assets"] if a["projectId"] == "prj_pwr"]
+        self.assertEqual((asset["status"], asset["bundleUrl"], asset["bundleToBoard"]), ("failed", None, None))
+        self.assertIn("Regenerate", asset["error"])
+        self.assertNotIn(("prj_pwr", row["baseline_commit"]), [(p, c) for p, c, _u in self.bundles.builds])
 
     def test_a_completed_build_without_a_bundle_is_failed_not_building(self) -> None:
         # E.g. the worker built under another generator build, or the bundle was pruned:

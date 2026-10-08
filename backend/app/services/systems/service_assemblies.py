@@ -8,6 +8,7 @@ from app.services.systems import (
     child_drift, exports as exports_module, exposure, hierarchy, modules, redaction, sources, system_nets, validation,
     scene as scene_module, visibility,
 )
+from app.services.systems.bundles import BundleUnreadable
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.placement import harness_checks, harness_route, poses as poses_module
 from app.services.systems.store import Conflict, Forbidden, Invalid, NotFound, SystemStore
@@ -583,10 +584,17 @@ class AssembliesMixin:
             logger.exception("Could not read the 3D bundle status of %s@%s", project_id, commit)
             return {**entry, "status": "failed"}
         if status.get("available"):
+            try:
+                mid_plane = self._bundles.mid_plane_mm(project_id, status)
+            except BundleUnreadable:
+                # SB2-91: a status that says ready over files that are gone would show "generating" forever.
+                return {**entry, "status": "failed", "generatorBuild": status.get("build_fingerprint"),
+                        "error": "The 3D files of this revision are missing or unreadable on this server. "
+                                 "Regenerate it from the board's 3D tab."}
             entry.update(status="ready" if status.get("status") == "ready" else "building",
                          bundleUrl=status.get("bundle_url"), sourceRevisionKey=status.get("sourceRevisionKey"),
                          generatorBuild=status.get("build_fingerprint"),
-                         bundleToBoard=scene_module.bundle_to_board(self._bundles.mid_plane_mm(project_id, status)))
+                         bundleToBoard=scene_module.bundle_to_board(mid_plane))
             return entry
         try:
             last = self._bundles.last_build(project_id, commit)
