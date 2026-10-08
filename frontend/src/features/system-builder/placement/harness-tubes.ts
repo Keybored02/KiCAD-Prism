@@ -36,6 +36,9 @@ export interface Tube {
   /** `level/id`, as the viewer keys harnesses. */
   harness: string;
   segmentId: string;
+  /** The segment's nodes (end or breakout IDs; `auto` for the automatic breakout), samples run from `from`. */
+  from: string;
+  to: string;
   /** Samples in world mm, flat `[x, y, z, …]`. */
   samplesMm: number[];
   radiusMm: number;
@@ -86,6 +89,8 @@ export function harnessTubes(harnesses: readonly SceneHarness[], worldMatrixOf: 
       tubes.push({
         harness: key,
         segmentId: curve.segmentId,
+        from: segment.from,
+        to: segment.to,
         samplesMm: curve.samplesMm.flat(),
         radiusMm: segment.diameterMm / 2,
         wires: segment.wires,

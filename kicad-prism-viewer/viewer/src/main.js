@@ -35,6 +35,8 @@ import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
 import { collectStackupViaData } from "./stackup-vias.js";
 import { SvgDomSchematicRenderer } from "./svg-dom-schematic-renderer.js";
 import { harnessKey, harnessSegments, hubPoint, litEnds, litHarnessWires, segmentColor } from "./system-harness.js";
+import { AUTO, levelMatrix, nodeHandles, toLevel, withNodePreview } from "./harness-edit.js";
+import { pickTube } from "./tube-pick.js";
 // SB2-44: the placement library is shared with the app (one implementation, CONTRACTS_P2 §17).
 import { harnessTubes } from "../../../frontend/src/features/system-builder/placement/harness-tubes.ts";
 import { allReadyBoardsDrawn, assetLoadable, assetOccurrenceMatrix, boardTransition, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
@@ -78,6 +80,7 @@ let systemLabelsEl;
 let moveGizmoEl;
 let systemHelpEl;
 let systemHarnessEl;
+let harnessNodesEl;
 
 const query = (selector) => viewerRoot.querySelector(selector);
 const queryAll = (selector) => viewerRoot.querySelectorAll(selector);
@@ -112,6 +115,7 @@ function resolveDom(root = document) {
   moveGizmoEl = query("#move-gizmo");
   systemHelpEl = query("#system-help");
   systemHarnessEl = query("#system-harnesses");
+  harnessNodesEl = query("#harness-nodes");
   appEl.classList.add("workspace-pcb");
 }
 
@@ -1428,6 +1432,7 @@ export async function mountSystemViewer(options = {}) {
     loadBundle: options.loadBundle,
     onEmphasis: typeof options.onEmphasis === "function" ? options.onEmphasis : null,
     onMove: typeof options.onMove === "function" ? options.onMove : null,
+    onHarness: typeof options.onHarness === "function" ? options.onHarness : null,
     // The host's descriptor; `descriptor` is what is shown (with an unsaved move preview).
     baseDescriptor: null,
     descriptor: null,
@@ -1444,6 +1449,11 @@ export async function mountSystemViewer(options = {}) {
     // SB2-44: tube segments of the harnesses whose ends can be posed, and those harnesses' keys.
     tubes: [],
     tubedHarnesses: new Set(),
+    // SB2-45b: the picked harness `{key, segmentId, pointMm}`, its occurrences' world matrices,
+    // and an unsaved node position `{harness, id, positionMm}` (level frame).
+    harnessPick: null,
+    worlds: new Map(),
+    nodePreview: null,
     // SB2-30: when the first descriptor arrived and when every ready board was first drawn.
     timing: { descriptorAt: null, boardsDrawnAt: null },
     boards: new Map(),
@@ -1485,6 +1495,10 @@ export async function mountSystemViewer(options = {}) {
     previewPose,
     cancelMove,
     getMoveState: () => (system ? moveState() : null),
+    targetHarnessNode,
+    previewHarnessNode,
+    cancelHarnessNode,
+    getHarnessState: () => (system ? harnessState() : null),
     setLabelsVisible(visible) {
       if (!system) return;
       system.showLabels = Boolean(visible);
@@ -1593,6 +1607,7 @@ function setSystemScene(descriptor) {
   }
   for (const id of [...system.boards.keys()]) if (!live.has(id)) dropSystemBoard(id);
   placeSystem();
+  syncHarnessPick();
   if (system.move.enabled) {
     retargetMove({ quiet: true });
     // The host re-read the scene (after a save, or while bundles build): let it show the saved state.
@@ -1717,15 +1732,16 @@ function placeSystem({ relabel = true } = {}) {
 // ----- harness tubes (SB2-44) -----------------------------------------------------
 
 const HARNESS_RGB = [0.17, 0.18, 0.2];
+const PICKED_RGB = [0.24, 0.39, 0.87]; // the picked harness (SB2-45b), the move gizmo's Z blue
 
 /** Rebuild the tubes from the shown descriptor's placements (a load, a move, a drag preview). */
 function refreshSystemTubes() {
   if (!system?.descriptor) return;
   let tubes = [];
+  system.worlds = new Map(system.descriptor.occurrences.map((occurrence) => [occurrence.path, occurrence.worldMatrix]));
   if (system.showHarnesses && system.harnesses.length) {
-    const worlds = new Map(system.descriptor.occurrences.map((occurrence) => [occurrence.path, occurrence.worldMatrix]));
     try {
-      tubes = harnessTubes(system.harnesses, (path) => worlds.get(path) ?? null);
+      tubes = harnessTubes(withNodePreview(system.harnesses, system.nodePreview, harnessKey), worldMatrixOf);
     } catch (error) {
       console.warn("[prism-semantic-viewer] harness tubes failed", error);
     }
@@ -1735,11 +1751,16 @@ function refreshSystemTubes() {
   system.scene.setTubes(tubes, tubeColor);
 }
 
-/** A tube's colour: a lit wire's set colour, dimmed while another net is lit, else the harness grey. */
+function worldMatrixOf(path) {
+  return system.worlds.get(path) ?? null;
+}
+
+/** A tube's colour: a lit wire's set colour, dimmed while another net is lit, the picked harness in blue, else grey. */
 function tubeColor(tube) {
   const lit = system.harnessLit.get(tube.harness);
   const color = lit ? tube.wires.map((wire) => lit.get(wire)).find(Boolean) : null;
   if (color) return { rgb: hexColor(color), mode: 1 };
+  if (system.harnessPick?.key === tube.harness) return { rgb: PICKED_RGB, mode: 0 };
   return { rgb: HARNESS_RGB, mode: system.emphasisSets.length ? 2 : 0 };
 }
 
@@ -1837,6 +1858,7 @@ function frameSystem(now, token) {
     updateSystemLabels();
   }
   updateSystemHarnesses();
+  updateHarnessNodes();
   updateMoveGizmo();
   if (system.timing.boardsDrawnAt == null && allReadyBoardsDrawn(system.placed)) system.timing.boardsDrawnAt = performance.now();
   for (const b of systemBoards()) manageTiers(now, b);
@@ -2208,7 +2230,8 @@ function samePose(a, b) {
 }
 
 function initialMove() {
-  return { allowed: false, enabled: false, space: "world", target: null, preview: null, drag: null };
+  // `node`: a harness node the gizmo moves instead of a board (SB2-45b), or null.
+  return { allowed: false, enabled: false, space: "world", target: null, preview: null, drag: null, node: null };
 }
 
 /** The host's descriptor with the unsaved preview pose applied. */
@@ -2265,7 +2288,17 @@ function setMoveAllowed(allowed) {
 function setMoveMode(enabled) {
   const next = Boolean(enabled) && system.move.allowed;
   if (next === system.move.enabled) return;
-  if (!next) dropMoveTarget();
+  if (!next) {
+    dropMoveTarget();
+    if (system.move.node) {
+      system.move.node = null;
+      if (system.nodePreview) {
+        system.nodePreview = null;
+        refreshSystemTubes();
+      }
+      emitHarness("target");
+    }
+  }
   system.move.enabled = next;
   if (next) retargetMove({ quiet: true });
   emitMove("mode");
@@ -2340,8 +2373,10 @@ function screenOfMm(pointMm) {
 function updateMoveGizmo() {
   const svg = moveGizmoEl;
   if (!svg) return;
-  const target = moveTargetOccurrence();
-  const pivot = system.move.enabled && target && panel ? movePivotMm() : null;
+  // A harness node (SB2-45b) takes the gizmo from the board: translate only, world axes.
+  const node = system.move.enabled && panel ? targetHandle() : null;
+  const target = node ? null : moveTargetOccurrence();
+  const pivot = node ? node.worldMm : system.move.enabled && target && panel ? movePivotMm() : null;
   const center = pivot ? screenOfMm(pivot) : null;
   if (!center) {
     svg.toggleAttribute("hidden", true);
@@ -2358,8 +2393,8 @@ function updateMoveGizmo() {
     return;
   }
   const sizeMm = GIZMO_PX / pxPerMm;
-  const pose = system.move.preview ?? target.pose;
-  const axes = system.move.space === "local" ? localAxes(pose) : AXES;
+  const pose = target ? system.move.preview ?? target.pose : null;
+  const axes = pose && system.move.space === "local" ? localAxes(pose) : AXES;
   const handles = [];
   axes.forEach((axis, index) => {
     const tip = screenOfMm(add(pivot, scale(axis, sizeMm)));
@@ -2385,7 +2420,9 @@ function updateMoveGizmo() {
       const point = screenOfMm(add(pivot, scale(add(scale(u, Math.cos(angle)), scale(v, Math.sin(angle))), sizeMm * 0.7)));
       if (point) points.push(`${point[0].toFixed(1)},${point[1].toFixed(1)}`);
     }
-    svg.querySelector(`[data-part="r${index}"]`).setAttribute("points", points.join(" "));
+    const ring = svg.querySelector(`[data-part="r${index}"]`);
+    ring.setAttribute("points", points.join(" "));
+    ring.style.display = node ? "none" : "";
     handles.push({ axis, pxPerMm: tip ? [(tip[0] - center[0]) / sizeMm, (tip[1] - center[1]) / sizeMm] : [0, 0] });
   });
   const dot = svg.querySelector('[data-part="pivot"]');
@@ -2430,8 +2467,27 @@ function startGizmoDrag(event) {
   if (!system || !part || !system.gizmo || !/^[tr][012]$/.test(part)) return;
   event.preventDefault();
   event.stopPropagation();
-  const target = moveTargetOccurrence();
   const rect = moveGizmoEl.getBoundingClientRect();
+  const node = targetHandle();
+  if (node) {
+    if (part[0] !== "t") return;
+    system.move.drag = {
+      kind: "node",
+      handle: system.gizmo.handles[Number(part[1])],
+      start: [event.clientX - rect.left, event.clientY - rect.top],
+      startMm: node.worldMm,
+      startPreview: system.nodePreview,
+      matrix: levelMatrix(pickedHarness(), worldMatrixOf),
+      changed: false,
+    };
+    try {
+      moveGizmoEl.setPointerCapture(event.pointerId);
+    } catch {
+      // A synthetic pointer cannot be captured; the drag still works while over the gizmo.
+    }
+    return;
+  }
+  const target = moveTargetOccurrence();
   system.move.drag = {
     kind: part[0] === "t" ? "translate" : "rotate",
     handle: system.gizmo.handles[Number(part[1])],
@@ -2456,6 +2512,16 @@ function moveGizmoDrag(event) {
   const rect = moveGizmoEl.getBoundingClientRect();
   const now = [event.clientX - rect.left, event.clientY - rect.top];
   const fine = event.shiftKey;
+  if (drag.kind === "node") {
+    const amount = snapTo(axisAmount([now[0] - drag.start[0], now[1] - drag.start[1]], drag.handle.pxPerMm), fine ? SNAP.fineMm : SNAP.mm);
+    const world = add(drag.startMm, scale(drag.handle.axis, amount));
+    drag.changed = drag.changed || amount !== 0;
+    system.nodePreview = { harness: system.harnessPick.key, id: system.move.node, positionMm: drag.matrix ? toLevel(drag.matrix, world) : world };
+    showReadout(`${amount >= 0 ? "+" : ""}${amount.toFixed(fine ? 1 : 0)} mm`, now);
+    refreshSystemTubes();
+    emitHarness("preview");
+    return;
+  }
   let pose;
   let readout;
   if (drag.kind === "translate") {
@@ -2470,21 +2536,29 @@ function moveGizmoDrag(event) {
   }
   drag.changed = drag.changed || !samePose(pose, drag.startPose);
   system.move.preview = canonicalPose(pose);
-  const text = moveGizmoEl.querySelector('[data-part="readout"]');
-  text.textContent = readout;
-  text.setAttribute("x", now[0] + 14);
-  text.setAttribute("y", now[1] - 10);
+  showReadout(readout, now);
   refreshPreview();
   emitMove("preview");
 }
 
-/** Releasing a handle saves (D-P2-14): the host stores the pose and re-reads the scene. */
+function showReadout(text, at) {
+  const readout = moveGizmoEl.querySelector('[data-part="readout"]');
+  readout.textContent = text;
+  readout.setAttribute("x", at[0] + 14);
+  readout.setAttribute("y", at[1] - 10);
+}
+
+/** Releasing a handle saves (D-P2-14): the host stores the pose (or node) and re-reads the scene. */
 function endGizmoDrag(event) {
   const drag = system?.move.drag;
   if (!drag) return;
   if (moveGizmoEl.hasPointerCapture?.(event.pointerId)) moveGizmoEl.releasePointerCapture(event.pointerId);
   system.move.drag = null;
   moveGizmoEl.querySelector('[data-part="readout"]').textContent = "";
+  if (drag.kind === "node") {
+    if (drag.changed) emitHarness("commit");
+    return;
+  }
   if (drag.changed) emitMove("commit");
   else if (!drag.hadPreview) cancelMove();
 }
@@ -2494,6 +2568,13 @@ function abortGizmoDrag() {
   const drag = system?.move.drag;
   if (!drag) return false;
   system.move.drag = null;
+  if (drag.kind === "node") {
+    moveGizmoEl.querySelector('[data-part="readout"]').textContent = "";
+    system.nodePreview = drag.startPreview;
+    refreshSystemTubes();
+    emitHarness("cancel");
+    return true;
+  }
   system.move.preview = drag.hadPreview ? drag.startPose : null;
   moveGizmoEl.querySelector('[data-part="readout"]').textContent = "";
   refreshPreview();
@@ -2507,14 +2588,19 @@ function handleSystemKey(event, key) {
   if (key === "escape") {
     if (systemHelpEl && !systemHelpEl.hidden) systemHelpEl.hidden = true;
     else if (abortGizmoDrag()) { /* the drag is undone */ }
+    else if (cancelHarnessNode()) { /* the node is back */ }
+    else if (move.node) targetHarnessNode(null);
     else if (move.preview) cancelMove();
+    else if (system.harnessPick) pickHarness(null);
     else if (move.enabled) setMoveMode(false);
     else return false; // the 3D tab's Esc: clear the selection
     return true;
   }
   if (key === "m" && move.allowed) setMoveMode(!move.enabled);
   else if (key === "l" && move.enabled) setMoveSpace(move.space === "world" ? "local" : "world");
+  else if (key === "enter" && move.node && system.nodePreview && !move.drag) emitHarness("commit");
   else if (key === "enter" && move.preview && !move.drag) emitMove("commit");
+  else if ((key === "delete" || key === "backspace") && move.node && move.node !== AUTO && !move.drag) emitHarness("delete");
   else if (event.key === "?") setSystemHelpVisible(Boolean(systemHelpEl?.hidden));
   else if (key === "a") camera.frame(system.bounds || sceneRuntimeBounds());
   else return false;
@@ -2610,6 +2696,213 @@ function updateSystemHarnesses() {
       item.node.setAttribute("cy", a[1].toFixed(1));
     }
   }
+}
+
+// ----- harness picking and node editing (SB2-45b) ---------------------------------
+//
+// A click on a tube picks its harness and segment; the host learns it through
+// `harness` events. In move mode the picked harness shows a handle per breakout
+// and waypoint (and its automatic breakout); a handle takes the gizmo, which
+// then only translates. Like a board move, a drag only previews: releasing it
+// sends "commit" with the node's new place, and the host saves the node list.
+
+/** A click on a tube picks it; true when one was hit. A miss drops a picked harness. */
+function pickSystemTube(event) {
+  if (!system.tubes.length || !panel) return false;
+  const rect = canvas.getBoundingClientRect();
+  const { right } = camera.basis();
+  const pxPerMm = (point) => {
+    const a = screenOfMm(point);
+    const b = screenOfMm(add(point, right));
+    return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
+  };
+  const hit = pickTube(system.tubes, [event.clientX - rect.left, event.clientY - rect.top], screenOfMm, pxPerMm);
+  if (!hit) {
+    pickHarness(null);
+    return false;
+  }
+  const tube = system.tubes[hit.index];
+  pickHarness({ key: tube.harness, segmentId: tube.segmentId, pointMm: hit.pointMm });
+  return true;
+}
+
+/** Pick a harness (`{key, segmentId, pointMm}`, world mm) or drop the pick. */
+function pickHarness(pick) {
+  if (!pick && !system.harnessPick) return;
+  if (pick) {
+    // A harness replaces any board selection (the host hears it as a cleared selection).
+    clearSelection();
+    retargetMove({ quiet: true });
+  }
+  const sameHarness = pick && system.harnessPick?.key === pick.key;
+  system.harnessPick = pick;
+  if (!sameHarness) {
+    system.move.node = null;
+    system.nodePreview = null;
+  }
+  refreshSystemTubes();
+  emitHarness("select");
+}
+
+function pickedHarness() {
+  const pick = system?.harnessPick;
+  return pick ? system.harnesses.find((harness) => harnessKey(harness) === pick.key) ?? null : null;
+}
+
+/** Root-level harnesses are edited here; a child system's are frozen in its snapshot. */
+function harnessEditable(harness) {
+  return Boolean(harness) && !harness.level && system.move.allowed;
+}
+
+/** The picked harness's handles, with an unsaved position applied. */
+function pickedHandles() {
+  const harness = pickedHarness();
+  if (!harness) return [];
+  const shown = withNodePreview([harness], system.nodePreview, harnessKey)[0];
+  const tubes = system.tubes.filter((tube) => tube.harness === system.harnessPick.key);
+  return nodeHandles(shown, tubes, levelMatrix(harness, worldMatrixOf) ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+}
+
+function targetHandle() {
+  return system.move.node ? pickedHandles().find((handle) => handle.id === system.move.node) ?? null : null;
+}
+
+/**
+ * What the host needs: the harness, the picked segment with its samples, the
+ * picked point and the automatic breakout, and the targeted node; points in the
+ * harness's level frame (mm).
+ */
+function harnessState() {
+  const harness = pickedHarness();
+  if (!harness) return { harness: null, segment: null, pointMm: null, autoMm: null, node: null, editable: false };
+  const matrix = levelMatrix(harness, worldMatrixOf);
+  const local = (point) => (matrix ? toLevel(matrix, point) : [...point]);
+  const pick = system.harnessPick;
+  const tube = system.tubes.find((item) => item.harness === pick.key && item.segmentId === pick.segmentId);
+  const samples = [];
+  for (let i = 0; tube && i + 2 < tube.samplesMm.length; i += 3) samples.push(local(tube.samplesMm.slice(i, i + 3)));
+  const handles = pickedHandles();
+  const auto = handles.find((handle) => handle.auto);
+  const node = targetHandle();
+  const unsaved = Boolean(node && system.nodePreview?.id === node.id);
+  return {
+    harness: { id: harness.id, level: harness.level ?? null, name: harness.name || "" },
+    segment: tube ? { id: tube.segmentId, from: tube.from, to: tube.to, samplesMm: samples } : null,
+    pointMm: pick.pointMm ? local(pick.pointMm) : null,
+    autoMm: auto ? local(auto.worldMm) : null,
+    node: node ? { id: node.id, kind: node.kind, auto: Boolean(node.auto), pinned: node.pinned,
+      positionMm: unsaved ? [...system.nodePreview.positionMm] : local(node.worldMm), unsaved } : null,
+    editable: harnessEditable(harness),
+  };
+}
+
+function emitHarness(phase) {
+  system.onHarness?.({ phase, ...harnessState() });
+}
+
+/** Give the gizmo to a node of the picked harness (null gives it back). */
+function targetHarnessNode(id) {
+  if (!system) return;
+  const next = id && harnessEditable(pickedHarness()) && system.move.enabled ? String(id) : null;
+  if (next === system.move.node) return;
+  system.move.node = next;
+  system.move.drag = null;
+  if (system.nodePreview && system.nodePreview.id !== next) {
+    system.nodePreview = null;
+    refreshSystemTubes();
+  }
+  emitHarness("target");
+}
+
+/** Show a node at a level-frame position without saving it (the host's numbers); null shows the saved place. */
+function previewHarnessNode(positionMm) {
+  if (!system?.move.node || !system.harnessPick) return;
+  system.nodePreview = positionMm ? { harness: system.harnessPick.key, id: system.move.node, positionMm: [...positionMm] } : null;
+  refreshSystemTubes();
+  emitHarness("preview");
+}
+
+/** Throw away an unsaved node position (Esc, or a save that failed). */
+function cancelHarnessNode() {
+  if (!system?.nodePreview) return false;
+  system.nodePreview = null;
+  system.move.drag = null;
+  refreshSystemTubes();
+  emitHarness("cancel");
+  return true;
+}
+
+/** After a re-read: keep the pick and target while they exist; a saved preview is now the stored state. */
+function syncHarnessPick() {
+  const harness = pickedHarness();
+  if (!harness) {
+    if (system.harnessPick) {
+      system.harnessPick = null;
+      system.move.node = null;
+      system.nodePreview = null;
+      emitHarness("select");
+    }
+    return;
+  }
+  if (!system.move.drag) system.nodePreview = null;
+  if (system.move.node && !pickedHandles().some((handle) => handle.id === system.move.node)) system.move.node = null;
+  // A breakout added or removed renames the segments: keep the one that now runs nearest the picked point.
+  const pick = system.harnessPick;
+  const tubes = system.tubes.filter((tube) => tube.harness === pick.key);
+  if (pick.pointMm && tubes.length && !tubes.some((tube) => tube.segmentId === pick.segmentId)) {
+    const distance = (tube) => {
+      let best = Infinity;
+      for (let i = 0; i + 2 < tube.samplesMm.length; i += 3) {
+        best = Math.min(best, Math.hypot(tube.samplesMm[i] - pick.pointMm[0], tube.samplesMm[i + 1] - pick.pointMm[1],
+          tube.samplesMm[i + 2] - pick.pointMm[2]));
+      }
+      return best;
+    };
+    pick.segmentId = tubes.reduce((best, tube) => (distance(tube) < distance(best) ? tube : best)).segmentId;
+  }
+  emitHarness("sync");
+}
+
+/** Lay out the node handles for this frame: in move mode, on an editable picked harness. */
+function updateHarnessNodes() {
+  const svg = harnessNodesEl;
+  if (!svg) return;
+  const harness = system.move.enabled && panel ? pickedHarness() : null;
+  const handles = harnessEditable(harness) ? pickedHandles() : [];
+  svg.toggleAttribute("hidden", !handles.length);
+  if (!handles.length) {
+    if (svg.firstChild) svg.replaceChildren();
+    return;
+  }
+  const byId = new Map([...svg.children].map((node) => [node.dataset.node, node]));
+  const seen = new Set();
+  for (const handle of handles) {
+    const at = screenOfMm(handle.worldMm);
+    let dot = byId.get(handle.id);
+    if (!dot) {
+      dot = document.createElementNS(SVG_NS, "circle");
+      dot.dataset.node = handle.id;
+      const title = document.createElementNS(SVG_NS, "title");
+      dot.append(title);
+      dot.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        targetHarnessNode(dot.dataset.node);
+      });
+      svg.append(dot);
+    }
+    seen.add(handle.id);
+    dot.setAttribute("class", `node ${handle.kind}${handle.auto ? " auto" : ""}${handle.pinned ? " pinned" : ""}${handle.id === system.move.node ? " target" : ""}`);
+    dot.setAttribute("r", handle.kind === "breakout" ? "7" : "5.5");
+    dot.querySelector("title").textContent = handle.auto ? "Automatic breakout: drag to place it"
+      : handle.kind === "breakout" ? "Breakout" : handle.pinned ? "Pinned waypoint" : "Waypoint";
+    dot.style.display = at ? "" : "none";
+    if (at) {
+      dot.setAttribute("cx", at[0].toFixed(1));
+      dot.setAttribute("cy", at[1].toFixed(1));
+    }
+  }
+  for (const [id, node] of byId) if (!seen.has(id)) node.remove();
 }
 
 // ----- board labels -------------------------------------------------------------
@@ -4759,14 +5052,21 @@ function bindSchematicInteractions() {
   }, { passive: false });
 }
 
+// Picks resolve out of order (the GPU read is async): only the latest click selects.
+let pickSequence = 0;
+
 async function pickAt(event) {
   if (!panel) return;
+  const sequence = ++pickSequence;
   const rect = canvas.getBoundingClientRect();
   state.selectionAnchor = {
     x: event.clientX - rect.left,
     y: event.clientY - rect.top,
   };
+  // A tube under the cursor wins over the boards behind it (SB2-45b).
+  if (system && pickSystemTube(event)) return;
   const hit = await pickHitAtEvent(event);
+  if (sequence !== pickSequence) return;
   if (system) {
     selectSystemHit(hit);
     return;

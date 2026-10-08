@@ -246,6 +246,9 @@ export interface HarnessNode {
   between: [string, string] | null;
 }
 
+/** A node as `PUT …/harnesses/{hid}/nodes` takes it: `order` comes from the list. */
+export type HarnessNodeInput = Pick<HarnessNode, "id" | "kind" | "positionMm" | "pinned" | "ends" | "between">;
+
 export interface SystemDocument {
   system: SystemSummary;
   instances: SystemInstance[];

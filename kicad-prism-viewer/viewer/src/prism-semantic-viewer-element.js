@@ -63,6 +63,15 @@ function shellHtml() {
       .scene-label.restricted { background: rgb(55 65 81 / 0.85); }
       .scene-label.failed { background: rgb(153 27 27 / 0.8); }
       .scene-label.selected { background: rgb(37 99 235 / 0.92); }
+      /* SB2-45b: the picked harness's breakouts and waypoints in move mode, under the gizmo. */
+      #harness-nodes { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+      #harness-nodes[hidden] { display: none; }
+      #harness-nodes .node { fill: #f8fafc; stroke: #3e63dd; stroke-width: 2.5; pointer-events: visiblePainted; cursor: pointer; }
+      #harness-nodes .node.breakout { fill: #3e63dd; stroke: #fff; }
+      #harness-nodes .node.auto { fill: none; stroke: #3e63dd; stroke-dasharray: 3 2; }
+      #harness-nodes .node.pinned { fill: #0f172a; }
+      #harness-nodes .node.target { stroke: #f59e0b; stroke-width: 3.5; }
+      #harness-nodes .node:hover { stroke-width: 4; }
       #move-gizmo { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
       #move-gizmo[hidden] { display: none; }
       #move-gizmo .ring { stroke-width: 2.5; opacity: 0.75; pointer-events: stroke; cursor: grab; }
@@ -98,6 +107,7 @@ function shellHtml() {
         <div id="lod-tuning" role="group" aria-label="Level of detail thresholds" hidden></div>
         <svg id="system-harnesses" hidden aria-hidden="true"></svg>
         <div id="system-labels" hidden></div>
+        <svg id="harness-nodes" hidden aria-hidden="true"></svg>
         <svg id="move-gizmo" hidden aria-hidden="true"></svg>
         <dl id="system-help" hidden aria-label="Keyboard shortcuts">
           <h2>Keyboard</h2>
@@ -297,6 +307,9 @@ export class PrismSemanticViewerElement extends HTMLElement {
         onMove: (state) => {
           if (!signal.aborted) this.emit("move", state);
         },
+        onHarness: (state) => {
+          if (!signal.aborted) this.emit("harness", state);
+        },
       });
       if (!isCurrent()) {
         controller?.dispose?.();
@@ -373,6 +386,31 @@ export class PrismSemanticViewerElement extends HTMLElement {
 
   getMoveState() {
     return this.controller?.getMoveState?.() ?? null;
+  }
+
+  /**
+   * Harness picking and node editing (mode="system", SB2-45b): `harness` events
+   * carry `{ phase, harness, segment, pointMm, autoMm, node, editable }` with
+   * phases select, target, preview, commit, delete, cancel and sync; points are
+   * in the harness's level frame (mm). On "commit" the host saves the node list
+   * with `node.positionMm` and passes the re-read scene, or calls
+   * `cancelHarnessNode()` when the save fails; on "delete" it removes the node.
+   */
+  targetHarnessNode(id) {
+    this.controller?.targetHarnessNode?.(id);
+  }
+
+  /** Show the targeted node at a level-frame position without saving it; null shows its saved place. */
+  previewHarnessNode(positionMm) {
+    this.controller?.previewHarnessNode?.(positionMm);
+  }
+
+  cancelHarnessNode() {
+    this.controller?.cancelHarnessNode?.();
+  }
+
+  getHarnessState() {
+    return this.controller?.getHarnessState?.() ?? null;
   }
 
   /** Board name labels over the system scene (on by default). */
