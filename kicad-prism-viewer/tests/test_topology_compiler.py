@@ -895,6 +895,35 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertNotIn("--include-pads", args)
         self.assertIn("no-mask", BOARD_CONTEXT_CACHE_VERSION)
 
+    def test_soldermask_outline_closes_across_micron_gaps(self) -> None:
+        # JTYU-IN ends a corner arc 6 um from its line: the outline must still close, or the board gets no mask.
+        from pipeline.topology_compiler.soldermask import join_outline_ends, soldermask_polygons
+
+        joined = join_outline_ends([[(0.0, 0.0), (20.0, 0.0)], [(20.006, 0.0), (20.0, 10.0)], [(20.0, 10.0), (0.0, 0.0)]])
+        self.assertEqual(joined[1][0], (20.0, 0.0))
+        apart = join_outline_ends([[(0.0, 0.0), (1.0, 0.0)], [(1.05, 0.0), (2.0, 0.0)]])
+        self.assertEqual(apart[1][0], (1.05, 0.0))  # 50 um is a real gap, not a drawing slip
+
+        pcb_text = """(kicad_pcb (version 20240108) (generator "pcbnew")
+  (general (thickness 1.6))
+  (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (38 "B.Mask" user) (39 "F.Mask" user) (44 "Edge.Cuts" user))
+  (net 0 "")
+  (gr_line (start 0 0) (end 20 0) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts") (uuid "e1"))
+  (gr_line (start 20.006 0) (end 20 10) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts") (uuid "e2"))
+  (gr_line (start 20 10) (end 0 10) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts") (uuid "e3"))
+  (gr_line (start 0 10) (end 0 0) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts") (uuid "e4"))
+)
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            board_path = Path(tmp) / "gap.kicad_pcb"
+            board_path.write_text(pcb_text, encoding="utf-8")
+            from kicad_monkey import KiCadPcb
+
+            pcb = KiCadPcb.from_file(board_path)
+            polygons = soldermask_polygons(pcb.to_ir(source_path=str(board_path)).to_dict())
+        self.assertIsNotNone(polygons)
+        self.assertTrue(polygons["sides"]["top"])
+
     def test_soldermask_opens_mask_pads_and_drills(self) -> None:
         from shapely.geometry import Point, Polygon
 
