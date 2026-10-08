@@ -447,9 +447,11 @@ class InstancesStore:
             )
 
     def _port_is_linked(self, system_id: str, instance_id: str, port_key: str) -> bool:
-        """A link end or a harness end mates this port."""
+        """A link end or a harness end mates this port, or it has sub-ports (P2 §22.2)."""
         return self.conn.execute(
             """
+            SELECT 1 FROM system_subports WHERE instance_id = %s AND port_key = %s
+            UNION ALL
             SELECT 1 FROM system_links
             WHERE system_id = %s AND (
                 (a_instance_id = %s AND a_port->>'portKey' = %s)
@@ -459,7 +461,8 @@ class InstancesStore:
             WHERE h.system_id = %s AND e.mates_instance_id = %s AND e.mates_port->>'portKey' = %s
             LIMIT 1
             """,
-            (system_id, instance_id, port_key, instance_id, port_key, system_id, instance_id, port_key),
+            (instance_id, port_key, system_id, instance_id, port_key, instance_id, port_key,
+             system_id, instance_id, port_key),
         ).fetchone() is not None
 
     # ------------------------------------------------------------------
@@ -511,6 +514,7 @@ class InstancesStore:
         b_instance_id: str, b_port: Mapping[str, Any], name: str = "",
         harness: Optional[str] = None, link_id: Optional[str] = None,
         link_type: str = "unspecified", stack_height_mm: Optional[float] = None,
+        a_subport_id: Optional[str] = None, b_subport_id: Optional[str] = None,
     ) -> dict:
         a_baseline, b_baseline = _port_baseline(a_port), _port_baseline(b_port)
         _check_link_type(link_type, stack_height_mm)
@@ -532,16 +536,22 @@ class InstancesStore:
         self.conn.execute(
             """
             INSERT INTO system_links
-                (id, system_id, name, harness, a_instance_id, a_port, b_instance_id, b_port, type, stack_height_mm)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (id, system_id, name, harness, a_instance_id, a_port, b_instance_id, b_port, type, stack_height_mm,
+                 a_subport_id, b_subport_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (link_id, change.system_id, name, harness or None, a_instance_id, Jsonb(a_baseline),
-             b_instance_id, Jsonb(b_baseline), link_type, stack_height_mm),
+             b_instance_id, Jsonb(b_baseline), link_type, stack_height_mm, a_subport_id, b_subport_id),
         )
         change.audit(
             "link_created",
             {"linkId": link_id, "name": name, "harness": harness or None, "type": link_type,
-             "a": {"instanceId": a_instance_id, "portKey": a_baseline["portKey"]},
-             "b": {"instanceId": b_instance_id, "portKey": b_baseline["portKey"]}},
+             "a": _audit_end(a_instance_id, a_baseline, a_subport_id),
+             "b": _audit_end(b_instance_id, b_baseline, b_subport_id)},
         )
         return self.get_link(change.system_id, link_id)
+
+
+def _audit_end(instance_id: str, baseline: Mapping[str, Any], subport_id: Optional[str]) -> dict:
+    end = {"instanceId": instance_id, "portKey": baseline["portKey"]}
+    return {**end, "subportId": subport_id} if subport_id else end

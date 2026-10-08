@@ -55,6 +55,8 @@ def _row_status(row: Mapping[str, Any], link: Mapping[str, Any], validation: Map
 def _end_label(labels: Mapping[str, str], end: Mapping[str, Any]) -> str:
     """"OBC-1 J7", or for a subsystem export "CNDH-A ▸ PWR_IN → J1" (the physical connector, P2 §10)."""
     reference = (end.get("port") or {}).get("reference") or "restricted"
+    if (end.get("subport") or {}).get("name"):  # P2 §22.5: "OBC-1 J6.PWR"
+        reference = f"{reference}.{end['subport']['name']}"
     label = labels.get(end["instanceId"], "?")
     export = end.get("export")
     if export:

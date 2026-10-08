@@ -33,7 +33,8 @@ from app.services.systems.store_base import (  # noqa: F401
 from app.services.systems.store_harnesses import HarnessesStore
 from app.services.systems.store_instances import InstancesStore
 from app.services.systems.store_reviews import ReviewsStore
+from app.services.systems.store_subports import SubportsStore
 
 
-class SystemStore(InstancesStore, HarnessesStore, ReviewsStore, StoreCore):
+class SystemStore(InstancesStore, HarnessesStore, ReviewsStore, SubportsStore, StoreCore):
     """Persistence for one connection. Each area lives in its own module (``store_*.py``)."""

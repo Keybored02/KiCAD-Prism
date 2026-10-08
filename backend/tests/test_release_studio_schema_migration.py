@@ -1812,6 +1812,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (47, "system_bundle_frames"),
                 (48, "system_finding_waivers"),
                 (49, "system_finding_counts"),
+                (50, "system_subports"),
             ],
         )
 
