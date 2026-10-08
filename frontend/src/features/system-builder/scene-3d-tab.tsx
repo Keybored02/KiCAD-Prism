@@ -27,12 +27,13 @@ import { TRACE_KEY, emphasisSets, netBoards, traceSet } from "./scene-net-model"
 import { NetPanel } from "./scene-net-panel";
 import { hitOccurrence, searchBoards, type SceneSearchHit, type SearchableBoard } from "./scene-search";
 import { TraceCard } from "./scene-trace-card";
-import { useBoardIndexes } from "./use-board-indexes";
+import { useBoardIndexes, type BoardIndexState } from "./use-board-indexes";
 import { useHarnessNodes } from "./use-harness-nodes";
 import { useMoveMode } from "./use-move-mode";
 import { useNetHighlight } from "./use-net-highlight";
 import { useSystemNetIndex } from "./use-system-net-index";
 import { useTracedNet } from "./use-traced-net";
+import type { PartDetail } from "./workspace/part-detail";
 import { useViewerSelectionSync } from "./workspace/use-viewer-selection-sync";
 import type { SystemTabProps } from "./system-tab-content";
 
@@ -129,6 +130,39 @@ function useViewerEvents(
   return { selection, setSelection, viewState, viewerError };
 }
 
+/** Report the part, pad or board net picked on a board to the workspace inspector (PLAN M8). */
+function usePartReport(
+  viewer: PrismSemanticViewerElement | null,
+  scene: SystemScene | null,
+  indexes: ReadonlyMap<string, BoardIndexState>,
+  selection: PrismSystemViewerSelection | null,
+  setSelection: (selection: PrismSystemViewerSelection | null) => void,
+  onPart: ((part: PartDetail | null) => void) | undefined,
+) {
+  const occurrence = selection && selection.kind !== "board" ? selection.occurrence : undefined;
+  const board = occurrence ? scene?.occurrences.find((item) => item.path === occurrence) : undefined;
+  const index = board?.assetId ? indexes.get(board.assetId) ?? null : null;
+  useEffect(() => {
+    if (!onPart) return;
+    if (!selection || selection.kind === "board" || !occurrence || !board) {
+      onPart(null);
+      return;
+    }
+    onPart({
+      selection: { ...selection, occurrence },
+      boardName: board.displayPath,
+      index,
+      clear: () => {
+        // A host selection is not echoed back by the viewer.
+        viewer?.setSelection({ occurrence });
+        setSelection({ kind: "board", sourceContext: "3D", occurrence });
+      },
+    });
+  }, [viewer, selection, occurrence, board, index, setSelection, onPart]);
+  // Leaving the 3D view drops the part.
+  useEffect(() => () => onPart?.(null), [onPart]);
+}
+
 /**
  * CONTRACTS_P2 §20.6 / SB2-31e.2: the board 3D tab with every board of the
  * system (D-P2-25). The 3D tab's own viewer, left rail (a Layers section per
@@ -137,7 +171,7 @@ function useViewerEvents(
  * building are boxes. Without WebGPU, the 2D diagram with a notice.
  */
 export function Scene3dTab(props: SystemTabProps) {
-  const { systemId, document, etag, canEdit, reload, selection: workspaceSelection = null, onSelect } = props;
+  const { systemId, document, etag, canEdit, reload, selection: workspaceSelection = null, onSelect, onPart } = props;
   const supported = webgpuAvailable();
   const { scene, error } = useSystemScene(systemId, etag, supported);
   const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
@@ -157,6 +191,7 @@ export function Scene3dTab(props: SystemTabProps) {
   const followSelection = (next: PrismSystemViewerSelection | null) => reportSelection(next);
   const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report, followSelection);
   const indexes = useBoardIndexes(scene);
+  usePartReport(viewer, scene, indexes, selection, setSelection, onPart);
   const { traced, light } = useTracedNet(systemId, etag, selection);
   // The clicked trace's system net lights first, in the selection green (D-P2-28).
   const tracedNet = traced?.net && !traced.waiting ? traced.net : null;
@@ -214,6 +249,7 @@ export function Scene3dTab(props: SystemTabProps) {
     viewer?.setSelection(selection.kind === "net" ? { occurrence, netName: selection.netName } : { occurrence, reference: selection.reference });
     // A host selection is not echoed back by the viewer; a net selection traces its system net (SB2-32).
     setSelection(selection);
+    reportSelection(selection);
   };
 
   if (!supported) {
