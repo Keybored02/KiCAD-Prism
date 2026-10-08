@@ -215,6 +215,7 @@ def apply_review(store: SystemStore, change: Mutation, review: Mapping[str, Any]
     exports.refresh_after_advance(store, change, review["instance_id"], candidate)
     store.set_baseline(change, review["instance_id"], review["to_commit"], kind="review_applied",
                        payload={"reviewId": review["id"]})
+    store.close_applied_renames(change, review["instance_id"], review["to_commit"])  # P2 §23.3
     store.set_review_status(change, review["id"], "applied")
 
 

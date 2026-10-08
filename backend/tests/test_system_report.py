@@ -54,7 +54,7 @@ class ReportTest(ReportCase):
         self.open_f1()
         self.fan_out()
         book = self.workbook()
-        self.assertEqual(list(book), ["Summary", "Reviews", "Findings"])
+        self.assertEqual(list(book), ["Summary", "Reviews", "Findings", "Renames"])
         summary = dict(book["Summary"][1:])
         validation = self.service.validation_report(DESIGNER, self.sid).body
         counts = self.service.document(DESIGNER, self.sid).body["findingCounts"]
@@ -105,7 +105,7 @@ class ReportTest(ReportCase):
         self.assertEqual(version, self.version())
         rows = list(csv.reader(io.StringIO(text)))
         titles = [row[0] for row in rows if row and row[0].startswith("# ")]
-        self.assertEqual(titles, ["# Summary", "# Reviews", "# Findings"])
+        self.assertEqual(titles, ["# Summary", "# Reviews", "# Findings", "# Renames"])
         start = rows.index(["# Reviews"])
         self.assertEqual(rows[start + 1][:3], ["Review", "Kind", "Board"])
         self.assertEqual(rows[start + 2][7], "Net changed")

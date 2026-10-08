@@ -1139,5 +1139,6 @@ async def put_layout(
 from app.api import systems_git  # noqa: E402,F401
 # Finding waivers (SB2-100) too.
 from app.api import systems_findings  # noqa: E402,F401
-# Sub-ports (SB2-105) too.
+# Sub-ports (SB2-105) and net rename proposals (SB2-106) too.
 from app.api import systems_subports  # noqa: E402,F401
+from app.api import systems_renames  # noqa: E402,F401

@@ -1813,6 +1813,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (48, "system_finding_waivers"),
                 (49, "system_finding_counts"),
                 (50, "system_subports"),
+                (51, "system_net_renames"),
             ],
         )
 

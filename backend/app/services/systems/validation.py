@@ -40,7 +40,8 @@ RULES = {
     "SYS-V20": ("harness_tight_bend", "info"),
     "SYS-V21": ("subport_pad_absent", "warning"),
 }
-# Opt-in per system (``system_projects.optional_rules``, CONTRACTS_P2 §8.4): off unless enabled.
+# Rules a system may list in ``system_projects.optional_rules`` (CONTRACTS_P2 §8.4). Kept for
+# compatibility: since D-P2-57 (§23.4) SYS-V09 runs on every system and the list has no effect.
 OPTIONAL_RULES = frozenset({"SYS-V09"})
 _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 # Rules that need an instance's baseline interface.
@@ -198,7 +199,7 @@ def validate(
             pins[end] = exposure.pins_by_pad(component) if component else None
         for row in link.get("rows") or []:
             net_a, net_b = list(row.get("net_a") or []), list(row.get("net_b") or [])
-            if "SYS-V09" in optional_rules and system_nets.name_mismatch(net_a, net_b):
+            if system_nets.name_mismatch(net_a, net_b):  # every system since D-P2-57
                 findings.append(_finding("SYS-V09", link_id=link["id"], row_id=row["id"],
                                          detail={"netA": net_a, "netB": net_b}))
             if pins["a"] is None or pins["b"] is None:

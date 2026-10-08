@@ -35,6 +35,8 @@ REVIEW_COLUMNS = ("Review", "Kind", "Board", "From", "To", "Opened", "Item", "Ch
                   "Connector", "Pins", "Expected", "Observed", "Decision")
 FINDING_COLUMNS = ("Severity", "Rule", "Finding", "Board", "Connector", "Pin", "Link", "State", "Note",
                    "Waived by", "Waived on")
+RENAME_COLUMNS = ("Board", "Net", "Rename to", "Rows", "State", "Note", "Proposed by", "Proposed on", "Closed on",
+                  "Commit")
 
 
 def _nets(value: Any) -> str:
@@ -185,12 +187,22 @@ def summary_rows(document: Mapping[str, Any], reviews: Sequence[Mapping[str, Any
     return rows
 
 
+def rename_rows(document: Mapping[str, Any], renames: Sequence[Mapping[str, Any]]) -> list[list[str]]:
+    """SB2-106 (P2 §23): each open or applied net rename proposal; a restricted board's names nothing."""
+    labels = {i["id"]: i["label"] for i in document["instances"]}
+    return [[labels.get(r["instanceId"], ""), r.get("net") or "", r.get("name") or "",
+             "" if r.get("rows") is None else str(r["rows"]), r["state"], r.get("note") or "",
+             (r.get("createdBy") or "").removeprefix("user:"), _date(r.get("createdAt")), _date(r.get("closedAt")),
+             _short(r.get("closedCommit"))] for r in renames]
+
+
 def sections(document: Mapping[str, Any], reviews: Sequence[Mapping[str, Any]], *, version: int,
-             generated_at: str) -> list[tuple[str, Sequence[str], list[list[str]]]]:
+             generated_at: str, renames: Sequence[Mapping[str, Any]] = ()) -> list[tuple[str, Sequence[str], list[list[str]]]]:
     return [
         ("Summary", ("Item", "Value"), summary_rows(document, reviews, version=version, generated_at=generated_at)),
         ("Reviews", REVIEW_COLUMNS, review_rows(document, reviews)),
         ("Findings", FINDING_COLUMNS, finding_rows(document)),
+        ("Renames", RENAME_COLUMNS, rename_rows(document, renames)),
     ]
 
 

@@ -6,7 +6,7 @@ from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import (
     exports as exports_module, exposure, harnesses as harnesses_module, mating as mating_module, redaction, sources,
-    subports as subports_module, validation, visibility,
+    renames as renames_module, subports as subports_module, validation, visibility,
 )
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.placement import harness_spec
@@ -207,11 +207,15 @@ class DocumentsMixin:
         report = validation.with_findings(report, self._mate_pair_findings(links, harness_rows, interfaces))
         subport_rows = store.list_subports(system_id)  # SB2-105 (P2 §22)
         report = validation.with_findings(report, validation.subport_findings(subport_rows, interfaces))
+        # SB2-106 (P2 §23.4): V09 findings on a net with an open rename proposal say so.
+        open_renames = store.list_renames(system_id)
+        report = {**report, "findings": renames_module.annotate(report["findings"], links, open_renames)}
         # SB2-100 (D-P2-56): waivers last, over every finding above.
         report = validation.apply_waivers(report, store.list_waivers(system_id))
         store.record_finding_counts(system_id, system["version"], report["counts"])  # SB2-101: for the systems list
         review_rows = sorted({rid for review in open_reviews for item in review["items"] for rid in item["row_ids"]})
         subports_by_id = {row["id"]: row for row in subport_rows}
+        drift_rows = store.drift_links(system_id) if open_renames else links  # rows and harness wires
         link_docs = [self._link_doc(link, interfaces, overrides, mating, subports_by_id) for link in links]
         export_docs = [self._export_doc(export, interfaces, overrides, subports_by_id) for export in exports]
         all_instances = store.list_instances(system_id, kinds=SystemStore.ALL_KINDS)
@@ -229,6 +233,9 @@ class DocumentsMixin:
             "links": link_docs,
             "exports": export_docs,
             "harnesses": harness_docs,
+            # P2 §23: open net rename proposals, with the rows each covers.
+            "renames": [rename_doc(r, len(renames_module.covered(drift_rows, r["instance_id"], r["net"])))
+                        for r in open_renames],
             # SB2-98: what the 3D scene and the system nets depend on, so readers re-read them only when
             # these change rather than on every version (a signal label moves neither).
             "sceneKey": _digest({
@@ -710,3 +717,11 @@ def _end_subport(subport_id: Optional[str], subports: Optional[Mapping[str, Mapp
         return None
     found = (subports or {}).get(subport_id)
     return {"id": subport_id, "name": found["name"] if found else None}
+
+
+def rename_doc(rename: Mapping[str, Any], rows: Optional[int] = None) -> dict:
+    """A net rename proposal as documents and the board page show it (P2 §23.1)."""
+    return {"id": rename["id"], "instanceId": rename["instance_id"], "net": rename["net"], "name": rename["name"],
+            "note": rename["note"], "state": rename["state"], "rows": rows, "createdBy": rename["created_by"],
+            "createdAt": _iso(rename["created_at"]), "closedBy": rename.get("closed_by"),
+            "closedAt": _iso(rename.get("closed_at")), "closedCommit": rename.get("closed_commit")}

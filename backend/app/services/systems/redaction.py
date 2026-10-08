@@ -145,6 +145,9 @@ def redact_document(document: Mapping[str, Any], restricted: Collection[str]) ->
     ]
     out["links"] = [redact_link(link, restricted) for link in out["links"]]
     out["harnesses"] = [redact_harness(h, restricted) for h in out.get("harnesses") or []]
+    # P2 §23: a proposal for a board the reader cannot see names none of its nets.
+    out["renames"] = [{**r, "net": None, "name": None, "note": None, "rows": None, "redacted": True}
+                      if r["instanceId"] in restricted else r for r in out.get("renames") or []]
     if out.get("validation") is not None:
         out["validation"] = redact_findings(out["validation"], restricted)
     return out

@@ -57,6 +57,7 @@ from app.services.workspace_migrations import m047_system_bundle_frames
 from app.services.workspace_migrations import m048_system_finding_waivers
 from app.services.workspace_migrations import m049_system_finding_counts
 from app.services.workspace_migrations import m050_system_subports
+from app.services.workspace_migrations import m051_system_net_renames
 
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (48, "system_finding_waivers", m048_system_finding_waivers.migrate),
     (49, "system_finding_counts", m049_system_finding_counts.migrate),
     (50, "system_subports", m050_system_subports.migrate),
+    (51, "system_net_renames", m051_system_net_renames.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
