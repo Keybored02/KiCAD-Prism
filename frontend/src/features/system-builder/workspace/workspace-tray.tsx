@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronUp, FileSpreadsheet, FileText, FileUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -53,8 +54,71 @@ function endsText(document: SystemDocument, harness: SystemHarness): string {
   return harness.ends.map((end) => `${label(end.mates?.instanceId)}${end.mates?.port ? ` ${end.mates.port.reference}` : ""}`).join(" · ");
 }
 
+const HEIGHT_KEY = "prism.system-workspace.tray-height";
+const DEFAULT_HEIGHT = 320;
+const MIN_HEIGHT = 160;
+/** Room the tray always leaves for the view above it. */
+const VIEW_MIN = 200;
+
+function storedHeight(): number {
+  try {
+    const value = Number.parseInt(window.localStorage.getItem(HEIGHT_KEY) ?? "", 10);
+    return Number.isFinite(value) ? value : DEFAULT_HEIGHT;
+  } catch {
+    return DEFAULT_HEIGHT;
+  }
+}
+
+/** The open tray's height: dragged on its top edge or set with the arrow keys, kept per browser. */
+function useTrayHeight() {
+  const [height, setHeight] = useState(storedHeight);
+  const [dragging, setDragging] = useState(false);
+  const ref = useRef<HTMLElement | null>(null);
+  const clamp = (value: number) => {
+    const room = (ref.current?.parentElement?.clientHeight ?? Number.POSITIVE_INFINITY) - VIEW_MIN;
+    return Math.round(Math.max(MIN_HEIGHT, Math.min(room, value)));
+  };
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(HEIGHT_KEY, String(height));
+    } catch {
+      // Private windows: the height lasts for this page only.
+    }
+  }, [height]);
+  const handle = {
+    role: "separator" as const,
+    "aria-orientation": "horizontal" as const,
+    "aria-label": "Resize the tray",
+    "aria-valuenow": height,
+    tabIndex: 0,
+    onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDragging(true);
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
+      const rect = ref.current?.getBoundingClientRect();
+      if (dragging && rect) setHeight(clamp(rect.bottom - event.clientY));
+    },
+    onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      setDragging(false);
+    },
+    onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const step = event.shiftKey ? 64 : 16;
+      if (event.key === "ArrowUp") setHeight((current) => clamp(current + step));
+      else if (event.key === "ArrowDown") setHeight((current) => clamp(current - step));
+      else if (event.key === "Home") setHeight(clamp(DEFAULT_HEIGHT));
+      else return;
+      event.preventDefault();
+    },
+    onDoubleClick: () => setHeight(clamp(DEFAULT_HEIGHT)),
+  };
+  return { height, dragging, ref, handle };
+}
+
 const TH = "h-8 px-4 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground";
-const TD = "h-9 max-w-0 truncate px-4";
+const TD = "h-8 max-w-0 truncate px-4";
 
 function ConnectionsTable({ document, findings, onSelect }: { document: SystemDocument; findings: Finding[]; onSelect: (selection: WorkspaceSelection) => void }) {
   const harnesses = document.harnesses ?? [];
@@ -116,19 +180,19 @@ function findingTarget(finding: Finding): WorkspaceSelection | null {
 }
 
 function FindingsList({ findings, document, onSelect }: { findings: Finding[]; document: SystemDocument; onSelect: (selection: WorkspaceSelection) => void }) {
-  if (!findings.length) return <p className="p-4 text-sm text-muted-foreground">No findings.</p>;
+  if (!findings.length) return <p className="p-4 text-sm text-muted-foreground">No findings</p>;
   const sorted = [...findings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
   return (
     <ul aria-label="Findings" className="text-sm">
       {sorted.map((finding) => {
         const to = findingTarget(finding);
         return (
-          <li key={findingKey(finding)} className="flex min-h-9 items-center gap-3 border-b px-4 py-1.5">
+          <li key={findingKey(finding)} className="flex h-8 items-center gap-3 border-b px-4" title={findingText(finding)}>
             <span className={cn("w-16 shrink-0 font-mono text-xs font-bold",
               finding.severity === "error" ? "text-destructive" : finding.severity === "warning" ? "text-warning" : "text-muted-foreground")}>
               {finding.rule}
             </span>
-            <span className="min-w-0 flex-1">{findingText(finding)}</span>
+            <span className="min-w-0 flex-1 truncate">{findingText(finding)}</span>
             <span className="hidden w-48 shrink-0 truncate text-xs text-muted-foreground md:block">{findingPlace(document, finding)}</span>
             {to ? (
               <button type="button" className="w-12 shrink-0 text-right text-xs text-primary hover:underline" onClick={() => onSelect(to)}>Show</button>
@@ -148,12 +212,18 @@ export function WorkspaceTray(props: TrayProps) {
   const link = selection?.kind === "link" ? document.links.find((item) => item.id === selection.id) : undefined;
   const harness = selection?.kind === "harness" ? document.harnesses?.find((item) => item.id === selection.id) : undefined;
   const editing = tab === "connections" && (link || harness);
+  const tray = useTrayHeight();
   const tabProps: SystemTabProps = {
     systemId, document, etag, canEdit, user: props.user, reload: props.reload, onNavigate: props.onNavigate,
   };
 
   return (
-    <section className={cn("flex min-h-0 flex-col border-t bg-background", tab ? "h-[42%]" : "h-9")} aria-label="Tray">
+    <section ref={tray.ref} className="relative flex shrink-0 flex-col border-t bg-background" aria-label="Tray"
+      style={{ height: tab ? tray.height : 36, maxHeight: tab ? `calc(100% - ${VIEW_MIN}px)` : undefined }}>
+      {tab && (
+        <div {...tray.handle} className={cn("absolute inset-x-0 -top-1 z-20 h-2 cursor-row-resize transition-colors hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none",
+          tray.dragging && "bg-primary/60")} />
+      )}
       <div className="flex h-9 shrink-0 items-center gap-5 border-b px-4 text-sm" role="tablist" aria-label="Tray">
         {TRAY_TABS.map((item) => (
           <button
@@ -207,7 +277,7 @@ export function WorkspaceTray(props: TrayProps) {
           ))}
           {tab === "nets" && (props.view === "3d"
             ? <div ref={props.onNetsSlot} className="h-full" />
-            : <p className="p-4 text-sm text-muted-foreground">System nets light up in the 3D view. Switch to 3D to highlight them.</p>)}
+            : <p className="p-4 text-sm text-muted-foreground">3D view only</p>)}
           {tab === "findings" && <FindingsList findings={findings} document={document} onSelect={onSelect} />}
           {tab === "changes" && <ChangesTab {...tabProps} />}
           {tab === "history" && <HistoryTab key={`history-${props.takeRequest}`} {...tabProps} startTaking={props.takeRequest > 0} />}

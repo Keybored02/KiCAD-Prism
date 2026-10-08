@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { GitBranch, RefreshCw, TriangleAlert } from "lucide-react";
+import { GitBranch, Pencil, RefreshCw, TriangleAlert, Unlink } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { deleteGitLink, fetchGitLink, getGitLink, putGitLink, retrySnapshotGit } from "@/lib/systems-api";
 import type { GitLink, SnapshotGit } from "@/types/system";
 
-import { shortSha } from "./system-format";
+import { shortSha, timeAgo } from "./system-format";
 import type { Mutate } from "./use-system-mutation";
 
 interface GitLinkPanelProps {
@@ -54,48 +54,54 @@ export function GitLinkPanel({ systemId, etag, refresh, canEdit, busy, run }: Gi
 
   if (!link || (!current && !canEdit)) return null;
   return (
-    <section className="space-y-2 border p-3 text-sm" aria-label="Repository">
-      <div className="flex flex-wrap items-center gap-2">
-        <GitBranch className="h-4 w-4 text-muted-foreground" />
+    <section className="text-sm" aria-label="Repository">
+      <div className="flex h-9 items-center gap-2">
+        <GitBranch className="size-4 shrink-0 text-muted-foreground" />
         {current ? (
           <>
-            <span className="font-medium break-all">{current.url}</span>
-            <Badge variant="outline">{current.branch}</Badge>
-            {current.tip && <span className="font-mono text-xs text-muted-foreground">{shortSha(current.tip)}</span>}
+            <span className="min-w-0 truncate" title={current.url}>{current.url?.replace(/^https?:\/\//, "")}</span>
+            <span className="shrink-0 font-mono text-xs">{current.branch}{current.tip && <span className="text-muted-foreground"> @ {shortSha(current.tip)}</span>}</span>
             {current.lastFetchedAt && (
-              <span className="text-xs text-muted-foreground">fetched {new Date(current.lastFetchedAt).toLocaleString()}</span>
+              <span className="hidden shrink-0 text-xs text-muted-foreground md:inline" title={`Fetched ${new Date(current.lastFetchedAt).toLocaleString()}`}>
+                {timeAgo(current.lastFetchedAt)}
+              </span>
             )}
           </>
         ) : (
-          <span className="text-muted-foreground">Not linked to a repository. Link one to commit each snapshot's manifest there.</span>
+          <span className="text-muted-foreground" title="Link one to commit each snapshot's manifest there">No repository</span>
         )}
         {canEdit && (
-          <span className="ml-auto flex gap-1">
+          <span className="ml-auto flex shrink-0 items-center">
             {current && (
-              <Button variant="ghost" size="sm" disabled={busy !== null} title="Fetch the repository now"
+              <Button variant="ghost" size="icon-sm" disabled={busy !== null} aria-label="Fetch now" title="Fetch the repository now"
                 onClick={() => void run("git-fetch", () => fetchGitLink(systemId), "Fetching the repository")}>
-                <RefreshCw className="h-4 w-4" />
+                <RefreshCw className="size-4" />
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={open}>{current ? "Change" : "Link repository"}</Button>
+            {current ? (
+              <Button variant="ghost" size="icon-sm" aria-label="Change repository" title="Change repository" onClick={open}>
+                <Pencil className="size-4" />
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" className="h-7" onClick={open}>Link repository</Button>
+            )}
             {current && (
-              <Button variant="ghost" size="sm" disabled={busy !== null}
+              <Button variant="ghost" size="icon-sm" disabled={busy !== null} aria-label="Unlink" title="Unlink the repository"
                 onClick={() => void run("git-unlink", () => deleteGitLink(systemId, etag), "Repository unlinked")
                   .then((done) => done && setLink({ refresh, value: null }))}>
-                Unlink
+                <Unlink className="size-4" />
               </Button>
             )}
           </span>
         )}
       </div>
       {current?.outsideCommit && (
-        <p className="flex items-center gap-1 text-warning">
-          <TriangleAlert className="h-4 w-4" />
-          The manifest on {current.branch} changed outside Prism ({shortSha(current.outsideCommit)}). Snapshots wait until
-          that change is imported.
+        <p className="flex h-7 items-center gap-1.5 truncate text-xs text-warning" title="Snapshots wait until that change is imported (Changes tray)">
+          <TriangleAlert className="size-3.5 shrink-0" />
+          Manifest changed outside Prism ({shortSha(current.outsideCommit)})
         </p>
       )}
-      {current?.lastError && <p className="text-destructive">{current.lastError.message}</p>}
+      {current?.lastError && <p className="truncate text-xs text-destructive" title={current.lastError.message}>{current.lastError.message}</p>}
 
       <Dialog open={editing} onOpenChange={setEditing}>
         <DialogContent className="sm:max-w-md">

@@ -102,7 +102,7 @@ describe("ChangesTab", () => {
   it("lists pinned updates and automatic changes; viewers get no actions", async () => {
     stub([]);
     renderTab(false);
-    expect(await screen.findByText("Updates available on pinned boards")).toBeTruthy();
+    expect(await screen.findByText("Updates on pinned boards")).toBeTruthy();
     expect(screen.getByText("Applied automatically")).toBeTruthy();
     expect(screen.getByText(/OBC 11111111 → 22222222/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Rebase to tip" })).toBeNull();
@@ -122,7 +122,7 @@ describe("ChangesTab", () => {
       status: 200, headers: { "Content-Type": "application/json" },
     })));
     render(<ChangesTab systemId="sys_1" document={systemDocument([obc])} etag="e" canEdit user={null} reload={vi.fn()} onNavigate={vi.fn()} />);
-    expect(await screen.findByText(/Nothing needs review/)).toBeTruthy();
+    expect(await screen.findByText("Nothing to review")).toBeTruthy();
   });
   it("shows a subsystem review by revision and offers the latest released revision", async () => {
     const cndh = instance("CNDH", { kind: "assembly", projectId: null, baselineCommit: null, trackedRef: null, pinned: true,
