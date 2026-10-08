@@ -907,6 +907,13 @@ async function loadLayer(layerId) {
   await Promise.all(tilesForLayer(layerId).map((tile) => loadTile(tile, token)));
 }
 
+/** SB2-92: true once a system scene has drawn all its boards, or has none still loading. */
+function scenePrefetchReady() {
+  if (!system) return true;
+  if (system.timing.boardsDrawnAt != null) return true;
+  return ![...system.boards.values()].some((b) => b.loadState === "loading" || b.loadState === "waiting");
+}
+
 /**
  * SB2-87: GPU uploads per frame are capped, so tiles finishing together upload
  * over a few frames instead of stalling one. A single upload larger than the
@@ -3431,8 +3438,11 @@ function manageTiers(now, b = board) {
   // one-board frames before its occurrences are applied.
   // SB2-87: any copy drawn above box detail wants them. Instanced (SB2-86) they cost little, and a board
   // zoomed from afar to full detail in one move then finds them already there instead of popping in.
+  // SB2-92: that prefetch waits until every board has drawn once; loading all components alongside
+  // the boards delayed the first full frame by ~3 s. A copy at full detail still loads them at once.
   const counts = b.renderer.cullCounts;
-  const wanted = (b.renderer.identityOnly && !b.deferComponents) || (!b.renderer.identityOnly && counts.full + counts.board + counts.body > 0);
+  const prefetch = scenePrefetchReady() && counts.board + counts.body > 0;
+  const wanted = (b.renderer.identityOnly && !b.deferComponents) || (!b.renderer.identityOnly && (counts.full > 0 || prefetch));
   if (wanted) b.scene.componentsWantedAt = now;
   if (wanted && b.scene.componentTier === "idle" && b.semanticGeometry.assets?.components_glb) {
     void loadComponents(activeViewerToken, b)
