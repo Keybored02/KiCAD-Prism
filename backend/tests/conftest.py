@@ -10,6 +10,8 @@ This runs at import, before any test module reads the variables.
 from __future__ import annotations
 
 import os
+
+import pytest
 from urllib.parse import urlsplit, urlunsplit
 
 DATABASE_VARIABLES = ("PRISM_DATABASE_URL", "TEST_POSTGRES_URL", "LEGACY_SURVIVOR_TEST_POSTGRES_URL")
@@ -34,3 +36,17 @@ def _worker_databases(worker: str) -> None:
 _WORKER = os.environ.get("PYTEST_XDIST_WORKER")
 if _WORKER:
     _worker_databases(_WORKER)
+
+
+# SB2-93: every hit of the process-wide interface cache checks that no caller mutated it.
+os.environ.setdefault("PRISM_INTERFACE_CACHE_VERIFY", "1")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_interface_cache():
+    """Tests reuse (project, commit) keys across schemas with different payloads; production never does."""
+    from app.services.systems.interface_cache import interfaces
+
+    interfaces.clear()
+    yield
+    interfaces.clear()

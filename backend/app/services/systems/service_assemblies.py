@@ -490,16 +490,20 @@ class AssembliesMixin:
                         "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
                 end["housing"] = models[part]
 
-    def _harness_checks(self, store: SystemStore, system_id: str, harness_rows: Sequence[Mapping[str, Any]]) -> dict:
+    def _harness_checks(self, store: SystemStore, system_id: str, harness_rows: Sequence[Mapping[str, Any]],
+                        placed: Optional[tuple] = None) -> dict:
         """The root level's harnesses routed where the System 3D view draws them (§17.10), by harness
         ID: ``{lengths, collisions, tightBends}``; a harness with fewer than two posed ends is left out.
-        Collisions are checked against every board of the tree that has an outline."""
+        Collisions are checked against every board of the tree that has an outline. ``placed`` is
+        ``(tree, level, placement, extents)`` when the caller already solved them (SB2-93)."""
         if not harness_rows:
             return {}
-        tree = self._tree(store, system_id)
-        level = self._net_level(store, system_id, tree)
+        if placed is None:
+            tree = self._tree(store, system_id)
+            level = self._net_level(store, system_id, tree)
+            placed = (tree, level, *self._placement(store, system_id, tree, level))
+        tree, level, placement, extents = placed
         harnesses = [h for h in system_nets.harness_layout(level) if not h["level"]]
-        placement, extents = self._placement(store, system_id, tree, level)
         scene_module.harness_connectors(harnesses, tree.occurrences, level,
                                         self._occurrence_lookups(store, extents)[1])
         self._attach_housings(harnesses)
@@ -532,8 +536,7 @@ class AssembliesMixin:
         tree = tree or self._tree(store, system_id)
         level = level or self._net_level(store, system_id, tree)
         # Modules mate like boards (§5.6): their stored frames count too.
-        level.mating = {i["id"]: store.list_mating(i["id"])
-                        for i in store.list_instances(system_id, kinds=("board", "module"))}
+        level.mating = store.mating_of([i["id"] for i in store.list_instances(system_id, kinds=("board", "module"))])
         level.driving = store.list_driving_mates(system_id)
         extents = {(o.project_id, o.baseline_commit): store.get_interface_extent(o.project_id, o.baseline_commit,
                                                                                  EXTRACTOR_VERSION)

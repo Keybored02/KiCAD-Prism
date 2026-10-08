@@ -279,6 +279,31 @@ class InstancesStore:
         return {row["port_key"]: {"mode": row["mode"], "axis": row["axis"], "quarterTurns": int(row["quarter_turns"]),
                                   "geometryDigest": row["geometry_digest"]} for row in rows}
 
+    def overrides_of(self, instance_ids: Sequence[str]) -> dict[str, dict[str, str]]:
+        """``list_overrides`` for many instances in one query (SB2-93); every ID gets a map."""
+        out: dict[str, dict[str, str]] = {iid: {} for iid in instance_ids}
+        if out:
+            for row in self.conn.execute(
+                "SELECT instance_id, port_key, state FROM system_port_overrides WHERE instance_id = ANY(%s)",
+                (list(out),),
+            ).fetchall():
+                out[row["instance_id"]][row["port_key"]] = row["state"]
+        return out
+
+    def mating_of(self, instance_ids: Sequence[str]) -> dict[str, dict[str, dict]]:
+        """``list_mating`` for many instances in one query (SB2-93); every ID gets a map."""
+        out: dict[str, dict[str, dict]] = {iid: {} for iid in instance_ids}
+        if out:
+            for row in self.conn.execute(
+                "SELECT instance_id, port_key, mode, axis, quarter_turns, geometry_digest FROM system_port_mating"
+                " WHERE instance_id = ANY(%s)",
+                (list(out),),
+            ).fetchall():
+                out[row["instance_id"]][row["port_key"]] = {
+                    "mode": row["mode"], "axis": row["axis"], "quarterTurns": int(row["quarter_turns"]),
+                    "geometryDigest": row["geometry_digest"]}
+        return out
+
     def set_mating(
         self, change: Mutation, instance_id: str, port_key: str, record: Optional[Mapping[str, Any]]
     ) -> None:

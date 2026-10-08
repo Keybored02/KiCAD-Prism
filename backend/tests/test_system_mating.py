@@ -9,6 +9,7 @@ from __future__ import annotations
 from system_builder_db import FixtureSystemCase
 
 from app.services.systems import manifest as manifest_io
+from app.services.systems import interface_cache
 from app.services.systems.jobs import extract_and_store
 from app.services.systems.service import Caller, SystemService
 from app.services.systems.store import Conflict, Invalid
@@ -68,6 +69,7 @@ class MatingTest(FixtureSystemCase):
         with self.assertRaises(Invalid):
             self.service.set_mating(DESIGNER, self.sid, self.version(), self.obc, "/not-a-port", {"mode": "confirmed"})
         # A connector with fewer than two pad positions cannot be inferred: confirm is 409, override works.
+        interface_cache.interfaces.clear()  # a direct artifact write bypasses the SB2-93 cache
         self.conn.execute(
             """UPDATE system_interface_artifacts SET payload = jsonb_set(payload, '{components}',
                  (SELECT jsonb_agg(CASE WHEN c->>'reference' = 'J6'
@@ -86,6 +88,7 @@ class MatingTest(FixtureSystemCase):
         key = self.port("J6")["portKey"]
         self.service.set_mating(DESIGNER, self.sid, self.version(), self.obc, key, {"mode": "confirmed"})
         self.assertEqual(self.findings("SYS-V17"), [])
+        interface_cache.interfaces.clear()  # a direct artifact write bypasses the SB2-93 cache
         self.conn.execute(
             """UPDATE system_interface_artifacts SET payload = jsonb_set(payload, '{components}',
                  (SELECT jsonb_agg(CASE WHEN c->>'reference' = 'J6'

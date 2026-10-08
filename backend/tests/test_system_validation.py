@@ -9,6 +9,7 @@ from system_builder_db import FixtureSystemCase
 from system_builder_fixtures import expected_steps
 
 from app.services.systems.jobs import extract_and_store
+from app.services.systems import interface_cache
 from app.services.systems.service import Caller, SystemService
 from app.services.systems.store import Invalid
 from app.services.systems.validation import RULES, validate
@@ -85,6 +86,7 @@ class ValidationGoldenTest(FixtureSystemCase):
         self.assertNotIn("SYS-V09", {f["rule"] for f in self.report()["findings"]})
 
     def test_pending_interface_is_not_evaluated_never_passed(self) -> None:
+        interface_cache.interfaces.clear()  # a direct artifact write bypasses the SB2-93 cache
         self.conn.execute("DELETE FROM system_interface_artifacts WHERE project_id = 'prj_pwr'")
         self.conn.commit()
         not_evaluated = {(n["rule"], self.labels[n["instanceId"]]) for n in self.report()["notEvaluated"]}
@@ -94,6 +96,7 @@ class ValidationGoldenTest(FixtureSystemCase):
     def test_failed_extraction_makes_the_source_unavailable(self) -> None:
         from app.services.systems.jobs import EXTRACT_JOB_KIND, artifact_key
 
+        interface_cache.interfaces.clear()  # a direct artifact write bypasses the SB2-93 cache
         self.conn.execute("DELETE FROM system_interface_artifacts WHERE project_id = 'prj_pwr'")
         self.conn.execute(
             "INSERT INTO ws_jobs (id, kind, status, artifact_key, error_code) VALUES ('jf', %s, 'failed', %s,"

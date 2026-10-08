@@ -30,6 +30,7 @@ from fastapi import FastAPI
 from system_builder_fixtures import build_fixture_repo
 
 from app.api import systems as systems_api
+from app.services.systems import interface_cache
 from app.core.security import AuthenticatedUser, get_current_user
 from app.services.systems import service as service_module
 from app.services.systems.interface_extractor import extract_for_revision
@@ -493,6 +494,7 @@ class SystemApiTest(unittest.TestCase):
                 {**c, "pins": [p for p in c["pins"] if p["pad"] != "3"]} if c["reference"] == "J4" else c
                 for c in payload["components"]
             ]
+            interface_cache.interfaces.clear()  # a direct artifact write bypasses the SB2-93 cache
             conn.execute("UPDATE system_interface_artifacts SET payload = %s WHERE project_id = 'prj_pay'",
                          (json.dumps(payload),))
             conn.commit()

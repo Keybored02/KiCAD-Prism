@@ -116,9 +116,10 @@ def redact_findings(report: Mapping[str, Any], restricted: Collection[str]) -> d
 def redact_document(document: Mapping[str, Any], restricted: Collection[str]) -> dict:
     """A copy of ``document`` as a reader who cannot see ``restricted`` instances sees it."""
 
-    out = copy.deepcopy(dict(document))
     if not restricted:
-        return out
+        # SB2-93: nothing changes, and the document is built per request, so no copy is needed.
+        return dict(document)
+    out = copy.deepcopy(dict(document))
     out["instances"] = [redact_instance(i) if i["id"] in restricted else i for i in out["instances"]]
     out["exports"] = [
         {**e, "portKey": None, "port": None, "resolved": None, "redacted": True}
