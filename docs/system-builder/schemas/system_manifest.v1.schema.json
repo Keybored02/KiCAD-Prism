@@ -41,6 +41,13 @@
           "title": "Projectid",
           "type": "string"
         },
+        "subports": {
+          "items": {
+            "$ref": "#/$defs/Subport"
+          },
+          "title": "Subports",
+          "type": "array"
+        },
         "trackedRef": {
           "anyOf": [
             {
@@ -137,6 +144,13 @@
           "minLength": 1,
           "title": "Label",
           "type": "string"
+        },
+        "subports": {
+          "items": {
+            "$ref": "#/$defs/Subport"
+          },
+          "title": "Subports",
+          "type": "array"
         }
       },
       "required": [
@@ -316,6 +330,20 @@
           "pattern": "^sin_[0-9a-f]{32}$",
           "title": "Instanceid",
           "type": "string"
+        },
+        "subportId": {
+          "anyOf": [
+            {
+              "pattern": "^spt_[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "\u00a722: the sub-port this end lands on",
+          "title": "Subportid"
         }
       },
       "required": [
@@ -343,6 +371,19 @@
           "minLength": 1,
           "title": "Portkey",
           "type": "string"
+        },
+        "subportId": {
+          "anyOf": [
+            {
+              "pattern": "^spt_[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subportid"
         }
       },
       "required": [
@@ -366,6 +407,19 @@
           "pattern": "^sin_[0-9a-f]{32}$",
           "title": "Instanceid",
           "type": "string"
+        },
+        "subportId": {
+          "anyOf": [
+            {
+              "pattern": "^spt_[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subportid"
         }
       },
       "required": [
@@ -1001,6 +1055,20 @@
           "minLength": 1,
           "title": "Portkey",
           "type": "string"
+        },
+        "subportId": {
+          "anyOf": [
+            {
+              "pattern": "^spt_[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "\u00a722: the sub-port this end lands on",
+          "title": "Subportid"
         }
       },
       "required": [
@@ -1171,6 +1239,50 @@
         "name"
       ],
       "title": "SnapshotHeader",
+      "type": "object"
+    },
+    "Subport": {
+      "additionalProperties": false,
+      "description": "\u00a722.1: a named pad set carved out of a connector (or a subsystem export) on an instance.",
+      "properties": {
+        "id": {
+          "pattern": "^spt_[0-9a-f]{32}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[A-Za-z0-9_+\\-]{1,32}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "pads": {
+          "items": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Pads",
+          "type": "array"
+        },
+        "port": {
+          "$ref": "#/$defs/PortBaseline"
+        },
+        "portKey": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Portkey",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "portKey",
+        "port",
+        "name",
+        "pads"
+      ],
+      "title": "Subport",
       "type": "object"
     },
     "SystemHeader": {

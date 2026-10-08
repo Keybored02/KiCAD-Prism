@@ -6,7 +6,7 @@ from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import (
     exports as exports_module, exposure, harnesses as harnesses_module, mating as mating_module, redaction, sources,
-    validation, visibility,
+    subports as subports_module, validation, visibility,
 )
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.placement import harness_spec
@@ -213,7 +213,7 @@ class DocumentsMixin:
         review_rows = sorted({rid for review in open_reviews for item in review["items"] for rid in item["row_ids"]})
         subports_by_id = {row["id"]: row for row in subport_rows}
         link_docs = [self._link_doc(link, interfaces, overrides, mating, subports_by_id) for link in links]
-        export_docs = [self._export_doc(export, interfaces, overrides) for export in exports]
+        export_docs = [self._export_doc(export, interfaces, overrides, subports_by_id) for export in exports]
         all_instances = store.list_instances(system_id, kinds=SystemStore.ALL_KINDS)
         instance_docs = [
             self._instance_doc(i, names.get(i["project_id"]), interfaces.get(i["id"]),
@@ -447,7 +447,8 @@ class DocumentsMixin:
 
     @staticmethod
     def _export_doc(export: Mapping[str, Any], interfaces: Mapping[str, dict],
-                    overrides: Mapping[str, Mapping[str, str]]) -> dict:
+                    overrides: Mapping[str, Mapping[str, str]],
+                    subports: Optional[Mapping[str, Mapping[str, Any]]] = None) -> dict:
         port = export["target_port"]
         iid = export["target_instance_id"]
         if port:
@@ -464,6 +465,9 @@ class DocumentsMixin:
             "port": dict(port) if port else None, "childExportId": export["target_export_id"],
             "resolved": None if iid not in interfaces else (component is not None and bool(exposed)),
             "redacted": False, "updatedAt": _iso(export["updated_at"]),
+            # P2 §22.2: the sub-port it publishes; null for a whole connector or a remainder.
+            "subportId": export.get("target_subport_id"),
+            "subport": _end_subport(export.get("target_subport_id"), subports),
         }
 
     # ------------------------------------------------------------------
@@ -492,23 +496,35 @@ class DocumentsMixin:
     def create_export(
         self, caller: Caller, system_id: str, version: int, *, name: str, description: str,
         instance_id: str, port_key: Optional[str], child_export_id: Optional[str],
+        subport_id: Optional[str] = None,
     ) -> Result:
         with self._tx() as store:
             self._system(store, system_id, caller)
             with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
                 if port_key is not None:
                     port = self._export_port(store, system_id, instance_id, port_key, caller)
+                    self._require_subport(store, system_id, instance_id, port, subport_id)
                     row = store.create_export(change, name=name, description=description,
-                                              instance_id=instance_id, port=port)
+                                              instance_id=instance_id, port=port, subport_id=subport_id)
                 else:
                     instance = self._open_instance(store, system_id, instance_id, caller)
                     if instance.get("kind") != "assembly":
                         raise Invalid("a re-export needs an assembly instance")
-                    if exposure.component_by_key(self._interface(store, instance), child_export_id or "") is None:
+                    component = exposure.component_by_key(self._interface(store, instance), child_export_id or "")
+                    if component is None:
                         raise Invalid("childExportId is not an export of this subsystem's revision")
+                    self._require_subport(store, system_id, instance_id, exposure.port_baseline(component), subport_id)
                     row = store.create_export(change, name=name, description=description,
-                                              instance_id=instance_id, child_export_id=child_export_id)
+                                              instance_id=instance_id, child_export_id=child_export_id,
+                                              subport_id=subport_id)
         return Result(self._export_body(caller, system_id, row["id"]), system_id, change.version)
+
+    @staticmethod
+    def _require_subport(store: SystemStore, system_id: str, instance_id: str, port: Mapping[str, Any],
+                         subport_id: Optional[str]) -> None:
+        if subport_id is not None and subport_id not in {
+                s["id"] for s in subports_module.on_connector(store.list_subports(system_id), instance_id, port)}:
+            raise Invalid("subportId is not a sub-port of this connector")
 
     def update_export(
         self, caller: Caller, system_id: str, version: int, export_id: str, fields: Mapping[str, Any],
@@ -562,6 +578,7 @@ class DocumentsMixin:
                 children = {i["id"]: i for i in store.list_instances(system_id, kinds=("assembly", "module"))}
                 exports = store.list_exports(system_id)
                 restricted = self._restricted_instances(store, system_id, caller)
+                subport_rows = store.list_subports(system_id)
             else:
                 row = store.get_snapshot(system_id, snapshot_id)
                 if row["manifest"] is None:
@@ -575,8 +592,13 @@ class DocumentsMixin:
                 exports = [{"id": e["id"], "name": e["name"], "description": e["description"],
                             "target_instance_id": e["target"]["instanceId"],
                             "target_port": e["target"].get("port"),
-                            "target_export_id": e["target"].get("exportId")} for e in manifest["exports"]]
+                            "target_export_id": e["target"].get("exportId"),
+                            "target_subport_id": e["target"].get("subportId")} for e in manifest["exports"]]
                 restricted = self._restricted_in(store, row["document"], caller)
+                subport_rows = [{"id": sp["id"], "instance_id": i["id"], "port_key": sp["portKey"],
+                                 "port": {"portKey": sp["portKey"], "memberKeys": [sp["portKey"]]},
+                                 "name": sp["name"], "pads": sp["pads"]}
+                                for i in manifest["instances"] for sp in i.get("subports") or []]
             interfaces = {iid: store.get_interface(i["project_id"], i["baseline_commit"], EXTRACTOR_VERSION)
                           for iid, i in instances.items()}
             for iid, child in children.items():
@@ -590,7 +612,7 @@ class DocumentsMixin:
             for iid in set(missing):
                 self._enqueue_quietly(instances[iid]["project_id"], instances[iid]["baseline_commit"], caller)
             raise Conflict("interface_not_ready: a board behind an export is still being extracted")
-        body = exports_module.interface(exports, instances, interfaces, overrides)
+        body = exports_module.interface(exports, instances, interfaces, overrides, subport_rows)
         # A re-export resolves through the child's export to a board inside it; when that board is
         # hidden from the reader (or the export no longer resolves), so are its pins' nets (P2 §5.4).
         ports = redaction.hidden_ports(restricted)

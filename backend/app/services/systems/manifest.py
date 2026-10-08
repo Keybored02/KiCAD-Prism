@@ -55,6 +55,11 @@ def build(
     """
 
     system = store.get_system(system_id)
+    subports: dict[str, list[dict]] = {}
+    for sub in sorted(store.list_subports(system_id), key=lambda s: s["id"]):  # §22
+        subports.setdefault(sub["instance_id"], []).append(
+            {"id": sub["id"], "portKey": sub["port_key"], "port": _port(sub["port"]), "name": sub["name"],
+             "pads": list(sub["pads"])})
     instances = []
     for instance in sorted(store.list_instances(system_id, kinds=SystemStore.ALL_KINDS), key=lambda i: i["id"]):
         if instance["kind"] != "board":
@@ -66,7 +71,7 @@ def build(
                 "catalog": {"componentId": instance["catalog_component_id"],
                             "revisionId": instance["catalog_revision_id"],
                             "revisionVersion": int(ref["version"]), "identity": str(ref.get("identity") or "")},
-                "follow": instance["follow"],
+                "follow": instance["follow"], "subports": subports.get(instance["id"], []),
             })
             continue
         overrides = store.list_overrides(instance["id"])
@@ -75,11 +80,13 @@ def build(
             "projectId": instance["project_id"], "baselineCommit": instance["baseline_commit"],
             "trackedRef": instance["tracked_ref"], "pinned": bool(instance["pinned"]),
             "portOverrides": [{"portKey": key, "state": state} for key, state in sorted(overrides.items())],
+            "subports": subports.get(instance["id"], []),
         })
     kinds = {i["id"]: i["kind"] for i in store.list_instances(system_id, kinds=SystemStore.ALL_KINDS)}
     links = []
     for link in sorted(store.list_links(system_id), key=lambda item: item["id"]):
-        ends = {end: _manifest_end(kinds, link[f"{end}_instance_id"], link[f"{end}_port"]) for end in ("a", "b")}
+        ends = {end: {**_manifest_end(kinds, link[f"{end}_instance_id"], link[f"{end}_port"]),
+                      "subportId": link.get(f"{end}_subport_id")} for end in ("a", "b")}
         links.append({
             "id": link["id"], "name": link["name"], "type": link.get("type") or "unspecified",
             "stackHeightMm": link.get("stack_height_mm"),
@@ -96,6 +103,7 @@ def build(
             target = {"instanceId": export["target_instance_id"], "portKey": port["portKey"], "port": port}
         else:
             target = {"instanceId": export["target_instance_id"], "exportId": export["target_export_id"]}
+        target["subportId"] = export.get("target_subport_id")
         exports.append({"id": export["id"], "name": export["name"], "description": export["description"],
                         "target": target})
     harnesses = [{
@@ -184,7 +192,7 @@ def import_manifest(
 
 # Every table holding a system's engineering content, children before parents (FKs).
 _CONTENT_TABLES = ("system_driving_mates", "system_poses", "system_exports", "system_harnesses", "system_links",
-                   "system_instances", "system_layouts", "system_finding_waivers")
+                   "system_subports", "system_instances", "system_layouts", "system_finding_waivers")
 
 
 def replace_contents(store: SystemStore, change: Any, manifest: Manifest) -> None:
@@ -248,12 +256,17 @@ def _populate(store: SystemStore, change: Any, manifest: Manifest) -> None:
         )
         for override in instance.portOverrides:
             store.set_override(change, instance.id, override.portKey, override.state)
+    for instance in manifest.instances:  # §22: before the links and exports that name them
+        for sub in instance.subports:
+            store.create_subport(change, instance_id=instance.id, port=sub.port.model_dump(), name=sub.name,
+                                 pads=sub.pads, subport_id=sub.id)
     for link in manifest.links:
         store.create_link(
             change, a_instance_id=link.a.instanceId, a_port=_end_baseline(link.a),
             b_instance_id=link.b.instanceId, b_port=_end_baseline(link.b),
             name=link.name, harness=link.harnessLabel, link_id=link.id,
             link_type=link.type, stack_height_mm=link.stackHeightMm,
+            a_subport_id=link.a.subportId, b_subport_id=link.b.subportId,
         )
         store.replace_rows(change, link.id, [{
             "id": r.id, "pinA": r.pinA, "pinB": r.pinB, "signal": r.signal, "source": r.source,
@@ -264,11 +277,11 @@ def _populate(store: SystemStore, change: Any, manifest: Manifest) -> None:
         if hasattr(target, "port"):
             store.create_export(change, name=export.name, description=export.description,
                                 instance_id=target.instanceId, port=target.port.model_dump(),
-                                export_id=export.id)
+                                export_id=export.id, subport_id=target.subportId)
         else:
             store.create_export(change, name=export.name, description=export.description,
                                 instance_id=target.instanceId, child_export_id=target.exportId,
-                                export_id=export.id)
+                                export_id=export.id, subport_id=target.subportId)
     for harness in manifest.harnesses:
         store.create_harness(change, name=harness.name, label=harness.label, harness_id=harness.id,
                              cut_length_mm=harness.cutLengthMm, service_allowance_pct=harness.serviceAllowancePct)

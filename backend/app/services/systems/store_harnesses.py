@@ -32,19 +32,22 @@ class HarnessesStore:
             raise NotFound("Export not found")
         return dict(row)
 
-    def exported_port(self, system_id: str, instance_id: str, port_key: str) -> Optional[dict]:
-        """The export whose target is this port: a board port by portKey, or a child export (re-export)."""
+    def exported_port(self, system_id: str, instance_id: str, port_key: str,
+                      subport_id: Optional[str] = None) -> Optional[dict]:
+        """The export whose target is this port: a board port by portKey, or a child export (re-export).
+        On a split connector each sub-port and the remainder (``subport_id`` None) count apart (P2 §22.2)."""
         for export in self.list_exports(system_id):
-            if export["target_instance_id"] != instance_id:
+            if export["target_instance_id"] != instance_id or export.get("target_subport_id") != subport_id:
                 continue
             port = export["target_port"]
             if (port and port["portKey"] == port_key) or export["target_export_id"] == port_key:
                 return export
         return None
 
-    def linked_port(self, system_id: str, instance_id: str, port_key: str) -> bool:
+    def linked_port(self, system_id: str, instance_id: str, port_key: str, subport_id: Optional[str] = None) -> bool:
         return any(
             link[f"{end}_instance_id"] == instance_id and link[f"{end}_port"]["portKey"] == port_key
+            and link.get(f"{end}_subport_id") == subport_id
             for link in self.list_links(system_id) for end in ("a", "b")
         )
 
@@ -63,7 +66,7 @@ class HarnessesStore:
     def create_export(
         self, change: Mutation, *, name: str, description: str, instance_id: str,
         port: Optional[Mapping[str, Any]] = None, child_export_id: Optional[str] = None,
-        export_id: Optional[str] = None,
+        export_id: Optional[str] = None, subport_id: Optional[str] = None,
     ) -> dict:
         """One of ``port`` (a board port baseline) or ``child_export_id`` (a re-export)."""
         if (port is None) == (child_export_id is None):
@@ -79,31 +82,31 @@ class HarnessesStore:
         if baseline is not None:
             if instance.get("kind", "board") not in ("board", "module"):
                 raise Invalid("a port export needs a board or module instance")
-            if self.linked_port(change.system_id, instance_id, baseline["portKey"]):
+            if self.linked_port(change.system_id, instance_id, baseline["portKey"], subport_id):
                 raise Conflict("export_port_linked: this port is an end of a link in this system")
-            if self.exported_port(change.system_id, instance_id, baseline["portKey"]):
+            if self.exported_port(change.system_id, instance_id, baseline["portKey"], subport_id):
                 raise Conflict("this port is already exported")
         else:
             if instance.get("kind", "board") != "assembly":
                 raise Invalid("a re-export needs an assembly instance")
-            if self.linked_port(change.system_id, instance_id, child_export_id):
+            if self.linked_port(change.system_id, instance_id, child_export_id, subport_id):
                 raise Conflict("export_port_linked: this subsystem export is an end of a link in this system")
-            if self.exported_port(change.system_id, instance_id, child_export_id):
+            if self.exported_port(change.system_id, instance_id, child_export_id, subport_id):
                 raise Conflict("this subsystem export is already re-exported")
         export_id = _given_id("sxp_", export_id)
         self.conn.execute(
             """
             INSERT INTO system_exports
-                (id, system_id, name, description, target_instance_id, target_port, target_export_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (id, system_id, name, description, target_instance_id, target_port, target_export_id,
+                 target_subport_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (export_id, change.system_id, name, description or "", instance_id,
-             Jsonb(baseline) if baseline is not None else None, child_export_id),
+             Jsonb(baseline) if baseline is not None else None, child_export_id, subport_id),
         )
-        change.audit("export_created", {
-            "exportId": export_id, "name": name, "instanceId": instance_id,
-            "portKey": baseline["portKey"] if baseline else None, "childExportId": child_export_id,
-        })
+        created = {"exportId": export_id, "name": name, "instanceId": instance_id,
+                   "portKey": baseline["portKey"] if baseline else None, "childExportId": child_export_id}
+        change.audit("export_created", {**created, "subportId": subport_id} if subport_id else created)
         return self.get_export(change.system_id, export_id)
 
     def update_export(
@@ -142,7 +145,8 @@ class HarnessesStore:
         self.conn.execute(
             """
             UPDATE system_exports
-            SET target_instance_id = %s, target_port = %s, target_export_id = NULL, updated_at = NOW()
+            SET target_instance_id = %s, target_port = %s, target_export_id = NULL, target_subport_id = NULL,
+                updated_at = NOW()
             WHERE id = %s
             """,
             (instance_id, Jsonb(baseline), export_id),
@@ -158,10 +162,13 @@ class HarnessesStore:
 
     def set_export_port(self, change: Mutation, export_id: str, port: Mapping[str, Any]) -> None:
         """Refresh an export's port baseline after a silent relabel or rebind (no audit of its own)."""
+        before = self.get_export(change.system_id, export_id)
         self.conn.execute(
             "UPDATE system_exports SET target_port = %s, updated_at = NOW() WHERE id = %s",
             (Jsonb(_port_baseline(port)), export_id),
         )
+        if before["target_port"]:
+            self.follow_connector(before["target_instance_id"], before["target_port"], port)  # P2 §22.4
 
     def delete_export(self, change: Mutation, export_id: str) -> None:
         export = self.get_export(change.system_id, export_id)

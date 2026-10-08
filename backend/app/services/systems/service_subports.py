@@ -95,13 +95,15 @@ class SubportsMixin:
                     for e in ("a", "b")):
                 raise Conflict("port_b2b_mated: a board-to-board link mates this connector; its rows all go to "
                                "the partner, so it cannot be split")
-        for export in store.list_exports(system_id):
-            if (export["target_instance_id"] == instance_id and export.get("target_port")
-                    and not export.get("target_subport_id")
-                    and subports_module.same_connector(export["target_port"], port)):
-                raise Conflict("port_exported: this whole connector is exported; export a sub-port instead, "
-                               "or delete the export first")
         existing = subports_module.on_connector(all_subports, instance_id, port)
+        for export in [] if existing else store.list_exports(system_id):
+            # Splitting would shrink a whole-connector export under its parents; once split, an export of
+            # the remainder or a sub-port may change with it (child drift in the parents, §22.3).
+            whole = (subports_module.same_connector(export["target_port"], port) if export.get("target_port")
+                     else export.get("target_export_id") == port["portKey"])
+            if export["target_instance_id"] == instance_id and whole:
+                raise Conflict("port_exported: this whole connector is exported; delete the export, split it, "
+                               "then export a sub-port")
         work = plan(store, instance, component, existing)
         if work["kind"] == "subport_created" and len(all_subports) >= subports_module.MAX_PER_SYSTEM:
             raise Invalid(f"subport_limit: at most {subports_module.MAX_PER_SYSTEM} sub-ports per system")

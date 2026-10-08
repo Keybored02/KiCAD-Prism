@@ -28,7 +28,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from app.services.systems import exposure, harnesses as harnesses_module
+from app.services.systems import exposure, harnesses as harnesses_module, subports as subports_module
 from app.services.systems.drift import pad_sort_key
 from app.services.systems.store import MAX_HARNESS_ENDS, MAX_ROWS, Conflict, Invalid, Mutation, SystemStore
 
@@ -188,28 +188,31 @@ def _port_matches(port: Mapping[str, Any], component: Mapping[str, Any]) -> bool
     return bool(set(port.get("memberKeys") or [port["portKey"]]) & set(component.get("memberKeys") or []))
 
 
-def find_link(links: Sequence[Mapping[str, Any]], ends: Sequence[tuple[str, Mapping[str, Any]]],
+def find_link(links: Sequence[Mapping[str, Any]], ends: Sequence[tuple],
               harness: Optional[str]) -> Optional[tuple[dict, bool]]:
-    """The link joining the two ``(instance_id, component-or-port)`` ends with ``harness``.
+    """The link joining the two ``(instance_id, component-or-port[, subport_id])`` ends with ``harness``.
 
-    Returns ``(link, swapped)``; ``swapped`` means the first end is the link's B end.
+    Returns ``(link, swapped)``; ``swapped`` means the first end is the link's B end. On a split
+    connector each sub-port and the remainder are ends of their own (P2 §22.2).
     """
 
-    (ia, ca), (ib, cb) = ends
+    (ia, ca, sa), (ib, cb, sb) = ((*end, None)[:3] for end in ends)
     for link in sorted(links, key=lambda l: l["id"]):
         if _harness(link["harness"]) != harness:
             continue
-        la, lb = (link["a_instance_id"], link["a_port"]), (link["b_instance_id"], link["b_port"])
-        if la[0] == ia and lb[0] == ib and _port_matches(la[1], ca) and _port_matches(lb[1], cb):
+        la = (link["a_instance_id"], link["a_port"], link.get("a_subport_id"))
+        lb = (link["b_instance_id"], link["b_port"], link.get("b_subport_id"))
+        if (la[0], la[2], lb[0], lb[2]) == (ia, sa, ib, sb) and _port_matches(la[1], ca) and _port_matches(lb[1], cb):
             return dict(link), False
-        if la[0] == ib and lb[0] == ia and _port_matches(la[1], cb) and _port_matches(lb[1], ca):
+        if (la[0], la[2], lb[0], lb[2]) == (ib, sb, ia, sa) and _port_matches(la[1], cb) and _port_matches(lb[1], ca):
             return dict(link), True
     return None
 
 
 def _resolve_end(values: Mapping[str, str], side: str, board_map: Mapping[str, str],
                  instances: Mapping[str, Mapping[str, Any]], interfaces: Mapping[str, Optional[dict]],
-                 overrides: Mapping[str, Mapping[str, str]]) -> tuple[Optional[dict], Optional[str]]:
+                 overrides: Mapping[str, Mapping[str, str]],
+                 subports: Sequence[Mapping[str, Any]] = ()) -> tuple[Optional[dict], Optional[str]]:
     board, reference, pad = (values.get(f"{side}_{k}", "") for k in ("board", "connector", "pin"))
     if not board or not reference or not pad:
         return None, "missing_value"
@@ -221,10 +224,12 @@ def _resolve_end(values: Mapping[str, str], side: str, board_map: Mapping[str, s
     interface = interfaces.get(target)
     if interface is None:
         return None, "interface_not_ready"
-    if not exposure.is_annotated(reference):
-        return None, "connector_not_found"
+    connector, named = reference, None
     found = [c for c in interface.get("components") or [] if c.get("reference") == reference]
-    if not found:
+    if not found and "." in reference:  # "J6.PWR": a sub-port of J6 (P2 §22.5)
+        connector, named = reference.rsplit(".", 1)
+        found = [c for c in interface.get("components") or [] if c.get("reference") == connector]
+    if not exposure.is_annotated(connector) or not found:
         return None, "connector_not_found"
     if len(found) > 1:
         return None, "connector_ambiguous"
@@ -232,9 +237,18 @@ def _resolve_end(values: Mapping[str, str], side: str, board_map: Mapping[str, s
     pins = exposure.pins_by_pad(component)
     if pad not in pins:
         return None, "pin_not_found"
+    on = subports_module.on_connector(subports, target, component)
+    subport_id = subports_module.owner(on, pad)  # "J6" names whichever end holds the pad
+    if named is not None:
+        wanted = next((sub for sub in on if sub["name"].casefold() == named.casefold()), None)
+        if wanted is None:
+            return None, "connector_not_found"
+        if wanted["id"] != subport_id:
+            return None, "pin_not_on_subport"
     override = (overrides.get(target) or {}).get(component["portKey"])
     return {
         "instanceId": target, "label": instances[target]["label"], "reference": reference,
+        "subportId": subport_id,
         "portKey": component["portKey"], "port": exposure.port_baseline(component),
         "exposed": exposure.is_exposed(component, override), "pin": pad,
         "pinNames": pins[pad].get("pinNames"), "nets": sorted(set(pins[pad].get("nets") or [])),
@@ -244,7 +258,7 @@ def _resolve_end(values: Mapping[str, str], side: str, board_map: Mapping[str, s
 def classify(parsed: Parsed, column_map: Mapping[str, str], board_map: Mapping[str, str], *,
              instances: Mapping[str, Mapping[str, Any]], interfaces: Mapping[str, Optional[dict]],
              overrides: Mapping[str, Mapping[str, str]], links: Sequence[Mapping[str, Any]],
-             harnesses: Sequence[Mapping[str, Any]] = ()) -> dict:
+             harnesses: Sequence[Mapping[str, Any]] = (), subports: Sequence[Mapping[str, Any]] = ()) -> dict:
     """§9.3 buckets for every uploaded row, in upload order."""
 
     row_links = {row["id"]: link["id"] for link in links for row in link["rows"]}
@@ -272,7 +286,7 @@ def classify(parsed: Parsed, column_map: Mapping[str, str], board_map: Mapping[s
         ends = []
         reason = None
         for side in ("from", "to"):
-            end, why = _resolve_end(values, side, board_map, instances, interfaces, overrides)
+            end, why = _resolve_end(values, side, board_map, instances, interfaces, overrides, subports)
             ends.append(end)
             reason = reason or why
         if reason:
@@ -284,7 +298,8 @@ def classify(parsed: Parsed, column_map: Mapping[str, str], board_map: Mapping[s
             put("conflict", "same_port")
             continue
 
-        found = find_link(links, [(a["instanceId"], a["port"]), (b["instanceId"], b["port"])], entry["harness"])
+        found = find_link(links, [(a["instanceId"], a["port"], a.get("subportId")),
+                                  (b["instanceId"], b["port"], b.get("subportId"))], entry["harness"])
         ordered = sorted([(a["instanceId"], a["portKey"], a["pin"]), (b["instanceId"], b["portKey"], b["pin"])])
         key = (tuple(x[:2] for x in ordered), entry["harness"], tuple(x[2] for x in ordered))
         if found:
@@ -393,11 +408,16 @@ def apply_rows(store: SystemStore, change: Mutation, proposals: Sequence[Mapping
     plans: dict[str, dict[str, Any]] = {}
     for proposal in proposals:
         components = resolve_proposal(proposal, interfaces)
-        ends = [(proposal["from"]["instanceId"], components[0]), (proposal["to"]["instanceId"], components[1])]
+        subports = store.list_subports(change.system_id)
+        # The end holding each pad now (P2 §22.2): a sub-port carved since the preview takes its rows.
+        ends = [(proposal[side]["instanceId"], component, subports_module.owner(
+                    subports_module.on_connector(subports, proposal[side]["instanceId"], component),
+                    proposal[side]["pin"]))
+                for side, component in (("from", components[0]), ("to", components[1]))]
         harness = _harness(proposal.get("harness"))
         found = find_link(store.list_links(change.system_id), ends, harness)
         if found is None:
-            for (instance_id, component) in ends:
+            for (instance_id, component, _subport) in ends:
                 override = store.list_overrides(instance_id).get(component["portKey"])
                 if not exposure.is_exposed(component, override):
                     store.set_override(change, instance_id, component["portKey"], "promoted")
@@ -405,6 +425,7 @@ def apply_rows(store: SystemStore, change: Mutation, proposals: Sequence[Mapping
                 change, a_instance_id=ends[0][0], a_port=exposure.port_baseline(components[0]),
                 b_instance_id=ends[1][0], b_port=exposure.port_baseline(components[1]),
                 name=proposal.get("linkName") or default_link_name(proposal), harness=harness,
+                a_subport_id=ends[0][2], b_subport_id=ends[1][2],
             )
             links_created.append(link["id"])
             swapped = False
