@@ -111,25 +111,11 @@ describe("SystemWorkspace: what the Overview and Boards tabs did", () => {
     return { reload, onState };
   }
 
-  it("opts the system into the net-name check, read-only without edit rights", async () => {
-    const fetchMock = stubWith((_url, init) => (init?.method === "PATCH" ? ok() : null));
-    const { reload } = renderWith(doc);
-    const check = screen.getByRole("checkbox", { name: /Net names across links/ });
-    expect(check.getAttribute("aria-checked")).toBe("false");
-    fireEvent.click(check);
-    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
-    const [url, init] = writes(fetchMock)[0];
-    expect([url, init?.method, JSON.parse(String(init?.body))]).toEqual(["/api/systems/sys_1", "PATCH", { optionalRules: ["SYS-V09"] }]);
-    await waitFor(() => expect(reload).toHaveBeenCalled());
-  });
-
-  it("shows the check read-only without edit rights, and no Add", () => {
+  it("offers no Add without edit rights, and no opt-in check (SYS-V09 runs on every system, D-P2-57)", () => {
     stubWith(() => null);
-    const enabled = { ...doc, system: { ...doc.system, optionalRules: ["SYS-V09" as const] } };
-    renderWith(enabled, false);
-    const check = screen.getByRole("checkbox", { name: /Net names across links/ }) as HTMLButtonElement;
-    expect([check.getAttribute("aria-checked"), check.disabled]).toEqual(["true", true]);
+    renderWith(doc, false);
     expect(screen.queryByRole("button", { name: /Add/ })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /Net names across links/ })).toBeNull();
   });
 
   it("lists exports with their state and renames through the menu", async () => {

@@ -5,15 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
-import { unwaiveFinding, waiveFinding } from "@/lib/systems-api";
+import { proposeRename, unwaiveFinding, waiveFinding, withdrawRename } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
-import type { Finding, FindingWaiver, Severity, SystemDocument } from "@/types/system";
+import type { Finding, FindingWaiver, NetRename, Severity, SystemDocument } from "@/types/system";
 
 import { documentIndex } from "../document-index";
 import { findingText } from "../findings-ui";
 import { endLabel } from "../link-editor";
 import type { Mutate } from "../use-system-mutation";
 import { findingKeys } from "./finding-keys";
+import { RenamePopover, renameSides, type RenameSide } from "./rename-popover";
 import type { WorkspaceSelection } from "./workspace-state";
 
 /**
@@ -34,7 +35,9 @@ type Row =
   | { kind: "group"; key: string; severity: Severity; rule: string; text: string; count: number; open: boolean }
   | { kind: "finding"; key: string; finding: Finding }
   | { kind: "waived-header"; key: string; count: number; open: boolean }
-  | { kind: "waiver"; key: string; waiver: FindingWaiver; finding: Finding | null };
+  | { kind: "waiver"; key: string; waiver: FindingWaiver; finding: Finding | null }
+  | { kind: "renames-header"; key: string; count: number; open: boolean }
+  | { kind: "rename"; key: string; rename: NetRename };
 
 interface FindingsTrayProps {
   systemId: string;
@@ -132,11 +135,20 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
         }
       }
     }
+    // SB2-106 (P2 §23): open net rename proposals, each until its board's commit carries the name.
+    const renames = document.renames ?? [];
+    if (renames.length) {
+      const isOpen = !toggled.has("renames");
+      out.push({ kind: "renames-header", key: "renames", count: renames.length, open: isOpen });
+      if (isOpen) renames.forEach((rename) => out.push({ kind: "rename", key: `rename#${rename.id}`, rename }));
+    }
     return out;
-  }, [findings, report?.waivers, toggled]);
+  }, [findings, report?.waivers, document.renames, toggled]);
 
   if (!report || !findings) return <p className="p-4 text-sm text-muted-foreground">Loading findings…</p>;
-  if (!findings.length && !report.waivers?.length) return <p className="p-4 text-sm text-muted-foreground">No findings</p>;
+  if (!findings.length && !report.waivers?.length && !document.renames?.length) {
+    return <p className="p-4 text-sm text-muted-foreground">No findings</p>;
+  }
 
   const toggle = (key: string) => setToggled((current) => {
     const next = new Set(current);
@@ -147,12 +159,18 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
     Boolean(finding.key && await run("waive", () => waiveFinding(systemId, etag, finding.key!, note), "Finding waived"));
   const unwaive = (waiver: FindingWaiver) =>
     void run("unwaive", () => unwaiveFinding(systemId, etag, waiver.id), "Waiver removed");
+  const propose = async (side: RenameSide, name: string, note: string) => Boolean(await run("rename",
+    () => proposeRename(systemId, etag, { instanceId: side.instanceId, net: side.net, name, ...(note ? { note } : {}) }),
+    `Rename proposed to ${side.board}`));
+  const withdraw = (rename: NetRename) =>
+    void run("rename", () => withdrawRename(systemId, etag, rename.id), "Proposal withdrawn");
+  const boards = documentIndex(document).instances;
 
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const last = Math.min(rows.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN);
 
   const render = (row: Row) => {
-    if (row.kind === "group" || row.kind === "waived-header") {
+    if (row.kind === "group" || row.kind === "waived-header" || row.kind === "renames-header") {
       const Icon = row.open ? ChevronDown : ChevronRight;
       return (
         <button type="button" aria-expanded={row.open} onClick={() => toggle(row.key)}
@@ -163,7 +181,7 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
               <span className={cn("w-16 shrink-0 font-mono font-bold", TONE[row.severity])}>{row.rule}</span>
               <span className="min-w-0 flex-1 truncate">{row.text}</span>
             </>
-          ) : <span className="min-w-0 flex-1 truncate">Waived</span>}
+          ) : <span className="min-w-0 flex-1 truncate">{row.kind === "waived-header" ? "Waived" : "Rename proposals"}</span>}
           <span className="shrink-0 tabular-nums text-muted-foreground">{row.count}</span>
         </button>
       );
@@ -178,13 +196,32 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
           <span className="hidden w-40 shrink-0 truncate font-mono text-xs text-muted-foreground md:block">
             {[finding.reference, finding.pin].filter(Boolean).join(" · ")}
           </span>
-          {catalog && <a className="w-14 shrink-0 text-right text-xs text-primary hover:underline" href={catalog}>Catalog</a>}
+          {catalog ? <a className="w-14 shrink-0 text-right text-xs text-primary hover:underline" href={catalog}>Catalog</a>
+            : finding.rule === "SYS-V09" ? <RenameSlot finding={finding} document={document} canEdit={canEdit} onPropose={propose} />
+              : null}
           {canEdit && WAIVABLE.has(finding.severity) && finding.key
             ? <WaivePopover onWaive={(note) => waive(finding, note)} />
             : <span className="w-12 shrink-0" />}
           {to ? (
             <button type="button" className="w-12 shrink-0 text-right text-xs text-primary hover:underline" onClick={() => onSelect(to)}>Show</button>
           ) : <span className="w-12 shrink-0" />}
+        </div>
+      );
+    }
+    if (row.kind === "rename") {
+      const { rename } = row;
+      return (
+        <div className="flex h-full items-center gap-3 border-b pl-9 pr-4 text-sm" title={rename.note ?? undefined}>
+          <span className="w-24 shrink-0 truncate">{boards.get(rename.instanceId)?.label ?? "?"}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">
+            {rename.net ?? "Restricted"}{rename.name ? <span className="text-primary"> → {rename.name}</span> : null}
+          </span>
+          <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+            {rename.rows === null ? "" : `${rename.rows} ${rename.rows === 1 ? "row" : "rows"}`}
+          </span>
+          {canEdit && !rename.redacted
+            ? <button type="button" className="w-16 shrink-0 text-right text-xs text-muted-foreground hover:text-foreground hover:underline" onClick={() => withdraw(rename)}>Withdraw</button>
+            : <span className="w-16 shrink-0" />}
         </div>
       );
     }
@@ -213,4 +250,19 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
       </ul>
     </div>
   );
+}
+
+/** A SYS-V09 row's rename: "→ NAME" once proposed (P2 §23.4), else the action for editors. */
+function RenameSlot({ finding, document, canEdit, onPropose }: {
+  finding: Finding;
+  document: SystemDocument;
+  canEdit: boolean;
+  onPropose: (side: RenameSide, name: string, note: string) => Promise<boolean>;
+}) {
+  const proposed = (finding.detail as { rename?: { name: string } } | null)?.rename;
+  if (proposed) {
+    return <span className="w-14 shrink-0 truncate text-right font-mono text-xs text-primary" title="Rename proposed">→ {proposed.name}</span>;
+  }
+  const sides = canEdit ? renameSides(document, finding) : [];
+  return sides.length ? <RenamePopover sides={sides} onPropose={onPropose} /> : <span className="w-14 shrink-0" />;
 }

@@ -27,7 +27,6 @@ import type {
   SystemPlacement,
   LinkType,
   MatingAxis,
-  OptionalRule,
   PortMating,
   Review,
   ReviewStatus,
@@ -50,6 +49,8 @@ import type {
   SystemSummary,
   FindingWaiver,
   SubportChange,
+  NetRename,
+  ProjectSystems,
 } from "@/types/system";
 
 const BASE = "/api/systems";
@@ -119,14 +120,6 @@ export interface QueuedJob {
 
 export function createSystem(input: { name: string; description?: string; folderId?: string | null }) {
   return versioned<SystemSummary>(BASE, { method: "POST", body: json(input) }, "Could not create the system");
-}
-
-/** `PATCH /systems/{id}`; `optionalRules` replaces the stored list (CONTRACTS_P2 §8.4). */
-export function updateSystem(
-  systemId: string, etag: string,
-  fields: { name?: string; description?: string; folderId?: string | null; optionalRules?: OptionalRule[] },
-) {
-  return versioned<SystemSummary>(path(systemId), { method: "PATCH", etag, body: json(fields) }, "Could not update the system");
 }
 
 /** SB2-101: every system the reader may see, with board totals, last snapshot, git and counts. */
@@ -263,6 +256,30 @@ export function updateExport(
 
 export function deleteExport(systemId: string, etag: string, exportId: string) {
   return versioned<void>(path(systemId, "exports", exportId), { method: "DELETE", etag });
+}
+
+// ---------------------------------------------------------------------------
+// Net rename proposals (CONTRACTS_P2 §23)
+
+export function proposeRename(
+  systemId: string, etag: string, input: { instanceId: string; net: string; name: string; note?: string },
+) {
+  return versioned<NetRename>(path(systemId, "renames"), { method: "POST", etag, body: json(input) },
+    "Could not propose the rename");
+}
+
+export function withdrawRename(systemId: string, etag: string, renameId: string) {
+  return versioned<void>(path(systemId, "renames", renameId), { method: "DELETE", etag });
+}
+
+/** The systems that place a board, with their open rename proposals (the board page's Used in panel). */
+export function getProjectSystems(projectId: string): Promise<ProjectSystems> {
+  return send<ProjectSystems>(path("by-project", projectId), {}, "Could not read the systems using this board")
+    .then((r) => r.body);
+}
+
+export function projectRenamesCsvUrl(projectId: string): string {
+  return `${path("by-project", projectId)}/renames.csv`;
 }
 
 // ---------------------------------------------------------------------------
