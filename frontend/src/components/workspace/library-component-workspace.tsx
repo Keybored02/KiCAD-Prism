@@ -330,7 +330,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
         </PanelCard>
       ) : null}
 
-      {component.kind === "module" ? <ModuleConnectorsPanel component={component} /> : <MatesWithPanel componentId={component.id} canMutate={canMutate} />}
+      {component.kind === "module" ? <ModuleConnectorsPanel component={component} canMutate={canMutate} /> : <MatesWithPanel componentId={component.id} canMutate={canMutate} />}
       <ModelsPanel componentId={component.id} canMutate={canMutate} mates={component.kind !== "module"} />
     </div>
   );

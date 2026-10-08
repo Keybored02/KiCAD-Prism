@@ -46,7 +46,7 @@ def from_symbol(symbol: Any) -> dict:
         raise ValueError(f"a module has at most {MAX_UNITS} connectors (units)")
     pins: dict[int, list[dict]] = {u: [] for u in range(1, count + 1)}
     names: dict[int, str] = {}
-    seen: set[str] = set()
+    seen: set[tuple[int, str]] = set()  # pads repeat across connectors (each has its pin 1), never within one
     for sub in symbol.subsymbols:
         unit = int(sub.unit or 0)
         if getattr(sub, "unit_name", None):
@@ -59,9 +59,9 @@ def from_symbol(symbol: Any) -> dict:
                 continue
             if unit == 0:
                 raise ValueError(f"pin {pad} is common to all units; every module pin belongs to one connector")
-            if pad in seen:
-                raise ValueError(f"pad {pad} appears twice")
-            seen.add(pad)
+            if (unit, pad) in seen:
+                raise ValueError(f"pad {pad} appears twice in unit {unit_key(unit)}")
+            seen.add((unit, pad))
             name = str(pin.name or "").strip()
             name = "" if name == "~" else name
             kind = getattr(pin.electrical_type, "value", pin.electrical_type)

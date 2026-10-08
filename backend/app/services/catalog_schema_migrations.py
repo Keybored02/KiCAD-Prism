@@ -188,6 +188,28 @@ def _agent_tokens_registry(conn: Any) -> None:
     )
 
 
+def _module_connectors(conn: Any) -> None:
+    """System Builder P2 (CONTRACTS_P2 §3.6): the connector part placed for each unit of a module's symbol.
+
+    Keyed by the unit's letter like model alignment is keyed by asset: a placement belongs to the
+    component, not to a revision.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS catalog_module_connectors (
+            component_id   TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+            unit_key       TEXT NOT NULL,
+            part_id        TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+            placement_json TEXT NOT NULL,
+            updated_by     TEXT NOT NULL DEFAULT '',
+            updated_at     TEXT NOT NULL,
+            PRIMARY KEY (component_id, unit_key)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS catalog_module_connectors_part_idx ON catalog_module_connectors (part_id)")
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "portable_column_types", _portable_column_types),
     (2, "import_proposal_draft_column", _import_proposal_draft_column),
@@ -195,6 +217,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (4, "mates_with", _mates_with),
     (5, "model_glb", _model_glb),
     (6, "agent_tokens_registry", _agent_tokens_registry),
+    (7, "module_connectors", _module_connectors),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

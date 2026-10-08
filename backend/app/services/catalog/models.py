@@ -112,7 +112,11 @@ def preview_svg(step: bytes, alignment: Mapping[str, Any], view: str,
     placed = []
     for index, (data, matrix) in enumerate([(step, alignment_matrix(alignment))] + (
             [(partner[0], _multiply(HALF_TURN_X, alignment_matrix(partner[1])))] if partner else [])):
-        for mesh in geometer.model_tessellation(data).mesh_collection.meshes:
+        try:
+            meshes = geometer.model_tessellation(data).mesh_collection.meshes
+        except geometer.GeometerOperationError as exc:  # some STEPs convert to GLB but don't tessellate
+            raise ValueError("Geometer could not tessellate this model for a preview") from exc
+        for mesh in meshes:
             base = mesh.matrix or [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0]
             placed.append(dataclasses.replace(mesh, id=f"{index}:{mesh.id}", matrix=tuple(_multiply(matrix, base))))
     direction, up = PREVIEW_VIEWS[view]

@@ -46,6 +46,49 @@ def remove_mate(component_id: str, other_id: str, user: AuthenticatedUser = Depe
     return _mates_call(lambda: catalog_service.system_items.set_mate(component_id, other_id, mates=False, actor=user.email))
 
 
+class ModuleConnectorRequest(BaseModel):
+    partId: str = Field(min_length=1, max_length=200)
+    originMm: list[float] = Field(min_length=3, max_length=3)
+    normal: list[float] = Field(min_length=3, max_length=3)
+    quarterTurns: int = Field(default=0, ge=0, le=3)
+    axis: str | None = Field(default=None, max_length=8)
+
+
+def _connectors_call(action):
+    try:
+        return action()
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/components/{component_id}/module-connectors")
+def list_module_connectors(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
+    """CONTRACTS_P2 §3.6: each unit of a module's symbol with the connector part placed on its model."""
+    return _connectors_call(lambda: catalog_service.system_items.module_connectors(component_id))
+
+
+@router.get("/components/{component_id}/connector-geometry")
+def connector_geometry(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
+    """CONTRACTS_P2 §3.6: a part's footprint geometry at the origin and its model, for placing it on a module."""
+    return _connectors_call(lambda: catalog_service.system_items.connector_geometry(component_id))
+
+
+@router.put("/components/{component_id}/module-connectors/{unit_key}")
+def place_module_connector(component_id: str, unit_key: str, body: ModuleConnectorRequest,
+                           user: AuthenticatedUser = Depends(require_catalog_writer)):
+    placement = body.model_dump(exclude={"partId"})
+    return _connectors_call(lambda: catalog_service.system_items.set_module_connector(
+        component_id, unit_key, body.partId, placement, actor=user.email))
+
+
+@router.delete("/components/{component_id}/module-connectors/{unit_key}")
+def remove_module_connector(component_id: str, unit_key: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
+    return _connectors_call(lambda: catalog_service.system_items.remove_module_connector(
+        component_id, unit_key, actor=user.email))
+
+
 class AlignmentRequest(BaseModel):
     offsetMm: list[float] = Field(min_length=3, max_length=3)
     rotationDeg: list[float] = Field(min_length=3, max_length=3)

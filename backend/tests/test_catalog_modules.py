@@ -17,6 +17,10 @@ from app.services.catalog import module_interface
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
 STEP = Path(__file__).resolve().parents[2] / "fixtures" / "release-studio" / "usb-pd" / "packages3D" / "796638-2.step"
+# A made-up 2×5 header (pads 1–10) from the SB2-21 fixtures: the connector part placed on the module (SB2-48b).
+CONNECTOR = (Path(__file__).resolve().parent / "fixtures" / "system_builder" / "p2" / "sources" / "mezz_base" / "F0"
+             / "PrismFixture.pretty" / "Conn_Custom_2x05.kicad_mod")
+TOP = {"originMm": [0.0, 0.0, 10.0], "normal": [0.0, 0.0, 1.0], "quarterTurns": 0}
 
 
 def _pin(kind: str, number: str, name: str, y: float) -> str:
@@ -28,7 +32,7 @@ def module_symbol(*, common_pin: bool = False, repeat_pad: bool = False) -> str:
     """A made-up IMU: unit A "POWER/SERIAL" (pads 1–6), unit B "AUX" (pads 7–9)."""
     unit_a = [("power_in", "1", "VIN"), ("power_in", "2", "GND"), ("input", "3", "RX_P"), ("input", "4", "RX_N"),
               ("output", "5", "TX_P"), ("output", "6", "~")]
-    unit_b = [("output", "7", "PPS"), ("input", "8", "SYNC"), ("power_out", "9" if not repeat_pad else "1", "GND")]
+    unit_b = [("output", "7", "PPS"), ("input", "8", "SYNC"), ("power_out", "9" if not repeat_pad else "7", "GND")]
     body = lambda pins: " ".join(_pin(k, n, name, -2.54 * i) for i, (k, n, name) in enumerate(pins))
     common = f'(symbol "TEST_IMU_0_1" {_pin("passive", "10", "SHIELD", 5.08)})' if common_pin else ""
     return f'''(kicad_symbol_lib (version 20241209) (generator "prism_test")
@@ -64,8 +68,13 @@ class FromSymbolTest(unittest.TestCase):
     def test_common_pins_and_repeated_pads_are_refused(self) -> None:
         with self.assertRaisesRegex(ValueError, "common to all units"):
             module_interface.from_symbol_file(self.write(module_symbol(common_pin=True)))
-        with self.assertRaisesRegex(ValueError, "pad 1 appears twice"):
+        with self.assertRaisesRegex(ValueError, "pad 7 appears twice in unit B"):
             module_interface.from_symbol_file(self.write(module_symbol(repeat_pad=True)))
+
+    def test_each_connector_numbers_its_own_pads(self) -> None:
+        text = module_symbol().replace('(number "7"', '(number "1"').replace('(number "8"', '(number "2"')
+        derived = module_interface.from_symbol_file(self.write(text))
+        self.assertEqual([p["pad"] for p in derived["units"][1]["pins"]], ["1", "2", "9"])
 
     def test_unit_letters_follow_kicad(self) -> None:
         self.assertEqual([module_interface.unit_key(n) for n in (1, 2, 26, 27, 28)], ["A", "B", "Z", "AA", "AB"])
@@ -104,11 +113,39 @@ class ModuleItemsTest(unittest.TestCase):
         self.service.attach_auxiliary_asset(component_id, asset_type=asset_type, upload_name=name, payload=payload,
                                             target_library="Test", actor="author@example.com")
 
+    def connector_part(self, *, footprint: bool = True) -> str:
+        part = self.service.create_manual_component(
+            value="Conn_Custom_2x05", description="Made-up 2x05 header", datasheet="https://example.com/c.pdf",
+            manufacturer="Test", manufacturer_part_number=f"HDR-{uuid.uuid4().hex[:8]}", actor="author@example.com")
+        part_id = str(part["id"])
+        self.created.append(part_id)
+        if footprint:
+            self.service.import_footprint(part_id, upload_name=CONNECTOR.name, payload=CONNECTOR.read_bytes(),
+                                          target_library="Test", selected_footprint="Conn_Custom_2x05",
+                                          actor="author@example.com")
+        return part_id
+
+    def modelled_module(self) -> str:
+        component_id = self.module()
+        self.attach(component_id, "symbol", "TEST_IMU.kicad_sym", module_symbol().encode())
+        self.attach(component_id, "3dmodel", STEP.name, STEP.read_bytes())
+        return component_id
+
+    def place_all(self, component_id: str) -> None:
+        part = self.connector_part()
+        for key, origin in (("A", [0.0, 0.0, 10.0]), ("B", [-12.0, 0.0, 4.0])):
+            normal = [0.0, 0.0, 1.0] if key == "A" else [-1.0, 0.0, 0.0]
+            self.service.system_items.set_module_connector(
+                component_id, key, part, {"originMm": origin, "normal": normal, "quarterTurns": 0},
+                actor="author@example.com")
+
     def release(self, component_id: str) -> None:
-        for stage, actor, role in (("in_progress", "author@example.com", "designer"),
-                                   ("qa_review", "author@example.com", "designer"),
-                                   ("done", "qa@example.com", "qa"),
-                                   ("released", "qa@example.com", "admin")):
+        """Walk the workflow to released, resuming after a refused attempt."""
+        stages = (("in_progress", "author@example.com", "designer"), ("qa_review", "author@example.com", "designer"),
+                  ("done", "qa@example.com", "qa"), ("released", "qa@example.com", "admin"))
+        current = self.service.get_component(component_id)["release_status"]
+        names = [stage for stage, _actor, _role in stages]
+        for stage, actor, role in stages[names.index(current) + 1 if current in names else 0:]:
             self.service.set_release_status(component_id, stage, actor=actor, actor_role=role)
 
     def test_the_symbol_becomes_the_interface_and_release_needs_it_and_a_model(self) -> None:
@@ -130,6 +167,9 @@ class ModuleItemsTest(unittest.TestCase):
             component_id, model["assetId"], {"offsetMm": [0, 0, 1], "rotationDeg": [0, 0, 0], "scale": 1},
             actor="author@example.com")
         self.assertEqual(aligned[0]["alignment"]["offsetMm"], [0.0, 0.0, 1.0])
+        with self.assertRaisesRegex(ValueError, "every connector is placed: A, B"):
+            self.release(component_id)
+        self.place_all(component_id)
         self.release(component_id)
         self.assertEqual(self.service.get_component(component_id)["release_status"], "released")
 
@@ -139,6 +179,53 @@ class ModuleItemsTest(unittest.TestCase):
         self.attach(component_id, "3dmodel", STEP.name, STEP.read_bytes())
         with self.assertRaisesRegex(ValueError, "common to all units"):
             self.release(component_id)
+
+    def test_connectors_are_parts_placed_on_the_model(self) -> None:
+        from app.services.systems.placement import module_ports
+
+        component_id = self.modelled_module()
+        listed = self.service.system_items.module_connectors(component_id)
+        self.assertEqual([(u["key"], u["pads"], u["connector"]) for u in listed["units"]],
+                         [("A", ["1", "2", "3", "4", "5", "6"], None), ("B", ["7", "8", "9"], None)])
+        self.assertFalse(listed["complete"])
+        part = self.connector_part()
+        detail = self.service.system_items.connector_geometry(part)
+        self.assertEqual(len(detail["geometry"]["pads"]), 10)
+        self.assertIsNone(detail["model"], "the part has no converted model")
+        placed = self.service.system_items.set_module_connector(
+            component_id, "A", part, dict(TOP, normal=[0.0, 0.0, 2.0], quarterTurns=1), actor="author@example.com")
+        connector = placed["units"][0]["connector"]
+        self.assertEqual(connector["part"]["componentId"], part)
+        self.assertEqual(connector["placement"],
+                         {"originMm": [0.0, 0.0, 10.0], "normal": [0.0, 0.0, 1.0], "quarterTurns": 1, "axis": None})
+        self.assertEqual([p["pad"] for p in connector["geometry"]["pads"]][:3], ["1", "2", "3"])
+        self.assertEqual(connector["footprintPose"],
+                         module_ports.footprint_pose(connector["placement"], connector["geometry"]))
+        self.assertEqual(connector["missingPads"], [])
+        self.assertFalse(placed["complete"], "unit B is still unplaced")
+        moved = self.service.system_items.set_module_connector(
+            component_id, "B", part, {"originMm": [-12.0, 0.0, 4.0], "normal": [-1.0, 0.0, 0.0], "quarterTurns": 3},
+            actor="author@example.com")
+        self.assertTrue(moved["complete"])
+        removed = self.service.system_items.remove_module_connector(component_id, "B", actor="author@example.com")
+        self.assertIsNone(removed["units"][1]["connector"])
+        events = [e["event_type"] for e in self.service.list_component_audit_events(component_id)]
+        self.assertIn("component.module_connector_placed", events)
+        self.assertIn("component.module_connector_removed", events)
+
+    def test_bad_connector_placements_are_refused(self) -> None:
+        component_id = self.modelled_module()
+        part = self.connector_part()
+        with self.assertRaisesRegex(LookupError, "no unit C"):
+            self.service.system_items.set_module_connector(component_id, "C", part, TOP)
+        with self.assertRaisesRegex(ValueError, "no footprint"):
+            self.service.system_items.set_module_connector(component_id, "A", self.connector_part(footprint=False), TOP)
+        with self.assertRaisesRegex(ValueError, "only parts"):
+            self.service.system_items.set_module_connector(component_id, "A", self.module(), TOP)
+        with self.assertRaisesRegex(ValueError, "non-zero"):
+            self.service.system_items.set_module_connector(component_id, "A", part, dict(TOP, normal=[0, 0, 0]))
+        with self.assertRaisesRegex(ValueError, "only modules"):
+            self.service.system_items.set_module_connector(part, "A", part, TOP)
 
     def test_parts_stay_parts(self) -> None:
         part = self.service.create_manual_component(

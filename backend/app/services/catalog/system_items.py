@@ -125,6 +125,10 @@ def assert_release_gates(conn: Any, kind: str, revision: Mapping[str, Any]) -> N
         ).fetchone()
         if model is None:
             raise ValueError("Cannot release a module revision without a STEP model")
+        # SB2-48b: every connector is a placed catalog part (D-P2-40).
+        from app.services.catalog import module_connectors
+
+        module_connectors.assert_placed(conn, str(revision["component_id"]))
 
 
 __all__ = [

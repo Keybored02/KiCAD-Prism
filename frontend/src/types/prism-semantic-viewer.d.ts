@@ -134,6 +134,12 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     setHiddenComponents: (references: string[]) => void;
     /** What is under a client point, without selecting it (SB2-24). Null before ready. */
     pickAt?: (clientX: number, clientY: number) => Promise<PrismViewerPick | null>;
+    /** mode="system" (SB2-48b): where a client point meets a `pickSurface` model, in world mm with the normal facing the viewer. */
+    pickSurfaceAt?: (clientX: number, clientY: number) => PrismSurfacePick | null;
+    /** mode="system" (SB2-48b): look along a world axis from its + side (`opposite`: its − side), framing the scene. */
+    viewAxis?: (axis: "x" | "y" | "z", opposite?: boolean) => void;
+    /** mode="system" (SB2-48b): put the move gizmo on an occurrence by path; false when it is not placed yet. */
+    focusMoveTarget?: (path: string) => boolean;
     /** Client coordinates of a component's centre (mode="system": on one placement), or null off screen. */
     projectComponent?: (reference: string, occurrenceKey?: string) => { x: number; y: number } | null;
     /** Client coordinates of a board-local runtime point (metres; mode="system": on one placement). */
@@ -196,6 +202,14 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     frameBoard?: (key: string) => boolean;
     /** mode="system": frame parts on their placements (SB2-32: a hop's two connectors); false when none is drawn. */
     frameParts?: (parts: readonly { occurrence: string; reference: string }[]) => boolean;
+}
+
+/** A surface pick (SB2-48b): the hit in world mm, the face normal and the direction to the camera (unit). */
+export interface PrismSurfacePick {
+    occurrence: string;
+    pointMm: [number, number, number];
+    normal: [number, number, number];
+    toCamera: [number, number, number];
 }
 
 export interface PrismScenePose {

@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.32 · 2026-10-07 · tickets SB2-00 to SB2-31f.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.57 · 2026-10-08 · tickets SB2-00 to SB2-48b.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -177,12 +177,34 @@ A `module` is a bought-out unit (a sensor, a radio, a power brick) used in syste
 - **The symbol is the interface.** A module carries one KiCad symbol whose **units are its connectors**. Every time a module revision is sealed (created, symbol or model attached, metadata edited) its `interface` is derived from that symbol (`catalog/module_interface.py`) as `prism.module_interface.v1`: `{schema, units: [{key, unit, name, pins: [{pad, name, signal, powerNet}]}]}`.
   - `key` is KiCad's unit letter (A, B, … Z, AA, …) and names the connector for ports and links; `name` is the unit's name in the symbol, else `Unit A`.
   - A pin's number is its `pad`; its **name is its `signal`** (its net in system nets, SB2-50; KiCad's `~` is no name); `power_in`/`power_out` pins are power nets. The alternate (De Morgan) body style is ignored.
-  - Refused (the interface has no units and an `error` saying why): no symbol, an unreadable symbol, pins common to all units (unit 0), a pad number used twice, more than 32 units.
+  - Refused (the interface has no units and an `error` saying why): no symbol, an unreadable symbol, pins common to all units (unit 0), a pad number used twice within one unit (each connector numbers its own pads, so pad 1 repeats across units), more than 32 units.
 - **Models.** A module carries STEP models like a part; conversion, alignment and previews (§18.2) work on modules. "Mates with" stays between parts. Where each connector sits on the module is SB2-48b (D-P2-40).
 - **Release gates:** an interface with at least one unit (else the derivation's `error` is quoted) and at least one STEP `3dmodel` asset.
 - **Page.** A module uses the part page; its overview shows the derived connectors (read-only: edit the symbol to change them) instead of "mates with", and the models panel.
 - **Revision clones keep the payload.** Any clone of a revision copies `interface_json` and `source_ref_json`, for modules and assemblies alike. *(Before P2-1.56 a clone dropped them.)*
 - **Fixtures** use a made-up two-unit module symbol (D-P2-38).
+
+### 3.6 Connectors placed on modules (SB2-48b, D-P2-40)
+
+Each unit of a module's symbol is a connector, and that connector is a **catalog part** placed on the module's model. The part's footprint gives the pads, pin 1 and the mating frame; its model (if converted) gives the body. Board, module and assembly ports are then all "a connector part at a pose".
+
+- **Placement** (`placement/module_ports.py`, twin `module-ports.ts`, goldens `modulePorts`): `{originMm: [x, y, z], normal: [x, y, z], quarterTurns: 0..3, axis: AXES | null}` in the **module frame**, i.e. the module's model after its alignment (§18.2).
+  - `normal` is the face's outward normal, stored normalised.
+  - `axis` overrides the part's inferred mating axis (§15.1); unknown → `top`.
+- **Face frame `P`:** origin `originMm`; z is the normal; x is module +x projected onto the face (module +y when the normal is closer to x than to y); then `quarterTurns` rotate x → y about z.
+- **Footprint pose:** `P · F_part⁻¹`, where `F_part` is `connector_frame(geometry, 0, axis)` on the part's footprint at the origin. The part's mating frame therefore lands on `P`: its mating axis points out of the face and pad 1 lies on the face's −x side. A module port is "a footprint at this pose on a zero-thickness board", so mates (§14.5), harness ends (§17.6) and checks reuse the board code.
+- **Storage:** catalog migration 7 `catalog_module_connectors(component_id, unit_key, part_id, placement_json, updated_by, updated_at)`, keyed by `(component_id, unit_key)`. Like model alignment, a placement belongs to the component, not to a revision. A placement whose unit the symbol no longer has is reported as an orphan and ignored.
+- **API** (browse to read, catalog writers to change; 404 unknown component or unit, 422 otherwise):
+  - `GET /api/catalog/components/{cid}/module-connectors` → `{units: [{key, name, pads, connector: {part, placement, geometry, footprintPose, model, missingPads, updatedBy, updatedAt} | null}], orphans, complete}`.
+  - `PUT …/module-connectors/{unitKey} {partId, originMm, normal, quarterTurns, axis}` places or moves the connector. The part must be an active `part` whose footprint has pads, and the footprint must carry every pad of the unit. Audited as `component.module_connector_placed`.
+  - `DELETE …/module-connectors/{unitKey}`, audited as `component.module_connector_removed`.
+  - `GET /api/catalog/components/{cid}/connector-geometry` → `{geometry, model}` for a part: its footprint geometry at the origin (§14.6) and its first converted model `{glbKey, boundsMm, alignment}`.
+- **Release gate** (§3.3, modules): every unit has a placed connector whose footprint carries the unit's pads.
+- **Placing in the UI** (user decision 2026-10-08: the system viewer, not a second 3D engine): the module overview's Connectors panel opens a picker that shows the module in `<prism-semantic-viewer mode="system">` (§20.18).
+  - Click a face to place the connector there. A hit on a surface facing well away from the viewer (the wall of a connector's opening) means the module face toward the viewer.
+  - Then the board move gizmo (§20.4) slides it along the face (two arrows; Shift for 0.1 mm) and its one ring turns it a quarter at a time; R / Shift+R and the panel's buttons turn it too, and the numbers can be typed.
+  - View buttons look square at each face. The connector shows its part's model (else its body box) with pin 1 as a red marker; the module's other connectors are grey.
+  - The viewer is page-global (one per page), so the picker runs only where no other viewer is mounted (the catalog page).
 
 ### 3.4 "Mates with" (M1; shape frozen here)
 
@@ -876,6 +898,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.57 | 2026-10-08 | SB2-48b (D-P2-40): §20.18 scene occurrences with their own `model`/`box`, gizmo `move` limits, `pickSurface` and the viewer's `pickSurfaceAt`/`focusMoveTarget`/`viewAxis`; §3.6 connectors placed on modules (face frame, footprint pose `P · F_part⁻¹`, goldens `modulePorts`), catalog migration 7 `catalog_module_connectors`, `GET/PUT/DELETE …/module-connectors`, `GET …/connector-geometry`, the every-connector-placed release gate; §3.5: pads are unique within a unit, not across the symbol. |
 | P2-1.56 | 2026-10-08 | SB2-48 (D-P2-39): §3.5 modules: created through the normal component flow with `kind: "module"`; the interface (`prism.module_interface.v1`) is derived from the module's multi-unit symbol on every sealed revision (units = connectors, pin names = signals); models on modules; module release gates (interface + STEP model); revision clones keep `interface_json`/`source_ref_json` (they were dropped). |
 | P2-1.55 | 2026-10-08 | SB2-47: §20.17 housings at harness ends: scene ends carry the part's model (`housing`), the route exits at its rear face, the viewer draws the GLB under its alignment or a proxy box; a housing click picks its harness. Radius blends at breakouts deferred. |
 | P2-1.54 | 2026-10-08 | SB2-46: §17.10 routes, lengths and collisions (library pairs `harness_route`/`harness_checks`, goldens `harnessChecks`); `SYS-V12 harness_collision`, `SYS-V13 length_mismatch`, new info rule `SYS-V20 harness_tight_bend`; harness lengths in documents, the ICD and the harness editor; colliding tubes draw red. |
@@ -1192,3 +1215,17 @@ Coarser levels only stop drawing parts of a board; the bundle's geometry is neve
   - A posed end with a model draws the GLB from `GET /api/catalog/models/{glbKey}.glb` at its mating frame · alignment (`T·R·S`). Geometer's GLBs keep the STEP's z-up axes in metres; the viewer maps its loader's y-up reading back to STEP millimetres. While the GLB loads, or if it fails, the model's aligned bounds draw as a box.
   - Any other posed end draws a proxy box in its mating frame: the connector body's x–y extent (y flipped, the housing faces the connector) and the housing depth behind the mating face.
   - Housings hide with the harnesses. A click on one picks its harness on the segment leaving that end.
+
+### 20.18 Occurrences with their own geometry, gizmo limits and surface picks (SB2-48b)
+
+Additions to the `prism.system_scene.a0` occurrence, all optional, so older scenes are unchanged:
+
+- `model {glbKey, matrixMm?, boundsMm?}` draws a catalog GLB (§18.2) at `worldMatrix · matrixMm`. `matrixMm` maps the model's STEP millimetres into the occurrence frame (an alignment, §18.2). While the GLB loads, `boundsMm` draws as a proxy box. SB2-50 draws module instances this way.
+- `box {boundsMm, rgba?}` draws a coloured box in the occurrence frame.
+- `move: false` keeps the occurrence out of move mode. `move {translate: [axis…], rotate: [axis…], rotateSnapDeg, pivot: "origin" | "bounds"}` limits the gizmo: only the listed arrows and rings show, in the occurrence's own axes; rotation snaps to `rotateSnapDeg`; the pivot is the pose's origin (`"origin"`) or the box centre.
+- `pickSurface: true` lets surface picks land on the occurrence's model.
+
+Viewer element methods (mode="system"):
+- `pickSurfaceAt(clientX, clientY)` → `{occurrence, pointMm, normal, toCamera}` or null: the camera ray against the model's triangles on the CPU (the GPU pick has no depth). The normal faces the viewer.
+- `focusMoveTarget(path)` puts the move gizmo on an occurrence.
+- `viewAxis(axis, opposite)` looks along a world axis and frames the scene.

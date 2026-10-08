@@ -47,6 +47,8 @@ class ViewerBrowseRoutesTest(unittest.TestCase):
         ("GET", "/api/catalog/components/{component_id}/usage"),
         ("GET", "/api/catalog/components/{component_id}/mates-with"),
         ("GET", "/api/catalog/components/{component_id}/models"),
+        ("GET", "/api/catalog/components/{component_id}/module-connectors"),
+        ("GET", "/api/catalog/components/{component_id}/connector-geometry"),
         ("GET", "/api/catalog/components/{component_id}/models/{asset_id}/preview.svg"),
         ("GET", "/api/catalog/models/{key}.glb"),
         ("GET", "/api/catalog/components/{component_id}/reviews"),
