@@ -400,6 +400,11 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.controller?.targetHarnessNode?.(id);
   }
 
+  /** Pick a root-level harness by id, as clicking it would (SB2-61); null drops the pick. False when it is not drawn. */
+  selectHarness(id) {
+    return this.controller?.selectHarness?.(id) ?? false;
+  }
+
   /** Show the targeted node at a level-frame position without saving it; null shows its saved place. */
   previewHarnessNode(positionMm) {
     this.controller?.previewHarnessNode?.(positionMm);

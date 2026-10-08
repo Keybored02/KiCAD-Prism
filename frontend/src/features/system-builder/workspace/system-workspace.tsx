@@ -65,7 +65,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
       selection: migrated.state.selection ?? state.selection,
     });
   };
-  const tabProps: SystemTabProps = { ...props, onNavigate };
+  const tabProps: SystemTabProps = { ...props, onNavigate, selection: state.selection, onSelect: select };
 
   const outline = (
     <WorkspaceOutline document={document} findings={findings} selection={state.selection} canEdit={canEdit}

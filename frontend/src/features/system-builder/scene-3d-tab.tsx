@@ -34,6 +34,7 @@ import { useMoveMode } from "./use-move-mode";
 import { useNetHighlight } from "./use-net-highlight";
 import { useSystemNetIndex } from "./use-system-net-index";
 import { useTracedNet } from "./use-traced-net";
+import { useViewerSelectionSync } from "./workspace/use-viewer-selection-sync";
 import type { SystemTabProps } from "./system-tab-content";
 
 const DiagramTab = lazy(() => import("./diagram-tab").then((module) => ({ default: module.DiagramTab })));
@@ -137,7 +138,7 @@ function useViewerEvents(
  * building are boxes. Without WebGPU, the 2D diagram with a notice.
  */
 export function Scene3dTab(props: SystemTabProps) {
-  const { systemId, document, etag, canEdit, reload, onNavigate } = props;
+  const { systemId, document, etag, canEdit, reload, onNavigate, selection: workspaceSelection = null, onSelect } = props;
   const supported = webgpuAvailable();
   const { scene, error } = useSystemScene(systemId, etag, supported);
   const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
@@ -152,10 +153,12 @@ export function Scene3dTab(props: SystemTabProps) {
   const route = useHarnessNodes(viewer, { systemId, etag, reload, scene });
   const nets = useNetHighlight(systemId, etag);
   const { highlighted } = nets;
+  const reportSelection = useViewerSelectionSync(viewer, scene, document, workspaceSelection, onSelect);
   // As the board 3D tab: a selection opens the Selection rail, clearing it closes it (other tabs stay).
-  const followSelection = useCallback((next: PrismSystemViewerSelection | null) => {
+  const followSelection = (next: PrismSystemViewerSelection | null) => {
     setRail((tab) => (next ? "selection" : tab === "selection" ? null : tab));
-  }, []);
+    reportSelection(next);
+  };
   const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report, followSelection);
   const indexes = useBoardIndexes(scene);
   const { traced, light } = useTracedNet(systemId, etag, selection);

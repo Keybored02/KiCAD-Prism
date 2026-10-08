@@ -188,6 +188,8 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     getMoveState?: () => PrismSystemSceneMoveState | null;
     /** mode="system" harness editing (SB2-45b); state arrives as `prism-semantic-viewer:harness`. */
     targetHarnessNode?: (id: string | null) => void;
+    /** mode="system" (SB2-61): pick a root-level harness by id as a click would; null drops the pick; false when not drawn. */
+    selectHarness?: (id: string | null) => boolean;
     /** Show the targeted node at a level-frame position without saving it; null shows its saved place. */
     previewHarnessNode?: (positionMm: [number, number, number] | null) => void;
     cancelHarnessNode?: () => void;
