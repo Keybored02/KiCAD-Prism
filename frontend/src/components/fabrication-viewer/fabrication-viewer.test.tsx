@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FabricationViewer } from "./fabrication-viewer";
-import { buildSource } from "./sources";
+import { buildSource, isLayerName, outputsSource } from "./sources";
 import type { FabricationLayer, FabricationView } from "./types";
 
 const apiMock = vi.hoisted(() => ({
@@ -197,5 +197,35 @@ describe("buildSource", () => {
         expect(SOURCE.layerUrl("f.cu")).toBe(
             "/api/projects/p1/release-studio/builds/b1/fabrication-view/layers/f.cu.svg",
         );
+    });
+});
+
+describe("outputsSource", () => {
+    it("addresses a committed folder and its layers with the same query", () => {
+        const source = outputsSource("p 1", "manufacturing", "gerbers/rev b", "a".repeat(40));
+        const query = `type=manufacturing&folder=gerbers%2Frev+b&commit=${"a".repeat(40)}`;
+        expect(source.viewUrl).toBe(`/api/projects/p%201/fabrication-view?${query}`);
+        expect(source.layerUrl("f.cu")).toBe(`/api/projects/p%201/fabrication-view/layers/f.cu.svg?${query}`);
+    });
+
+    it("leaves the commit out for the working tree, and keys each target apart", () => {
+        const working = outputsSource("p1", "design", "");
+        expect(working.viewUrl).toBe("/api/projects/p1/fabrication-view?type=design&folder=");
+        expect(working.key).not.toBe(outputsSource("p1", "design", "x").key);
+        expect(working.key).not.toBe(outputsSource("p1", "design", "", "b".repeat(40)).key);
+    });
+});
+
+describe("isLayerName", () => {
+    it("knows KiCad's Gerber and drill extensions", () => {
+        for (const name of ["a-F_Cu.gtl", "a-B_Cu.gbl", "a-Edge_Cuts.gm1", "a-In1_Cu.g1", "a.gbr", "a.drl", "A.GTO", "a.xln"]) {
+            expect(isLayerName(name), name).toBe(true);
+        }
+    });
+
+    it("leaves other files alone, including the job file and look-alikes", () => {
+        for (const name of ["a-job.gbrjob", "logo.gif", "repo.git", "notes.pdf", "bom.csv", "gerber"]) {
+            expect(isLayerName(name), name).toBe(false);
+        }
     });
 });
