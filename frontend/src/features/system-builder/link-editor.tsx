@@ -40,6 +40,7 @@ import { MatingPanel } from "./mating-panel";
 import { comparePads } from "./pads";
 import type { useSystemMutation } from "./use-system-mutation";
 import { useDraftGuard } from "./draft-guard";
+import { endReference, linkEndPads } from "./subport-model";
 
 type Mutate = ReturnType<typeof useSystemMutation>["run"];
 
@@ -92,7 +93,18 @@ function useEndPins(systemId: string, link: SystemLink, instances: SystemInstanc
 export function endLabel(document: SystemDocument, link: SystemLink, end: "a" | "b"): string {
   const label = document.instances.find((instance) => instance.id === link[end].instanceId)?.label ?? "?";
   const physical = link[end].export?.reference;
-  return `${label} ${link[end].port?.reference ?? "restricted"}${physical ? ` → ${physical}` : ""}`;
+  return `${label} ${endReference(link[end]) ?? "restricted"}${physical ? ` → ${physical}` : ""}`;
+}
+
+/** Each end's pins, kept to its sub-port's pads (or its remainder's) on a split connector (CONTRACTS_P2 §22.2). */
+function onEnds(document: SystemDocument, link: SystemLink, pins: EndPins | null): EndPins | null {
+  if (!pins) return null;
+  const keep = (end: "a" | "b") => {
+    const facts = pins[end];
+    const allowed = facts ? linkEndPads(document, link[end], [...facts.keys()]) : null;
+    return facts && allowed ? new Map([...facts].filter(([pad]) => allowed.has(pad))) : facts;
+  };
+  return { ...pins, a: keep("a"), b: keep("b") };
 }
 
 interface DetailsFields {
@@ -234,7 +246,7 @@ interface LinkEditorProps {
 }
 
 export function LinkEditor({ systemId, document, link, etag, canEdit, findings, busy, run, onDeleted, onHarness }: LinkEditorProps) {
-  const pins = useEndPins(systemId, link, document.instances);
+  const pins = onEnds(document, link, useEndPins(systemId, link, document.instances));
   const [draft, setDraft] = useState<DraftRow[] | null>(null);
   // SB2-102: the rows before the last save, for one level of Undo; dropped on the next edit.
   const [undo, setUndo] = useState<{ linkId: string; rows: ReturnType<typeof draftToInputs> } | null>(null);

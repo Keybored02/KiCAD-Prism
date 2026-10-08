@@ -9,6 +9,7 @@ import type { LayoutPositions } from "@/lib/systems-api";
 import type { HarnessEnd, SystemDocument, SystemHarness, SystemInstance, SystemLink, SystemOccurrence } from "@/types/system";
 
 import { documentIndex } from "./document-index";
+import { endKey, endReference, splitEndKey, subportLabel, subportsOf } from "./subport-model";
 import {
   BOARD_WIDTH,
   HEADER_HEIGHT,
@@ -123,17 +124,22 @@ function drawablePorts(document: SystemDocument, instance: SystemInstance) {
   }
   const exposed: { portKey: string; reference: string }[] = [];
   for (const port of instance.ports) {
-    if (port.exposed) exposed.push({ portKey: port.portKey, reference: port.reference });
+    if (!port.exposed) continue;
+    exposed.push({ portKey: port.portKey, reference: port.reference });
+    // A split connector (CONTRACTS_P2 §22): its remainder above, then one port per sub-port.
+    for (const sub of subportsOf(instance, port.portKey)) {
+      exposed.push({ portKey: endKey(port.portKey, sub.id), reference: subportLabel(port.reference, sub.name) });
+    }
   }
   const known = new Set(exposed.map((port) => port.portKey));
   const orphans = new Set<string>();
   for (const link of document.links) {
     for (const end of [link.a, link.b]) {
-      const key = end.port?.portKey;
+      const key = end.port ? endKey(end.port.portKey, end.subport?.id) : null;
       if (end.instanceId === instance.id && end.port && key && !known.has(key)) {
         known.add(key);
         orphans.add(key);
-        exposed.push({ portKey: key, reference: end.port.reference });
+        exposed.push({ portKey: key, reference: endReference(end) ?? end.port.reference });
       }
     }
   }
@@ -143,7 +149,11 @@ function drawablePorts(document: SystemDocument, instance: SystemInstance) {
 function linkEnd(document: SystemDocument, link: SystemLink, end: "a" | "b") {
   const instance = documentIndex(document).instances.get(link[end].instanceId);
   const port = instance?.ports === null ? null : link[end].port;
-  return { board: link[end].instanceId, portKey: port?.portKey ?? null, reference: port?.reference ?? null };
+  return {
+    board: link[end].instanceId,
+    portKey: port ? endKey(port.portKey, link[end].subport?.id) : null,
+    reference: port ? endReference(link[end]) : null,
+  };
 }
 
 export const endLabel = (end: HarnessEnd) => `End ${end.ordinal + 1}`;
@@ -197,7 +207,7 @@ export function layoutInputs(document: SystemDocument): { boards: LayoutBoardInp
 }
 
 export function edgeLabel(link: SystemLink): string {
-  const ends = [link.a.port?.reference ?? "restricted", link.b.port?.reference ?? "restricted"].join(" ↔ ");
+  const ends = [endReference(link.a) ?? "restricted", endReference(link.b) ?? "restricted"].join(" ↔ ");
   const name = link.name || ends;
   return `${name} · ${link.rows.length} ${link.rows.length === 1 ? "pin" : "pins"}`;
 }
@@ -223,7 +233,7 @@ export function buildDiagram(
     const open = expanded.has(instance.id);
     const exported = new Map<string, string>();
     for (const entry of document.exports ?? []) {
-      if (entry.instanceId === instance.id && entry.portKey !== null) exported.set(entry.portKey, entry.name);
+      if (entry.instanceId === instance.id && entry.portKey !== null) exported.set(endKey(entry.portKey, entry.subportId), entry.name);
     }
     const rows: DiagramRow[] = placed.rows.map((row) => ({
       portKey: row.portKey,
@@ -313,17 +323,24 @@ export interface ConnectionLike {
 /** The link a dragged connection asks for, or why it cannot be one. */
 export function connectionToLink(
   connection: ConnectionLike,
-): { a: { instanceId: string; portKey: string }; b: { instanceId: string; portKey: string } } | { error: string } {
+): { a: PortEnd; b: PortEnd } | { error: string } {
   const { source, target } = connection;
   const sourceKey = portKeyOf(connection.sourceHandle);
   const targetKey = portKeyOf(connection.targetHandle);
   if (!source || !target || !sourceKey || !targetKey) {
     return { error: "Connect one port to another." };
   }
-  if (source === target && sourceKey === targetKey) {
+  const a = splitEndKey(sourceKey);
+  const b = splitEndKey(targetKey);
+  if (source === target && a.portKey === b.portKey) {
     return { error: "A link needs two different ports." };
   }
-  return { a: { instanceId: source, portKey: sourceKey }, b: { instanceId: target, portKey: targetKey } };
+  return { a: portEnd(source, a), b: portEnd(target, b) };
+}
+
+/** A link end request: the connector, and its sub-port when the handle names one (CONTRACTS_P2 §22.2). */
+function portEnd(instanceId: string, key: { portKey: string; subportId: string | null }): PortEnd {
+  return key.subportId ? { instanceId, portKey: key.portKey, subportId: key.subportId } : { instanceId, portKey: key.portKey };
 }
 
 /** What a subsystem holds, for its in-place contents panel (from `GET …/hierarchy`). */
@@ -361,7 +378,7 @@ export function nextLinkMode(key: string, current: LinkMode, typing: boolean): L
 /** The handle on a harness node that adds an end when dragged to a port. */
 export const ADD_END_HANDLE = "__add_end__";
 
-type PortEnd = { instanceId: string; portKey: string };
+type PortEnd = { instanceId: string; portKey: string; subportId?: string };
 
 /** What a drawn connection means once harnesses are on the canvas (§17.2). */
 export type ConnectionIntent =
@@ -382,9 +399,10 @@ export function connectionIntent(connection: ConnectionLike, document: SystemDoc
     const harness = (sourceHarness ?? targetHarness)!;
     const endKey = portKeyOf(sourceHarness ? connection.sourceHandle : connection.targetHandle);
     const boardId = sourceHarness ? target : source;
-    const portKey = portKeyOf(sourceHarness ? connection.targetHandle : connection.sourceHandle);
-    if (!portKey) return { kind: "error", error: "Drag the harness to a board port." };
-    const port = { instanceId: boardId, portKey };
+    const handleKey = portKeyOf(sourceHarness ? connection.targetHandle : connection.sourceHandle);
+    if (!handleKey) return { kind: "error", error: "Drag the harness to a board port." };
+    // A harness end mates the whole connector, split or not (CONTRACTS_P2 §22.2).
+    const port = { instanceId: boardId, portKey: splitEndKey(handleKey).portKey };
     if (endKey === ADD_END_HANDLE) return { kind: "add_end", harnessId: harness.id, port };
     const end = endKey ? documentIndex(document).ends.get(endKey)?.end : undefined;
     if (!end) return { kind: "error", error: "Drag from a harness end." };
@@ -393,5 +411,10 @@ export function connectionIntent(connection: ConnectionLike, document: SystemDoc
   }
   const request = connectionToLink(connection);
   if ("error" in request) return { kind: "error", error: request.error };
-  return { kind: mode === "harness" ? "harness" : "link", ...request };
+  if (mode === "harness") {
+    // Its ends mate whole connectors (CONTRACTS_P2 §22.2).
+    const whole = (end: PortEnd) => ({ instanceId: end.instanceId, portKey: end.portKey });
+    return { kind: "harness", a: whole(request.a), b: whole(request.b) };
+  }
+  return { kind: "link", ...request };
 }

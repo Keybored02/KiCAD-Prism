@@ -11,12 +11,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { deleteExport, updateExport } from "@/lib/systems-api";
 import type { SystemDocument, SystemExport } from "@/types/system";
 
+import { subportLabel } from "./subport-model";
 import type { Mutate } from "./use-system-mutation";
 import { InspectorSection } from "./workspace/inspector-section";
 
-/** The export (if any) whose target is this board port. */
-export function exportForPort(document: SystemDocument, instanceId: string, portKey: string): SystemExport | undefined {
-  return document.exports?.find((entry) => entry.instanceId === instanceId && entry.portKey === portKey);
+/** The export (if any) whose target is this board port, or one of its sub-ports (CONTRACTS_P2 §22.2). */
+export function exportForPort(document: SystemDocument, instanceId: string, portKey: string,
+  subportId: string | null = null): SystemExport | undefined {
+  return document.exports?.find((entry) => entry.instanceId === instanceId && entry.portKey === portKey
+    && (entry.subportId ?? null) === subportId);
 }
 
 export function exportStatus(entry: SystemExport): { label: string; variant: "outline" | "destructive" | "secondary" } {
@@ -98,7 +101,8 @@ export function ExportsSection({ systemId, document, etag, canEdit, busy, run, o
         <ul className="text-sm">
           {exports.map((entry) => {
             const status = exportStatus(entry);
-            const where = `${labels.get(entry.instanceId) ?? "Board"} ${entry.redacted ? "" : entry.port?.reference ?? "—"}`.trim();
+            const where = `${labels.get(entry.instanceId) ?? "Board"} ${entry.redacted ? ""
+              : entry.port ? subportLabel(entry.port.reference, entry.subport?.name) : "—"}`.trim();
             return (
               <li key={entry.id} className="flex h-8 items-center gap-2 border-b last:border-b-0"
                 title={[entry.name, where, entry.port ? `${entry.port.pinCount} pins` : "", entry.description].filter(Boolean).join(" · ")}>
