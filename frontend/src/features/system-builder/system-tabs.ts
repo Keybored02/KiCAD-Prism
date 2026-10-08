@@ -1,17 +1,2 @@
-export const SYSTEM_TABS = [
-  { id: "overview", label: "Overview" },
-  { id: "diagram", label: "Diagram" },
-  { id: "scene3d", label: "3D" },
-  { id: "boards", label: "Boards" },
-  { id: "connectivity", label: "Connections" },
-  { id: "changes", label: "Changes" },
-  { id: "history", label: "History" },
-] as const;
-
-export type SystemTab = (typeof SYSTEM_TABS)[number]["id"];
-
-/** The URL owns the tab (`?tab=`); anything unknown is the overview. `import` opens the import sheet on Connections. */
-export function systemTabFromParam(value: string | null): SystemTab {
-  if (value === "import") return "connectivity";
-  return SYSTEM_TABS.some((tab) => tab.id === value) ? (value as SystemTab) : "overview";
-}
+/** The old tab names, which components that predate the workspace still navigate by (PLAN M8, D-P2-49). */
+export type SystemTab = "overview" | "diagram" | "scene3d" | "boards" | "connectivity" | "changes" | "history";

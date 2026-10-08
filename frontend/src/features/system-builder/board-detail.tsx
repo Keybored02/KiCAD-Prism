@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Box, Eye, EyeOff, Layers, Lock, MoreHorizontal, Pencil, Pin, PinOff, Plus, RefreshCw, RotateCcw, Share2, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Lock, MoreHorizontal, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Share2, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,10 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useWorkspaceData, workspaceSessionKey } from "@/hooks/use-workspace-data";
 import {
-  addCatalogInstance,
-  addInstance,
   checkNow,
   createExport,
   getInstanceInterface,
@@ -36,19 +32,15 @@ import {
 } from "@/lib/systems-api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
-import type { User } from "@/types/auth";
 import type { InstanceComponent, SystemDocument, SystemInstance, SystemPort } from "@/types/system";
 
-import { BoardFields, boardProblems, instanceInput, type BoardDraft } from "./board-fields";
 import { ExportDialog, exportForPort } from "./exports-section";
-import { AddSubsystemDialog, SubsystemDetail } from "./subsystem-detail";
-import type { SystemTabProps } from "./system-tab-content";
+import { SubsystemDetail } from "./subsystem-detail";
 import { TONE_BADGE, boardStatus, shortSha } from "./system-format";
 import { useSystemMutation } from "./use-system-mutation";
 
 type Mutate = ReturnType<typeof useSystemMutation>["run"];
 
-/** Port keys (and member keys) of this board that some link end uses. */
 export function linkedPortKeys(document: SystemDocument, instanceId: string): Set<string> {
   const keys = new Set<string>();
   for (const link of document.links) {
@@ -66,118 +58,6 @@ export function portState(port: Pick<SystemPort, "override" | "exposed">): "prom
   if (port.override === "promoted") return "promoted";
   if (port.override === "hidden") return "hidden";
   return port.exposed ? "exposed" : "not exposed";
-}
-
-export function BoardsTab({ systemId, document, etag, canEdit, user, reload }: SystemTabProps) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const requested = searchParams.get("board");
-  const selected = document.instances.find((instance) => instance.id === requested) ?? document.instances[0] ?? null;
-  const [adding, setAdding] = useState<"board" | "subsystem" | "module" | null>(null);
-  const { busy, run } = useSystemMutation(reload);
-
-  const select = (instanceId: string) =>
-    setSearchParams((current) => {
-      const params = new URLSearchParams(current);
-      params.set("board", instanceId);
-      return params;
-    }, { replace: true });
-
-  return (
-    <div className="grid min-h-full md:grid-cols-[16rem_1fr]">
-      <aside className="space-y-1 border-b p-3 md:border-b-0 md:border-r">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Boards</h2>
-          {canEdit && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline"><Plus className="mr-1 h-4 w-4" /> Add</Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => setAdding("board")}>Board</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setAdding("subsystem")}><Layers className="mr-2 h-4 w-4" /> Subsystem</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setAdding("module")}><Box className="mr-2 h-4 w-4" /> Module</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-        {document.instances.length === 0 && (
-          <p className="text-xs text-muted-foreground">No boards yet.</p>
-        )}
-        {document.instances.map((instance) => {
-          const status = boardStatus(instance);
-          return (
-            <button
-              key={instance.id}
-              type="button"
-              onClick={() => select(instance.id)}
-              aria-current={selected?.id === instance.id ? "true" : undefined}
-              className={cn(
-                "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                selected?.id === instance.id ? "bg-muted font-medium" : "hover:bg-muted/50",
-              )}
-            >
-              <span className="flex min-w-0 items-center gap-1.5 truncate">
-                {instance.restricted && <Lock className="h-3 w-3 shrink-0" aria-label="restricted" />}
-                {instance.kind === "assembly" && <Layers className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="subsystem" />}
-                {instance.kind === "module" && <Box className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="module" />}
-                {instance.label}
-              </span>
-              <Badge variant={TONE_BADGE[status.tone]} className="shrink-0">{status.label}</Badge>
-            </button>
-          );
-        })}
-      </aside>
-
-      <section className="min-w-0 p-4 md:p-6">
-        {selected ? (
-          <BoardDetail
-            key={selected.id}
-            systemId={systemId}
-            document={document}
-            instance={selected}
-            etag={etag}
-            canEdit={canEdit}
-            busy={busy}
-            run={run}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">Add a board to start building this system.</p>
-        )}
-      </section>
-
-      {(adding === "subsystem" || adding === "module") && (
-        <AddSubsystemDialog
-          kind={adding === "module" ? "module" : "assembly"}
-          existingLabels={document.instances.map((instance) => instance.label)}
-          busy={busy === "add"}
-          onClose={() => setAdding(null)}
-          onSubmit={async (value) => {
-            const kind = adding === "module" ? "module" : "assembly";
-            const created = await run("add", () => addCatalogInstance(systemId, etag, kind, value), `Added ${value.label}`);
-            if (created) {
-              setAdding(null);
-              select(created.body.id);
-            }
-          }}
-        />
-      )}
-      {adding === "board" && (
-        <AddBoardDialog
-          user={user}
-          existingLabels={document.instances.map((instance) => instance.label)}
-          onClose={() => setAdding(null)}
-          onSubmit={async (board) => {
-            const created = await run("add", () => addInstance(systemId, etag, instanceInput(board)), `Added ${board.label.trim()}`);
-            if (created) {
-              setAdding(null);
-              select(created.body.id);
-            }
-          }}
-          busy={busy === "add"}
-        />
-      )}
-    </div>
-  );
 }
 
 interface BoardDetailProps {
@@ -235,7 +115,7 @@ function EditBoardDialog({ instance, busy, onClose, onSave }: EditBoardDialogPro
   );
 }
 
-function BoardDetail(props: BoardDetailProps) {
+export function BoardDetail(props: BoardDetailProps) {
   return props.instance.kind === "assembly" || props.instance.kind === "module"
     ? <SubsystemDetail {...props} /> : <BoardDetailBody {...props} />;
 }
@@ -515,48 +395,5 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run 
           }} />
       )}
     </section>
-  );
-}
-
-interface AddBoardDialogProps {
-  user: User | null;
-  existingLabels: string[];
-  busy: boolean;
-  onClose: () => void;
-  onSubmit: (board: BoardDraft) => void | Promise<void>;
-}
-
-function AddBoardDialog({ user, existingLabels, busy, onClose, onSubmit }: AddBoardDialogProps) {
-  const { projects } = useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
-  const [board, setBoard] = useState<BoardDraft>({ key: 1, projectId: "", label: "", source: "branch", ref: "main", pinned: false });
-  const [attempted, setAttempted] = useState(false);
-  const problems = boardProblems([board], existingLabels);
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Add board</DialogTitle>
-          <DialogDescription>Add a project as a board. The same project can appear more than once.</DialogDescription>
-        </DialogHeader>
-        <BoardFields board={board} index={0} projects={projects} onChange={setBoard} />
-        {attempted && problems.length > 0 && (
-          <ul className="list-disc space-y-0.5 pl-5 text-xs text-destructive" role="alert">
-            {problems.map((problem) => <li key={problem}>{problem.replace(/^Board 1: /, "")}</li>)}
-          </ul>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button disabled={busy} onClick={() => {
-            setAttempted(true);
-            if (problems.length === 0) {
-              void onSubmit(board);
-            }
-          }}>
-            {busy ? "Adding…" : "Add board"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

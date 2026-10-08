@@ -35,22 +35,24 @@ function renderAt(url: string) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SystemDetailPage", () => {
-  it("loads the document, reads the tab from the URL and shows badges", async () => {
+  it("loads the document, opens an old tab link in the workspace and navigates", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      const body = url.includes("/snapshots") ? [] : url.includes("/history") ? { events: [], nextCursor: null } : document;
+      const body = url.includes("/snapshots") ? [] : url.includes("/history") ? { events: [], nextCursor: null }
+        : url.endsWith("/git") ? null : url.endsWith("/layout") ? { positions: {} } : url.includes("/hierarchy") ? { systemId: "sys_1", boardCount: 0, occurrences: [] } : url.endsWith("/validation") ? { findings: [], notEvaluated: [], exempt: [], counts: document.findingCounts } : document;
       return new Response(JSON.stringify(body), {
         status: 200, headers: { "Content-Type": "application/json", ETag: '"sys:sys_1:3"' },
       });
     }));
     renderAt("/systems/sys_1?tab=history");
-    expect(await screen.findByRole("heading", { name: "Flight stack" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Flight stack", level: 1 })).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/systems/sys_1?tray=history"));
     expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText(/2 errors/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open source changes" }));
-    expect(screen.getByTestId("location").textContent).toBe("/systems/sys_1?tab=changes");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Overview" }));
-    expect(screen.getByTestId("location").textContent).toBe("/systems/sys_1");
-    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
+    expect(screen.getByRole("button", { name: "Open the findings" }).textContent).toContain("2 errors");
+    fireEvent.click(screen.getByRole("tab", { name: /Changes/ }));
+    expect(screen.getByTestId("location").textContent).toBe("/systems/sys_1?tray=changes");
+    fireEvent.click(screen.getByRole("tab", { name: "Diagram" }));
+    expect(screen.getByTestId("location").textContent).toBe("/systems/sys_1?view=diagram&tray=changes");
+    fireEvent.click(screen.getByRole("button", { name: "Back to the workspace" }));
     expect(screen.getByTestId("location").textContent).toBe("/?folder=fld_1");
   });
 
