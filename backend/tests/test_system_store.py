@@ -41,6 +41,7 @@ from app.services.workspace_migrations import (
     m044_system_harness_nodes,
     m045_system_git,
     m046_system_manifest_reviews,
+    m047_system_bundle_frames,
 )
 from app.services.workspace_migrations.m026_system_builder import migrate
 from app.services.workspace_schema_migrations import MIGRATIONS
@@ -88,7 +89,7 @@ class StoreTest(unittest.TestCase):
                       m037_system_link_types, m038_system_harnesses, m039_system_harness_part_pins,
                       m040_system_poses, m042_system_archive, m043_system_driving_mates,
                       m044_system_harness_nodes, m045_system_git,
-                      m046_system_manifest_reviews):
+                      m046_system_manifest_reviews, m047_system_bundle_frames):
             later.migrate(self.conn)
         self.conn.commit()
         self.store = SystemStore(self.conn)
@@ -100,6 +101,23 @@ class StoreTest(unittest.TestCase):
             self.conn.commit()
         finally:
             self.conn.close()
+
+    def test_bundle_frames_round_trip(self) -> None:
+        # SB2-96: the stored mid-plane of a bundle, read by a later process.
+        from contextlib import contextmanager
+
+        from app.services.systems import bundles
+
+        @contextmanager
+        def connection():
+            yield self.conn
+
+        key = ("prj_1", "src", "gen")
+        with mock.patch("app.services.systems.jobs.workspace_connection", connection):
+            self.assertIsNone(bundles._stored_frame(key))
+            bundles._store_frame(key, "scene.json", 0.8)
+            bundles._store_frame(key, "other.json", 9.0)  # first writer wins; the files never change
+            self.assertEqual(bundles._stored_frame(key), ("scene.json", 0.8))
 
     # ------------------------------------------------------------------ helpers
 
