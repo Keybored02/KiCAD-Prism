@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.64 · 2026-10-08 · tickets SB2-00 to SB2-54.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.65 · 2026-10-08 · tickets SB2-00 to SB2-55.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -930,6 +930,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.65 | 2026-10-08 | SB2-55 (D-P2-46): §21.6 a revision of a committed snapshot records `git {url, branch, commit}` in `source_ref`; 409 `git_commit_pending` while the commit is queued; `POST …/git/commits/{sha}/publish` publishes Prism's own snapshot commits only. |
 | P2-1.64 | 2026-10-08 | SB2-54: §21.3 `manifest_import` reviews (migration 46): opened on a new outside commit with a summary and problems, superseded by newer pushes; accept replaces the system with the manifest (same IDs), reject keeps it; both clear the outside change. §21.4 periodic fetch of linked systems. |
 | P2-1.63 | 2026-10-08 | SB2-53: §21 implemented. Migration 45 (`system_git_links`, snapshot `git`); jobs `system_git_sync` and `system_git_commit` both take the write lock; failures are recorded and retried through `git-retry`, never by the job runtime; error details are `code: …` strings. |
 | P2-1.62 | 2026-10-08 | SB2-52 (D-P2-42..45): §21 Git tracking. A system links to an existing remote and branch; snapshots commit `prism.system.json` there (author = the Prism user, committer = KiCAD Prism, lease-guarded push, no force); an outside manifest change refuses snapshots until it is imported through review (SB2-54). |
@@ -1313,6 +1314,12 @@ A system can be linked to a Git repository of its own. Snapshots then become com
 
 `system_git_sync` (pool `prism`; like `system_git_commit`, it holds the write lock `system-git:<systemId>`) clones the bare repository when it is missing, fetches with `--prune`, and runs §21.3's detection. It runs on link, before each commit (inline, within the commit job), on `POST …/git/fetch`, and with the periodic project fetch (`PRISM_AUTO_SYNC_INTERVAL_SECONDS`, SB2-54): each scan queues up to 8 linked, unarchived systems not fetched within the interval, oldest first. Its outcome is stored on the link: `lastFetchedAt`, `tip`, and `lastError {reason, message}` (null on success).
 
+### 21.6 Revisions and commits (SB2-55, D-P2-46)
+
+- A catalog revision still pins a snapshot (D-P2-1). When that snapshot was committed (`git.state = pushed`), publishing it adds `git {url, branch, commit}` to the revision's `source_ref`. The URL is the link's at publish time, or null once the system has been unlinked. A snapshot whose commit is still `queued` is refused with 409 `git_commit_pending`; one that failed, was refused or skipped, or belongs to an unlinked system, publishes without `git`.
+- Snapshot `publication` entries and publish responses carry `commit` (null without one).
+- `POST …/git/commits/{sha}/publish` (same body and answers as §3.3) publishes the snapshot Prism pushed as that full SHA. Any other commit is 404 `commit_not_a_snapshot`; a short SHA is 422. Revisions that pin only a commit, and commits turned into snapshots, are out of scope (D-P2-46).
+
 ### 21.5 API
 
 | Method and path | Purpose |
@@ -1321,6 +1328,7 @@ A system can be linked to a Git repository of its own. Snapshots then become com
 | `PUT …/git` | `{url, branch?}`: link or change the link. If-Match; designer or admin. 422 `git_url_invalid: …` (policy), 422 `git_unreachable: <reason>: <message>`, 409 `git_link_in_use` |
 | `DELETE …/git` | Unlink. If-Match; designer or admin |
 | `POST …/git/fetch` | Queue `system_git_sync`; 202 `{jobId}` |
+| `POST …/git/commits/{sha}/publish` | §21.6: publish the snapshot Prism pushed as `sha` |
 | `POST …/reviews/{rid}/manifest-import` | `{decision: "accept" \| "reject"}` for a `manifest_import` review (§21.3) |
 | `POST …/snapshots/{sid}/git-retry` | 202 `{jobId}`: queue the commit again for a `failed` or `refused` snapshot (`refused` only once the outside change is cleared; otherwise 409 `git_outside_change`, `git_not_linked` or `git_not_retryable`) |
 

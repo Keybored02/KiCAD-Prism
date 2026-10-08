@@ -192,6 +192,8 @@ interface SystemItemExport {
 function SystemItemOverview({ component, canMutate, onEdit }: { component: CatalogComponent; canMutate: boolean; onEdit: () => void }) {
   const exports = (Array.isArray(component.interface?.exports) ? component.interface.exports : []) as SystemItemExport[];
   const source = (component.source_ref ?? {}) as Record<string, unknown>;
+  // P2 §21.6: the snapshot's commit in the system's repository, when it was committed.
+  const sourceGit = source.git as { url: string | null; branch: string; commit: string } | undefined;
   const systemId = typeof source.systemId === "string" ? source.systemId : "";
   const openReviews = Number(source.openReviewCount ?? 0);
   return (
@@ -217,12 +219,17 @@ function SystemItemOverview({ component, canMutate, onEdit }: { component: Catal
           )}
         </PanelCard>
         <PanelCard title="Source"
-          description="The system snapshot this revision was published from."
+          description="The system snapshot this revision was published from, and its commit when the system is in Git."
           action={canMutate ? <Button size="sm" variant="outline" onClick={onEdit}><Edit3 className="h-3.5 w-3.5" /> Edit metadata</Button> : undefined}>
           <DefinitionRows rows={[
             { label: "IPN", value: component.value },
             { label: "System", value: systemId ? <a className="text-primary hover:underline" href={`/systems/${encodeURIComponent(systemId)}?tab=history`}>{component.name}</a> : "" },
             { label: "Snapshot", value: String(source.snapshotName ?? "") },
+            ...(sourceGit ? [{ label: "Commit", value: (
+              <span className="font-mono text-xs" title={sourceGit.url ?? undefined}>
+                {sourceGit.commit.slice(0, 12)} on {sourceGit.branch}
+              </span>
+            ) }] : []),
             { label: "Connectivity digest", value: <span className="font-mono text-xs">{String(source.connectivityDigest ?? "")}</span> },
             { label: "Manufacturer", value: component.manufacturer },
             { label: "Change summary", value: component.change_summary },

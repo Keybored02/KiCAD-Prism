@@ -195,6 +195,37 @@ class GitMixin:
         return Result(body, system_id, change.version)
 
     # ------------------------------------------------------------------
+    # Publishing (§21.6, D-P2-46)
+
+    def _publication_git(self, store: SystemStore, system_id: str,
+                         git: Optional[Mapping[str, Any]]) -> Optional[dict]:
+        """The commit a snapshot's revision records, or None. A commit still in flight is a 409, so a
+        linked system's revision never misses a commit that is about to exist."""
+        state = (git or {}).get("state")
+        if state == "queued":
+            raise Conflict("git_commit_pending: the snapshot is still being committed; publish it once it is")
+        if state != "pushed":
+            return None
+        link = self._git_link_row(store, system_id)
+        return {"url": link["url"] if link else None, "branch": git["branch"], "commit": git["commit"]}
+
+    def snapshot_for_commit(self, caller: Caller, system_id: str, commit: str) -> str:
+        """The snapshot Prism pushed as ``commit``; only those commits can be published."""
+        commit = (commit or "").strip().lower()
+        if len(commit) != 40 or any(c not in "0123456789abcdef" for c in commit):
+            raise Invalid("commit must be a full 40-character SHA")
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            row = store.conn.execute(
+                "SELECT id FROM system_snapshots WHERE system_id = %s AND git ->> 'state' = 'pushed' "
+                "AND git ->> 'commit' = %s",
+                (system_id, commit),
+            ).fetchone()
+        if row is None:
+            raise NotFound("commit_not_a_snapshot: only a commit Prism pushed for a snapshot can be published")
+        return str(row["id"])
+
+    # ------------------------------------------------------------------
     # Snapshot hooks (``create_snapshot``)
 
     @staticmethod

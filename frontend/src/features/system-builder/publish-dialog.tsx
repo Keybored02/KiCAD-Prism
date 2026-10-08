@@ -31,7 +31,8 @@ export function PublicationBadge({ publication }: { publication: SnapshotPublica
   const stage = publication.releaseStatus ? STAGE_LABELS[publication.releaseStatus] ?? publication.releaseStatus : "";
   return (
     <Badge asChild variant={publication.releaseStatus === "released" ? "success" : "outline"}>
-      <a href={catalogComponentHref(publication.componentId)} title="Open the assembly in the component library">
+      <a href={catalogComponentHref(publication.componentId)}
+        title={`Open the assembly in the component library${publication.commit ? ` (commit ${publication.commit})` : ""}`}>
         <PackageCheck className="h-3 w-3" /> Catalog{publication.version ? ` v${publication.version}` : ""}{stage ? ` · ${stage}` : ""}
       </a>
     </Badge>

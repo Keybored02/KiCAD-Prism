@@ -1076,6 +1076,22 @@ async def retry_snapshot_git(system_id: str, snapshot_id: str, user: Authenticat
     return await _run(system_id, lambda: system_service.service.retry_snapshot_git(_caller(user), system_id, snapshot_id))
 
 
+@router.post("/{system_id}/git/commits/{commit}/publish", dependencies=[Depends(require_designer)])
+async def publish_commit(
+    system_id: str, commit: str, body: PublishRequest, user: AuthenticatedUser = Depends(require_viewer),
+):
+    """P2 §21.6: publish the snapshot Prism pushed as ``commit`` (D-P2-46)."""
+    def publish():
+        snapshot_id = system_service.service.snapshot_for_commit(_caller(user), system_id, commit)
+        return system_service.service.publish_snapshot(
+            _caller(user), system_id, snapshot_id, ipn=body.ipn, name=body.name,
+            description=body.description, manufacturer=body.manufacturer,
+        )
+
+    created, publication = await _run(system_id, publish)
+    return JSONResponse(status_code=201 if created else 200, content=publication)
+
+
 @router.get("/{system_id}/snapshots/{snapshot_id}/manifest")
 async def snapshot_manifest(system_id: str, snapshot_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """P2 §11: the frozen ``prism.system_manifest.v1``, whole or 403."""
