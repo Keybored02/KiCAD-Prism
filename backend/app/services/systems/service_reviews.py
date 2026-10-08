@@ -332,7 +332,8 @@ class ReviewsMixin:
             return {}
         return {
             str(r["sourceRef"].get("snapshotId")): {"componentId": component_id, "revisionId": r["revisionId"],
-                                                   "version": r["version"], "releaseStatus": r["releaseStatus"]}
+                                                   "version": r["version"], "releaseStatus": r["releaseStatus"],
+                                                   "commit": (r["sourceRef"].get("git") or {}).get("commit")}
             for r in revisions if r["sourceRef"].get("snapshotId")
         }
 
@@ -373,6 +374,7 @@ class ReviewsMixin:
                 raise Invalid("this snapshot predates manifests; take a new snapshot to publish")
             if self._restricted_in(store, row["document"], caller):
                 raise Forbidden("the snapshot contains boards you cannot see")
+            git = self._publication_git(store, system_id, row.get("git"))
         interface = self.export_interface(caller, system_id, snapshot_id)
         if not interface["exports"]:
             raise Invalid("publishing needs at least one export")
@@ -384,6 +386,7 @@ class ReviewsMixin:
             "snapshotName": row["name"], "fullDigest": row["digest"],
             "connectivityDigest": row["connectivity_digest"], "openReviewCount": int(row["open_review_count"]),
             **self._hierarchy_facts(system_id, row["manifest"]),
+            **({"git": git} if git else {}),
         }
         catalog = self._catalog()
         with self._tx() as store:
@@ -420,7 +423,8 @@ class ReviewsMixin:
                     change.audit("snapshot_published", {"snapshotId": snapshot_id, "name": row["name"],
                                                         "componentId": component_id, "revisionId": revision_id})
         publication = self._publications(component_id).get(snapshot_id) or {
-            "componentId": component_id, "revisionId": revision_id, "version": None, "releaseStatus": None}
+            "componentId": component_id, "revisionId": revision_id, "version": None, "releaseStatus": None,
+            "commit": (git or {}).get("commit")}
         return created, publication
 
     def _snapshot(self, store: SystemStore, system_id: str, snapshot_id: str, caller: Caller) -> tuple[dict, dict]:

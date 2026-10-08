@@ -455,6 +455,8 @@ export interface SnapshotPublication {
   revisionId: string;
   version: number | null;
   releaseStatus: string | null;
+  /** The commit of the snapshot in the linked repository, when it was committed (P2 §21.6). */
+  commit?: string | null;
 }
 
 export interface Snapshot extends SnapshotMeta {

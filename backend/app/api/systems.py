@@ -994,59 +994,6 @@ async def create_snapshot(
     return _respond(result, response, status_code=201)
 
 
-class GitLinkRequest(BaseModel):
-    url: str = Field(min_length=1, max_length=2000)
-    branch: Optional[str] = Field(default=None, max_length=200)
-
-
-@router.get("/{system_id}/git")
-async def get_git_link(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    """P2 §21.5: the system's repository link, or null."""
-    return await _run(system_id, lambda: system_service.service.git_link(_caller(user), system_id))
-
-
-@router.put("/{system_id}/git", dependencies=[Depends(require_designer)])
-async def put_git_link(
-    system_id: str, body: GitLinkRequest, request: Request, response: Response,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.set_git_link(
-        _caller(user), system_id, version, body.url, body.branch,
-    ))
-    return _respond(result, response)
-
-
-@router.delete("/{system_id}/git", dependencies=[Depends(require_designer)])
-async def delete_git_link(system_id: str, request: Request, user: AuthenticatedUser = Depends(require_viewer)):
-    version = _expected_version(request, system_id)
-    return _no_content(await _run(system_id, lambda: system_service.service.remove_git_link(
-        _caller(user), system_id, version,
-    )))
-
-
-@router.post("/{system_id}/git/fetch", dependencies=[Depends(require_designer)], status_code=202)
-async def fetch_git(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.fetch_git(_caller(user), system_id))
-
-
-class ManifestImportDecision(BaseModel):
-    decision: Literal["accept", "reject"]
-
-
-@router.post("/{system_id}/reviews/{review_id}/manifest-import", dependencies=[Depends(require_designer)])
-async def decide_manifest_import(
-    system_id: str, review_id: str, body: ManifestImportDecision, request: Request, response: Response,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    """P2 §21.3: accept or reject a manifest pushed outside Prism."""
-    version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.decide_manifest_import(
-        _caller(user), system_id, version, review_id, body.decision,
-    ))
-    return _respond(result, response)
-
-
 @router.get("/{system_id}/snapshots")
 async def list_snapshots(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     return await _run(system_id, lambda: system_service.service.list_snapshots(_caller(user), system_id))
@@ -1067,13 +1014,6 @@ async def publish_snapshot(
         description=body.description, manufacturer=body.manufacturer,
     ))
     return JSONResponse(status_code=201 if created else 200, content=publication)
-
-
-@router.post("/{system_id}/snapshots/{snapshot_id}/git-retry", dependencies=[Depends(require_designer)],
-             status_code=202)
-async def retry_snapshot_git(system_id: str, snapshot_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    """P2 §21.2: queue a failed or refused snapshot commit again."""
-    return await _run(system_id, lambda: system_service.service.retry_snapshot_git(_caller(user), system_id, snapshot_id))
 
 
 @router.get("/{system_id}/snapshots/{snapshot_id}/manifest")
@@ -1186,3 +1126,7 @@ async def put_layout(
     return await _run(system_id, lambda: system_service.service.put_layout(
         _caller(user), system_id, positions,
     ))
+
+
+# Git tracking routes (P2 §21) live in their own module; importing it registers them on ``router``.
+from app.api import systems_git  # noqa: E402,F401
