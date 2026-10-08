@@ -180,6 +180,12 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     previewPose?: (pose: PrismScenePose | null) => void;
     cancelMove?: () => void;
     getMoveState?: () => PrismSystemSceneMoveState | null;
+    /** mode="system" harness editing (SB2-45b); state arrives as `prism-semantic-viewer:harness`. */
+    targetHarnessNode?: (id: string | null) => void;
+    /** Show the targeted node at a level-frame position without saving it; null shows its saved place. */
+    previewHarnessNode?: (positionMm: [number, number, number] | null) => void;
+    cancelHarnessNode?: () => void;
+    getHarnessState?: () => PrismSystemSceneHarnessState | null;
     /** mode="system": board name labels (on by default). */
     setLabelsVisible?: (visible: boolean) => void;
     /** mode="system": the proxy harnesses (SB2-34), shown by default. */
@@ -217,6 +223,31 @@ export interface PrismSystemSceneMoveState {
         /** The pose shown is a preview that is not saved yet. */
         unsaved: boolean;
     } | null;
+}
+
+/**
+ * `prism-semantic-viewer:harness` (mode="system", SB2-45b): the picked harness.
+ * Points are in the harness's level frame (mm). "commit" asks the host to save
+ * `node.positionMm`; "delete" to remove the node.
+ */
+export interface PrismSystemSceneHarnessState {
+    phase?: "select" | "target" | "preview" | "commit" | "delete" | "cancel" | "sync";
+    harness: { id: string; level: string | null; name: string } | null;
+    /** The picked segment: its tree nodes (`auto` for the automatic breakout) and samples from `from`. */
+    segment: { id: string; from: string; to: string; samplesMm: [number, number, number][] } | null;
+    pointMm: [number, number, number] | null;
+    /** Where the automatic breakout is drawn, when the tree has one. */
+    autoMm: [number, number, number] | null;
+    node: {
+        id: string;
+        kind: "breakout" | "waypoint";
+        auto: boolean;
+        pinned: boolean;
+        positionMm: [number, number, number];
+        unsaved: boolean;
+    } | null;
+    /** A root-level harness and a reader who may edit. */
+    editable: boolean;
 }
 
 /** A system net to light (SB2-31): board nets by occurrence path. */

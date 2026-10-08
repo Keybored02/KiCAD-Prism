@@ -22,12 +22,14 @@ import type { SystemScene } from "@/types/system";
 
 import { drawnBoards, names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
 import { SceneInspector } from "./scene-inspector";
+import { HarnessPanel } from "./scene-harness-panel";
 import { MovePanel } from "./scene-move-panel";
 import { TRACE_KEY, emphasisSets, netBoards, traceSet } from "./scene-net-model";
 import { NetPanel } from "./scene-net-panel";
 import { hitOccurrence, searchBoards, type SceneSearchHit, type SearchableBoard } from "./scene-search";
 import { TraceCard } from "./scene-trace-card";
 import { useBoardIndexes } from "./use-board-indexes";
+import { useHarnessNodes } from "./use-harness-nodes";
 import { useMoveMode } from "./use-move-mode";
 import { useNetHighlight } from "./use-net-highlight";
 import { useSystemNetIndex } from "./use-system-net-index";
@@ -147,6 +149,7 @@ export function Scene3dTab(props: SystemTabProps) {
   const [harnesses, setHarnesses] = useState(true);
   const moving = useMoveMode(viewer, { systemId, etag, reload, scene });
   const { move } = moving;
+  const route = useHarnessNodes(viewer, { systemId, etag, reload, scene });
   const nets = useNetHighlight(systemId, etag);
   const { highlighted } = nets;
   // As the board 3D tab: a selection opens the Selection rail, clearing it closes it (other tabs stay).
@@ -315,9 +318,10 @@ export function Scene3dTab(props: SystemTabProps) {
           style={{ position: "absolute", inset: 0, display: "block" }}
         />
         <Semantic3dControls viewer={viewer} onVisibleWidthChange={setLeftInset} />
-        {move?.enabled && (
-          <div className="absolute top-3 z-10" style={{ left: leftInset + 12 }}>
-            <MovePanel
+        {(move?.enabled || route.state) && (
+          <div className="absolute top-3 z-10 flex flex-col gap-2" style={{ left: leftInset + 12 }}>
+            {/* A picked harness replaces the "select a board" hint; a board target keeps its panel. */}
+            {move?.enabled && (move.target || !route.state) && <MovePanel
               key={moving.epoch}
               state={move}
               busy={moving.busy}
@@ -336,7 +340,19 @@ export function Scene3dTab(props: SystemTabProps) {
               onMoveWithStack={() => void moving.moveWithStack()}
               onCancelPending={moving.cancelPending}
               onSnapBack={(target) => void moving.snapBack(target)}
-            />
+            />}
+            {route.state && (
+              <HarnessPanel
+                state={route.state}
+                moving={Boolean(move?.enabled)}
+                busy={route.busy}
+                counts={route.counts}
+                onAddWaypoint={() => void route.addWaypoint()}
+                onAddBreakout={() => void route.addBreakout()}
+                onPinned={(pinned) => void route.setPinned(pinned)}
+                onRemove={() => void route.remove()}
+              />
+            )}
           </div>
         )}
         {!scene && !error && (

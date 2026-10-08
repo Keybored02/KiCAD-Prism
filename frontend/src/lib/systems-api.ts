@@ -38,6 +38,7 @@ import type {
   SystemDocument,
   SystemExport,
   SystemHarness,
+  HarnessNodeInput,
   SystemHierarchy,
   SystemInstance,
   SystemLink,
@@ -517,6 +518,12 @@ export function updateHarnessEnd(
 export function deleteHarnessEnd(systemId: string, etag: string, harnessId: string, endId: string) {
   return versioned<SystemHarness>(path(systemId, "harnesses", harnessId, "ends", endId), { method: "DELETE", etag },
     "Could not remove the end");
+}
+
+/** SB2-45 (§17.9): a harness's breakouts and waypoints, replaced as one list in order. */
+export function setHarnessNodes(systemId: string, etag: string, harnessId: string, nodes: HarnessNodeInput[]) {
+  return versioned<SystemHarness>(path(systemId, "harnesses", harnessId, "nodes"), { method: "PUT", etag, body: json(nodes) },
+    "Could not save the harness route");
 }
 
 export function replaceWires(systemId: string, etag: string, harnessId: string, wires: WireInput[]) {
