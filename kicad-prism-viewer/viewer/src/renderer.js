@@ -1,3 +1,4 @@
+import { GeometryArena } from "./geometry-arena.js";
 import {
   FEATURE_MASK_WGSL,
   MIN_FEATURE_MASK_CAPACITY,
@@ -1289,7 +1290,9 @@ export class Renderer {
   /** GPU bytes held by the renderer: geometry, per-occurrence data and render targets. */
   gpuMemoryBytes() {
     let bytes = 0;
-    for (const entry of this.entries) bytes += (entry.vertexBuffer?.size || 0) + (entry.indexBuffer?.size || 0);
+    for (const entry of this.entries) bytes += (entry.vertexAllocation?.size || 0) + (entry.indexAllocation?.size || 0);
+    // The arena's chunks are shared; their unused space is counted once, by the renderer that owns them.
+    if (!this.shareFrom) bytes += this.arenaSlackBytes();
     for (const buffer of [this.barrels?.vertexBuffer, this.barrels?.indexBuffer, this.barrels?.instanceBuffer,
       this.barrelRecordBuffer, this.occurrenceBuffer, this.listBuffer, this.argsBuffer, this.classesBuffer,
       this.featureMaskBuffer, this.netMaskBuffer, this.cull?.lods]) bytes += buffer?.size || 0;
@@ -1304,8 +1307,8 @@ export class Renderer {
     let vertex = 0;
     let index = 0;
     for (const entry of this.entries) {
-      const v = entry.vertexBuffer?.size || 0;
-      const i = entry.indexBuffer?.size || 0;
+      const v = entry.vertexAllocation?.size || 0;
+      const i = entry.indexAllocation?.size || 0;
       vertex += v;
       index += i;
       const kind = entry.kind === "copper" ? `copper:${entry.layerId ?? "?"}`
@@ -1316,7 +1319,9 @@ export class Renderer {
       .reduce((sum, buffer) => sum + (buffer?.size || 0), 0);
     const occurrences = [this.occurrenceBuffer, this.listBuffer, this.argsBuffer, this.classesBuffer, this.featureMaskBuffer,
       this.netMaskBuffer, this.cull?.lods].reduce((sum, buffer) => sum + (buffer?.size || 0), 0);
-    return { vertex, index, geometry, barrels, occurrences, targets: this.canvas.width * this.canvas.height * 12, entries: this.entries.length };
+    // SB2-90: the arena chunks that hold the geometry (shared in a scene; reported by their owner).
+    const arena = this.shareFrom ? null : this.arenaStats();
+    return { vertex, index, geometry, barrels, occurrences, targets: this.canvas.width * this.canvas.height * 12, entries: this.entries.length, arena };
   }
 
   ensureInstancedPipelines() {
@@ -1353,8 +1358,10 @@ export class Renderer {
 
   drawEntry(pass, entry, indirect) {
     pass.setBindGroup(0, entry.bindGroup);
-    pass.setVertexBuffer(0, entry.vertexBuffer);
-    pass.setIndexBuffer(entry.indexBuffer, entry.indexFormat);
+    const vertex = entry.vertexAllocation;
+    const index = entry.indexAllocation;
+    pass.setVertexBuffer(0, vertex.buffer, vertex.offset, vertex.size);
+    pass.setIndexBuffer(index.buffer, entry.indexFormat, index.offset, index.size);
     if (indirect) pass.drawIndexedIndirect(this.argsBuffer, entry.slot * 20);
     else pass.drawIndexed(entry.indexCount, entry.placementCount || 1);
   }
@@ -1689,11 +1696,13 @@ export class Renderer {
       vertexU32[word + 4] = primitive.netId[index] || 0;
       vertexU32[word + 5] = primitive.objectFeatureId[index] || 0;
     }
-    const vertexBuffer = this.device.createBuffer({ size: vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-    this.device.queue.writeBuffer(vertexBuffer, 0, vertices);
+    // SB2-90: geometry lives in a shared arena, not a buffer of its own.
+    const arenas = this.arenas();
+    const vertexAllocation = arenas.vertex.alloc(vertices.byteLength);
+    arenas.vertex.write(vertexAllocation, vertices);
     const { indices, format: indexFormat } = packIndices(primitive.indices, count);
-    const indexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-    this.device.queue.writeBuffer(indexBuffer, 0, indices);
+    const indexAllocation = arenas.index.alloc(indices.byteLength);
+    arenas.index.write(indexAllocation, indices);
     const drawSlot = this.allocateDrawSlot();
     const bindGroup = this.makeBindGroup(this.drawSlotBuffer, drawSlot * DRAW_UNIFORM_SIZE);
     const drawClass = drawClassOf(metadata, this.innerCopperAtFull);
@@ -1706,8 +1715,8 @@ export class Renderer {
       placementBase: 0,
       bounds: primitive.bounds || metadata.bounds || null,
       id: this.nextEntryId++,
-      vertexBuffer,
-      indexBuffer,
+      vertexAllocation,
+      indexAllocation,
       indexFormat,
       indexCount: primitive.indices.length,
       drawSlot,
@@ -1717,6 +1726,36 @@ export class Renderer {
     this.bundleCache.clear();
     this.invalidate();
     return entry;
+  }
+
+  /** The vertex and index arenas (SB2-90), owned by the host renderer and shared by a scene's assets. */
+  arenas() {
+    const owner = this.shareFrom || this;
+    owner.geometryArenas ??= {
+      vertex: new GeometryArena(owner.device, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, "geometry-vertices"),
+      index: new GeometryArena(owner.device, GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, "geometry-indices"),
+    };
+    return owner.geometryArenas;
+  }
+
+  /** Bytes the arena chunks hold beyond what geometry uses. */
+  arenaSlackBytes() {
+    const arenas = this.geometryArenas;
+    if (!arenas) return 0;
+    return arenas.vertex.reservedBytes() - arenas.vertex.usedBytes + arenas.index.reservedBytes() - arenas.index.usedBytes;
+  }
+
+  arenaStats() {
+    const arenas = this.geometryArenas;
+    if (!arenas) return { chunks: 0, reserved: 0, used: 0 };
+    const holes = (arena) => arena.chunks.reduce((sum, chunk) => sum
+      + chunk.free.filter((range) => range.offset + range.size < chunk.size).reduce((total, range) => total + range.size, 0), 0);
+    return {
+      chunks: arenas.vertex.chunks.length + arenas.index.chunks.length,
+      reserved: arenas.vertex.reservedBytes() + arenas.index.reservedBytes(),
+      used: arenas.vertex.usedBytes + arenas.index.usedBytes,
+      holes: holes(arenas.vertex) + holes(arenas.index),
+    };
   }
 
   /**
@@ -1792,8 +1831,9 @@ export class Renderer {
     if (!entries?.length) return;
     const removeIds = new Set(entries.map((entry) => entry.id));
     for (const entry of entries) {
-      entry.vertexBuffer?.destroy?.();
-      entry.indexBuffer?.destroy?.();
+      const arenas = this.arenas();
+      if (entry.vertexAllocation) arenas.vertex.free(entry.vertexAllocation);
+      if (entry.indexAllocation) arenas.index.free(entry.indexAllocation);
       this.freeDrawSlots.push(entry.drawSlot);
       if (entry.slot != null) {
         this.setSlot(entry.slot, 0, 4);
@@ -1808,6 +1848,11 @@ export class Renderer {
 
   dispose() {
     this.removeEntries(this.entries);
+    if (!this.shareFrom) {
+      this.geometryArenas?.vertex.destroy();
+      this.geometryArenas?.index.destroy();
+      this.geometryArenas = null;
+    }
     if (this.barrels) {
       this.barrels.vertexBuffer?.destroy?.();
       this.barrels.indexBuffer?.destroy?.();
@@ -2128,7 +2173,9 @@ export class Renderer {
 
   renderBundle(entries, panelLayerId) {
     const { pipelines, indirect } = this.drawSet();
-    const key = `${panelLayerId}:${indirect ? "indirect" : "single"}:${entries.map((entry) => entry.id).join(",")}`;
+    // A repack (SB2-90) moves geometry: bundles recorded before it name the old ranges.
+    const { vertex, index } = this.arenas();
+    const key = `${panelLayerId}:${indirect ? "indirect" : "single"}:${vertex.generation}.${index.generation}:${entries.map((entry) => entry.id).join(",")}`;
     const cached = this.bundleCache.get(key);
     if (cached) return cached;
     const encoder = this.device.createRenderBundleEncoder({
