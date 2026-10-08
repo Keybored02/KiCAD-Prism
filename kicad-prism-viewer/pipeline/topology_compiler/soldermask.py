@@ -32,9 +32,14 @@ CIRCLE_STEPS = 48
 TILE_MM = 10.0
 # Paste sits this far outside the mask face, so it never shares its plane.
 PASTE_LIFT_MM = 0.005
+# Outline ends closer than this are one point. Boards drawn with arcs often end
+# an arc a few microns from the line it meets (JTYU-IN: 6 um, JTYU-TSMC: 0.2 um);
+# KiCad chains them, and without joining them the outline never closes and the
+# board gets no mask at all.
+OUTLINE_JOIN_MM = 0.01
 PASTE_COLOR = [0.62, 0.63, 0.65, 1.0]
 # Bump when the geometry changes, so cached masks are rebuilt.
-SOLDERMASK_VERSION = "ir-a2"
+SOLDERMASK_VERSION = "ir-a3"
 
 
 def soldermask_polygons(
@@ -217,8 +222,29 @@ def _op_paths(op: dict[str, Any]) -> tuple[list[list[tuple[float, float]]], bool
 # --- geometry ----------------------------------------------------------------
 
 
+def join_outline_ends(paths: list[list[tuple[float, float]]], tolerance: float = OUTLINE_JOIN_MM) -> list[list[tuple[float, float]]]:
+    """Move each path's ends onto the first end already seen within `tolerance`."""
+
+    seen: list[tuple[float, float]] = []
+
+    def joined(point: tuple[float, float]) -> tuple[float, float]:
+        for other in seen:
+            if math.dist(point, other) <= tolerance:
+                return other
+        seen.append(point)
+        return point
+
+    out = []
+    for path in paths:
+        path = list(path)
+        path[0] = joined(path[0])
+        path[-1] = joined(path[-1])
+        out.append(path)
+    return out
+
+
 def _board_outline(records: list[dict[str, Any]]) -> Polygon | MultiPolygon | None:
-    lines: list[LineString] = []
+    paths: list[list[tuple[float, float]]] = []
     for record, op in _layer_ops(records, "Edge.Cuts"):
         placed = _placed(record)
         for path in _op_paths(op)[0]:
@@ -226,9 +252,10 @@ def _board_outline(records: list[dict[str, Any]]) -> Polygon | MultiPolygon | No
             # error from the placement transform, meet the board segments they join.
             path = [(round(x, 4), round(y, 4)) for x, y in placed(path)]
             if len(path) >= 2:
-                lines.append(LineString(path))
-    if not lines:
+                paths.append(path)
+    if not paths:
         return None
+    lines = [LineString(path) for path in join_outline_ends(paths)]
     faces = list(polygonize(unary_union(lines)))
     if not faces:
         return None
