@@ -2202,7 +2202,8 @@ function setPlacementSeparation(value, placementKey) {
 
 /** The per-board layer sections for a host that renders the controls (D-P2-26). */
 function systemBoardViews() {
-  return system.placed.map((item) => {
+  // A module (own geometry, SB2-50) has no PCB layers: no section.
+  return system.placed.filter((item) => !item.own).map((item) => {
     const hidden = system.hiddenLayers.get(item.occurrence.path) || new Set();
     const b = item.board;
     return {
@@ -2275,6 +2276,12 @@ function applySystemEmphasis() {
     for (const member of set.members) {
       const item = system.placements.get(member.occurrence);
       const b = item?.board;
+      if (!b && item?.own) {
+        // A module's pin (SB2-50): the signal reaches the drawn module; it frames with the set.
+        result.lit += 1;
+        if (item.worldBounds) boxes.push({ occurrence: member.occurrence, box: item.worldBounds });
+        continue;
+      }
       if (!b) {
         const reason = !item ? "not-drawn"
           : item.standIn === "loading" || item.standIn === "building" ? "loading"

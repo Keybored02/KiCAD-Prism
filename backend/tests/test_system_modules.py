@@ -119,6 +119,26 @@ class ModuleInstanceTest(PublishCase):
         [occurrence] = [o for o in scene["occurrences"] if o["instanceId"] == imu["id"]]
         self.assertEqual(occurrence["kind"], "module")
 
+    def test_a_system_net_traces_from_the_board_through_the_harness_to_the_module_pin(self) -> None:
+        """SB2-50's acceptance: the OBC net and the IMU signal are one system net, joined by the wire."""
+        imu = self.add()
+        obc_port = self.obc_port("J6")
+        harness = self.service.create_harness(DESIGNER, self.sid, self.version(), {
+            "name": "IMU-OBC", "ends": [{"instanceId": self.instances["OBC-A"], "portKey": obc_port},
+                                        {"instanceId": imu["id"], "portKey": "A"}]}).body
+        obc_end, imu_end = harness["ends"]
+        obc_net = next(p["nets"][0] for p in self.store.get_interface_component(
+            "prj_obc", self.commits["mini_obc"]["F0"], EXTRACTOR_VERSION, obc_port)["pins"] if p["pad"] == "1" and p["nets"])
+        self.service.replace_wires(DESIGNER, self.sid, self.version(), harness["id"], [
+            {"from": {"end": obc_end["id"], "pin": "1"}, "to": {"end": imu_end["id"], "pin": "3"}, "signal": "RX_P"}])
+        groups = self.service.nets(VIEWER, self.sid, search="RX_P", members=True)["groups"]
+        [group] = [g for g in groups if any(m["net"] == "RX_P" for m in g["members"])]
+        imu_path = f"/{imu['id']}"
+        self.assertIn({"occurrence": imu_path, "net": "RX_P"}, group["members"])
+        self.assertIn({"occurrence": f"/{self.instances['OBC-A']}", "net": obc_net}, group["members"])
+        [hop] = [h for h in self.service.net(VIEWER, self.sid, group["groupId"])["hops"] if h["kind"] == "wire"]
+        self.assertEqual({hop["from"]["occurrence"], hop["to"]["occurrence"]}, {f"/{self.instances['OBC-A']}", imu_path})
+
     def test_a_b2b_link_mates_the_module_by_its_connector_part(self) -> None:
         imu = self.add()
         # §15.2: a mate places only between confirmed frames; the module's is its catalog placement.
