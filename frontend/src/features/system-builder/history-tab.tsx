@@ -87,13 +87,17 @@ function rowText(row: Pick<RowFields, "pinA" | "pinB" | "signal">): string {
   return `${row.pinA ?? "—"} ↔ ${row.pinB ?? "—"}${row.signal ? ` (${row.signal})` : ""}`;
 }
 
-export function HistoryTab({ systemId, document, etag, canEdit, user, reload }: SystemTabProps) {
+export function HistoryTab({ systemId, document, etag, canEdit, user, reload, startTaking = false }: SystemTabProps & {
+  /** Open the Take snapshot dialog on mount (the workspace top bar's button). */
+  startTaking?: boolean;
+}) {
   // Taking a snapshot does not bump the version, so both lists also follow this counter.
   const [snapshotsTaken, setSnapshotsTaken] = useState(0);
   const refresh = `${etag}#${snapshotsTaken}`;
   return (
     <div className="grid gap-6 p-4 md:p-6 xl:grid-cols-[1fr_1fr]">
       <SnapshotsSection systemId={systemId} document={document} etag={etag} refresh={refresh} canEdit={canEdit} reload={reload}
+        startTaking={startTaking && canEdit}
         canPublish={canEdit && canWriteCatalog(user?.role)}
         onTaken={() => setSnapshotsTaken((count) => count + 1)} />
       <AuditLog systemId={systemId} document={document} refresh={refresh} />
@@ -112,14 +116,15 @@ interface SnapshotsProps {
   /** Designers who may also write to the catalog (CONTRACTS_P2 §3.3). */
   canPublish: boolean;
   reload: () => Promise<void>;
+  startTaking?: boolean;
 }
 
-function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPublish, reload, onTaken }: SnapshotsProps) {
+function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPublish, reload, onTaken, startTaking = false }: SnapshotsProps) {
   const [publishing, setPublishing] = useState<SnapshotMeta | null>(null);
   const [snapshots, setSnapshots] = useState<{ refresh: string; items: SnapshotMeta[] } | null>(null);
   const [name, setName] = useState("");
   const [note, setNote] = useState("");
-  const [taking, setTaking] = useState(false);
+  const [taking, setTaking] = useState(startTaking);
   const [compare, setCompare] = useState<{ snapshotId: string; against: string } | null>(null);
   const [diff, setDiff] = useState<{ key: string; body: SnapshotDiff } | null>(null);
   const { busy, run } = useSystemMutation(reload);
