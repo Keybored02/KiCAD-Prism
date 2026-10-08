@@ -128,6 +128,11 @@ export function updateSystem(
   return versioned<SystemSummary>(path(systemId), { method: "PATCH", etag, body: json(fields) }, "Could not update the system");
 }
 
+/** SB2-101: every system the reader may see, with board totals, last snapshot, git and counts. */
+export async function listSystems(init?: RequestInit): Promise<SystemSummary[]> {
+  return (await versioned<SystemSummary[]>(BASE, init ?? {}, "Could not load the systems")).body;
+}
+
 export function getSystem(systemId: string, init?: RequestInit) {
   // SB2-98: the findings come with the document, so an edit is one re-read, not two.
   return versioned<SystemDocument>(`${path(systemId)}?include=validation`, init, "Could not load the system");

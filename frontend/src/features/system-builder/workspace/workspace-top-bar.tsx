@@ -84,7 +84,9 @@ export function WorkspaceTopBar({ systemId, document, view, canEdit, onBack, onV
           </button>
         )}
         {repository?.snapshot && (
-          <button type="button" onClick={onHistory} className="hidden hover:text-foreground lg:block">
+          <button type="button" onClick={onHistory} className="hidden items-center gap-1.5 hover:text-foreground lg:flex"
+            title="Last snapshot" aria-label={`Last snapshot ${repository.snapshot.name}, ${timeAgo(repository.snapshot.createdAt)}`}>
+            <Camera className="size-3.5" />
             {repository.snapshot.name} · {timeAgo(repository.snapshot.createdAt)}
           </button>
         )}

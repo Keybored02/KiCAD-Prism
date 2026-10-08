@@ -23,8 +23,32 @@ class DocumentsMixin:
     # Systems
 
     def list_systems(self, caller: Caller) -> list[dict]:
+        """SB2-101: each summary also says how many boards it holds counted through every subsystem,
+        its last snapshot, its git branch, and its last finding counts when they are of this version."""
         with self._tx() as store:
-            return visibility.visible_systems(store.conn, caller.role)
+            systems = visibility.visible_systems(store.conn, caller.role)
+            extras = store.list_extras([summary["id"] for summary in systems])
+            for summary in systems:
+                summary["boardTotal"] = self._board_total(store, summary)
+                extra = extras.get(summary["id"]) or {}
+                snapshot = extra.get("last_snapshot")
+                summary["lastSnapshot"] = ({"id": snapshot["id"], "name": snapshot["name"], "createdAt": snapshot["createdAt"]}
+                                           if snapshot else None)
+                summary["git"] = ({"branch": extra["git_branch"], "outsideChange": bool(extra["git_outside"]),
+                                   "error": bool(extra["git_error"])} if extra.get("git_branch") else None)
+                current = extra.get("counted_version") == summary["version"]
+                summary["findingCounts"] = extra.get("counts") if current else None
+        return systems
+
+    def _board_total(self, store: SystemStore, summary: Mapping[str, Any]) -> Optional[int]:
+        """Boards counted through every subsystem (child manifests are cached, SB2-95); None if the
+        hierarchy can't be resolved."""
+        if not summary.get("subsystemCount"):
+            return int(summary.get("instanceCount") or 0)
+        try:
+            return len(self._tree(store, summary["id"]).boards)
+        except Invalid:
+            return None
 
     def create_system(
         self, caller: Caller, *, name: str, description: str, folder_id: Optional[str]
@@ -183,6 +207,7 @@ class DocumentsMixin:
         report = validation.with_findings(report, self._mate_pair_findings(links, harness_rows, interfaces))
         # SB2-100 (D-P2-56): waivers last, over every finding above.
         report = validation.apply_waivers(report, store.list_waivers(system_id))
+        store.record_finding_counts(system_id, system["version"], report["counts"])  # SB2-101: for the systems list
         review_rows = sorted({rid for review in open_reviews for item in review["items"] for rid in item["row_ids"]})
         link_docs = [self._link_doc(link, interfaces, overrides, mating) for link in links]
         export_docs = [self._export_doc(export, interfaces, overrides) for export in exports]
@@ -229,6 +254,7 @@ class DocumentsMixin:
             system = self._system(store, system_id, caller)
             built, instances, job_state = self._build(store, system)
             restricted = self._restricted_instances(store, system_id, caller)
+            board_total = self._board_total(store, system)  # SB2-101
         ready = {i["id"] for i in built["instances"] if i["interface"]["status"] == "ready"}
         for instance in instances:
             key = artifact_key(instance["project_id"], instance["baseline_commit"])
@@ -237,6 +263,7 @@ class DocumentsMixin:
                 self._enqueue_quietly(instance["project_id"], instance["baseline_commit"], caller)
         dropped = ("reviewRowIds",) if include_validation else ("validation", "reviewRowIds")
         body = {k: v for k, v in built.items() if k not in dropped}
+        body["system"] = {**body["system"], "boardTotal": board_total}
         return Result(redaction.redact_document(body, restricted), system_id, system["version"])
 
     def _validate(

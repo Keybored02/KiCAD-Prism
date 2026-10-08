@@ -264,6 +264,39 @@ class ReviewsStore:
         change.audit("finding_unwaived", {"waiverId": waiver_id, "rule": row["rule"], "findingKey": row["finding_key"]})
 
     # ------------------------------------------------------------------
+    # Last finding counts (SB2-101)
+
+    def record_finding_counts(self, system_id: str, version: int, counts: Mapping[str, Any]) -> None:
+        """Keep the counts of the newest version built; an older build never overwrites a newer one."""
+        self.conn.execute(
+            """
+            INSERT INTO system_finding_counts (system_id, version, counts) VALUES (%s, %s, %s)
+            ON CONFLICT (system_id) DO UPDATE SET version = EXCLUDED.version, counts = EXCLUDED.counts,
+                counted_at = NOW()
+            WHERE system_finding_counts.version < EXCLUDED.version
+            """,
+            (system_id, int(version), Jsonb(dict(counts))),
+        )
+
+    def list_extras(self, system_ids: Sequence[str]) -> dict[str, dict]:
+        """For the systems list, in one query: the last snapshot, the git link and the last counts."""
+        rows = self.conn.execute(
+            """
+            SELECT s.id,
+                   (SELECT jsonb_build_object('id', n.id, 'name', n.name, 'createdAt', n.created_at)
+                      FROM system_snapshots n WHERE n.system_id = s.id ORDER BY n.created_at DESC LIMIT 1) AS last_snapshot,
+                   g.branch AS git_branch, g.outside_commit IS NOT NULL AS git_outside, g.last_error IS NOT NULL AS git_error,
+                   c.version AS counted_version, c.counts
+            FROM system_projects s
+            LEFT JOIN system_git_links g ON g.system_id = s.id
+            LEFT JOIN system_finding_counts c ON c.system_id = s.id
+            WHERE s.id = ANY(%s)
+            """,
+            (list(system_ids),),
+        ).fetchall()
+        return {row["id"]: dict(row) for row in rows}
+
+    # ------------------------------------------------------------------
     # Import sessions (§9.3)
 
     IMPORT_RETENTION_DAYS = 7

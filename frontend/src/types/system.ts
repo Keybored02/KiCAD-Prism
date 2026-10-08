@@ -32,6 +32,12 @@ export interface SystemSummary {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /** SB2-101: boards counted through every subsystem (null if the hierarchy can't be resolved). */
+  boardTotal?: number | null;
+  /** SB2-101, `GET /api/systems` only: the last snapshot, the git branch and the last counts of this version. */
+  lastSnapshot?: { id: string; name: string; createdAt: string } | null;
+  git?: { branch: string; outsideChange: boolean; error: boolean } | null;
+  findingCounts?: FindingCounts | null;
 }
 
 export type InterfaceStatus = "ready" | "pending" | "failed";
