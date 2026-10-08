@@ -161,6 +161,8 @@ class ServiceCore:
             return store.get_interface(instance["project_id"], instance["baseline_commit"], EXTRACTOR_VERSION)
         if instance.get("kind") == "module":
             return self._module_interface(instance["catalog_revision_id"])
+        if instance.get("kind") == "part":
+            return self._part_interface(instance["catalog_revision_id"])
         revision = self._catalog_revision(instance["catalog_revision_id"])
         return exports_module.as_interface((revision or {}).get("interface")) if revision else None
 

@@ -158,11 +158,11 @@ export function addInstance(systemId: string, etag: string, input: InstanceInput
  * `revisionId` is omitted).
  */
 export function addCatalogInstance(
-  systemId: string, etag: string, kind: "assembly" | "module",
+  systemId: string, etag: string, kind: "assembly" | "module" | "part",
   input: { label: string; componentId: string; revisionId?: string; follow: "pinned" | "latest_released" },
 ) {
   return versioned<InstanceRow>(path(systemId, "instances"), { method: "POST", etag, body: json({ kind, ...input }) },
-    kind === "module" ? "Could not add the module" : "Could not add the subsystem");
+    kind === "module" ? "Could not add the module" : kind === "part" ? "Could not add the part" : "Could not add the subsystem");
 }
 
 export function getHierarchy(systemId: string) {

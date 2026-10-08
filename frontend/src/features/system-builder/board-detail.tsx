@@ -121,7 +121,7 @@ function EditBoardDialog({ instance, busy, onClose, onSave }: EditBoardDialogPro
 }
 
 export function BoardDetail(props: BoardDetailProps) {
-  return props.instance.kind === "assembly" || props.instance.kind === "module"
+  return props.instance.kind === "assembly" || props.instance.kind === "module" || props.instance.kind === "part"
     ? <SubsystemDetail {...props} /> : <BoardDetailBody {...props} />;
 }
 

@@ -39,7 +39,8 @@ interface SubsystemDetailProps {
  */
 export function SubsystemDetail({ systemId, document, instance, etag, canEdit, busy, run }: SubsystemDetailProps) {
   const isModule = instance.kind === "module";
-  const noun = isModule ? "module" : "subsystem";
+  const isPart = instance.kind === "part";  // a mechanical part: revision facts only (P2 §24.1)
+  const noun = isModule ? "module" : isPart ? "part" : "subsystem";
   const [removing, setRemoving] = useState(false);
   const [tree, setTree] = useState<{ key: string; body: SystemHierarchy } | null>(null);
   const ref = instance.catalog;
@@ -72,7 +73,7 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
 
   return (
     <div className="space-y-5">
-      <InspectorHeader kind={isModule ? "Module" : "Subsystem"} title={instance.label}
+      <InspectorHeader kind={isModule ? "Module" : isPart ? "Part" : "Subsystem"} title={instance.label}
         subtitle={[instance.projectName, ref?.identity].filter(Boolean).join(" · ") || undefined}
         status={{ label: status.label, tone: status.tone, detail: status.detail }}
         actions={(
@@ -97,11 +98,11 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
 
       <InspectorFacts rows={[
         { label: "Revision", value: `${ref?.version ? `v${ref.version}` : "—"}${ref?.releaseStatus ? ` · ${STAGE[ref.releaseStatus] ?? ref.releaseStatus}` : ""}` },
-        ...(!isModule ? [{ label: "Snapshot", value: ref?.snapshotName ?? "—" }] : []),
+        ...(!isModule && !isPart ? [{ label: "Snapshot", value: ref?.snapshotName ?? "—" }] : []),
         { label: "Updates", value: updates },
       ]} />
 
-      <InspectorSection title={isModule ? "Connectors" : "Exports"} count={(instance.ports ?? []).length}>
+      {!isPart && <InspectorSection title={isModule ? "Connectors" : "Exports"} count={(instance.ports ?? []).length}>
         {(instance.ports ?? []).length === 0 ? <p className="h-8 text-sm text-muted-foreground">None</p> : (
           <ul className="text-sm">
             {(instance.ports ?? []).map((port) => (
@@ -113,9 +114,9 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
             ))}
           </ul>
         )}
-      </InspectorSection>
+      </InspectorSection>}
 
-      {!isModule && (
+      {!isModule && !isPart && (
         <InspectorSection title="Inside" count={inside.length}>
           {inside.length === 0 ? (
             <p className="h-8 text-sm text-muted-foreground">{tree ? "Nothing visible" : "Reading…"}</p>

@@ -1814,6 +1814,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (49, "system_finding_counts"),
                 (50, "system_subports"),
                 (51, "system_net_renames"),
+                (52, "system_parts_collisions"),
             ],
         )
 

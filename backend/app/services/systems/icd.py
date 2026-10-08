@@ -199,8 +199,10 @@ def _e(value: Any) -> str:
 
 
 # D-P2-50: the Diagram tab's kind colours (CSS variables in _STYLE, light and dark).
-_KIND_LABEL = {"board": "Board", "module": "Module", "assembly": "Subsystem", "harness": "Harness"}
-_KIND_CLASS = {"board": "k-board", "module": "k-module", "assembly": "k-subsystem", "harness": "k-harness"}
+_KIND_LABEL = {"board": "Board", "module": "Module", "assembly": "Subsystem", "harness": "Harness", "part": "Part"}
+# A mechanical part (P2 §24.1) shares the module colour: both are bought-out catalog items.
+_KIND_CLASS = {"board": "k-board", "module": "k-module", "assembly": "k-subsystem", "harness": "k-harness",
+               "part": "k-module"}
 
 
 def _block_rows(document: Mapping[str, Any], instance: Mapping[str, Any], block: Any) -> tuple[list[tuple[str, str, bool]], int]:
@@ -238,6 +240,8 @@ def _diagram(document: Mapping[str, Any], positions: Optional[Mapping[str, Any]]
         else:
             height = system_layout.board_height(len(block.rows) + len(block.hidden_ports), 0)
         drawn.append((block, height))
+    if not drawn:
+        return ""  # only mechanical parts, which the diagram does not draw (P2 §24.1)
     pad = 24
     xs = [b.x for b, _ in drawn] + [x for w in wires for x, _ in w.points]
     ys = [b.y for b, _ in drawn] + [y for w in wires for _, y in w.points]
@@ -405,7 +409,8 @@ def _clip(text: str, limit: int) -> str:
 
 
 def _legend(document: Mapping[str, Any]) -> str:
-    kinds = [k for k in ("board", "module", "assembly") if any((i.get("kind") or "board") == k for i in document["instances"])]
+    kinds = [k for k in ("board", "module", "part", "assembly")
+             if any((i.get("kind") or "board") == k for i in document["instances"])]
     if document.get("harnesses"):
         kinds.append("harness")
     wires = [("w-b2b", "Board-to-board")] if any(link.get("type") == "b2b" for link in document["links"]) else []
@@ -621,10 +626,11 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
     boards = [i for i in document["instances"] if i.get("kind", "board") == "board"]
     subsystems = [i for i in document["instances"] if i.get("kind") == "assembly"]
     modules = [i for i in document["instances"] if i.get("kind") == "module"]
+    parts = [i for i in document["instances"] if i.get("kind") == "part"]
     banner_parts = []
     if open_reviews:
         banner_parts.append(f'This document contains {open_reviews} unreviewed change{"s" if open_reviews != 1 else ""}.')
-    for noun, group in (("subsystem", subsystems), ("module", modules)):
+    for noun, group in (("subsystem", subsystems), ("module", modules), ("part", parts)):
         unreleased = [i for i in group if (i.get("catalog") or {}).get("releaseStatus") not in (None, "released")]
         if unreleased:
             banner_parts.append(f'{len(unreleased)} {noun}{"s pin" if len(unreleased) != 1 else " pins"} an unreleased revision.')

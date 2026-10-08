@@ -17,7 +17,7 @@ class InstancesStore:
     # Instances
 
     BOARD_KINDS = ("board",)
-    ALL_KINDS = ("board", "assembly", "module")
+    ALL_KINDS = ("board", "assembly", "module", "part")
 
     def list_instances(self, system_id: str, *, kinds: Sequence[str] = BOARD_KINDS) -> list[dict]:
         """Boards by default: every P1 path (interfaces, drift, validation, access) is board-only.
@@ -73,9 +73,9 @@ class InstancesStore:
         self, change: Mutation, *, kind: str, label: str, component_id: str, revision_id: str,
         follow: str, instance_id: Optional[str] = None,
     ) -> dict:
-        """An ``assembly`` or ``module`` instance pinning one catalog revision (CONTRACTS_P2 §5.1)."""
-        if kind not in ("assembly", "module"):
-            raise Invalid("kind must be assembly or module")
+        """An ``assembly``, ``module`` or (P2 §24.1) mechanical ``part`` instance pinning one catalog revision (§5.1)."""
+        if kind not in ("assembly", "module", "part"):
+            raise Invalid("kind must be assembly, module or part")
         if follow not in ("pinned", "latest_released"):
             raise Invalid("follow must be pinned or latest_released")
         count = self.conn.execute(
