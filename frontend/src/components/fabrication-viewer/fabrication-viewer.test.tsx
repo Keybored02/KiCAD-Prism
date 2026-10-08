@@ -158,19 +158,27 @@ describe("FabricationViewer", () => {
         expect(screen.queryByAltText("F.SILK")).not.toBeInTheDocument();
     });
 
-    it("highlighting a layer dims the rest, names it, and lets go on a second click", async () => {
+    it("picking a layer's name shows it on its own with the profile, names it, and lets go on a second click", async () => {
+        const drawn = () => screen.getAllByRole("img").map((image) => (image as HTMLImageElement).alt);
         await openViewer();
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
         fireEvent.click(screen.getByText("F.CU"));
-        expect(screen.getByAltText("F.SILK")).toHaveStyle({ opacity: "0.2" });
-        expect((screen.getByAltText("F.CU") as HTMLImageElement).style.opacity).toBe("");
+        expect(drawn()).toEqual(["F.CU", "EDGE"]);
         // The title is the layer, its function under it, its file in the footer.
         expect(screen.getAllByText("F.CU").length).toBeGreaterThan(1);
         expect(screen.getByText("Copper,L1,Top")).toBeInTheDocument();
         expect(screen.getByText("f.cu.gbr")).toBeInTheDocument();
 
         fireEvent.click(screen.getAllByText("F.CU")[0]!);
-        expect((screen.getByAltText("F.SILK") as HTMLImageElement).style.opacity).toBe("");
+        expect(drawn()).toEqual(["F.CU", "F.SILK", "EDGE", "DRILL"]);
+    });
+
+    it("a layer behind the board can still be read on its own", async () => {
+        await openViewer();
+        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
+        fireEvent.click(screen.getByText("B.CU"));
+        await waitFor(() => expect(screen.getAllByRole("img").map((image) => (image as HTMLImageElement).alt))
+            .toEqual(["B.CU", "EDGE"]));
     });
 
     it("turns the board over: bottom layers, mirrored, labelled", async () => {
@@ -203,21 +211,21 @@ describe("FabricationViewer", () => {
         expect(screen.getAllByRole("img")[0]!.closest(".cursor-grab")).toHaveClass("bg-black");
     });
 
-    it("stacks the layers like the board: from the top the top side is painted last, from the bottom the bottom side is", async () => {
+    it("draws only what can be seen: the board hides the far side, and the near side stacks in board order", async () => {
         const order = () => screen.getAllByRole("img").map((image) => (image as HTMLImageElement).alt);
         await openViewer();
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
         fireEvent.click(show("B.CU")!);
+        fireEvent.click(show("F.MASK")!);
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(5));
         // Farthest first, so the last one is on top. The profile and holes go over everything.
-        expect(order()).toEqual(["B.CU", "F.CU", "F.SILK", "EDGE", "DRILL"]);
+        expect(order()).toEqual(["F.CU", "F.MASK", "F.SILK", "EDGE", "DRILL"]);
+        expect(requestedLayers()).not.toContain("b.cu");
 
         fireEvent.click(boardSide("Bottom"));
-        await waitFor(() => expect(requestedLayers()).toContain("b.cu"));
+        await waitFor(() => expect(order()).toEqual(["B.CU", "EDGE", "DRILL"]));
         fireEvent.click(show("F.CU")!);
-        fireEvent.click(show("F.SILK")!);
-        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(5));
-        expect(order()).toEqual(["F.SILK", "F.CU", "B.CU", "EDGE", "DRILL"]);
+        await waitFor(() => expect(order()).toEqual(["B.CU", "EDGE", "DRILL"]));
     });
 
     it("keeps the rail narrow, and has no Parts & filters section to take room", async () => {

@@ -27,7 +27,7 @@ export const LAYER_PRESETS: readonly (readonly [LayerPreset, string])[] = [
 export interface ViewerState {
     side: ViewSide;
     visible: ReadonlySet<string>;
-    /** A layer picked in the list; the others dim so it can be read on its own. */
+    /** A layer picked in the list, drawn on its own so it can be read as it is. */
     highlighted: string | null;
     /** Reference of the part picked in the table or on the board. */
     selected: string | null;
@@ -123,6 +123,31 @@ export function paintOrder(layers: FabricationLayer[], side: ViewSide): Fabricat
     return [...layers].sort((a, b) => rank(a) - rank(b));
 }
 
+const byName = (a: FabricationLayer, b: FabricationLayer) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true });
+
+/**
+ * What can be seen of the shown layers from one side: the board is opaque, so only
+ * the outermost sheet with anything shown is drawn (the near side's surface, else
+ * the first inner layer, else the far side) and the board hides everything behind
+ * it. Annotation, the profile and the holes are always drawn. In painting order.
+ */
+export function visibleStack(shown: FabricationLayer[], side: ViewSide): FabricationLayer[] {
+    const onBoard = (layer: FabricationLayer) =>
+        layer.role !== "outline" && layer.role !== "drill" && layer.role !== "other";
+    const inner = shown.filter((layer) => onBoard(layer) && layer.side === "inner").sort(byName);
+    if (side === "bottom") inner.reverse();
+    const sheetOf = (layer: FabricationLayer) => (layer.side === "inner" ? layer.id : layer.side);
+    const sheets = [side, ...inner.map((layer) => layer.id), side === "top" ? "bottom" : "top"];
+    const nearest = sheets.find((sheet) => shown.some((layer) => onBoard(layer) && sheetOf(layer) === sheet));
+    return paintOrder(shown.filter((layer) => !onBoard(layer) || sheetOf(layer) === nearest), side);
+}
+
+/** A layer picked in the list, drawn on its own with the profile around it. */
+export function soloStack(layers: FabricationLayer[], picked: FabricationLayer): FabricationLayer[] {
+    return [picked, ...layers.filter((layer) => layer.role === "outline" && layer.id !== picked.id)];
+}
+
 /** A package opened on one file: that layer, with the profile to place it. */
 export function focusedOn(layers: FabricationLayer[], file: string): Set<string> {
     const target = layers.find((layer) => layer.file === file);
@@ -180,7 +205,12 @@ export function viewerReducer(state: ViewerState, action: ViewerAction): ViewerS
         case "highlight":
             return { ...state, highlighted: state.highlighted === action.id ? null : action.id };
         case "preset":
-            return { ...state, visible: applyPreset(action.layers, action.preset) };
+            return {
+                ...state,
+                // Front and Back are what you see from that side, so they turn the board to it.
+                side: action.preset === "front" ? "top" : action.preset === "back" ? "bottom" : state.side,
+                visible: applyPreset(action.layers, action.preset),
+            };
         default:
             return state;
     }

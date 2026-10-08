@@ -8,9 +8,6 @@ import type { LayerImage } from "./use-fabrication-data";
 
 export type Viewport = ReturnType<typeof useBoardViewport>;
 
-/** Layers other than the highlighted one fade to this, so it can be read alone. */
-const DIMMED_OPACITY = 0.2;
-
 export function toRect(box: readonly [number, number, number, number]): BoardRect {
     return { x: box[0], y: box[1], width: box[2] - box[0], height: box[3] - box[1] };
 }
@@ -32,10 +29,9 @@ export function withMargin(rect: BoardRect, margin = FIT_MARGIN): BoardRect {
  * The visible layers stacked on one board rectangle, in the pane Design Comparison
  * draws its fabrication layers in.
  *
- * Every layer is fully opaque in its own colour and transparent where nothing is
- * plotted, and they are stacked in the order `paintOrder` gives, so a nearer layer
- * covers a farther one as it does on the board. There is no blending: a layer is its
- * swatch colour wherever you can see it. Only highlighting fades the others.
+ * Every layer is fully opaque in its own colour, and the caller passes only what can
+ * be seen (`visibleStack` or `soloStack`), in painting order. Nothing is blended or
+ * faded: a layer is its swatch colour wherever it is drawn.
  */
 export function BoardCanvas({
     label,
@@ -43,7 +39,6 @@ export function BoardCanvas({
     drawn,
     layers,
     images,
-    highlighted,
     mirrored,
     viewport,
     overlay,
@@ -51,10 +46,9 @@ export function BoardCanvas({
     label: string;
     board: BoardRect;
     drawn: BoardRect;
-    /** Visible layers, in the order to paint them: farthest first. */
+    /** The layers that can be seen, in the order to paint them: farthest first. */
     layers: FabricationLayer[];
     images: Record<string, LayerImage>;
-    highlighted: string | null;
     mirrored: boolean;
     /** Camera and pointer handlers, owned by the parent so it can move the camera. */
     viewport: Viewport;
@@ -87,7 +81,6 @@ export function BoardCanvas({
                                     alt={layer.name}
                                     draggable={false}
                                     className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
-                                    style={highlighted && highlighted !== layer.id ? { opacity: DIMMED_OPACITY } : undefined}
                                 />
                             );
                         })}

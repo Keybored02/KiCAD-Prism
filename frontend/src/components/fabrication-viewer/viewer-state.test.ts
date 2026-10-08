@@ -9,7 +9,9 @@ import {
     paintOrder,
     presetFor,
     sideOf,
+    soloStack,
     viewerReducer,
+    visibleStack,
     type LayerPreset,
 } from "./viewer-state";
 
@@ -107,6 +109,13 @@ describe("viewerReducer", () => {
         expect(on.visible.has("f.mask")).toBe(true);
         expect(off.visible.has("f.mask")).toBe(false);
         expect(start.visible.has("f.mask")).toBe(false);
+    });
+
+    it("Front and Back turn the board to that side; other presets keep it", () => {
+        const back = viewerReducer(start, { type: "preset", preset: "back", layers: LAYERS });
+        expect(back.side).toBe("bottom");
+        expect(viewerReducer(back, { type: "preset", preset: "copper", layers: LAYERS }).side).toBe("bottom");
+        expect(viewerReducer(back, { type: "preset", preset: "front", layers: LAYERS }).side).toBe("top");
     });
 
     it("a menu preset replaces the selection", () => {
@@ -234,5 +243,44 @@ describe("paintOrder", () => {
     it("keeps the listed order between layers at the same depth", () => {
         const twins = [layer("a", "other", "top"), layer("b", "other", "bottom"), layer("c", "other", "both")];
         expect(names(twins, "top")).toEqual(["a", "b", "c"]);
+    });
+});
+
+describe("visibleStack", () => {
+    const names = (layers: FabricationLayer[], side: "top" | "bottom") =>
+        visibleStack(layers, side).map((item) => item.id);
+    const board = [
+        layer("f.silk", "silk", "top"),
+        layer("f.cu", "copper", "top"),
+        layer("in2.cu", "copper", "inner"),
+        layer("in10.cu", "copper", "inner"),
+        layer("b.cu", "copper", "bottom"),
+        layer("b.silk", "silk", "bottom"),
+        layer("edge", "outline", "both"),
+        layer("drill", "drill", "both"),
+    ];
+
+    it("draws the near side and hides everything behind the board", () => {
+        expect(names(board, "top")).toEqual(["f.cu", "f.silk", "edge", "drill"]);
+        expect(names(board, "bottom")).toEqual(["b.cu", "b.silk", "edge", "drill"]);
+    });
+
+    it("with nothing on the near side, the first inner layer is what you see", () => {
+        const inner = board.filter((item) => item.side !== "top");
+        expect(names(inner, "top")).toEqual(["in2.cu", "edge", "drill"]);
+        const fromBelow = board.filter((item) => item.side !== "bottom");
+        expect(names(fromBelow, "bottom")).toEqual(["in10.cu", "edge", "drill"]);
+    });
+
+    it("with only the far side shown, draws the far side", () => {
+        const far = board.filter((item) => item.side === "bottom" || item.role === "outline");
+        expect(names(far, "top")).toEqual(["b.silk", "b.cu", "edge"]);
+    });
+});
+
+describe("soloStack", () => {
+    it("is the picked layer with the profile over it", () => {
+        const layers = [layer("f.cu", "copper", "top"), layer("edge", "outline", "both"), layer("drill", "drill", "both")];
+        expect(soloStack(layers, layers[0]!).map((item) => item.id)).toEqual(["f.cu", "edge"]);
     });
 });

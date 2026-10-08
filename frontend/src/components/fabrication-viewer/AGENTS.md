@@ -18,7 +18,8 @@ reuse before adding:
 
 - **Layer list:** `PcbLayerList` and `PcbLayerSwatch` from
   `frontend/src/components/ecad-viewer-controls.tsx`, the same rows (swatch, name, eye,
-  click to highlight) and the same preset menu labels and order.
+  click a name to show that layer alone) and the same preset menu labels and order.
+  Front and Back also turn the board to that side.
 - **Pane:** `Pane` from `frontend/src/components/design-comparison/fabrication-panel.tsx`, the pane
   Design Comparison draws its fabrication layers in. It takes `mirrored`.
 - **Camera:** `useBoardViewport` from `frontend/src/components/design-comparison/fabrication-viewport.ts`.
@@ -56,7 +57,15 @@ If one of these changes, the viewer should follow it.
   holes go over everything. An earlier version used `screen`, then `lighten`
   blending; both mixed overlapping layers so a layer stopped matching its swatch
   (silkscreen over red copper went near-white). Do not reintroduce a blend mode.
-  Only highlighting fades the other layers.
+- **The board is opaque: nothing shows through it.** `visibleStack` draws only the
+  outermost sheet that has a layer shown (the near side, else the first inner
+  layer, else the far side), plus annotation, the profile and the holes. Layers
+  behind the board are not drawn or fetched; they used to show through the gaps in
+  the near side, which read as transparency. Clicking a layer's name shows it on
+  its own with the profile (`soloStack`), which is how an inner or far layer is
+  read. No opacity anywhere: highlighting used to fade the rest to 20%.
+- **The pane is `select-none` and cancels `dragstart`,** so a pan never turns into
+  the browser dragging the artwork or a selection.
 - **The bottom view mirrors the whole pane.** `useBoardViewport` takes `mirrorX`
   and `Pane` takes `mirrored`, so dragging and zoom-to-cursor still follow the
   pointer; text drawn inside the pane (marker labels) must be flipped back.

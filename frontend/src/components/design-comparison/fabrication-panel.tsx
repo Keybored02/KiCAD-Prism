@@ -230,9 +230,11 @@ export function Pane({
             <div
                 ref={ref}
                 className={cn(
-                    "relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden rounded border bg-[#0b0f14] active:cursor-grabbing",
+                    "relative min-h-0 flex-1 cursor-grab touch-none select-none overflow-hidden rounded border bg-[#0b0f14] active:cursor-grabbing",
                     className,
                 )}
+                // A pan must never turn into the browser dragging the artwork or a selection.
+                onDragStart={(event) => event.preventDefault()}
                 {...handlers}
             >
                 <div

@@ -11,7 +11,7 @@ import type { FabricationSource, FabricationView, PlacementPart } from "./types"
 import { useFabricationView, useLayerImages } from "./use-fabrication-data";
 import { usePlacement } from "./use-placement";
 import { ViewerFooter } from "./viewer-footer";
-import { initialState, paintOrder, viewerReducer } from "./viewer-state";
+import { initialState, soloStack, viewerReducer, visibleStack } from "./viewer-state";
 import { ViewerToolbar, type ViewerView } from "./viewer-toolbar";
 
 /** Half the width of the square framed around a picked part, in millimetres. */
@@ -41,9 +41,13 @@ function LoadedViewer({ source, view, focusFile }: {
         () => view.layers.filter((layer) => state.visible.has(layer.id)),
         [view.layers, state.visible],
     );
-    const shownIds = useMemo(() => shown.map((layer) => layer.id), [shown]);
-    const painted = useMemo(() => paintOrder(shown, state.side), [shown, state.side]);
-    const images = useLayerImages(source, shownIds);
+    const highlighted = view.layers.find((layer) => layer.id === state.highlighted) ?? null;
+    const painted = useMemo(
+        () => highlighted ? soloStack(view.layers, highlighted) : visibleStack(shown, state.side),
+        [highlighted, view.layers, shown, state.side],
+    );
+    const paintedIds = useMemo(() => painted.map((layer) => layer.id), [painted]);
+    const images = useLayerImages(source, paintedIds);
 
     const drawn = view.bounds ? toRect(view.bounds) : null;
     const fitted = view.board ? toRect(view.board) : drawn;
@@ -63,7 +67,6 @@ function LoadedViewer({ source, view, focusFile }: {
         [parts, state.showParts, state.side, state.selected],
     );
     const picked = parts?.parts.find((part) => part.ref === state.selected) ?? null;
-    const highlighted = view.layers.find((layer) => layer.id === state.highlighted) ?? null;
 
     const pick = (part: PlacementPart) => {
         dispatch({ type: "select", ref: part.ref, side: part.side, layers: view.layers });
@@ -123,7 +126,6 @@ function LoadedViewer({ source, view, focusFile }: {
                             drawn={drawn}
                             layers={painted}
                             images={images}
-                            highlighted={state.highlighted}
                             mirrored={mirrored}
                             viewport={viewport}
                             overlay={sideParts.length > 0
