@@ -709,8 +709,9 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
         title = link["name"] or f"{ends[0]} ↔ {ends[1]}"
         out.append(f'<section class="link" id="link-{_e(link["id"])}">')
         out.append(f'<div class="link-head"><span class="swatch" style="background:{colour}"></span>'
-                   f"<h3>{index}. {_e(title)}</h3><span class=\"ends\">{_e(ends[0])} ↔ {_e(ends[1])}</span>"
-                   f'<span class="meta">{len(rows)} pin{"s" if len(rows) != 1 else ""}'
+                   f"<h3>{index}. {_e(title)}</h3>"
+                   + (f"<span class=\"ends\">{_e(ends[0])} ↔ {_e(ends[1])}</span>" if link["name"] else "")
+                   + f'<span class="meta">{len(rows)} pin{"s" if len(rows) != 1 else ""}'
                    + (f" · harness {_e(link['harness'])}" if link["harness"] else "")
                    + (" · board-to-board" if link.get("type") == "b2b" else "")
                    + (f" · stack {_mm(link['stackHeightMm'])} mm" if link.get("stackHeightMm") is not None else "")
