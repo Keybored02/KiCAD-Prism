@@ -122,8 +122,9 @@ class ReviewsMixin:
                              access: Mapping[str, Mapping[str, Any]]) -> set[str]:
         """Board occurrence paths ``caller`` may see: a readable project, not inside a child system
         whose folder the reader cannot see (P2 §5.4, S7). ``access`` covers every board's project."""
-        hidden_systems = [o.path for o in tree.occurrences if o.child_system_id and not visibility.visible_systems(
-            store.conn, caller.role, system_id=o.child_system_id)]
+        hidden_ids = visibility.hidden_systems(store.conn, caller.role,
+                                               {o.child_system_id for o in tree.occurrences if o.child_system_id})
+        hidden_systems = [o.path for o in tree.occurrences if o.child_system_id in hidden_ids]
         return {o.path for o in tree.boards
                 if access.get(str(o.project_id), {}).get("visible", False)
                 and not any(o.path.startswith(prefix + "/") for prefix in hidden_systems)}
@@ -502,7 +503,7 @@ class ReviewsMixin:
             if snapshot_id is None:
                 tree = self._tree(store, system_id)
             else:
-                manifest = store.get_snapshot(system_id, snapshot_id).get("manifest")
+                manifest = store.get_snapshot_manifest(system_id, snapshot_id)
                 if not manifest:
                     return []
                 try:
@@ -511,8 +512,8 @@ class ReviewsMixin:
                     raise Invalid(str(error)) from None
             projects = {o.project_id for o in tree.boards if o.project_id}
             access = visibility.project_access(store.conn, projects, caller.role)
-            hidden_systems = {o.child_system_id for o in tree.occurrences if o.child_system_id and not
-                              visibility.visible_systems(store.conn, caller.role, system_id=o.child_system_id)}
+            hidden_systems = visibility.hidden_systems(store.conn, caller.role,
+                                                       {o.child_system_id for o in tree.occurrences if o.child_system_id})
         restricted_paths = {o.path for o in tree.boards if not access.get(o.project_id, {}).get("visible", False)}
         levels, hidden_prefixes = [], []
         for occurrence in sorted(tree.occurrences, key=lambda o: (o.depth, o.path)):

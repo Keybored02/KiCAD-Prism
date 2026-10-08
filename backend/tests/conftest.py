@@ -44,9 +44,9 @@ os.environ.setdefault("PRISM_INTERFACE_CACHE_VERIFY", "1")
 
 @pytest.fixture(autouse=True)
 def _fresh_interface_cache():
-    """Tests reuse (project, commit) keys across schemas with different payloads; production never does."""
-    from app.services.systems.interface_cache import interfaces
+    """Tests reuse cache keys across schemas with different payloads; production never does."""
+    from app.services.systems.interface_cache import clear_all
 
-    interfaces.clear()
+    clear_all()
     yield
-    interfaces.clear()
+    clear_all()

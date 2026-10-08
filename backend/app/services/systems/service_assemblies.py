@@ -8,6 +8,7 @@ from app.services.systems import (
     child_drift, exports as exports_module, exposure, hierarchy, modules, redaction, sources, system_nets, validation,
     scene as scene_module, visibility,
 )
+from app.services.systems import interface_cache
 from app.services.systems.bundles import BundleUnreadable
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.placement import harness_checks, harness_route, poses as poses_module
@@ -256,15 +257,21 @@ class AssembliesMixin:
         """hierarchy.Loader: catalog revision -> the snapshot it was published from."""
 
         def load(revision_id: str) -> Optional[hierarchy.ChildSystem]:
-            revision = self._catalog_revision(revision_id)
-            source = (revision or {}).get("sourceRef") or {}
+            # SB2-95: which snapshot a revision was published from never changes; keep it.
+            key = (revision_id, "", "source")
+            source = interface_cache.revision_sources.get(key)
+            if source is None:
+                revision = self._catalog_revision(revision_id)
+                source = (revision or {}).get("sourceRef") or {}
+                if revision is not None:
+                    source = interface_cache.revision_sources.put(
+                        key, {k: source.get(k) for k in ("kind", "systemId", "snapshotId")}, 1)
             if source.get("kind") != "system_snapshot":
                 return None
             try:
-                row = store.get_snapshot(source["systemId"], source["snapshotId"])
+                manifest = store.get_snapshot_manifest(source["systemId"], source["snapshotId"])
             except (NotFound, KeyError):
                 return None
-            manifest = row.get("manifest")
             if not manifest:
                 return None
             return hierarchy.ChildSystem(source["systemId"], source["snapshotId"], manifest["system"]["name"],
@@ -290,10 +297,11 @@ class AssembliesMixin:
         """Every system net of the tree, redacted for the reader, plus the occurrence index."""
         import hashlib
 
-        occurrences = {o["path"]: o for o in self.hierarchy(caller, system_id)["occurrences"]}
-        with self._tx() as store:
+        with self._tx(consistent=True) as store:
             self._system(store, system_id, caller)
-            root = self._net_level(store, system_id)
+            tree = self._tree(store, system_id)  # SB2-95: one resolve, one read of the system
+            occurrences = {o["path"]: o for o in self._hierarchy_view(store, caller, system_id, tree)["occurrences"]}
+            root = self._net_level(store, system_id, tree)
         visible = {path for path, o in occurrences.items() if not o["restricted"]}
 
         def shown(path: Optional[str]) -> bool:
@@ -410,12 +418,14 @@ class AssembliesMixin:
 
         with self._tx() as store:
             self._system(store, system_id, caller)
-            tree = self._tree(store, system_id)
-            projects = {o.project_id for o in tree.boards if o.project_id}
-            access = visibility.project_access(store.conn, projects, caller.role)
-            hidden_systems = {o.child_system_id for o in tree.occurrences
-                              if o.child_system_id and not visibility.visible_systems(
-                                  store.conn, caller.role, system_id=o.child_system_id)}
+            return self._hierarchy_view(store, caller, system_id, self._tree(store, system_id))
+
+    def _hierarchy_view(self, store: SystemStore, caller: Caller, system_id: str, tree: hierarchy.Tree) -> dict:
+        """``hierarchy()``'s body for a tree the caller already resolved (SB2-95: once per request)."""
+        projects = {o.project_id for o in tree.boards if o.project_id}
+        access = visibility.project_access(store.conn, projects, caller.role)
+        hidden_systems = visibility.hidden_systems(store.conn, caller.role,
+                                                   {o.child_system_id for o in tree.occurrences if o.child_system_id})
         out = []
         hidden_prefixes: list[str] = []
         for occurrence in tree.occurrences:
@@ -439,10 +449,10 @@ class AssembliesMixin:
         may generate bundles (designer or admin, as on the board's 3D tab).
         """
 
-        shown = {o["path"]: o for o in self.hierarchy(caller, system_id)["occurrences"]}
-        with self._tx() as store:
+        with self._tx(consistent=True) as store:
             version = int(self._system(store, system_id, caller)["version"])
-            tree = self._tree(store, system_id)
+            tree = self._tree(store, system_id)  # SB2-95: one resolve, one read of the system
+            shown = {o["path"]: o for o in self._hierarchy_view(store, caller, system_id, tree)["occurrences"]}
             level = self._net_level(store, system_id, tree)
             harnesses = system_nets.harness_layout(level)
             placement, interfaces = self._placement(store, system_id, tree, level)

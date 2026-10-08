@@ -208,6 +208,23 @@ class ReviewsStore:
             raise NotFound("Snapshot not found")
         return dict(row)
 
+    def get_snapshot_manifest(self, system_id: str, snapshot_id: str) -> Optional[dict]:
+        """Only a snapshot's manifest (SB2-95): resolving a child never needs its multi-MB document.
+        Snapshots never change, so the parsed manifest is kept in process."""
+        key = (system_id, snapshot_id, "manifest")
+        cached = interface_cache.manifests.get(key)
+        if cached is not None:
+            return cached
+        row = self.conn.execute(
+            "SELECT manifest, pg_column_size(manifest) AS stored FROM system_snapshots WHERE system_id = %s AND id = %s",
+            (system_id, snapshot_id),
+        ).fetchone()
+        if row is None:
+            raise NotFound("Snapshot not found")
+        if row["manifest"] is None:
+            return None
+        return interface_cache.manifests.put(key, row["manifest"], row["stored"])
+
     # ------------------------------------------------------------------
     # Import sessions (§9.3)
 
