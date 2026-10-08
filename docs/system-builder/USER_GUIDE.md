@@ -289,9 +289,11 @@ board**.
 
 | Limit | Value |
 | --- | --- |
-| Boards per system | 50 |
+| Boards, modules and subsystems placed directly in one system | 50 |
 | Links per system | 500 |
 | Rows per system | 5,000 |
+| Boards in a system of systems, counted through every subsystem | 200 |
+| Nesting depth, counting the top system | 4 |
 | CSV import | 5 MB and 5,000 rows |
 
 ## Not in this release

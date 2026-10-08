@@ -292,7 +292,8 @@ An export is `{id, name, description, target}`:
 | Board occurrences when flattened | 200 | 422 `hierarchy_too_large` |
 | Cycle (a system reaching itself through any child snapshot) | none | 422 `hierarchy_cycle` |
 
-- **When checked:** when an assembly instance is added, rebased or auto-advanced, and at publish (`assembly_hierarchy_valid`).
+- **Two kinds of limit.** These are *flattened* limits over the whole tree. Each system also keeps P1's *direct* limits (CONTRACTS §8.3: 50 instances, 500 links, 5,000 rows per system); both apply.
+- **When checked:** when an assembly instance is added, rebased or auto-advanced, when an outside manifest is imported (§21.3; a refused import rolls back whole and its review stays open), and at publish (`assembly_hierarchy_valid`). An advance is checked again under the system lock before it applies (SB2-97).
 - **Advancing:** a parent following `latest_released` does not advance to a revision that would break a limit. It records warning `SYS-V15` instead.
 - **Cycle detection:** by system ID along the resolution path, not component ID. A snapshot of an older version of the same system is still a cycle.
 
@@ -930,6 +931,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.67 | 2026-10-09 | SB2-97: the hierarchy limits are also checked when a manifest import is accepted (a refused import rolls back whole), and an advance is re-checked under the lock; flattened and direct limits documented together (§5.3). |
 | P2-1.66 | 2026-10-08 | SB2-71..73 (M9): the ICD renderer is version 4. Its block diagram is the Diagram tab's (`layout.py` ports `system-layout.ts`, checked by `tests/fixtures/system_builder/layout_parity.json`): harness blocks, saved canvas positions (a snapshot's from its manifest), kind colours (D-P2-50) and a legend. The document gains a contents list, section ids, a connections overview linking to each connection (`#link-{id}`), each connection's findings beside it, a Modules table and stat apart from Subsystems, and a variable-driven stylesheet with `prism-dark` and `prism-embed` classes for the workspace (D-P2-52); exports stay white. |
 | P2-1.65 | 2026-10-08 | SB2-55 (D-P2-46): §21.6 a revision of a committed snapshot records `git {url, branch, commit}` in `source_ref`; 409 `git_commit_pending` while the commit is queued; `POST …/git/commits/{sha}/publish` publishes Prism's own snapshot commits only. |
 | P2-1.64 | 2026-10-08 | SB2-54: §21.3 `manifest_import` reviews (migration 46): opened on a new outside commit with a summary and problems, superseded by newer pushes; accept replaces the system with the manifest (same IDs), reject keeps it; both clear the outside change. §21.4 periodic fetch of linked systems. |

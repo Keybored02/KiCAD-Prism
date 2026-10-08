@@ -180,6 +180,9 @@ class GitMixin:
             with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
                 if manifest is not None:
                     manifest_io.replace_contents(store, change, manifest)
+                    # SB2-97: the direct limits hold through the store's writes; the hierarchy's (depth,
+                    # flattened boards, cycles) are checked here, so a refused import rolls back whole.
+                    self._tree(store, system_id)
                     store.set_review_status(change, review_id, "applied", audit_kind="manifest_imported",
                                             payload={"commit": review["to_commit"]})
                 else:
