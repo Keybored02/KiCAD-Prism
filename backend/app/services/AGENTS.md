@@ -90,3 +90,28 @@ reply/thread/state executors, webhook inboxes, and polling live under
 handlers. Read `docs/TRACKER_INTEGRATION.md` and
 `docs/tracker-integration/CONTRACTS.md` before changing credential, idempotency,
 remote recovery, or authorization behavior.
+
+## Fabrication viewer
+
+`fabrication_view_service.py` turns a set of Gerber and drill files into a view
+model and one SVG per layer; `placement_service.py` parses a position file and a
+BOM and checks one against the other. Both are pure: files in, view out. The
+routes that feed them are in `backend/app/api/release_studio.py` (a build's
+dossier) and `backend/app/api/fabrication_view.py` (a folder of committed
+outputs).
+
+The parsing and drawing belong to `fabrication_compare_service.py`, which is
+grandfathered at its current length and must not grow. New behavior goes in the
+new modules; reach into the old one by module attribute rather than copying.
+
+Rules that are easy to break:
+
+- **Gerber and position files are Y-up; the board frame is Y-down.** The flip is
+  done once, in the SVG renderer and in `placement_service.build_view`. Do not
+  flip again downstream.
+- **A declared layer function wins.** File names are read only for files with no
+  Gerber X2 function (`fabrication_view_service._classify_by_name`).
+- **Match columns by meaning, not by name.** KiCad and the JLCPCB plugin name the
+  same columns differently, and a JLCPCB BOM has a `Designator` column, so a
+  position file is recognised by having coordinates, not by its name.
+- Layers are drawn on black so the viewer can screen-blend them.

@@ -86,6 +86,17 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 `backend/app/release_studio/documents/` →
 `frontend/src/components/release-studio/ReleaseStudioPanel.tsx`
 
+**View a fabrication package**
+`backend/app/api/release_studio.py` (a build's `fabrication-view` and `placement`
+routes) · `backend/app/api/fabrication_view.py` (committed output folders) →
+`backend/app/services/fabrication_view_service.py` (layers, drill) ·
+`backend/app/services/placement_service.py` (parts, BOM check) →
+`backend/app/services/fabrication_compare_service.py` (the Gerber parser and
+renderer it reuses) →
+`frontend/src/components/fabrication-viewer/fabrication-viewer.tsx`, opened from
+`frontend/src/components/release-studio/steps/InspectOutputsStep.tsx` and
+`frontend/src/components/assets-portal.tsx`
+
 **Author and release a component**
 `backend/app/api/catalog_admin.py` →
 `backend/app/services/component_catalog_service.py` (runtime alias) →
