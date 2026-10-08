@@ -31,9 +31,9 @@ import {
   packOccurrences,
 } from "./occurrences.js";
 
-// position f32×3, normal f32×3, netId, objectId (SB2-82: the per-primitive layer
-// and material ids were never read by a shader and are no longer in the vertex).
-const VERTEX_STRIDE = 32;
+// position f32×3, normal snorm8×4 (SB2-84), netId, objectId. SB2-82 dropped the
+// per-primitive layer and material ids, which no shader read.
+const VERTEX_STRIDE = 24;
 // WebGPU dynamic uniform offsets require 256-byte alignment; each draw buffer is padded to that size.
 const DRAW_UNIFORM_SIZE = 256;
 const GLOBAL_UNIFORM_SIZE = 112;
@@ -119,7 +119,9 @@ fn aces(color: vec3f) -> vec3f {
     base = min(base * 1.6 + vec3f(0.03, 0.05, 0.02), vec3f(1.0));
   }
   if (selected && copper) {
-    if (draw.flags.z < 0.5) {
+    // flags.z: 0 draws all copper, 1 isolates (lit copper keeps its colour), 2 is inner copper
+    // that shows only where lit (SB2-85) and pulses like the outer layers.
+    if (draw.flags.z < 0.5 || draw.flags.z > 1.5) {
       let pulse = 0.88 + 0.12 * sin(globals.time * 3.2);
       base = vec3f(0.08, 1.0, 0.2) * pulse;
     }
@@ -780,6 +782,8 @@ export class Renderer {
     // Inner copper is hidden by an opaque board, so it draws at full detail only;
     // exploded or see-through boards move it down to board detail.
     this.innerCopperAtFull = true;
+    // SB2-85: "all" inner copper, only the "lit" nets', or "none" (an opaque board with nothing lit).
+    this.innerCopperMode = "all";
     this.cullCounts = { full: 0, board: 0, body: 0, box: 0, culled: 0 };
     this.frameStats = { triangles: 0, draws: 0 };
     this.boxColor = [0.24, 0.36, 0.28, 1]; // solder-mask green, darkened
@@ -842,9 +846,9 @@ export class Renderer {
       arrayStride: VERTEX_STRIDE,
       attributes: [
         { shaderLocation: 0, offset: 0, format: "float32x3" },
-        { shaderLocation: 1, offset: 12, format: "float32x3" },
-        { shaderLocation: 2, offset: 24, format: "uint32" },
-        { shaderLocation: 3, offset: 28, format: "uint32" },
+        { shaderLocation: 1, offset: 12, format: "snorm8x4" },
+        { shaderLocation: 2, offset: 16, format: "uint32" },
+        { shaderLocation: 3, offset: 20, format: "uint32" },
       ],
     }];
     this.singlePipelines = {
@@ -1002,6 +1006,14 @@ export class Renderer {
   }
 
   /** Draw inner copper only for full-detail occurrences (opaque boards) or for board detail too. */
+  /** Which inner copper draws (SB2-85): "all", only the lit nets' ("lit"), or "none". */
+  setInnerCopperMode(mode) {
+    this.setInnerCopperAtFull(false);
+    if (this.innerCopperMode === mode) return;
+    this.innerCopperMode = mode;
+    this.invalidate();
+  }
+
   setInnerCopperAtFull(atFull) {
     if (this.innerCopperAtFull === atFull) return;
     this.innerCopperAtFull = atFull;
@@ -1588,17 +1600,16 @@ export class Renderer {
     const vertices = new ArrayBuffer(count * VERTEX_STRIDE);
     const vertexF32 = new Float32Array(vertices);
     const vertexU32 = new Uint32Array(vertices);
+    const vertexI8 = new Int8Array(vertices);
     for (let index = 0; index < count; index += 1) {
-      const word = index * 8;
+      const word = index * 6;
       const source = index * 3;
       vertexF32[word] = primitive.position[source];
       vertexF32[word + 1] = primitive.position[source + 1];
       vertexF32[word + 2] = primitive.position[source + 2];
-      vertexF32[word + 3] = primitive.normal[source];
-      vertexF32[word + 4] = primitive.normal[source + 1];
-      vertexF32[word + 5] = primitive.normal[source + 2];
-      vertexU32[word + 6] = primitive.netId[index] || 0;
-      vertexU32[word + 7] = primitive.objectFeatureId[index] || 0;
+      packNormal(vertexI8, (word + 3) * 4, primitive.normal, source);
+      vertexU32[word + 4] = primitive.netId[index] || 0;
+      vertexU32[word + 5] = primitive.objectFeatureId[index] || 0;
     }
     const vertexBuffer = this.device.createBuffer({ size: vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(vertexBuffer, 0, vertices);
@@ -1882,6 +1893,7 @@ export class Renderer {
     if (entry.kind === "board" && entry.boardRole === "pad") return false;
     if (!compareMode && entry.kind === "copper" && visibleTileIds && !visibleTileIds.has(entry.tileId)) return false;
     if (compareMode) return entry.kind === "copper" && visibleLayers.has(entry.layerId);
+    if (entry.innerCopper && this.innerCopperMode === "none") return false;
     // Paste belongs to its copper layer: shown with it, whatever the substrate does.
     if (entry.boardRole === "paste") return panelLayer === 0 && visibleLayers.has(entry.layerId);
     if (entry.kind === "board") return panelLayer === 0 && showBoard;
@@ -1945,7 +1957,8 @@ export class Renderer {
         ? boardOpacity * boardRoleOpacity(entry, materialAlpha)
         : layerAlpha;
     const kind = entry.kind === "copper" ? 1 : entry.kind === "component" ? 2 : 0;
-    data.set([kind, opacity, isolateNet ? 1 : 0, compareMode ? 1 : 0], 12);
+    const isolate = isolateNet ? 1 : entry.innerCopper && this.innerCopperMode === "lit" ? 2 : 0;
+    data.set([kind, opacity, isolate, compareMode ? 1 : 0], 12);
   }
 
   writeBarrelDraw(isolateNet = false) {
@@ -2080,6 +2093,15 @@ const LIST_OF_CLASS = Object.freeze({ 0: 1, 1: 0, 5: 2 });
  * board) at full detail, substrate and mask down to body detail, the rest
  * (outer copper, silkscreen, paste) down to board detail.
  */
+/** A unit normal as snorm8×4 at `offset` (SB2-84): each axis rounded to 1/127, the fourth byte unused. */
+export function packNormal(target, offset, normal, source) {
+  for (let axis = 0; axis < 3; axis += 1) {
+    const value = Number(normal[source + axis]) || 0;
+    target[offset + axis] = Math.max(-127, Math.min(127, Math.round(value * 127)));
+  }
+  target[offset + 3] = 0;
+}
+
 /**
  * A primitive's indices as the GPU takes them (SB2-82): 16-bit when every vertex
  * fits, padded to a 4-byte multiple for writeBuffer; otherwise 32-bit.
