@@ -35,8 +35,9 @@ import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
 import { collectStackupViaData } from "./stackup-vias.js";
 import { SvgDomSchematicRenderer } from "./svg-dom-schematic-renderer.js";
 import { harnessKey, harnessSegments, hubPoint, litEnds, litHarnessWires, segmentColor } from "./system-harness.js";
-import { AUTO, levelMatrix, nodeHandles, toLevel, withNodePreview } from "./harness-edit.js";
+import { AUTO, bendNode, levelMatrix, nodeHandles, toLevel, toWorld, withNodePreview } from "./harness-edit.js";
 import { pickTube } from "./tube-pick.js";
+import { dragInViewPlane, isDrag } from "./route-drag.js";
 import { cameraRay, surfaceHit } from "./model-pick.js";
 // SB2-44: the placement library is shared with the app (one implementation, CONTRACTS_P2 §17).
 import { harnessScene } from "../../../frontend/src/features/system-builder/placement/harness-tubes.ts";
@@ -118,6 +119,9 @@ function resolveDom(root = document) {
   systemHelpEl = query("#system-help");
   systemHarnessEl = query("#system-harnesses");
   harnessNodesEl = query("#harness-nodes");
+  // A handle drag (D-P2-53) captures the pointer here.
+  harnessNodesEl?.addEventListener("pointermove", (event) => moveRouteDrag(event));
+  harnessNodesEl?.addEventListener("pointerup", (event) => endRouteDrag(event));
   appEl.classList.add("workspace-pcb");
 }
 
@@ -2623,6 +2627,13 @@ function buildMoveGizmo(svg) {
   svg.addEventListener("pointerdown", startGizmoDrag);
   svg.addEventListener("pointermove", moveGizmoDrag);
   svg.addEventListener("pointerup", endGizmoDrag);
+  // The gizmo sits on a targeted waypoint's handle: a double-click there removes the node (D-P2-53).
+  svg.addEventListener("dblclick", (event) => {
+    if (!system?.move.node || system.move.node === AUTO) return;
+    event.preventDefault();
+    event.stopPropagation();
+    emitHarness("delete");
+  });
   svg.addEventListener("pointercancel", () => abortGizmoDrag());
 }
 
@@ -2734,6 +2745,15 @@ function endGizmoDrag(event) {
 function abortGizmoDrag() {
   const drag = system?.move.drag;
   if (!drag) return false;
+  if (drag.kind === "route" || drag.kind === "handle") {
+    system.move.drag = null;
+    if (drag.changed) {
+      system.nodePreview = drag.kind === "handle" ? drag.startPreview : null;
+      refreshSystemTubes();
+      emitHarness("cancel");
+    }
+    return true;
+  }
   system.move.drag = null;
   if (drag.kind === "node") {
     moveGizmoEl.querySelector('[data-part="readout"]').textContent = "";
@@ -2873,28 +2893,109 @@ function updateSystemHarnesses() {
 // then only translates. Like a board move, a drag only previews: releasing it
 // sends "commit" with the node's new place, and the host saves the node list.
 
+/** Screen pixels per mm at a world point (mm), along the view's right axis. */
+function pxPerMmAt(point) {
+  const { right } = camera.basis();
+  const a = screenOfMm(point);
+  const b = screenOfMm(add(point, right));
+  return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
+}
+
+/** The tube under the pointer: `{tube, pointMm}`, or null. Route mode is forgiving: a thin tube is hard to hit. */
+function tubeAt(event) {
+  if (!system?.tubes.length || !panel) return null;
+  const rect = canvas.getBoundingClientRect();
+  const hit = pickTube(system.tubes, [event.clientX - rect.left, event.clientY - rect.top], screenOfMm, pxPerMmAt,
+    system.move.route ? 10 : 5);
+  return hit ? { tube: system.tubes[hit.index], pointMm: hit.pointMm } : null;
+}
+
 /** A click on a tube picks it; true when one was hit. A miss drops a picked harness. */
 function pickSystemTube(event) {
-  if (!system.tubes.length || !panel) return false;
-  const rect = canvas.getBoundingClientRect();
-  const { right } = camera.basis();
-  const pxPerMm = (point) => {
-    const a = screenOfMm(point);
-    const b = screenOfMm(add(point, right));
-    return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
-  };
-  const hit = pickTube(system.tubes, [event.clientX - rect.left, event.clientY - rect.top], screenOfMm, pxPerMm);
+  const hit = tubeAt(event);
   if (!hit) {
     pickHarness(null);
     return false;
   }
-  const tube = system.tubes[hit.index];
-  const again = system.harnessPick?.key === tube.harness;
-  pickHarness({ key: tube.harness, segmentId: tube.segmentId, pointMm: hit.pointMm });
-  // Route mode (D-P2-51): a click on the picked harness asks the host for a waypoint there (Shift: a breakout).
-  if (again && system.move.route && harnessEditable(pickedHarness())) emitHarness("route-click", { breakout: Boolean(event.shiftKey) });
+  pickHarness({ key: hit.tube.harness, segmentId: hit.tube.segmentId, pointMm: hit.pointMm });
   return true;
 }
+
+// ----- Route mode: bend a harness by dragging it (D-P2-53) ------------------------
+
+/** A press on an editable harness in Route mode picks it and starts a bend; true when it did. */
+function startRouteDrag(event) {
+  if (!system?.move.enabled || !system.move.route || event.button !== 0 || event.shiftKey) return false;
+  const hit = tubeAt(event);
+  const harness = hit ? system.harnesses.find((item) => harnessKey(item) === hit.tube.harness) : null;
+  if (!hit || !harnessEditable(harness)) return false;
+  pickHarness({ key: hit.tube.harness, segmentId: hit.tube.segmentId, pointMm: hit.pointMm });
+  system.move.drag = {
+    kind: "route", start: [event.clientX, event.clientY], startMm: hit.pointMm, nowMm: hit.pointMm,
+    pxPerMm: pxPerMmAt(hit.pointMm), basis: camera.basis(), breakout: event.altKey, changed: false,
+    matrix: levelMatrix(harness, worldMatrixOf), capture: canvas, harness,
+    segment: { from: hit.tube.from, to: hit.tube.to, samplesMm: hit.tube.samplesMm },
+  };
+  canvas.setPointerCapture(event.pointerId);
+  return true;
+}
+
+/** A press on a waypoint or breakout handle: it is targeted, and a drag moves it in the view plane. */
+function startHandleDrag(event, id) {
+  targetHarnessNode(id);
+  const handle = targetHandle();
+  if (!handle) return;
+  system.move.drag = {
+    kind: "handle", start: [event.clientX, event.clientY], startMm: handle.worldMm, nowMm: handle.worldMm,
+    pxPerMm: pxPerMmAt(handle.worldMm), basis: camera.basis(), changed: false, startPreview: system.nodePreview,
+    matrix: levelMatrix(pickedHarness(), worldMatrixOf), capture: harnessNodesEl,
+  };
+  try {
+    harnessNodesEl.setPointerCapture(event.pointerId);
+  } catch {
+    // A synthetic pointer cannot be captured.
+  }
+}
+
+/** True when a bend or handle drag used the move. */
+function moveRouteDrag(event) {
+  const drag = system?.move.drag;
+  if (!drag || (drag.kind !== "route" && drag.kind !== "handle")) return false;
+  const now = [event.clientX, event.clientY];
+  if (!drag.changed && !isDrag(drag.start, now)) return true;
+  drag.changed = true;
+  drag.nowMm = dragInViewPlane(drag.startMm, now[0] - drag.start[0], now[1] - drag.start[1], drag.pxPerMm, drag.basis);
+  const local = drag.matrix ? toLevel(drag.matrix, drag.nowMm) : [...drag.nowMm];
+  if (drag.kind === "handle") {
+    system.nodePreview = { harness: system.harnessPick.key, id: system.move.node, positionMm: local };
+  } else {
+    // The bend is a node already: the tube re-solves through it on every move (D-P2-53).
+    system.nodePreview = { harness: system.harnessPick.key, insert: bendNode(drag.harness.nodes ?? [], {
+      kind: drag.breakout ? "breakout" : "waypoint", segment: drag.segment, atMm: drag.startMm, positionMm: local,
+      toWorldMm: (point) => (drag.matrix ? toWorld(drag.matrix, point) : point),
+    }) };
+  }
+  refreshSystemTubes();
+  emitHarness("preview");
+  return true;
+}
+
+/** Release: a bend asks the host for a new waypoint (or breakout); a moved handle commits. */
+function endRouteDrag(event) {
+  const drag = system?.move.drag;
+  if (!drag || (drag.kind !== "route" && drag.kind !== "handle")) return false;
+  if (drag.capture?.hasPointerCapture?.(event.pointerId)) drag.capture.releasePointerCapture(event.pointerId);
+  system.move.drag = null;
+  if (!drag.changed) return true;
+  if (drag.kind === "handle") {
+    emitHarness("commit");
+    return true;
+  }
+  const local = (point) => (drag.matrix ? toLevel(drag.matrix, point) : [...point]);
+  emitHarness("route-drag", { atMm: local(drag.startMm), positionMm: local(drag.nowMm), breakout: drag.breakout });
+  return true;
+}
+
 
 /**
  * The host picks a root-level harness by id (SB2-61), as a click on its first
@@ -3076,7 +3177,13 @@ function updateHarnessNodes() {
       dot.addEventListener("pointerdown", (event) => {
         event.preventDefault();
         event.stopPropagation();
+        startHandleDrag(event, dot.dataset.node);
+      });
+      dot.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         targetHarnessNode(dot.dataset.node);
+        if (system.move.node && system.move.node !== AUTO) emitHarness("delete");
       });
       svg.append(dot);
     }
@@ -5002,6 +5109,7 @@ function bindInteractions() {
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   canvas.addEventListener("pointerdown", (event) => {
     if (system) system.framed = true;
+    if (system && startRouteDrag(event)) return;
     state.dragging = true;
     state.lastX = event.clientX;
     state.lastY = event.clientY;
@@ -5016,6 +5124,9 @@ function bindInteractions() {
     canvas.setPointerCapture(event.pointerId);
   });
   canvas.addEventListener("pointermove", (event) => {
+    if (system && moveRouteDrag(event)) return;
+    // Route mode: a harness under the pointer can be bent.
+    if (system?.move.route && !state.dragging) canvas.style.cursor = tubeAt(event) ? "crosshair" : "";
     if (!state.dragging) return;
     const dx = event.clientX - state.lastX;
     const dy = event.clientY - state.lastY;
@@ -5025,6 +5136,7 @@ function bindInteractions() {
     else camera.orbit(dx, dy);
   });
   canvas.addEventListener("pointerup", async (event) => {
+    if (system && endRouteDrag(event)) return;
     state.dragging = false;
     canvas.releasePointerCapture(event.pointerId);
     if (Math.hypot(event.clientX - state.pointerStartX, event.clientY - state.pointerStartY) >= 3) return;
