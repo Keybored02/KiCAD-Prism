@@ -41,8 +41,8 @@ test("indices are 16-bit when every vertex fits, padded to four bytes", async ()
   const large = packIndices([0, 65536, 1], 65537);
   assert.equal(large.format, "uint32");
   assert.equal(large.indices[1], 65536);
-  assert.equal(primitiveGpuBytes(3, 3), 3 * 24 + 8);
-  assert.equal(primitiveGpuBytes(65537, 3), 65537 * 24 + 12);
+  assert.equal(primitiveGpuBytes(3, 3), 3 * 20 + 8);
+  assert.equal(primitiveGpuBytes(65537, 3), 65537 * 20 + 12);
 });
 
 test("normals pack to snorm8 within one step of the unit vector", async () => {
@@ -54,4 +54,24 @@ test("normals pack to snorm8 within one step of the unit vector", async () => {
   assert.deepEqual([...out.slice(0, 4)], [127, -127, 0, 0]);
   packNormal(out, 0, [2, -2, Number.NaN], 0);
   assert.deepEqual([...out.slice(0, 4)], [127, -127, 0, 0]);
+});
+
+test("positions quantise to unorm16 within the primitive's bounds, within half a step", async () => {
+  const { packPosition, quantisationOf } = await import("./renderer.js");
+  // A 100 mm tile (runtime metres), 35 um thick.
+  const position = new Float32Array([0.01, 0.02, 0.0016, 0.11, 0.07, 0.001635, 0.0634567, 0.0412345, 0.0016175]);
+  const quant = quantisationOf(position);
+  assert.deepEqual(quant.min.map((v) => +v.toFixed(7)), [0.01, 0.02, 0.0016]);
+  const out = new Uint16Array(12);
+  for (let vertex = 0; vertex < 3; vertex += 1) packPosition(out, vertex * 4, position, vertex * 3, quant);
+  assert.deepEqual([...out.slice(0, 4)], [0, 0, 0, 0]);
+  assert.deepEqual([...out.slice(4, 8)], [65535, 65535, 65535, 0]);
+  for (let axis = 0; axis < 3; axis += 1) {
+    const back = quant.min[axis] + (out[8 + axis] / 65535) * quant.size[axis];
+    const step = quant.size[axis] / 65535;
+    assert.ok(Math.abs(back - position[6 + axis]) <= step / 2 + 1e-12, `axis ${axis}`);
+  }
+  assert.ok(quant.size[0] / 65535 < 1.6e-6, "about 1.5 um across a 100 mm tile");
+  // A flat primitive keeps a unit extent on its flat axis instead of dividing by zero.
+  assert.deepEqual(quantisationOf(new Float32Array([0, 0, 1, 1, 0, 1])).size, [1, 1, 1]);
 });

@@ -32,9 +32,10 @@ import {
   packOccurrences,
 } from "./occurrences.js";
 
-// position f32×3, normal snorm8×4 (SB2-84), netId, objectId. SB2-82 dropped the
-// per-primitive layer and material ids, which no shader read.
-const VERTEX_STRIDE = 24;
+// position unorm16×4 within the primitive's bounds (SB2-89), normal snorm8×4
+// (SB2-84), netId, objectId. SB2-82 dropped the per-primitive layer and material
+// ids, which no shader read.
+const VERTEX_STRIDE = 20;
 // WebGPU dynamic uniform offsets require 256-byte alignment; each draw buffer is padded to that size.
 const DRAW_UNIFORM_SIZE = 256;
 const GLOBAL_UNIFORM_SIZE = 112;
@@ -48,6 +49,9 @@ const STENCIL_OPAQUE = { compare: "always", passOp: "zero" };
 const STENCIL_MARK = { compare: "always", passOp: "replace" };
 const STENCIL_UNMARKED = { compare: "not-equal", passOp: "keep" };
 const STENCIL_MARKED = { compare: "equal", passOp: "keep" };
+
+// SB2-89: positions are unorm16 within the primitive's bounds; the draw names the bounds.
+const DEQUANT_WGSL = `fn dequant(p: vec3f) -> vec3f { return draw.quantMin.xyz + p * draw.quantSize.xyz; }`;
 
 const MAIN_SHADER = `
 struct Globals {
@@ -67,9 +71,13 @@ struct Draw {
   material: vec4f,
   offset: vec4f,
   flags: vec4f,
+  placement: vec4u,
+  quantMin: vec4f,
+  quantSize: vec4f,
 };
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var<uniform> draw: Draw;
+${DEQUANT_WGSL}
 @group(0) @binding(3) var<storage, read> hiddenMask: array<u32>;
 @group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${FEATURE_MASK_WGSL}
@@ -92,7 +100,7 @@ struct VertexOutput {
 };
 @vertex fn vs(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
-  output.world = input.position + draw.offset.xyz;
+  output.world = dequant(input.position) + draw.offset.xyz;
   output.position = globals.viewProjection * vec4f(output.world, 1.0);
   output.normal = normalize(input.normal);
   output.netId = input.netId;
@@ -170,9 +178,10 @@ struct Globals {
   padding2: u32,
   lightDirection: vec4f,
 };
-struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
+struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f, placement: vec4u, quantMin: vec4f, quantSize: vec4f };
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var<uniform> draw: Draw;
+${DEQUANT_WGSL}
 @group(0) @binding(3) var<storage, read> hiddenMask: array<u32>;
 @group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${FEATURE_MASK_WGSL}
@@ -190,7 +199,7 @@ struct Output {
 };
 @vertex fn vs(input: Input) -> Output {
   var output: Output;
-  output.position = globals.viewProjection * vec4f(input.position + draw.offset.xyz, 1.0);
+  output.position = globals.viewProjection * vec4f(dequant(input.position) + draw.offset.xyz, 1.0);
   output.objectId = input.objectId;
   output.netId = input.netId;
   return output;
@@ -377,7 +386,7 @@ const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
 };`],
   [`@vertex fn vs(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
-  output.world = input.position + draw.offset.xyz;
+  output.world = dequant(input.position) + draw.offset.xyz;
   output.position = globals.viewProjection * vec4f(output.world, 1.0);
   output.normal = normalize(input.normal);`,
   `${OCCURRENCE_WGSL}
@@ -389,7 +398,7 @@ const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
   let occurrence = occurrences[index];
   var output: VertexOutput;
   let lift = vec3f(0.0, 0.0, explodeLift(occurrence, draw.offset.w));
-  output.world = (occurrence.model * vec4f(input.position + draw.offset.xyz + lift, 1.0)).xyz;
+  output.world = (occurrence.model * vec4f(dequant(input.position) + draw.offset.xyz + lift, 1.0)).xyz;
   output.position = globals.viewProjection * vec4f(output.world, 1.0);
   output.normal = normalize((occurrence.normal * vec4f(input.normal, 0.0)).xyz);
   output.occurrence = index + 1u + globals.occurrenceBase;
@@ -418,13 +427,13 @@ const PICK_SHADER_INSTANCED = variant(PICK_SHADER, [
 };`],
   [`@vertex fn vs(input: Input) -> Output {
   var output: Output;
-  output.position = globals.viewProjection * vec4f(input.position + draw.offset.xyz, 1.0);`,
+  output.position = globals.viewProjection * vec4f(dequant(input.position) + draw.offset.xyz, 1.0);`,
   `${OCCURRENCE_WGSL}
 @vertex fn vs(input: Input, @builtin(instance_index) instance: u32) -> Output {
   let index = listedOccurrence(u32(draw.material.w + 0.5), instance);
   let occurrence = occurrences[index];
   let lift = vec3f(0.0, 0.0, explodeLift(occurrence, draw.offset.w));
-  let world = (occurrence.model * vec4f(input.position + draw.offset.xyz + lift, 1.0)).xyz;
+  let world = (occurrence.model * vec4f(dequant(input.position) + draw.offset.xyz + lift, 1.0)).xyz;
   var output: Output;
   output.position = globals.viewProjection * vec4f(world, 1.0);
   output.occurrence = index + 1u + globals.occurrenceBase;
@@ -454,52 +463,45 @@ fn turn(p: Placement, n: vec3f) -> vec3f {
 }`;
 const DRAW_BINDING = "@group(0) @binding(1) var<uniform> draw: Draw;";
 const PLACEMENT_PRELUDE = [DRAW_BINDING, `${DRAW_BINDING}\n${PLACEMENT_WGSL}`];
-const MAIN_DRAW_PLACEMENT = ["  offset: vec4f,\n  flags: vec4f,\n};", "  offset: vec4f,\n  flags: vec4f,\n  placement: vec4u,\n};"];
-const PICK_DRAW_PLACEMENT = ["struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };",
-  "struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f, placement: vec4u };"];
 // A model's own per-vertex feature ids win; otherwise the placement's component.
 const PLACED_OBJECT = ["  output.objectId = input.objectId;", "  output.objectId = select(placement.ids.x, input.objectId, input.objectId != 0u);"];
 const INSTANCED_PLACEMENT = ["  let index = listedOccurrence(u32(draw.material.w + 0.5), instance);",
   "  let placement = placements[draw.placement.x + instance % draw.placement.y];\n  let index = listedOccurrence(u32(draw.material.w + 0.5), instance / draw.placement.y);"];
 
 const COMPONENT_SHADER = variant(MAIN_SHADER, [
-  MAIN_DRAW_PLACEMENT,
   PLACEMENT_PRELUDE,
   [`@vertex fn vs(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
-  output.world = input.position + draw.offset.xyz;`, `@vertex fn vs(input: VertexInput, @builtin(instance_index) instance: u32) -> VertexOutput {
+  output.world = dequant(input.position) + draw.offset.xyz;`, `@vertex fn vs(input: VertexInput, @builtin(instance_index) instance: u32) -> VertexOutput {
   let placement = placements[draw.placement.x + instance];
   var output: VertexOutput;
-  output.world = place(placement, input.position) + draw.offset.xyz;`],
+  output.world = place(placement, dequant(input.position)) + draw.offset.xyz;`],
   ["  output.normal = normalize(input.normal);", "  output.normal = normalize(turn(placement, input.normal));"],
   PLACED_OBJECT,
 ]);
 const COMPONENT_SHADER_INSTANCED = variant(MAIN_SHADER_INSTANCED, [
-  MAIN_DRAW_PLACEMENT,
   PLACEMENT_PRELUDE,
   INSTANCED_PLACEMENT,
-  ["occurrence.model * vec4f(input.position + draw.offset.xyz + lift, 1.0)",
-    "occurrence.model * vec4f(place(placement, input.position) + draw.offset.xyz + lift, 1.0)"],
+  ["occurrence.model * vec4f(dequant(input.position) + draw.offset.xyz + lift, 1.0)",
+    "occurrence.model * vec4f(place(placement, dequant(input.position)) + draw.offset.xyz + lift, 1.0)"],
   ["(occurrence.normal * vec4f(input.normal, 0.0))", "(occurrence.normal * vec4f(turn(placement, input.normal), 0.0))"],
   PLACED_OBJECT,
 ]);
 const COMPONENT_PICK_SHADER = variant(PICK_SHADER, [
-  PICK_DRAW_PLACEMENT,
   PLACEMENT_PRELUDE,
   [`@vertex fn vs(input: Input) -> Output {
   var output: Output;
-  output.position = globals.viewProjection * vec4f(input.position + draw.offset.xyz, 1.0);`, `@vertex fn vs(input: Input, @builtin(instance_index) instance: u32) -> Output {
+  output.position = globals.viewProjection * vec4f(dequant(input.position) + draw.offset.xyz, 1.0);`, `@vertex fn vs(input: Input, @builtin(instance_index) instance: u32) -> Output {
   let placement = placements[draw.placement.x + instance];
   var output: Output;
-  output.position = globals.viewProjection * vec4f(place(placement, input.position) + draw.offset.xyz, 1.0);`],
+  output.position = globals.viewProjection * vec4f(place(placement, dequant(input.position)) + draw.offset.xyz, 1.0);`],
   PLACED_OBJECT,
 ]);
 const COMPONENT_PICK_SHADER_INSTANCED = variant(PICK_SHADER_INSTANCED, [
-  PICK_DRAW_PLACEMENT,
   PLACEMENT_PRELUDE,
   INSTANCED_PLACEMENT,
-  ["occurrence.model * vec4f(input.position + draw.offset.xyz + lift, 1.0)",
-    "occurrence.model * vec4f(place(placement, input.position) + draw.offset.xyz + lift, 1.0)"],
+  ["occurrence.model * vec4f(dequant(input.position) + draw.offset.xyz + lift, 1.0)",
+    "occurrence.model * vec4f(place(placement, dequant(input.position)) + draw.offset.xyz + lift, 1.0)"],
   PLACED_OBJECT,
 ]);
 // A placement record: three rows of the transform, then the feature id.
@@ -923,10 +925,10 @@ export class Renderer {
     const vertexBuffers = this.vertexBuffers = [{
       arrayStride: VERTEX_STRIDE,
       attributes: [
-        { shaderLocation: 0, offset: 0, format: "float32x3" },
-        { shaderLocation: 1, offset: 12, format: "snorm8x4" },
-        { shaderLocation: 2, offset: 16, format: "uint32" },
-        { shaderLocation: 3, offset: 20, format: "uint32" },
+        { shaderLocation: 0, offset: 0, format: "unorm16x4" },
+        { shaderLocation: 1, offset: 8, format: "snorm8x4" },
+        { shaderLocation: 2, offset: 12, format: "uint32" },
+        { shaderLocation: 3, offset: 16, format: "uint32" },
       ],
     }];
     this.singlePipelines = {
@@ -1683,18 +1685,17 @@ export class Renderer {
   addPrimitive(primitive, metadata) {
     const count = primitive.position.length / 3;
     const vertices = new ArrayBuffer(count * VERTEX_STRIDE);
-    const vertexF32 = new Float32Array(vertices);
     const vertexU32 = new Uint32Array(vertices);
+    const vertexU16 = new Uint16Array(vertices);
     const vertexI8 = new Int8Array(vertices);
+    const quant = quantisationOf(primitive.position);
     for (let index = 0; index < count; index += 1) {
-      const word = index * 6;
+      const word = index * 5;
       const source = index * 3;
-      vertexF32[word] = primitive.position[source];
-      vertexF32[word + 1] = primitive.position[source + 1];
-      vertexF32[word + 2] = primitive.position[source + 2];
-      packNormal(vertexI8, (word + 3) * 4, primitive.normal, source);
-      vertexU32[word + 4] = primitive.netId[index] || 0;
-      vertexU32[word + 5] = primitive.objectFeatureId[index] || 0;
+      packPosition(vertexU16, word * 2, primitive.position, source, quant);
+      packNormal(vertexI8, (word + 2) * 4, primitive.normal, source);
+      vertexU32[word + 3] = primitive.netId[index] || 0;
+      vertexU32[word + 4] = primitive.objectFeatureId[index] || 0;
     }
     // SB2-90: geometry lives in a shared arena, not a buffer of its own.
     const arenas = this.arenas();
@@ -1717,6 +1718,8 @@ export class Renderer {
       id: this.nextEntryId++,
       vertexAllocation,
       indexAllocation,
+      quantMin: quant.min,
+      quantSize: quant.size,
       indexFormat,
       indexCount: primitive.indices.length,
       drawSlot,
@@ -2160,6 +2163,9 @@ export class Renderer {
       words[0] = entry.placementBase;
       words[1] = entry.placementCount;
     }
+    // SB2-89: the bounds the positions were quantised in.
+    data.set(entry.quantMin, 20);
+    data.set(entry.quantSize, 24);
   }
 
   writeBarrelDraw(isolateNet = false) {
@@ -2299,6 +2305,34 @@ const LIST_OF_CLASS = Object.freeze({ 0: 1, 1: 0, 5: 2 });
  * board) at full detail, substrate and mask down to body detail, the rest
  * (outer copper, silkscreen, paste) down to board detail.
  */
+/**
+ * SB2-89: a primitive's positions are stored as unorm16 fractions of its own
+ * bounds. The step is the extent ÷ 65,535 on each axis: ~1.5 µm on a 100 mm
+ * copper tile, finer still through the thickness of thin layers.
+ */
+export function quantisationOf(position) {
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (let index = 0; index < position.length; index += 3) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      const value = position[index + axis];
+      if (value < min[axis]) min[axis] = value;
+      if (value > max[axis]) max[axis] = value;
+    }
+  }
+  if (!Number.isFinite(min[0])) return { min: [0, 0, 0], size: [1, 1, 1] };
+  return { min, size: min.map((low, axis) => (max[axis] > low ? max[axis] - low : 1)) };
+}
+
+/** A position as unorm16×4 at `offset` (in u16 units) within `quant`'s bounds; the fourth word unused. */
+export function packPosition(target, offset, position, source, quant) {
+  for (let axis = 0; axis < 3; axis += 1) {
+    const fraction = (position[source + axis] - quant.min[axis]) / quant.size[axis];
+    target[offset + axis] = Math.max(0, Math.min(65535, Math.round(fraction * 65535)));
+  }
+  target[offset + 3] = 0;
+}
+
 /** A unit normal as snorm8×4 at `offset` (SB2-84): each axis rounded to 1/127, the fourth byte unused. */
 export function packNormal(target, offset, normal, source) {
   for (let axis = 0; axis < 3; axis += 1) {

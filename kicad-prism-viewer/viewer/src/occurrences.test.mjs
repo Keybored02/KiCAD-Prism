@@ -111,7 +111,8 @@ test("instanced shader variants place every path by a culled occurrence", async 
     assert.match(INSTANCED_SHADERS[name], /hiddenLayers: vec4u,/);
     assert.match(INSTANCED_SHADERS[name], /if \(layerHiddenAt\(occurrence, draw\.offset\.w\) \|\| explodeHides\(occurrence, draw\.flags\.x, draw\.offset\.w\)\) \{\n    output\.position = vec4f\(0\.0, 0\.0, 2\.0, 1\.0\);/);
     // SB2-31f: each occurrence lifts its copper and paste by its own separation.
-    assert.match(INSTANCED_SHADERS[name], /input\.position \+ draw\.offset\.xyz \+ lift/);
+    // SB2-89: positions are dequantised from the draw's bounds first.
+    assert.match(INSTANCED_SHADERS[name], /dequant\(input\.position\) \+ draw\.offset\.xyz \+ lift/);
   }
   assert.match(INSTANCED_SHADERS.main, /var alpha = draw\.flags\.y \* input\.fade;/);
   for (const name of ["barrel", "barrelPick"]) {
