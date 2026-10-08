@@ -213,6 +213,16 @@ class ModuleItemsTest(unittest.TestCase):
         self.assertIn("component.module_connector_placed", events)
         self.assertIn("component.module_connector_removed", events)
 
+    def test_a_new_symbol_replaces_the_module_s_symbol(self) -> None:
+        """A module has one symbol, its interface: a re-import replaces it rather than adding a second
+        (otherwise the interface came from either one, by asset ID order)."""
+        component_id = self.modelled_module()
+        self.attach(component_id, "symbol", "TEST_IMU.kicad_sym", module_symbol().replace('"RX_P"', '"RX_PLUS"').encode())
+        component = self.service.get_component(component_id)
+        symbols = [a for a in component["assets"] if a["asset_type"] == "symbol"]
+        self.assertEqual(len(symbols), 1)
+        self.assertEqual(component["interface"]["units"][0]["pins"][2]["signal"], "RX_PLUS")
+
     def test_bad_connector_placements_are_refused(self) -> None:
         component_id = self.modelled_module()
         part = self.connector_part()

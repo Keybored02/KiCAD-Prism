@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.59 · 2026-10-08 · tickets SB2-00 to SB2-50.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.60 · 2026-10-08 · tickets SB2-00 to SB2-51.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -174,7 +174,7 @@ An archived system has `archivedAt` set. It is left out of every system list but
 
 A `module` is a bought-out unit (a sensor, a radio, a power brick) used in systems, never on a PCB. It is an ordinary catalog component of kind `module`, created and edited through the normal component flow and page (`POST /api/catalog/components` with `kind: "module"`; identity as for parts: the MPN, or a provisional IPN for an in-house unit). It is excluded from the DBL export and KLC like assemblies.
 
-- **The symbol is the interface.** A module carries one KiCad symbol whose **units are its connectors**. Every time a module revision is sealed (created, symbol or model attached, metadata edited) its `interface` is derived from that symbol (`catalog/module_interface.py`) as `prism.module_interface.v1`: `{schema, units: [{key, unit, name, pins: [{pad, name, signal, powerNet}]}]}`.
+- **The symbol is the interface.** A module carries exactly one KiCad symbol whose **units are its connectors**. Importing a symbol into a module **replaces** the old one on the new revision (assets, previews and representations), rather than adding a second; SB2-51 fixed a revision keeping both, so the interface came from either. Every time a module revision is sealed (created, symbol or model attached, metadata edited) its `interface` is derived from that symbol (`catalog/module_interface.py`) as `prism.module_interface.v1`: `{schema, units: [{key, unit, name, pins: [{pad, name, signal, powerNet}]}]}`.
   - `key` is KiCad's unit letter (A, B, … Z, AA, …) and names the connector for ports and links; `name` is the unit's name in the symbol, else `Unit A`.
   - A pin's number is its `pad`; its **name is its `signal`** (its net in system nets, SB2-50; KiCad's `~` is no name); `power_in`/`power_out` pins are power nets. The alternate (De Morgan) body style is ignored.
   - Refused (the interface has no units and an `error` saying why): no symbol, an unreadable symbol, pins common to all units (unit 0), a pad number used twice within one unit (each connector numbers its own pads, so pad 1 repeats across units), more than 32 units.
@@ -324,7 +324,10 @@ A module instance places a catalog module (§3.5) in a system. It is a leaf of t
   - In the System 3D view, a lit set's module member counts as lit and frames with the set (the module's model is drawn; the harness tubes light the path).
   - Modules have no section in the Layers panel.
   - Move mode moves a module like a board, and `PATCH …/poses` stores it.
-- **Release follow and drift** for modules is SB2-51; until then a module instance keeps its pinned revision.
+- **Release follow and drift (SB2-51).** A released module revision advances its followers like an assembly's (§7.1, D-P2-4). The candidate is the revision's connectors (§5.6), compared by drift as an export interface.
+  - Unchanged connectors and signals advance silently (`auto_advanced`).
+  - A renamed signal on a wired or linked pin, a missing unit or a missing pad opens a `child_update` review, and the instance keeps its revision until the review is applied.
+  - A manual rebase (`POST …/rebase` with `revisionId`) works for modules too.
 
 ## 6. Links, exports as ends, and harnesses
 
@@ -921,6 +924,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.60 | 2026-10-08 | SB2-51: §5.6 module release follow and drift (connectors as the candidate interface); §3.5 a module's symbol import replaces its symbol. |
 | P2-1.59 | 2026-10-08 | SB2-50: §5.6 module pins in system nets and the System 3D view (lit and framed with a set, no Layers section, moved like a board). |
 | P2-1.58 | 2026-10-08 | SB2-49: §5.6 module instances (connectors as ports with signals as nets, footprint pose and catalog frame for mates and harness ends, the scene's model box); `POST …/instances` takes `kind: "module"`. |
 | P2-1.57 | 2026-10-08 | SB2-48b (D-P2-40): §20.18 scene occurrences with their own `model`/`box`, gizmo `move` limits, `pickSurface` and the viewer's `pickSurfaceAt`/`focusMoveTarget`/`viewAxis`; §3.6 connectors placed on modules (face frame, footprint pose `P · F_part⁻¹`, goldens `modulePorts`), catalog migration 7 `catalog_module_connectors`, `GET/PUT/DELETE …/module-connectors`, `GET …/connector-geometry`, the every-connector-placed release gate; §3.5: pads are unique within a unit, not across the symbol. |

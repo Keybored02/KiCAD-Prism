@@ -145,8 +145,8 @@ class AssembliesMixin:
             raise NotFound("Catalog revision not found")
         with self._tx() as store:
             instance = store.get_instance(system_id, instance_id)
-            if instance.get("kind") != "assembly":
-                raise Invalid("only assembly instances take catalog revisions")
+            if instance.get("kind") not in ("assembly", "module"):
+                raise Invalid("only assembly and module instances take catalog revisions")
             if revision["componentId"] != instance["catalog_component_id"]:
                 raise Invalid("the revision belongs to another component")
             if instance["catalog_revision_id"] == revision_id:
@@ -178,8 +178,10 @@ class AssembliesMixin:
                         return {"outcome": "superseded", "reviewId": None}
             with store.mutation(system_id, expected_version=expected_version, actor=actor) as change:
                 current = store.get_instance(system_id, instance_id)
+                # A module's revision compares as its connectors (§5.6), an assembly's as its exports (§7).
+                candidate = self._module_interface(revision_id) if current.get("kind") == "module" else None
                 outcome, review_id = child_drift.apply_child_evaluation(store, change, current, revision,
-                                                                        auto_kind=auto_kind)
+                                                                        auto_kind=auto_kind, candidate=candidate)
             store.record_source_check(instance_id, tip_commit=None, checked_commit=None, outcome=outcome)
         return {"outcome": outcome, "reviewId": review_id, "version": change.version}
 

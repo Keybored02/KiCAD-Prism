@@ -43,13 +43,15 @@ class ModuleInstanceTest(PublishCase):
 
     def module(self) -> str:
         self.made = []
+        # Symbols are stored per library name in the shared catalog database: one library per test.
+        self.library = f"T{uuid.uuid4().hex[:8]}"
         created = self.catalog.create_manual_component(
             kind="module", value="TEST_IMU", description="Made-up two-connector IMU", datasheet="https://example.com/imu.pdf",
             manufacturer="Example Sensors", manufacturer_part_number=f"IMU-{uuid.uuid4().hex[:8]}", actor="author@example.com")
         module_id = str(created["id"])
         self.made.append(module_id)
         self.catalog.import_symbol_library(module_id, upload_name="TEST_IMU.kicad_sym", payload=module_symbol().encode(),
-                                           target_library="Test", selected_symbol="TEST_IMU", actor="author@example.com")
+                                           target_library=self.library, selected_symbol="TEST_IMU", actor="author@example.com")
         self.catalog.attach_auxiliary_asset(module_id, asset_type="3dmodel", upload_name=STEP.name, payload=STEP.read_bytes(),
                                             target_library="Test", actor="author@example.com")
         part = self.catalog.create_manual_component(
@@ -167,6 +169,57 @@ class ModuleInstanceTest(PublishCase):
         self.assertAlmostEqual(sum(p * q for p, q in zip(z_imu, z_obc)), -1.0, places=6)
         gap = [p - q for p, q in zip(imu_frame["translationMm"], obc_frame["translationMm"])]
         self.assertAlmostEqual(math.hypot(*gap), 5.0, places=4)
+
+    def release(self) -> str:
+        """Walk the module's current revision to released (resuming where it is); its revision ID."""
+        stages = (("in_progress", "author@example.com", "designer"), ("qa_review", "author@example.com", "designer"),
+                  ("done", "qa@example.com", "qa"), ("released", "qa@example.com", "admin"))
+        names = [stage for stage, _actor, _role in stages]
+        current = self.catalog.get_component(self.module_id)["release_status"]
+        for stage, actor, role in stages[names.index(current) + 1 if current in names else 0:]:
+            self.catalog.set_release_status(self.module_id, stage, actor=actor, actor_role=role)
+        return str(self.catalog.get_component(self.module_id)["current_revision_id"])
+
+    def revise(self, symbol: str) -> str:
+        """A new released revision of the module with ``symbol``."""
+        self.catalog.import_symbol_library(self.module_id, upload_name="TEST_IMU.kicad_sym", payload=symbol.encode(),
+                                           target_library=self.library, selected_symbol="TEST_IMU", actor="author@example.com")
+        return self.release()
+
+    def test_a_released_revision_with_the_same_connectors_advances_silently(self) -> None:
+        """SB2-51: a module revision compares as its connectors, like an assembly's exports (D-P2-4)."""
+        imu = self.add()
+        self.service.create_harness(DESIGNER, self.sid, self.version(), {
+            "name": "IMU-OBC", "ends": [{"instanceId": imu["id"], "portKey": "A"},
+                                        {"instanceId": self.instances["OBC-A"], "portKey": self.obc_port("J6")}]})
+        revision = self.revise(module_symbol().replace("(length 2.54)", "(length 3.81)"))  # graphics only
+        self.assertNotEqual(revision, imu["catalogRevisionId"])
+        outcome = self.service.advance_child("system:detection", self.sid, imu["id"], revision,
+                                             auto_kind="child_auto_advanced")
+        if outcome["outcome"] != "auto_advanced":
+            print("ITEMS", self.store.open_source_review(imu["id"]))
+        self.assertEqual(outcome["outcome"], "auto_advanced")
+        self.assertEqual(self.store.get_instance(self.sid, imu["id"])["catalog_revision_id"], revision)
+
+    def test_a_renamed_signal_on_a_wired_pin_opens_a_review(self) -> None:
+        imu = self.add()
+        harness = self.service.create_harness(DESIGNER, self.sid, self.version(), {
+            "name": "IMU-OBC", "ends": [{"instanceId": imu["id"], "portKey": "A"},
+                                        {"instanceId": self.instances["OBC-A"], "portKey": self.obc_port("J6")}]}).body
+        self.service.replace_wires(DESIGNER, self.sid, self.version(), harness["id"], [
+            {"from": {"end": harness["ends"][0]["id"], "pin": "3"}, "to": {"end": harness["ends"][1]["id"], "pin": "1"},
+             "signal": "RX_P"}])
+        revision = self.revise(module_symbol().replace('"RX_P"', '"RX_PLUS"'))
+        outcome = self.service.advance_child("system:detection", self.sid, imu["id"], revision,
+                                             auto_kind="child_auto_advanced")
+        state = {"wires": [(w["netFrom"], w["netTo"]) for w in self.service.list_harnesses(VIEWER, self.sid)[-1]["wires"]],
+                 "pin3": modules.component(self.service._module_interface(revision), "A")["pins"][2]["nets"],
+                 "revisions": (imu["catalogRevisionId"], revision)}
+        self.assertEqual(outcome["outcome"], "review_opened", state)
+        self.assertEqual(self.store.get_instance(self.sid, imu["id"])["catalog_revision_id"], imu["catalogRevisionId"],
+                         "the pinned revision stays until the review is applied")
+        review = self.store.open_source_review(imu["id"])
+        self.assertEqual((review["kind"], review["to_commit"]), ("child_update", revision))
 
     def test_module_frames_are_not_edited_in_the_system(self) -> None:
         imu = self.add()
