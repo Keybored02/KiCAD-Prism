@@ -50,6 +50,8 @@ def _enqueue_catalog_job(
 
 
 class CreateManualComponentRequest(BaseModel):
+    # CONTRACTS_P2 §3.5: a module is created like a part; its symbol's units are its connectors.
+    kind: Literal["part", "module"] = "part"
     value: str
     description: str
     datasheet: str

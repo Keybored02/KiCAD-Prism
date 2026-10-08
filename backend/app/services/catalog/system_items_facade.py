@@ -14,9 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, ContextManager
 
-from app.services.catalog import (
-    mates as catalog_mates, models as catalog_models, module_interface, system_items,
-)
+from app.services.catalog import mates as catalog_mates, models as catalog_models, system_items
 from app.services.catalog.component_writer import CatalogComponentWriter
 from app.services.catalog.normalization import utc_now_iso
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
@@ -67,26 +65,6 @@ class CatalogSystemItemsFacade:
             )
             conn.commit()
         return {"componentId": component_id, "revisionId": revision_id}
-
-    # Modules (CONTRACTS_P2 §3.5, SB2-48) --------------------------------------------
-
-    def create_module(self, *, ipn: str, name: str, description: str, manufacturer: str, datasheet_url: str,
-                      interface: dict[str, Any], actor: str = "") -> dict[str, Any]:
-        """A new ``module`` with its first revision (stage ``open``)."""
-        return self.create_system_item(
-            kind=system_items.KIND_MODULE, ipn=ipn, name=name, description=description, manufacturer=manufacturer,
-            datasheet_url=datasheet_url, interface=module_interface.normalize(interface),
-            source_ref={"kind": "module"}, actor=actor, change_summary="Module created")
-
-    def revise_module(self, component_id: str, *, interface: dict[str, Any], actor: str = "",
-                      change_summary: str = "Interface revised") -> dict[str, Any]:
-        """A new revision of a module with a new interface; metadata and models carry over."""
-        self._initialize()
-        with self._connect() as conn:
-            if system_items.component_kind(conn, component_id) != system_items.KIND_MODULE:
-                raise ValueError("only modules take an interface revision")
-        return self.add_system_revision(component_id, interface=module_interface.normalize(interface),
-                                        source_ref={"kind": "module"}, actor=actor, change_summary=change_summary)
 
     def system_revisions(self, component_id: str) -> list[dict[str, Any]]:
         """Every revision of a module/assembly with the snapshot it came from, oldest first."""

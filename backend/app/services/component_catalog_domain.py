@@ -1022,7 +1022,12 @@ class ComponentCatalogDomainService:
             conn.commit()
         return self.get_component(component_id) or {}
 
-    def create_manual_component(self, *, actor: str = "", change_summary: str = "Create component", **payload: Any) -> dict[str, Any]:
+    def create_manual_component(self, *, actor: str = "", change_summary: str = "Create component",
+                                kind: str = "part", **payload: Any) -> dict[str, Any]:
+        """A new component record. ``kind="module"`` (CONTRACTS_P2 §3.5, D-P2-39) makes a module: the
+        same record and page as a part, whose symbol's units are its connectors."""
+        if kind not in ("part", "module"):
+            raise ValueError("kind must be part or module")
         self.initialize()
         with self._connect() as conn:
             component_id = self._component_writer.create_component(
@@ -1031,6 +1036,7 @@ class ComponentCatalogDomainService:
                 payload,
                 actor=actor,
                 change_summary=change_summary,
+                kind=kind,
             )
             conn.commit()
         return self.get_component(component_id) or {}

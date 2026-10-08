@@ -110,7 +110,8 @@ def assert_release_gates(conn: Any, kind: str, revision: Mapping[str, Any]) -> N
             if row is None or str(row["release_status"]) != "released":
                 raise ValueError("Cannot release an assembly that pins an unreleased child revision")
     if not payload["interface"].get("exports") and not payload["interface"].get("units"):
-        raise ValueError(f"Cannot release a {kind} revision without an interface")
+        reason = payload["interface"].get("error")
+        raise ValueError(f"Cannot release a {kind} revision without an interface" + (f": {reason}" if reason else ""))
     if kind == KIND_MODULE:
         # SB2-48: a module is placed in 3D by its model.
         model = conn.execute(

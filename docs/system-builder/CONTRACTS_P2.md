@@ -170,22 +170,19 @@ A revision **never copies** the manifest. Readers load the snapshot through `sou
 
 An archived system has `archivedAt` set. It is left out of every system list but stays readable by ID, and every change answers 409 `system_archived`. Source checks and child auto-advance skip it, and its snapshots stay. With no reference, the system and its snapshots are deleted as before, including on a second `DELETE` of an archived system once its references are gone. The answer is 200 `{deleted, archived, references: {activeCatalogComponent, parentInstances, parentSnapshots}}`, replacing the 204 and the 409 `published_in_catalog`.
 
-### 3.5 Modules (SB2-48)
+### 3.5 Modules (SB2-48, D-P2-39)
 
-A `module` is a bought or in-house peripheral (a sensor, a radio, a power brick) with connectors. It is an ordinary catalog component of kind `module`: IPN identity (§3.1), the normal revision workflow, and no symbol or footprint.
+A `module` is a bought-out unit (a sensor, a radio, a power brick) used in systems, never on a PCB. It is an ordinary catalog component of kind `module`, created and edited through the normal component flow and page (`POST /api/catalog/components` with `kind: "module"`; identity as for parts: the MPN, or a provisional IPN for an in-house unit). It is excluded from the DBL export and KLC like assemblies.
 
-- **Interface** (`prism.module_interface.v1`, `catalog/module_interface.py`): `{schema, units: [{key, name, description, pins: [{pad, name, signal, powerNet}]}]}`.
-  - A unit is one connector. `key` (1–40 letters, digits, `_`, `.`, `-`; unique) names it for ports and links and stays the same across revisions of the same connector.
-  - `pad` is unique within its unit (at most 20 characters) and pins sort naturally by pad; `name` is the pin's function (at most 80), `signal` its signal label (at most 120; empty for an unused pin), which stands in for a board net in system nets (SB2-50); `powerNet` marks supply and return pins.
-  - 1–32 units, 1–1000 pins each. Anything else is refused with the reason.
-- **API** (catalog writers):
-  - `POST /api/catalog/modules {ipn, name?, description?, manufacturer, datasheetUrl, interface}` → 201 `{componentId, revisionId}`; the first revision is `open` with `source_ref {kind: "module"}`.
-  - `PUT /api/catalog/components/{cid}/module-interface {interface, changeSummary?}` → 201 `{componentId, revisionId}`: a new revision with the new interface; metadata and assets (the model) carry over. 422 for a component that is not a module.
-  - 422 for an invalid interface, 404 for an unknown component.
-- **Models.** A module carries STEP models like a part (`POST …/assets/3dmodel`); conversion, alignment and previews (§18.2) work on modules too. A module's alignment maps its model into the **module frame**, in which its connectors' mating frames are defined (SB2-49). "Mates with" stays between parts.
-- **Release gates:** a non-empty interface and at least one STEP `3dmodel` asset on the revision.
-- **Revision clones keep the payload.** Any clone of a revision (an asset attached, metadata edited) copies `interface_json` and `source_ref_json`, for modules and assemblies alike. *(Before P2-1.56 a clone dropped them.)*
-- **Fixtures** use a made-up module (D-P2-38): one 15-way Micro-D socket with generic pin names.
+- **The symbol is the interface.** A module carries one KiCad symbol whose **units are its connectors**. Every time a module revision is sealed (created, symbol or model attached, metadata edited) its `interface` is derived from that symbol (`catalog/module_interface.py`) as `prism.module_interface.v1`: `{schema, units: [{key, unit, name, pins: [{pad, name, signal, powerNet}]}]}`.
+  - `key` is KiCad's unit letter (A, B, … Z, AA, …) and names the connector for ports and links; `name` is the unit's name in the symbol, else `Unit A`.
+  - A pin's number is its `pad`; its **name is its `signal`** (its net in system nets, SB2-50; KiCad's `~` is no name); `power_in`/`power_out` pins are power nets. The alternate (De Morgan) body style is ignored.
+  - Refused (the interface has no units and an `error` saying why): no symbol, an unreadable symbol, pins common to all units (unit 0), a pad number used twice, more than 32 units.
+- **Models.** A module carries STEP models like a part; conversion, alignment and previews (§18.2) work on modules. "Mates with" stays between parts. Where each connector sits on the module is SB2-48b (D-P2-40).
+- **Release gates:** an interface with at least one unit (else the derivation's `error` is quoted) and at least one STEP `3dmodel` asset.
+- **Page.** A module uses the part page; its overview shows the derived connectors (read-only: edit the symbol to change them) instead of "mates with", and the models panel.
+- **Revision clones keep the payload.** Any clone of a revision copies `interface_json` and `source_ref_json`, for modules and assemblies alike. *(Before P2-1.56 a clone dropped them.)*
+- **Fixtures** use a made-up two-unit module symbol (D-P2-38).
 
 ### 3.4 "Mates with" (M1; shape frozen here)
 
@@ -879,7 +876,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
-| P2-1.56 | 2026-10-08 | SB2-48a: §3.5 modules: `prism.module_interface.v1`, `POST /api/catalog/modules`, `PUT …/module-interface`, models on modules, module release gates (interface + STEP model); revision clones keep `interface_json`/`source_ref_json` (they were dropped). |
+| P2-1.56 | 2026-10-08 | SB2-48 (D-P2-39): §3.5 modules: created through the normal component flow with `kind: "module"`; the interface (`prism.module_interface.v1`) is derived from the module's multi-unit symbol on every sealed revision (units = connectors, pin names = signals); models on modules; module release gates (interface + STEP model); revision clones keep `interface_json`/`source_ref_json` (they were dropped). |
 | P2-1.55 | 2026-10-08 | SB2-47: §20.17 housings at harness ends: scene ends carry the part's model (`housing`), the route exits at its rear face, the viewer draws the GLB under its alignment or a proxy box; a housing click picks its harness. Radius blends at breakouts deferred. |
 | P2-1.54 | 2026-10-08 | SB2-46: §17.10 routes, lengths and collisions (library pairs `harness_route`/`harness_checks`, goldens `harnessChecks`); `SYS-V12 harness_collision`, `SYS-V13 length_mismatch`, new info rule `SYS-V20 harness_tight_bend`; harness lengths in documents, the ICD and the harness editor; colliding tubes draw red. |
 | P2-1.53 | 2026-10-08 | SB2-45b: §20.16 harness picking and route editing in move mode: tube picks, `harness` events, node handles, the gizmo on a node, the harness panel (add waypoint or breakout, pin, remove), ordered picks. |

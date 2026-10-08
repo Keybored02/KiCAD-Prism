@@ -234,21 +234,9 @@ function SystemItemOverview({ component, canMutate, onEdit }: { component: Catal
   );
 }
 
-function OverviewPanel({ component, canMutate, onEdit, onAttachModel, onModuleSaved }: {
-  component: CatalogComponent; canMutate: boolean; onEdit: () => void; onAttachModel: () => void; onModuleSaved: () => void;
-}) {
-  if (component.kind === "module") {
-    // SB2-48 (§3.5): connectors instead of library assets; the STEP model places it in systems.
-    const hasModel = component.assets.some((asset) => asset.asset_type === "3dmodel" && /\.(step|stp)$/i.test(asset.name));
-    return (
-      <div className="space-y-4">
-        <ModuleConnectorsPanel component={component} canMutate={canMutate} hasModel={hasModel}
-          onAttachModel={onAttachModel} onSaved={onModuleSaved} />
-        <ModelsPanel componentId={component.id} canMutate={canMutate} mates={false} />
-      </div>
-    );
-  }
-  if (component.kind && component.kind !== "part") {
+function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogComponent; canMutate: boolean; onEdit: () => void }) {
+  // A module (§3.5) uses the part page; only an assembly has its own overview.
+  if (component.kind === "assembly") {
     return <SystemItemOverview component={component} canMutate={canMutate} onEdit={onEdit} />;
   }
   const requiredAttached = component.assets.filter((asset) => asset.required).length;
@@ -342,8 +330,8 @@ function OverviewPanel({ component, canMutate, onEdit, onAttachModel, onModuleSa
         </PanelCard>
       ) : null}
 
-      <MatesWithPanel componentId={component.id} canMutate={canMutate} />
-      <ModelsPanel componentId={component.id} canMutate={canMutate} />
+      {component.kind === "module" ? <ModuleConnectorsPanel component={component} /> : <MatesWithPanel componentId={component.id} canMutate={canMutate} />}
+      <ModelsPanel componentId={component.id} canMutate={canMutate} mates={component.kind !== "module"} />
     </div>
   );
 }
@@ -1057,10 +1045,7 @@ export function LibraryComponentWorkspace({
 
       <ScrollArea className="min-h-0 flex-1">
         <main className="mx-auto w-full max-w-screen-2xl p-4">
-          {activeTab === "overview" ? (
-            <OverviewPanel component={activeComponent} canMutate={canMutate} onEdit={openMetadataEditor}
-              onAttachModel={() => openAttachDialog("3dmodel")} onModuleSaved={refreshAfterMutation} />
-          ) : null}
+          {activeTab === "overview" ? <OverviewPanel component={activeComponent} canMutate={canMutate} onEdit={openMetadataEditor} /> : null}
           {activeTab === "assets" ? (
             <AssetsPanel
               component={activeComponent}

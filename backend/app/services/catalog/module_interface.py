@@ -1,25 +1,37 @@
-"""A module's interface: its connectors and their pins (CONTRACTS_P2 §3.5, SB2-48).
+"""A module's interface, derived from its multi-unit KiCad symbol (CONTRACTS_P2 §3.5, D-P2-39).
 
-A ``module`` revision's ``interface`` is ``prism.module_interface.v1``::
+A ``module`` is drawn by an ordinary catalog symbol whose **units are its connectors**. Every
+revision stores the interface derived from that symbol as ``prism.module_interface.v1``::
 
     {"schema": "prism.module_interface.v1",
-     "units": [{"key": "J1", "name": "J1", "description": "Power and serial",
+     "units": [{"key": "A", "unit": 1, "name": "J1",
                 "pins": [{"pad": "1", "name": "VIN", "signal": "VIN", "powerNet": true}, …]}]}
 
-A unit is one connector on the module. ``key`` names it for ports and links and never changes
-between revisions of the same connector; ``signal`` is the pin's signal label, which stands in
-for a board net in system nets (SB2-50). ``normalize`` checks and canonicalises one.
+- ``key`` is the unit's letter (A for unit 1, B for unit 2, … as KiCad names them); it names the
+  connector for ports and links. ``name`` is the unit's name in the symbol, else ``Unit A``.
+- A pin's number is its pad; its **name is its signal label** (its net in system nets, SB2-50;
+  empty for KiCad's ``~``); ``power_in``/``power_out`` pins are power nets.
+- Pins common to all units (unit 0) have no connector and are refused, as are repeated pad numbers.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping
+from pathlib import Path
+from typing import Any, Optional
 
 SCHEMA = "prism.module_interface.v1"
 MAX_UNITS = 32
-MAX_PINS = 1000
-_KEY = re.compile(r"[A-Za-z0-9_.\-]{1,40}")
+POWER_TYPES = frozenset({"power_in", "power_out"})
+
+
+def unit_key(unit: int) -> str:
+    """KiCad's unit letters: A … Z, then AA, AB, …"""
+    letters = ""
+    while unit > 0:
+        unit, rest = divmod(unit - 1, 26)
+        letters = chr(ord("A") + rest) + letters
+    return letters
 
 
 def _pad_key(pad: str) -> tuple:
@@ -27,46 +39,73 @@ def _pad_key(pad: str) -> tuple:
     return tuple((0, int(part), "") if part.isdigit() else (1, 0, part) for part in re.findall(r"\d+|\D+", pad))
 
 
-def normalize(interface: Any) -> dict:
-    """The canonical interface, or ValueError naming what is wrong."""
-    if not isinstance(interface, Mapping):
-        raise ValueError("interface must be an object")
-    units = interface.get("units")
-    if not isinstance(units, list) or not units:
-        raise ValueError("a module has at least one connector")
-    if len(units) > MAX_UNITS:
-        raise ValueError(f"a module has at most {MAX_UNITS} connectors")
-    out, keys = [], set()
-    for unit in units:
-        if not isinstance(unit, Mapping):
-            raise ValueError("every connector is an object")
-        key = str(unit.get("key") or "").strip()
-        if not _KEY.fullmatch(key):
-            raise ValueError(f"connector key {key!r}: 1–40 letters, digits, '_', '.' or '-'")
-        if key in keys:
-            raise ValueError(f"connector key {key} appears twice")
-        keys.add(key)
-        pins = unit.get("pins")
-        if not isinstance(pins, list) or not pins:
-            raise ValueError(f"connector {key} has no pins")
-        if len(pins) > MAX_PINS:
-            raise ValueError(f"connector {key} has more than {MAX_PINS} pins")
-        pads, clean = set(), []
-        for pin in pins:
-            if not isinstance(pin, Mapping):
-                raise ValueError(f"connector {key}: every pin is an object")
-            pad = str(pin.get("pad") or "").strip()
-            if not pad or len(pad) > 20:
-                raise ValueError(f"connector {key}: every pin needs a pad of at most 20 characters")
-            if pad in pads:
-                raise ValueError(f"connector {key}: pad {pad} appears twice")
-            pads.add(pad)
-            name, signal = str(pin.get("name") or "").strip(), str(pin.get("signal") or "").strip()
-            if len(name) > 80 or len(signal) > 120:
-                raise ValueError(f"connector {key} pad {pad}: name up to 80, signal up to 120 characters")
-            clean.append({"pad": pad, "name": name, "signal": signal, "powerNet": bool(pin.get("powerNet"))})
-        clean.sort(key=lambda p: _pad_key(p["pad"]))
-        name = str(unit.get("name") or "").strip() or key
-        out.append({"key": key, "name": name[:80], "description": str(unit.get("description") or "").strip()[:500],
-                    "pins": clean})
-    return {"schema": SCHEMA, "units": out}
+def from_symbol(symbol: Any) -> dict:
+    """The interface of a ``kicad_monkey`` library symbol, or ValueError naming what is wrong."""
+    count = int(symbol.unit_count or 1)
+    if count > MAX_UNITS:
+        raise ValueError(f"a module has at most {MAX_UNITS} connectors (units)")
+    pins: dict[int, list[dict]] = {u: [] for u in range(1, count + 1)}
+    names: dict[int, str] = {}
+    seen: set[str] = set()
+    for sub in symbol.subsymbols:
+        unit = int(sub.unit or 0)
+        if getattr(sub, "unit_name", None):
+            names[unit] = str(sub.unit_name)
+        if int(getattr(sub, "style", 1) or 1) == 2:
+            continue  # the alternate (De Morgan) body style repeats the same pins
+        for pin in sub.pins:
+            pad = str(pin.number or "").strip()
+            if not pad:
+                continue
+            if unit == 0:
+                raise ValueError(f"pin {pad} is common to all units; every module pin belongs to one connector")
+            if pad in seen:
+                raise ValueError(f"pad {pad} appears twice")
+            seen.add(pad)
+            name = str(pin.name or "").strip()
+            name = "" if name == "~" else name
+            kind = getattr(pin.electrical_type, "value", pin.electrical_type)
+            pins.setdefault(unit, []).append({"pad": pad, "name": name, "signal": name,
+                                              "powerNet": str(kind or "") in POWER_TYPES})
+    units = []
+    for unit in sorted(pins):
+        if not pins[unit]:
+            continue
+        units.append({"key": unit_key(unit), "unit": unit, "name": names.get(unit) or f"Unit {unit_key(unit)}",
+                      "pins": sorted(pins[unit], key=lambda p: _pad_key(p["pad"]))})
+    if not units:
+        raise ValueError("the symbol has no pins")
+    return {"schema": SCHEMA, "units": units}
+
+
+def from_symbol_file(path: Path, symbol_name: Optional[str] = None) -> dict:
+    """``from_symbol`` for a ``.kicad_sym`` file (``symbol_name``, else its first symbol)."""
+    from kicad_monkey.kicad_symbol_lib import KiCadSymbolLib
+
+    library = KiCadSymbolLib.from_file(path)
+    names = library.symbol_names()
+    if not names:
+        raise ValueError("the symbol library is empty")
+    symbol = (library.get_symbol(symbol_name) if symbol_name else None) or library.get_symbol(names[0])
+    return from_symbol(symbol)
+
+
+def revision_interface(conn: Any, revision_id: str) -> dict:
+    """The interface of a module revision's symbol asset. Without a usable symbol it has no units and
+    ``error`` says why, so the release gate can name the problem."""
+    row = conn.execute(
+        """
+        SELECT a.canonical_path, a.target_name FROM revision_assets ra JOIN assets a ON a.id = ra.asset_id
+        WHERE ra.revision_id = %s AND ra.asset_type = 'symbol' ORDER BY a.id LIMIT 1
+        """,
+        (revision_id,),
+    ).fetchone()
+    path = Path(str(row["canonical_path"])) if row else None
+    if path is None or not path.is_file():
+        return {"schema": SCHEMA, "units": [], "error": "the module has no symbol"}
+    try:
+        return from_symbol_file(path, str(row["target_name"] or "") or None)
+    except ValueError as error:
+        return {"schema": SCHEMA, "units": [], "error": str(error)}
+    except Exception:  # unreadable: the release gate refuses it
+        return {"schema": SCHEMA, "units": [], "error": "the symbol could not be read"}
