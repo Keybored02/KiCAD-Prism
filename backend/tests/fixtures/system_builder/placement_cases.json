@@ -3498,6 +3498,388 @@
    }
   }
  ],
+ "harnessChecks": [
+  {
+   "name": "a span through the box",
+   "op": "span",
+   "input": {"a": [-5.0, 5.0, 1.0], "b": [15.0, 5.0, 1.0], "lo": [0.0, 0.0, 0.0], "hi": [10.0, 10.0, 2.0]},
+   "expected": [0.0, 0.2500000000000381]
+  },
+  {
+   "name": "a span passing above the box",
+   "op": "span",
+   "input": {"a": [-5.0, 5.0, 6.0], "b": [15.0, 5.0, 6.0], "lo": [0.0, 0.0, 0.0], "hi": [10.0, 10.0, 2.0]},
+   "expected": [4.0, 0.2499999978927123]
+  },
+  {
+   "name": "a span past a corner",
+   "op": "span",
+   "input": {"a": [12.0, -4.0, 1.0], "b": [16.0, 4.0, 1.0], "lo": [0.0, 0.0, 0.0], "hi": [10.0, 10.0, 2.0]},
+   "expected": [3.577708763999663, 0.2999999943346163]
+  },
+  {
+   "name": "a span ending short of the box",
+   "op": "span",
+   "input": {"a": [-9.0, 5.0, 1.0], "b": [-3.0, 5.0, 1.0], "lo": [0.0, 0.0, 0.0], "hi": [10.0, 10.0, 2.0]},
+   "expected": [3.0, 1.0]
+  },
+  {
+   "name": "WH-style harness: lengths with the default allowance, the standing board hit",
+   "op": "harness",
+   "input": {
+    "harness": {
+     "id": "shn_w",
+     "level": null,
+     "ends": [
+      {
+       "id": "e1",
+       "ordinal": 0,
+       "occurrence": "/a",
+       "connector": {
+        "geometry": {
+         "side": "top",
+         "positionMm": [50, -10],
+         "rotationDeg": 0,
+         "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+         "pads": [
+          {"pad": "1", "positionMm": [50.0, -10.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+          {"pad": "2", "positionMm": [50.0, -12.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "3", "positionMm": [50.0, -15.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "4", "positionMm": [50.0, -17.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+         ],
+         "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [1.77, 1.77]},
+         "model": {
+          "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+          "offsetMm": [0.0, 0.0, 0.0],
+          "rotationDeg": [0.0, 0.0, 0.0],
+          "scale": [1.0, 1.0, 1.0]
+         }
+        },
+        "thicknessMm": 1.6,
+        "stored": null
+       }
+      },
+      {
+       "id": "e2",
+       "ordinal": 1,
+       "occurrence": "/b",
+       "connector": {
+        "geometry": {
+         "side": "top",
+         "positionMm": [50, -10],
+         "rotationDeg": 0,
+         "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+         "pads": [
+          {"pad": "1", "positionMm": [50.0, -10.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+          {"pad": "2", "positionMm": [50.0, -12.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "3", "positionMm": [50.0, -15.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "4", "positionMm": [50.0, -17.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+         ],
+         "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [1.77, 1.77]},
+         "model": {
+          "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+          "offsetMm": [0.0, 0.0, 0.0],
+          "rotationDeg": [0.0, 0.0, 0.0],
+          "scale": [1.0, 1.0, 1.0]
+         }
+        },
+        "thicknessMm": 1.6,
+        "stored": null
+       }
+      },
+      {
+       "id": "e3",
+       "ordinal": 2,
+       "occurrence": "/c",
+       "connector": {
+        "geometry": {
+         "side": "top",
+         "positionMm": [50, -10],
+         "rotationDeg": 0,
+         "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+         "pads": [
+          {"pad": "1", "positionMm": [50.0, -10.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+          {"pad": "2", "positionMm": [50.0, -12.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "3", "positionMm": [50.0, -15.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "4", "positionMm": [50.0, -17.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+         ],
+         "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [1.77, 1.77]},
+         "model": {
+          "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+          "offsetMm": [0.0, 0.0, 0.0],
+          "rotationDeg": [0.0, 0.0, 0.0],
+          "scale": [1.0, 1.0, 1.0]
+         }
+        },
+        "thicknessMm": 1.6,
+        "stored": null
+       }
+      }
+     ],
+     "wires": [
+      {"id": "w1", "from": "e1", "to": "e2", "gaugeAwg": 20},
+      {"id": "w2", "from": "e1", "to": "e2", "gaugeAwg": 22},
+      {"id": "w3", "from": "e1", "to": "e3", "gaugeAwg": 20}
+     ],
+     "nodes": [
+      {
+       "id": "wp",
+       "kind": "waypoint",
+       "positionMm": [60.0, -20.0, 40.0],
+       "pinned": true,
+       "order": 0,
+       "ends": [],
+       "between": ["e1", "auto"]
+      }
+     ]
+    },
+    "worlds": {
+     "/a": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+     "/b": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 120.0, 30.0, 0.0, 1.0],
+     "/c": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 120.0, -40.0, 0.0, 1.0],
+     "/wall": [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 140.0, 0.0, 0.0, 1.0]
+    },
+    "boards": [
+     {
+      "id": "/a",
+      "matrix": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+      "minMm": [0.0, -10.0, -0.8],
+      "maxMm": [60.0, 10.0, 0.8]
+     },
+     {
+      "id": "/b",
+      "matrix": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 120.0, 30.0, 0.0, 1.0],
+      "minMm": [0.0, -10.0, -0.8],
+      "maxMm": [60.0, 10.0, 0.8]
+     },
+     {
+      "id": "/c",
+      "matrix": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 120.0, -40.0, 0.0, 1.0],
+      "minMm": [0.0, -10.0, -0.8],
+      "maxMm": [60.0, 10.0, 0.8]
+     },
+     {
+      "id": "/wall",
+      "matrix": [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 140.0, 0.0, 0.0, 1.0],
+      "minMm": [0.0, -60.0, -0.8],
+      "maxMm": [60.0, 60.0, 0.8]
+     }
+    ],
+    "allowancePct": null
+   },
+   "expected": {
+    "segments": ["e1~auto", "e2~auto", "e3~auto"],
+    "lengthsMm": [83.473512787, 81.391472489, 89.746520694],
+    "collisions": [
+     {
+      "segmentId": "e2~auto",
+      "board": "/wall",
+      "distanceMm": 0.0,
+      "radiusMm": 1.2100214505,
+      "atMm": [141.79999999999862, 3.656666666690333, 32.685368956866725],
+      "spans": [16]
+     },
+     {
+      "segmentId": "e3~auto",
+      "board": "/wall",
+      "distanceMm": 0.0,
+      "radiusMm": 0.9144,
+      "atMm": [141.7999999999993, -33.44333333348109, 32.796125905145765],
+      "spans": [16]
+     }
+    ],
+    "lengths": {
+     "bundleMm": 278.61150597,
+     "estimatedMm": 306.472656567,
+     "allowancePct": 10.0,
+     "complete": true,
+     "wires": {
+      "w1": {"lengthMm": 180.864985276, "estimatedMm": 198.9514838036},
+      "w2": {"lengthMm": 180.864985276, "estimatedMm": 198.9514838036},
+      "w3": {"lengthMm": 189.220033481, "estimatedMm": 208.14203682910002}
+     }
+    }
+   }
+  },
+  {
+   "name": "the same with the harness's own 25 % allowance",
+   "op": "harness",
+   "input": {
+    "harness": {
+     "id": "shn_w",
+     "level": null,
+     "ends": [
+      {
+       "id": "e1",
+       "ordinal": 0,
+       "occurrence": "/a",
+       "connector": {
+        "geometry": {
+         "side": "top",
+         "positionMm": [50, -10],
+         "rotationDeg": 0,
+         "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+         "pads": [
+          {"pad": "1", "positionMm": [50.0, -10.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+          {"pad": "2", "positionMm": [50.0, -12.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "3", "positionMm": [50.0, -15.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "4", "positionMm": [50.0, -17.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+         ],
+         "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [1.77, 1.77]},
+         "model": {
+          "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+          "offsetMm": [0.0, 0.0, 0.0],
+          "rotationDeg": [0.0, 0.0, 0.0],
+          "scale": [1.0, 1.0, 1.0]
+         }
+        },
+        "thicknessMm": 1.6,
+        "stored": null
+       }
+      },
+      {
+       "id": "e2",
+       "ordinal": 1,
+       "occurrence": "/b",
+       "connector": {
+        "geometry": {
+         "side": "top",
+         "positionMm": [50, -10],
+         "rotationDeg": 0,
+         "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+         "pads": [
+          {"pad": "1", "positionMm": [50.0, -10.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+          {"pad": "2", "positionMm": [50.0, -12.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "3", "positionMm": [50.0, -15.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "4", "positionMm": [50.0, -17.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+         ],
+         "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [1.77, 1.77]},
+         "model": {
+          "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+          "offsetMm": [0.0, 0.0, 0.0],
+          "rotationDeg": [0.0, 0.0, 0.0],
+          "scale": [1.0, 1.0, 1.0]
+         }
+        },
+        "thicknessMm": 1.6,
+        "stored": null
+       }
+      },
+      {
+       "id": "e3",
+       "ordinal": 2,
+       "occurrence": "/c",
+       "connector": {
+        "geometry": {
+         "side": "top",
+         "positionMm": [50, -10],
+         "rotationDeg": 0,
+         "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+         "pads": [
+          {"pad": "1", "positionMm": [50.0, -10.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+          {"pad": "2", "positionMm": [50.0, -12.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "3", "positionMm": [50.0, -15.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+          {"pad": "4", "positionMm": [50.0, -17.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+         ],
+         "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [1.77, 1.77]},
+         "model": {
+          "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+          "offsetMm": [0.0, 0.0, 0.0],
+          "rotationDeg": [0.0, 0.0, 0.0],
+          "scale": [1.0, 1.0, 1.0]
+         }
+        },
+        "thicknessMm": 1.6,
+        "stored": null
+       }
+      }
+     ],
+     "wires": [
+      {"id": "w1", "from": "e1", "to": "e2", "gaugeAwg": 20},
+      {"id": "w2", "from": "e1", "to": "e2", "gaugeAwg": 22},
+      {"id": "w3", "from": "e1", "to": "e3", "gaugeAwg": 20}
+     ],
+     "nodes": [
+      {
+       "id": "wp",
+       "kind": "waypoint",
+       "positionMm": [60.0, -20.0, 40.0],
+       "pinned": true,
+       "order": 0,
+       "ends": [],
+       "between": ["e1", "auto"]
+      }
+     ]
+    },
+    "worlds": {
+     "/a": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+     "/b": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 120.0, 30.0, 0.0, 1.0],
+     "/c": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 120.0, -40.0, 0.0, 1.0],
+     "/wall": [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 140.0, 0.0, 0.0, 1.0]
+    },
+    "boards": [
+     {
+      "id": "/a",
+      "matrix": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+      "minMm": [0.0, -10.0, -0.8],
+      "maxMm": [60.0, 10.0, 0.8]
+     },
+     {
+      "id": "/b",
+      "matrix": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 120.0, 30.0, 0.0, 1.0],
+      "minMm": [0.0, -10.0, -0.8],
+      "maxMm": [60.0, 10.0, 0.8]
+     },
+     {
+      "id": "/c",
+      "matrix": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 120.0, -40.0, 0.0, 1.0],
+      "minMm": [0.0, -10.0, -0.8],
+      "maxMm": [60.0, 10.0, 0.8]
+     },
+     {
+      "id": "/wall",
+      "matrix": [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 140.0, 0.0, 0.0, 1.0],
+      "minMm": [0.0, -60.0, -0.8],
+      "maxMm": [60.0, 60.0, 0.8]
+     }
+    ],
+    "allowancePct": 25.0
+   },
+   "expected": {
+    "segments": ["e1~auto", "e2~auto", "e3~auto"],
+    "lengthsMm": [83.473512787, 81.391472489, 89.746520694],
+    "collisions": [
+     {
+      "segmentId": "e2~auto",
+      "board": "/wall",
+      "distanceMm": 0.0,
+      "radiusMm": 1.2100214505,
+      "atMm": [141.79999999999862, 3.656666666690333, 32.685368956866725],
+      "spans": [16]
+     },
+     {
+      "segmentId": "e3~auto",
+      "board": "/wall",
+      "distanceMm": 0.0,
+      "radiusMm": 0.9144,
+      "atMm": [141.7999999999993, -33.44333333348109, 32.796125905145765],
+      "spans": [16]
+     }
+    ],
+    "lengths": {
+     "bundleMm": 278.61150597,
+     "estimatedMm": 348.2643824625,
+     "allowancePct": 25.0,
+     "complete": true,
+     "wires": {
+      "w1": {"lengthMm": 180.864985276, "estimatedMm": 226.081231595},
+      "w2": {"lengthMm": 180.864985276, "estimatedMm": 226.081231595},
+      "w3": {"lengthMm": 189.220033481, "estimatedMm": 236.52504185125}
+     }
+    }
+   }
+  }
+ ],
  "mateEnds": {
   "mezz_base/F0 J1": {
    "geometry": {

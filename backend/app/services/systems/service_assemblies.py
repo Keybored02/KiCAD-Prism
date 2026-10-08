@@ -9,6 +9,7 @@ from app.services.systems import (
     scene as scene_module, visibility,
 )
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
+from app.services.systems.placement import harness_checks, harness_route, poses as poses_module
 from app.services.systems.store import Conflict, Forbidden, Invalid, NotFound, SystemStore
 from app.services.systems.service_base import Caller, Result, logger, _FULL_SHA, _ACTIVE_JOB_STATES, _BUNDLE_BUILDERS
 
@@ -434,6 +435,39 @@ class AssembliesMixin:
         built["placement"] = {k: root[k] for k in ("roots", "mismatches", "unusable", "ignoredOverrides")} \
             if root else None
         return built
+
+    def _harness_checks(self, store: SystemStore, system_id: str, harness_rows: Sequence[Mapping[str, Any]]) -> dict:
+        """The root level's harnesses routed where the System 3D view draws them (§17.10), by harness
+        ID: ``{lengths, collisions, tightBends}``; a harness with fewer than two posed ends is left out.
+        Collisions are checked against every board of the tree that has an outline."""
+        if not harness_rows:
+            return {}
+        tree = self._tree(store, system_id)
+        level = self._net_level(store, system_id, tree)
+        harnesses = [h for h in system_nets.harness_layout(level) if not h["level"]]
+        placement, _ = self._placement(store, system_id, tree, level)
+        scene_module.harness_connectors(harnesses, tree.occurrences, level,
+                                        lambda o, key: store.get_interface_component(
+                                            o.project_id, o.baseline_commit, EXTRACTOR_VERSION, key)
+                                        if o.project_id and o.baseline_commit else None)
+        matrices = {path: poses_module.matrix(pose)
+                    for path, pose in scene_module.world_poses(tree.occurrences, placement["placed"]).items()}
+        boards = [{"id": o.path, "matrix": matrices[o.path], **placement["local"][o.path]}
+                  for o in tree.occurrences if o.kind == "board" and placement["local"].get(o.path)]
+        allowance = {row["id"]: row["service_allowance_pct"] for row in harness_rows}
+        out = {}
+        for harness in harnesses:
+            routed = harness_route.route(harness, matrices.get)
+            if routed is None:
+                continue
+            out[harness["id"]] = {
+                "lengths": harness_checks.lengths(routed, allowance.get(harness["id"])),
+                "collisions": harness_checks.collisions(routed, boards),
+                "tightBends": [{"segmentId": c["segmentId"], "radiusMm": c["tightBend"]["radiusMm"],
+                                "minRadiusMm": c["minRadiusAllowedMm"], "atMm": c["tightBend"]["atMm"]}
+                               for c in routed["curves"] if c["tightBend"] and c["diameterMm"] > 0],
+            }
+        return out
 
     def _placement(self, store: SystemStore, system_id: str, tree: Optional[hierarchy.Tree] = None,
                    level: Optional[system_nets.Level] = None) -> tuple[dict, dict]:

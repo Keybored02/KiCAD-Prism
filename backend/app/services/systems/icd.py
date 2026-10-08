@@ -361,6 +361,13 @@ def _harness_section(document: Mapping[str, Any], labels: Mapping[str, str],
             meta.append(f"label {harness['label']}")
         if harness.get("cutLengthMm"):
             meta.append(f"cut {_mm(harness['cutLengthMm'])} mm")
+        lengths = harness.get("lengths") or {}
+        if lengths:
+            # §17.10: measured where the System 3D view routes it, plus the service allowance.
+            partial = "" if lengths.get("complete") else ", ends not all placed"
+            meta.append(f"estimated {_mm(lengths['estimatedMm'])} mm (bundle {_mm(lengths['bundleMm'])} mm "
+                        f"+ {_mm(lengths['allowancePct'])} %{partial})")
+        wire_lengths = lengths.get("wires") or {}
         errors = sum(1 for r in rows if r["status"] == "error")
         if errors:
             meta.append(f"{errors} error")
@@ -377,17 +384,20 @@ def _harness_section(document: Mapping[str, Any], labels: Mapping[str, str],
         out.append("</tbody></table>")
         out.append("<table><thead><tr><th>From</th><th>Pin</th><th>Pad</th><th>Net</th><th>Signal</th>"
                    "<th class=\"side-b\">Net</th><th class=\"side-b\">Pad</th><th class=\"side-b\">Pin</th>"
-                   "<th class=\"side-b\">To</th><th>AWG</th><th>Colour</th><th>Label</th><th>Status</th></tr></thead><tbody>")
+                   "<th class=\"side-b\">To</th><th>AWG</th><th>Length (mm)</th><th>Colour</th><th>Label</th><th>Status</th>"
+                   "</tr></thead><tbody>")
         for r in rows:
             out.append(f"<tr><td>{_e(r['from_end'])}</td><td class=\"mono num\"><b>{_e(r['from_end_pin'])}</b></td>"
                        f"<td class=\"mono\">{_e(r['a_pin'])}</td><td class=\"mono\">{_e(r['a_net'])}</td>"
                        f"<td class=\"sig\">{_e(r['signal'])}</td><td class=\"mono side-b\">{_e(r['b_net'])}</td>"
                        f"<td class=\"mono side-b\">{_e(r['b_pin'])}</td>"
                        f"<td class=\"mono num side-b\"><b>{_e(r['to_end_pin'])}</b></td><td class=\"side-b\">{_e(r['to_end'])}</td>"
-                       f"<td>{_e(r['gauge_awg'])}</td><td>{_e(r['colour'])}</td><td>{_e(r['wire_label'])}</td>"
+                       f"<td>{_e(r['gauge_awg'])}</td>"
+                       f"<td class=\"num\">{_mm(wire_lengths[r['row_id']]['estimatedMm']) if r['row_id'] in wire_lengths else ''}</td>"
+                       f"<td>{_e(r['colour'])}</td><td>{_e(r['wire_label'])}</td>"
                        f"<td>{_chip(r['status'])}</td></tr>")
         if not rows:
-            out.append('<tr><td colspan="13" class="meta">No wires.</td></tr>')
+            out.append('<tr><td colspan="14" class="meta">No wires.</td></tr>')
         out.append("</tbody></table>")
         uses: dict[tuple[str, str], int] = {}
         for r in rows:

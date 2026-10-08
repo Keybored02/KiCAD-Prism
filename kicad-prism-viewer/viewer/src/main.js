@@ -1733,6 +1733,7 @@ function placeSystem({ relabel = true } = {}) {
 
 const HARNESS_RGB = [0.17, 0.18, 0.2];
 const PICKED_RGB = [0.24, 0.39, 0.87]; // the picked harness (SB2-45b), the move gizmo's Z blue
+const COLLIDING_RGB = [0.9, 0.28, 0.3]; // a segment through a board (SB2-46, SYS-V12), the gizmo's X red
 
 /** Rebuild the tubes from the shown descriptor's placements (a load, a move, a drag preview). */
 function refreshSystemTubes() {
@@ -1741,7 +1742,11 @@ function refreshSystemTubes() {
   system.worlds = new Map(system.descriptor.occurrences.map((occurrence) => [occurrence.path, occurrence.worldMatrix]));
   if (system.showHarnesses && system.harnesses.length) {
     try {
-      tubes = harnessTubes(withNodePreview(system.harnesses, system.nodePreview, harnessKey), worldMatrixOf);
+      // SB2-46: boards as boxes (outline × thickness) for the collision check (§17.10).
+      const boards = system.descriptor.occurrences
+        .filter((occurrence) => occurrence.kind === "board" && occurrence.boundsMm)
+        .map((occurrence) => ({ id: occurrence.path, matrix: occurrence.worldMatrix, ...occurrence.boundsMm }));
+      tubes = harnessTubes(withNodePreview(system.harnesses, system.nodePreview, harnessKey), worldMatrixOf, boards);
     } catch (error) {
       console.warn("[prism-semantic-viewer] harness tubes failed", error);
     }
@@ -1760,6 +1765,7 @@ function tubeColor(tube) {
   const lit = system.harnessLit.get(tube.harness);
   const color = lit ? tube.wires.map((wire) => lit.get(wire)).find(Boolean) : null;
   if (color) return { rgb: hexColor(color), mode: 1 };
+  if (tube.collides.length) return { rgb: COLLIDING_RGB, mode: 0 };
   if (system.harnessPick?.key === tube.harness) return { rgb: PICKED_RGB, mode: 0 };
   return { rgb: HARNESS_RGB, mode: system.emphasisSets.length ? 2 : 0 };
 }

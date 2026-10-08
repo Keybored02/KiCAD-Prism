@@ -29,12 +29,15 @@ RULES = {
     "SYS-V09": ("net_name_mismatch", "warning"),
     "SYS-V10": ("power_meets_signal", "error"),
     "SYS-V11": ("mate_mismatch", "warning"),
+    "SYS-V12": ("harness_collision", "warning"),
+    "SYS-V13": ("length_mismatch", "warning"),
     "SYS-V14": ("child_revision_unreleased", "warning"),
     "SYS-V15": ("child_advance_blocked", "warning"),
     "SYS-V16": ("export_unresolved", "error"),
     "SYS-V17": ("mating_stale", "info"),
     "SYS-V18": ("mate_pair_unknown", "warning"),
     "SYS-V19": ("mate_pin_mismatch", "error"),
+    "SYS-V20": ("harness_tight_bend", "info"),
 }
 # Opt-in per system (``system_projects.optional_rules``, CONTRACTS_P2 §8.4): off unless enabled.
 OPTIONAL_RULES = frozenset({"SYS-V09"})
@@ -264,6 +267,29 @@ def mate_mismatch_findings(mismatches: Sequence[Mapping[str, Any]]) -> list[dict
     return [_finding("SYS-V11", link_id=item["linkId"],
                      detail={k: item[k] for k in ("offsetMm", "lateralMm", "axialMm", "angleDeg")})
             for item in mismatches]
+
+
+def harness_route_findings(checked: Mapping[str, Mapping[str, Any]], cut_lengths: Mapping[str, Optional[float]],
+                           tolerance: float) -> list[dict]:
+    """SYS-V12, V13 and V20 (CONTRACTS_P2 §17.10) from each routed harness's checks:
+    a segment through a board, a cut length off the estimate, a bend tighter than the minimum."""
+    out = []
+    for harness_id, found in checked.items():
+        for hit in found["collisions"]:
+            out.append(_finding("SYS-V12", detail={
+                "harnessId": harness_id, "segmentId": hit["segmentId"], "occurrence": hit["board"],
+                "distanceMm": round(hit["distanceMm"], 3), "radiusMm": round(hit["radiusMm"], 3),
+                "atMm": [round(v, 3) for v in hit["atMm"]]}))
+        lengths, cut = found["lengths"], cut_lengths.get(harness_id)
+        if cut and lengths["complete"] and lengths["estimatedMm"] > 0:
+            off = (cut - lengths["estimatedMm"]) / lengths["estimatedMm"]
+            if abs(off) > tolerance:
+                out.append(_finding("SYS-V13", detail={
+                    "harnessId": harness_id, "cutLengthMm": cut, "estimatedMm": round(lengths["estimatedMm"], 1),
+                    "differencePct": round(off * 100.0, 1)}))
+        for bend in found["tightBends"]:
+            out.append(_finding("SYS-V20", detail={"harnessId": harness_id, **bend}))
+    return out
 
 
 def mating_findings(stale: Sequence[Mapping[str, Any]]) -> list[dict]:

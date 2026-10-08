@@ -228,6 +228,8 @@ export interface SystemHarness {
   wires: HarnessWire[];
   /** SB2-45: breakouts and waypoints; absent from older servers and frozen documents. */
   nodes?: HarnessNode[];
+  /** SB2-46 (§17.10): measured where the 3D view routes it; null with fewer than two placed ends. */
+  lengths?: HarnessLengths | null;
   updatedAt: string;
 }
 
@@ -244,6 +246,15 @@ export interface HarnessNode {
   order: number;
   ends: string[];
   between: [string, string] | null;
+}
+
+export interface HarnessLengths {
+  bundleMm: number;
+  estimatedMm: number;
+  allowancePct: number;
+  /** False when an end is not placed: the numbers cover only what is routed. */
+  complete: boolean;
+  wires: Record<string, { lengthMm: number; estimatedMm: number }>;
 }
 
 /** A node as `PUT …/harnesses/{hid}/nodes` takes it: `order` comes from the list. */
