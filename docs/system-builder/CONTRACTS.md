@@ -731,6 +731,9 @@ the canonical document.
   changes no engineering state, so it must not invalidate other editors'
   ETags. It returns 201 with the snapshot metadata and the unchanged ETag. A
   duplicate name (after trimming) is 409.
+- The document is built from one consistent read of that version without
+  holding the system lock (v1.13); the snapshot is then stored under the lock
+  only if the version has not moved, otherwise 412 with the current ETag.
 - The frozen document is the §8.1 body plus `validation` (the full §7.2
   report) and `reviewRowIds` (the sorted row IDs named by open review items),
   serialized to JSON. `digest` is `sha256` over its canonical form, like §3.
@@ -1025,3 +1028,4 @@ F0 plus one change. The machine-readable expectations are in
 | 1.10 | 2026-09-30 | Polish: the reference-prefix rule (§4.1) is `J` only; extractor version 3. Every §11 step re-ran and still matches. |
 | 1.11 | 2026-09-30 | Polish: the ICD block diagram uses the shared default layout (§9.5); renderer version 2. No drift rule changed. |
 | 1.12 | 2026-09-30 | Review pass. Reviews record a `basis` and a decision on a stale review re-evaluates it (§7.1, 409 `review_stale`). A deleted project is restricted below admin (§8.2). Unpinning, or a failed extraction or engine error, leaves the tip to be evaluated again (§10.1). Extraction reads the schematic and board that `.prism.json` configures at the commit; extractor version 4. `PUT …/rows` rejects a repeated row id (422), and `rows_replaced` records each added, removed and changed row. |
+| 1.13 | 2026-10-09 | SB2-94: a snapshot is built outside the system lock from one consistent read and stored only if the version has not moved (412 otherwise) (§9.1). Export create/update build their response after the change commits. |
