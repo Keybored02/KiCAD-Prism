@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import html
 import io
+import re
 from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import layout as system_layout
@@ -297,6 +298,16 @@ def _diagram(document: Mapping[str, Any], positions: Optional[Mapping[str, Any]]
     return "".join(parts)
 
 
+def _anchor_sections(page: str) -> str:
+    """Give each section heading an id (``#connections``) for links and the workspace's jump list."""
+
+    def anchor(match: re.Match) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", html.unescape(match.group(1)).lower()).strip("-")
+        return f'<h2 id="{slug}">{match.group(1)}</h2>'
+
+    return re.sub(r"<h2>([^<]+)</h2>", anchor, page)
+
+
 def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
@@ -317,32 +328,42 @@ def _legend(document: Mapping[str, Any]) -> str:
 
 
 _STYLE = """
-:root{--fg:#0f172a;--muted:#64748b;--line:#e2e8f0;--soft:#f8fafc;--paper:#fff;--accent:#2563eb;--ok:#15803d;--warn:#b45309;--err:#b91c1c;
---kind-board:#2563eb;--kind-module:#7c3aed;--kind-subsystem:#0d9488;--kind-harness:#d97706;--kind-link:#64748b}
+:root{--fg:#0f172a;--muted:#64748b;--line:#e2e8f0;--line-strong:#cbd5e1;--soft:#f8fafc;--paper:#fff;--row-alt:#fcfdfe;
+--accent:#2563eb;--ok:#15803d;--ok-line:#bbf7d0;--ok-bg:#f0fdf4;--warn:#b45309;--warn-line:#fde68a;--warn-bg:#fffbeb;
+--err:#b91c1c;--err-line:#fecaca;--err-bg:#fef2f2;--banner-line:#f59e0b;--banner-bg:#fffbeb;--banner-fg:#78350f;
+--kind-board:#2563eb;--kind-module:#7c3aed;--kind-subsystem:#0d9488;--kind-harness:#d97706;--kind-link:#64748b;
+--sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+/* D-P2-52: inside the workspace the ICD follows the app (the page adds these classes); exports stay as above. */
+html.prism-dark{--fg:#f8fafc;--muted:#94a3b8;--line:#1e293b;--line-strong:#334155;--soft:#0b1426;--paper:#020817;--row-alt:#06101f;
+--accent:#3b82f6;--ok:#22c55e;--ok-line:#14532d;--ok-bg:#052e16;--warn:#f59e0b;--warn-line:#78350f;--warn-bg:#1c1305;
+--err:#f87171;--err-line:#7f1d1d;--err-bg:#1f0a0a;--banner-line:#f59e0b;--banner-bg:#1c1305;--banner-fg:#fcd34d;
+--kind-board:#3b82f6;--kind-module:#a78bfa;--kind-subsystem:#2dd4bf;--kind-harness:#f59e0b;--kind-link:#94a3b8}
+html.prism-embed{--sans:"Inter Variable",ui-sans-serif,system-ui,sans-serif}
+html.prism-embed main{max-width:none;padding:24px 32px 40px}
 *{box-sizing:border-box}
-body{font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--fg);margin:0;background:#fff}
+body{font:13px/1.5 var(--sans);color:var(--fg);margin:0;background:var(--paper)}
 main{max-width:1180px;margin:0 auto;padding:32px 40px 48px}
 header.doc{border-bottom:2px solid var(--fg);padding-bottom:16px;margin-bottom:8px}
 .eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
 h1{font-size:24px;line-height:1.25;margin:0 0 8px}
-h2{font-size:16px;margin:32px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+h2{font-size:16px;margin:32px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line);scroll-margin-top:16px}
 h3{font-size:14px;margin:0}
-.meta{color:var(--muted);margin:0}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.meta{color:var(--muted);margin:0}.mono{font-family:var(--mono);font-size:12px}
 .description{margin:10px 0 0;max-width:72ch}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);margin:20px 0 0}
-.stat{background:#fff;padding:10px 14px}.stat b{display:block;font-size:20px;line-height:1.2}.stat span{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.stats{display:flex;flex-wrap:wrap;border-top:1px solid var(--line);border-left:1px solid var(--line);margin:20px 0 0}
+.stat{flex:1 1 120px;background:var(--paper);padding:10px 14px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}.stat b{display:block;font-size:20px;line-height:1.2}.stat span{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
 .stat.err b{color:var(--err)}.stat.warn b{color:var(--warn)}
-.banner{border:1px solid #f59e0b;border-left:4px solid #f59e0b;background:#fffbeb;color:#78350f;padding:8px 12px;margin:16px 0;font-weight:600}
+.banner{border:1px solid var(--banner-line);border-left:4px solid var(--banner-line);background:var(--banner-bg);color:var(--banner-fg);padding:8px 12px;margin:16px 0;font-weight:600}
 .print-banner{display:none}
 table{border-collapse:collapse;width:100%;font-size:12px}
 th,td{padding:5px 8px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
-thead th{background:var(--soft);font-weight:600;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #cbd5e1}
-tbody tr:nth-child(even) td{background:#fcfdfe}
+thead th{background:var(--soft);font-weight:600;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--line-strong)}
+tbody tr:nth-child(even) td{background:var(--row-alt)}
 td.num{white-space:nowrap}td.side-b{text-align:right}th.side-b{text-align:right}
 td.sig{font-weight:600}
 .chip{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;border:1px solid}
-.chip.ok{color:var(--ok);border-color:#bbf7d0;background:#f0fdf4}.chip.review{color:var(--warn);border-color:#fde68a;background:#fffbeb}
-.chip.error{color:var(--err);border-color:#fecaca;background:#fef2f2}.chip.info{color:var(--muted);border-color:var(--line);background:var(--soft)}
+.chip.ok{color:var(--ok);border-color:var(--ok-line);background:var(--ok-bg)}.chip.review{color:var(--warn);border-color:var(--warn-line);background:var(--warn-bg)}
+.chip.error{color:var(--err);border-color:var(--err-line);background:var(--err-bg)}.chip.info{color:var(--muted);border-color:var(--line);background:var(--soft)}
 .link{margin:0 0 28px;break-inside:auto}
 .link-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:8px 0;border-bottom:2px solid var(--fg);break-after:avoid}
 .link-head .swatch{width:10px;height:10px;border-radius:2px;display:inline-block}
@@ -350,12 +371,12 @@ td.sig{font-weight:600}
 .diagram{border:1px solid var(--line);background:var(--soft);padding:12px;overflow:auto}
 .block-body{fill:var(--paper);stroke:var(--kind);stroke-width:1.5}.block-head{fill:var(--kind);fill-opacity:.12}
 .k-board{--kind:var(--kind-board)}.k-module{--kind:var(--kind-module)}.k-subsystem{--kind:var(--kind-subsystem)}.k-harness{--kind:var(--kind-harness)}
-.block-label{font:600 13px ui-sans-serif,system-ui,sans-serif;fill:var(--fg)}.block-sub{font:11px ui-sans-serif,system-ui,sans-serif;fill:var(--muted)}
+.block-label{font:600 13px var(--sans);fill:var(--fg)}.block-sub{font:11px var(--sans);fill:var(--muted)}
 .block-kind{fill:var(--kind);font-weight:600}.row-export{fill:var(--kind-board)}
 .wire{fill:none}.w-b2b{stroke:var(--kind-board);stroke-width:3}.w-harness{stroke:var(--kind-harness);stroke-width:2}.w-link{stroke:var(--kind-link);stroke-width:1.5}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 8px;color:var(--muted);font-size:11px}.lg{display:inline-flex;align-items:center;gap:6px}
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--kind)}
-.row-ref{font:600 11px ui-monospace,Menlo,monospace;fill:var(--fg)}.row-partner{font:11px ui-sans-serif,system-ui,sans-serif;fill:var(--muted)}
+.row-ref{font:600 11px var(--mono);fill:var(--fg)}.row-partner{font:11px var(--sans);fill:var(--muted)}
 .row-rule{stroke:var(--line)}
 footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}
 @media print{
@@ -655,7 +676,7 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
                    f"{_e(labels.get(entry['instanceId'], ''))} ({_e(entry['reason'])}).</p>")
     out.append(f"<footer>KiCAD-Prism System Builder · {_e(system['name'])} · {_e(source)} · {_e(generated_at)}</footer>")
     out.append("</main></body></html>")
-    return "".join(out)
+    return _anchor_sections("".join(out))
 
 
 # ---------------------------------------------------------------------------
