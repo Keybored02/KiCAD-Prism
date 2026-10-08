@@ -725,6 +725,7 @@ def initialize_tracker_connector_service() -> None:
     from app.services.trackers.migrations import migrate_workspace_tracker_tables
 
     with database.connection() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
         conn.execute("SET search_path TO workspace, public")
         migrate_workspace_tracker_tables(conn)
         conn.commit()
