@@ -22,7 +22,7 @@ class ParentIcdTest(AssemblyCase):
     def test_the_parent_icd_lists_its_subsystems(self) -> None:
         bus = self.bus()
         html, _name, _version = self.service.icd(VIEWER, bus, "html")
-        self.assertIn("<h2>Subsystems</h2>", html)
+        self.assertIn(">Subsystems</h2>", html)
         self.assertIn(self.ipn, html)
         self.assertIn("<td>v1</td>", html)
         self.assertIn("released", html)
@@ -37,7 +37,7 @@ class ParentIcdTest(AssemblyCase):
     def test_depth_all_adds_every_subsystem_level(self) -> None:
         bus = self.bus()
         html, _name, _version = self.service.icd(VIEWER, bus, "html", None, "all")
-        self.assertIn("<h2>Inside subsystems</h2>", html)
+        self.assertIn(">Inside subsystems</h2>", html)
         self.assertIn("<h3>CNDH-A</h3>", html)
         for name in self.links:  # the child fixture's own links (L-J7J4, …)
             self.assertIn(name, html)

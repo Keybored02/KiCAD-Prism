@@ -127,11 +127,11 @@ class IcdTest(HarnessCsvCase):
         self.service.set_mating(DESIGNER, self.sid, self.version(), self.instances["OBC-A"], port,
                                 {"mode": "override", "axis": "top", "quarterTurns": 1})
         html, _name, _version = self.service.icd(DESIGNER, self.sid, "html")
-        b2b = html[html.index("Board-to-board mating"):html.index("<h2>Harnesses")]
+        b2b = html[html.index("Board-to-board mating"):html.index(">Harnesses</h2>")]
         self.assertIn("Vertical, top side · turned 90° <span class=\"meta\">(set by hand)</span>", b2b)
         self.assertIn("not confirmed", b2b)  # the PWR end has no stored frame
         self.assertIn("8.5 mm", b2b)
-        section = html[html.index("<h2>Harnesses"):html.index("<h2>Findings")]
+        section = html[html.index(">Harnesses</h2>"):html.index(">Findings</h2>")]
         self.assertIn("WH-001", section)
         self.assertIn("1 → 2, 2 → 1", section)  # the crossover
         self.assertIn("End 1 pin 3 joins 2 wires", section)  # the splice
