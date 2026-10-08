@@ -181,6 +181,7 @@ export function Pane({
     camera,
     handlers,
     mirrored = false,
+    className,
     children,
 }: {
     label: string;
@@ -189,6 +190,8 @@ export function Pane({
     camera: Camera;
     handlers: ReturnType<typeof useBoardViewport>["handlers"];
     mirrored?: boolean;
+    /** Merged over the pane's classes, such as a different background. */
+    className?: string;
     children: (pxPerMm: number) => ReactNode;
 }) {
     const ref = useRef<HTMLDivElement | null>(null);
@@ -226,7 +229,10 @@ export function Pane({
             </span>
             <div
                 ref={ref}
-                className="relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden rounded border bg-[#0b0f14] active:cursor-grabbing"
+                className={cn(
+                    "relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden rounded border bg-[#0b0f14] active:cursor-grabbing",
+                    className,
+                )}
                 {...handlers}
             >
                 <div

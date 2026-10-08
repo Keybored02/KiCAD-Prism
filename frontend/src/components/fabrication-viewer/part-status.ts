@@ -1,20 +1,12 @@
 import type { PartStatus } from "./types";
 
 /**
- * What the BOM check found, in the order a reviewer cares about it.
+ * What the BOM check found.
  *
  * The colours are fixed, not theme tokens: markers are drawn over the board
  * pane, which is dark in every theme, so they have to read on that background.
  * Problems also get a ring (see `part-markers.tsx`), so colour is never the only cue.
  */
-export const STATUS_ORDER: readonly PartStatus[] = [
-    "not-placed",
-    "dnp-placed",
-    "not-in-bom",
-    "ok",
-    "no-bom",
-];
-
 export const STATUS_LABEL: Record<PartStatus, string> = {
     ok: "In BOM",
     "no-bom": "Not checked",

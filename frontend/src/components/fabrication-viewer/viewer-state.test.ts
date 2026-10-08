@@ -123,13 +123,6 @@ describe("viewerReducer", () => {
         expect(viewerReducer(on, { type: "highlight", id: "b.cu" }).highlighted).toBe("b.cu");
         expect(viewerReducer(on, { type: "highlight", id: "f.cu" }).highlighted).toBeNull();
     });
-
-    it("hides and shows a check result's markers", () => {
-        const hidden = viewerReducer(start, { type: "partStatus", status: "not-in-bom" });
-        expect(hidden.hiddenStatuses.has("not-in-bom")).toBe(true);
-        expect(viewerReducer(hidden, { type: "partStatus", status: "not-in-bom" }).hiddenStatuses.size).toBe(0);
-        expect(start.hiddenStatuses.size).toBe(0);
-    });
 });
 
 describe("applyPreset", () => {

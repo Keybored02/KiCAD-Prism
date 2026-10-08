@@ -187,6 +187,39 @@ describe("FabricationViewer", () => {
         expect(screen.getByText("Bottom (mirrored)")).toBeInTheDocument();
     });
 
+    it("blends the layers the same way from the top and from the bottom", async () => {
+        // The stack is its own isolated, black group in both views. When it was not, the
+        // top view blended with the pane behind it and came out lighter than the swatches.
+        const stack = () => document.querySelector(".isolate.bg-black");
+        await openViewer();
+        await waitFor(() => expect(stack()?.querySelectorAll("img")).toHaveLength(4));
+        expect(flipped()).not.toBeInTheDocument();
+
+        fireEvent.click(boardSide("Bottom"));
+        await waitFor(() => expect(requestedLayers()).toContain("b.cu"));
+        // Bottom copper, the profile and the holes.
+        await waitFor(() => expect(stack()?.querySelectorAll("img")).toHaveLength(3));
+        expect(flipped()).toBeInTheDocument();
+
+        fireEvent.click(boardSide("Top"));
+        await waitFor(() => expect(stack()?.querySelectorAll("img")).toHaveLength(4));
+        expect(stack()!.querySelector("img[alt='F.CU']")).toBeInTheDocument();
+    });
+
+    it("draws the board on black, so a layer alone is exactly its swatch colour", async () => {
+        await openViewer();
+        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
+        const pane = document.querySelector(".isolate.bg-black")!.closest(".cursor-grab")!;
+        expect(pane).toHaveClass("bg-black");
+    });
+
+    it("keeps the rail narrow, and has no Parts & filters section to take room", async () => {
+        await openViewer();
+        const rail = screen.getByRole("complementary", { name: "Board display" });
+        expect(rail).toHaveStyle({ width: "208px" });
+        expect(screen.queryByRole("button", { name: "Parts & filters" })).not.toBeInTheDocument();
+    });
+
     it("collapses the rail to its handle and brings it back", async () => {
         await openViewer();
         fireEvent.click(screen.getByRole("button", { name: "Collapse board display" }));

@@ -1,4 +1,4 @@
-import type { FabricationLayer, PartStatus } from "./types";
+import type { FabricationLayer } from "./types";
 
 export type ViewSide = "top" | "bottom";
 
@@ -33,8 +33,6 @@ export interface ViewerState {
     selected: string | null;
     /** Part markers are drawn over the layers. */
     showParts: boolean;
-    /** BOM-check results whose markers are hidden. */
-    hiddenStatuses: ReadonlySet<PartStatus>;
 }
 
 export type ViewerAction =
@@ -43,7 +41,6 @@ export type ViewerAction =
     | { type: "preset"; preset: LayerPreset; layers: FabricationLayer[] }
     | { type: "highlight"; id: string }
     | { type: "parts" }
-    | { type: "partStatus"; status: PartStatus }
     /** Pick a part; one on the other side turns the board over to it. */
     | { type: "select"; ref: string | null; side?: ViewSide; layers: FabricationLayer[] };
 
@@ -123,7 +120,6 @@ export function initialState(layers: FabricationLayer[], focusFile?: string): Vi
         highlighted: null,
         selected: null,
         showParts: true,
-        hiddenStatuses: new Set(),
     };
 }
 
@@ -141,8 +137,6 @@ export function viewerReducer(state: ViewerState, action: ViewerAction): ViewerS
                 : { ...state, side: action.side, visible: presetFor(action.layers, action.side) };
         case "parts":
             return { ...state, showParts: !state.showParts };
-        case "partStatus":
-            return { ...state, hiddenStatuses: toggled(state.hiddenStatuses, action.status) };
         case "select": {
             const turned = action.side && action.side !== state.side
                 ? { side: action.side, visible: presetFor(action.layers, action.side) }

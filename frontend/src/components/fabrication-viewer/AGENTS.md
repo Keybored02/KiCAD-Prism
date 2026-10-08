@@ -35,8 +35,9 @@ If one of these changes, the viewer should follow it.
 - `fabrication-viewer.tsx`: composition. Owns the viewport so a picked part can
   move the camera.
 - `viewer-state.ts`: pure reducer for the side, visible layers, highlighted layer,
-  selected part, markers and check filters. Test changes here without rendering.
-- `layers-rail.tsx`: the Visualizer-style rail, with a Parts & filters section.
+  selected part and markers. Test changes here without rendering.
+- `layers-rail.tsx`: the Visualizer-style rail: presets and the layer list, a little
+  narrower than the Visualizer's.
 - `viewer-toolbar.tsx`, `viewer-footer.tsx`: the strips above and below the board.
 - `board-canvas.tsx`, `part-markers.tsx`, `part-status.ts`: the stacked layers,
   the parts over them, and the BOM-check vocabulary they and the table share.
@@ -47,9 +48,12 @@ If one of these changes, the viewer should follow it.
 
 ## Traps
 
-- **Layers are screen-blended on a dark pane.** The backend draws each on pure
-  black, which is the identity for that blend. A lighter background brightens a
-  little more with every layer.
+- **Layers are screen-blended in an isolated stack on black.** The backend draws
+  each on pure black, which is the identity for that blend, and the canvas puts
+  them in an `isolate` group on a black pane. Without the isolation the top view
+  blended with the pane behind it and came out lighter than the swatches, while
+  the bottom view, isolated by its mirror transform, came out exact. Overlapping
+  layers still mix, as they do in the Visualizer; a layer alone is its swatch colour.
 - **The bottom view mirrors the whole pane.** `useBoardViewport` takes `mirrorX`
   and `Pane` takes `mirrored`, so dragging and zoom-to-cursor still follow the
   pointer; text drawn inside the pane (marker labels) must be flipped back.
@@ -57,6 +61,8 @@ If one of these changes, the viewer should follow it.
   puts its edges on the pane border, where they are clipped.
 - **A press on a marker is a pick, not a drag.** The pane captures the pointer to
   pan, so markers stop `pointerdown` from reaching it.
+- **Parts not in the BOM are not drawn** (unless picked); the table still lists
+  them. There is no filter menu: the toolbar's Parts button is the switch.
 - **Marker colours are fixed, not theme tokens.** The pane is dark in every
   theme. Flagged parts also get a ring, so colour is never the only cue. Everything
   outside the pane uses theme tokens.

@@ -50,11 +50,16 @@ function LoadedViewer({ source, view, focusFile }: {
     const mirrored = state.side === "bottom";
     const viewport = useBoardViewport(board, { mirrorX: mirrored });
 
+    // A part that is not in the BOM is not part of the build, so it is left off the
+    // board; it stays in the table, where the check lists it. A part you picked is
+    // always drawn, so a pick from the table never lands on an empty spot.
     const sideParts = useMemo(
         () => parts && state.showParts
-            ? parts.parts.filter((part) => part.side === state.side && !state.hiddenStatuses.has(part.status))
+            ? parts.parts.filter((part) =>
+                part.side === state.side
+                && (part.status !== "not-in-bom" || part.ref === state.selected))
             : [],
-        [parts, state.showParts, state.side, state.hiddenStatuses],
+        [parts, state.showParts, state.side, state.selected],
     );
     const picked = parts?.parts.find((part) => part.ref === state.selected) ?? null;
     const highlighted = view.layers.find((layer) => layer.id === state.highlighted) ?? null;
@@ -85,14 +90,9 @@ function LoadedViewer({ source, view, focusFile }: {
                     layers={view.layers}
                     visible={state.visible}
                     highlighted={state.highlighted}
-                    placement={parts}
-                    showParts={state.showParts}
-                    hiddenStatuses={state.hiddenStatuses}
                     onToggle={(id) => dispatch({ type: "toggle", id })}
                     onHighlight={(id) => dispatch({ type: "highlight", id })}
                     onPreset={(preset) => dispatch({ type: "preset", preset, layers: view.layers })}
-                    onToggleParts={() => dispatch({ type: "parts" })}
-                    onToggleStatus={(status) => dispatch({ type: "partStatus", status })}
                 />
             </div>
             <div className="flex min-w-0 flex-1 flex-col">

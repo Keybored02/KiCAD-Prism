@@ -34,7 +34,8 @@ export function withMargin(rect: BoardRect, margin = FIT_MARGIN): BoardRect {
  *
  * Layers are screen-blended: every SVG has a black background, which is the
  * identity for that blend, so overlapping layers add up in colour and nothing
- * hides what is under it.
+ * hides what is under it. The pane is black for the same reason, so a layer on
+ * its own is exactly its swatch colour.
  */
 export function BoardCanvas({
     label,
@@ -72,26 +73,33 @@ export function BoardCanvas({
                 camera={viewport.view}
                 handlers={viewport.handlers}
                 mirrored={mirrored}
+                className="bg-black"
             >
                 {(pxPerMm) => (
                     <>
-                        {layers.map((layer) => {
-                            const image = images[layer.id];
-                            if (image?.status !== "ready") return null;
-                            return (
-                                <img
-                                    key={layer.id}
-                                    src={image.url}
-                                    alt={layer.name}
-                                    draggable={false}
-                                    className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
-                                    style={{
-                                        mixBlendMode: "screen",
-                                        opacity: highlighted && highlighted !== layer.id ? DIMMED_OPACITY : 1,
-                                    }}
-                                />
-                            );
-                        })}
+                        {/* Isolated and on black, so layers blend with each other and nothing
+                            else. Without this the top view blended with the pane behind it and
+                            came out lighter than the swatches, while the mirrored bottom view
+                            happened to be isolated by its transform and came out exact. */}
+                        <div className="absolute inset-0 isolate bg-black">
+                            {layers.map((layer) => {
+                                const image = images[layer.id];
+                                if (image?.status !== "ready") return null;
+                                return (
+                                    <img
+                                        key={layer.id}
+                                        src={image.url}
+                                        alt={layer.name}
+                                        draggable={false}
+                                        className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
+                                        style={{
+                                            mixBlendMode: "screen",
+                                            opacity: highlighted && highlighted !== layer.id ? DIMMED_OPACITY : 1,
+                                        }}
+                                    />
+                                );
+                            })}
+                        </div>
                         {overlay?.(pxPerMm)}
                     </>
                 )}

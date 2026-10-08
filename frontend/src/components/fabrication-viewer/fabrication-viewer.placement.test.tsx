@@ -122,6 +122,12 @@ describe("FabricationViewer, placement", () => {
         expect(screen.queryByRole("button", { name: "Parts & filters" })).not.toBeInTheDocument();
     });
 
+    it("has no Parts & filters section: the toolbar's Parts button is the switch", async () => {
+        await openViewer();
+        await waitFor(() => expect(markers()).toBeInTheDocument());
+        expect(screen.queryByRole("button", { name: "Parts & filters" })).not.toBeInTheDocument();
+    });
+
     it("lists the parts and what the BOM check found", async () => {
         await openViewer();
         expect(await placementButton()).toHaveTextContent("Placement (3)");
@@ -203,7 +209,7 @@ describe("FabricationViewer, placement", () => {
     it("draws the shown side's parts, and the Parts button hides them", async () => {
         await openViewer();
         await waitFor(() => expect(markers()).toBeInTheDocument());
-        expect(markers()!.querySelectorAll("title")).toHaveLength(2);
+        expect(markers()!.querySelectorAll("title")).toHaveLength(1);
 
         fireEvent.click(partsButton());
         expect(markers()).not.toBeInTheDocument();
@@ -213,32 +219,45 @@ describe("FabricationViewer, placement", () => {
         await waitFor(() => expect(markers()!.querySelectorAll("title")).toHaveLength(1));
     });
 
-    it("rings the parts the check flagged, so colour is not the only cue", async () => {
+    it("leaves parts that are not in the BOM off the board", async () => {
         await openViewer();
         await waitFor(() => expect(markers()).toBeInTheDocument());
-        const groups = [...markers()!.querySelectorAll("g")];
-        const ringed = (group: Element) => group.querySelectorAll("circle[fill='none']").length;
-        expect(ringed(groups[0]!)).toBe(0);
-        expect(ringed(groups[1]!)).toBe(1);
+        // C1 is in the BOM; R2 is not, so only C1 is drawn on the top side.
+        const titles = [...markers()!.querySelectorAll("title")].map((title) => title.textContent);
+        expect(titles).toHaveLength(1);
+        expect(titles[0]).toContain("C1");
     });
 
-    it("hides the markers of one check result from the rail", async () => {
+    it("still lists a part that is not in the BOM, and draws it once it is picked", async () => {
         await openViewer();
-        await waitFor(() => expect(markers()).toBeInTheDocument());
-        fireEvent.click(screen.getByRole("button", { name: "Parts & filters" }));
-        expect(screen.getByText("Check results")).toBeInTheDocument();
-        fireEvent.click(screen.getByRole("checkbox", { name: "Show Not in BOM" }));
+        const table = await openPlacement();
+        expect(within(table).getByText("R2")).toBeInTheDocument();
+        fireEvent.click(within(table).getByText("R2"));
+        await waitFor(() => expect(markers()!.querySelectorAll("title")).toHaveLength(2));
+        fireEvent.click(await screen.findByRole("button", { name: "Clear selection" }));
         await waitFor(() => expect(markers()!.querySelectorAll("title")).toHaveLength(1));
-        fireEvent.click(screen.getByRole("checkbox", { name: "Show Not in BOM" }));
+    });
+
+    it("draws every part when there is no BOM to say which are not in it", async () => {
+        serve({
+            ...PLACEMENT,
+            hasBom: false,
+            missing: [],
+            parts: PLACEMENT.parts.map((part) => ({ ...part, status: "no-bom" as const })),
+        });
+        await openViewer();
         await waitFor(() => expect(markers()!.querySelectorAll("title")).toHaveLength(2));
     });
 
-    it("turns every marker off from the rail", async () => {
+    it("rings the parts the check flagged, so colour is not the only cue", async () => {
         await openViewer();
-        await waitFor(() => expect(markers()).toBeInTheDocument());
-        fireEvent.click(screen.getByRole("button", { name: "Parts & filters" }));
-        fireEvent.click(screen.getByText("Show part markers"));
-        expect(markers()).not.toBeInTheDocument();
+        fireEvent.click(boardSide("Bottom"));
+        await waitFor(() => expect(markers()!.querySelectorAll("title")).toHaveLength(1));
+        const flagged = markers()!.querySelector("g")!;
+        expect(flagged.querySelectorAll("circle[fill='none']")).toHaveLength(1);
+        fireEvent.click(boardSide("Top"));
+        await waitFor(() => expect(markers()!.querySelectorAll("title")).toHaveLength(1));
+        expect(markers()!.querySelector("g")!.querySelectorAll("circle[fill='none']")).toHaveLength(0);
     });
 
     it("clicking a marker picks that part, and the selection can be cleared", async () => {
