@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.73 · 2026-10-09 · tickets SB2-00 to SB2-107.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.74 · 2026-10-09 · tickets SB2-00 to SB2-107.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -447,6 +447,7 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 | SYS-V19 | `mate_pin_mismatch` | error | A harness end's part has a different pin count from its mated connector and a wired pin has no map (§17.2). |
 | SYS-V20 | `harness_tight_bend` | info | A root-level harness segment still bends tighter than 6 × its bundle diameter after relaxation (§17.8). Detail `{harnessId, segmentId, radiusMm, minRadiusMm, atMm}`. |
 | SYS-V21 | `subport_pad_absent` | warning | A sub-port names a pad its connector (or subsystem export) no longer has (§22.4). Detail `{subportId, name, pads}`. |
+| SYS-V22 | `part_collision` | warning | Two occurrences' meshes intersect in the 3D view's placement (§24.2). Detail `{a, b, atMm, pairs}`. Raised from the last check while it matches the current `sceneKey`; otherwise not evaluated. |
 
 **Optional rules (P2-1.10, user decision 2026-09-30; superseded by D-P2-57 in P2-1.73: SYS-V09 now always runs and the list has no effect).** `system_projects.optional_rules` (migration 35) lists the opt-in rules a system runs; today the only one is `SYS-V09`, because real boards rename nets across connectors far more often than they miswire them (108 warnings on the JTYU C&DH set). It is set with `PATCH /systems/{id}` `{"optionalRules": ["SYS-V09"]}` (the list replaces the stored one; `null` clears it; any other rule is 422), bumps the system version, is audited as `system_updated`, and is shown in the system summary and the manifest header. The Overview tab has a **Checks** section with the switch. `SYS-V10` always runs.
 
@@ -950,6 +951,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.74 | 2026-10-09 | SB2-108 (D-P2-58): mechanical parts (§24.1), instance kind `part` from catalog parts with a model; the collision check (§24.2), mesh intersection with python-fcl run as `system_collision_check`, SYS-V22 `part_collision`; migration 52. |
 | P2-1.73 | 2026-10-09 | SB2-106 (D-P2-57): net rename proposals (§23): one per net on one board; migration 51; applied by the board's next commit with no review when the rename is the only change; `GET /api/systems/by-project/{projectId}` and its renames CSV for the board page's **Used in** panel; a Renames sheet in the report. SYS-V09 runs on every system; `optionalRules` is kept but has no effect. |
 | P2-1.72 | 2026-10-09 | SB2-105 (D-P2-55): sub-ports (§22). Named pad sets carved out of a connector or subsystem export, usable as link ends and export targets; the remainder stays on the connector; carving re-homes rows (retarget or split links) in one audited change with a preview; `b2b` connectors cannot be split; SYS-V21 `subport_pad_absent`; migration 50; manifest `subports` and `subportId` omitted while empty. |
 | P2-1.71 | 2026-10-09 | SB2-107: the reviews and findings report, `GET …/report.xlsx` and `…/report.csv` (§8.6). `openpyxl` becomes a direct runtime dependency (it was already locked through `kicad-cruncher`). |
@@ -1473,3 +1475,47 @@ Prism never edits a board. When two boards name one signal differently, a system
   `GET /api/systems/by-project/{projectId}/renames.csv` is the owner's work list, with these columns: `system`, `board`, `net`, `rename_to`, `rows`, `connectors`, `note`, `proposed_by`, `proposed_at`.
 - **Board page.** The project page has a **Used in** panel. It lists each system with the instance labels and its open proposals, links to the system, and offers the CSV.
 - **Report.** The SB2-107 report (§8.6) gains a **Renames** sheet with the system's open and applied proposals.
+
+## 24. Mechanical parts and collisions (SB2-108, D-P2-58)
+
+### 24.1 Mechanical parts
+
+- **What.** A system can place mechanical parts: an enclosure, a bracket, a mounting plate. A part is a catalog component of kind `part` with a converted model (§18.2, SB2-17), added from the catalog only. A new enclosure goes into the catalog first.
+- **Instance.** A new instance kind, `part`, with the same shape as a module instance: `{kind: "part", catalog: {componentId, revisionId}, follow}`.
+  - Its model is the component's first converted model, with its alignment.
+  - Its own-frame box is the model's aligned bounds.
+  - It has no ports, rows or nets. It is never a link end, export or harness end, and SYS-V14 applies to it as to a module.
+- **Placement.** Parts are placed and moved like a board or a module (§14.7, §20.4). Poses are stored and reset alike. With no stored pose, a part takes the default side-by-side layout. A part has no mates.
+- **Hierarchy.** A part inside a subsystem is an occurrence of the parent's tree like any other, so it is drawn in the parent's 3D view and checked for collisions there.
+- **Storage (workspace migration 52).** `system_instances_kind_shape` admits `part` with the catalog columns, exactly as `module`.
+- **Manifest.** `CatalogInstance.kind` takes `part`. A part appears in `instances[]` and `placement.poses` and nowhere else.
+- **Document and ICD.**
+  - The document lists a part like a module with `ports: []`.
+  - The outline has a **Parts** group, and **Add** gets a **Part** item that lists catalog parts with a model.
+  - The ICD's board table names parts with their identity and no project.
+
+### 24.2 Collision check
+
+- **What collides.** Each pair of occurrences in the system's 3D view (boards, modules, parts, at every depth) is checked, using the poses the 3D view uses (§14.9, §20.1).
+  - Boards: the board body (`geometry/base_board.glb`) and each component body (`geometry/components.glb`, one object per footprint node, named by reference) from the board's viewer bundle at its baseline. Both are mapped to the board frame (§14.2): glTF metres, Y-up, to millimetres, Z-up, about the copper mid-plane.
+  - Modules and parts: the catalog GLB, scaled ×1000 and given its alignment (§18.2).
+  - An occurrence with no geometry yet (no bundle built, no converted model) is listed under `notEvaluated` with its reason. It is never assumed clear.
+- **Method.**
+  1. Occurrence world boxes find candidate pairs.
+  2. Object boxes narrow them to object pairs.
+  3. Exact triangle-mesh intersection decides (python-fcl BVH).
+  - Two objects on the same occurrence are never a pair.
+  - **Exempt:** the two connector bodies of each `b2b` link (any depth) where the pair is mated. Mated connectors touch by design.
+  - Contact closer than 0.05 mm counts as touching, not colliding.
+- **Running.**
+  - `POST …/collisions` (viewer) queues `system_collision_check` (pool `prism`) and answers 202 `{jobId}`.
+  - The result is stored per system with the `sceneKey` it was computed for (§SB2-98), in `system_collision_checks` (migration 52, no foreign key, deleted with the system).
+  - Taking a snapshot queues a check when the stored one is stale. The snapshot freezes whatever the document shows at that moment, so a stale check is frozen as not evaluated.
+- **SYS-V22 `part_collision`** (warning, waivable, §8.5). There is one finding per colliding occurrence pair, raised only while the stored result's `sceneKey` equals the document's.
+  - `instanceId` is the first occurrence's root instance.
+  - `detail` is `{a: {occurrence, label, reference}, b: {…}, atMm, pairs}`:
+    - `reference` is the first colliding component, or null for a body;
+    - `atMm` is a contact point in root coordinates;
+    - `pairs` is up to 10 colliding object pairs.
+  - With no stored result, or a stale one, SYS-V22 is listed under `notEvaluated` with the reason `not_checked` or `stale`.
+- **3D.** **Show** on a V22 finding frames both parts (`frameParts`) and marks `atMm`. The view's toolbar gets **Check collisions**.
