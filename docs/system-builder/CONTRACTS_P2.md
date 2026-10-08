@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.58 · 2026-10-08 · tickets SB2-00 to SB2-49.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.59 · 2026-10-08 · tickets SB2-00 to SB2-50.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -320,6 +320,10 @@ A module instance places a catalog module (§3.5) in a system. It is a leaf of t
   - Its frame is `matingFrame`, which counts as stored (§15.2). It is never edited per system: `GET/PUT …/mating` on a module answers 422. Change the placement in the catalog instead.
   - A board end still needs a confirmed frame before a B2B link places the module.
 - **Scene** (§20): the occurrence's box is the model's aligned bounds; with a converted model it carries `model {glbKey, matrixMm, boundsMm}` (§20.18).
+- **Nets and 3D (SB2-50).** A module pin is a system-net node whose net is its signal, so a trace runs board → harness wire → module pin (`CMBD J24.3 → SBT1 P1 MAIN.4`).
+  - In the System 3D view, a lit set's module member counts as lit and frames with the set (the module's model is drawn; the harness tubes light the path).
+  - Modules have no section in the Layers panel.
+  - Move mode moves a module like a board, and `PATCH …/poses` stores it.
 - **Release follow and drift** for modules is SB2-51; until then a module instance keeps its pinned revision.
 
 ## 6. Links, exports as ends, and harnesses
@@ -917,6 +921,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.59 | 2026-10-08 | SB2-50: §5.6 module pins in system nets and the System 3D view (lit and framed with a set, no Layers section, moved like a board). |
 | P2-1.58 | 2026-10-08 | SB2-49: §5.6 module instances (connectors as ports with signals as nets, footprint pose and catalog frame for mates and harness ends, the scene's model box); `POST …/instances` takes `kind: "module"`. |
 | P2-1.57 | 2026-10-08 | SB2-48b (D-P2-40): §20.18 scene occurrences with their own `model`/`box`, gizmo `move` limits, `pickSurface` and the viewer's `pickSurfaceAt`/`focusMoveTarget`/`viewAxis`; §3.6 connectors placed on modules (face frame, footprint pose `P · F_part⁻¹`, goldens `modulePorts`), catalog migration 7 `catalog_module_connectors`, `GET/PUT/DELETE …/module-connectors`, `GET …/connector-geometry`, the every-connector-placed release gate; §3.5: pads are unique within a unit, not across the symbol. |
 | P2-1.56 | 2026-10-08 | SB2-48 (D-P2-39): §3.5 modules: created through the normal component flow with `kind: "module"`; the interface (`prism.module_interface.v1`) is derived from the module's multi-unit symbol on every sealed revision (units = connectors, pin names = signals); models on modules; module release gates (interface + STEP model); revision clones keep `interface_json`/`source_ref_json` (they were dropped). |
