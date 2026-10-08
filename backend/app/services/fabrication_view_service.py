@@ -13,7 +13,8 @@ Studio build, committed outputs) is the caller's business.
 from __future__ import annotations
 
 import tempfile
-from collections import Counter
+import threading
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -256,3 +257,39 @@ class FabricationPackage:
                 "smallest": min((row["diameter"] for row in tools), default=None),
             },
         }
+
+
+class PackageCache:
+    """A small bounded cache of parsed packages, safe across request threads.
+
+    A package is expensive to parse and cheap to hold only a few of, so this
+    keeps the most recently used and drops the rest.
+    """
+
+    def __init__(self, size: int = 4) -> None:
+        self._size = size
+        self._items: "OrderedDict[Any, FabricationPackage]" = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key: Any) -> Optional[FabricationPackage]:
+        with self._lock:
+            package = self._items.get(key)
+            if package is not None:
+                self._items.move_to_end(key)
+            return package
+
+    def put(self, key: Any, package: FabricationPackage) -> None:
+        with self._lock:
+            self._items[key] = package
+            while len(self._items) > self._size:
+                self._items.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._items.clear()
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __contains__(self, key: Any) -> bool:
+        return key in self._items

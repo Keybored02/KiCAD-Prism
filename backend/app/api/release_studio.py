@@ -12,8 +12,6 @@ import io
 import json
 import logging
 import tarfile
-import threading
-from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -32,7 +30,11 @@ from app.core.security import (
 from app.services import forge_publish_service as forge_publish
 from app.services import release_studio_build_service as build_service
 from app.services import release_studio_service as store
-from app.services.fabrication_view_service import FabricationPackage, FabricationViewError
+from app.services.fabrication_view_service import (
+    FabricationPackage,
+    FabricationViewError,
+    PackageCache,
+)
 from app.services.job_service import jobs
 from app.services.workspace_service import workspace
 
@@ -561,8 +563,7 @@ _FABRICATION_PREFIXES = ("fabrication/gerbers/", "fabrication/drill/")
 #: A build is immutable, so its parsed package never goes stale; only memory
 #: bounds the cache.
 _FABRICATION_CACHE_SIZE = 4
-_fabrication_cache: "OrderedDict[str, FabricationPackage]" = OrderedDict()
-_fabrication_lock = threading.Lock()
+_fabrication_cache = PackageCache(_FABRICATION_CACHE_SIZE)
 
 
 def _fabrication_files(build: dict[str, Any]) -> dict[str, bytes]:
@@ -608,19 +609,14 @@ def _fabrication_files(build: dict[str, Any]) -> dict[str, bytes]:
 
 def _fabrication_package(build: dict[str, Any]) -> FabricationPackage:
     build_id = str(build["id"])
-    with _fabrication_lock:
-        cached = _fabrication_cache.get(build_id)
-        if cached is not None:
-            _fabrication_cache.move_to_end(build_id)
-            return cached
+    cached = _fabrication_cache.get(build_id)
+    if cached is not None:
+        return cached
     try:
         package = FabricationPackage.from_files(_fabrication_files(build))
     except FabricationViewError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    with _fabrication_lock:
-        _fabrication_cache[build_id] = package
-        while len(_fabrication_cache) > _FABRICATION_CACHE_SIZE:
-            _fabrication_cache.popitem(last=False)
+    _fabrication_cache.put(build_id, package)
     return package
 
 

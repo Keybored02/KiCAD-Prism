@@ -7,6 +7,7 @@ from app.core.gzip_config import (
     GZIP_MINIMUM_SIZE,
 )
 from app.api.auth import router as auth_router
+from app.api.fabrication_view import router as fabrication_view_router
 from app.api.projects import router as projects_router
 from app.api.project_variants import router as project_variants_router
 from app.api.project_import_followups import router as project_import_followups_router
@@ -267,6 +268,7 @@ app.include_router(comment_live_router, prefix="/api/projects", tags=["comments-
 app.include_router(project_variants_router, prefix="/api/projects", tags=["variants"])
 app.include_router(design_compare_router, prefix="/api/projects", tags=["design-compare"])
 app.include_router(release_studio_router, prefix="/api/projects", tags=["release-studio"])
+app.include_router(fabrication_view_router, prefix="/api/projects", tags=["fabrication-view"])
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])
