@@ -2,7 +2,7 @@ import { Suspense, lazy, useState } from "react";
 
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { addCatalogInstance, addInstance, icdUrl } from "@/lib/systems-api";
+import { addCatalogInstance, addInstance } from "@/lib/systems-api";
 
 import { instanceInput } from "../board-fields";
 import { AddBoardDialog } from "../add-board-dialog";
@@ -10,6 +10,9 @@ import { AddSubsystemDialog } from "../subsystem-detail";
 import type { SystemTabProps } from "../system-tab-content";
 import type { SystemTab } from "../system-tabs";
 import { useSystemMutation } from "../use-system-mutation";
+import { IcdView } from "./icd-view";
+import type { PartDetail } from "./part-detail";
+import { rootInstanceOf } from "./use-viewer-selection-sync";
 import { useValidation } from "./use-validation";
 import { WorkspaceInspector } from "./workspace-inspector";
 import { WorkspaceOutline, type AddKind } from "./workspace-outline";
@@ -45,6 +48,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
   const [adding, setAdding] = useState<AddKind | null>(null);
   const [sheet, setSheet] = useState<"outline" | "inspector" | null>(null);
   const [takeRequest, setTakeRequest] = useState(0);
+  const [part, setPart] = useState<PartDetail | null>(null);
 
   const update = (patch: Partial<WorkspaceState>) => onState({ ...state, ...patch });
   const select = (selection: WorkspaceSelection | null) => {
@@ -66,7 +70,9 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
       selection: migrated.state.selection ?? state.selection,
     });
   };
-  const tabProps: SystemTabProps = { ...props, onNavigate, selection: state.selection, onSelect: select };
+  const tabProps: SystemTabProps = { ...props, onNavigate, selection: state.selection, onSelect: select, onPart: setPart };
+  // The picked part shows while its board (or the subsystem holding it) is the selection.
+  const shownPart = part && state.selection?.kind === "instance" && rootInstanceOf(part.selection.occurrence) === state.selection.id ? part : null;
 
   const outline = (
     <WorkspaceOutline document={document} findings={findings} selection={state.selection} canEdit={canEdit}
@@ -74,7 +80,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
   );
   const inspector = (
     <WorkspaceInspector systemId={systemId} document={document} etag={etag} canEdit={canEdit} findings={findings}
-      selection={state.selection} busy={busy} run={run} onSelect={select}
+      selection={state.selection} part={shownPart} busy={busy} run={run} onSelect={select}
       onEditRows={() => { setSheet(null); update({ tray: "connections" }); }} />
   );
 
@@ -83,7 +89,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
       case "diagram":
         return <Suspense fallback={<Loading what="the diagram" />}><DiagramTab {...tabProps} /></Suspense>;
       case "icd":
-        return <iframe title="Interface control document" src={icdUrl(systemId, "html")} sandbox="allow-popups" className="size-full border-0 bg-background" />;
+        return <IcdView systemId={systemId} etag={etag} />;
       default:
         return <Suspense fallback={<Loading what="the 3D view" />}><Scene3dTab {...tabProps} /></Suspense>;
     }

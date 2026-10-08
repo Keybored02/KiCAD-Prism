@@ -11,6 +11,8 @@ import { findingText } from "../findings-ui";
 import { endLabel } from "../link-editor";
 import { ChecksSection } from "../checks-section";
 import type { Mutate } from "../use-system-mutation";
+import type { PartDetail } from "./part-detail";
+import { PartInspector } from "./part-inspector";
 import { harnessFindings } from "./use-validation";
 import type { WorkspaceSelection } from "./workspace-state";
 
@@ -21,6 +23,8 @@ interface InspectorProps {
   canEdit: boolean;
   findings: Finding[];
   selection: WorkspaceSelection | null;
+  /** The part picked on the selected board in the 3D view. */
+  part?: PartDetail | null;
   busy: string | null;
   run: Mutate;
   onSelect: (selection: WorkspaceSelection | null) => void;
@@ -176,8 +180,11 @@ export function WorkspaceInspector(props: InspectorProps) {
   return (
     <aside className="h-full overflow-auto p-5" aria-label="Inspector">
       {instance ? (
-        <BoardDetail key={instance.id} systemId={props.systemId} document={document} instance={instance} etag={props.etag}
-          canEdit={props.canEdit} busy={props.busy} run={props.run} />
+        <div className="space-y-6">
+          {props.part && <PartInspector part={props.part} />}
+          <BoardDetail key={instance.id} systemId={props.systemId} document={document} instance={instance} etag={props.etag}
+            canEdit={props.canEdit} busy={props.busy} run={props.run} />
+        </div>
       ) : link ? (
         <LinkSummary document={document} link={link} findings={findings} onEditRows={props.onEditRows} />
       ) : harness ? (
