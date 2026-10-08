@@ -109,9 +109,13 @@ class ServiceCore:
     # Plumbing
 
     @contextmanager
-    def _tx(self) -> Iterator[SystemStore]:
+    def _tx(self, *, consistent: bool = False) -> Iterator[SystemStore]:
+        """A transaction. ``consistent`` reads every statement from one snapshot (REPEATABLE READ),
+        so a long read sees a single version of the system without holding its lock (SB2-94)."""
         with self._connect() as conn:
             try:
+                if consistent:
+                    conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
                 yield SystemStore(conn)
                 conn.commit()
             except BaseException:

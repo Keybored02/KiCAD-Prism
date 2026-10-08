@@ -403,7 +403,7 @@ class DocumentsMixin:
         instance_id: str, port_key: Optional[str], child_export_id: Optional[str],
     ) -> Result:
         with self._tx() as store:
-            system = self._system(store, system_id, caller)
+            self._system(store, system_id, caller)
             with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
                 if port_key is not None:
                     port = self._export_port(store, system_id, instance_id, port_key, caller)
@@ -417,14 +417,13 @@ class DocumentsMixin:
                         raise Invalid("childExportId is not an export of this subsystem's revision")
                     row = store.create_export(change, name=name, description=description,
                                               instance_id=instance_id, child_export_id=child_export_id)
-                body = self._export_body(store, system, row["id"])
-        return Result(body, system_id, change.version)
+        return Result(self._export_body(caller, system_id, row["id"]), system_id, change.version)
 
     def update_export(
         self, caller: Caller, system_id: str, version: int, export_id: str, fields: Mapping[str, Any],
     ) -> Result:
         with self._tx() as store:
-            system = self._system(store, system_id, caller)
+            self._system(store, system_id, caller)
             with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
                 export = self._visible_export(store, system_id, export_id, caller)
                 if "name" in fields or "description" in fields:
@@ -434,8 +433,7 @@ class DocumentsMixin:
                     instance_id = fields.get("instanceId") or export["target_instance_id"]
                     port = self._export_port(store, system_id, instance_id, fields["portKey"], caller)
                     store.retarget_export(change, export_id, instance_id=instance_id, port=port)
-                body = self._export_body(store, system, export_id)
-        return Result(body, system_id, change.version)
+        return Result(self._export_body(caller, system_id, export_id), system_id, change.version)
 
     def delete_export(self, caller: Caller, system_id: str, version: int, export_id: str) -> Result:
         with self._tx() as store:
@@ -453,9 +451,15 @@ class DocumentsMixin:
             raise NotFound("Export not found") from None
         return export
 
-    def _export_body(self, store: SystemStore, system: Mapping[str, Any], export_id: str) -> dict:
-        built, _instances, _jobs = self._build(store, system)
-        return next(e for e in built["exports"] if e["id"] == export_id)
+    def _export_body(self, caller: Caller, system_id: str, export_id: str) -> dict:
+        """The export as the document shows it, built after the change commits (SB2-94: a document
+        build under the system lock queued every other editor behind it)."""
+        with self._tx() as store:
+            built, _instances, _jobs = self._build(store, self._system(store, system_id, caller))
+        found = next((e for e in built["exports"] if e["id"] == export_id), None)
+        if found is None:  # deleted by another editor in between
+            raise NotFound("Export not found")
+        return found
 
     def export_interface(self, caller: Caller, system_id: str, snapshot_id: Optional[str] = None) -> dict:
         """``GET …/export-interface`` (P2 §4.3), live or at a snapshot, redacted for the reader."""

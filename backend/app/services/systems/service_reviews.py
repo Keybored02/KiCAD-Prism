@@ -12,7 +12,7 @@ from app.services.systems import (
 )
 from app.services.systems.manifest_schema import digests as manifest_digests
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
-from app.services.systems.store import Conflict, Forbidden, Invalid, NotFound, SystemStore, new_id
+from app.services.systems.store import Conflict, Forbidden, Invalid, NotFound, StaleVersion, SystemStore, new_id
 from app.services.systems.service_base import Caller, Result, logger, _iso, MAX_LAYOUT_ENTRIES
 
 
@@ -290,20 +290,25 @@ class ReviewsMixin:
         diffs read.
         """
 
-        with self._tx() as store:
+        # SB2-94: build from one consistent read of ``version`` without the system lock, so editors
+        # are not queued behind the build; then lock only to check nothing changed and store it.
+        with self._tx(consistent=True) as store:
             system = self._system(store, system_id, caller)
+            if int(system["version"]) != int(version):
+                raise StaleVersion(int(system["version"]))
+            built, _instances, _jobs = self._build(store, system)
+            document = json.loads(json.dumps(built, default=_iso))
+            snapshot_id = new_id("ssn_")
+            manifest = manifest_io.build(
+                store, system_id, created_by=caller.actor,
+                created_at=datetime.now(timezone.utc).replace(microsecond=0),
+                snapshot={"id": snapshot_id, "name": name.strip(), "note": note},
+                catalog_refs=self._catalog_refs(store, system_id),
+            )
+            digests = manifest_digests(manifest)
+            git = self._snapshot_git(store, system_id, caller)
+        with self._tx() as store:
             with store.mutation(system_id, expected_version=version, actor=caller.actor, bump=False) as change:
-                built, _instances, _jobs = self._build(store, system)
-                document = json.loads(json.dumps(built, default=_iso))
-                snapshot_id = new_id("ssn_")
-                manifest = manifest_io.build(
-                    store, system_id, created_by=caller.actor,
-                    created_at=datetime.now(timezone.utc).replace(microsecond=0),
-                    snapshot={"id": snapshot_id, "name": name.strip(), "note": note},
-                    catalog_refs=self._catalog_refs(store, system_id),
-                )
-                digests = manifest_digests(manifest)
-                git = self._snapshot_git(store, system_id, caller)
                 row = store.create_snapshot(
                     change, name=name, note=note, document=document, digest=digests["full"],
                     open_review_count=document["openReviewCount"], renderer_version=icd.RENDERER_VERSION,
