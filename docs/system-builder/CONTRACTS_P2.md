@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.62 · 2026-10-08 · tickets SB2-00 to SB2-52.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.63 · 2026-10-08 · tickets SB2-00 to SB2-53.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -577,7 +577,7 @@ Everything else stays on reader or writer roles, including inventory export, hea
 
 ## 13. Audit event kinds (additions)
 
-`system_imported`, `export_created`, `export_updated`, `export_retargeted`, `export_deleted`, `snapshot_published`, `child_auto_advanced`, `child_rebased`, `link_type_changed`, `harness_created`, `harness_updated`, `harness_deleted`, `pose_updated`, `poses_reset`, `mating_updated`. `harness_created` carries `fromLink` or `fromLabel` when it replaced links (§16.1, §17.2).
+`git_linked`, `git_relinked`, `git_unlinked`, `snapshot_committed`, `snapshot_commit_refused` (§21.5), `system_imported`, `export_created`, `export_updated`, `export_retargeted`, `export_deleted`, `snapshot_published`, `child_auto_advanced`, `child_rebased`, `link_type_changed`, `harness_created`, `harness_updated`, `harness_deleted`, `pose_updated`, `poses_reset`, `mating_updated`. `harness_created` carries `fromLink` or `fromLabel` when it replaced links (§16.1, §17.2).
 
 ## 14. Frames and placement conventions (SB2-10)
 
@@ -930,6 +930,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.63 | 2026-10-08 | SB2-53: §21 implemented. Migration 45 (`system_git_links`, snapshot `git`); jobs `system_git_sync` and `system_git_commit` both take the write lock; failures are recorded and retried through `git-retry`, never by the job runtime; error details are `code: …` strings. |
 | P2-1.62 | 2026-10-08 | SB2-52 (D-P2-42..45): §21 Git tracking. A system links to an existing remote and branch; snapshots commit `prism.system.json` there (author = the Prism user, committer = KiCAD Prism, lease-guarded push, no force); an outside manifest change refuses snapshots until it is imported through review (SB2-54). |
 | P2-1.61 | 2026-10-08 | SB2-51b (D-P2-41): §3.3 every assembly publish attaches a generated multi-unit symbol (one unit per export, pins = pads named by net). |
 | P2-1.60 | 2026-10-08 | SB2-51: §5.6 module release follow and drift (connectors as the candidate interface); §3.5 a module's symbol import replaces its symbol. |
@@ -1274,7 +1275,7 @@ A system can be linked to a Git repository of its own. Snapshots then become com
 
 - **What.** One link per system: `{url, branch}`. The URL is a remote that already exists; Prism never creates a repository on a forge. The URL passes the import policy (`parse_remote_url` with `IMPORT_ALLOWED_HOSTS` and `IMPORT_ALLOW_INSECURE_HTTP`), and credentials come from the workspace, as for project imports (`git_env`: the workspace SSH key, `GITHUB_TOKEN`).
 - **Branch.** It defaults to the repository's default branch (`ls-remote --symref HEAD`). It must pass `valid_tracked_ref`. An empty repository is allowed; the branch is then created by the first snapshot.
-- **Clone.** Prism keeps a bare clone of its own per linked system at `<PRISM_SYSTEM_REPOS_ROOT>/<systemId>.git` (default `data/system-repos`), fetching `+refs/heads/*:refs/remotes/origin/*`. It is not a workspace project and never appears in the project list. Prism never uses a working tree: commits are built with plumbing (`hash-object`, a temporary index, `write-tree`, `commit-tree`).
+- **Clone.** Prism keeps a bare clone of its own per linked system at `<PRISM_SYSTEM_REPOS_ROOT>/<systemId>.git` (default `KICAD_PROJECTS_ROOT/.kicad-prism/system-repos`, inside the persisted projects volume), fetching `+refs/heads/*:refs/remotes/origin/*`. It is not a workspace project and never appears in the project list. Prism never uses a working tree: commits are built with plumbing (`hash-object`, a temporary index, `write-tree`, `commit-tree`).
 - **File.** The manifest lives at the repository root as **`prism.system.json`**: the snapshot's manifest exactly as `GET …/snapshots/{sid}/manifest` returns it, serialized with sorted keys, two-space indentation and a trailing newline, so diffs are stable. Every other file in the repository is left alone.
 - **Linking** checks reachability (`check_repository_access`, read-only, so push rights are only proven by the first push) and queues a `system_git_sync` job (§21.4). Changing the URL or branch, or unlinking, needs no confirmation from the remote. Unlinking deletes the bare clone; snapshot commit records stay.
 - **One system per repository branch.** Linking a URL and branch (by `dedup_key`) that another system already uses is refused with 409 `git_link_in_use`.
@@ -1283,32 +1284,32 @@ A system can be linked to a Git repository of its own. Snapshots then become com
 
 - A snapshot of a linked system queues a `system_git_commit` job once its row is written. The snapshot itself never waits for Git: its `git` status starts as `queued`.
 - **Commit.** The job fetches, then builds a commit whose tree is the branch tip's tree with `prism.system.json` replaced, and whose parent is the tip (none on an empty branch).
-  - **Author:** the Prism user who took the snapshot (their name, else their e-mail's local part, and their e-mail).
+  - **Author:** the Prism user who took the snapshot (their name, else their e-mail's local part, and their e-mail), recorded on the snapshot when it is queued.
   - **Committer:** `KiCAD Prism <prism@kicad-prism.invalid>`.
   - **Message:** `Snapshot <name>`, a blank line, the note (when there is one), a blank line, then the trailers `Prism-System: <systemId>` and `Prism-Snapshot: <snapshotId>`.
 - **Push.** Directly to the linked branch, with `--force-with-lease=refs/heads/<branch>:<tip>`; never a force push, never another branch or a pull request. If the lease fails because someone pushed in between, the job fetches again. When the new tip's `prism.system.json` is unchanged, it rebuilds the commit on the new tip and pushes again (up to three attempts). Otherwise §21.3 applies.
-- **Status** on the snapshot (`git` in snapshot metadata): `null` (the system wasn't linked), `{state: "queued"}`, `{state: "pushed", commit, branch}`, `{state: "refused", reason: "outside-change", commit}` (the outside tip), or `{state: "failed", reason, message}` with a `git_failures` reason (`credentials-required`, `ssh-key-not-authorized`, `repository-not-found`, …, plus `push-denied` for a remote that refuses writes and `unknown`). A failed commit job is retried by the job runtime (two attempts); after that, `POST …/snapshots/{sid}/git-retry` queues it again.
+- **Status** on the snapshot (`git` in snapshot metadata): `null` (the system wasn't linked), `{state: "queued"}`, `{state: "pushed", commit, branch}`, `{state: "refused", reason: "outside-change", commit}` (the outside tip), or `{state: "failed", reason, message}` with a `git_failures` reason (`credentials-required`, `ssh-key-not-authorized`, `repository-not-found`, …, plus `push-denied` for a remote that refuses writes, `branch-busy` after three lost leases, `unlinked`, and `unknown`), or `{state: "skipped"}` (below). A failure is recorded, not retried by the job runtime; `POST …/snapshots/{sid}/git-retry` queues the commit again. A retried job that finds its own manifest already at the tip records `pushed` without committing again.
 - Commits follow snapshot order: one job at a time per system (write lock `system-git:<systemId>`), and a job for an older snapshot that finds a newer snapshot already pushed records `{state: "skipped"}` instead of committing older content over newer.
 
 ### 21.3 Outside changes (D-P2-45)
 
 - **Known blob.** The link stores the blob ID of `prism.system.json` as Prism last pushed or imported it (`knownBlob`, null before the first one).
 - **Detection.** After every fetch (§21.4) and before every commit, Prism compares the branch tip's `prism.system.json` with `knownBlob`. A difference (including a manifest already in the repository at link time, or its removal) is an **outside change**: the link records `outsideCommit` (the tip).
-- **Refusal.** While `outsideCommit` is set, `POST …/snapshots` answers 409 `git_outside_change` with `{commit}`, and a queued commit job records `refused`. Prism never overwrites or merges an outside push.
+- **Refusal.** While `outsideCommit` is set, `POST …/snapshots` answers 409 `git_outside_change: <commit> …`, and a queued commit job records `refused`. Prism never overwrites or merges an outside push.
 - **Clearing it** is SB2-54: the outside manifest is imported through a review, and accepting or rejecting that review sets `knownBlob` to the outside blob and clears `outsideCommit`. Changes to other files never count.
 
 ### 21.4 Fetching
 
-`system_git_sync` (pool `prism`, read lock `system-git:<systemId>`) clones the bare repository when it is missing, fetches with `--prune`, and runs §21.3's detection. It runs on link, before each commit (inline, within the commit job), on `POST …/git/fetch`, and with the periodic project fetch (`PRISM_AUTO_SYNC_INTERVAL_SECONDS`, SB2-54). Its outcome is stored on the link: `lastFetchedAt`, `tip`, and `lastError {reason, message}` (null on success).
+`system_git_sync` (pool `prism`; like `system_git_commit`, it holds the write lock `system-git:<systemId>`) clones the bare repository when it is missing, fetches with `--prune`, and runs §21.3's detection. It runs on link, before each commit (inline, within the commit job), on `POST …/git/fetch`, and with the periodic project fetch (`PRISM_AUTO_SYNC_INTERVAL_SECONDS`, SB2-54). Its outcome is stored on the link: `lastFetchedAt`, `tip`, and `lastError {reason, message}` (null on success).
 
 ### 21.5 API
 
 | Method and path | Purpose |
 |---|---|
 | `GET …/git` | `{url, branch, tip, knownBlob, outsideCommit, lastFetchedAt, lastError, linkedBy, linkedAt}` or `null` |
-| `PUT …/git` | `{url, branch?}`: link or change the link. If-Match; designer or admin. 422 `git_url_invalid` (policy), 422 `git_unreachable` with `{reason, message}`, 409 `git_link_in_use` |
+| `PUT …/git` | `{url, branch?}`: link or change the link. If-Match; designer or admin. 422 `git_url_invalid: …` (policy), 422 `git_unreachable: <reason>: <message>`, 409 `git_link_in_use` |
 | `DELETE …/git` | Unlink. If-Match; designer or admin |
 | `POST …/git/fetch` | Queue `system_git_sync`; 202 `{jobId}` |
-| `POST …/snapshots/{sid}/git-retry` | Queue the commit again for a `failed` or `refused` snapshot (`refused` only once the outside change is cleared) |
+| `POST …/snapshots/{sid}/git-retry` | 202 `{jobId}`: queue the commit again for a `failed` or `refused` snapshot (`refused` only once the outside change is cleared; otherwise 409 `git_outside_change`, `git_not_linked` or `git_not_retryable`) |
 
 Link changes bump the system version and write the audit events `git_linked`, `git_relinked` and `git_unlinked`. Commits write `snapshot_committed {snapshotId, commit, branch}`, and refusals `snapshot_commit_refused {snapshotId, commit}`, as `system:git`.

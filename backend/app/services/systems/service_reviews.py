@@ -269,7 +269,8 @@ class ReviewsMixin:
                 "createdAt": _iso(row["created_at"]), "digest": row["digest"],
                 "connectivityDigest": row.get("connectivity_digest"),
                 "manifestSchema": row.get("manifest_schema"),
-                "openReviewCount": int(row["open_review_count"]), "rendererVersion": row["renderer_version"]}
+                "openReviewCount": int(row["open_review_count"]), "rendererVersion": row["renderer_version"],
+                "git": _git_status(row.get("git"))}
 
     def _restricted_in(self, store: SystemStore, document: Mapping[str, Any], caller: Caller) -> redaction.Restricted:
         """Restricted boards and hidden export ends of a frozen document, by today's access (§8.2).
@@ -302,12 +303,15 @@ class ReviewsMixin:
                     catalog_refs=self._catalog_refs(store, system_id),
                 )
                 digests = manifest_digests(manifest)
+                git = self._snapshot_git(store, system_id, caller)
                 row = store.create_snapshot(
                     change, name=name, note=note, document=document, digest=digests["full"],
                     open_review_count=document["openReviewCount"], renderer_version=icd.RENDERER_VERSION,
                     snapshot_id=snapshot_id, manifest=manifest.model_dump(mode="json", by_alias=True),
-                    connectivity_digest=digests["connectivity"],
+                    connectivity_digest=digests["connectivity"], git=git,
                 )
+        if git is not None:
+            self._git_quietly(self._git_enqueue_commit, system_id, row["id"], requested_by=caller.email)
         return Result(self._snapshot_meta(row), system_id, change.version)
 
     def list_snapshots(self, caller: Caller, system_id: str) -> list[dict]:
@@ -692,3 +696,8 @@ def _visible_candidates(candidates: Any, instance_id: str, ports: Collection[tup
                          "libId": None, "footprint": None, "libIdEqual": None, "netOverlap": None, "redacted": True}
         out.append(candidate)
     return out
+
+
+def _git_status(git: Optional[Mapping[str, Any]]) -> Optional[dict]:
+    """A snapshot's commit status (§21.2), without the author it was queued with."""
+    return None if git is None else {k: v for k, v in git.items() if k != "author"}

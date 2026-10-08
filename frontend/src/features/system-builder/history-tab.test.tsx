@@ -148,3 +148,53 @@ describe("HistoryTab", () => {
     expect(screen.queryByRole("link", { name: /All levels/ })).toBeNull();
   });
 });
+
+describe("Git tracking (P2 §21)", () => {
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+    status, headers: { "Content-Type": "application/json", ETag: '"sys:sys_1:4"' },
+  });
+  const snapshot = (id: string, name: string, git: unknown) => ({
+    id, name, note: "", createdBy: "user:a@x", createdAt: "2026-10-08T10:00:00Z", digest: "sha256:0123456789abcdef0123",
+    openReviewCount: 0, rendererVersion: "1", git,
+  });
+
+  it("links a repository with If-Match, shows commit states and retries a failed commit", async () => {
+    const calls: [string, RequestInit][] = [];
+    let link: unknown = null;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
+      calls.push([url, init]);
+      if (url.endsWith("/git") && init.method === "PUT") {
+        link = { url: "git@github.com:team/sys.git", branch: "main", tip: "c".repeat(40), knownBlob: null,
+          outsideCommit: "d".repeat(40), lastFetchedAt: null, lastError: null, linkedBy: "user:a@x", linkedAt: "2026-10-08T10:00:00Z" };
+        return json(link);
+      }
+      if (url.endsWith("/git")) return json(link);
+      if (url.endsWith("/git-retry")) return json({ jobId: "job_1" }, 202);
+      if (url.includes("/history")) return json({ events: [], nextCursor: null });
+      if (url.endsWith("/snapshots")) {
+        return json([snapshot("ssn_2", "PDR", { state: "failed", reason: "push-denied", message: "refused" }),
+          snapshot("ssn_1", "CDR", { state: "pushed", commit: "a".repeat(40), branch: "main" })]);
+      }
+      return json({});
+    }));
+    render(<HistoryTab systemId="sys_1" document={doc} etag='"sys:sys_1:3"' canEdit user={null} reload={vi.fn(async () => undefined)} onNavigate={vi.fn()} />);
+    expect(await screen.findByText("Committed aaaaaaaa")).toBeTruthy();
+    expect(screen.getByText("Commit failed: push refused")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Link repository" }));
+    fireEvent.change(await screen.findByLabelText("Repository URL"), { target: { value: " git@github.com:team/sys.git " } });
+    fireEvent.click(screen.getByRole("button", { name: "Link" }));
+    expect(await screen.findByText(/changed outside Prism \(dddddddd\)/)).toBeTruthy();
+    const put = calls.find(([url, init]) => url.endsWith("/git") && init.method === "PUT")!;
+    expect(JSON.parse(String(put[1].body))).toEqual({ url: "git@github.com:team/sys.git" });
+    expect(new Headers(put[1].headers).get("If-Match")).toBe('"sys:sys_1:3"');
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry the commit of PDR" }));
+    await waitFor(() => expect(calls.some(([url, init]) => url.endsWith("/snapshots/ssn_2/git-retry") && init.method === "POST")).toBe(true));
+  });
+
+  it("summarises Git audit events", () => {
+    expect(eventSummary(event("git_linked", { url: "git@x:y.git", branch: "main" }), labels)).toBe("git@x:y.git main");
+    expect(eventSummary(event("snapshot_committed", { commit: "e".repeat(40) }), labels)).toBe("eeeeeeee");
+  });
+});
