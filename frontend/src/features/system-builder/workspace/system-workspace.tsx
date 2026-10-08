@@ -1,5 +1,6 @@
 import { Suspense, lazy, useState } from "react";
 
+import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { addCatalogInstance, addInstance, icdUrl } from "@/lib/systems-api";
 
@@ -96,13 +97,19 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
         onTakeSnapshot={() => { setTakeRequest((count) => count + 1); update({ tray: "history" }); }}
         onOutline={() => setSheet("outline")} onInspector={() => setSheet("inspector")} />
       <div className="flex min-h-0 flex-1">
-        <div className="hidden w-64 shrink-0 border-r lg:block">{outline}</div>
+        <ResizablePanel side="left" storageKey="prism.system-workspace.outline-width" defaultWidth={256} minWidth={200} maxWidth={480}
+          aria-label="Outline panel" className="hidden lg:flex">
+          {outline}
+        </ResizablePanel>
         <div className="flex min-w-0 flex-1 flex-col">
           <main className="relative min-h-0 flex-1 overflow-auto">{view(state.view)}</main>
           <WorkspaceTray {...tabProps} tab={state.tray} findings={findings} selection={state.selection} busy={busy} run={run}
             importing={importing} takeRequest={takeRequest} onTab={setTray} onSelect={select} onImporting={onImporting} />
         </div>
-        <div className="hidden w-[22rem] shrink-0 border-l lg:block">{inspector}</div>
+        <ResizablePanel side="right" storageKey="prism.system-workspace.inspector-width" defaultWidth={352} minWidth={280} maxWidth={720}
+          aria-label="Inspector panel" className="hidden lg:flex">
+          {inspector}
+        </ResizablePanel>
       </div>
 
       <Sheet open={sheet !== null} onOpenChange={(open) => { if (!open) setSheet(null); }}>
