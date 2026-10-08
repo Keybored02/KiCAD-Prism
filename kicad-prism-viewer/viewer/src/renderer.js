@@ -119,7 +119,9 @@ fn aces(color: vec3f) -> vec3f {
     base = min(base * 1.6 + vec3f(0.03, 0.05, 0.02), vec3f(1.0));
   }
   if (selected && copper) {
-    if (draw.flags.z < 0.5) {
+    // flags.z: 0 draws all copper, 1 isolates (lit copper keeps its colour), 2 is inner copper
+    // that shows only where lit (SB2-85) and pulses like the outer layers.
+    if (draw.flags.z < 0.5 || draw.flags.z > 1.5) {
       let pulse = 0.88 + 0.12 * sin(globals.time * 3.2);
       base = vec3f(0.08, 1.0, 0.2) * pulse;
     }
@@ -780,6 +782,8 @@ export class Renderer {
     // Inner copper is hidden by an opaque board, so it draws at full detail only;
     // exploded or see-through boards move it down to board detail.
     this.innerCopperAtFull = true;
+    // SB2-85: "all" inner copper, only the "lit" nets', or "none" (an opaque board with nothing lit).
+    this.innerCopperMode = "all";
     this.cullCounts = { full: 0, board: 0, body: 0, box: 0, culled: 0 };
     this.frameStats = { triangles: 0, draws: 0 };
     this.boxColor = [0.24, 0.36, 0.28, 1]; // solder-mask green, darkened
@@ -1002,6 +1006,14 @@ export class Renderer {
   }
 
   /** Draw inner copper only for full-detail occurrences (opaque boards) or for board detail too. */
+  /** Which inner copper draws (SB2-85): "all", only the lit nets' ("lit"), or "none". */
+  setInnerCopperMode(mode) {
+    this.setInnerCopperAtFull(false);
+    if (this.innerCopperMode === mode) return;
+    this.innerCopperMode = mode;
+    this.invalidate();
+  }
+
   setInnerCopperAtFull(atFull) {
     if (this.innerCopperAtFull === atFull) return;
     this.innerCopperAtFull = atFull;
@@ -1881,6 +1893,7 @@ export class Renderer {
     if (entry.kind === "board" && entry.boardRole === "pad") return false;
     if (!compareMode && entry.kind === "copper" && visibleTileIds && !visibleTileIds.has(entry.tileId)) return false;
     if (compareMode) return entry.kind === "copper" && visibleLayers.has(entry.layerId);
+    if (entry.innerCopper && this.innerCopperMode === "none") return false;
     // Paste belongs to its copper layer: shown with it, whatever the substrate does.
     if (entry.boardRole === "paste") return panelLayer === 0 && visibleLayers.has(entry.layerId);
     if (entry.kind === "board") return panelLayer === 0 && showBoard;
@@ -1944,7 +1957,8 @@ export class Renderer {
         ? boardOpacity * boardRoleOpacity(entry, materialAlpha)
         : layerAlpha;
     const kind = entry.kind === "copper" ? 1 : entry.kind === "component" ? 2 : 0;
-    data.set([kind, opacity, isolateNet ? 1 : 0, compareMode ? 1 : 0], 12);
+    const isolate = isolateNet ? 1 : entry.innerCopper && this.innerCopperMode === "lit" ? 2 : 0;
+    data.set([kind, opacity, isolate, compareMode ? 1 : 0], 12);
   }
 
   writeBarrelDraw(isolateNet = false) {

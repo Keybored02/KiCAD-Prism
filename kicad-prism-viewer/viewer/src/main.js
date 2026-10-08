@@ -1059,14 +1059,18 @@ function neededTileIdsForView(b = board) {
 }
 
 /**
- * SB2-81: in a system scene a board's inner copper is drawn only at full detail
- * while the board shows opaque (`setInnerCopperAtFull`), so until the board is
- * close enough for full detail, or is exploded, hidden or has a net lit, its
- * inner-layer tiles are not needed and are not loaded. Those already loaded are
- * released once they have gone unused for a while (`releaseDeferredInnerTiles`).
+ * SB2-85 (user, 2026-10-08): while a net is searched or selected only the lit
+ * nets' inner copper draws (a net probe hides the board, so this comes first);
+ * otherwise an exploded or hidden board shows all of it and an opaque board,
+ * whose substrate hides it, none.
  */
+function innerCopperMode(revealed, lit) {
+  return lit ? "lit" : revealed ? "all" : "none";
+}
+
+/** Inner-layer tiles load only when all inner copper shows; otherwise only those with a lit net (SB2-81, SB2-85). */
 function innerCopperDeferred(b) {
-  return Boolean(system) && Boolean(b.renderer?.innerCopperAtFull) && !(b.renderer.cullCounts?.full > 0);
+  return Boolean(b.renderer) && b.renderer.innerCopperMode !== "all";
 }
 
 function releaseDeferredInnerTiles(needed, now, b) {
@@ -1989,8 +1993,8 @@ function frameSystem(now, token) {
     // Each placement explodes itself (SB2-31f): the renderer holds per-layer steps, each occurrence its gap.
     const layerZOffsets = stackupSteps(b);
     if (b.scene.copperRealism !== copperRealism()) applyCopperColors(b);
-    // As on the 3D tab: inner copper shows once the board is exploded, hidden or a net is lit.
-    b.renderer.setInnerCopperAtFull(state.showBoard && !boardSeparated(b) && !emphasis);
+    // As on the 3D tab (SB2-85): all inner copper once the board is exploded or hidden, else only lit nets'.
+    b.renderer.setInnerCopperMode(innerCopperMode(!state.showBoard || boardSeparated(b), litNetIds(b).size > 0));
     // Copper of boards with nothing lit dims too while any net is lit anywhere.
     b.renderer.dimCopper = emphasis;
     scheduleTileResidency(now, {}, b);
@@ -3546,8 +3550,8 @@ function frame(now, token = activeViewerToken) {
   };
   // The copy holding the selection keeps full detail and its emphasis; none without a selection.
   board.renderer.selectedOccurrence = state.selectedFeatureId || state.activeNetId ? state.selectedOccurrence : -1;
-  // Inner copper shows once the board is exploded, faded for highlighting, or hidden.
-  board.renderer.setInnerCopperAtFull(state.showBoard && state.separation <= 0.001 && !emphasizedNetIds().size);
+  // SB2-85: all inner copper once the board is exploded or hidden; on an opaque board only the lit nets'.
+  board.renderer.setInnerCopperMode(innerCopperMode(!state.showBoard || state.separation > 0.001, emphasizedNetIds().size > 0));
   scheduleTileResidency(now);
   const visibleLayers = state.mode === "3d" ? board.visible3dLayers : compareRenderLayers();
   const inputs = {
