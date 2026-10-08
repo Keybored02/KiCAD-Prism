@@ -1,5 +1,5 @@
 import { Boxes, GitPullRequestArrow } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { WorkspaceSectionHeading } from "@/components/workspace/workspace-section-heading";
@@ -56,7 +56,9 @@ function SystemCard({ system, dense = false }: SystemCardProps) {
             <p className="line-clamp-1 text-sm font-semibold">{system.name}</p>
             <p className="text-xs text-muted-foreground">
               {[
-                `${system.instanceCount} ${system.instanceCount === 1 ? "board" : "boards"}`,
+                // SB2-101: no "0 boards" for a system made of subsystems and modules.
+                system.instanceCount || !(system.moduleCount || system.subsystemCount)
+                  ? `${system.instanceCount} ${system.instanceCount === 1 ? "board" : "boards"}` : "",
                 system.moduleCount ? `${system.moduleCount} ${system.moduleCount === 1 ? "module" : "modules"}` : "",
                 system.subsystemCount ? `${system.subsystemCount} ${system.subsystemCount === 1 ? "subsystem" : "subsystems"}` : "",
               ].filter(Boolean).join(" · ")}
@@ -89,7 +91,11 @@ export function WorkspaceSystemsSection({ systems, dense = false, showHeading }:
   }
   return (
     <section className="space-y-3" aria-label="Systems">
-      {showHeading && <WorkspaceSectionHeading icon={Boxes} title="Systems" count={systems.length} />}
+      {showHeading && (
+        <WorkspaceSectionHeading icon={Boxes} title="Systems" count={systems.length}>
+          <Link to="/systems" className="text-xs text-muted-foreground hover:text-foreground hover:underline">All</Link>
+        </WorkspaceSectionHeading>
+      )}
       <div
         className={
           dense

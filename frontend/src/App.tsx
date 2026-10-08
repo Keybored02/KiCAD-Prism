@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import type { User, AuthConfig } from './types/auth';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,9 @@ const Workspace = lazy(() =>
 const ProjectDetailPage = lazy(() =>
     import('./pages/ProjectDetailPage').then((module) => ({ default: module.ProjectDetailPage }))
 );
+const SystemsPage = lazy(() =>
+    import('./pages/SystemsPage').then((module) => ({ default: module.SystemsPage }))
+);
 const SystemDetailPage = lazy(() =>
     import('./pages/SystemDetailPage').then((module) => ({ default: module.SystemDetailPage }))
 );
@@ -47,6 +50,9 @@ function FullScreenMessage({ message, isError = false }: { message: string; isEr
         </div>
     );
 }
+
+/** A lazily loaded page, with the route fallback while its chunk loads. */
+const suspended = (page: ReactNode) => <Suspense fallback={<RouteFallback />}>{page}</Suspense>;
 
 function App() {
     const [user, setUser] = useState<User | null>(null);
@@ -324,19 +330,15 @@ function App() {
                 } />
                 <Route
                     path="/project/:projectId"
-                    element={
-                        <Suspense fallback={<RouteFallback />}>
-                            <ProjectDetailPage user={user} />
-                        </Suspense>
-                    }
+                    element={suspended(<ProjectDetailPage user={user} />)}
+                />
+                <Route
+                    path="/systems"
+                    element={suspended(<SystemsPage />)}
                 />
                 <Route
                     path="/systems/:systemId"
-                    element={
-                        <Suspense fallback={<RouteFallback />}>
-                            <SystemDetailPage user={user} />
-                        </Suspense>
-                    }
+                    element={suspended(<SystemDetailPage user={user} />)}
                 />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

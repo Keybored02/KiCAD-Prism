@@ -940,6 +940,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.70 | 2026-10-09 | SB2-101: system summaries carry `boardTotal` (boards counted through every subsystem; null if the hierarchy can't be resolved). `GET /api/systems` also carries `lastSnapshot {id, name, createdAt}`, `git {branch, outsideChange, error}` and `findingCounts` (the last document build's counts, only when built at the current version). Counts live in `system_finding_counts` (migration 49), without a foreign key so a reader recording them never holds a lock an editor waits on. |
 | P2-1.69 | 2026-10-09 | SB2-100 (D-P2-56): finding keys and waivers (§8.5): warnings and info only, with a note, versioned, in the manifest and the ICD (renderer 5); counts leave waived findings out. |
 | P2-1.68 | 2026-10-09 | SB2-98: `GET /api/systems/{id}?include=validation` returns the §7.2 report (redacted) with the document. The live document carries `sceneKey` and `netsKey`, digests of what the scene (instances, link ends and types, stack heights, harnesses, mating, poses, driving mates) and the system nets (instances, link ends, row pins and nets, exports, harnesses) depend on; readers re-read those only when the key changes. Snapshots do not freeze the keys. |
 | P2-1.67 | 2026-10-09 | SB2-97: the hierarchy limits are also checked when a manifest import is accepted (a refused import rolls back whole), and an advance is re-checked under the lock; flattened and direct limits documented together (§5.3). |

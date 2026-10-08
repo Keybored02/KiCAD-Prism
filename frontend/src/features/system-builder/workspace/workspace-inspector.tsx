@@ -81,6 +81,11 @@ function FindingList({ findings }: { findings: readonly Finding[] }) {
   );
 }
 
+function boardsText(total: number | null | undefined, direct: number, subsystems: number): string {
+  if (!subsystems || total == null || total === direct) return String(total ?? direct);
+  return direct ? `${total} · ${direct} direct` : `${total} in ${subsystems} ${subsystems === 1 ? "subsystem" : "subsystems"}`;
+}
+
 function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect }: InspectorProps) {
   const { system } = document;
   const kinds = (kind: string) => document.instances.filter((item) => (item.kind ?? "board") === kind).length;
@@ -89,7 +94,8 @@ function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect
     <div className="space-y-5">
       <InspectorHeader kind="System" title={system.name} subtitle={system.description || undefined} />
       <InspectorFacts rows={[
-        { label: "Boards", value: String(kinds("board")) },
+        // SB2-101: every board, counted through subsystems; the ones placed here directly apart.
+        { label: "Boards", value: boardsText(system.boardTotal, kinds("board"), kinds("assembly")) },
         ...(kinds("module") ? [{ label: "Modules", value: String(kinds("module")) }] : []),
         ...(kinds("assembly") ? [{ label: "Subsystems", value: String(kinds("assembly")) }] : []),
         { label: "Connections", value: String(document.links.length + (document.harnesses?.length ?? 0)) },
