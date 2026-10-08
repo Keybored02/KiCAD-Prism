@@ -54,3 +54,13 @@ export function names(occurrences: SystemSceneOccurrence[], limit = 3): string {
   const shown = occurrences.slice(0, limit).map((occurrence) => occurrence.displayPath);
   return occurrences.length > limit ? `${shown.join(", ")} and ${occurrences.length - limit} more` : shown.join(", ");
 }
+
+/**
+ * The notice for a board whose 3D view failed: the server's reason, then how to retry,
+ * unless the reason already says so (SB2-91), without a doubled full stop.
+ */
+export function failedNotice(displayPath: string, reason: string | null | undefined): string {
+  const why = (reason ?? "").trim().replace(/\.+$/, "");
+  const head = `The 3D view of ${displayPath} failed${why ? `: ${why}` : ""}.`;
+  return /regenerate/i.test(why) ? head : `${head} Regenerate it from the board's 3D tab.`;
+}

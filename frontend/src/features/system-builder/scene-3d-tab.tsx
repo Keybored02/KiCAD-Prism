@@ -18,7 +18,7 @@ import type {
 } from "@/types/prism-semantic-viewer";
 import type { SystemScene } from "@/types/system";
 
-import { drawnBoards, names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
+import { drawnBoards, failedNotice, names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
 import { HarnessPanel } from "./scene-harness-panel";
 import { MovePanel } from "./scene-move-panel";
 import { TRACE_KEY, emphasisSets, netBoards, traceSet } from "./scene-net-model";
@@ -516,7 +516,7 @@ function SceneNotices({ error, viewerError, summary }: {
           )}
           {summary && summary.failed.map(({ occurrence, error: reason }) => (
             <Notice key={occurrence.path} tone="error">
-              The 3D view of {occurrence.displayPath} failed{reason ? `: ${reason}` : ""}. Regenerate it from the board&apos;s 3D tab.
+              {failedNotice(occurrence.displayPath, reason)}
             </Notice>
           ))}
           {summary && summary.unplaced.length > 0 && (

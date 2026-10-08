@@ -14,6 +14,10 @@ from typing import Any, Mapping, Optional
 logger = logging.getLogger(__name__)
 
 
+class BundleUnreadable(Exception):
+    """The bundle a ready status names cannot be read: its files are gone or broken (SB2-91)."""
+
+
 def mid_plane_from_layers(layers: list[Mapping[str, Any]]) -> float:
     """Height of the board mid-plane in a bundle's runtime frame, in mm.
 
@@ -74,6 +78,7 @@ class BundleSource:
         return project_service.start_workflow_job(project_id, "webgpu_3d", requested_by or "system-scene", commit=commit)
 
     def mid_plane_mm(self, project_id: str, status: Mapping[str, Any]) -> Optional[float]:
+        """The bundle's board mid-plane; None for a board-stage bundle; BundleUnreadable when its files fail."""
         from app.services import semantic_visualizer_service
 
         try:
@@ -86,7 +91,7 @@ class BundleSource:
             if not manifest:
                 return None  # a board-stage bundle: the renderer waits for the next readiness step
             layers = json.loads((root / manifest).read_text(encoding="utf-8")).get("layers") or []
-        except (OSError, ValueError, KeyError, TypeError):
-            logger.exception("Could not read the layer table of bundle %s", status.get("bundle_url"))
-            return None
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            logger.warning("Could not read the layer table of bundle %s: %s", status.get("bundle_url"), error)
+            raise BundleUnreadable(str(error)) from error
         return mid_plane_from_layers(layers)
