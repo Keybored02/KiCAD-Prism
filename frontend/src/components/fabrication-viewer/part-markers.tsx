@@ -2,22 +2,15 @@ import { memo } from "react";
 
 import type { BoardRect } from "@/components/design-comparison/fabrication-viewport";
 
-import type { PartStatus, PlacementPart } from "./types";
-
-/** Marker colour by what the BOM check found. */
-export const STATUS_COLOUR: Record<PartStatus, string> = {
-    ok: "#ff5dc8",
-    "no-bom": "#ff5dc8",
-    "not-in-bom": "#f0b429",
-    "dnp-placed": "#ff4d4d",
-    "not-placed": "#ff4d4d",
-};
+import { isProblem, STATUS_COLOUR } from "./part-status";
+import type { PlacementPart } from "./types";
 
 /** Sizes are in screen pixels, so a marker reads the same at any zoom. */
 const DOT_PX = 3;
 const ARROW_PX = 9;
 const HIT_PX = 8;
 const SELECTED_PX = 6;
+const RING_PX = 6;
 const LABEL_PX = 12;
 
 /**
@@ -26,7 +19,8 @@ const LABEL_PX = 12;
  * Positions are board millimetres in the same Y-down frame as the layers, so
  * the overlay shares their rectangle exactly. The arrow is the part's own zero
  * angle turned by its rotation; rotation is counter-clockwise on a Y-up board,
- * which is clockwise-negative here.
+ * which is clockwise-negative here. A part the BOM check flagged also gets a
+ * ring, so the finding does not rest on colour alone.
  */
 export const PartMarkers = memo(function PartMarkers({
     parts,
@@ -70,6 +64,16 @@ export const PartMarkers = memo(function PartMarkers({
                             strokeWidth={mm(chosen ? 2 : 1)}
                             strokeLinecap="round"
                         />
+                        {isProblem(part.status) && !chosen && (
+                            <circle
+                                cx={part.x}
+                                cy={part.y}
+                                r={mm(RING_PX)}
+                                fill="none"
+                                stroke={colour}
+                                strokeWidth={mm(1.5)}
+                            />
+                        )}
                         <circle
                             cx={part.x}
                             cy={part.y}

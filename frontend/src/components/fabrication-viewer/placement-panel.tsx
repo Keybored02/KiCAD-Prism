@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-import { STATUS_COLOUR } from "./part-markers";
+import { STATUS_COLOUR, STATUS_HINT, STATUS_LABEL } from "./part-status";
 import type { MissingPart, PartStatus, PlacementPart, PlacementView } from "./types";
 
 type Row = PlacementPart | MissingPart;
@@ -34,19 +34,11 @@ function filtersReducer(state: Filters, action: FilterAction): Filters {
     }
 }
 
-const STATUS_LABEL: Record<PartStatus, string> = {
-    ok: "In BOM",
-    "no-bom": "-",
-    "not-in-bom": "Not in BOM",
-    "dnp-placed": "DNP but placed",
-    "not-placed": "Not placed",
-};
-
 /** The problems worth a chip, in the order a reviewer cares about them. */
-const PROBLEMS: { status: PartStatus; count: (view: PlacementView) => number; hint: string }[] = [
-    { status: "not-placed", count: (v) => v.counts.notPlaced, hint: "In the BOM, absent from the position file" },
-    { status: "dnp-placed", count: (v) => v.counts.dnpPlaced, hint: "Marked do-not-place in the BOM, but in the position file" },
-    { status: "not-in-bom", count: (v) => v.counts.notInBom, hint: "In the position file, absent from the BOM" },
+const PROBLEMS: { status: PartStatus; count: (view: PlacementView) => number }[] = [
+    { status: "not-placed", count: (v) => v.counts.notPlaced },
+    { status: "dnp-placed", count: (v) => v.counts.dnpPlaced },
+    { status: "not-in-bom", count: (v) => v.counts.notInBom },
 ];
 
 /** Rows drawn at once; a search narrows it, and a board has few hundred parts at most. */
@@ -106,7 +98,7 @@ function CheckSummary({ view, filters, dispatch }: {
                 <Chip
                     key={item.status}
                     active={filters.status === item.status}
-                    title={item.hint}
+                    title={STATUS_HINT[item.status]}
                     onClick={() => dispatch({ type: "status", value: item.status })}
                 >
                     {STATUS_LABEL[item.status]} ({item.count(view)})
@@ -128,7 +120,7 @@ export function PlacementPanel({ view, selected, onSelect }: {
     );
 
     return (
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
                 <Input
                     value={filters.search}
@@ -204,7 +196,7 @@ export function PlacementPanel({ view, selected, onSelect }: {
                                                 className="h-2 w-2 rounded-full"
                                                 style={{ backgroundColor: STATUS_COLOUR[row.status] }}
                                             />
-                                            {STATUS_LABEL[row.status]}
+                                            {row.status === "no-bom" ? "-" : STATUS_LABEL[row.status]}
                                         </span>
                                     </td>
                                 </tr>

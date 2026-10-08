@@ -1,23 +1,49 @@
-import type { FabricationLayer } from "./types";
+import type { FabricationLayer, PartStatus } from "./types";
 
 export type ViewSide = "top" | "bottom";
+
+/** The same presets, in the same order, as the Visualizer's layer menu. */
+export type LayerPreset =
+    | "front"
+    | "back"
+    | "copper"
+    | "outer-copper"
+    | "inner-copper"
+    | "drawings"
+    | "all"
+    | "none";
+
+export const LAYER_PRESETS: readonly (readonly [LayerPreset, string])[] = [
+    ["front", "Front"],
+    ["back", "Back"],
+    ["copper", "All copper"],
+    ["outer-copper", "Outer copper"],
+    ["inner-copper", "Inner copper"],
+    ["drawings", "Drawings"],
+    ["all", "Show all"],
+    ["none", "Hide all"],
+];
 
 export interface ViewerState {
     side: ViewSide;
     visible: ReadonlySet<string>;
+    /** A layer picked in the list; the others dim so it can be read on its own. */
+    highlighted: string | null;
     /** Reference of the part picked in the table or on the board. */
     selected: string | null;
     /** Part markers are drawn over the layers. */
     showParts: boolean;
+    /** BOM-check results whose markers are hidden. */
+    hiddenStatuses: ReadonlySet<PartStatus>;
 }
 
 export type ViewerAction =
     | { type: "side"; side: ViewSide; layers: FabricationLayer[] }
     | { type: "toggle"; id: string }
-    | { type: "preset"; layers: FabricationLayer[] }
-    | { type: "all"; layers: FabricationLayer[] }
-    | { type: "none" }
+    | { type: "preset"; preset: LayerPreset; layers: FabricationLayer[] }
+    | { type: "highlight"; id: string }
     | { type: "parts" }
+    | { type: "partStatus"; status: PartStatus }
     /** Pick a part; one on the other side turns the board over to it. */
     | { type: "select"; ref: string | null; side?: ViewSide; layers: FabricationLayer[] };
 
@@ -36,6 +62,36 @@ export function presetFor(layers: FabricationLayer[], side: ViewSide): Set<strin
         if (wanted) ids.add(layer.id);
     }
     return ids;
+}
+
+/** The layers a menu preset shows. The profile and the holes stay with the side presets. */
+export function applyPreset(layers: FabricationLayer[], preset: LayerPreset): Set<string> {
+    const matching = (test: (layer: FabricationLayer) => boolean) => {
+        const ids = new Set<string>();
+        for (const layer of layers) {
+            if (test(layer)) ids.add(layer.id);
+        }
+        return ids;
+    };
+    const board = (layer: FabricationLayer) => layer.role === "outline" || layer.role === "drill";
+    switch (preset) {
+        case "front":
+            return matching((layer) => layer.side === "top" || board(layer));
+        case "back":
+            return matching((layer) => layer.side === "bottom" || board(layer));
+        case "copper":
+            return matching((layer) => layer.role === "copper");
+        case "outer-copper":
+            return matching((layer) => layer.role === "copper" && layer.side !== "inner");
+        case "inner-copper":
+            return matching((layer) => layer.role === "copper" && layer.side === "inner");
+        case "drawings":
+            return matching((layer) => layer.role === "other" || layer.role === "outline");
+        case "all":
+            return matching(() => true);
+        default:
+            return new Set();
+    }
 }
 
 /** A package opened on one file: that layer, with the profile to place it. */
@@ -64,9 +120,17 @@ export function initialState(layers: FabricationLayer[], focusFile?: string): Vi
     return {
         side,
         visible: focus.size > 0 ? focus : presetFor(layers, side),
+        highlighted: null,
         selected: null,
         showParts: true,
+        hiddenStatuses: new Set(),
     };
+}
+
+function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
+    const next = new Set(set);
+    if (!next.delete(value)) next.add(value);
+    return next;
 }
 
 export function viewerReducer(state: ViewerState, action: ViewerAction): ViewerState {
@@ -77,23 +141,20 @@ export function viewerReducer(state: ViewerState, action: ViewerAction): ViewerS
                 : { ...state, side: action.side, visible: presetFor(action.layers, action.side) };
         case "parts":
             return { ...state, showParts: !state.showParts };
+        case "partStatus":
+            return { ...state, hiddenStatuses: toggled(state.hiddenStatuses, action.status) };
         case "select": {
             const turned = action.side && action.side !== state.side
                 ? { side: action.side, visible: presetFor(action.layers, action.side) }
                 : {};
             return { ...state, ...turned, selected: action.ref, showParts: true };
         }
-        case "toggle": {
-            const visible = new Set(state.visible);
-            if (!visible.delete(action.id)) visible.add(action.id);
-            return { ...state, visible };
-        }
+        case "toggle":
+            return { ...state, visible: toggled(state.visible, action.id) };
+        case "highlight":
+            return { ...state, highlighted: state.highlighted === action.id ? null : action.id };
         case "preset":
-            return { ...state, visible: presetFor(action.layers, state.side) };
-        case "all":
-            return { ...state, visible: new Set(action.layers.map((layer) => layer.id)) };
-        case "none":
-            return { ...state, visible: new Set() };
+            return { ...state, visible: applyPreset(action.layers, action.preset) };
         default:
             return state;
     }

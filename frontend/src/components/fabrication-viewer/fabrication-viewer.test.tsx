@@ -21,7 +21,7 @@ function layer(partial: Partial<FabricationLayer> & Pick<FabricationLayer, "id" 
     return {
         name: partial.id.toUpperCase(),
         function: "",
-        colour: "#e0a030",
+        colour: "#c83434",
         file: `${partial.id}.gbr`,
         kind: partial.role === "drill" ? "excellon" : "gerber",
         warnings: [],
@@ -38,7 +38,7 @@ const VIEW: FabricationView = {
     layers: [
         layer({ id: "f.silk", role: "silk", side: "top" }),
         layer({ id: "f.mask", role: "mask", side: "top" }),
-        layer({ id: "f.cu", role: "copper", side: "top" }),
+        layer({ id: "f.cu", role: "copper", side: "top", function: "Copper,L1,Top" }),
         layer({ id: "b.cu", role: "copper", side: "bottom" }),
         layer({ id: "edge", role: "outline", side: "both" }),
         layer({ id: "drill", role: "drill", side: "both", file: "board.drl" }),
@@ -76,7 +76,7 @@ class ImmediateResizeObserver {
 }
 
 beforeEach(() => {
-    // Most packages have no position file; the placement tests below say otherwise.
+    // Most packages have no position file; the placement tests say otherwise.
     apiMock.fetchJson.mockImplementation(async (url: string) => {
         if (String(url).includes("/placement")) {
             throw new apiMock.ApiHttpError(404, "This build has no position file");
@@ -100,13 +100,22 @@ afterEach(() => {
 
 async function openViewer(focusFile?: string) {
     const view = render(<FabricationViewer source={SOURCE} focusFile={focusFile} />);
-    await screen.findByText(/20\.0 x 10\.0 mm/);
+    await screen.findByText(/20\.0 × 10\.0 mm/);
     return view;
 }
 
+const hide = (name: string) => screen.queryByRole("button", { name: `Hide ${name}` });
+const show = (name: string) => screen.queryByRole("button", { name: `Show ${name}` });
+const boardSide = (name: "Top" | "Bottom") =>
+    within(screen.getByRole("group", { name: "Board side" })).getByRole("button", { name });
+const viewButton = (name: RegExp | string) =>
+    within(screen.getByRole("group", { name: "Fabrication views" })).getByRole("button", { name });
+const flipped = () => document.querySelector('[style*="scaleX(-1)"]');
+
 describe("FabricationViewer", () => {
-    it("summarises the package", async () => {
+    it("summarises the package under the title, like the comparison does", async () => {
         await openViewer();
+        expect(screen.getByText("Board", { selector: "p" })).toBeInTheDocument();
         expect(screen.getByText(/2 copper layers/)).toBeInTheDocument();
         expect(screen.getByText(/3 holes/)).toBeInTheDocument();
     });
@@ -114,21 +123,29 @@ describe("FabricationViewer", () => {
     it("draws the default layers and leaves mask off", async () => {
         await openViewer();
         await waitFor(() => expect(requestedLayers().sort()).toEqual(["drill", "edge", "f.cu", "f.silk"]));
-        expect(screen.getByLabelText("F.MASK")).not.toBeChecked();
-        expect(screen.getByLabelText("F.CU")).toBeChecked();
+        expect(hide("F.CU")).toBeInTheDocument();
+        expect(show("F.MASK")).toBeInTheDocument();
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
+    });
+
+    it("lists the layers the way the Visualizer does: swatch, name, eye", async () => {
+        await openViewer();
+        const rail = screen.getByRole("complementary", { name: "Board display" });
+        expect(within(rail).getByText("Board display")).toBeInTheDocument();
+        expect(within(rail).getByRole("combobox", { name: "Layer preset" })).toBeInTheDocument();
+        expect(within(rail).getByText("F.CU").previousElementSibling).toHaveStyle({ backgroundColor: "#c83434" });
     });
 
     it("fetches a layer the first time it is shown, and only then", async () => {
         await openViewer();
         await waitFor(() => expect(requestedLayers()).toHaveLength(4));
 
-        fireEvent.click(screen.getByLabelText("F.MASK"));
+        fireEvent.click(show("F.MASK")!);
         await waitFor(() => expect(requestedLayers()).toHaveLength(5));
         expect(requestedLayers()).toContain("f.mask");
 
-        fireEvent.click(screen.getByLabelText("F.MASK"));
-        fireEvent.click(screen.getByLabelText("F.MASK"));
+        fireEvent.click(hide("F.MASK")!);
+        fireEvent.click(show("F.MASK")!);
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(5));
         expect(requestedLayers()).toHaveLength(5);
     });
@@ -136,48 +153,76 @@ describe("FabricationViewer", () => {
     it("hides a layer without dropping the others", async () => {
         await openViewer();
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
-        fireEvent.click(screen.getByLabelText("F.SILK"));
+        fireEvent.click(hide("F.SILK")!);
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(3));
         expect(screen.queryByAltText("F.SILK")).not.toBeInTheDocument();
     });
 
-    it("turns the board over: bottom layers, mirrored", async () => {
+    it("highlighting a layer dims the rest, names it, and lets go on a second click", async () => {
         await openViewer();
-        const pane = screen.getByTestId("board-pane");
-        expect(pane.firstElementChild).not.toHaveStyle({ transform: "scaleX(-1)" });
+        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
+        fireEvent.click(screen.getByText("F.CU"));
+        expect(screen.getByAltText("F.SILK")).toHaveStyle({ opacity: "0.2" });
+        expect(screen.getByAltText("F.CU")).toHaveStyle({ opacity: "1" });
+        // The title is the layer, its function under it, its file in the footer.
+        expect(screen.getAllByText("F.CU").length).toBeGreaterThan(1);
+        expect(screen.getByText("Copper,L1,Top")).toBeInTheDocument();
+        expect(screen.getByText("f.cu.gbr")).toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole("button", { name: "Bottom" }));
-        await waitFor(() => expect(requestedLayers()).toContain("b.cu"));
-        expect(screen.getByLabelText("B.CU")).toBeChecked();
-        expect(screen.getByLabelText("F.CU")).not.toBeChecked();
-        expect(pane.firstElementChild).toHaveStyle({ transform: "scaleX(-1)" });
-        expect(screen.getByRole("button", { name: "Bottom" })).toHaveAttribute("aria-pressed", "true");
+        fireEvent.click(screen.getAllByText("F.CU")[0]!);
+        expect(screen.getByAltText("F.SILK")).toHaveStyle({ opacity: "1" });
     });
 
-    it("None clears the board and Default restores it", async () => {
+    it("turns the board over: bottom layers, mirrored, labelled", async () => {
         await openViewer();
-        fireEvent.click(screen.getByRole("button", { name: "None" }));
-        expect(await screen.findByText("No layers shown")).toBeInTheDocument();
-        fireEvent.click(screen.getByRole("button", { name: "Default" }));
-        expect(screen.getByLabelText("F.CU")).toBeChecked();
+        expect(flipped()).not.toBeInTheDocument();
+        expect(screen.getByText("Top", { selector: "span" })).toBeInTheDocument();
+
+        fireEvent.click(boardSide("Bottom"));
+        await waitFor(() => expect(requestedLayers()).toContain("b.cu"));
+        expect(hide("B.CU")).toBeInTheDocument();
+        expect(show("F.CU")).toBeInTheDocument();
+        expect(flipped()).toBeInTheDocument();
+        expect(boardSide("Bottom")).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByText("Bottom (mirrored)")).toBeInTheDocument();
+    });
+
+    it("collapses the rail to its handle and brings it back", async () => {
+        await openViewer();
+        fireEvent.click(screen.getByRole("button", { name: "Collapse board display" }));
+        expect(hide("F.CU")).not.toBeInTheDocument();
+        expect(screen.queryByRole("combobox", { name: "Layer preset" })).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Expand board display" }));
+        expect(hide("F.CU")).toBeInTheDocument();
+    });
+
+    it("zooms from the toolbar and shows the zoom in the footer", async () => {
+        await openViewer();
+        expect(screen.getByText("100%")).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+        expect(screen.getByText("140%")).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Fit board" }));
+        expect(screen.getByText("100%")).toBeInTheDocument();
     });
 
     it("opens on one file when asked to", async () => {
         await openViewer("f.mask.gbr");
         await waitFor(() => expect(requestedLayers().sort()).toEqual(["edge", "f.mask"]));
-        expect(screen.getByLabelText("F.MASK")).toBeChecked();
-        expect(screen.getByLabelText("F.CU")).not.toBeChecked();
+        expect(hide("F.MASK")).toBeInTheDocument();
+        expect(show("F.CU")).toBeInTheDocument();
     });
 
-    it("lists the drill tools", async () => {
+    it("lists the drill tools in their own view", async () => {
         await openViewer();
-        fireEvent.mouseDown(screen.getByRole("tab", { name: /Drill/ }), { button: 0 });
+        fireEvent.click(viewButton(/Drill/));
         const table = await screen.findByRole("table");
         expect(within(table).getByText("0.3 mm")).toBeInTheDocument();
         expect(within(table).getByText("Plated")).toBeInTheDocument();
         expect(within(table).getByText("Non-plated")).toBeInTheDocument();
         expect(within(table).getByText("Via")).toBeInTheDocument();
         expect(screen.getByText(/smallest 0\.3 mm/)).toBeInTheDocument();
+        // The board's own controls belong to the board view.
+        expect(screen.queryByRole("group", { name: "Board side" })).not.toBeInTheDocument();
     });
 
     it("says so when a layer cannot be loaded", async () => {
@@ -189,7 +234,9 @@ describe("FabricationViewer", () => {
     });
 
     it("shows the failure when the package cannot be loaded", async () => {
-        apiMock.fetchJson.mockRejectedValue(new Error("This build has no fabrication files"));
+        apiMock.fetchJson.mockImplementation(async () => {
+            throw new Error("This build has no fabrication files");
+        });
         render(<FabricationViewer source={SOURCE} />);
         expect(await screen.findByRole("alert")).toHaveTextContent("This build has no fabrication files");
     });

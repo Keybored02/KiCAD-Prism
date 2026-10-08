@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import type { FabricationLayer, LayerRole, LayerSide } from "./types";
-import { focusedOn, initialState, presetFor, sideOf, viewerReducer } from "./viewer-state";
+import {
+    applyPreset,
+    focusedOn,
+    initialState,
+    LAYER_PRESETS,
+    presetFor,
+    sideOf,
+    viewerReducer,
+    type LayerPreset,
+} from "./viewer-state";
 
 function layer(id: string, role: LayerRole, side: LayerSide, file = `${id}.gbr`): FabricationLayer {
     return {
@@ -99,13 +108,52 @@ describe("viewerReducer", () => {
         expect(start.visible.has("f.mask")).toBe(false);
     });
 
-    it("all, none and preset replace the selection", () => {
-        const all = viewerReducer(start, { type: "all", layers: LAYERS });
-        expect(all.visible.size).toBe(LAYERS.length);
-        const none = viewerReducer(all, { type: "none" });
+    it("a menu preset replaces the selection", () => {
+        const copper = viewerReducer(start, { type: "preset", preset: "copper", layers: LAYERS });
+        expect([...copper.visible].sort()).toEqual(["b.cu", "f.cu", "in1.cu"]);
+        const none = viewerReducer(copper, { type: "preset", preset: "none", layers: LAYERS });
         expect(none.visible.size).toBe(0);
-        const back = viewerReducer(none, { type: "preset", layers: LAYERS });
-        expect([...back.visible].sort()).toEqual([...start.visible].sort());
+        const all = viewerReducer(none, { type: "preset", preset: "all", layers: LAYERS });
+        expect(all.visible.size).toBe(LAYERS.length);
+    });
+
+    it("highlighting a layer picks it, and picking it again lets go", () => {
+        const on = viewerReducer(start, { type: "highlight", id: "f.cu" });
+        expect(on.highlighted).toBe("f.cu");
+        expect(viewerReducer(on, { type: "highlight", id: "b.cu" }).highlighted).toBe("b.cu");
+        expect(viewerReducer(on, { type: "highlight", id: "f.cu" }).highlighted).toBeNull();
+    });
+
+    it("hides and shows a check result's markers", () => {
+        const hidden = viewerReducer(start, { type: "partStatus", status: "not-in-bom" });
+        expect(hidden.hiddenStatuses.has("not-in-bom")).toBe(true);
+        expect(viewerReducer(hidden, { type: "partStatus", status: "not-in-bom" }).hiddenStatuses.size).toBe(0);
+        expect(start.hiddenStatuses.size).toBe(0);
+    });
+});
+
+describe("applyPreset", () => {
+    const ids = (preset: LayerPreset) => [...applyPreset(LAYERS, preset)].sort();
+
+    it("front and back are a side's layers with the profile and the holes", () => {
+        expect(ids("front")).toEqual(["drill", "edge", "f.cu", "f.fab", "f.mask", "f.silk"]);
+        expect(ids("back")).toEqual(["b.cu", "b.silk", "drill", "edge"]);
+    });
+
+    it("copper presets split outer from inner", () => {
+        expect(ids("copper")).toEqual(["b.cu", "f.cu", "in1.cu"]);
+        expect(ids("outer-copper")).toEqual(["b.cu", "f.cu"]);
+        expect(ids("inner-copper")).toEqual(["in1.cu"]);
+    });
+
+    it("drawings are the user layers and the profile", () => {
+        expect(ids("drawings")).toEqual(["edge", "f.fab"]);
+    });
+
+    it("lists the same presets, in the same order, as the Visualizer's menu", () => {
+        expect(LAYER_PRESETS.map(([, label]) => label)).toEqual([
+            "Front", "Back", "All copper", "Outer copper", "Inner copper", "Drawings", "Show all", "Hide all",
+        ]);
     });
 });
 

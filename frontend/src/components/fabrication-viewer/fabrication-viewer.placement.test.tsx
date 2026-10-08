@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FabricationViewer } from "./fabrication-viewer";
-import { buildSource } from "./sources";
+import { buildSource, outputsSource } from "./sources";
 import type { FabricationView, PlacementView } from "./types";
 
 const apiMock = vi.hoisted(() => ({
@@ -18,7 +18,7 @@ const apiMock = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => apiMock);
 
 const layer = (id: string, role: string, side: string) => ({
-    id, name: id.toUpperCase(), function: "", role, side, colour: "#e0a030",
+    id, name: id.toUpperCase(), function: "", role, side, colour: "#c83434",
     file: `${id}.gbr`, kind: "gerber", warnings: [],
 });
 
@@ -94,32 +94,37 @@ afterEach(() => {
 /** The board's own Top/Bottom buttons; the parts table has side filters of the same name. */
 const boardSide = (name: "Top" | "Bottom") =>
     within(screen.getByRole("group", { name: "Board side" })).getByRole("button", { name });
-
+const viewButton = (name: RegExp | string) =>
+    within(screen.getByRole("group", { name: "Fabrication views" })).getByRole("button", { name });
+const placementButton = () => screen.findByRole("button", { name: /^Placement/ });
 const markers = () => screen.queryByLabelText("Parts", { selector: "svg" });
-const placementTab = () => screen.findByRole("tab", { name: /Placement/ });
+const partsButton = () =>
+    within(screen.getByRole("group", { name: "Part markers" })).getByRole("button", { name: "Parts" });
+const flipped = () => document.querySelector('[style*="scaleX(-1)"]');
 
 async function openViewer() {
     render(<FabricationViewer source={SOURCE} />);
-    await screen.findByText(/20\.0 x 10\.0 mm/);
+    await screen.findByText(/20\.0 × 10\.0 mm/);
 }
 
 async function openPlacement() {
-    fireEvent.mouseDown(await placementTab(), { button: 0 });
+    fireEvent.click(await placementButton());
     return screen.findByRole("table");
 }
 
 describe("FabricationViewer, placement", () => {
-    it("has no Placement tab or Parts button when there is no position file", async () => {
+    it("has no Placement view or Parts controls when there is no position file", async () => {
         serve("absent");
         await openViewer();
         await waitFor(() => expect(apiMock.fetchJson).toHaveBeenCalledTimes(2));
-        expect(screen.queryByRole("tab", { name: /Placement/ })).not.toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Parts" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /^Placement/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole("group", { name: "Part markers" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Parts & filters" })).not.toBeInTheDocument();
     });
 
     it("lists the parts and what the BOM check found", async () => {
         await openViewer();
-        expect(await placementTab()).toHaveTextContent("Placement (3)");
+        expect(await placementButton()).toHaveTextContent("Placement (3)");
         const table = await openPlacement();
         for (const ref of ["C1", "R2", "R10", "R5"]) {
             expect(within(table).getByText(ref)).toBeInTheDocument();
@@ -156,8 +161,8 @@ describe("FabricationViewer, placement", () => {
         await openViewer();
         await openPlacement();
         fireEvent.change(screen.getByLabelText("Search parts"), { target: { value: "10nf" } });
-        fireEvent.mouseDown(screen.getByRole("tab", { name: "Board" }), { button: 0 });
-        fireEvent.mouseDown(await placementTab(), { button: 0 });
+        fireEvent.click(viewButton("Board"));
+        fireEvent.click(await placementButton());
         expect(screen.getByLabelText("Search parts")).toHaveValue("10nf");
     });
 
@@ -175,15 +180,15 @@ describe("FabricationViewer, placement", () => {
         const table = await openPlacement();
         fireEvent.click(within(table).getByText("R5"));
         expect(screen.queryByRole("button", { name: "Clear selection" })).not.toBeInTheDocument();
-        expect(screen.getByRole("tab", { name: /Placement/ })).toHaveAttribute("data-state", "active");
+        expect(screen.getByRole("button", { name: /^Placement/ })).toHaveAttribute("aria-pressed", "true");
     });
 
-    it("picking a part shows it on the board and goes back to the board tab", async () => {
+    it("picking a part shows it on the board, with its details in the footer", async () => {
         await openViewer();
         const table = await openPlacement();
         fireEvent.click(within(table).getByText("C1"));
         expect(await screen.findByRole("button", { name: "Clear selection" })).toBeInTheDocument();
-        expect(screen.getByRole("tab", { name: "Board" })).toHaveAttribute("data-state", "active");
+        expect(screen.getByText(/10nF · C_0402 · top/)).toBeInTheDocument();
         expect(boardSide("Top")).toHaveAttribute("aria-pressed", "true");
     });
 
@@ -191,10 +196,8 @@ describe("FabricationViewer, placement", () => {
         await openViewer();
         const table = await openPlacement();
         fireEvent.click(within(table).getByText("R10"));
-        await waitFor(() =>
-            expect(boardSide("Bottom")).toHaveAttribute("aria-pressed", "true"),
-        );
-        expect(screen.getByTestId("board-pane").firstElementChild).toHaveStyle({ transform: "scaleX(-1)" });
+        await waitFor(() => expect(boardSide("Bottom")).toHaveAttribute("aria-pressed", "true"));
+        expect(flipped()).toBeInTheDocument();
     });
 
     it("draws the shown side's parts, and the Parts button hides them", async () => {
@@ -202,12 +205,40 @@ describe("FabricationViewer, placement", () => {
         await waitFor(() => expect(markers()).toBeInTheDocument());
         expect(markers()!.querySelectorAll("title")).toHaveLength(2);
 
-        fireEvent.click(screen.getByRole("button", { name: "Parts" }));
+        fireEvent.click(partsButton());
         expect(markers()).not.toBeInTheDocument();
-        fireEvent.click(screen.getByRole("button", { name: "Parts" }));
+        fireEvent.click(partsButton());
 
         fireEvent.click(boardSide("Bottom"));
         await waitFor(() => expect(markers()!.querySelectorAll("title")).toHaveLength(1));
+    });
+
+    it("rings the parts the check flagged, so colour is not the only cue", async () => {
+        await openViewer();
+        await waitFor(() => expect(markers()).toBeInTheDocument());
+        const groups = [...markers()!.querySelectorAll("g")];
+        const ringed = (group: Element) => group.querySelectorAll("circle[fill='none']").length;
+        expect(ringed(groups[0]!)).toBe(0);
+        expect(ringed(groups[1]!)).toBe(1);
+    });
+
+    it("hides the markers of one check result from the rail", async () => {
+        await openViewer();
+        await waitFor(() => expect(markers()).toBeInTheDocument());
+        fireEvent.click(screen.getByRole("button", { name: "Parts & filters" }));
+        expect(screen.getByText("Check results")).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("checkbox", { name: "Show Not in BOM" }));
+        await waitFor(() => expect(markers()!.querySelectorAll("title")).toHaveLength(1));
+        fireEvent.click(screen.getByRole("checkbox", { name: "Show Not in BOM" }));
+        await waitFor(() => expect(markers()!.querySelectorAll("title")).toHaveLength(2));
+    });
+
+    it("turns every marker off from the rail", async () => {
+        await openViewer();
+        await waitFor(() => expect(markers()).toBeInTheDocument());
+        fireEvent.click(screen.getByRole("button", { name: "Parts & filters" }));
+        fireEvent.click(screen.getByText("Show part markers"));
+        expect(markers()).not.toBeInTheDocument();
     });
 
     it("clicking a marker picks that part, and the selection can be cleared", async () => {
@@ -223,10 +254,10 @@ describe("FabricationViewer, placement", () => {
     it("says so when the parts cannot be read, and the board still works", async () => {
         serve(new Error("Not a position file: no ref column"));
         await openViewer();
-        fireEvent.mouseDown(await placementTab(), { button: 0 });
+        fireEvent.click(await placementButton());
         expect(await screen.findByRole("alert")).toHaveTextContent("Not a position file");
-        fireEvent.mouseDown(screen.getByRole("tab", { name: "Board" }), { button: 0 });
-        expect(await screen.findByLabelText("F.CU")).toBeChecked();
+        fireEvent.click(viewButton("Board"));
+        expect(await screen.findByRole("button", { name: "Hide F.CU" })).toBeInTheDocument();
     });
 
     it("notes when there was no BOM to check against", async () => {
@@ -249,8 +280,7 @@ describe("FabricationViewer, placement", () => {
 });
 
 describe("placement source URLs", () => {
-    it("addresses a build's and a folder's position data", async () => {
-        const { outputsSource } = await import("./sources");
+    it("addresses a build's and a folder's position data", () => {
         expect(SOURCE.placementUrl).toBe("/api/projects/p1/release-studio/builds/b1/placement");
         expect(outputsSource("p1", "manufacturing", "cpl", "a".repeat(40)).placementUrl).toBe(
             `/api/projects/p1/placement?type=manufacturing&folder=cpl&commit=${"a".repeat(40)}`,

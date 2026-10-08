@@ -167,12 +167,20 @@ const MarkerLayer = memo(function MarkerLayer({
     );
 });
 
-function Pane({
+/**
+ * One board pane: pan and zoom over a drawn rectangle, with its label above.
+ *
+ * Shared with the fabrication viewer, which stacks any number of layers in it.
+ * `mirrored` turns the pane over left to right, for viewing a board's bottom;
+ * pair it with `useBoardViewport(..., { mirrorX })` so dragging follows the pointer.
+ */
+export function Pane({
     label,
     drawn,
     board,
     camera,
     handlers,
+    mirrored = false,
     children,
 }: {
     label: string;
@@ -180,6 +188,7 @@ function Pane({
     board: BoardRect | null;
     camera: Camera;
     handlers: ReturnType<typeof useBoardViewport>["handlers"];
+    mirrored?: boolean;
     children: (pxPerMm: number) => ReactNode;
 }) {
     const ref = useRef<HTMLDivElement | null>(null);
@@ -221,17 +230,22 @@ function Pane({
                 {...handlers}
             >
                 <div
-                    className={cn("absolute", !layout && "inset-0")}
-                    style={layout
-                        ? {
-                            width: layout.width,
-                            height: layout.height,
-                            left: layout.left,
-                            top: layout.top,
-                        }
-                        : undefined}
+                    className="absolute inset-0"
+                    style={mirrored ? { transform: "scaleX(-1)" } : undefined}
                 >
-                    {children(pxPerMm)}
+                    <div
+                        className={cn("absolute", !layout && "inset-0")}
+                        style={layout
+                            ? {
+                                width: layout.width,
+                                height: layout.height,
+                                left: layout.left,
+                                top: layout.top,
+                            }
+                            : undefined}
+                    >
+                        {children(pxPerMm)}
+                    </div>
                 </div>
             </div>
         </div>

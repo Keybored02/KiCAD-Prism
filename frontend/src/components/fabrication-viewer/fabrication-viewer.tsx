@@ -1,52 +1,31 @@
 import { useMemo, useReducer, useState } from "react";
-import { X } from "lucide-react";
 
 import { useBoardViewport } from "@/components/design-comparison/fabrication-viewport";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { BoardCanvas, toRect, withMargin } from "./board-canvas";
 import { DrillTable } from "./drill-table";
-import { LayerList } from "./layer-list";
+import { LayersRail } from "./layers-rail";
 import { PartMarkers } from "./part-markers";
 import { PlacementPanel } from "./placement-panel";
 import type { FabricationSource, FabricationView, PlacementPart } from "./types";
 import { useFabricationView, useLayerImages } from "./use-fabrication-data";
 import { usePlacement } from "./use-placement";
-import { initialState, viewerReducer, type ViewSide } from "./viewer-state";
-
-const SIDES: { side: ViewSide; label: string }[] = [
-    { side: "top", label: "Top" },
-    { side: "bottom", label: "Bottom" },
-];
+import { ViewerFooter } from "./viewer-footer";
+import { initialState, viewerReducer } from "./viewer-state";
+import { ViewerToolbar, type ViewerView } from "./viewer-toolbar";
 
 /** Half the width of the square framed around a picked part, in millimetres. */
 const PICK_FRAME_MM = 2;
 
-function Summary({ view }: { view: FabricationView }) {
-    const parts = [
-        view.size ? `${view.size.width.toFixed(1)} x ${view.size.height.toFixed(1)} mm` : null,
+function summaryOf(view: FabricationView): string {
+    return [
+        view.size ? `${view.size.width.toFixed(1)} × ${view.size.height.toFixed(1)} mm` : null,
         view.copperLayers ? `${view.copperLayers} copper layers` : null,
         view.drill.holes ? `${view.drill.holes} holes` : null,
-    ].filter(Boolean);
-    return <span className="text-xs text-muted-foreground">{parts.join("  |  ")}</span>;
+    ].filter(Boolean).join(" · ");
 }
 
-function PickedPart({ part, onClear }: { part: PlacementPart; onClear: () => void }) {
-    return (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border px-3 py-1.5 text-xs">
-            <span className="font-mono font-semibold">{part.ref}</span>
-            <span>{part.value || "-"}</span>
-            <span className="text-muted-foreground">{part.package}</span>
-            <span className="text-muted-foreground">
-                {part.side}, x {part.x.toFixed(2)} y {part.y.toFixed(2)}, {part.rotation} deg
-            </span>
-            <Button size="icon-xs" variant="ghost" className="ml-auto" aria-label="Clear selection" onClick={onClear}>
-                <X className="h-3 w-3" />
-            </Button>
-        </div>
-    );
-}
+const TITLES: Record<ViewerView, string> = { board: "Board", drill: "Drill", placement: "Placement" };
 
 function LoadedViewer({ source, view, focusFile }: {
     source: FabricationSource;
@@ -54,7 +33,7 @@ function LoadedViewer({ source, view, focusFile }: {
     focusFile?: string;
 }) {
     const [state, dispatch] = useReducer(viewerReducer, undefined, () => initialState(view.layers, focusFile));
-    const [tab, setTab] = useState("board");
+    const [mode, setMode] = useState<ViewerView>("board");
     const placement = usePlacement(source);
     const parts = placement.status === "ready" ? placement.data : null;
 
@@ -72,10 +51,13 @@ function LoadedViewer({ source, view, focusFile }: {
     const viewport = useBoardViewport(board, { mirrorX: mirrored });
 
     const sideParts = useMemo(
-        () => (parts && state.showParts ? parts.parts.filter((part) => part.side === state.side) : []),
-        [parts, state.showParts, state.side],
+        () => parts && state.showParts
+            ? parts.parts.filter((part) => part.side === state.side && !state.hiddenStatuses.has(part.status))
+            : [],
+        [parts, state.showParts, state.side, state.hiddenStatuses],
     );
     const picked = parts?.parts.find((part) => part.ref === state.selected) ?? null;
+    const highlighted = view.layers.find((layer) => layer.id === state.highlighted) ?? null;
 
     const pick = (part: PlacementPart) => {
         dispatch({ type: "select", ref: part.ref, side: part.side, layers: view.layers });
@@ -87,71 +69,60 @@ function LoadedViewer({ source, view, focusFile }: {
         });
     };
 
+    const withWarnings = shown.filter((layer) => layer.warnings.length > 0);
+    const note = highlighted
+        ? [highlighted.file, ...highlighted.warnings].join(" · ")
+        : withWarnings.length > 0
+            ? `${withWarnings.map((layer) => layer.name).join(", ")}: ${withWarnings[0]!.warnings[0]}`
+            : "";
+
     return (
-        <div className="flex h-full min-h-0 flex-1 flex-col gap-2 p-3">
-            <div className="flex flex-wrap items-center gap-3">
-                <Tabs value={tab} onValueChange={setTab} className="gap-0">
-                    <TabsList variant="line" aria-label="Fabrication views">
-                        <TabsTrigger value="board" className="px-2 text-sm">Board</TabsTrigger>
-                        <TabsTrigger value="drill" className="px-2 text-sm">
-                            Drill ({view.drill.holes})
-                        </TabsTrigger>
-                        {placement.status !== "absent" && placement.status !== "loading" && (
-                            <TabsTrigger value="placement" className="px-2 text-sm">
-                                Placement{parts ? ` (${parts.counts.placed})` : ""}
-                            </TabsTrigger>
-                        )}
-                    </TabsList>
-                </Tabs>
-                {tab === "board" && (
-                    <div className="flex" role="group" aria-label="Board side">
-                        {SIDES.map(({ side, label }) => (
-                            <Button
-                                key={side}
-                                size="xs"
-                                variant={state.side === side ? "default" : "outline"}
-                                aria-pressed={state.side === side}
-                                onClick={() => dispatch({ type: "side", side, layers: view.layers })}
-                            >
-                                {label}
-                            </Button>
-                        ))}
-                    </div>
-                )}
-                {tab === "board" && parts && (
-                    <Button
-                        size="xs"
-                        variant={state.showParts ? "default" : "outline"}
-                        aria-pressed={state.showParts}
-                        onClick={() => dispatch({ type: "parts" })}
-                    >
-                        Parts
-                    </Button>
-                )}
-                <Summary view={view} />
-            </div>
-            {tab === "board" && picked && (
-                <PickedPart
-                    part={picked}
-                    onClear={() => dispatch({ type: "select", ref: null, layers: view.layers })}
+        <div className="flex h-full min-h-0 min-w-0 flex-1">
+            {/* Hidden, not unmounted, outside the board view: tables get the width and
+                the rail keeps its collapsed state and size. */}
+            <div className={mode === "board" ? "contents" : "hidden"}>
+                <LayersRail
+                    layers={view.layers}
+                    visible={state.visible}
+                    highlighted={state.highlighted}
+                    placement={parts}
+                    showParts={state.showParts}
+                    hiddenStatuses={state.hiddenStatuses}
+                    onToggle={(id) => dispatch({ type: "toggle", id })}
+                    onHighlight={(id) => dispatch({ type: "highlight", id })}
+                    onPreset={(preset) => dispatch({ type: "preset", preset, layers: view.layers })}
+                    onToggleParts={() => dispatch({ type: "parts" })}
+                    onToggleStatus={(status) => dispatch({ type: "partStatus", status })}
                 />
-            )}
-            {tab === "board" && (
-                <div className="flex min-h-0 flex-1 gap-2">
-                    <LayerList
-                        layers={view.layers}
-                        visible={state.visible}
-                        onToggle={(id) => dispatch({ type: "toggle", id })}
-                        onPreset={() => dispatch({ type: "preset", layers: view.layers })}
-                        onAll={() => dispatch({ type: "all", layers: view.layers })}
-                        onNone={() => dispatch({ type: "none" })}
-                    />
-                    {board && drawn ? (
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+                <ViewerToolbar
+                    title={mode === "board" ? (highlighted?.name ?? TITLES.board) : TITLES[mode]}
+                    subtitle={mode === "board" && highlighted ? highlighted.function || highlighted.role : summaryOf(view)}
+                    view={mode}
+                    onView={setMode}
+                    drillCount={view.drill.holes}
+                    placementLabel={
+                        parts ? `Placement (${parts.counts.placed})`
+                            : placement.status === "error" ? "Placement" : undefined
+                    }
+                    side={state.side}
+                    onSide={(side) => dispatch({ type: "side", side, layers: view.layers })}
+                    hasParts={parts !== null}
+                    showParts={state.showParts}
+                    onToggleParts={() => dispatch({ type: "parts" })}
+                    onZoom={(factor) => viewport.zoomBy(factor)}
+                    onFit={viewport.reset}
+                />
+                <div className="flex min-h-0 min-w-0 flex-1 gap-2 p-3">
+                    {mode === "board" && (board && drawn ? (
                         <BoardCanvas
+                            label={mirrored ? "Bottom (mirrored)" : "Top"}
                             board={board}
                             drawn={drawn}
                             layers={shown}
                             images={images}
+                            highlighted={state.highlighted}
                             mirrored={mirrored}
                             viewport={viewport}
                             overlay={sideParts.length > 0
@@ -171,34 +142,40 @@ function LoadedViewer({ source, view, focusFile }: {
                         <p className="p-3 text-sm text-muted-foreground">
                             The layers in this package have no geometry to draw.
                         </p>
+                    ))}
+                    {mode === "drill" && <DrillTable drill={view.drill} />}
+                    {mode === "placement" && placement.status === "error" && (
+                        <p role="alert" className="p-3 text-sm text-destructive">{placement.message}</p>
+                    )}
+                    {/* Kept mounted so its search and filters survive a look at the board. */}
+                    {parts && (
+                        <div className={mode === "placement" ? "flex min-h-0 min-w-0 flex-1 flex-col" : "hidden"}>
+                            <PlacementPanel
+                                view={parts}
+                                selected={state.selected}
+                                onSelect={(part) => {
+                                    pick(part);
+                                    setMode("board");
+                                }}
+                            />
+                        </div>
                     )}
                 </div>
-            )}
-            {tab === "drill" && <DrillTable drill={view.drill} />}
-            {/* Kept mounted so its search and filters survive a look at the board. */}
-            {placement.status === "error" && tab === "placement" && (
-                <p role="alert" className="p-3 text-sm text-destructive">{placement.message}</p>
-            )}
-            {parts && (
-                <div className={tab === "placement" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-                    <PlacementPanel
-                        view={parts}
-                        selected={state.selected}
-                        onSelect={(part) => {
-                            pick(part);
-                            setTab("board");
-                        }}
-                    />
-                </div>
-            )}
+                <ViewerFooter
+                    picked={picked}
+                    note={mode === "board" ? note : ""}
+                    zoomPercent={mode === "board" ? Math.round(viewport.view.scale * 100) : undefined}
+                    onClear={() => dispatch({ type: "select", ref: null, layers: view.layers })}
+                />
+            </div>
         </div>
     );
 }
 
 /**
- * A fabrication package as a board: layers with toggles, top and bottom, pan and
- * zoom, the drill table, and the pick-and-place parts when the source has them.
- * Source-agnostic; key it on `source.key`.
+ * A fabrication package as a board: layers with the Visualizer's menu, top and
+ * bottom, pan and zoom, the drill table, and the pick-and-place parts when the
+ * source has them. Source-agnostic; key it on `source.key`.
  */
 export function FabricationViewer({ source, focusFile }: {
     source: FabricationSource;

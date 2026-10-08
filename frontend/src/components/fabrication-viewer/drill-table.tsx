@@ -10,7 +10,7 @@ export function DrillTable({ drill }: { drill: FabricationView["drill"] }) {
         return <p className="p-3 text-sm text-muted-foreground">This package has no drill file.</p>;
     }
     return (
-        <div className="themed-scrollbar min-h-0 flex-1 overflow-auto rounded border">
+        <div className="themed-scrollbar min-h-0 min-w-0 flex-1 overflow-auto rounded border">
             <p className="border-b px-3 py-2 text-xs text-muted-foreground">
                 {drill.holes} holes
                 {drill.slots > 0 ? `, ${drill.slots} slot moves` : ""}
