@@ -42,6 +42,8 @@ class SubportExportTest(SubportCase):
         self.assertEqual((entry["reference"], entry["subport"]), ("J7.AUX", True))
         self.assertEqual([p["pad"] for p in entry["pins"]], sub["pads"])
         self.assertEqual(entry["pinCount"], len(sub["pads"]))
+        html = self.service.icd(DESIGNER, self.sid, "html")[0]
+        self.assertIn("J7.AUX", html, "the ICD's block diagram shows the exported sub-port beside the linked J7")
         with self.assertRaisesRegex(Conflict, "subport_exported"):
             self.service.delete_subport(DESIGNER, self.sid, self.version(), self.j7()["instanceId"], sub["id"])
         with self.assertRaisesRegex(Conflict, "this port is already exported"):
