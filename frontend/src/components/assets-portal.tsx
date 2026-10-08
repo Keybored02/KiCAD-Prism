@@ -105,7 +105,7 @@ function TreeNodeComponent({
                             onClick={() => onViewFabrication(node.path)}
                             className="flex-shrink-0"
                             title="Open Gerbers in the viewer"
-                            aria-label={`Open ${node.name} in the fabrication viewer`}
+                            aria-label={`Open ${node.name} in the Gerber viewer`}
                         >
                             <CircuitBoard className="h-4 w-4" />
                         </Button>
@@ -119,8 +119,8 @@ function TreeNodeComponent({
                                     variant="ghost"
                                     onClick={() => onViewFabrication(dirname(node.path), node.name)}
                                     className="flex-shrink-0"
-                                    title="Open in the fabrication viewer"
-                                    aria-label={`Open ${node.name} in the fabrication viewer`}
+                                    title="Open in the Gerber viewer"
+                                    aria-label={`Open ${node.name} in the Gerber viewer`}
                                 >
                                     <CircuitBoard className="h-4 w-4" />
                                 </Button>

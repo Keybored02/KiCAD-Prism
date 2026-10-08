@@ -130,7 +130,7 @@ export function InspectOutputsStep({
                             {hasFabrication && (
                                 <TabsTrigger value="fabrication" className="gap-2 px-2 text-sm">
                                     <CircuitBoard className="h-4 w-4" />
-                                    Fabrication
+                                    Gerber viewer
                                 </TabsTrigger>
                             )}
                             <TabsTrigger value="members" className="gap-2 px-2 text-sm">
