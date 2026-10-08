@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from test_catalog_models import HEADER
+from test_catalog_modules import STEP
 from test_system_publish import PublishCase
 from test_system_snapshots import DESIGNER
 
@@ -22,8 +22,8 @@ class PartCase(PublishCase):
             manufacturer="Test", manufacturer_part_number=f"ENC-{uuid.uuid4().hex[:8]}", actor="author@example.com")
         self.part_id = str(created["id"])
         self.made.append(self.part_id)
-        self.catalog.attach_auxiliary_asset(self.part_id, asset_type="3dmodel", upload_name=HEADER.name,
-                                            payload=HEADER.read_bytes(), target_library="Test", actor="author@example.com")
+        self.catalog.attach_auxiliary_asset(self.part_id, asset_type="3dmodel", upload_name=STEP.name,
+                                            payload=STEP.read_bytes(), target_library="Test", actor="author@example.com")
         [self.model] = self.catalog.system_items.convert_models(self.part_id)
 
     def tearDown(self) -> None:
