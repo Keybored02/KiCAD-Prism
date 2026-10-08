@@ -192,56 +192,133 @@ def _e(value: Any) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
-_PALETTE = ("#2563eb", "#0d9488", "#7c3aed", "#c2410c", "#be185d", "#15803d", "#b45309", "#0369a1")
+# D-P2-50: the Diagram tab's kind colours (CSS variables in _STYLE, light and dark).
+_KIND_LABEL = {"board": "Board", "module": "Module", "assembly": "Subsystem", "harness": "Harness"}
+_KIND_CLASS = {"board": "k-board", "module": "k-module", "assembly": "k-subsystem", "harness": "k-harness"}
 
 
-def _diagram(document: Mapping[str, Any]) -> str:
-    """§9.5 item 3: boards with their linked connectors, orthogonal wires (``layout.py``)."""
+def _block_rows(document: Mapping[str, Any], instance: Mapping[str, Any], block: Any) -> tuple[list[tuple[str, str, bool]], int]:
+    """``(rows, unlinked count)``: linked rows, then exported ports a parent links to (as the canvas shows them)."""
 
-    if not document["instances"]:
+    rows = [(row.reference, "↔ " + ", ".join(f"{p.board_label} {p.reference or 'restricted'}" for p in row.partners), False)
+            for row in block.rows]
+    exported = {e["portKey"]: e["name"] for e in document.get("exports") or []
+                if e.get("instanceId") == instance["id"] and e.get("portKey") is not None}
+    hidden = 0
+    for port in block.hidden_ports:
+        if port["portKey"] in exported:
+            rows.append((port["reference"], f"⇪ {exported[port['portKey']]}", True))
+        else:
+            hidden += 1
+    return rows, hidden
+
+
+def _diagram(document: Mapping[str, Any], positions: Optional[Mapping[str, Any]] = None) -> str:
+    """§9.5 item 3, as the Diagram tab draws it (SB2-71): blocks by kind, harness blocks, saved positions."""
+
+    if not document["instances"] and not document.get("harnesses"):
         return ""
-    boards, wires = system_layout.layout(document)
-    colours = {link["id"]: _PALETTE[index % len(_PALETTE)]
-               for index, link in enumerate(sorted(document["links"], key=lambda l: (l["name"], l["id"])))}
-    pad = 16
-    width = max(b.x + system_layout.BOARD_WIDTH for b in boards.values()) + 2 * pad
-    xs = [x for wire in wires for x, _ in wire.points]
-    if xs:
-        width = max(width, max(xs) + 2 * pad)
-    height = max(b.y + b.height for b in boards.values()) + 2 * pad
-    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{-pad} {-pad} {width} {height}" '
-             f'width="100%" style="max-width:{width}px" role="img" aria-label="Connector diagram">']
+    blocks, wires = system_layout.layout(document, positions)
+    instances = {i["id"]: i for i in document["instances"]}
+    harnesses = {h["id"]: h for h in document.get("harnesses") or []}
+    end_owner = {end["id"]: h for h in harnesses.values() for end in h["ends"]}
+    link_types = {link["id"]: link.get("type") for link in document["links"]}
+    bw = system_layout.BOARD_WIDTH
+    drawn: list[tuple[Any, float]] = []
+    for block in blocks.values():
+        if block.id in instances:
+            rows, hidden = _block_rows(document, instances[block.id], block)
+            height = system_layout.board_height(len(rows), hidden)
+        else:
+            height = system_layout.board_height(len(block.rows) + len(block.hidden_ports), 0)
+        drawn.append((block, height))
+    pad = 24
+    xs = [b.x for b, _ in drawn] + [x for w in wires for x, _ in w.points]
+    ys = [b.y for b, _ in drawn] + [y for w in wires for _, y in w.points]
+    min_x, min_y = min(xs) - pad, min(ys) - pad
+    width = max([b.x + bw for b, _ in drawn] + [x for w in wires for x, _ in w.points]) + pad - min_x
+    height_total = max([b.y + h for b, h in drawn] + [y for w in wires for _, y in w.points]) + pad - min_y
+    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{min_x:.1f} {min_y:.1f} {width:.1f} {height_total:.1f}" '
+             f'width="100%" style="max-width:{width:.0f}px" role="img" aria-label="Block diagram">']
     for wire in wires:
         points = " ".join(f"{x:.1f},{y:.1f}" for x, y in wire.points)
-        parts.append(f'<polyline points="{points}" class="wire" stroke="{colours.get(wire.link_id, _PALETTE[0])}"/>')
-    bw = system_layout.BOARD_WIDTH
-    for board in boards.values():
-        instance = next(i for i in document["instances"] if i["id"] == board.id)
-        sub = instance["projectName"] or ("restricted" if instance.get("restricted") else "")
-        parts.append(f'<g transform="translate({board.x:.1f},{board.y:.1f})">')
-        parts.append(f'<rect width="{bw}" height="{board.height:.1f}" rx="6" class="board"/>')
-        parts.append(f'<path d="M0,6 a6,6 0 0 1 6,-6 h{bw - 12} a6,6 0 0 1 6,6 v{system_layout.HEADER_HEIGHT - 6} h-{bw} z" class="board-head"/>')
-        parts.append(f'<text x="12" y="21" class="board-label">{_e(instance["label"])}</text>')
-        parts.append(f'<text x="12" y="38" class="board-sub">{_e(sub)}</text>')
-        if not board.rows:
-            parts.append(f'<text x="12" y="{system_layout.HEADER_HEIGHT + 17}" class="row-partner">No links</text>')
-        for index, row in enumerate(board.rows):
+        kind = "w-harness" if wire.link_id in end_owner else "w-b2b" if link_types.get(wire.link_id) == "b2b" else "w-link"
+        parts.append(f'<polyline points="{points}" class="wire {kind}"/>')
+    for block, height in drawn:
+        instance = instances.get(block.id)
+        harness = harnesses.get(block.id)
+        kind = "harness" if harness else (instance.get("kind") or "board")
+        css = _KIND_CLASS.get(kind, "k-board")
+        if harness:
+            ends = len(harness["ends"])
+            sub = f'{ends} end{"s" if ends != 1 else ""} · {len(harness["wires"])} wire{"s" if len(harness["wires"]) != 1 else ""}'
+            by_end = {end["id"]: end for end in harness["ends"]}
+            rows = []
+            for end_id in [row.port_key for row in block.rows] + [port["portKey"] for port in block.hidden_ports]:
+                end = by_end.get(end_id)
+                if end is None:
+                    continue
+                mates = end.get("mates")
+                partner = ("restricted" if mates.get("redacted") or not mates.get("port")
+                           else f'{instances.get(mates["instanceId"], {}).get("label", "?")} {mates["port"]["reference"]}') if mates else "not mated"
+                rows.append((system_layout.end_label(end), f"↔ {partner}" if mates else partner, False))
+            hidden = 0
+            label = harness["name"]
+        else:
+            rows, hidden = _block_rows(document, instance, block)
+            label = instance["label"]
+            catalog = instance.get("catalog") or {}
+            sub = instance.get("projectName") or ("restricted" if instance.get("restricted") else "")
+            if kind != "board" and catalog.get("version"):
+                sub = f'{sub} · v{catalog["version"]}' if sub else f'v{catalog["version"]}'
+        dash = ' stroke-dasharray="6 4"' if harness else ""
+        parts.append(f'<g class="block {css}" transform="translate({block.x:.1f},{block.y:.1f})">')
+        parts.append(f'<rect width="{bw}" height="{height:.1f}" rx="6" class="block-body"{dash}/>')
+        parts.append(f'<path d="M0,6 a6,6 0 0 1 6,-6 h{bw - 12} a6,6 0 0 1 6,6 v{system_layout.HEADER_HEIGHT - 6} h-{bw} z" class="block-head"/>')
+        parts.append(f'<text x="12" y="21" class="block-label">{_e(label)}</text>')
+        parts.append(f'<text x="12" y="38" class="block-sub"><tspan class="block-kind">{_KIND_LABEL.get(kind, "Board")}</tspan>'
+                     f'{" · " + _e(sub) if sub else ""}</text>')
+        if not rows:
+            parts.append(f'<text x="12" y="{system_layout.HEADER_HEIGHT + 17}" class="row-partner">'
+                         f'{"Restricted" if instance and instance.get("restricted") else "No links yet"}</text>')
+        for index, (reference, partner, exported) in enumerate(rows):
             y = system_layout.HEADER_HEIGHT + index * system_layout.ROW_HEIGHT
             if index:
                 parts.append(f'<line x1="0" x2="{bw}" y1="{y}" y2="{y}" class="row-rule"/>')
-            partners = ", ".join(f"{p.board_label} {p.reference or 'restricted'}" for p in row.partners)
-            parts.append(f'<text x="12" y="{y + 17}" class="row-ref">{_e(row.reference)}</text>')
-            parts.append(f'<text x="{bw - 12}" y="{y + 17}" class="row-partner" text-anchor="end">↔ {_e(partners)}</text>')
-            colour = colours.get(row.partners[0].link_id, _PALETTE[0]) if row.partners else _PALETTE[0]
-            centre = y + system_layout.ROW_HEIGHT / 2
-            parts.append(f'<circle cx="0" cy="{centre}" r="3" fill="{colour}"/><circle cx="{bw}" cy="{centre}" r="3" fill="{colour}"/>')
+            parts.append(f'<text x="12" y="{y + 17}" class="row-ref">{_e(reference)}</text>')
+            parts.append(f'<text x="{bw - 12}" y="{y + 17}" class="row-partner{" row-export" if exported else ""}" '
+                         f'text-anchor="end">{_e(_clip(partner, 30))}</text>')
+        if hidden:
+            y = system_layout.HEADER_HEIGHT + max(1, len(rows)) * system_layout.ROW_HEIGHT
+            parts.append(f'<text x="{bw / 2}" y="{y + 18}" class="row-partner" text-anchor="middle">'
+                         f'{hidden} unlinked port{"s" if hidden != 1 else ""}</text>')
         parts.append("</g>")
     parts.append("</svg>")
     return "".join(parts)
 
 
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _legend(document: Mapping[str, Any]) -> str:
+    kinds = [k for k in ("board", "module", "assembly") if any((i.get("kind") or "board") == k for i in document["instances"])]
+    if document.get("harnesses"):
+        kinds.append("harness")
+    wires = [("w-b2b", "Board-to-board")] if any(link.get("type") == "b2b" for link in document["links"]) else []
+    if any(end.get("mates") for h in document.get("harnesses") or [] for end in h["ends"]):
+        wires.append(("w-harness", "Harness"))
+    if any(link.get("type") != "b2b" for link in document["links"]):
+        wires.append(("w-link", "Link"))
+    items = [f'<span class="lg"><i class="sw {_KIND_CLASS[k]}"></i>{_KIND_LABEL[k]}</span>' for k in kinds]
+    items += [f'<span class="lg"><svg width="18" height="6"><line x1="0" x2="18" y1="3" y2="3" class="wire {css}"/></svg>{name}</span>'
+              for css, name in wires]
+    return f'<div class="legend">{"".join(items)}</div>'
+
+
 _STYLE = """
-:root{--fg:#0f172a;--muted:#64748b;--line:#e2e8f0;--soft:#f8fafc;--accent:#2563eb;--ok:#15803d;--warn:#b45309;--err:#b91c1c}
+:root{--fg:#0f172a;--muted:#64748b;--line:#e2e8f0;--soft:#f8fafc;--paper:#fff;--accent:#2563eb;--ok:#15803d;--warn:#b45309;--err:#b91c1c;
+--kind-board:#2563eb;--kind-module:#7c3aed;--kind-subsystem:#0d9488;--kind-harness:#d97706;--kind-link:#64748b}
 *{box-sizing:border-box}
 body{font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--fg);margin:0;background:#fff}
 main{max-width:1180px;margin:0 auto;padding:32px 40px 48px}
@@ -271,8 +348,13 @@ td.sig{font-weight:600}
 .link-head .swatch{width:10px;height:10px;border-radius:2px;display:inline-block}
 .link-head .ends{color:var(--muted)}
 .diagram{border:1px solid var(--line);background:var(--soft);padding:12px;overflow:auto}
-.board{fill:#fff;stroke:#94a3b8}.board-head{fill:#f1f5f9}.wire{fill:none;stroke-width:2}
-.board-label{font:600 13px ui-sans-serif,system-ui,sans-serif;fill:var(--fg)}.board-sub{font:11px ui-sans-serif,system-ui,sans-serif;fill:var(--muted)}
+.block-body{fill:var(--paper);stroke:var(--kind);stroke-width:1.5}.block-head{fill:var(--kind);fill-opacity:.12}
+.k-board{--kind:var(--kind-board)}.k-module{--kind:var(--kind-module)}.k-subsystem{--kind:var(--kind-subsystem)}.k-harness{--kind:var(--kind-harness)}
+.block-label{font:600 13px ui-sans-serif,system-ui,sans-serif;fill:var(--fg)}.block-sub{font:11px ui-sans-serif,system-ui,sans-serif;fill:var(--muted)}
+.block-kind{fill:var(--kind);font-weight:600}.row-export{fill:var(--kind-board)}
+.wire{fill:none}.w-b2b{stroke:var(--kind-board);stroke-width:3}.w-harness{stroke:var(--kind-harness);stroke-width:2}.w-link{stroke:var(--kind-link);stroke-width:1.5}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 8px;color:var(--muted);font-size:11px}.lg{display:inline-flex;align-items:center;gap:6px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--kind)}
 .row-ref{font:600 11px ui-monospace,Menlo,monospace;fill:var(--fg)}.row-partner{font:11px ui-sans-serif,system-ui,sans-serif;fill:var(--muted)}
 .row-rule{stroke:var(--line)}
 footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}
@@ -413,7 +495,8 @@ def _harness_section(document: Mapping[str, Any], labels: Mapping[str, str],
 
 
 def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
-                levels: Optional[Sequence[Mapping[str, Any]]] = None) -> str:
+                levels: Optional[Sequence[Mapping[str, Any]]] = None,
+                positions: Optional[Mapping[str, Any]] = None) -> str:
     """§9.5: the printable ICD. ``source`` is the snapshot name or ``live``; ``levels`` adds the subsystems' own links."""
 
     system = document["system"]
@@ -484,7 +567,7 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
                        f"<td>{_e(ref.get('snapshotName') or '')}</td><td>{int(ref.get('openReviewCount') or 0)}</td></tr>")
         out.append("</tbody></table>")
 
-    out.append(f'<h2>Block diagram</h2><div class="diagram">{_diagram(document)}</div>')
+    out.append(f'<h2>Block diagram</h2><div class="diagram">{_legend(document)}{_diagram(document, positions)}</div>')
 
     out.append("<h2>Connections</h2>")
     ordered = sorted(document["links"], key=lambda l: (l["name"], l["id"]))
@@ -492,7 +575,7 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
         ends = [_end_label(labels, link[e]) for e in ("a", "b")]
         rows = [r for r in records if r["link_id"] == link["id"]]
         statuses = {status: sum(1 for r in rows if r["status"] == status) for status in ("error", "review")}
-        colour = _PALETTE[(index - 1) % len(_PALETTE)]
+        colour = "var(--kind-board)" if link.get("type") == "b2b" else "var(--kind-link)"
         title = link["name"] or f"{ends[0]} ↔ {ends[1]}"
         out.append('<section class="link">')
         out.append(f'<div class="link-head"><span class="swatch" style="background:{colour}"></span>'

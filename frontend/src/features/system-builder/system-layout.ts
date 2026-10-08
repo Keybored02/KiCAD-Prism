@@ -1,7 +1,8 @@
 /**
- * Deterministic default layout for a system's boards and links, shared in
- * spirit with the ICD's `backend/app/services/systems/layout.py` (keep the two
- * in step: same columns, row order, alignment and lanes).
+ * Deterministic default layout for a system's boards and links. The ICD's
+ * `backend/app/services/systems/layout.py` is a line-for-line port (SB2-71);
+ * `backend/tests/fixtures/system_builder/layout_parity.json` is checked by both
+ * suites, so change the two together.
  *
  * - The most-connected board sits in column 0; its neighbours alternate left
  *   and right, and boards further out continue away from the centre.

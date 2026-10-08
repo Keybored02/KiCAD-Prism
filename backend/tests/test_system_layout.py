@@ -10,7 +10,9 @@ from app.services.systems import layout as system_layout
 
 def instance(label: str, restricted: bool = False) -> dict:
     return {"id": f"sin_{label}", "label": label, "restricted": restricted, "projectName": label.lower(),
-            "baselineCommit": "a" * 40, "trackedRef": "main", "pinned": False}
+            "baselineCommit": "a" * 40, "trackedRef": "main", "pinned": False,
+            # A redacted document nulls a restricted board's ports.
+            **({"ports": None} if restricted else {})}
 
 
 def link(lid: str, a: tuple[str, str], b: tuple[str, str], name: str = "") -> dict:
