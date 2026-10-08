@@ -15,7 +15,7 @@ import { LinkEditor, endLabel } from "../link-editor";
 import type { SystemTabProps } from "../system-tab-content";
 import type { Mutate } from "../use-system-mutation";
 import { harnessFindings } from "./use-validation";
-import { TRAY_TABS, type TrayTab, type WorkspaceSelection } from "./workspace-state";
+import { TRAY_TABS, type TrayTab, type WorkspaceSelection, type WorkspaceView } from "./workspace-state";
 
 interface TrayProps extends SystemTabProps {
   tab: TrayTab | null;
@@ -29,6 +29,9 @@ interface TrayProps extends SystemTabProps {
   onTab: (tab: TrayTab | null) => void;
   onSelect: (selection: WorkspaceSelection | null) => void;
   onImporting: (open: boolean) => void;
+  view: WorkspaceView;
+  /** The Nets tab's body, which the 3D view fills with its net list. */
+  onNetsSlot: (node: HTMLElement | null) => void;
 }
 
 function Count({ value, tone }: { value: number; tone?: "error" | "warning" }) {
@@ -202,6 +205,9 @@ export function WorkspaceTray(props: TrayProps) {
           ) : (
             <ConnectionsTable document={document} findings={findings} onSelect={onSelect} />
           ))}
+          {tab === "nets" && (props.view === "3d"
+            ? <div ref={props.onNetsSlot} className="h-full" />
+            : <p className="p-4 text-sm text-muted-foreground">System nets light up in the 3D view. Switch to 3D to highlight them.</p>)}
           {tab === "findings" && <FindingsList findings={findings} document={document} onSelect={onSelect} />}
           {tab === "changes" && <ChangesTab {...tabProps} />}
           {tab === "history" && <HistoryTab key={`history-${props.takeRequest}`} {...tabProps} startTaking={props.takeRequest > 0} />}

@@ -80,9 +80,10 @@ describe("NetPanel", () => {
     expect(h.onClear).toHaveBeenCalled();
   });
 
-  it("explains itself when nothing is highlighted", () => {
-    render(<NetPanel systemId="sys_1" highlighted={[]} results={new Map()} adding={null} {...handlers()} />);
-    expect(screen.getByText(/Search for a net to light it on every board it reaches/)).toBeTruthy();
+  it("is a search field and nothing else when nothing is highlighted", () => {
+    render(<NetPanel embedded systemId="sys_1" highlighted={[]} results={new Map()} adding={null} {...handlers()} />);
+    expect(screen.getByRole("region", { name: "Highlight nets" }).textContent).toBe("");
+    expect(screen.getByLabelText("Search system nets")).toBeTruthy();
     expect(MAX_HIGHLIGHTED_NETS).toBe(8);
   });
 });

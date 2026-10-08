@@ -1,14 +1,12 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
-import { Activity, Box, Cable, Keyboard, Loader2, Maximize, Move3d, Spline, Tag } from "lucide-react";
+import type { CSSProperties, ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { Activity, Box, Cable, Keyboard, Loader2, Maximize, MousePointer2, Move3d, Spline, Tag } from "lucide-react";
 
 import { DesignSearchField } from "@/components/design-search-field";
 import { Semantic3dControls } from "@/components/semantic-3d-controls";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ViewerOverlayRail } from "@/components/viewer-overlay-rail";
 import { selectionFromDesignSearchHit, type DesignSearchHit } from "@/lib/design-search";
 import { getScene } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
@@ -39,7 +37,6 @@ import type { SystemTabProps } from "./system-tab-content";
 
 const DiagramTab = lazy(() => import("./diagram-tab").then((module) => ({ default: module.DiagramTab })));
 
-type RailTab = "nets";
 
 function Notice({ tone = "info", children }: { tone?: "info" | "warning" | "error"; children: React.ReactNode }) {
   return (
@@ -172,12 +169,12 @@ function usePartReport(
  */
 export function Scene3dTab(props: SystemTabProps) {
   const { systemId, document, etag, canEdit, reload, selection: workspaceSelection = null, onSelect, onPart } = props;
+  const { inspectorSlot = null, netsSlot = null, onOpenTray } = props;
   const supported = webgpuAvailable();
   const { scene, error } = useSystemScene(systemId, etag, supported);
   const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
   const attach = useCallback((node: PrismSemanticViewerElement | null) => setViewer(node), []);
   const [leftInset, setLeftInset] = useState(0);
-  const [rail, setRail] = useState<RailTab | null>(null);
   const [stats, setStats] = useState(false);
   const [labels, setLabels] = useState(true);
   const [harnesses, setHarnesses] = useState(true);
@@ -237,7 +234,7 @@ export function Scene3dTab(props: SystemTabProps) {
     // Shift adds a system net to the highlighted set, in the next colour (D-P2-19).
     if (options?.additive && hit.systemNet) {
       void nets.add(hit.systemNet);
-      setRail("nets");
+      onOpenTray?.("nets");
       return;
     }
     const occurrence = hit.target?.occurrence ?? hitOccurrence(hit);
@@ -268,79 +265,60 @@ export function Scene3dTab(props: SystemTabProps) {
   }
 
   const summary = scene ? summarizeScene(scene) : null;
+  // The move, route and trace panels: the top of the inspector on large screens, over the view otherwise.
+  const movePanel = move?.enabled && (move.target || !route.state) ? (
+    <MovePanel
+      key={moving.epoch}
+      state={move}
+      busy={moving.busy}
+      onPreview={(pose) => viewer?.previewPose?.(pose)}
+      onSave={(target) => void moving.savePose(target)}
+      onCancel={() => viewer?.cancelMove?.()}
+      moved={moving.moved}
+      onRevert={() => void moving.revert()}
+      onDefault={(target) => void moving.backToDefault(target)}
+      onResetAll={() => moving.setConfirmReset(true)}
+      onSpace={(space) => viewer?.setMoveSpace?.(space)}
+      mate={moving.mate}
+      stackSize={moving.stack?.members.length ?? 0}
+      pending={moving.pending}
+      onBreakMate={() => void moving.breakMate()}
+      onMoveWithStack={() => void moving.moveWithStack()}
+      onCancelPending={moving.cancelPending}
+      onSnapBack={(target) => void moving.snapBack(target)}
+    />
+  ) : null;
+  const routePanel = route.state ? (
+    <HarnessPanel
+      state={route.state}
+      moving={Boolean(move?.enabled)}
+      busy={route.busy}
+      counts={route.counts}
+      onAddWaypoint={() => void route.addWaypoint()}
+      onAddBreakout={() => void route.addBreakout()}
+      onPinned={(pinned) => void route.setPinned(pinned)}
+      onRemove={() => void route.remove()}
+    />
+  ) : null;
+  const traceCard = traced ? (
+    <div className="w-80 rounded-md border bg-background/95 p-3 shadow-sm">
+      <TraceCard
+        key={`${traced.origin}\n${traced.boardNet}`}
+        traced={traced}
+        result={nets.results.get(TRACE_KEY)}
+        onLight={light}
+        onFrameBoard={(occurrence) => {
+          if (!viewer?.frameNetEmphasis?.(TRACE_KEY, occurrence)) viewer?.frameBoard?.(occurrence);
+        }}
+        onFrameHop={(hop) => viewer?.frameParts?.([hop.from, hop.to].flatMap((end) => (
+          end.occurrence && end.reference ? [{ occurrence: end.occurrence, reference: end.reference }] : [])))}
+      />
+    </div>
+  ) : null;
+  const tools = movePanel || routePanel || traceCard ? <>{movePanel}{routePanel}{traceCard}</> : null;
 
   return (
     <div className="flex h-full min-h-[480px] flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 md:px-6">
-        <span className="flex items-center gap-1.5 text-sm font-medium">
-          <Box className="size-4 text-muted-foreground" aria-hidden />
-          {summary ? `${summary.boards} board${summary.boards === 1 ? "" : "s"}` : "3D view"}
-        </span>
-        {summary && summary.restricted.length > 0 && <Badge variant="outline">{summary.restricted.length} restricted</Badge>}
-        {summary && summary.building.length > 0 && (
-          <Badge variant="info" className="gap-1"><Loader2 className="size-3 animate-spin" aria-hidden />{summary.building.length} building</Badge>
-        )}
-        {summary && summary.failed.length > 0 && <Badge variant="destructive">{summary.failed.length} failed</Badge>}
-        <Select value={scope ?? "all"} onValueChange={(value) => setSearchBoard(value === "all" ? null : value)}>
-          <SelectTrigger className="ml-2 h-9 w-36 text-xs" aria-label="Search on">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All boards</SelectItem>
-            {boards.map((board) => (
-              <SelectItem key={board.path} value={board.path}>{board.displayPath}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <div className="mr-2 min-w-48 max-w-sm flex-1">
-          <DesignSearchField semanticIndex={null} search={search} loading={boards.length > 0 && !searchable.length} onPick={pick} inline />
-        </div>
-        <span className="ml-auto flex items-center gap-1">
-          {canEdit && (
-            <Button
-              variant={move?.enabled ? "secondary" : "ghost"} size="sm" aria-pressed={Boolean(move?.enabled)}
-              title="Move boards (M)" onClick={() => viewer?.setMoveMode?.(!move?.enabled)}
-            >
-              <Move3d className="size-4" aria-hidden /> Move
-            </Button>
-          )}
-          <Button
-            variant={rail === "nets" || highlighted.length ? "secondary" : "ghost"} size="sm" aria-pressed={rail === "nets"}
-            title="Highlight system nets" onClick={() => setRail(rail === "nets" ? null : "nets")}
-          >
-            <Spline className="size-4" aria-hidden /> Nets{highlighted.length ? ` (${highlighted.length})` : ""}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => viewer?.frameAll?.()} title="Fit every board (Home)">
-            <Maximize className="size-4" aria-hidden /> Fit all
-          </Button>
-          <Button
-            variant={labels ? "secondary" : "ghost"} size="sm" aria-pressed={labels} title="Board names"
-            onClick={() => { setLabels(!labels); viewer?.setLabelsVisible?.(!labels); }}
-          >
-            <Tag className="size-4" aria-hidden /> Labels
-          </Button>
-          {(scene?.harnesses?.length ?? 0) > 0 && (
-            <Button
-              variant={harnesses ? "secondary" : "ghost"} size="sm" aria-pressed={harnesses}
-              title="Harnesses, drawn as straight lines between their connectors until their routes are modelled"
-              onClick={() => { setHarnesses(!harnesses); viewer?.setHarnessesVisible?.(!harnesses); }}
-            >
-              <Cable className="size-4" aria-hidden /> Harnesses
-            </Button>
-          )}
-          <Button
-            variant={stats ? "secondary" : "ghost"} size="sm" aria-pressed={stats} title="Scene statistics (`)"
-            onClick={() => { setStats(!stats); viewer?.setStatsOverlay?.(!stats); }}
-          >
-            <Activity className="size-4" aria-hidden /> Stats
-          </Button>
-          <Button variant="ghost" size="icon-sm" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"
-            onClick={() => viewer?.setHelpVisible?.(true)}>
-            <Keyboard className="size-4" aria-hidden />
-          </Button>
-        </span>
-      </div>
-
       <SceneNotices error={error} viewerError={viewerError} summary={summary} />
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-muted/20" style={themeBridge(leftInset)}>
@@ -350,90 +328,86 @@ export function Scene3dTab(props: SystemTabProps) {
           style={{ position: "absolute", inset: 0, display: "block" }}
         />
         <Semantic3dControls viewer={viewer} onVisibleWidthChange={setLeftInset} />
-        {(move?.enabled || route.state) && (
-          <div className="absolute top-3 z-10 flex flex-col gap-2" style={{ left: leftInset + 12 }}>
-            {/* A picked harness replaces the "select a board" hint; a board target keeps its panel. */}
-            {move?.enabled && (move.target || !route.state) && <MovePanel
-              key={moving.epoch}
-              state={move}
-              busy={moving.busy}
-              onPreview={(pose) => viewer?.previewPose?.(pose)}
-              onSave={(target) => void moving.savePose(target)}
-              onCancel={() => viewer?.cancelMove?.()}
-              moved={moving.moved}
-              onRevert={() => void moving.revert()}
-              onDefault={(target) => void moving.backToDefault(target)}
-              onResetAll={() => moving.setConfirmReset(true)}
-              onSpace={(space) => viewer?.setMoveSpace?.(space)}
-              mate={moving.mate}
-              stackSize={moving.stack?.members.length ?? 0}
-              pending={moving.pending}
-              onBreakMate={() => void moving.breakMate()}
-              onMoveWithStack={() => void moving.moveWithStack()}
-              onCancelPending={moving.cancelPending}
-              onSnapBack={(target) => void moving.snapBack(target)}
-            />}
-            {route.state && (
-              <HarnessPanel
-                state={route.state}
-                moving={Boolean(move?.enabled)}
-                busy={route.busy}
-                counts={route.counts}
-                onAddWaypoint={() => void route.addWaypoint()}
-                onAddBreakout={() => void route.addBreakout()}
-                onPinned={(pinned) => void route.setPinned(pinned)}
-                onRemove={() => void route.remove()}
-              />
-            )}
+
+        <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-start gap-2" style={{ left: leftInset + 12 }}>
+          <div className={cn(OVERLAY, "flex w-[30rem] min-w-0 max-w-full items-center gap-1 p-1")}>
+            <span className="flex shrink-0 items-center gap-1 px-1.5 text-xs text-muted-foreground" title={summary ? sceneTitle(summary) : undefined}>
+              <Box className="size-3.5" aria-hidden />{summary?.boards ?? "…"}
+              {summary && summary.building.length > 0 && <Loader2 className="size-3 animate-spin" aria-label="Building" />}
+            </span>
+            <Select value={scope ?? "all"} onValueChange={(value) => setSearchBoard(value === "all" ? null : value)}>
+              <SelectTrigger className="h-8 w-28 shrink-0 border-0 bg-transparent text-xs shadow-none" aria-label="Search on">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All boards</SelectItem>
+                {boards.map((board) => (
+                  <SelectItem key={board.path} value={board.path}>{board.displayPath}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="min-w-0 flex-1">
+              <DesignSearchField semanticIndex={null} search={search} loading={boards.length > 0 && !searchable.length} onPick={pick} inline />
+            </div>
           </div>
+          <div className="flex-1" />
+          {canEdit && (
+            <fieldset className={cn(OVERLAY, "flex shrink-0 gap-0.5 p-0.5")}>
+              <legend className="sr-only">Mode</legend>
+              <OverlayButton active={!move?.enabled} title="Select" onClick={() => viewer?.setMoveMode?.(false)}>
+                <MousePointer2 className="size-3.5" aria-hidden /> Select
+              </OverlayButton>
+              <OverlayButton active={Boolean(move?.enabled)} title="Move boards and harness nodes (M)" onClick={() => viewer?.setMoveMode?.(true)}>
+                <Move3d className="size-3.5" aria-hidden /> Move
+              </OverlayButton>
+            </fieldset>
+          )}
+        </div>
+
+        {inspectorSlot ? createPortal(tools, inspectorSlot) : (tools && (
+          <div className="absolute top-16 z-10 flex max-h-[calc(100%-5rem)] flex-col gap-2 overflow-y-auto" style={{ left: leftInset + 12 }}>{tools}</div>
+        ))}
+        {netsSlot && createPortal(
+          <NetPanel
+            embedded
+            systemId={systemId}
+            highlighted={highlighted}
+            results={nets.results}
+            adding={nets.adding}
+            onAdd={(net) => void nets.add(net)}
+            onRemove={nets.remove}
+            onFrame={(groupId, occurrence) => viewer?.frameNetEmphasis?.(groupId, occurrence ?? null)}
+            isolated={Boolean(viewState?.isolateNet)}
+            onIsolate={(next) => viewer?.setNetIsolation?.(next)}
+            onClear={nets.clear}
+            onClose={() => onOpenTray?.(null)}
+          />,
+          netsSlot,
         )}
         {!scene && !error && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-muted-foreground">
             <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden /> Loading the system scene…</span>
           </div>
         )}
-        {traced && (
-          <div className="absolute right-3 top-3 z-10 w-80 max-w-[calc(100%-1.5rem)] rounded-md border bg-background/95 p-3 shadow-sm">
-            <TraceCard
-              key={`${traced.origin}\n${traced.boardNet}`}
-              traced={traced}
-              result={nets.results.get(TRACE_KEY)}
-              onLight={light}
-              onFrameBoard={(occurrence) => {
-                if (!viewer?.frameNetEmphasis?.(TRACE_KEY, occurrence)) viewer?.frameBoard?.(occurrence);
-              }}
-              onFrameHop={(hop) => viewer?.frameParts?.([hop.from, hop.to].flatMap((end) => (
-                end.occurrence && end.reference ? [{ occurrence: end.occurrence, reference: end.reference }] : [])))}
-            />
-          </div>
-        )}
-        <ViewerOverlayRail
-          activeTab={rail}
-          tabs={[
-            { id: "nets", label: "Nets", icon: <Spline className="mr-1.5 size-3.5" />,
-              badge: highlighted.length ? <span className="rounded-full bg-muted px-1.5 text-[10px]">{highlighted.length}</span> : null },
-          ]}
-          onTabChange={setRail}
-          onClose={() => setRail(null)}
-          ariaLabel="System nets"
-        >
-          {rail === "nets" && (
-            <NetPanel
-              embedded
-              systemId={systemId}
-              highlighted={highlighted}
-              results={nets.results}
-              adding={nets.adding}
-              onAdd={(net) => void nets.add(net)}
-              onRemove={nets.remove}
-              onFrame={(groupId, occurrence) => viewer?.frameNetEmphasis?.(groupId, occurrence ?? null)}
-              isolated={Boolean(viewState?.isolateNet)}
-              onIsolate={(next) => viewer?.setNetIsolation?.(next)}
-              onClear={nets.clear}
-              onClose={() => setRail(null)}
-            />
+
+        <div className={cn(OVERLAY, "absolute bottom-3 right-3 z-10 flex gap-0.5 p-0.5")}>
+          <OverlayButton active={Boolean(netsSlot) || highlighted.length > 0} title="System nets" onClick={() => onOpenTray?.(netsSlot ? null : "nets")}>
+            <Spline className="size-4" aria-hidden />{highlighted.length > 0 && <span className="text-[11px] tabular-nums">{highlighted.length}</span>}
+          </OverlayButton>
+          <OverlayButton title="Fit all (Home)" onClick={() => viewer?.frameAll?.()}><Maximize className="size-4" aria-hidden /></OverlayButton>
+          <OverlayButton active={labels} title="Board names" onClick={() => { setLabels(!labels); viewer?.setLabelsVisible?.(!labels); }}>
+            <Tag className="size-4" aria-hidden />
+          </OverlayButton>
+          {(scene?.harnesses?.length ?? 0) > 0 && (
+            <OverlayButton active={harnesses} title="Harnesses" onClick={() => { setHarnesses(!harnesses); viewer?.setHarnessesVisible?.(!harnesses); }}>
+              <Cable className="size-4" aria-hidden />
+            </OverlayButton>
           )}
-        </ViewerOverlayRail>
+          <OverlayButton active={stats} title="Statistics (`)" onClick={() => { setStats(!stats); viewer?.setStatsOverlay?.(!stats); }}>
+            <Activity className="size-4" aria-hidden />
+          </OverlayButton>
+          <OverlayButton title="Keyboard shortcuts (?)" onClick={() => viewer?.setHelpVisible?.(true)}><Keyboard className="size-4" aria-hidden /></OverlayButton>
+        </div>
       </div>
       <ConfirmDialog
         open={nets.confirmLarge !== null}
@@ -456,6 +430,26 @@ export function Scene3dTab(props: SystemTabProps) {
       />
     </div>
   );
+}
+
+const OVERLAY = "pointer-events-auto rounded-md border bg-background/95 shadow-sm backdrop-blur";
+
+/** A mode or view button over the 3D view; icon-only buttons name themselves with their title. */
+function OverlayButton({ active = false, title, onClick, children }: { active?: boolean; title: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" title={title} aria-label={title} aria-pressed={active} onClick={onClick}
+      className={cn("flex h-7 min-w-7 items-center justify-center gap-1 rounded px-1.5 text-xs",
+        active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground")}>
+      {children}
+    </button>
+  );
+}
+
+function sceneTitle(summary: ReturnType<typeof summarizeScene>): string {
+  return [`${summary.boards} board${summary.boards === 1 ? "" : "s"}`,
+    summary.restricted.length ? `${summary.restricted.length} restricted` : "",
+    summary.building.length ? `${summary.building.length} building` : "",
+    summary.failed.length ? `${summary.failed.length} failed` : ""].filter(Boolean).join(" · ");
 }
 
 /** The app's tokens for the viewer's shadow tree, as the board 3D tab passes them (see webgpu-3d-tab.tsx). */

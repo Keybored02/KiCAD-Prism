@@ -28,6 +28,8 @@ interface InspectorProps {
   busy: string | null;
   run: Mutate;
   onSelect: (selection: WorkspaceSelection | null) => void;
+  /** Where the 3D view puts its move, route and trace panels (the large-screen inspector only). */
+  slot?: (node: HTMLElement | null) => void;
   /** Opens the tray on the selected link's or harness's rows. */
   onEditRows: () => void;
 }
@@ -179,6 +181,10 @@ export function WorkspaceInspector(props: InspectorProps) {
   const harness = selection?.kind === "harness" ? document.harnesses?.find((item) => item.id === selection.id) : undefined;
   return (
     <aside className="h-full overflow-auto p-5" aria-label="Inspector">
+      {props.slot && (
+        <div ref={props.slot} aria-label="3D tools"
+          className="-mx-5 -mt-5 mb-5 space-y-3 border-b p-4 empty:hidden [&>*]:!w-full [&>*]:!shadow-none" />
+      )}
       {instance ? (
         <div className="space-y-6">
           {props.part && <PartInspector part={props.part} />}
