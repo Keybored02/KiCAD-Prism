@@ -37,9 +37,10 @@ import { SvgDomSchematicRenderer } from "./svg-dom-schematic-renderer.js";
 import { harnessKey, harnessSegments, hubPoint, litEnds, litHarnessWires, segmentColor } from "./system-harness.js";
 import { AUTO, levelMatrix, nodeHandles, toLevel, withNodePreview } from "./harness-edit.js";
 import { pickTube } from "./tube-pick.js";
+import { cameraRay, surfaceHit } from "./model-pick.js";
 // SB2-44: the placement library is shared with the app (one implementation, CONTRACTS_P2 §17).
 import { harnessScene } from "../../../frontend/src/features/system-builder/placement/harness-tubes.ts";
-import { allReadyBoardsDrawn, assetLoadable, assetOccurrenceMatrix, boardTransition, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
+import { allReadyBoardsDrawn, assetLoadable, assetOccurrenceMatrix, boardTransition, boxRendererId, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
 import { LOD_FULL } from "./occurrences.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
@@ -1546,6 +1547,14 @@ export async function mountSystemViewer(options = {}) {
     pickAt(clientX, clientY) {
       return pickHitAt(clientX, clientY);
     },
+    pickSurfaceAt,
+    focusMoveTarget,
+    /** Look along a world axis from its + side (or its − side), framing the scene (SB2-48b's face buttons). */
+    viewAxis(axis, opposite = false) {
+      if (!system || !["x", "y", "z"].includes(axis)) return;
+      camera.setAxis(axis, Boolean(opposite));
+      if (system.bounds) camera.frame(system.bounds);
+    },
     projectPoint(point, occurrenceKey) {
       return projectPlacementPoint(point, occurrenceKey);
     },
@@ -1675,6 +1684,15 @@ function placeSystem({ relabel = true } = {}) {
   for (const occurrence of drawnOccurrences(descriptor)) {
     const asset = occurrence.assetId ? assetsById.get(occurrence.assetId) : null;
     const b = occurrence.assetId ? system.boards.get(occurrence.assetId) : null;
+    const own = occurrence.kind !== "board" && !occurrence.restricted ? ownGeometry(occurrence) : null;
+    if (own) {
+      if (!groups.has(own.rendererId)) groups.set(own.rendererId, []);
+      groups.get(own.rendererId).push({ matrix: own.matrix, key: occurrence.path, hiddenLayers: [], explode: null });
+      placed.push({ occurrence, rendererId: own.rendererId, board: null, matrix: own.matrix, worldBounds: own.worldBounds,
+        standIn: null, own: own.kind, primitives: own.primitives });
+      continue;
+    }
+    if (occurrence.model || occurrence.box) continue; // its model is still loading and it has no box
     const kind = standInKind(occurrence, asset, b?.loadState);
     let rendererId;
     let matrix;
@@ -1785,6 +1803,37 @@ function extraInputs(renderer, now) {
   return renderer.housing ? housingInputs(now) : standInInputs(now);
 }
 
+/**
+ * An occurrence's own geometry (SB2-48b): a catalog model (`model: {glbKey, matrixMm, boundsMm}`, the
+ * GLB placed in the occurrence frame by `matrixMm`, its proxy box while it loads) or a coloured box
+ * (`box: {boundsMm, rgba}`). Null for an occurrence with neither.
+ */
+function ownGeometry(occurrence) {
+  if (occurrence.model?.glbKey) {
+    const placedModel = mat4Multiply(occurrence.worldMatrix, occurrence.model.matrixMm || IDENTITY);
+    const entry = system.housingModels.get(occurrence.model.glbKey);
+    if (!entry) void loadHousingModel(occurrence.model.glbKey);
+    if (entry?.state === "ready") {
+      const matrix = assetOccurrenceMatrix(placedModel, GLB_TO_STEP_MM);
+      return { kind: "model", rendererId: `housing:${occurrence.model.glbKey}`, matrix,
+        worldBounds: transformBounds(matrix, entry.bounds), primitives: entry.primitives };
+    }
+    if (occurrence.model.boundsMm) {
+      system.scene.standIn("housing:proxy", HOUSING_PROXY_RGBA);
+      const matrix = standInMatrix(placedModel, occurrence.model.boundsMm);
+      return { kind: "model", rendererId: "housing:proxy", matrix, worldBounds: transformBounds(matrix, [0, 0, 0, 1, 1, 1]) };
+    }
+  }
+  if (occurrence.box?.boundsMm) {
+    const rgba = occurrence.box.rgba || HOUSING_PROXY_RGBA;
+    const rendererId = boxRendererId(rgba);
+    system.scene.standIn(rendererId, rgba);
+    const matrix = standInMatrix(occurrence.worldMatrix, occurrence.box.boundsMm);
+    return { kind: "box", rendererId, matrix, worldBounds: transformBounds(matrix, [0, 0, 0, 1, 1, 1]) };
+  }
+  return null;
+}
+
 /** Add each housing to the occurrence groups (a model's renderer once its GLB is in, else a proxy box). */
 function placeHousings(groups, housings) {
   const push = (id, entry) => {
@@ -1826,7 +1875,8 @@ async function loadHousingModel(glbKey) {
       renderer.addPrimitive(primitive, { kind: "component", layerId: 0, material: primitive.material, color: primitive.material.baseColor });
     }
     if (loaded.primitives.length) renderer.setBoardBounds(bounds);
-    system.housingModels.set(glbKey, { state: "ready" });
+    // The triangles stay for surface picks on model occurrences (SB2-48b); housings never pick them.
+    system.housingModels.set(glbKey, { state: "ready", bounds, primitives: loaded.primitives });
   } catch (error) {
     console.warn("[prism-semantic-viewer] housing model failed", glbKey, error);
     if (system) system.housingModels.set(glbKey, { state: "failed" });
@@ -1988,7 +2038,7 @@ function selectSystemHit(hit) {
   }
   const item = hit.occurrenceKey != null ? system.placements.get(hit.occurrenceKey) : null;
   if (!item) return clearSelection();
-  if (item.standIn) return selectStandIn(item);
+  if (item.standIn || item.own) return selectStandIn(item); // a box or a catalog model selects as itself
   const b = item.board;
   // Isolated, only lit copper draws: a hit on anything else is a click on empty space.
   if (state.isolateNet && !litFeatureAt(b, item.occurrence.path, hit.featureId)) return clearSelection();
@@ -2003,7 +2053,7 @@ function selectSystemHit(hit) {
 function selectInSystem(selection) {
   const item = selection.occurrence != null ? system?.placements.get(String(selection.occurrence)) : null;
   if (!item) return;
-  if (item.standIn) {
+  if (item.standIn || item.own) {
     selectStandIn(item);
     return;
   }
@@ -2413,7 +2463,8 @@ function selectionKey() {
 function retargetMove({ quiet = false } = {}) {
   if (!system) return;
   const key = selectionKey();
-  const target = system.move.enabled && key != null ? moveTarget(system.baseDescriptor, key)?.path ?? null : null;
+  const top = system.move.enabled && key != null ? moveTarget(system.baseDescriptor, key) : null;
+  const target = top && top.move !== false ? top.path : null; // `move: false` (SB2-48b): fixed in place
   if (target === system.move.target) return;
   dropMoveTarget();
   system.move.target = target;
@@ -2471,7 +2522,11 @@ function updateMoveGizmo() {
   // A harness node (SB2-45b) takes the gizmo from the board: translate only, world axes.
   const node = system.move.enabled && panel ? targetHandle() : null;
   const target = node ? null : moveTargetOccurrence();
-  const pivot = node ? node.worldMm : system.move.enabled && target && panel ? movePivotMm() : null;
+  // An occurrence may limit its gizmo (SB2-48b): `move: {translate, rotate, rotateSnapDeg, pivot}`, in its own axes.
+  const limits = target && typeof target.move === "object" ? target.move : null;
+  const limitPose = limits ? system.move.preview ?? target.pose : null;
+  const pivot = node ? node.worldMm
+    : system.move.enabled && target && panel ? (limits?.pivot === "origin" ? [...limitPose.translationMm] : movePivotMm()) : null;
   const center = pivot ? screenOfMm(pivot) : null;
   if (!center) {
     svg.toggleAttribute("hidden", true);
@@ -2489,12 +2544,12 @@ function updateMoveGizmo() {
   }
   const sizeMm = GIZMO_PX / pxPerMm;
   const pose = target ? system.move.preview ?? target.pose : null;
-  const axes = pose && system.move.space === "local" ? localAxes(pose) : AXES;
+  const axes = pose && (limits || system.move.space === "local") ? localAxes(pose) : AXES;
   const handles = [];
   axes.forEach((axis, index) => {
     const tip = screenOfMm(add(pivot, scale(axis, sizeMm)));
     const arrow = svg.querySelector(`[data-part="t${index}"]`);
-    const shown = tip && Math.hypot(tip[0] - center[0], tip[1] - center[1]) > 12;
+    const shown = tip && Math.hypot(tip[0] - center[0], tip[1] - center[1]) > 12 && (!limits || (limits.translate || []).includes(index));
     arrow.style.display = shown ? "" : "none";
     if (shown) {
       const line = arrow.querySelector("line");
@@ -2517,13 +2572,13 @@ function updateMoveGizmo() {
     }
     const ring = svg.querySelector(`[data-part="r${index}"]`);
     ring.setAttribute("points", points.join(" "));
-    ring.style.display = node ? "none" : "";
+    ring.style.display = node || (limits && !(limits.rotate || []).includes(index)) ? "none" : "";
     handles.push({ axis, pxPerMm: tip ? [(tip[0] - center[0]) / sizeMm, (tip[1] - center[1]) / sizeMm] : [0, 0] });
   });
   const dot = svg.querySelector('[data-part="pivot"]');
   dot.setAttribute("cx", center[0]);
   dot.setAttribute("cy", center[1]);
-  system.gizmo = { center, pivot, handles, back };
+  system.gizmo = { center, pivot, handles, back, limits };
 }
 
 function buildMoveGizmo(svg) {
@@ -2583,8 +2638,11 @@ function startGizmoDrag(event) {
     return;
   }
   const target = moveTargetOccurrence();
+  const limits = system.gizmo.limits;
+  if (limits && !((part[0] === "t" ? limits.translate : limits.rotate) || []).includes(Number(part[1]))) return;
   system.move.drag = {
     kind: part[0] === "t" ? "translate" : "rotate",
+    snapDeg: limits?.rotateSnapDeg ?? null,
     handle: system.gizmo.handles[Number(part[1])],
     start: [event.clientX - rect.left, event.clientY - rect.top],
     startPose: canonicalPose(system.move.preview ?? target.pose),
@@ -2625,7 +2683,7 @@ function moveGizmoDrag(event) {
     readout = `${amount >= 0 ? "+" : ""}${amount.toFixed(fine ? 1 : 0)} mm`;
   } else {
     const raw = ringRotation(drag.handle.axis, drag.back, screenAngle(drag.center, drag.start, now)) * 180 / Math.PI;
-    const degrees = snapTo(raw, fine ? SNAP.fineDeg : SNAP.deg);
+    const degrees = snapTo(raw, drag.snapDeg ?? (fine ? SNAP.fineDeg : SNAP.deg));
     pose = rotatePoseAbout(drag.startPose, drag.handle.axis, degrees * Math.PI / 180, drag.pivot);
     readout = `${degrees >= 0 ? "+" : ""}${degrees.toFixed(0)}°`;
   }
@@ -5192,6 +5250,33 @@ async function contextPickAt(event) {
     reference: reference || undefined,
     value: String(component?.value || feature?.value || "") || undefined,
   });
+}
+
+/**
+ * Where a client point meets a model occurrence marked `pickSurface` (SB2-48b): `{occurrence, pointMm,
+ * normal, toCamera}` in world millimetres, the normal facing the viewer; null on empty space.
+ */
+function pickSurfaceAt(clientX, clientY) {
+  if (!system || !canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const ndcY = 1 - ((clientY - rect.top) / rect.height) * 2;
+  const ray = cameraRay(camera, ndcX, ndcY, rect.width / Math.max(rect.height, 1));
+  const models = system.placed
+    .filter((item) => item.primitives && item.occurrence.pickSurface)
+    .map((item) => ({ key: item.occurrence.path, matrix: item.matrix, primitives: item.primitives }));
+  const hit = surfaceHit(models, ray);
+  if (!hit) return null;
+  return { occurrence: hit.key, pointMm: hit.point.map((value) => value / MOVE_MM), normal: hit.normal,
+    toCamera: ray.direction.map((value) => -value) };
+}
+
+/** Select an occurrence for move mode by path (SB2-48b: the host puts the gizmo on a connector). */
+function focusMoveTarget(path) {
+  const item = path != null ? system?.placements.get(String(path)) : null;
+  if (!item) return false;
+  selectStandIn(item);
+  return true;
 }
 
 function pickHitAtEvent(event) {

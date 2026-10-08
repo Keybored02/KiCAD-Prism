@@ -584,6 +584,14 @@ export interface SystemSceneOccurrence {
   boundsMm: { minMm: number[]; maxMm: number[] } | null;
   /** SB2-37: the driving mate that placed it (null: a root, or not mated); absent from older servers. */
   mate?: SystemSceneMate | null;
+  /** SB2-48b: a catalog GLB drawn in the occurrence frame (`matrixMm`: model STEP mm → occurrence; proxy box while loading). */
+  model?: { glbKey: string; matrixMm?: number[]; boundsMm?: { minMm: number[]; maxMm: number[] } | null };
+  /** SB2-48b: a coloured box in the occurrence frame. */
+  box?: { boundsMm: { minMm: number[]; maxMm: number[] }; rgba?: [number, number, number, number] };
+  /** SB2-48b: `false` never moves; an object limits the gizmo to these local axes (indices 0–2). */
+  move?: false | { translate?: number[]; rotate?: number[]; rotateSnapDeg?: number; pivot?: "origin" | "bounds" };
+  /** SB2-48b: surface picks (`pickSurfaceAt`) may land on this occurrence's model. */
+  pickSurface?: boolean;
 }
 
 /** How a mated occurrence is placed (CONTRACTS_P2 §14.9). */

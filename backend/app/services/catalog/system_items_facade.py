@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, ContextManager
 
-from app.services.catalog import mates as catalog_mates, models as catalog_models, system_items
+from app.services.catalog import mates as catalog_mates, models as catalog_models, module_connectors, system_items
 from app.services.catalog.component_writer import CatalogComponentWriter
 from app.services.catalog.normalization import utc_now_iso
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
@@ -155,6 +155,48 @@ class CatalogSystemItemsFacade:
         self._initialize()
         with self._connect() as conn:
             return catalog_mates.pairs_among(conn, component_ids)
+
+    # Connector placement on modules (CONTRACTS_P2 §3.6) ----------------------------
+
+    def module_connectors(self, component_id: str) -> dict[str, Any]:
+        self._initialize()
+        with self._connect() as conn:
+            return module_connectors.list_connectors(conn, component_id)
+
+    def connector_geometry(self, part_id: str) -> dict[str, Any]:
+        """A part as a module connector would use it: footprint geometry at the origin and its model."""
+        self._initialize()
+        with self._connect() as conn:
+            catalog_mates.require_part(conn, part_id)
+            return {"geometry": module_connectors.part_geometry(conn, part_id),
+                    "model": module_connectors.part_model(conn, part_id)}
+
+    def set_module_connector(self, component_id: str, unit_key: str, part_id: str, placement: dict[str, Any], *,
+                             actor: str = "") -> dict[str, Any]:
+        """Place (or move) the connector part of one unit, audited on the module's history."""
+        self._initialize()
+        with self._connect() as conn:
+            result = module_connectors.set_connector(conn, component_id, unit_key, part_id, placement, actor=actor,
+                                                     now=utc_now_iso())
+            self._audit_connector(conn, component_id, "component.module_connector_placed", actor,
+                                  {"unit": unit_key, "part": part_id})
+            conn.commit()
+            return result
+
+    def remove_module_connector(self, component_id: str, unit_key: str, *, actor: str = "") -> dict[str, Any]:
+        self._initialize()
+        with self._connect() as conn:
+            result = module_connectors.remove_connector(conn, component_id, unit_key)
+            self._audit_connector(conn, component_id, "component.module_connector_removed", actor, {"unit": unit_key})
+            conn.commit()
+            return result
+
+    def _audit_connector(self, conn: Any, component_id: str, event_type: str, actor: str,
+                         details: dict[str, Any]) -> None:
+        _component, revision = self._revision_kernel.active_revision_row(conn, component_id)
+        self._revision_kernel.append_audit_event(conn, component_id=component_id,
+                                                 revision_id=str((revision or {}).get("id") or ""),
+                                                 event_type=event_type, actor=actor, details=details)
 
     # Models and alignment (CONTRACTS_P2 §18.2) --------------------------------------
 

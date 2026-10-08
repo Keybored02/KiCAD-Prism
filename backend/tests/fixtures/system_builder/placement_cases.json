@@ -3880,6 +3880,301 @@
    }
   }
  ],
+ "modulePorts": [
+  {
+   "name": "vertical header on the top face",
+   "input": {
+    "placement": {"originMm": [10.0, 5.0, 20.0], "normal": [0.0, 0.0, 1.0], "quarterTurns": 0, "axis": null},
+    "geometry": {
+     "side": "top",
+     "positionMm": [0.0, 0.0],
+     "rotationDeg": 0.0,
+     "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+     "pads": [
+      {"pad": "1", "positionMm": [0.0, 0.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+      {"pad": "2", "positionMm": [0.0, -2.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "3", "positionMm": [0.0, -5.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "4", "positionMm": [0.0, -7.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+     ],
+     "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [1.77, 1.77]},
+     "model": {
+      "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+      "offsetMm": [0.0, 0.0, 0.0],
+      "rotationDeg": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+     }
+    }
+   },
+   "expected": {
+    "face": {
+     "originMm": [10.0, 5.0, 20.0],
+     "xAxis": [1.0, 0.0, 0.0],
+     "yAxis": [0.0, 1.0, 0.0],
+     "zAxis": [0.0, 0.0, 1.0],
+     "rotation": [0.0, 0.0, 0.0, 1.0]
+    },
+    "footprintPose": {"translationMm": [6.19, 5.0, 20.0], "rotation": [0.0, 0.0, 0.707106781, 0.707106781]}
+   }
+  },
+  {
+   "name": "vertical header on the top face, a quarter turn",
+   "input": {
+    "placement": {"originMm": [10.0, 5.0, 20.0], "normal": [0.0, 0.0, 1.0], "quarterTurns": 1, "axis": null},
+    "geometry": {
+     "side": "top",
+     "positionMm": [0.0, 0.0],
+     "rotationDeg": 0.0,
+     "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+     "pads": [
+      {"pad": "1", "positionMm": [0.0, 0.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+      {"pad": "2", "positionMm": [0.0, -2.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "3", "positionMm": [0.0, -5.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "4", "positionMm": [0.0, -7.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+     ],
+     "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [1.77, 1.77]},
+     "model": {
+      "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+      "offsetMm": [0.0, 0.0, 0.0],
+      "rotationDeg": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+     }
+    }
+   },
+   "expected": {
+    "face": {
+     "originMm": [10.0, 5.0, 20.0],
+     "xAxis": [0.0, 1.0, 0.0],
+     "yAxis": [-1.0, -0.0, -0.0],
+     "zAxis": [0.0, 0.0, 1.0],
+     "rotation": [-0.0, 0.0, 0.7071067811865475, 0.7071067811865476]
+    },
+    "footprintPose": {"translationMm": [10.0, 1.19, 20.0], "rotation": [0.0, 0.0, 1.0, 0.0]}
+   }
+  },
+  {
+   "name": "vertical header on the -x face: x is module +y",
+   "input": {
+    "placement": {"originMm": [-15.0, 2.0, 8.0], "normal": [-1.0, 0.0, 0.0], "quarterTurns": 0, "axis": null},
+    "geometry": {
+     "side": "top",
+     "positionMm": [0.0, 0.0],
+     "rotationDeg": 0.0,
+     "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+     "pads": [
+      {"pad": "1", "positionMm": [0.0, 0.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+      {"pad": "2", "positionMm": [0.0, -2.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "3", "positionMm": [0.0, -5.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "4", "positionMm": [0.0, -7.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+     ],
+     "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [1.77, 1.77]},
+     "model": {
+      "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+      "offsetMm": [0.0, 0.0, 0.0],
+      "rotationDeg": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+     }
+    }
+   },
+   "expected": {
+    "face": {
+     "originMm": [-15.0, 2.0, 8.0],
+     "xAxis": [0.0, 1.0, 0.0],
+     "yAxis": [0.0, 0.0, -1.0],
+     "zAxis": [-1.0, 0.0, 0.0],
+     "rotation": [-0.5, -0.5, 0.5, 0.5]
+    },
+    "footprintPose": {"translationMm": [-15.0, -1.81, 8.0], "rotation": [0.707106781, 0.0, -0.707106781, 0.0]}
+   }
+  },
+  {
+   "name": "vertical header on the +y face, half a turn",
+   "input": {
+    "placement": {"originMm": [0.0, 12.5, 8.0], "normal": [0.0, 1.0, 0.0], "quarterTurns": 2, "axis": null},
+    "geometry": {
+     "side": "top",
+     "positionMm": [0.0, 0.0],
+     "rotationDeg": 0.0,
+     "footprintName": "PinHeader_1x04_P2.54mm_Vertical",
+     "pads": [
+      {"pad": "1", "positionMm": [0.0, 0.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+      {"pad": "2", "positionMm": [0.0, -2.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "3", "positionMm": [0.0, -5.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "4", "positionMm": [0.0, -7.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+     ],
+     "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [1.77, 1.77]},
+     "model": {
+      "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+      "offsetMm": [0.0, 0.0, 0.0],
+      "rotationDeg": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+     }
+    }
+   },
+   "expected": {
+    "face": {
+     "originMm": [0.0, 12.5, 8.0],
+     "xAxis": [-1.0, -0.0, -0.0],
+     "yAxis": [-0.0, -0.0, 1.0],
+     "zAxis": [0.0, 1.0, 0.0],
+     "rotation": [0.0, 0.7071067811865475, 0.7071067811865476, 0.0]
+    },
+    "footprintPose": {"translationMm": [3.81, 12.5, 8.0], "rotation": [-0.5, -0.5, -0.5, 0.5]}
+   }
+  },
+  {
+   "name": "right-angle header: its in-plane mating axis points out of the face",
+   "input": {
+    "placement": {"originMm": [0.0, 0.0, 0.0], "normal": [0.0, 0.0, -1.0], "quarterTurns": 3, "axis": null},
+    "geometry": {
+     "side": "top",
+     "positionMm": [0.0, 0.0],
+     "rotationDeg": 0.0,
+     "footprintName": "PinHeader_1x04_P2.54mm_Horizontal",
+     "pads": [
+      {"pad": "1", "positionMm": [0.0, 0.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+      {"pad": "2", "positionMm": [0.0, -2.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "3", "positionMm": [0.0, -5.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "4", "positionMm": [0.0, -7.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+     ],
+     "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [10.54, 1.77]},
+     "model": {
+      "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Horizontal.step",
+      "offsetMm": [0.0, 0.0, 0.0],
+      "rotationDeg": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+     }
+    }
+   },
+   "expected": {
+    "face": {
+     "originMm": [0.0, 0.0, 0.0],
+     "xAxis": [-0.0, 1.0, -0.0],
+     "yAxis": [1.0, 0.0, 0.0],
+     "zAxis": [0.0, 0.0, -1.0],
+     "rotation": [0.7071067811865475, 0.7071067811865476, 0.0, 0.0]
+    },
+    "footprintPose": {"translationMm": [0.0, -3.81, 0.0], "rotation": [0.707106781, 0.0, -0.707106781, 0.0]}
+   }
+  },
+  {
+   "name": "an override axis on the right-angle header",
+   "input": {
+    "placement": {"originMm": [4.0, 4.0, 4.0], "normal": [1.0, 0.0, 0.0], "quarterTurns": 0, "axis": "top"},
+    "geometry": {
+     "side": "top",
+     "positionMm": [0.0, 0.0],
+     "rotationDeg": 0.0,
+     "footprintName": "PinHeader_1x04_P2.54mm_Horizontal",
+     "pads": [
+      {"pad": "1", "positionMm": [0.0, 0.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+      {"pad": "2", "positionMm": [0.0, -2.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "3", "positionMm": [0.0, -5.08], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "4", "positionMm": [0.0, -7.62], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+     ],
+     "courtyard": {"minMm": [-1.77, -9.39], "maxMm": [10.54, 1.77]},
+     "model": {
+      "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Horizontal.step",
+      "offsetMm": [0.0, 0.0, 0.0],
+      "rotationDeg": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+     }
+    }
+   },
+   "expected": {
+    "face": {
+     "originMm": [4.0, 4.0, 4.0],
+     "xAxis": [0.0, 1.0, 0.0],
+     "yAxis": [0.0, 0.0, 1.0],
+     "zAxis": [1.0, 0.0, 0.0],
+     "rotation": [0.5, 0.5, 0.5, 0.5]
+    },
+    "footprintPose": {"translationMm": [4.0, 0.19, 4.0], "rotation": [0.707106781, 0.0, 0.707106781, 0.0]}
+   }
+  },
+  {
+   "name": "a tilted face, normal not unit length",
+   "input": {
+    "placement": {"originMm": [1.0, 2.0, 3.0], "normal": [0.3000066, -0.4000088, 0.866019053], "quarterTurns": 1, "axis": null},
+    "geometry": {
+     "side": "top",
+     "positionMm": [0.0, 0.0],
+     "rotationDeg": 0.0,
+     "footprintName": "PinHeader_2x02_P2.54mm_Vertical",
+     "pads": [
+      {"pad": "1", "positionMm": [0.0, 0.0], "sizeMm": [1.7, 1.7], "shape": "rect", "tht": true},
+      {"pad": "2", "positionMm": [2.54, 0.0], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "3", "positionMm": [0.0, -2.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true},
+      {"pad": "4", "positionMm": [2.54, -2.54], "sizeMm": [1.7, 1.7], "shape": "circle", "tht": true}
+     ],
+     "courtyard": {"minMm": [-1.77, -4.32], "maxMm": [4.32, 1.77]},
+     "model": {
+      "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_2x02_P2.54mm_Vertical.step",
+      "offsetMm": [0.0, 0.0, 0.0],
+      "rotationDeg": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+     }
+    }
+   },
+   "expected": {
+    "face": {
+     "originMm": [1.0, 2.0, 3.0],
+     "xAxis": [0.0, 0.907836616749235, 0.419324071917297],
+     "yAxis": [-0.9539371258010889, -0.1257999890964507, 0.27235697670830883],
+     "zAxis": [0.30000659995799656, -0.4000087999439954, 0.86601905287875],
+     "rotation": [0.25484354819069915, -0.04522432427576794, 0.705659096514599, 0.6595868145631589]
+    },
+    "footprintPose": {
+     "translationMm": [-0.21150015, 0.687281511, 2.813351789],
+     "rotation": [0.254843548, -0.045224324, 0.705659097, 0.659586815]
+    }
+   }
+  },
+  {
+   "name": "no inferable axis: the top face mates",
+   "input": {
+    "placement": {"originMm": [0.0, 0.0, 6.0], "normal": [0.0, 0.0, 1.0], "quarterTurns": 0, "axis": null},
+    "geometry": {
+     "side": "top",
+     "positionMm": [0.0, 0.0],
+     "rotationDeg": 0.0,
+     "footprintName": "Hirose_DF40B-10DS-0.4V_2x05-1MP_P0.4mm",
+     "pads": [
+      {"pad": "1", "positionMm": [-0.8, -1.54], "sizeMm": [0.2, 0.7], "shape": "roundrect", "tht": false},
+      {"pad": "2", "positionMm": [-0.8, 1.54], "sizeMm": [0.2, 0.7], "shape": "roundrect", "tht": false},
+      {"pad": "3", "positionMm": [-0.4, -1.54], "sizeMm": [0.2, 0.7], "shape": "roundrect", "tht": false},
+      {"pad": "4", "positionMm": [-0.4, 1.54], "sizeMm": [0.2, 0.7], "shape": "roundrect", "tht": false},
+      {"pad": "5", "positionMm": [0.0, -1.54], "sizeMm": [0.2, 0.7], "shape": "roundrect", "tht": false},
+      {"pad": "6", "positionMm": [0.0, 1.54], "sizeMm": [0.2, 0.7], "shape": "roundrect", "tht": false},
+      {"pad": "7", "positionMm": [0.4, -1.54], "sizeMm": [0.2, 0.7], "shape": "roundrect", "tht": false},
+      {"pad": "8", "positionMm": [0.4, 1.54], "sizeMm": [0.2, 0.7], "shape": "roundrect", "tht": false},
+      {"pad": "9", "positionMm": [0.8, -1.54], "sizeMm": [0.2, 0.7], "shape": "roundrect", "tht": false},
+      {"pad": "10", "positionMm": [0.8, 1.54], "sizeMm": [0.2, 0.7], "shape": "roundrect", "tht": false},
+      {"pad": "MP", "positionMm": [-2.0, 1.54], "sizeMm": [0.4, 0.7], "shape": "rect", "tht": false},
+      {"pad": "MP", "positionMm": [-2.0, -1.54], "sizeMm": [0.4, 0.7], "shape": "rect", "tht": false},
+      {"pad": "MP", "positionMm": [2.0, 1.54], "sizeMm": [0.4, 0.7], "shape": "rect", "tht": false},
+      {"pad": "MP", "positionMm": [2.0, -1.54], "sizeMm": [0.4, 0.7], "shape": "rect", "tht": false}
+     ],
+     "courtyard": null,
+     "model": {
+      "path": "${KICAD10_3DMODEL_DIR}/Connector_Hirose_DF40.3dshapes/Hirose_DF40B-10DS-0.4V_2x05-1MP_P0.4mm.step",
+      "offsetMm": [0.0, 0.0, 0.0],
+      "rotationDeg": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+     }
+    }
+   },
+   "expected": {
+    "face": {
+     "originMm": [0.0, 0.0, 6.0],
+     "xAxis": [1.0, 0.0, 0.0],
+     "yAxis": [0.0, 1.0, 0.0],
+     "zAxis": [0.0, 0.0, 1.0],
+     "rotation": [0.0, 0.0, 0.0, 1.0]
+    },
+    "footprintPose": {"translationMm": [0.0, 0.0, 6.0], "rotation": [0.0, 0.0, -0.707106781, 0.707106781]}
+   }
+  }
+ ],
  "mateEnds": {
   "mezz_base/F0 J1": {
    "geometry": {

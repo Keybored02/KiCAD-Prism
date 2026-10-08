@@ -82,9 +82,17 @@ export function boardTransition(known, asset) {
   return "keep";
 }
 
-/** Occurrences to place: boards, and restricted assemblies (one box for a hidden child system). */
+/**
+ * Occurrences to place: boards, restricted assemblies (one box for a hidden child system), and
+ * occurrences that bring their own geometry: a catalog `model` or a coloured `box` (SB2-48b).
+ */
 export function drawnOccurrences(descriptor) {
-  return (descriptor?.occurrences || []).filter((item) => item.kind === "board" || item.restricted);
+  return (descriptor?.occurrences || []).filter((item) => item.kind === "board" || item.restricted || item.model || item.box);
+}
+
+/** A colour's stand-in renderer id: boxes of one colour share a renderer. */
+export function boxRendererId(rgba) {
+  return `box:${rgba.map((value) => Number(value).toFixed(3)).join(",")}`;
 }
 
 /**

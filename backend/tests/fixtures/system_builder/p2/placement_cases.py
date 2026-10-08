@@ -23,7 +23,8 @@ from kicad_monkey import kicad_pcb_footprint, kicad_sexpr
 
 from app.services.systems.interface_extractor import _footprint_geometry, extract_interface
 from app.services.systems.placement import (
-    harness_checks, harness_curves, harness_ends, harness_nodes, harness_route, harness_topology, mate, poses, solve,
+    harness_checks, harness_curves, harness_ends, harness_nodes, harness_route, harness_topology, mate, module_ports,
+    poses, solve,
 )
 from app.services.systems.placement.frames import connector_frame, infer
 
@@ -443,6 +444,33 @@ def check_cases() -> list[dict]:
                                  "lengths": harness_checks.lengths(routed, allowance)}})
     return out
 
+def module_port_cases() -> list[dict]:
+    """Connectors placed on a module's faces (§3.6): the face frame and the footprint pose, by the Python half."""
+    tilted = [0.3, -0.4, 0.866]
+    specs = [
+        ("vertical header on the top face", "header_v", [10.0, 5.0, 20.0], [0.0, 0.0, 1.0], 0, None),
+        ("vertical header on the top face, a quarter turn", "header_v", [10.0, 5.0, 20.0], [0.0, 0.0, 1.0], 1, None),
+        ("vertical header on the -x face: x is module +y", "header_v", [-15.0, 2.0, 8.0], [-1.0, 0.0, 0.0], 0, None),
+        ("vertical header on the +y face, half a turn", "header_v", [0.0, 12.5, 8.0], [0.0, 1.0, 0.0], 2, None),
+        ("right-angle header: its in-plane mating axis points out of the face", "header_h", [0.0, 0.0, 0.0],
+         [0.0, 0.0, -1.0], 3, None),
+        ("an override axis on the right-angle header", "header_h", [4.0, 4.0, 4.0], [1.0, 0.0, 0.0], 0, "top"),
+        ("a tilted face, normal not unit length", "header_2x2", [1.0, 2.0, 3.0], tilted, 1, None),
+        ("no inferable axis: the top face mates", "df40", [0.0, 0.0, 6.0], [0.0, 0.0, 1.0], 0, None),
+    ]
+    out = []
+    for name, footprint, origin, normal, turns, axis in specs:
+        geometry = stock(footprint)
+        if footprint == "df40":
+            geometry = dict(geometry, courtyard=None)
+        placement = module_ports.placement_from({"originMm": origin, "normal": normal, "quarterTurns": turns,
+                                                 "axis": axis})
+        out.append({"name": name, "input": {"placement": placement, "geometry": geometry},
+                    "expected": {"face": module_ports.face_frame(placement),
+                                 "footprintPose": module_ports.footprint_pose(placement, geometry)}})
+    return out
+
+
 def compact(value, indent: int = 0) -> str:
     """JSON with every container that fits in 120 columns on one line (pads stay one per line)."""
     flat = json.dumps(value)
@@ -462,6 +490,7 @@ def main() -> None:
                             "poses": pose_cases(), "mates": mate_cases(),
                             "solves": solve_cases(), "harnessEnds": harness_end_cases(),
                             "harnessTopologies": topology_cases(), "harnessCurves": curve_cases(), "harnessNodes": node_cases(), "harnessChecks": check_cases(),
+                            "modulePorts": module_port_cases(),
                             "mateEnds": MATE_ENDS}) + "\n")
 
 

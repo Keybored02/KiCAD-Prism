@@ -584,6 +584,21 @@ export class PrismSemanticViewerElement extends HTMLElement {
     return Promise.resolve(this.controller?.pickAt?.(clientX, clientY) ?? null);
   }
 
+  /** In mode="system": where a client point meets a `pickSurface` model, `{occurrence, pointMm, normal, toCamera}` or null. */
+  pickSurfaceAt(clientX, clientY) {
+    return this.controller?.pickSurfaceAt?.(clientX, clientY) ?? null;
+  }
+
+  /** In mode="system": look along a world axis from its + side (`opposite`: its − side), framing the scene. */
+  viewAxis(axis, opposite = false) {
+    this.controller?.viewAxis?.(axis, opposite);
+  }
+
+  /** In mode="system": put the move gizmo on an occurrence by path; false when it is not placed (yet). */
+  focusMoveTarget(path) {
+    return Boolean(this.controller?.focusMoveTarget?.(path));
+  }
+
   /** Client coordinates of a component's centre (in mode="system", on one placement), or null when off screen. */
   projectComponent(reference, occurrenceKey) {
     return this.controller?.projectComponent?.(reference, occurrenceKey) ?? null;
