@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.72 · 2026-10-09 · tickets SB2-00 to SB2-107.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.73 · 2026-10-09 · tickets SB2-00 to SB2-107.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -434,7 +434,7 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 
 | Rule | Name | Severity | Definition |
 |---|---|---|---|
-| SYS-V09 | `net_name_mismatch` | warning, **opt-in** | Runs only when the system lists it in `optionalRules` (P2-1.10; off by default). At a join (row or wire), no token on one side is **related** to a token on the other (P2-1.8). Related: equal; one a prefix or suffix of the other (2+ characters, digits kept, so `GPIO4`/`IO4` match and `GPIO4`/`IO5` do not); an in-order abbreviation with the same first letter (`RST`/`RESET`); an acronym of the other side's tokens (`PG`/`PWR_GOOD`); or a crossed pair (`TX`/`RX`, `TXD`/`RXD`, `SDO`/`SDI`, `DOUT`/`DIN`, `CTS`/`RTS`). It is reported once per join, with both names. Unnamed auto-nets and unconnected pins never trigger it. |
+| SYS-V09 | `net_name_mismatch` | warning | Runs on every system (D-P2-57, §23.4; opt-in from P2-1.10 to P2-1.72). At a join (row or wire), no token on one side is **related** to a token on the other (P2-1.8). Related: equal; one a prefix or suffix of the other (2+ characters, digits kept, so `GPIO4`/`IO4` match and `GPIO4`/`IO5` do not); an in-order abbreviation with the same first letter (`RST`/`RESET`); an acronym of the other side's tokens (`PG`/`PWR_GOOD`); or a crossed pair (`TX`/`RX`, `TXD`/`RXD`, `SDO`/`SDI`, `DOUT`/`DIN`, `CTS`/`RTS`). It is reported once per join, with both names. Unnamed auto-nets and unconnected pins never trigger it. |
 | SYS-V10 | `power_meets_signal` | error | At a join, exactly one side's pin has `powerNet: true` and the other side's net is a named, non-power net. |
 | SYS-V11 | `mate_mismatch` | warning | A B2B link of this system whose connectors don't line up where the driving mates put its boards (§14.9): lateral > 0.2 mm, angle > 0.5°, or axial > 0.2 mm with a stack height. Detail `{offsetMm, lateralMm, axialMm, angleDeg}`. Only evaluated when the system has B2B links. |
 | SYS-V12 | `harness_collision` | warning | A root-level harness segment runs through a board's box (outline × thickness + 1 mm), §17.10. Detail `{harnessId, segmentId, occurrence, distanceMm, radiusMm, atMm}`. |
@@ -448,7 +448,7 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 | SYS-V20 | `harness_tight_bend` | info | A root-level harness segment still bends tighter than 6 × its bundle diameter after relaxation (§17.8). Detail `{harnessId, segmentId, radiusMm, minRadiusMm, atMm}`. |
 | SYS-V21 | `subport_pad_absent` | warning | A sub-port names a pad its connector (or subsystem export) no longer has (§22.4). Detail `{subportId, name, pads}`. |
 
-**Optional rules (P2-1.10, user decision 2026-09-30).** `system_projects.optional_rules` (migration 35) lists the opt-in rules a system runs; today the only one is `SYS-V09`, because real boards rename nets across connectors far more often than they miswire them (108 warnings on the JTYU C&DH set). It is set with `PATCH /systems/{id}` `{"optionalRules": ["SYS-V09"]}` (the list replaces the stored one; `null` clears it; any other rule is 422), bumps the system version, is audited as `system_updated`, and is shown in the system summary and the manifest header. The Overview tab has a **Checks** section with the switch. `SYS-V10` always runs.
+**Optional rules (P2-1.10, user decision 2026-09-30; superseded by D-P2-57 in P2-1.73: SYS-V09 now always runs and the list has no effect).** `system_projects.optional_rules` (migration 35) lists the opt-in rules a system runs; today the only one is `SYS-V09`, because real boards rename nets across connectors far more often than they miswire them (108 warnings on the JTYU C&DH set). It is set with `PATCH /systems/{id}` `{"optionalRules": ["SYS-V09"]}` (the list replaces the stored one; `null` clears it; any other rule is 422), bumps the system version, is audited as `system_updated`, and is shown in the system summary and the manifest header. The Overview tab has a **Checks** section with the switch. `SYS-V10` always runs.
 
 **`powerNet` (extractor v5 [S4]).** A pin's net is a power net when any schematic symbol on that net is a power symbol: KiCad `power` flag set on its lib symbol, or a reference starting with `#PWR`/`#FLG`. The extractor records `powerNet: bool` per pin. `EXTRACTOR_VERSION` goes to 5, and every board re-extracts once.
 
@@ -464,7 +464,7 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 ### 8.6 Reviews and findings report (SB2-107)
 
 - **API.** `GET …/report.xlsx` and `GET …/report.csv` (viewer) answer the live system with its `ETag`, as an attachment `{system}-report.{fmt}`. Read-only, built in one consistent transaction; no snapshot form (a snapshot's findings are in its ICD).
-- **Sections.** *Summary*: system, version, generation time, the open finding counts by severity (equal to `findingCounts`), waived count, open reviews, review items and undecided items, and each not-evaluated rule. *Reviews*: one row per item of every open review (review, kind, board, from/to commit, opened, item, change, link, end, connector, pins, expected, observed, decision); expected and observed are the pin's net sets (`(no net)` when unconnected), a connector's lib ID and footprint, or an import's proposed row; a review with no items is one row. *Findings*: every finding, open ones first by severity, then the waived with note, author and date, then waivers no longer raised. SB2-106's rename proposals add a section when they land.
+- **Sections.** *Summary*: system, version, generation time, the open finding counts by severity (equal to `findingCounts`), waived count, open reviews, review items and undecided items, and each not-evaluated rule. *Reviews*: one row per item of every open review (review, kind, board, from/to commit, opened, item, change, link, end, connector, pins, expected, observed, decision); expected and observed are the pin's net sets (`(no net)` when unconnected), a connector's lib ID and footprint, or an import's proposed row; a review with no items is one row. *Findings*: every finding, open ones first by severity, then the waived with note, author and date, then waivers no longer raised. *Renames* (SB2-106, §23.5): each open or applied proposal with board, net, new name, rows, note, author and dates.
 - **Formats.** The workbook has one sheet per section, the header frozen; every cell is stored as text, so a typed `=…` or `+3V3` never evaluates. The CSV is the sections in order, each a `# {Section}` line, its header and its rows, separated by a blank line; a cell starting `=`, `+`, `-`, `@`, tab or CR is prefixed with `'`.
 - **Redaction.** As the trays: a review on a board the reader can't see is one `Restricted` row with no commits or nets; a restricted item is a `Restricted` row; findings and waivers are redacted as in §8.5.
 
@@ -950,6 +950,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.73 | 2026-10-09 | SB2-106 (D-P2-57): net rename proposals (§23): one per net on one board; migration 51; applied by the board's next commit with no review when the rename is the only change; `GET /api/systems/by-project/{projectId}` and its renames CSV for the board page's **Used in** panel; a Renames sheet in the report. SYS-V09 runs on every system; `optionalRules` is kept but has no effect. |
 | P2-1.72 | 2026-10-09 | SB2-105 (D-P2-55): sub-ports (§22). Named pad sets carved out of a connector or subsystem export, usable as link ends and export targets; the remainder stays on the connector; carving re-homes rows (retarget or split links) in one audited change with a preview; `b2b` connectors cannot be split; SYS-V21 `subport_pad_absent`; migration 50; manifest `subports` and `subportId` omitted while empty. |
 | P2-1.71 | 2026-10-09 | SB2-107: the reviews and findings report, `GET …/report.xlsx` and `…/report.csv` (§8.6). `openpyxl` becomes a direct runtime dependency (it was already locked through `kicad-cruncher`). |
 | P2-1.70 | 2026-10-09 | SB2-101: system summaries carry `boardTotal` (boards counted through every subsystem; null if the hierarchy can't be resolved). `GET /api/systems` also carries `lastSnapshot {id, name, createdAt}`, `git {branch, outsideChange, error}` and `findingCounts` (the last document build's counts, only when built at the current version). Counts live in `system_finding_counts` (migration 49), without a foreign key so a reader recording them never holds a lock an editor waits on. |
@@ -1417,3 +1418,58 @@ Every change re-homes rows so no row is on the wrong end, in one audited system 
 - **Manifest.** Board, module and assembly instances gain `subports: [{id, portKey, port, name, pads}]` (`port` the connector's baseline, as on a port end); port and export ends and export targets gain `subportId`. Both are omitted while empty or null, so manifests written before them keep their digests. They are part of `full` and `connectivity` (§9.3). Referential rules (§9.2): a `subportId` names a sub-port of that end's instance and connector; sub-ports of a connector are disjoint; rows on an end use that end's pads.
 - **ICD and CSV.** Ends read `{label} {reference}.{name}`. The connector column in the ICD CSV is `J6.PWR`, and import resolves `J6.PWR` to the sub-port (a pad outside it is unresolved, `pin_not_on_subport`). A plain `J6` on a split connector lands each row on whichever end holds its pad, so a wiring list written before the split still imports. The round trip holds.
 - **Diagram.** A split connector shows each sub-port and the remainder as ports of their own on the board.
+
+## 23. Net rename proposals (SB2-106, D-P2-57)
+
+Prism never edits a board. When two boards name one signal differently, a system's designer records which board should rename its net, and to what. The board's owner sees the proposal on the board's project page and applies it in KiCad; the board's next commit that carries the new name closes it, with no review.
+
+### 23.1 Proposal
+
+- **Shape.** `{id, instanceId, net, name, note, state, createdBy, createdAt, closedBy, closedAt, closedCommit}`.
+  - `id`: an `snr_` ID.
+  - `instanceId`: the board (or module) instance whose net is to be renamed.
+  - `net`: the net as the rows store it at that board's baseline, for example `/Payload/SPI_SCK`.
+  - `name`: the proposed net name. It is 1–100 characters with no `/` and no whitespace, because a sheet path belongs to the board's owner.
+  - `note`: optional, up to 2,000 characters.
+  - `state`: `open`, `applied` or `withdrawn`.
+- **Covers.** One proposal names one net on one board. It covers every row and harness wire in the system whose end on that instance carries `net`. The document reports the count as `rows`. A proposal whose net no rows carry any more stays open with `rows: 0`, until it is applied or withdrawn.
+- **One at a time.** At most one open proposal per `(instance, net)`. A second is refused with 409 `rename_open`.
+- **Storage (workspace migration 51).** Table `system_net_renames`. Its foreign keys to the system and the instance cascade, and a partial unique index allows one open proposal per `(instance_id, net)`.
+
+### 23.2 API
+
+- `POST …/renames {instanceId, net, name, note?}` (designer; `If-Match`) answers 201 with the proposal.
+  - 404: the instance is restricted or unknown.
+  - 422: no row on that board carries `net`, or `name` is invalid or already equals the net's last path segment.
+  - 409: `rename_open`.
+- `DELETE …/renames/{id}` withdraws a proposal (`state: withdrawn`).
+- Both bump the version and are audited (`rename_proposed`, `rename_withdrawn`). The open proposals are in the document as `renames[]`, so snapshots freeze them. They are not in the manifest, because they are requests to a board's owner rather than part of the system's connectivity.
+
+### 23.3 Applied by a commit
+
+- **Matching.** When a commit is evaluated for a board, each `net_changed` item on that board matches an open proposal when:
+  - its expected net set is exactly `[net]`; and
+  - its observed set is one net whose last path segment equals `name`.
+- **Only renames.** When every item matches a proposal, the baseline advances with no review:
+  - the matched rows' net baselines take the observed nets;
+  - each matched proposal becomes `applied`, with `closedCommit` and audit `rename_applied`;
+  - the advance itself is audited as usual.
+- **Mixed.** When other changes come with the rename, the review opens as usual. After any baseline advance, a proposal is applied when no row on that board still carries `net` and at least one carries a net named `name`.
+
+### 23.4 Findings
+
+- **SYS-V09 runs on every system** (D-P2-57; this reverses the opt-in of P2-1.10). `optionalRules` is still accepted, stored and written to the manifest for compatibility. `SYS-V09` there has no effect, and the workspace no longer shows the switch. Teams clear the findings by waiving them (§8.5) or by proposing renames.
+- **Annotations.** A V09 finding whose row carries a net with an open proposal has `detail.rename {id, instanceId, name}`, and the Findings tray shows "rename proposed". The finding stays until the commit lands.
+
+### 23.5 Where the owner sees it
+
+- **API.** `GET /api/systems/by-project/{projectId}` returns the systems the reader can see that use the project:
+
+  ```
+  {projectId, systems: [{id, name, instances: [{id, label, baselineCommit, trackedRef, pinned}],
+                         renames: [...open proposals on those instances, with rows]}]}
+  ```
+
+  `GET /api/systems/by-project/{projectId}/renames.csv` is the owner's work list, with these columns: `system`, `board`, `net`, `rename_to`, `rows`, `connectors`, `note`, `proposed_by`, `proposed_at`.
+- **Board page.** The project page has a **Used in** panel. It lists each system with the instance labels and its open proposals, links to the system, and offers the CSV.
+- **Report.** The SB2-107 report (§8.6) gains a **Renames** sheet with the system's open and applied proposals.

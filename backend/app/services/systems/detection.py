@@ -21,7 +21,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, ContextManager, Mapping, Optional
 
-from app.services.systems import drift, exports, sources
+from app.services.systems import drift, exports, renames, sources
 from app.services.systems.jobs import extract_and_store, workspace_connection
 from app.services.systems.store import SystemStore
 
@@ -105,14 +105,23 @@ def apply_evaluation(
             # Decisions taken on the older candidate are discarded.
             store.set_review_status(change, open_review["id"], "superseded",
                                     audit_kind="review_superseded", payload={"supersededBy": tip})
-    if outcome.auto_advance:
+    # P2 §23.3: net changes that are proposed renames arriving need no review.
+    proposals = store.renames_on([instance["id"]])
+    arrived = [renames.match(item, proposals) for item in outcome.items]
+    if outcome.auto_advance or all(arrived):
         for (link_id, end), port in sorted(outcome.port_updates.items()):
             store.set_link_port(change, link_id, end, port)
         for silent in outcome.silent:
             change.audit(silent.kind, {"instanceId": instance["id"], **_silent_row(silent)})
+        for item in outcome.items:
+            for row_id in item.row_ids:
+                store.update_row_end(change, item.link_id, row_id, item.end, nets=item.observed)
         exports.refresh_after_advance(store, change, instance["id"], candidate)
-        store.set_baseline(change, instance["id"], tip, kind=auto_kind,
-                           payload={"silentChanges": len(outcome.silent)})
+        payload = {"silentChanges": len(outcome.silent)}
+        if outcome.items:
+            payload["renamedRows"] = sum(len(item.row_ids) for item in outcome.items)
+        store.set_baseline(change, instance["id"], tip, kind=auto_kind, payload=payload)
+        store.close_applied_renames(change, instance["id"], tip)
         return "auto_advanced", None
     review = store.open_review(
         change, instance_id=instance["id"], kind="source_update",

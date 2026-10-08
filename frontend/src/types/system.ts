@@ -316,6 +316,38 @@ export interface SystemDocument {
   /** SB2-98: digests of what the 3D scene and the system nets depend on; they change less often than the version. */
   sceneKey?: string;
   netsKey?: string;
+  /** Open net rename proposals (CONTRACTS_P2 §23); absent before SB2-106. */
+  renames?: NetRename[];
+}
+
+/** A proposal that one board rename one of its nets (CONTRACTS_P2 §23.1). */
+export interface NetRename {
+  id: string;
+  instanceId: string;
+  /** Null for a board the reader cannot see, with `name`, `note` and `rows`. */
+  net: string | null;
+  name: string | null;
+  note: string | null;
+  state: "open" | "applied" | "withdrawn";
+  /** Rows and harness wires in the system that carry the net. */
+  rows: number | null;
+  createdBy: string;
+  createdAt: string;
+  closedBy: string | null;
+  closedAt: string | null;
+  closedCommit: string | null;
+  redacted?: boolean;
+}
+
+/** `GET /api/systems/by-project/{projectId}`: the systems that place a board (CONTRACTS_P2 §23.5). */
+export interface ProjectSystems {
+  projectId: string;
+  systems: {
+    id: string;
+    name: string;
+    instances: { id: string; label: string; baselineCommit: string | null; trackedRef: string | null; pinned: boolean }[];
+    renames: (NetRename & { board: string; connectors: string[] })[];
+  }[];
 }
 
 /** A component from `GET …/interface`: artifact facts plus exposure, with pins instead of a count. */

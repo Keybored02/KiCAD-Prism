@@ -8,12 +8,14 @@ from typing import Any, Collection, Mapping, Optional, Sequence
 
 from app.services.systems import (
     child_drift, csv_import, drift, hierarchy, icd,
-    manifest as manifest_io, reconcile, redaction, report as report_io, sources, system_nets, visibility,
+    manifest as manifest_io, reconcile, redaction, renames as renames_module, report as report_io, sources,
+    system_nets, visibility,
 )
 from app.services.systems.manifest_schema import digests as manifest_digests
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.store import Conflict, Forbidden, Invalid, NotFound, StaleVersion, SystemStore, new_id
 from app.services.systems.service_base import Caller, Result, logger, _iso, MAX_LAYOUT_ENTRIES
+from app.services.systems.service_documents import rename_doc
 
 
 class ReviewsMixin:
@@ -508,9 +510,13 @@ class ReviewsMixin:
             restricted = self._restricted_instances(store, system_id, caller)
             reviews = [self._review_doc(store, review, review["instance_id"] in restricted, restricted)
                        for review in store.list_reviews(system_id, status="open")]
-        document = redaction.redact_document(built, restricted)
+            links = store.drift_links(system_id)
+            renames = [rename_doc(r, len(renames_module.covered(links, r["instance_id"], r["net"])))
+                       for r in store.list_renames(system_id, ("open", "applied"))]
+        document = redaction.redact_document({**built, "renames": renames}, restricted)
         generated = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-        parts = report_io.sections(document, reviews, version=system["version"], generated_at=generated)
+        parts = report_io.sections(document, reviews, version=system["version"], generated_at=generated,
+                                   renames=document["renames"])
         content = report_io.render_xlsx(parts) if fmt == "xlsx" else report_io.render_csv(parts)
         return content, document["system"]["name"], system["version"]
 

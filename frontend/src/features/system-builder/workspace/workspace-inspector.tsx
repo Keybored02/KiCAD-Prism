@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { PanelBottomOpen, Spline } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { updateSystem } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { Finding, SystemDocument, SystemHarness, SystemLink } from "@/types/system";
 
@@ -10,7 +9,6 @@ import { BoardDetail } from "../board-detail";
 import { ExportsSection } from "../exports-section";
 import { groupFindings } from "../findings-ui";
 import { endLabel } from "../link-editor";
-import { ChecksSection } from "../checks-section";
 import type { Mutate } from "../use-system-mutation";
 import type { PartDetail } from "./part-detail";
 import { PartInspector } from "./part-inspector";
@@ -104,12 +102,6 @@ function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect
       ]} />
       <ExportsSection systemId={systemId} document={document} etag={etag} canEdit={canEdit} busy={busy} run={run}
         onOpenBoard={(instanceId) => onSelect({ kind: "instance", id: instanceId })} />
-      <ChecksSection document={document} canEdit={canEdit} busy={busy !== null} onToggle={(rule, on) => {
-        const rules = new Set(system.optionalRules ?? []);
-        if (on) rules.add(rule); else rules.delete(rule);
-        void run("checks", () => updateSystem(systemId, etag, { optionalRules: [...rules].sort() }),
-          on ? "Check enabled" : "Check disabled");
-      }} />
     </div>
   );
 }

@@ -42,10 +42,7 @@ class JoinRuleTest(unittest.TestCase):
                   "rows": [{"id": "r", "pin_a": "1", "pin_b": "1", "net_a": ["GND_3"], "net_b": ["/TM_MON_1"]}]}]
         interfaces = {"a": interface(True, "GND_3"), "b": interface(False, "/TM_MON_1")}
         report = validation.validate(instances, links, interfaces, {"a": {}, "b": {}})
-        self.assertEqual([(f["rule"], f["severity"]) for f in report["findings"]], [("SYS-V10", "error")],
-                         "V09 is opt-in; V10 always runs")
-        report = validation.validate(instances, links, interfaces, {"a": {}, "b": {}}, optional_rules={"SYS-V09"})
-        rules = sorted((f["rule"], f["severity"]) for f in report["findings"])
+        rules = sorted((f["rule"], f["severity"]) for f in report["findings"])  # V09 needs no opt-in (D-P2-57)
         self.assertEqual(rules, [("SYS-V09", "warning"), ("SYS-V10", "error")])
         [v10] = [f for f in report["findings"] if f["rule"] == "SYS-V10"]
         self.assertEqual((v10["linkId"], v10["rowId"], v10["detail"]["powerSide"]), ("L", "r", "a"))

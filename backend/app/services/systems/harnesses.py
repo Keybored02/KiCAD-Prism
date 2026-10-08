@@ -132,7 +132,7 @@ def findings(harness: Mapping[str, Any], components: Mapping[str, Component],
             out.append(finding("SYS-V01", row_id=wire["id"], detail={**detail, "duplicateOf": seen[key]}))
         seen.setdefault(key, wire["id"])
         net_from, net_to = list(wire["net_from"]), list(wire["net_to"])
-        if "SYS-V09" in optional_rules and system_nets.name_mismatch(net_from, net_to):
+        if system_nets.name_mismatch(net_from, net_to):  # every system since D-P2-57
             out.append(finding("SYS-V09", row_id=wire["id"], detail={**detail, "netA": net_from, "netB": net_to}))
         power = []
         for side in ("from", "to"):

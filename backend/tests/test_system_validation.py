@@ -70,20 +70,20 @@ class ValidationGoldenTest(FixtureSystemCase):
         self.assertEqual([shape(f) for f in warnings],
                          [{k: v for k, v in w.items() if k != "note"} for w in golden])
 
-    def test_v09_runs_only_when_the_system_opts_in(self) -> None:
+    def test_v09_runs_on_every_system(self) -> None:
+        """D-P2-57 (P2 §23.4): SYS-V09 needs no opt-in; ``optionalRules`` is kept but has no effect."""
         self.move_track("mini_obc", "F8")
         result = self.detector.check_instance(self.instances["OBC-A"])
         review = next(r for r in self.service.list_reviews(DESIGNER, self.sid, "open") if r["id"] == result.review_id)
         self.service.decide(DESIGNER, self.sid, self.version(), review["id"], review["items"][0]["id"], "accept", None)
-        self.assertNotIn("SYS-V09", {f["rule"] for f in self.report()["findings"]})
+        self.assertIn("SYS-V09", {f["rule"] for f in self.report()["findings"]})
         body = self.service.update_system(DESIGNER, self.sid, self.version(), {"optionalRules": ["SYS-V09"]}).body
         self.assertEqual(body["optionalRules"], ["SYS-V09"])
-        self.assertIn("SYS-V09", {f["rule"] for f in self.report()["findings"]})
         self.assertEqual(self.service.document(DESIGNER, self.sid).body["system"]["optionalRules"], ["SYS-V09"])
         with self.assertRaises(Invalid):
             self.service.update_system(DESIGNER, self.sid, self.version(), {"optionalRules": ["SYS-V10"]})
         self.service.update_system(DESIGNER, self.sid, self.version(), {"optionalRules": []})
-        self.assertNotIn("SYS-V09", {f["rule"] for f in self.report()["findings"]})
+        self.assertIn("SYS-V09", {f["rule"] for f in self.report()["findings"]})
 
     def test_pending_interface_is_not_evaluated_never_passed(self) -> None:
         interface_cache.interfaces.clear()  # a direct artifact write bypasses the SB2-93 cache
