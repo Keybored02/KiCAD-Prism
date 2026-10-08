@@ -12,6 +12,8 @@ import io
 import json
 import logging
 import tarfile
+import threading
+from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,7 @@ from app.core.security import (
 from app.services import forge_publish_service as forge_publish
 from app.services import release_studio_build_service as build_service
 from app.services import release_studio_service as store
+from app.services.fabrication_view_service import FabricationPackage, FabricationViewError
 from app.services.job_service import jobs
 from app.services.workspace_service import workspace
 
@@ -546,6 +549,119 @@ async def download_build_evidence(
         content=payload,
         media_type="application/gzip",
         headers={"Content-Disposition": f'attachment; filename="evidence-{build_id}.tar.gz"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fabrication package viewer
+# ---------------------------------------------------------------------------
+
+#: Where a build keeps the files the viewer draws.
+_FABRICATION_PREFIXES = ("fabrication/gerbers/", "fabrication/drill/")
+#: A build is immutable, so its parsed package never goes stale; only memory
+#: bounds the cache.
+_FABRICATION_CACHE_SIZE = 4
+_fabrication_cache: "OrderedDict[str, FabricationPackage]" = OrderedDict()
+_fabrication_lock = threading.Lock()
+
+
+def _fabrication_files(build: dict[str, Any]) -> dict[str, bytes]:
+    """Digest-checked fabrication members out of the stored dossier.
+
+    The same rule as :func:`download_member`: the viewer only ever draws bytes
+    that match what the manifest released.
+    """
+
+    wanted = {
+        item["path"]: item
+        for item in store.build_members(build["id"])
+        if str(item["path"]).startswith(_FABRICATION_PREFIXES)
+    }
+    if not wanted:
+        raise HTTPException(status_code=404, detail="This build has no fabrication files")
+    payload = _artifact_bytes(build["dossier_artifact_id"])
+    files: dict[str, bytes] = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            for path, member in wanted.items():
+                extracted = archive.extractfile(path)
+                if extracted is None:
+                    continue
+                data = extracted.read()
+                actual = hashlib.sha256(data).hexdigest()
+                if actual != member["released_digest"]:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=(
+                            f"Released digest mismatch for {path}: the manifest records "
+                            f"{member['released_digest']} but the stored dossier holds {actual}"
+                        ),
+                    )
+                files[path] = data
+    except tarfile.TarError as exc:
+        logger.exception("Could not read stored dossier for build %s", build["id"])
+        raise HTTPException(
+            status_code=500, detail="The stored dossier could not be read."
+        ) from exc
+    return files
+
+
+def _fabrication_package(build: dict[str, Any]) -> FabricationPackage:
+    build_id = str(build["id"])
+    with _fabrication_lock:
+        cached = _fabrication_cache.get(build_id)
+        if cached is not None:
+            _fabrication_cache.move_to_end(build_id)
+            return cached
+    try:
+        package = FabricationPackage.from_files(_fabrication_files(build))
+    except FabricationViewError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    with _fabrication_lock:
+        _fabrication_cache[build_id] = package
+        while len(_fabrication_cache) > _FABRICATION_CACHE_SIZE:
+            _fabrication_cache.popitem(last=False)
+    return package
+
+
+# Plain `def`: parsing a dense board takes real CPU, which belongs in the
+# threadpool and not on the event loop.
+@router.get("/{project_id}/release-studio/builds/{build_id}/fabrication-view")
+def get_fabrication_view(
+    project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_viewer)
+):
+    """Layers, board size and drill tools of the build's fabrication package."""
+
+    get_project_for_role_or_404(project_id, user.role)
+    build = _build_or_404(project_id, build_id)
+    return _fabrication_package(build).view()
+
+
+@router.get("/{project_id}/release-studio/builds/{build_id}/fabrication-view/layers/{layer_id}.svg")
+def get_fabrication_layer(
+    project_id: str,
+    build_id: str,
+    layer_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """One layer drawn as SVG against the package's shared board extent."""
+
+    get_project_for_role_or_404(project_id, user.role)
+    build = _build_or_404(project_id, build_id)
+    try:
+        svg = _fabrication_package(build).svg(layer_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Layer not found") from exc
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={
+            "Cache-Control": "private, max-age=31536000, immutable",
+            "ETag": f'"{build_id}-{layer_id}"',
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        },
     )
 
 
