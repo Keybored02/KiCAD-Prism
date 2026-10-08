@@ -6,6 +6,7 @@ from typing import Any, Mapping, Optional, Sequence
 
 from psycopg.types.json import Jsonb
 
+from app.services.systems import interface_cache
 from app.services.systems.store_base import (
     HARNESS_END_PREFIX, NotFound, Conflict, Invalid, new_id, _given_id, _nets, Mutation,
 )
@@ -305,17 +306,27 @@ class ReviewsStore:
     # Interface artifact cache (§3)
 
     def get_interface(self, project_id: str, commit: str, extractor_version: str) -> Optional[dict]:
+        """An artifact, parsed once per process (SB2-93); the nested data is shared and read-only."""
+        key = (project_id, commit, extractor_version)
+        cached = interface_cache.interfaces.get(key)
+        if cached is not None:
+            return dict(cached)
         row = self.conn.execute(
             """
-            SELECT payload FROM system_interface_artifacts
+            SELECT payload, pg_column_size(payload) AS stored FROM system_interface_artifacts
             WHERE project_id = %s AND commit = %s AND extractor_version = %s
             """,
-            (project_id, commit, extractor_version),
+            key,
         ).fetchone()
-        return dict(row["payload"]) if row else None
+        if not row:
+            return None
+        return dict(interface_cache.interfaces.put(key, row["payload"], row["stored"]))
 
     def get_interface_extent(self, project_id: str, commit: str, extractor_version: str) -> Optional[dict]:
         """The scene's slice of an artifact (outline and thickness), without the multi-MB payload."""
+        cached = interface_cache.interfaces.get((project_id, commit, extractor_version))
+        if cached is not None:
+            return {"boardOutlineMm": cached.get("boardOutlineMm"), "boardThicknessMm": cached.get("boardThicknessMm")}
         row = self.conn.execute(
             """
             SELECT jsonb_build_object('boardOutlineMm', payload->'boardOutlineMm',
@@ -329,17 +340,26 @@ class ReviewsStore:
 
     def get_interface_component(self, project_id: str, commit: str, extractor_version: str,
                                 port_key: str) -> Optional[dict]:
-        """One component of an artifact by its port key (placement needs only the mated connectors)."""
-        row = self.conn.execute(
-            """
-            SELECT c AS component, a.payload->'boardThicknessMm' AS thickness
-            FROM system_interface_artifacts a, jsonb_array_elements(a.payload->'components') c
-            WHERE a.project_id = %s AND a.commit = %s AND a.extractor_version = %s AND c->>'portKey' = %s
-            LIMIT 1
-            """,
-            (project_id, commit, extractor_version, port_key),
-        ).fetchone()
-        return {**dict(row["component"]), "boardThicknessMm": row["thickness"]} if row else None
+        """One component of an artifact by its port key. SB2-93: read through the process cache, which
+        holds the whole artifact; a board's mated connectors then cost one read instead of one each."""
+        key = (project_id, commit, extractor_version)
+        if interface_cache.interfaces.get(key) is None:
+            self.get_interface(*key)
+        cached, component = interface_cache.interfaces.component(key, port_key)
+        if not cached:  # larger than the whole cache budget: read just this component
+            row = self.conn.execute(
+                """
+                SELECT c AS component FROM system_interface_artifacts a, jsonb_array_elements(a.payload->'components') c
+                WHERE a.project_id = %s AND a.commit = %s AND a.extractor_version = %s AND c->>'portKey' = %s
+                LIMIT 1
+                """,
+                (*key, port_key),
+            ).fetchone()
+            component = row["component"] if row else None
+        if component is None:
+            return None
+        extent = self.get_interface_extent(*key) or {}
+        return {**component, "boardThicknessMm": extent.get("boardThicknessMm")}
 
     def put_interface(self, payload: Mapping[str, Any]) -> dict:
         """Store an artifact; the first writer wins, and its copy is returned."""

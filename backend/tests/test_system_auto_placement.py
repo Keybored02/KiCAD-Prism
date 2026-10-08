@@ -14,6 +14,7 @@ from test_system_scene import SceneCase
 from test_system_snapshots import DESIGNER, VIEWER
 
 from app.services.systems import mating as mating_module
+from app.services.systems import interface_cache
 from app.services.systems.drift import _port_baseline
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION, extract_interface
 from app.services.systems.placement import poses
@@ -40,6 +41,7 @@ class AutoPlacementTest(SceneCase):
         board, step = snapshot.split("/")
         payload = extract_interface(P2 / "sources" / board / step / f"{board}.kicad_pro",
                                     project_id=row["project_id"], commit=row["baseline_commit"])
+        interface_cache.interfaces.clear()  # a direct artifact write bypasses the SB2-93 cache
         self.conn.execute("DELETE FROM system_interface_artifacts WHERE project_id = %s AND commit = %s",
                           (row["project_id"], row["baseline_commit"]))
         self.store.put_interface(payload)

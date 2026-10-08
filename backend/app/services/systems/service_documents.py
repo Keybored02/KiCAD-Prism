@@ -127,11 +127,13 @@ class DocumentsMixin:
             synthetic = self._instance_interface(store, child)
             if synthetic is not None:
                 interfaces[child["id"]] = synthetic
-        overrides = {i["id"]: store.list_overrides(i["id"]) for i in instances if i["id"] in interfaces}
+        # SB2-93: overrides and mating read once, in one query each, for every use below.
+        all_overrides = store.overrides_of([i["id"] for i in instances])
+        overrides = {iid: found for iid, found in all_overrides.items() if iid in interfaces}
         open_reviews = store.list_reviews(system_id, status="open")
         exports = store.list_exports(system_id)
         report = self._validate(store, system_id, instances, links, interfaces, job_state, open_reviews, exports,
-                                system.get("optionalRules") or ())
+                                system.get("optionalRules") or (), all_overrides)
         catalog_docs = [self._catalog_instance_doc(i) for i in store.list_instances(system_id, kinds=("assembly", "module"))]
         report = validation.with_findings(report, validation.child_findings([
             {"instanceId": doc["id"], "releaseStatus": doc["catalog"]["releaseStatus"],
@@ -140,7 +142,7 @@ class DocumentsMixin:
             for doc in catalog_docs
         ]))
         stale = []
-        mating = {instance["id"]: store.list_mating(instance["id"]) for instance in instances}
+        mating = store.mating_of([instance["id"] for instance in instances])
         for instance in instances:
             stored = mating[instance["id"]]
             if not stored or instance["id"] not in interfaces:
@@ -151,14 +153,21 @@ class DocumentsMixin:
                     stale.append({"instanceId": instance["id"], "portKey": port_key, "mode": record["mode"],
                                   "reference": (component or {}).get("reference")})
         report = validation.with_findings(report, validation.mating_findings(stale))
-        if any(link.get("type") == "b2b" for link in links):
+        harness_rows = store.list_harnesses(system_id)
+        has_b2b = any(link.get("type") == "b2b" for link in links)
+        placed = None
+        if has_b2b or harness_rows:
+            # SB2-93: one tree, net level and placement for both checks below.
+            tree = self._tree(store, system_id)
+            level = self._net_level(store, system_id, tree)
+            placed = (tree, level, *self._placement(store, system_id, tree, level))
+        if has_b2b:
             # SYS-V11 (§14.9): the root level's mates, solved as the System 3D view places them.
-            solved = self._placement(store, system_id)[0]["results"].get("")
+            solved = placed[2]["results"].get("")
             if solved:
                 report = validation.with_findings(report, validation.mate_mismatch_findings(solved["mismatches"]))
-        harness_rows = store.list_harnesses(system_id)
         # SB2-46 (§17.10): routed where the System 3D view draws them, for lengths and V12/V13/V20.
-        checked = self._harness_checks(store, system_id, harness_rows)
+        checked = self._harness_checks(store, system_id, harness_rows, placed)
         report = validation.with_findings(report, validation.harness_route_findings(
             checked, {h["id"]: h["cut_length_mm"] for h in harness_rows}, harness_spec.LENGTH_MISMATCH_TOLERANCE))
         harness_docs = []
@@ -169,7 +178,7 @@ class DocumentsMixin:
             doc["lengths"] = _rounded_lengths(found["lengths"]) if found else None
             harness_docs.append(doc)
             report = validation.with_findings(report, harnesses_module.findings(
-                harness, components, {i["id"]: store.list_overrides(i["id"]) for i in instances},
+                harness, components, all_overrides,
                 system.get("optionalRules") or (), validation.make_finding))
         report = validation.with_findings(report, self._mate_pair_findings(links, harness_rows, interfaces))
         review_rows = sorted({rid for review in open_reviews for item in review["items"] for rid in item["row_ids"]})
@@ -208,6 +217,7 @@ class DocumentsMixin:
         self, store: SystemStore, system_id: str, instances: Sequence[dict], links: Sequence[dict],
         interfaces: Mapping[str, dict], job_state: Mapping[str, dict], open_reviews: Sequence[dict],
         exports: Sequence[dict] = (), optional_rules: Sequence[str] = (),
+        overrides: Optional[Mapping[str, Mapping[str, str]]] = None,
     ) -> dict:
         """§7.2 over the live state; an instance's failed extraction makes its source unavailable."""
 
@@ -219,7 +229,7 @@ class DocumentsMixin:
         return validation.validate(
             # The full map: board rules read boards only; re-export checks need assemblies (P2 §4).
             instances, links, dict(interfaces),
-            {i["id"]: store.list_overrides(i["id"]) for i in instances},
+            overrides if overrides is not None else store.overrides_of([i["id"] for i in instances]),
             open_reviews, unavailable=unavailable, exports=exports, optional_rules=optional_rules,
         )
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 from system_builder_db import FixtureSystemCase
 
 from app.services.systems.interface_extractor import _mpn
+from app.services.systems import interface_cache
 from app.services.systems.jobs import extract_and_store
 from app.services.systems import manifest as manifest_io
 from app.services.systems.service import Caller, SystemService
@@ -53,6 +54,7 @@ class MatesCase(FixtureSystemCase):
         for board, project_id in (("mini_obc", "prj_obc"), ("mini_payload", "prj_pay"), ("mini_power", "prj_pwr")):
             extract_and_store(self.projects[project_id], self.commits[board]["F0"], self.connect)
         for project, reference, mpn in (("prj_obc", "J7", PLUG["mpn"]), ("prj_pay", "J4", SOCKET["mpn"])):
+            interface_cache.interfaces.clear()  # a direct artifact write bypasses the SB2-93 cache
             self.conn.execute(
                 """UPDATE system_interface_artifacts SET payload = jsonb_set(payload, '{components}',
                      (SELECT jsonb_agg(CASE WHEN c->>'reference' = %s THEN jsonb_set(c, '{mpn}', to_jsonb(%s::text)) ELSE c END)
@@ -103,6 +105,7 @@ class MatesTest(MatesCase):
         self.assertEqual(self.v18(), [])
 
     def test_no_mpn_means_not_evaluated(self) -> None:
+        interface_cache.interfaces.clear()  # a direct artifact write bypasses the SB2-93 cache
         self.conn.execute("UPDATE system_interface_artifacts SET payload = jsonb_set(payload, '{components}',"
                           " (SELECT jsonb_agg(c - 'mpn') FROM jsonb_array_elements(payload->'components') c))")
         self.conn.commit()
