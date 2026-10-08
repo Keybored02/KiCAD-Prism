@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Archive, ArrowLeft, Camera, GitBranch, ListTree, PanelRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +7,8 @@ import { cn } from "@/lib/utils";
 import type { GitLink, SnapshotMeta, SystemDocument } from "@/types/system";
 
 import { shortSha, timeAgo } from "../system-format";
+import { repositoryReadKey } from "../use-system-mutation";
+import { useKeyedRead } from "../use-keyed-read";
 import { WORKSPACE_VIEWS, type WorkspaceView } from "./workspace-state";
 
 interface TopBarProps {
@@ -28,25 +29,19 @@ interface TopBarProps {
   has3d: boolean;
 }
 
-/** The repository link and the latest snapshot, re-read when the system moves on. */
-function useRepositoryState(systemId: string, etag: string) {
-  const [state, setState] = useState<{ etag: string; git: GitLink | null; snapshot: SnapshotMeta | null } | null>(null);
-  useEffect(() => {
-    let cancelled = false;
+/** The repository link and the latest snapshot. SB2-98: edits leave them alone; they are re-read
+ * after a snapshot, publish or git action (`invalidateReads`), not on every version. */
+function useRepositoryState(systemId: string) {
+  return useKeyedRead<{ git: GitLink | null; snapshot: SnapshotMeta | null }>(repositoryReadKey(systemId), () =>
     Promise.all([getGitLink(systemId).catch(() => null), listSnapshots(systemId).catch(() => [])])
-      .then(([git, snapshots]) => !cancelled && setState({ etag, git, snapshot: snapshots[0] ?? null }));
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, etag]);
-  return state;
+      .then(([git, snapshots]) => ({ git, snapshot: snapshots[0] ?? null }))).data ?? null;
 }
 
 /** The workspace's top bar (PLAN M8): the system, the view switch, its state and Take snapshot. */
-export function WorkspaceTopBar({ systemId, document, etag, view, canEdit, onBack, onView, onFindings, onHistory, onTakeSnapshot, onOutline, onInspector, has3d }: TopBarProps) {
+export function WorkspaceTopBar({ systemId, document, view, canEdit, onBack, onView, onFindings, onHistory, onTakeSnapshot, onOutline, onInspector, has3d }: TopBarProps) {
   const { system } = document;
   const counts = document.findingCounts;
-  const repository = useRepositoryState(systemId, etag);
+  const repository = useRepositoryState(systemId);
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 sm:gap-3 md:gap-5 md:px-4">
       <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to the workspace"><ArrowLeft className="size-4" /></Button>

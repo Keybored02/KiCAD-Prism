@@ -233,8 +233,11 @@ async def create_system(
 
 
 @router.get("/{system_id}")
-async def get_system(system_id: str, response: Response, user: AuthenticatedUser = Depends(require_viewer)):
-    result = await _run(system_id, lambda: system_service.service.document(_caller(user), system_id))
+async def get_system(system_id: str, response: Response, include: Optional[str] = None,
+                     user: AuthenticatedUser = Depends(require_viewer)):
+    validation = "validation" in (include or "").split(",")  # SB2-98: findings in the same read
+    result = await _run(system_id, lambda: system_service.service.document(_caller(user), system_id,
+                                                                           include_validation=validation))
     response.headers["Cache-Control"] = "private, no-cache"
     return _respond(result, response)
 

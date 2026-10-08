@@ -7,10 +7,10 @@ import type { SystemNetDetail, SystemNetSummary } from "@/types/system";
 
 /**
  * SB2-31: the system nets highlighted in the 3D view. A net over 200 pins
- * waits in `confirmLarge` until confirmed (D-P2-8). Group ids hold for one
- * system version, so highlighted nets are re-read whenever the system changes.
+ * waits in `confirmLarge` until confirmed (D-P2-8). Group ids hold while the
+ * system's connectivity does, so highlighted nets are re-read when `netsKey` changes (SB2-98).
  */
-export function useNetHighlight(systemId: string, etag: string) {
+export function useNetHighlight(systemId: string, netsKey: string) {
   const [highlighted, setHighlighted] = useState<SystemNetDetail[]>([]);
   const [results, setResults] = useState<ReadonlyMap<string, PrismSystemSceneEmphasisResult>>(new Map());
   const [adding, setAdding] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export function useNetHighlight(systemId: string, etag: string) {
     return () => {
       cancelled = true;
     };
-  }, [systemId, etag]);
+  }, [systemId, netsKey]);
 
   const add = async (net: SystemNetSummary, confirmed = false) => {
     if (net.large && !confirmed) {

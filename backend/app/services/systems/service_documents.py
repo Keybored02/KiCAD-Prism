@@ -182,6 +182,9 @@ class DocumentsMixin:
                 system.get("optionalRules") or (), validation.make_finding))
         report = validation.with_findings(report, self._mate_pair_findings(links, harness_rows, interfaces))
         review_rows = sorted({rid for review in open_reviews for item in review["items"] for rid in item["row_ids"]})
+        link_docs = [self._link_doc(link, interfaces, overrides, mating) for link in links]
+        export_docs = [self._export_doc(export, interfaces, overrides) for export in exports]
+        all_instances = store.list_instances(system_id, kinds=SystemStore.ALL_KINDS)
         return {
             "system": dict(system),
             "instances": [
@@ -190,16 +193,36 @@ class DocumentsMixin:
                                    job_state.get(artifact_key(i["project_id"], i["baseline_commit"])))
                 for i in instances
             ] + catalog_docs,
-            "links": [self._link_doc(link, interfaces, overrides, mating) for link in links],
-            "exports": [self._export_doc(export, interfaces, overrides) for export in exports],
+            "links": link_docs,
+            "exports": export_docs,
             "harnesses": harness_docs,
+            # SB2-98: what the 3D scene and the system nets depend on, so readers re-read them only when
+            # these change rather than on every version (a signal label moves neither).
+            "sceneKey": _digest({
+                "instances": [[i["id"], i.get("kind"), i.get("label"), i.get("project_id"), i.get("baseline_commit"),
+                               i.get("catalog_revision_id")] for i in all_instances],
+                "links": [[link["id"], link.get("type"), _end_key(link["a"]), _end_key(link["b"]),
+                           link.get("stackHeightMm")] for link in link_docs],
+                "harnesses": harness_docs, "mating": mating, "poses": store.list_poses(system_id),
+                "driving": store.list_driving_mates(system_id),
+            }),
+            "netsKey": _digest({
+                "instances": [[i["id"], i.get("baseline_commit"), i.get("catalog_revision_id")] for i in all_instances],
+                "links": [[link["id"], _end_key(link["a"]), _end_key(link["b"]),
+                           sorted(([r.get("pinA"), r.get("pinB"), r.get("netA"), r.get("netB"),
+                                    (r.get("observedA") or {}).get("nets"), (r.get("observedB") or {}).get("nets")]
+                                   for r in link.get("rows") or ()), key=lambda row: (str(row[0]), str(row[1])))]
+                          for link in link_docs],
+                "exports": [[e["id"], e.get("instanceId"), e.get("portKey"), e.get("childExportId")] for e in export_docs],
+                "harnesses": harness_docs,
+            }),
             "openReviewCount": system["openReviewCount"],
             "findingCounts": report["counts"],
             "validation": report,
             "reviewRowIds": review_rows,
         }, instances, job_state
 
-    def document(self, caller: Caller, system_id: str) -> Result:
+    def document(self, caller: Caller, system_id: str, *, include_validation: bool = False) -> Result:
         with self._tx() as store:
             system = self._system(store, system_id, caller)
             built, instances, job_state = self._build(store, system)
@@ -210,7 +233,8 @@ class DocumentsMixin:
             if (instance["id"] not in ready and instance["id"] not in restricted
                     and key not in job_state and instance["resolution"] == "resolved"):
                 self._enqueue_quietly(instance["project_id"], instance["baseline_commit"], caller)
-        body = {k: v for k, v in built.items() if k not in ("validation", "reviewRowIds")}
+        dropped = ("reviewRowIds",) if include_validation else ("validation", "reviewRowIds")
+        body = {k: v for k, v in built.items() if k not in dropped}
         return Result(redaction.redact_document(body, restricted), system_id, system["version"])
 
     def _validate(
@@ -572,3 +596,16 @@ def _rounded_lengths(lengths: Mapping[str, Any]) -> dict:
             "allowancePct": round(lengths["allowancePct"], 2), "complete": lengths["complete"],
             "wires": {wire: {"lengthMm": round(v["lengthMm"], 1), "estimatedMm": round(v["estimatedMm"], 1)}
                       for wire, v in sorted(lengths["wires"].items())}}
+
+
+def _digest(value: Any) -> str:
+    """A short, stable digest of JSON-able ``value`` (SB2-98 read keys)."""
+    import hashlib
+    import json
+
+    return hashlib.sha1(json.dumps(value, sort_keys=True, default=_iso).encode()).hexdigest()[:16]
+
+
+def _end_key(end: Mapping[str, Any]) -> list:
+    """A link end's identity for the read keys: its instance and the port or export it lands on."""
+    return [end.get("instanceId"), (end.get("port") or {}).get("portKey"), (end.get("export") or {}).get("id")]

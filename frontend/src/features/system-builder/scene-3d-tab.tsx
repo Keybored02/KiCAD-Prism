@@ -56,7 +56,7 @@ function Notice({ tone = "info", children }: { tone?: "info" | "warning" | "erro
 }
 
 /** Read the scene on open, on every system change, and again while bundles build or boxes are unknown. */
-function useSystemScene(systemId: string, etag: string, enabled: boolean) {
+function useSystemScene(systemId: string, sceneKey: string, enabled: boolean) {
   const [scene, setScene] = useState<SystemScene | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reads, setReads] = useState(0);
@@ -76,7 +76,7 @@ function useSystemScene(systemId: string, etag: string, enabled: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, systemId, etag, reads]);
+  }, [enabled, systemId, sceneKey, reads]);
   useEffect(() => {
     const delay = scene ? scenePollDelay(scene) : null;
     if (!delay) return;
@@ -172,7 +172,10 @@ export function Scene3dTab(props: SystemTabProps) {
   const { systemId, document, etag, canEdit, reload, selection: workspaceSelection = null, onSelect, onPart } = props;
   const { inspectorSlot = null, netsSlot = null, onOpenTray, routeRequest = 0 } = props;
   const supported = webgpuAvailable();
-  const { scene, error } = useSystemScene(systemId, etag, supported);
+  // SB2-98: the scene and the system nets are re-read when what they depend on changes, not every version.
+  const sceneKey = document.sceneKey ?? etag;
+  const netsKey = document.netsKey ?? etag;
+  const { scene, error } = useSystemScene(systemId, sceneKey, supported);
   const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
   const attach = useCallback((node: PrismSemanticViewerElement | null) => setViewer(node), []);
   const [leftInset, setLeftInset] = useState(0);
@@ -184,14 +187,14 @@ export function Scene3dTab(props: SystemTabProps) {
   const moving = useMoveMode(viewer, { systemId, etag, reload, scene });
   const { move } = moving;
   const route = useHarnessNodes(viewer, { systemId, etag, reload, scene });
-  const nets = useNetHighlight(systemId, etag);
+  const nets = useNetHighlight(systemId, netsKey);
   const { highlighted } = nets;
   const reportSelection = useViewerSelectionSync(viewer, scene, document, workspaceSelection, onSelect);
   // The workspace inspector shows what is picked (PLAN M8): the viewer only reports it.
   const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report, reportSelection);
   const indexes = useBoardIndexes(scene);
   usePartReport(viewer, scene, indexes, selection, setSelection, onPart);
-  const { traced, light } = useTracedNet(systemId, etag, selection);
+  const { traced, light } = useTracedNet(systemId, netsKey, selection);
   // The clicked trace's system net lights first, in the selection green (D-P2-28).
   const tracedNet = traced?.net && !traced.waiting ? traced.net : null;
   const traceEmphasis = useMemo(() => (tracedNet ? traceSet(tracedNet) : null), [tracedNet]);
@@ -230,7 +233,7 @@ export function Scene3dTab(props: SystemTabProps) {
     return index ? [{ occurrence: board.path, name: board.displayPath, index }] : [];
   }), [boards, indexes]);
   // SB2-33: search every board or one; a net crossing boards is one result for its system net.
-  const systemNets = useSystemNetIndex(systemId, etag);
+  const systemNets = useSystemNetIndex(systemId, netsKey, searching);
   const [searchBoard, setSearchBoard] = useState<string | null>(null);
   const scope = searchBoard && boards.some((board) => board.path === searchBoard) ? searchBoard : null;
   const search = useCallback(

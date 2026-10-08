@@ -265,6 +265,7 @@ describe("Scene3dTab", () => {
     element.frameNetEmphasis = vi.fn(() => true);
     await act(async () => undefined);
     const field = screen.getByRole("combobox", { name: "Find component or net" });
+    fireEvent.focusIn(field); // SB2-98: the system-net index loads when the search opens
     const find = async (query: string) => {
       fireEvent.change(field, { target: { value: query } });
       return screen.findByRole("option", { name: /CAN0_N\s*System net · OBC-1/ });
