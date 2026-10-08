@@ -7,6 +7,7 @@ import { clearDrivingMate, clearMating, getLinkMate, getMating, getPlacement, se
 import type { LinkMate, MatingAxis, PortMating, SystemDocument, SystemLink, SystemPlacement } from "@/types/system";
 
 import { MatePreview, type Pick } from "./mate-preview";
+import { StackHeightField } from "./stack-height-field";
 import type { Mutate } from "./use-system-mutation";
 
 /** How the mating axis reads to a designer (CONTRACTS_P2 §15.1; ±x/±y are the footprint's own axes). */
@@ -199,12 +200,10 @@ export function MatingPanel({ systemId, etag, document, link, editable, busy, ru
     : [];
   return (
     <section className="space-y-2" aria-label="Mating">
-      <h3 className="text-sm font-semibold">
-        Mating{link.stackHeightMm ? ` · stack height ${link.stackHeightMm} mm` : ""}
-      </h3>
-      <p className="text-xs text-muted-foreground">
-        Automatic 3D placement uses only frames that are confirmed or set by hand.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold" title="3D placement uses only frames that are confirmed or set by hand">Mating</h3>
+        <StackHeightField systemId={systemId} etag={etag} link={link} editable={editable && !restricted} busy={busy} run={run} />
+      </div>
       {status && <p className={`text-xs ${STATUS_TONE[status.tone]}`} role="status">{status.text}</p>}
       {choices.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
