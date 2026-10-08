@@ -55,8 +55,11 @@ function SystemCard({ system, dense = false }: SystemCardProps) {
           <div className="min-w-0">
             <p className="line-clamp-1 text-sm font-semibold">{system.name}</p>
             <p className="text-xs text-muted-foreground">
-              {system.instanceCount} {system.instanceCount === 1 ? "board" : "boards"}
-              {system.subsystemCount ? ` · ${system.subsystemCount} ${system.subsystemCount === 1 ? "subsystem" : "subsystems"}` : ""}
+              {[
+                `${system.instanceCount} ${system.instanceCount === 1 ? "board" : "boards"}`,
+                system.moduleCount ? `${system.moduleCount} ${system.moduleCount === 1 ? "module" : "modules"}` : "",
+                system.subsystemCount ? `${system.subsystemCount} ${system.subsystemCount === 1 ? "subsystem" : "subsystems"}` : "",
+              ].filter(Boolean).join(" · ")}
             </p>
           </div>
         </div>

@@ -289,7 +289,7 @@ export function WorkspaceTray(props: TrayProps) {
             <SheetHeader>
               <SheetTitle>Import connections</SheetTitle>
               <SheetDescription>
-                Upload a wiring list as CSV. An ICD export of this system imports back unchanged. Nothing is written until you commit.
+                CSV wiring list or an ICD export. Nothing is written until you commit.
               </SheetDescription>
             </SheetHeader>
             <ImportTab {...tabProps} onNavigate={(next, params) => {

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Activity, Box, Cable, Keyboard, Loader2, Maximize, MousePointer2, Move3d, Spline, Tag } from "lucide-react";
@@ -35,7 +35,6 @@ import type { PartDetail } from "./workspace/part-detail";
 import { useViewerSelectionSync } from "./workspace/use-viewer-selection-sync";
 import type { SystemTabProps } from "./system-tab-content";
 
-const DiagramTab = lazy(() => import("./diagram-tab").then((module) => ({ default: module.DiagramTab })));
 
 
 function Notice({ tone = "info", children }: { tone?: "info" | "warning" | "error"; children: React.ReactNode }) {
@@ -185,8 +184,7 @@ export function Scene3dTab(props: SystemTabProps) {
   const { highlighted } = nets;
   const reportSelection = useViewerSelectionSync(viewer, scene, document, workspaceSelection, onSelect);
   // The workspace inspector shows what is picked (PLAN M8): the viewer only reports it.
-  const followSelection = (next: PrismSystemViewerSelection | null) => reportSelection(next);
-  const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report, followSelection);
+  const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report, reportSelection);
   const indexes = useBoardIndexes(scene);
   usePartReport(viewer, scene, indexes, selection, setSelection, onPart);
   const { traced, light } = useTracedNet(systemId, etag, selection);
@@ -251,16 +249,8 @@ export function Scene3dTab(props: SystemTabProps) {
 
   if (!supported) {
     return (
-      <div className="flex h-full flex-col gap-3 p-4 md:p-6">
-        <Notice tone="warning">
-          The 3D view needs WebGPU, which this browser does not provide. Showing the diagram instead; a recent Chrome, Edge or Safari shows the 3D view.
-        </Notice>
-        <div className="min-h-0 flex-1">
-          <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading diagram…</div>}>
-            <DiagramTab {...props} />
-          </Suspense>
-        </div>
-      </div>
+      // The workspace shows the Diagram instead (SB2-65); this only guards a direct mount.
+      <div className="p-4"><Notice tone="warning">The 3D view needs WebGPU.</Notice></div>
     );
   }
 

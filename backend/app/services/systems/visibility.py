@@ -48,6 +48,7 @@ def summary(row: dict) -> dict[str, Any]:
         "etag": etag(row["id"], row["version"]),
         "instanceCount": int(row.get("instance_count") or 0),
         "subsystemCount": int(row.get("subsystem_count") or 0),
+        "moduleCount": int(row.get("module_count") or 0),
         "openReviewCount": int(row.get("open_review_count") or 0),
         "catalogComponentId": row.get("catalog_component_id"),
         # D-P2-31: archived systems are read-only and left out of every list.
@@ -62,7 +63,8 @@ def summary(row: dict) -> dict[str, Any]:
 _SUMMARY_SQL = """
     SELECT s.*,
            (SELECT count(*) FROM system_instances i WHERE i.system_id = s.id AND i.kind = 'board') AS instance_count,
-           (SELECT count(*) FROM system_instances i WHERE i.system_id = s.id AND i.kind <> 'board') AS subsystem_count,
+           (SELECT count(*) FROM system_instances i WHERE i.system_id = s.id AND i.kind = 'assembly') AS subsystem_count,
+           (SELECT count(*) FROM system_instances i WHERE i.system_id = s.id AND i.kind = 'module') AS module_count,
            (SELECT count(*) FROM system_reviews r
              WHERE r.system_id = s.id AND r.status = 'open') AS open_review_count
     FROM system_projects s
