@@ -283,6 +283,8 @@ let gizmoHits = [];
 const DEFAULT_GPU_BUDGET_BYTES = 1.5 * 1024 * 1024 * 1024;
 // Components unused this long (no occurrence at full detail) may be evicted over budget.
 const COMPONENT_IDLE_EVICT_MS = 5000;
+// SB2-81: inner copper a system board no longer needs is released after this long unused.
+const INNER_COPPER_IDLE_RELEASE_MS = 5000;
 
 let schematicRenderer;
 let schematicDomRenderer;
@@ -1018,6 +1020,7 @@ function scheduleTileResidency(now = performance.now(), options = {}, b = board)
     if (record) record.lastUsed = now;
   }
   evictUnneededTiles(needed, undefined, b);
+  releaseDeferredInnerTiles(needed, now, b);
   b.tileSchedulerMs = performance.now() - started;
 }
 
@@ -1046,13 +1049,35 @@ function neededTileIdsForView(b = board) {
       }
     }
   }
+  const deferInner = innerCopperDeferred(b);
   for (const tile of b.scene.tiles.values()) {
     if (!visibleLayers.has(Number(tile.layerId))) continue;
+    if (deferInner && isInnerCopperLayer(Number(tile.layerId), b)) continue;
     const offset = state.mode === "layer" ? compareOffsets.get(Number(tile.layerId)) : null;
     if (tileIntersectsView(tile, panel.matrix, offset, COPPER_TILE_PREFETCH_MARGIN, b)) needed.add(tile.id);
   }
   for (const tileId of activeNetTiles) needed.add(tileId);
   return needed;
+}
+
+/**
+ * SB2-81: in a system scene a board's inner copper is drawn only at full detail
+ * while the board shows opaque (`setInnerCopperAtFull`), so until the board is
+ * close enough for full detail, or is exploded, hidden or has a net lit, its
+ * inner-layer tiles are not needed and are not loaded. Those already loaded are
+ * released once they have gone unused for a while (`releaseDeferredInnerTiles`).
+ */
+function innerCopperDeferred(b) {
+  return Boolean(system) && Boolean(b.renderer?.innerCopperAtFull) && !(b.renderer.cullCounts?.full > 0);
+}
+
+function releaseDeferredInnerTiles(needed, now, b) {
+  if (!innerCopperDeferred(b)) return;
+  for (const record of [...b.scene.residentTiles.values()]) {
+    if (needed.has(record.tile.id) || b.scene.loading.has(record.tile.id)) continue;
+    if (!isInnerCopperLayer(Number(record.tile.layerId), b)) continue;
+    if (now - record.lastUsed > INNER_COPPER_IDLE_RELEASE_MS) evictTile(record.tile.id, b);
+  }
 }
 
 function compareResidencyLayers() {
