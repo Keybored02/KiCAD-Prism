@@ -324,7 +324,7 @@ export interface ValidationReport {
 
 // Reviews (§7.1, §8.4)
 
-export type ReviewKind = "source_update" | "baseline_unreachable" | "import" | "child_update";
+export type ReviewKind = "source_update" | "baseline_unreachable" | "import" | "child_update" | "manifest_import";
 export type ReviewStatus = "open" | "applied" | "kept_pinned" | "superseded" | "closed";
 export type Decision = "accept" | "remap" | "bind_candidate" | "remove_rows";
 export type ReviewItemKind = "connector_missing" | "connector_changed" | "pin_missing" | "net_changed" | "signal_mismatch";
@@ -368,8 +368,28 @@ export interface Review {
   pendingChanges: {
     portUpdates?: { linkId: string; end: "a" | "b"; port: PortBaseline }[];
     silent?: { kind: string; linkId: string; end: "a" | "b"; via?: string; before?: unknown; after?: unknown }[];
+    /** A manifest_import review (P2 §21.3): the outside manifest's blob, what it changes, and why it cannot be accepted. */
+    blob?: string | null;
+    summary?: ManifestChangeSummary | null;
+    problems?: string[];
   } | null;
   items: ReviewItem[] | null;
+}
+
+export interface ManifestAreaChanges {
+  added: string[];
+  removed: string[];
+  changed: string[];
+}
+
+export interface ManifestChangeSummary {
+  instances: ManifestAreaChanges;
+  links: ManifestAreaChanges;
+  harnesses: ManifestAreaChanges;
+  exports: ManifestAreaChanges;
+  system: string[];
+  placement: boolean;
+  layout: boolean;
 }
 
 // History (§8.4)

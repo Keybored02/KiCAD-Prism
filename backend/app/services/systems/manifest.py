@@ -171,75 +171,130 @@ def import_manifest(
         actor=actor, system_id=manifest.system.id, optional_rules=manifest.system.optionalRules,
     )
     with store.mutation(row["id"], expected_version=None, actor=actor) as change:
-        for instance in manifest.instances:
-            if instance.kind != "board":
-                store.add_catalog_instance(
-                    change, kind=instance.kind, label=instance.label, component_id=instance.catalog.componentId,
-                    revision_id=instance.catalog.revisionId, follow=instance.follow, instance_id=instance.id,
-                )
-                continue
-            store.add_instance(
-                change, project_id=instance.projectId, label=instance.label,
-                baseline_commit=instance.baselineCommit, tracked_ref=instance.trackedRef,
-                pinned=instance.pinned, instance_id=instance.id,
-            )
-            for override in instance.portOverrides:
-                store.set_override(change, instance.id, override.portKey, override.state)
-        for link in manifest.links:
-            store.create_link(
-                change, a_instance_id=link.a.instanceId, a_port=_end_baseline(link.a),
-                b_instance_id=link.b.instanceId, b_port=_end_baseline(link.b),
-                name=link.name, harness=link.harnessLabel, link_id=link.id,
-                link_type=link.type, stack_height_mm=link.stackHeightMm,
-            )
-            store.replace_rows(change, link.id, [{
-                "id": r.id, "pinA": r.pinA, "pinB": r.pinB, "signal": r.signal, "source": r.source,
-                "netA": r.netA, "netB": r.netB,
-            } for r in link.rows], keep_new_ids=True)
-        for export in manifest.exports:
-            target = export.target
-            if hasattr(target, "port"):
-                store.create_export(change, name=export.name, description=export.description,
-                                    instance_id=target.instanceId, port=target.port.model_dump(),
-                                    export_id=export.id)
-            else:
-                store.create_export(change, name=export.name, description=export.description,
-                                    instance_id=target.instanceId, child_export_id=target.exportId,
-                                    export_id=export.id)
-        for harness in manifest.harnesses:
-            store.create_harness(change, name=harness.name, label=harness.label, harness_id=harness.id,
-                                 cut_length_mm=harness.cutLengthMm, service_allowance_pct=harness.serviceAllowancePct)
-            for end in sorted(harness.ends, key=lambda e: e.ordinal):
-                store.add_harness_end(
-                    change, harness.id, end_id=end.id, ordinal=end.ordinal, pin_count=end.pinCount,
-                    mates_instance_id=end.mates.instanceId if end.mates else None,
-                    mates_port=_end_baseline(end.mates) if end.mates else None,
-                    pin_map=end.pinMap, boot_mm=end.bootMm,
-                    catalog_component_id=end.part.componentId if end.part else None,
-                    catalog_revision_id=end.part.revisionId if end.part else None, part_pins=end.partPins,
-                    part_summary=({k: getattr(end.part, k) or "" for k in harnesses_module.PART_SUMMARY}
-                                  if end.part else None))
-            store.replace_wires(change, harness.id, [
-                {"id": w.id, "from": {"end": w.source.end, "pin": w.source.pin},
-                 "to": {"end": w.target.end, "pin": w.target.pin}, "signal": w.signal, "gaugeAwg": w.gaugeAwg,
-                 "colour": w.colour, "label": w.label, "netFrom": w.netFrom, "netTo": w.netTo}
-                for w in harness.wires], keep_new_ids=True)
-            if harness.nodes:  # list order is chain and waypoint order (§17.9)
-                store.replace_nodes(change, harness.id, [
-                    {"id": n.id, "kind": n.kind, "positionMm": n.positionMm, "pinned": n.pinned, "ends": n.ends,
-                     "between": n.between}
-                    for n in sorted(harness.nodes, key=lambda n: (n.kind, n.order, n.id))])
-        for record in manifest.mating:
-            store.set_mating(change, record.instanceId, record.portKey, {
-                "mode": record.mode, "axis": record.frame.axis, "quarterTurns": record.frame.quarterTurns,
-                "geometryDigest": record.geometryDigest})
-        for pose in manifest.placement.poses:
-            store.set_pose(change, pose.instanceId,
-                           {**placement_poses.pose_from(pose.translationMm, pose.rotation), "source": pose.source})
-        for driving in manifest.placement.drivingMates:
-            store.set_driving_mate(change, driving.instanceId, driving.linkId)
+        _populate(store, change, manifest)
         change.audit("system_imported", {"schema": SCHEMA, "sourceVersion": manifest.meta.sourceVersion,
                                          "snapshot": manifest.meta.snapshot.id if manifest.meta.snapshot else None})
     if manifest.layout.positions:
         store.put_layout(row["id"], {k: v.model_dump() for k, v in manifest.layout.positions.items()})
     return row["id"]
+
+
+# Every table holding a system's engineering content, children before parents (FKs).
+_CONTENT_TABLES = ("system_driving_mates", "system_poses", "system_exports", "system_harnesses", "system_links",
+                   "system_instances", "system_layouts")
+
+
+def replace_contents(store: SystemStore, change: Any, manifest: Manifest) -> None:
+    """Make ``change``'s system exactly ``manifest`` (§21.3, SB2-54): same IDs, its own name.
+
+    Snapshots, reviews of other kinds, audit history and the catalog binding stay; the
+    instances' source reviews go with them. Runs inside the caller's mutation.
+    """
+
+    if manifest.system.id != change.system_id:
+        raise Invalid(f"the manifest is of system {manifest.system.id}, not {change.system_id}")
+    for table in _CONTENT_TABLES:
+        store.conn.execute(f"DELETE FROM {table} WHERE system_id = %s", (change.system_id,))
+    store.conn.execute(
+        "UPDATE system_projects SET name = %s, description = %s, optional_rules = %s WHERE id = %s",
+        (manifest.system.name, manifest.system.description, sorted(set(manifest.system.optionalRules)),
+         change.system_id),
+    )
+    _populate(store, change, manifest)
+    if manifest.layout.positions:
+        store.put_layout(change.system_id, {k: v.model_dump() for k, v in manifest.layout.positions.items()})
+
+
+def _entries(manifest: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    return {area: {str(entry["id"]): entry for entry in manifest.get(area) or []}
+            for area in ("instances", "links", "harnesses", "exports")}
+
+
+def difference(before: Mapping[str, Any], after: Mapping[str, Any]) -> dict:
+    """What replacing ``before`` with ``after`` changes, by ID and area (manifests as JSON)."""
+
+    old, new = _entries(before), _entries(after)
+    summary: dict[str, Any] = {}
+    for area in old:
+        name = (lambda e: e.get("label") or e.get("name") or e["id"])
+        added = sorted(name(new[area][i]) for i in new[area].keys() - old[area].keys())
+        removed = sorted(name(old[area][i]) for i in old[area].keys() - new[area].keys())
+        changed = sorted(name(new[area][i]) for i in new[area].keys() & old[area].keys()
+                         if new[area][i] != old[area][i])
+        summary[area] = {"added": added, "removed": removed, "changed": changed}
+    summary["system"] = [key for key in ("name", "description", "optionalRules")
+                         if (before.get("system") or {}).get(key) != (after.get("system") or {}).get(key)]
+    summary["placement"] = (before.get("placement"), before.get("mating")) != (after.get("placement"), after.get("mating"))
+    summary["layout"] = before.get("layout") != after.get("layout")
+    return summary
+
+
+def _populate(store: SystemStore, change: Any, manifest: Manifest) -> None:
+    """Every instance, link, export, harness, mating frame and pose of ``manifest``, with its IDs."""
+    for instance in manifest.instances:
+        if instance.kind != "board":
+            store.add_catalog_instance(
+                change, kind=instance.kind, label=instance.label, component_id=instance.catalog.componentId,
+                revision_id=instance.catalog.revisionId, follow=instance.follow, instance_id=instance.id,
+            )
+            continue
+        store.add_instance(
+            change, project_id=instance.projectId, label=instance.label,
+            baseline_commit=instance.baselineCommit, tracked_ref=instance.trackedRef,
+            pinned=instance.pinned, instance_id=instance.id,
+        )
+        for override in instance.portOverrides:
+            store.set_override(change, instance.id, override.portKey, override.state)
+    for link in manifest.links:
+        store.create_link(
+            change, a_instance_id=link.a.instanceId, a_port=_end_baseline(link.a),
+            b_instance_id=link.b.instanceId, b_port=_end_baseline(link.b),
+            name=link.name, harness=link.harnessLabel, link_id=link.id,
+            link_type=link.type, stack_height_mm=link.stackHeightMm,
+        )
+        store.replace_rows(change, link.id, [{
+            "id": r.id, "pinA": r.pinA, "pinB": r.pinB, "signal": r.signal, "source": r.source,
+            "netA": r.netA, "netB": r.netB,
+        } for r in link.rows], keep_new_ids=True)
+    for export in manifest.exports:
+        target = export.target
+        if hasattr(target, "port"):
+            store.create_export(change, name=export.name, description=export.description,
+                                instance_id=target.instanceId, port=target.port.model_dump(),
+                                export_id=export.id)
+        else:
+            store.create_export(change, name=export.name, description=export.description,
+                                instance_id=target.instanceId, child_export_id=target.exportId,
+                                export_id=export.id)
+    for harness in manifest.harnesses:
+        store.create_harness(change, name=harness.name, label=harness.label, harness_id=harness.id,
+                             cut_length_mm=harness.cutLengthMm, service_allowance_pct=harness.serviceAllowancePct)
+        for end in sorted(harness.ends, key=lambda e: e.ordinal):
+            store.add_harness_end(
+                change, harness.id, end_id=end.id, ordinal=end.ordinal, pin_count=end.pinCount,
+                mates_instance_id=end.mates.instanceId if end.mates else None,
+                mates_port=_end_baseline(end.mates) if end.mates else None,
+                pin_map=end.pinMap, boot_mm=end.bootMm,
+                catalog_component_id=end.part.componentId if end.part else None,
+                catalog_revision_id=end.part.revisionId if end.part else None, part_pins=end.partPins,
+                part_summary=({k: getattr(end.part, k) or "" for k in harnesses_module.PART_SUMMARY}
+                              if end.part else None))
+        store.replace_wires(change, harness.id, [
+            {"id": w.id, "from": {"end": w.source.end, "pin": w.source.pin},
+             "to": {"end": w.target.end, "pin": w.target.pin}, "signal": w.signal, "gaugeAwg": w.gaugeAwg,
+             "colour": w.colour, "label": w.label, "netFrom": w.netFrom, "netTo": w.netTo}
+            for w in harness.wires], keep_new_ids=True)
+        if harness.nodes:  # list order is chain and waypoint order (§17.9)
+            store.replace_nodes(change, harness.id, [
+                {"id": n.id, "kind": n.kind, "positionMm": n.positionMm, "pinned": n.pinned, "ends": n.ends,
+                 "between": n.between}
+                for n in sorted(harness.nodes, key=lambda n: (n.kind, n.order, n.id))])
+    for record in manifest.mating:
+        store.set_mating(change, record.instanceId, record.portKey, {
+            "mode": record.mode, "axis": record.frame.axis, "quarterTurns": record.frame.quarterTurns,
+            "geometryDigest": record.geometryDigest})
+    for pose in manifest.placement.poses:
+        store.set_pose(change, pose.instanceId,
+                       {**placement_poses.pose_from(pose.translationMm, pose.rotation), "source": pose.source})
+    for driving in manifest.placement.drivingMates:
+        store.set_driving_mate(change, driving.instanceId, driving.linkId)

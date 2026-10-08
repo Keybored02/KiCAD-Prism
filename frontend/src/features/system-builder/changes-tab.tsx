@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
+  decideManifestImport,
   decideReviewItem,
   getHistory,
   keepPinned,
@@ -161,7 +162,8 @@ interface ReviewCardProps {
 }
 
 function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy, run, onOpenLink }: ReviewCardProps) {
-  const title = review.kind === "import" ? "CSV import" : instance?.label ?? "Board";
+  const title = review.kind === "import" ? "CSV import" : review.kind === "manifest_import" ? "Repository manifest"
+    : instance?.label ?? "Board";
   const { decided, total } = progress(review);
   const groups = groupItems(review.items ?? []);
   const silent = review.pendingChanges?.silent ?? [];
@@ -195,6 +197,10 @@ function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy,
       </header>
 
       {review.redacted && <p className="text-sm text-muted-foreground">This review is on a board you cannot see.</p>}
+
+      {review.kind === "manifest_import" && (
+        <ManifestImport systemId={systemId} review={review} etag={etag} editable={editable} busy={busy} run={run} />
+      )}
 
       {review.kind === "baseline_unreachable" && instance && (
         <div className="space-y-2 text-sm">
@@ -243,6 +249,49 @@ function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy,
         </p>
       )}
     </section>
+  );
+}
+
+const AREAS = [["instances", "Boards and subsystems"], ["links", "Links"], ["harnesses", "Harnesses"], ["exports", "Exports"]] as const;
+
+/** P2 §21.3: a manifest pushed outside Prism, accepted (the system becomes it) or rejected as a whole. */
+function ManifestImport({ systemId, review, etag, editable, busy, run }: {
+  systemId: string; review: Review; etag: string; editable: boolean; busy: string | null; run: Mutate;
+}) {
+  const summary = review.pendingChanges?.summary ?? null;
+  const problems = review.pendingChanges?.problems ?? [];
+  const lines = summary ? AREAS.flatMap(([area, label]) => (["added", "removed", "changed"] as const)
+    .filter((change) => summary[area][change].length > 0)
+    .map((change) => `${label} ${change}: ${summary[area][change].join(", ")}`)) : [];
+  if (summary?.system.length) lines.unshift(`System ${summary.system.join(", ")} changed`);
+  if (summary?.placement) lines.push("3D placement changed");
+  if (summary?.layout) lines.push("Canvas layout changed");
+  const decide = (decision: "accept" | "reject") => run(`manifest-${decision}`,
+    () => decideManifestImport(systemId, etag, review.id, decision),
+    decision === "accept" ? "Repository manifest imported" : "Repository manifest rejected");
+  return (
+    <div className="space-y-2 text-sm">
+      <p>
+        Someone changed prism.system.json on the linked branch outside Prism. Snapshots wait until you decide. Accepting
+        replaces this system with that manifest, including edits not yet in a snapshot; rejecting keeps the system as it
+        is, and the next snapshot replaces the manifest on the branch.
+      </p>
+      {problems.length > 0 ? (
+        <Group title="It cannot be imported" tone="error">
+          {problems.map((problem) => <li key={problem} className="px-3 py-2">{problem}</li>)}
+        </Group>
+      ) : (
+        <Group title="What it changes" tone="warning">
+          {(lines.length ? lines : ["Nothing Prism tracks"]).map((line) => <li key={line} className="px-3 py-2">{line}</li>)}
+        </Group>
+      )}
+      {editable && (
+        <div className="flex gap-2">
+          <Button size="sm" disabled={busy !== null || problems.length > 0} onClick={() => void decide("accept")}>Accept</Button>
+          <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void decide("reject")}>Reject</Button>
+        </div>
+      )}
+    </div>
   );
 }
 

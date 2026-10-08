@@ -27,7 +27,7 @@ from app.services.systems.service_git import resolve_remote
 from app.services.systems.visibility import etag
 from app.services.systems.service_base import Caller
 from app.services.systems.service_git import Remote
-from app.services.systems.store import Conflict, NotFound
+from app.services.systems.store import Conflict, Invalid, NotFound
 
 AUTHOR = Caller(role="designer", email="ada@example.com", name="Ada Lovelace")
 _ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_TERMINAL_PROMPT": "0",
@@ -254,6 +254,121 @@ class LinkTest(GitCase):
         self.assertEqual(git_tracking.author_of({"git": {"author": {"name": "", "email": "x@y.z"}},
                                                  "created_by": "user:x@y.z"}).name, "x")
 
+
+class ManifestImportTest(GitCase):
+    """SB2-54: an outside manifest comes back through a ``manifest_import`` review (§21.3)."""
+
+    def push_edited(self, edit) -> str:
+        data = self.remote_manifest()
+        edit(data)
+        return self.outside_commit(git_tracking.MANIFEST_FILE, json.dumps(data, indent=2) + "\n")
+
+    def open_review(self) -> dict:
+        [review] = [r for r in self.service.list_reviews(DESIGNER, self.sid, "open") if r["kind"] == "manifest_import"]
+        return review
+
+    def decide(self, review: dict, decision: str) -> dict:
+        return self.service.decide_manifest_import(DESIGNER, self.sid, self.version(), review["id"], decision).body
+
+    def rename(self, data: dict) -> None:
+        data["system"]["name"] = "Renamed outside"
+        data["links"][0]["name"] = "Renamed link"
+
+    def test_accepting_makes_the_system_the_outside_manifest_and_snapshots_resume_on_top(self) -> None:
+        self.link()
+        self.commit(self.take("CDR"))
+        outside = self.push_edited(self.rename)
+        self.assertEqual(git_tracking.sync(self.connect, self.sid)["outcome"], "outside_change")
+        review = self.open_review()
+        self.assertEqual((review["toCommit"], review["pendingChanges"]["problems"]), (outside, []))
+        summary = review["pendingChanges"]["summary"]
+        self.assertEqual(summary["system"], ["name"])
+        self.assertEqual(summary["links"], {"added": [], "removed": [], "changed": ["Renamed link"]})
+        self.assertEqual(summary["instances"], {"added": [], "removed": [], "changed": []})
+
+        decided = self.decide(review, "accept")
+        self.assertEqual(decided["status"], "applied")
+        document = self.service.document(DESIGNER, self.sid).body
+        self.assertEqual(document["system"]["name"], "Renamed outside")
+        self.assertIn("Renamed link", [link["name"] for link in document["links"]])
+        link = self.service.git_link(DESIGNER, self.sid)
+        self.assertIsNone(link["outsideCommit"])
+        self.assertEqual(link["knownBlob"], review["pendingChanges"]["blob"])
+        state = self.commit(self.take("PDR"))
+        self.assertEqual(self.show(state["commit"]).split("|")[2], outside, "the next commit stacks on the import")
+        self.assertEqual(self.remote_manifest()["system"]["name"], "Renamed outside")
+        kinds = [r["kind"] for r in self.conn.execute(
+            "SELECT kind FROM system_audit_events WHERE system_id = %s ORDER BY seq", (self.sid,)).fetchall()]
+        self.assertIn("manifest_imported", kinds)
+
+    def test_rejecting_keeps_prism_and_the_next_snapshot_replaces_the_outside_manifest(self) -> None:
+        self.link()
+        self.commit(self.take("CDR"))
+        self.push_edited(self.rename)
+        git_tracking.sync(self.connect, self.sid)
+        self.assertEqual(self.decide(self.open_review(), "reject")["status"], "closed")
+        self.assertEqual(self.service.document(DESIGNER, self.sid).body["system"]["name"], "Fixture")
+        self.assertEqual(self.commit(self.take("PDR"))["state"], "pushed")
+        self.assertEqual(self.remote_manifest()["system"]["name"], "Fixture")
+
+    def test_an_invalid_manifest_can_only_be_rejected(self) -> None:
+        self.link()
+        self.commit(self.take("CDR"))
+        self.outside_commit(git_tracking.MANIFEST_FILE, '{"edited": "by hand"}\n')
+        git_tracking.sync(self.connect, self.sid)
+        review = self.open_review()
+        self.assertTrue(review["pendingChanges"]["problems"])
+        self.assertIsNone(review["pendingChanges"]["summary"])
+        with self.assertRaisesRegex(Invalid, "manifest_invalid"):
+            self.decide(review, "accept")
+        self.decide(review, "reject")
+        self.assertIsNone(self.service.git_link(DESIGNER, self.sid)["outsideCommit"])
+
+    def test_a_newer_outside_push_supersedes_the_open_review(self) -> None:
+        self.link()
+        self.commit(self.take("CDR"))
+        self.push_edited(self.rename)
+        git_tracking.sync(self.connect, self.sid)
+        first = self.open_review()
+        newer = self.push_edited(lambda data: data["system"].update(name="Again"))
+        git_tracking.sync(self.connect, self.sid)
+        second = self.open_review()
+        self.assertEqual((second["toCommit"], second["id"] != first["id"]), (newer, True))
+        with self.assertRaisesRegex(Conflict, "review_closed"):
+            self.decide(first, "accept")
+        self.decide(second, "accept")
+        self.assertEqual(self.service.document(DESIGNER, self.sid).body["system"]["name"], "Again")
+
+    def test_a_refused_commit_opens_the_review_too(self) -> None:
+        self.link()
+        self.commit(self.take("CDR"))
+        queued = self.take("PDR")
+        outside = self.push_edited(self.rename)
+        self.assertEqual(self.commit(queued)["state"], "refused")
+        self.assertEqual(self.open_review()["toCommit"], outside)
+
+    def test_replacing_a_system_with_its_own_manifest_changes_nothing(self) -> None:
+        from app.services.systems import manifest as manifest_io
+        from app.services.systems.manifest_schema import Manifest, full_view
+
+        before = self.service.snapshot_manifest(DESIGNER, self.sid, self.take("CDR")["id"])
+        with self.service._tx() as store:
+            with store.mutation(self.sid, expected_version=None, actor="user:t") as change:
+                manifest_io.replace_contents(store, change, Manifest.model_validate(before))
+        after = self.service.snapshot_manifest(DESIGNER, self.sid, self.take("PDR")["id"])
+        strip = lambda m: {k: v for k, v in full_view(Manifest.model_validate(m)).items() if k != "system"}
+        self.assertEqual(strip(before), strip(after))
+        self.assertEqual(manifest_io.difference(before, after)["links"], {"added": [], "removed": [], "changed": []})
+
+    def test_linked_systems_due_a_fetch_are_queued(self) -> None:
+        self.link()
+        queued: list[str] = []
+        with mock.patch.object(git_tracking, "enqueue_sync", side_effect=lambda sid, **_: queued.append(sid)):
+            self.assertEqual(git_tracking.enqueue_due_fetches(self.connect, interval_seconds=3600), 0)
+            self.conn.execute("UPDATE system_git_links SET last_fetched_at = NOW() - interval '2 hours'")
+            self.conn.commit()
+            self.assertEqual(git_tracking.enqueue_due_fetches(self.connect, interval_seconds=3600), 1)
+        self.assertEqual(queued, [self.sid])
 
 class GitApiTest(GitCase):
     def setUp(self) -> None:

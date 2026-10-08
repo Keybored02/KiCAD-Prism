@@ -51,6 +51,8 @@ export function eventSummary(event: AuditEvent, labels: Map<string, string>): st
       return String(p.url ?? "");
     case "snapshot_committed":
     case "snapshot_commit_refused":
+    case "manifest_imported":
+    case "manifest_import_rejected":
       return shortSha(p.commit as string);
     case "import_committed":
       return `${p.created ?? 0} created, ${p.updated ?? 0} updated`;

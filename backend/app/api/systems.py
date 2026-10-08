@@ -1030,6 +1030,23 @@ async def fetch_git(system_id: str, user: AuthenticatedUser = Depends(require_vi
     return await _run(system_id, lambda: system_service.service.fetch_git(_caller(user), system_id))
 
 
+class ManifestImportDecision(BaseModel):
+    decision: Literal["accept", "reject"]
+
+
+@router.post("/{system_id}/reviews/{review_id}/manifest-import", dependencies=[Depends(require_designer)])
+async def decide_manifest_import(
+    system_id: str, review_id: str, body: ManifestImportDecision, request: Request, response: Response,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """P2 §21.3: accept or reject a manifest pushed outside Prism."""
+    version = _expected_version(request, system_id)
+    result = await _run(system_id, lambda: system_service.service.decide_manifest_import(
+        _caller(user), system_id, version, review_id, body.decision,
+    ))
+    return _respond(result, response)
+
+
 @router.get("/{system_id}/snapshots")
 async def list_snapshots(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     return await _run(system_id, lambda: system_service.service.list_snapshots(_caller(user), system_id))

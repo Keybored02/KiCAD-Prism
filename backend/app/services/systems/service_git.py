@@ -17,7 +17,7 @@ from psycopg.types.json import Jsonb
 from app.services.systems import git_tracking
 from app.services.systems.service_base import Caller, Result, _iso
 from app.services.systems.sources import SourceError, valid_tracked_ref
-from app.services.systems.store import Conflict, Invalid, NotFound, SystemStore
+from app.services.systems.store import Conflict, Forbidden, Invalid, NotFound, SystemStore
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +143,56 @@ class GitMixin:
                                (Jsonb(self._queued_git(snapshot.get("git"))), snapshot_id))
         job = self._git_enqueue_commit(system_id, snapshot_id, requested_by=caller.email)
         return {"jobId": job["id"]}
+
+    def decide_manifest_import(self, caller: Caller, system_id: str, version: int, review_id: str,
+                               decision: str) -> Result:
+        """§21.3 (SB2-54): accept (the system becomes the outside manifest) or reject (Prism's stays,
+        and the next snapshot replaces the outside one). Either way the outside change is cleared."""
+        from app.services.systems import manifest as manifest_io
+        from app.services.systems import visibility
+        from app.services.systems.manifest_schema import Manifest
+
+        if decision not in {"accept", "reject"}:
+            raise Invalid("decision must be accept or reject")
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            try:
+                review = store.get_review(system_id, review_id)
+            except NotFound:
+                raise NotFound("Review not found") from None
+            link = self._git_link_row(store, system_id)
+            if review["kind"] != "manifest_import" or review["status"] != "open":
+                raise Conflict("review_closed: this review is not an open manifest import")
+            if link is None or link["outside_commit"] != review["to_commit"]:
+                raise Conflict("review_stale: the branch moved on since this review opened; fetch and review again")
+            blob = (review.get("pending_changes") or {}).get("blob")
+            manifest = None
+            if decision == "accept":
+                data, problems = git_tracking.parse_manifest(
+                    system_id, git_tracking.read_blob(git_tracking.clone_path(system_id), blob))
+                if problems:
+                    raise Invalid("manifest_invalid: " + "; ".join(problems))
+                manifest = Manifest.model_validate(data)
+                projects = [i.projectId for i in manifest.instances if i.kind == "board"]
+                access = visibility.project_access(store.conn, projects, caller.role)
+                if any(not (access.get(p) or {}).get("visible") for p in projects):
+                    raise Forbidden("the manifest names a board you cannot see")
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                if manifest is not None:
+                    manifest_io.replace_contents(store, change, manifest)
+                    store.set_review_status(change, review_id, "applied", audit_kind="manifest_imported",
+                                            payload={"commit": review["to_commit"]})
+                else:
+                    store.set_review_status(change, review_id, "closed", audit_kind="manifest_import_rejected",
+                                            payload={"commit": review["to_commit"]})
+                store.conn.execute(
+                    "UPDATE system_git_links SET known_blob = %s, outside_commit = NULL WHERE system_id = %s",
+                    (blob, system_id))
+                body = self._review_doc(store, store.get_review(system_id, review_id), False)
+        for instance in manifest.instances if manifest is not None else ():
+            if instance.kind == "board":
+                self._enqueue_quietly(instance.projectId, instance.baselineCommit, caller)
+        return Result(body, system_id, change.version)
 
     # ------------------------------------------------------------------
     # Snapshot hooks (``create_snapshot``)
