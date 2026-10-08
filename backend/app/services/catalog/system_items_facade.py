@@ -166,7 +166,7 @@ class CatalogSystemItemsFacade:
         self._initialize()
         converter = catalog_models.converter_id()
         with self._connect() as conn:
-            catalog_mates.require_part(conn, component_id)
+            catalog_mates.require_modelled(conn, component_id)
             assets = catalog_models.step_assets(conn, component_id)
             keys = {a["id"]: catalog_models.glb_key(a["sha256"], converter) for a in assets}
             glbs = catalog_models.cached(conn, keys.values())
@@ -178,7 +178,7 @@ class CatalogSystemItemsFacade:
         self._initialize()
         converter = catalog_models.converter_id()
         with self._connect() as conn:
-            catalog_mates.require_part(conn, component_id)
+            catalog_mates.require_modelled(conn, component_id)
             for asset in catalog_models.step_assets(conn, component_id):
                 key = catalog_models.glb_key(asset["sha256"], converter)
                 if catalog_models.cached(conn, [key]):
@@ -206,7 +206,7 @@ class CatalogSystemItemsFacade:
         self._initialize()
         value = catalog_models.normalized_alignment(alignment)
         with self._connect() as conn:
-            catalog_mates.require_part(conn, component_id)
+            catalog_mates.require_modelled(conn, component_id)
             self._step_asset(conn, component_id, asset_id)
             catalog_models.set_alignment(conn, component_id, asset_id, value, actor=actor, now=utc_now_iso())
             _component, revision = self._revision_kernel.active_revision_row(conn, component_id)
@@ -222,7 +222,7 @@ class CatalogSystemItemsFacade:
         first model when given."""
         self._initialize()
         with self._connect() as conn:
-            catalog_mates.require_part(conn, component_id)
+            catalog_mates.require_modelled(conn, component_id)
             asset = self._step_asset(conn, component_id, asset_id)
             value = catalog_models.normalized_alignment(
                 alignment if alignment is not None else catalog_models.alignments(conn, component_id).get(asset_id))

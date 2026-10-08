@@ -250,14 +250,15 @@ class CatalogRevisionKernel:
                 manufacturer, mpn, normalized_manufacturer, normalized_mpn, mpn_source,
                 category, package_name, vendor, vendor_part_number, mass_g,
                 rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
-                summary, keywords, extra_fields, search_document, created_at, updated_at
+                summary, keywords, extra_fields, search_document, interface_json, source_ref_json,
+                created_at, updated_at
             )
             SELECT
                 %s, component_id, %s, id, %s, %s, %s, '', %s, %s, name, value, description, datasheet_url,
                 manufacturer, mpn, normalized_manufacturer, normalized_mpn, mpn_source,
                 category, package_name, vendor, vendor_part_number, mass_g,
                 rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
-                summary, keywords, extra_fields, search_document, %s, %s
+                summary, keywords, extra_fields, search_document, interface_json, source_ref_json, %s, %s
             FROM component_revisions
             WHERE id = %s
             """,

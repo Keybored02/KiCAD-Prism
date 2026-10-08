@@ -102,6 +102,7 @@ import {
 } from "./library-component-evidence-panels";
 import { MatesWithPanel } from "./library-component-mates";
 import { ModelsPanel } from "./library-component-models";
+import { ModuleConnectorsPanel } from "./library-module-interface";
 import { LibraryPreviewPair } from "./library-preview-inspector";
 import {
   ASSET_LABELS,
@@ -234,7 +235,8 @@ function SystemItemOverview({ component, canMutate, onEdit }: { component: Catal
 }
 
 function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogComponent; canMutate: boolean; onEdit: () => void }) {
-  if (component.kind && component.kind !== "part") {
+  // A module (§3.5) uses the part page; only an assembly has its own overview.
+  if (component.kind === "assembly") {
     return <SystemItemOverview component={component} canMutate={canMutate} onEdit={onEdit} />;
   }
   const requiredAttached = component.assets.filter((asset) => asset.required).length;
@@ -328,8 +330,8 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
         </PanelCard>
       ) : null}
 
-      <MatesWithPanel componentId={component.id} canMutate={canMutate} />
-      <ModelsPanel componentId={component.id} canMutate={canMutate} />
+      {component.kind === "module" ? <ModuleConnectorsPanel component={component} /> : <MatesWithPanel componentId={component.id} canMutate={canMutate} />}
+      <ModelsPanel componentId={component.id} canMutate={canMutate} mates={component.kind !== "module"} />
     </div>
   );
 }
