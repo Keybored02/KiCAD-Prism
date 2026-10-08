@@ -41,6 +41,17 @@ test("indices are 16-bit when every vertex fits, padded to four bytes", async ()
   const large = packIndices([0, 65536, 1], 65537);
   assert.equal(large.format, "uint32");
   assert.equal(large.indices[1], 65536);
-  assert.equal(primitiveGpuBytes(3, 3), 3 * 32 + 8);
-  assert.equal(primitiveGpuBytes(65537, 3), 65537 * 32 + 12);
+  assert.equal(primitiveGpuBytes(3, 3), 3 * 24 + 8);
+  assert.equal(primitiveGpuBytes(65537, 3), 65537 * 24 + 12);
+});
+
+test("normals pack to snorm8 within one step of the unit vector", async () => {
+  const { packNormal } = await import("./renderer.js");
+  const out = new Int8Array(8);
+  packNormal(out, 4, [0, 0, 0, 0.6, -0.8, 0], 3);
+  assert.deepEqual([...out.slice(4)], [76, -102, 0, 0]);
+  packNormal(out, 0, [1, -1, 0], 0);
+  assert.deepEqual([...out.slice(0, 4)], [127, -127, 0, 0]);
+  packNormal(out, 0, [2, -2, Number.NaN], 0);
+  assert.deepEqual([...out.slice(0, 4)], [127, -127, 0, 0]);
 });
