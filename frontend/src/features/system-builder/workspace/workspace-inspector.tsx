@@ -181,7 +181,7 @@ export function WorkspaceInspector(props: InspectorProps) {
   const link = selection?.kind === "link" ? document.links.find((item) => item.id === selection.id) : undefined;
   const harness = selection?.kind === "harness" ? document.harnesses?.find((item) => item.id === selection.id) : undefined;
   return (
-    <aside className="h-full overflow-auto p-4" aria-label="Inspector">
+    <aside className="relative h-full overflow-auto p-4" aria-label="Inspector">
       {props.slot && (
         <div ref={props.slot} aria-label="3D tools"
           className="-mx-4 -mt-4 mb-4 space-y-3 border-b p-4 empty:hidden [&>*]:!w-full [&>*]:!shadow-none" />

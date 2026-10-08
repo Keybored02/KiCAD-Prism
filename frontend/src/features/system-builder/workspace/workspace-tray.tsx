@@ -259,7 +259,7 @@ export function WorkspaceTray(props: TrayProps) {
         </span>
       </div>
       {tab && (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="relative min-h-0 flex-1 overflow-y-auto">
           {tab === "connections" && (harness ? (
             <div className="p-4">
               <HarnessEditor key={harness.id} systemId={systemId} document={document} harness={harness} etag={etag}

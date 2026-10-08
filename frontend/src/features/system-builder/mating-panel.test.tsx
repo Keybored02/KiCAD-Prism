@@ -75,7 +75,7 @@ describe("board-to-board link details", () => {
     });
     renderEditor();
     expect(screen.getByText("Board-to-board")).toBeTruthy();
-    expect(screen.getByText(/stack height 8 mm/)).toBeTruthy();
+    expect((screen.getByLabelText("Stack height (mm)") as HTMLInputElement).value).toBe("8");
     await screen.findByText("Inferred (medium): Vertical, top side");
     expect(await screen.findByText("Mating details needed")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Confirm" })).toHaveLength(1); // nothing to confirm on a low inference
@@ -83,6 +83,37 @@ describe("board-to-board link details", () => {
     await waitFor(() => expect(calls.some(([, init]) => init.method === "PUT")).toBe(true));
     const [url, init] = calls.find(([, i]) => i.method === "PUT")!;
     expect([url, JSON.parse(String(init.body))]).toEqual([`/api/systems/sys_1/instances/${obc.id}/mating/key-J1`, { mode: "confirmed" }]);
+  });
+
+  it("sets the stack height in place and clears it back to auto", async () => {
+    const calls = stubApi({ [obc.id]: port(), [cmbd.id]: port() });
+    renderEditor();
+    const field = screen.getByLabelText("Stack height (mm)");
+    fireEvent.change(field, { target: { value: "abc" } });
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(calls.some(([, init]) => init.method === "PATCH")).toBe(false);
+    fireEvent.change(field, { target: { value: "15.24" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(calls.some(([, init]) => init.method === "PATCH")).toBe(true));
+    const [url, init] = calls.find(([, i]) => i.method === "PATCH")!;
+    expect([url, JSON.parse(String(init.body))]).toEqual(["/api/systems/sys_1/links/L1", { stackHeightMm: 15.24 }]);
+    fireEvent.change(field, { target: { value: "" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(calls.filter(([, i]) => i.method === "PATCH")).toHaveLength(2));
+    expect(JSON.parse(String(calls.filter(([, i]) => i.method === "PATCH")[1][1].body))).toEqual({ stackHeightMm: null });
+  });
+
+  it("does not offer Confirm over a frame set by hand", async () => {
+    stubApi({
+      [obc.id]: port({ stored: { mode: "override", axis: "bottom", quarterTurns: 0, stale: false } }),
+      [cmbd.id]: port({ stored: { mode: "confirmed", axis: "top", quarterTurns: 0, stale: false } }),
+    });
+    renderEditor();
+    expect(await screen.findByText("Set by hand: Vertical, bottom side")).toBeTruthy();
+    await screen.findByText("Confirmed: Vertical, top side");
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Reset" })).toHaveLength(2);
   });
 
   it("sets a frame by hand with a direction and a turn", async () => {

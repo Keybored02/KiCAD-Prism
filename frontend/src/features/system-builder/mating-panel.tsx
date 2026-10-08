@@ -7,6 +7,7 @@ import { clearDrivingMate, clearMating, getLinkMate, getMating, getPlacement, se
 import type { LinkMate, MatingAxis, PortMating, SystemDocument, SystemLink, SystemPlacement } from "@/types/system";
 
 import { MatePreview, type Pick } from "./mate-preview";
+import { StackHeightField } from "./stack-height-field";
 import type { Mutate } from "./use-system-mutation";
 
 /** How the mating axis reads to a designer (CONTRACTS_P2 §15.1; ±x/±y are the footprint's own axes). */
@@ -68,7 +69,9 @@ function MatingEnd({ systemId, etag, side, instanceId, portKey, label, editable,
   if (current === undefined) return <p className="text-sm text-muted-foreground">{side} · {label}: loading…</p>;
   if (current === null) return <p className="text-sm text-muted-foreground">{side} · {label}: no frame (the board interface is not ready).</p>;
   const summary = matingSummary(current);
-  const canConfirm = editable && Boolean(current.inferred.axis) && current.stored?.mode !== "confirmed";
+  // Confirm accepts the inferred frame, so it is offered only while nothing is stored: a frame set
+  // by hand is already explicit, and confirming over it would silently replace it (Reset goes back).
+  const canConfirm = editable && Boolean(current.inferred.axis) && !current.stored;
   const start = picking ?? { axis: current.stored?.axis ?? current.inferred.axis ?? "top", quarterTurns: current.stored?.quarterTurns ?? 0 };
 
   return (
@@ -197,12 +200,10 @@ export function MatingPanel({ systemId, etag, document, link, editable, busy, ru
     : [];
   return (
     <section className="space-y-2" aria-label="Mating">
-      <h3 className="text-sm font-semibold">
-        Mating{link.stackHeightMm ? ` · stack height ${link.stackHeightMm} mm` : ""}
-      </h3>
-      <p className="text-xs text-muted-foreground">
-        Automatic 3D placement uses only frames that are confirmed or set by hand.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold" title="3D placement uses only frames that are confirmed or set by hand">Mating</h3>
+        <StackHeightField systemId={systemId} etag={etag} link={link} editable={editable && !restricted} busy={busy} run={run} />
+      </div>
       {status && <p className={`text-xs ${STATUS_TONE[status.tone]}`} role="status">{status.text}</p>}
       {choices.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
