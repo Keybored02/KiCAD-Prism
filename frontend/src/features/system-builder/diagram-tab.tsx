@@ -399,7 +399,7 @@ export function DiagramTab({ systemId, document, etag, canEdit, reload, onNaviga
   const arranged = Object.keys(layout.positions).length > 0;
 
   return (
-    <div className="flex h-full min-h-[32rem] flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-3 border-b px-4 py-2 md:px-6">
         <span className="flex-1" />
         {canEdit && (

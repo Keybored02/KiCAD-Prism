@@ -318,7 +318,7 @@ export function Scene3dTab(props: SystemTabProps) {
   const tools = movePanel || routePanel || traceCard ? <>{movePanel}{routePanel}{traceCard}</> : null;
 
   return (
-    <div className="flex h-full min-h-[480px] flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <SceneNotices error={error} viewerError={viewerError} summary={summary} />
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-muted/20" style={themeBridge(leftInset)}>

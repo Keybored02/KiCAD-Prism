@@ -178,3 +178,15 @@ describe("SystemWorkspace: what the Overview and Boards tabs did", () => {
     expect(JSON.parse(String(init?.body))).toEqual({ kind: "module", label: "IMU", componentId: "cmp_imu", follow: "latest_released" });
   });
 });
+
+describe("SystemWorkspace without WebGPU", () => {
+  it("shows the Diagram in place of the 3D view and disables 3D", async () => {
+    stub();
+    vi.stubGlobal("navigator", { ...navigator, gpu: undefined });
+    renderWorkspace({ view: "3d", tray: null, selection: null });
+    const tab = screen.getByRole("tab", { name: "3D" }) as HTMLButtonElement;
+    expect(tab.disabled).toBe(true);
+    expect(screen.getByRole("tab", { name: "Diagram" }).getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByText(/Loading the diagram|Board-to-board/)).toBeTruthy();
+  });
+});
