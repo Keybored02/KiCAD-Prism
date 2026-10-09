@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import io
 import math
+import re
 from collections import defaultdict
 from datetime import date
 from html import escape
@@ -184,12 +185,29 @@ def _wv(text: Any) -> str:
 
 
 def _wv_pin(pin: str) -> Any:
-    """WireViz matches a connection's pin against ``pins`` by value: numbers stay numbers."""
-    return int(pin) if str(pin).isdigit() else str(pin)
+    """WireViz matches a connection's pin against ``pins`` by value. A canonical number stays a number
+    (``"1"`` → 1); anything else (``"01"``, ``"A1"``, ``"MP"``) stays text, so pin names stay unique."""
+    text = str(pin)
+    return int(text) if text.isdigit() and str(int(text)) == text else text
+
+
+def _wv_colour(colour: Any) -> Optional[str]:
+    """A WireViz colour code: ``red`` → ``RD``, a striped ``red/white`` → ``RDWH``; None when unknown."""
+    parts = [p for p in re.split(r"[/\-]", str(colour or "").strip().lower()) if p]
+    codes = [WIREVIZ_COLOURS.get(p) for p in parts]
+    return "".join(codes) if codes and all(codes) else None
+
+
+def _wv_part(part: Optional[Mapping[str, Any]]) -> dict:
+    return {k: _wv(part[k]) for k in ("mpn", "manufacturer") if part and part.get(k)}
 
 
 def wireviz_yaml(model: Model) -> bytes:
-    """§26.2: connectors per end, a cable per end pair, a connection per wire (WireViz 0.4)."""
+    """§26.2: connectors per end, a cable per end pair and gauge, a connection per wire (WireViz 0.4).
+
+    WireViz has no branch topology: a harness with breakouts becomes one cable per end pair, and
+    segment lengths stay in the drawing. Coverings ride on the first cable as components, by length.
+    """
     tags = {end["id"]: f"X{n}" for n, end in enumerate(model["ends"], 1)}
     signals: dict[tuple[str, str], str] = {}
     for wire in model["wires"]:
@@ -198,24 +216,29 @@ def wireviz_yaml(model: Model) -> bytes:
     connectors = {}
     for end in model["ends"]:
         pins = list(end["pins"]) or ["1"]
-        entry = {"type": _wv((end.get("part") or {}).get("mpn") or "Generic"), "notes": _wv(end["name"]),
-                 "pins": [_wv_pin(p) for p in pins], "hide_disconnected_pins": True,
-                 "pinlabels": [_wv(signals.get((end["id"], p), "")) for p in pins]}
+        names = {str(p) for p in pins}
+        # A label equal to another pin's name would make WireViz read the connection by label.
+        labels = [_wv(signals.get((end["id"], p), "")) for p in pins]
+        labels = [label + "\u200b" if label in names else label for label in labels]
+        part = end.get("part")
+        entry: dict[str, Any] = {"type": _wv(part.get("name") or part.get("mpn") or "Housing") if part else "Generic",
+                                 **_wv_part(part), "notes": _wv(end["name"]),
+                                 "pins": [_wv_pin(p) for p in pins], "hide_disconnected_pins": True, "pinlabels": labels}
         if end.get("contact"):
-            entry["subtype"] = _wv(f"contact {end['contact'].get('mpn') or end['contact'].get('name')}")
+            entry["additional_components"] = [{"type": "Crimp contact", **_wv_part(end["contact"]),
+                                               "qty": 1, "qty_multiplier": "populated"}]
         connectors[tags[end["id"]]] = entry
-    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    groups: dict[tuple, list[dict]] = defaultdict(list)
     for wire in ordered_wires(model):
-        groups[(wire["from"]["end"], wire["to"]["end"])].append(wire)
+        groups[(wire["from"]["end"], wire["to"]["end"], wire.get("gaugeAwg"))].append(wire)
     cables, connections = {}, []
-    for n, ((a, b), wires) in enumerate(groups.items(), 1):
+    for n, ((a, b, gauge), wires) in enumerate(groups.items(), 1):
         name = f"W{n}"
         cable: dict[str, Any] = {"wirecount": len(wires), "category": "bundle",
                                  "wirelabels": [_wv(w["number"] + (f" {w['label']}" if w.get("label") else "")) for w in wires]}
-        gauges = {w.get("gaugeAwg") for w in wires}
-        if len(gauges) == 1 and None not in gauges:
-            cable["gauge"] = f"{gauges.pop()} AWG"
-        colours = [WIREVIZ_COLOURS.get(str(w.get("colour") or "").strip().lower()) for w in wires]
+        if gauge is not None:
+            cable["gauge"] = f"{gauge} AWG"
+        colours = [_wv_colour(w.get("colour")) for w in wires]
         if all(colours):
             cable["colors"] = colours
         cuts = [w["cutMm"] for w in wires if w.get("cutMm") is not None]
@@ -225,6 +248,14 @@ def wireviz_yaml(model: Model) -> bytes:
         for index, wire in enumerate(wires, 1):
             connections.append([{tags[a]: [_wv_pin(wire["from"]["pin"])]}, {name: [index]},
                                 {tags[b]: [_wv_pin(wire["to"]["pin"])]}])
+    lengths = segment_lengths(model)
+    coverings = [{"type": _wv(f"Covering ({'whole bundle' if c['segmentId'] == '*' else c['segmentId']})"),
+                  "subtype": _wv(c.get("description") or ""), **_wv_part(c.get("part")),
+                  "qty": _metres(lengths[c["segmentId"]]) if c["segmentId"] in lengths else 1,
+                  "unit": "m" if c["segmentId"] in lengths else None}
+                 for c in model.get("coverings") or []]
+    if coverings and cables:
+        next(iter(cables.values()))["additional_components"] = [{k: v for k, v in c.items() if v} for c in coverings]
     doc = {"metadata": {"title": _wv(model["harness"]["name"]),
                         "description": _wv(f"{model['system']['name']} v{model['system']['version']}")},
            "connectors": connectors, "cables": cables, "connections": connections}

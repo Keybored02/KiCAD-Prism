@@ -76,18 +76,39 @@ class OutputsTest(unittest.TestCase):
         self.assertEqual(by_kind["label"][0]["qty"], 1)
         self.assertEqual([r["item"] for r in bom], list(range(1, len(bom) + 1)))
 
-    def test_wireviz_yaml_is_a_cable_per_end_pair_and_escapes_text(self) -> None:
+    def test_wireviz_yaml_is_a_cable_per_end_pair_and_gauge_and_escapes_text(self) -> None:
         doc = yaml.safe_load(harness_outputs.wireviz_yaml(model()))
         self.assertEqual(sorted(doc["connectors"]), ["X1", "X2", "X3"])
         x1 = doc["connectors"]["X1"]
-        self.assertEqual((x1["type"], x1["subtype"], x1["pins"][:2], x1["pinlabels"][0], x1["pinlabels"][2]),
-                         ("M80-4615042", "contact M80-0130001", [1, 2], "=MAIN", "PWR_C&amp;DH_Red"))
+        self.assertEqual((x1["type"], x1["mpn"], x1["manufacturer"], x1["pins"][:2], x1["pinlabels"][0], x1["pinlabels"][2]),
+                         ("M80-4615042", "M80-4615042", "Harwin", [1, 2], "=MAIN", "PWR_C&amp;DH_Red"))
+        self.assertEqual(x1["additional_components"], [{"type": "Crimp contact", "mpn": "M80-0130001",
+                                                        "manufacturer": "Harwin", "qty": 1, "qty_multiplier": "populated"}])
         self.assertEqual(doc["connectors"]["X3"]["type"], "Generic")
-        w1 = doc["cables"]["W1"]  # a -> b
+        w1 = doc["cables"]["W1"]  # a -> b, 24 AWG
         self.assertEqual((w1["wirecount"], w1["gauge"], w1["colors"], w1["length"]), (2, "24 AWG", ["RD", "OG"], 0.178))
         self.assertNotIn("colors", doc["cables"]["W2"])  # "Teal" is no WireViz code
         self.assertEqual(doc["connections"][0], [{"X1": [1]}, {"W1": [1]}, {"X2": [15]}])
         self.assertEqual(doc["metadata"]["title"], "C&amp;DH power")
+        # Coverings ride on the first cable, by segment length (the bundle's for "*").
+        self.assertEqual([(c["type"], c.get("qty"), c.get("unit")) for c in w1["additional_components"]],
+                         [("Covering (whole bundle)", 0.17, "m"), ("Covering (shd_1~b)", 0.11, "m"), ("Covering (gone~x)", 1, None)])
+
+    def test_wireviz_keeps_pin_names_unique_and_unambiguous(self) -> None:
+        wire = model()["wires"][0]
+        m = {**model(), "coverings": [],
+             "ends": [{"id": "a", "name": "J1", "pins": ["1", "01", "A1", "2"], "part": None, "contact": None},
+                      {"id": "b", "name": "J2", "pins": ["1", "2", "3"], "part": None, "contact": None}],
+             "wires": [{**wire, "id": "x", "from": {"end": "a", "pin": "01"}, "to": {"end": "b", "pin": "1"}, "signal": "A1",
+                        "gaugeAwg": 22, "colour": "red/white"},
+                       {**wire, "id": "y", "from": {"end": "a", "pin": "1"}, "to": {"end": "b", "pin": "2"}, "signal": "2",
+                        "gaugeAwg": 26, "colour": "black"}]}
+        doc = yaml.safe_load(harness_outputs.wireviz_yaml(m))
+        x1 = doc["connectors"]["X1"]
+        self.assertEqual(x1["pins"], [1, "01", "A1", 2])  # "01" stays text: no clash with 1
+        self.assertEqual(x1["pinlabels"][:2], ["2\u200b", "A1\u200b"])  # a label naming a pin is set apart
+        self.assertEqual(sorted((c["gauge"], c.get("colors")) for c in doc["cables"].values()),
+                         [("22 AWG", ["RDWH"]), ("26 AWG", ["BK"])])  # one cable per gauge; stripes
 
     def test_drawing_draws_ends_segments_and_title_with_or_without_a_route(self) -> None:
         svg = harness_outputs.drawing_svg(model()).decode()
