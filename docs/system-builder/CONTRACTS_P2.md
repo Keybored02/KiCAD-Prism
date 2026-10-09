@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.78 · 2026-10-09 · tickets SB2-00 to SB2-111.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.79 · 2026-10-09 · tickets SB2-00 to SB2-111.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -951,6 +951,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.79 | 2026-10-09 | SB2-106 follow-up: the board page's Used in section restyled like the README; proposals no longer listed there (§23.5). |
 | P2-1.78 | 2026-10-09 | SB2-109 part 2: harness tubes and end housings in the system STEP (§25); the STEP is not attached to snapshots. |
 | P2-1.77 | 2026-10-09 | SB2-111 (D-P2-60): the harness drawing restyled after WireViz on the route tree (§26.3): connector tables, every wire fanned into the bundle, wire list and BOM on the sheet, and a viewer in Prism that traces a wire. Segments named by their nodes in the BOM and WireViz. |
 | P2-1.76 | 2026-10-09 | SB2-110: harness manufacturing outputs (§26). A contact part per end and coverings per segment (migration 54, manifest `contactPart`/`coverings`); per harness a layout drawing (SVG, PDF), a wiring list and a BOM (CSV) and a WireViz YAML. |
@@ -1477,7 +1478,7 @@ Prism never edits a board. When two boards name one signal differently, a system
   ```
 
   `GET /api/systems/by-project/{projectId}/renames.csv` is the owner's work list, with these columns: `system`, `board`, `net`, `rename_to`, `rows`, `connectors`, `note`, `proposed_by`, `proposed_at`.
-- **Board page.** The project page has a **Used in** panel. It lists each system with the instance labels and its open proposals, links to the system, and offers the CSV.
+- **Board page.** The project page has a **Used in** section styled like the README under it (a heading and a table): each system, linked, with its placements (the first four labels, then `+N`). It shows no proposals (user, 2026-10-09): the owner reads them in the system's report or the CSV above.
 - **Report.** The SB2-107 report (§8.6) gains a **Renames** sheet with the system's open and applied proposals.
 
 ## 24. Mechanical parts and collisions (SB2-108, D-P2-58)
