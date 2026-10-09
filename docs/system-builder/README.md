@@ -21,32 +21,29 @@ every connected pin was accepted as:
   connections. The user can accept the change, remap the pin, or stay pinned
   to the older revision.
 
+Around that record a system has a multi-board 3D view (placement, harness
+routing, collision check, STEP export), harnesses down to manufacturing
+outputs, systems of systems through the catalog, sub-ports, net rename
+proposals, findings with waivers, snapshots, and a Git-tracked manifest.
+
 ## Documents
 
-- [User guide](USER_GUIDE.md): creating a system, connecting boards,
-  importing an ICD spreadsheet, deciding reviews, snapshots and the ICD.
-- [Frozen contracts](CONTRACTS.md): identity, the interface artifact, drift
-  and auto-accept rules, the HTTP API, CSV and ICD formats, and the fixture
-  acceptance matrix. Implementation must follow the current version.
-- [P2 contracts](CONTRACTS_P2.md) (draft): systems of systems, catalog
-  assemblies, exports, system nets and the `prism.system_manifest.v1` format
+- [User guide](USER_GUIDE.md): the workspace, building and connecting a
+  system, the 3D view, harness outputs, reviews, findings, snapshots, the ICD,
+  publishing and Git tracking.
+- [Contracts](CONTRACTS.md) (P1): identity, the interface artifact, drift and
+  auto-accept rules, the HTTP API, CSV and ICD formats, and the fixture
+  acceptance matrix.
+- [P2 contracts](CONTRACTS_P2.md): systems of systems, catalog assemblies and
+  modules, exports, system nets, placement and 3D, harnesses, Git tracking,
+  sub-ports, renames, parts and collisions, STEP and harness outputs, and the
+  `prism.system_manifest.v1` format
   ([JSON Schema](schemas/system_manifest.v1.schema.json),
   [examples](examples/)). Extends the P1 contracts.
 
-## P1 boundaries
+## Not covered
 
-Out of P1:
-
-- Git-tracked system manifests
-- Nested systems and packages
-- Harness objects (wires, splices, gauge, colour); a link carries only a
-  harness label
-- Non-KiCad peripherals
-- Multi-board 3D and mechanical mating
-- MCAD exchange
-- System-level electrical rule checks
-- Per-instance variant selection
-- Board-side "used in systems" indicators
-
-Release Studio document generation is the intended P2 path for ICD
-publication. P1 renders a printable HTML ICD and a CSV.
+System Builder does not check signal direction, voltage domains or logic
+levels, current ratings, connector keying, shielding, or impedance and length
+matching (see the guide's "What the checks do not cover"). It works on KiCad
+projects only, has no per-board variant selection, and never edits a board.
