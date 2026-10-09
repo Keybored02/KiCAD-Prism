@@ -150,6 +150,23 @@ describe("HarnessEditor", () => {
     expect(body.find((wire) => !wire.id)).toMatchObject({ from: { end: "she_b", pin: "3" }, to: { end: "she_e", pin: "7" } });
   });
 
+  it("pastes a spreadsheet block and sets gauge and colour on ticked wires (SB2-123)", async () => {
+    const calls = stubApi();
+    renderEditor();
+    fireEvent.paste(screen.getByRole("textbox", { name: "Wire 1 gauge" }), { clipboardData: { getData: () => "24\tRD\n26\tBK\n" } });
+    expect((screen.getByRole("textbox", { name: "Wire 2 colour" }) as HTMLInputElement).value).toBe("BK");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select wire 3" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select wire 4" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Colour for selected" }), { target: { value: "WH" } });
+    fireEvent.click(screen.getByRole("button", { name: "Set" }));
+    expect(screen.getByText(/Unsaved changes: 4 wires/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save wires" }));
+    await waitFor(() => expect(calls.some(([, init]) => init.method === "PUT")).toBe(true));
+    const body = JSON.parse(String(calls.find(([, i]) => i.method === "PUT")![1].body)) as { gaugeAwg: number | null; colour: string | null }[];
+    expect(body.slice(0, 2).map((wire) => wire.gaugeAwg)).toEqual([24, 26]);
+    expect(body.slice(0, 4).map((wire) => wire.colour)).toEqual(["RD", "BK", "WH", "WH"]);
+  });
+
   it("generates wires for an end pair into the draft", async () => {
     const calls = stubApi();
     renderEditor();

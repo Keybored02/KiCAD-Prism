@@ -960,6 +960,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 | Version | Date | Change |
 |---|---|---|
 | P2-1.93 | 2026-10-09 | SB2-125: default layout puts boards with no link side by side below the linked ones, four to a row (canvas and ICD block diagram, parity case added); an expanded board pushes the blocks below it in its column down. |
+| P2-1.91 | 2026-10-09 | SB2-123: the wire table takes a pasted spreadsheet block (signal, AWG, colour; down and right from the cell) and sets one AWG/colour on ticked wires. Editor only; no API change. |
 | P2-1.90 | 2026-10-09 | SB2-124: `POST …/instances` with a `trackedRef` also queues the source check (P1 §10.1), so a new board is never "Not checked"; **Add → Board** takes several boards (one call each, ETag carried), keeping refused ones with their reason. |
 | P2-1.89 | 2026-10-09 | SB2-121: batch exports (§4.2 rule 9) and **Export connectors…**. |
 | P2-1.88 | 2026-10-09 | SB2-120: generator previews flag suspect pairs (`flags`, §17.3). |
