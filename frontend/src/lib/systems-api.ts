@@ -330,6 +330,12 @@ export function waiveFinding(systemId: string, etag: string, findingKey: string,
   return versioned<FindingWaiver>(path(systemId, "waivers"), { method: "POST", etag, body: json({ findingKey, note }) });
 }
 
+/** SB2-113: several findings waived with one note, in one version; keys already waived are skipped. */
+export function waiveFindings(systemId: string, etag: string, findingKeys: string[], note: string) {
+  return versioned<{ waived: FindingWaiver[]; skipped: number }>(path(systemId, "waivers", "batch"),
+    { method: "POST", etag, body: json({ findingKeys, note }) });
+}
+
 export function unwaiveFinding(systemId: string, etag: string, waiverId: string) {
   return versioned<void>(path(systemId, "waivers", waiverId), { method: "DELETE", etag });
 }
