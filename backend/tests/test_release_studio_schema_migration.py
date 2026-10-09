@@ -1816,6 +1816,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (51, "system_net_renames"),
                 (52, "system_parts_collisions"),
                 (53, "system_step_exports"),
+                (54, "system_harness_outputs"),
             ],
         )
 

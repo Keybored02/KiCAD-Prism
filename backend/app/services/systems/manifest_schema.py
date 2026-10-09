@@ -254,6 +254,7 @@ class HarnessEnd(_Model):
     pinMap: Optional[dict[str, str]] = Field(default=None, description="end pin -> mated pin; null = identity")
     bootMm: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     partPins: Optional[list[Pad]] = Field(default=None, description="the part's pins; null while Generic (SB2-18)")
+    contactPart: Optional[PartRef] = Field(default=None, description="the contact every wired cavity takes (SB2-110)")
 
 
 class WirePoint(_Model):
@@ -286,6 +287,13 @@ class HarnessNode(_Model):
                                          description="waypoint: the two ends or breakouts it lies between")
 
 
+class Covering(_Model):
+    """A covering on one route segment, or ``*`` for the whole bundle (§26.1)."""
+    segmentId: str = Field(min_length=1, max_length=400)
+    part: Optional[PartRef] = None
+    description: str = Field(default="", max_length=200)
+
+
 class Harness(_Model):
     id: HarnessId
     name: str = Field(min_length=1, max_length=200)
@@ -295,6 +303,7 @@ class Harness(_Model):
     nodes: list[HarnessNode] = Field(default_factory=list)
     cutLengthMm: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
     serviceAllowancePct: Optional[float] = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    coverings: list[Covering] = Field(default_factory=list, max_length=64)
 
 
 # ---------------------------------------------------------------------------
@@ -579,6 +588,15 @@ def full_view(manifest: Manifest) -> dict:
             for key in ("name", "mpn", "manufacturer"):
                 if end["part"] is not None and end["part"][key] is None:
                     end["part"].pop(key)
+            # §26.1 (P2-1.76): the contact, omitted while unset.
+            if end["contactPart"] is None:
+                end.pop("contactPart")
+            else:
+                for key in ("name", "mpn", "manufacturer"):
+                    if end["contactPart"][key] is None:
+                        end["contactPart"].pop(key)
+        if not harness["coverings"]:
+            harness.pop("coverings")
     return body
 
 
@@ -597,6 +615,7 @@ def connectivity_view(manifest: Manifest) -> dict:
         harness.pop("nodes")
         harness.pop("cutLengthMm")
         harness.pop("serviceAllowancePct")
+        harness.pop("coverings", None)  # manufacturing detail, not connectivity (§26.1)
         for end in harness["ends"]:
             end.pop("bootMm")
     return body

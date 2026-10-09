@@ -236,6 +236,8 @@ export interface HarnessEnd {
   } | null;
   /** The block's catalog part, with its name and MPN as they were at assignment; null = Generic. */
   part: { componentId: string; revisionId: string; name?: string | null; mpn?: string | null; manufacturer?: string | null } | null;
+  /** SB2-110 (§26.1): the contact every wired cavity takes; absent from older servers. */
+  contact?: { componentId: string; revisionId: string; name?: string | null; mpn?: string | null; manufacturer?: string | null } | null;
   pinCount: number;
   pinMap: Record<string, string> | null;
   bootMm: number | null;
@@ -272,7 +274,15 @@ export interface SystemHarness {
   nodes?: HarnessNode[];
   /** SB2-46 (§17.10): measured where the 3D view routes it; null with fewer than two placed ends. */
   lengths?: HarnessLengths | null;
+  /** SB2-110 (§26.1): coverings by route segment, `*` for the whole bundle. */
+  coverings?: HarnessCovering[];
   updatedAt: string;
+}
+
+export interface HarnessCovering {
+  segmentId: string;
+  part: { componentId: string; revisionId: string; name?: string | null; mpn?: string | null; manufacturer?: string | null } | null;
+  description: string;
 }
 
 /**
@@ -297,6 +307,8 @@ export interface HarnessLengths {
   /** False when an end is not placed: the numbers cover only what is routed. */
   complete: boolean;
   wires: Record<string, { lengthMm: number; estimatedMm: number }>;
+  /** SB2-110 (§26.1): the routed segments a covering names. */
+  segments?: { id: string; from: string; to: string; lengthMm: number; wires: string[] }[];
 }
 
 /** A node as `PUT …/harnesses/{hid}/nodes` takes it: `order` comes from the list. */

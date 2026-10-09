@@ -199,6 +199,40 @@
       "title": "CatalogRef",
       "type": "object"
     },
+    "Covering": {
+      "additionalProperties": false,
+      "description": "A covering on one route segment, or ``*`` for the whole bundle (\u00a726.1).",
+      "properties": {
+        "description": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Description",
+          "type": "string"
+        },
+        "part": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PartRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "segmentId": {
+          "maxLength": 400,
+          "minLength": 1,
+          "title": "Segmentid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId"
+      ],
+      "title": "Covering",
+      "type": "object"
+    },
     "DrivingMate": {
       "additionalProperties": false,
       "properties": {
@@ -433,6 +467,14 @@
     "Harness": {
       "additionalProperties": false,
       "properties": {
+        "coverings": {
+          "items": {
+            "$ref": "#/$defs/Covering"
+          },
+          "maxItems": 64,
+          "title": "Coverings",
+          "type": "array"
+        },
         "cutLengthMm": {
           "anyOf": [
             {
@@ -532,6 +574,18 @@
           ],
           "default": null,
           "title": "Bootmm"
+        },
+        "contactPart": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PartRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the contact every wired cavity takes (SB2-110)"
         },
         "id": {
           "pattern": "^she_[0-9a-f]{32}$",

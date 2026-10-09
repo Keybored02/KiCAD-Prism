@@ -13,6 +13,8 @@ from app.services.systems.placement import poses as placement_poses
 from app.services.systems.store import Conflict, Invalid, NotFound, SystemStore
 from app.services.systems.service_base import Caller, Result, _iso
 
+MAX_COVERINGS = 64  # per harness (§26.1)
+
 
 class HarnessesMixin:
     # ------------------------------------------------------------------
@@ -225,6 +227,7 @@ class HarnessesMixin:
             ends.append({
                 "id": end["id"], "ordinal": end["ordinal"], "mates": mates,
                 "part": harnesses_module.part_ref(end),
+                "contact": harnesses_module.contact_ref(end),
                 "pinCount": end["pin_count"], "pinMap": end["pin_map"], "bootMm": end["boot_mm"],
                 "pins": harnesses_module.end_pins(end, component),
                 # The mated connector's pads, for the pin map (SB2-18).
@@ -240,6 +243,7 @@ class HarnessesMixin:
                 "cutLengthMm": harness["cut_length_mm"], "serviceAllowancePct": harness["service_allowance_pct"],
                 "linkable": harnesses_module.is_linkable(harness), "ends": ends, "wires": wires,
                 "nodes": [dict(node) for node in harness.get("nodes", [])],
+                "coverings": harnesses_module.covering_docs(harness),
                 "updatedAt": _iso(harness["updated_at"])}
 
     def _harness_body(self, store: SystemStore, system_id: str, harness_id: str, caller: Caller) -> dict:
@@ -358,6 +362,13 @@ class HarnessesMixin:
                 update = {k: fields[k] for k in ("pinMap", "bootMm") if k in fields}
                 if "part" in fields:
                     update.update(self._block_part(harness, end_id, fields["part"]))
+                if "contact" in fields:
+                    if not any(e["id"] == end_id for e in harness["ends"]):
+                        raise NotFound("Harness end not found")
+                    found = self._catalog_part(fields["contact"]) if fields["contact"] else None
+                    update.update({"contactComponentId": found and found["componentId"],
+                                   "contactRevisionId": found and found["revisionId"],
+                                   "contactSummary": found and {k: found.get(k) or "" for k in harnesses_module.PART_SUMMARY}})
                 if "mates" in fields:
                     if fields["mates"]:
                         mates, component = self._mate(store, system_id, caller, fields["mates"])
@@ -369,6 +380,42 @@ class HarnessesMixin:
                 wires = [self._wire_input(w) for w in store.get_harness(system_id, harness_id)["wires"]]
                 if wires and ("mates" in update or "pinMap" in update or "partPins" in update):
                     self._replace_wires_in(store, change, harness_id, wires)
+                body = self._harness_body(store, system_id, harness_id, caller)
+        return Result(body, system_id, change.version)
+
+    def _catalog_part(self, part: Mapping[str, Any]) -> dict:
+        """An active catalog part by ``componentId``: summary and current revision (404/422 otherwise)."""
+        try:
+            return self._catalog().part_for_block(str(part.get("componentId") or ""))
+        except LookupError:
+            raise NotFound("Catalog part not found") from None
+        except ValueError as error:
+            raise Invalid(str(error)) from None
+
+    def set_coverings(self, caller: Caller, system_id: str, version: int, harness_id: str,
+                      coverings: Sequence[Mapping[str, Any]]) -> Result:
+        """§26.1: replace the coverings ``[{segmentId, componentId?, description}]``."""
+        if len(coverings) > MAX_COVERINGS:
+            raise Invalid(f"limit coverings_per_harness ({MAX_COVERINGS})")
+        rows = []
+        for covering in coverings:
+            segment = str(covering.get("segmentId") or "").strip()
+            description = str(covering.get("description") or "").strip()
+            if not segment:
+                raise Invalid("a covering needs a segmentId")
+            part = None
+            if covering.get("componentId"):
+                found = self._catalog_part({"componentId": covering["componentId"]})
+                part = {"componentId": found["componentId"], "revisionId": found["revisionId"],
+                        **{k: found.get(k) or "" for k in harnesses_module.PART_SUMMARY}}
+            if part is None and not description:
+                raise Invalid("a covering needs a part or a description")
+            rows.append({"segmentId": segment, "part": part, "description": description[:200]})
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                self._visible_harness(store, system_id, harness_id, caller)
+                store.set_coverings(change, harness_id, rows)
                 body = self._harness_body(store, system_id, harness_id, caller)
         return Result(body, system_id, change.version)
 

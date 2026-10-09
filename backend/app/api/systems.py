@@ -595,6 +595,7 @@ class UpdateHarnessEndRequest(BaseModel):
     bootMm: Optional[float] = Field(default=None, ge=0)
     # A catalog part for the mating block, or null for Generic (CONTRACTS_P2 §17.2, SB2-18).
     part: Optional[PartRequest] = None
+    contact: Optional[PartRequest] = None  # §26.1: the contact every wired cavity of the end takes
 
 
 class WirePointRequest(BaseModel):
@@ -701,6 +702,8 @@ async def update_harness_end(system_id: str, harness_id: str, end_id: str, body:
         fields["mates"] = body.mates.model_dump()
     if "part" in fields and fields["part"] is not None:
         fields["part"] = body.part.model_dump()
+    if fields.get("contact") is not None:
+        fields["contact"] = body.contact.model_dump()
     result = await _run(system_id, lambda: system_service.service.update_harness_end(
         _caller(user), system_id, version, harness_id, end_id, fields))
     return _respond(result, response)
@@ -1144,3 +1147,5 @@ from app.api import systems_subports  # noqa: E402,F401
 from app.api import systems_renames  # noqa: E402,F401
 # The STEP export (SB2-109).
 from app.api import systems_step  # noqa: E402,F401
+# Harness coverings and manufacturing outputs (SB2-110).
+from app.api import systems_harness_outputs  # noqa: E402,F401
