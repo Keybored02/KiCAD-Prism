@@ -1,8 +1,10 @@
 """A PostgreSQL schema holding the SYS-01 fixture system at F0, for System Builder tests.
 
 ``FixtureSystemCase`` builds the three fixture boards as Git repositories once
-per class, then gives every test an isolated schema with the workspace
-migrations applied and the fixture system loaded. Each instance tracks branch
+per class, then gives every test a schema with the workspace migrations applied
+and the fixture system loaded. The schema is migrated once per class; between
+tests its tables are emptied and the rows the migrations seed are put back,
+which is the same starting state at a fraction of the cost (CI plan item 3). Each instance tracks branch
 ``track``; ``move_track`` simulates a fetch that moves it.
 """
 
@@ -53,13 +55,61 @@ class FixtureSystemCase(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
+        schema = cls.__dict__.get("_schema")
+        if schema:
+            with psycopg.connect(POSTGRES_URL, autocommit=True) as conn:
+                conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+                conn.execute(f'DROP SCHEMA IF EXISTS "{schema}_seed" CASCADE')
+            cls._schema = None
         cls._scratch.cleanup()
 
     def setUp(self) -> None:
+        self.conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
+        owner = type(self)
+        if owner.__dict__.get("_schema"):
+            self.schema = owner._schema
+            self._reset_schema(owner._seeded)
+        else:
+            self.schema = f"system_detect_{uuid.uuid4().hex}"
+            owner._seeded = self._migrate_schema()
+            owner._schema = self.schema
+        schema = self.schema
+
+        @contextmanager
+        def connect():
+            conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
+            try:
+                conn.execute(f'SET search_path TO "{schema}", public')
+                yield conn
+            finally:
+                conn.close()
+
+        self.connect = connect
+        self.detector = Detector(connect=connect, project_loader=self.projects.get)
+        for board in BOARDS:
+            self.move_track(board, "F0")
+        self.store = SystemStore(self.conn)
+        self.sid, self.instances, self.links = self.load_fixture_system()
+
+    def _tables(self) -> list[str]:
+        return [row["tablename"] for row in self.conn.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = %s ORDER BY tablename", (self.schema,))]
+
+    def _reset_schema(self, seeded: list[str]) -> None:
+        """Empty every table and put back the rows the migrations seeded, as a fresh schema has them."""
+        self.conn.execute("SET lock_timeout = '10s'")  # a connection a test left open fails loudly, not hangs
+        self.conn.execute(f'SET search_path TO "{self.schema}", public')
+        tables = ", ".join(f'"{self.schema}"."{name}"' for name in self._tables())
+        self.conn.execute(f"TRUNCATE {tables} RESTART IDENTITY CASCADE")
+        for name in seeded:
+            self.conn.execute(f'INSERT INTO "{self.schema}"."{name}" OVERRIDING SYSTEM VALUE '
+                              f'SELECT * FROM "{self.schema}_seed"."{name}"')
+        self.conn.commit()
+
+    def _migrate_schema(self) -> list[str]:
+        """Create and migrate this class's schema; copy the rows it starts with into ``<schema>_seed``."""
         from app.services.workspace_schema_migrations import apply_workspace_migrations
 
-        self.schema = f"system_detect_{uuid.uuid4().hex}"
-        self.conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
         self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
         self.conn.execute(f'SET search_path TO "{self.schema}", public')
         self.conn.execute(
@@ -85,29 +135,38 @@ class FixtureSystemCase(unittest.TestCase):
             prepare=False,
         )
         apply_workspace_migrations(self.conn)
+        self.conn.execute(f'CREATE SCHEMA "{self.schema}_seed"')
+        seeded = []
+        for name in self._parents_first(self._tables()):
+            if self.conn.execute(f'SELECT EXISTS (SELECT 1 FROM "{self.schema}"."{name}") AS rows').fetchone()["rows"]:
+                self.conn.execute(f'CREATE TABLE "{self.schema}_seed"."{name}" AS SELECT * FROM "{self.schema}"."{name}"')
+                seeded.append(name)
         self.conn.commit()
-        schema = self.schema
+        return seeded
 
-        @contextmanager
-        def connect():
-            conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
-            try:
-                conn.execute(f'SET search_path TO "{schema}", public')
-                yield conn
-            finally:
-                conn.close()
-
-        self.connect = connect
-        self.detector = Detector(connect=connect, project_loader=self.projects.get)
-        for board in BOARDS:
-            self.move_track(board, "F0")
-        self.store = SystemStore(self.conn)
-        self.sid, self.instances, self.links = self.load_fixture_system()
+    def _parents_first(self, tables: list[str]) -> list[str]:
+        """``tables`` ordered so a table comes after every table its foreign keys point at."""
+        parents: dict[str, set[str]] = {name: set() for name in tables}
+        for row in self.conn.execute(
+            """SELECT child.relname AS child, parent.relname AS parent
+               FROM pg_constraint c JOIN pg_class child ON child.oid = c.conrelid
+               JOIN pg_class parent ON parent.oid = c.confrelid
+               JOIN pg_namespace n ON n.oid = child.relnamespace
+               WHERE c.contype = 'f' AND n.nspname = %s""", (self.schema,)):
+            if row["child"] in parents and row["parent"] in parents and row["child"] != row["parent"]:
+                parents[row["child"]].add(row["parent"])
+        ordered: list[str] = []
+        while parents:
+            ready = sorted(name for name, needs in parents.items() if not needs - set(ordered))
+            if not ready:  # a cycle: keep the remaining order; such tables are empty after migrations
+                ready = sorted(parents)
+            for name in ready:
+                ordered.append(name)
+                del parents[name]
+        return ordered
 
     def tearDown(self) -> None:
         self.conn.rollback()
-        self.conn.execute(f'DROP SCHEMA "{self.schema}" CASCADE')
-        self.conn.commit()
         self.conn.close()
 
     # ------------------------------------------------------------------ helpers

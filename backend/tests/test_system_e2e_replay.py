@@ -356,37 +356,46 @@ class ReplayTest(unittest.TestCase):
 
     # ------------------------------------------------------------------ review steps, then reconcile
 
-    def test_review_steps_replay_to_their_goldens_and_reconcile(self) -> None:
-        steps = expected_steps()["steps"]
-        decisions = {"F1": "accept", "F4": "accept", "F5": "accept", "F8": "accept", "F9": "bind_candidate"}
-        for name, decision in decisions.items():
-            with self.subTest(step=name):
-                if name != "F1":
-                    self.tearDown()
-                    self.setUp()
-                spec = steps[name]
-                tip, outcomes = self.push_and_fetch("mini_obc", spec["candidate"].split("/")[1])
-                self.assertEqual(outcomes.get("review_opened"), 1, outcomes)
-                [review] = self.reviews("open", "OBC-A")
-                self.assertEqual((review["kind"], review["fromCommit"], review["toCommit"]),
-                                 ("source_update", self.commits["mini_obc"]["F0"], tip))
-                self.assertEqual(self.comparable(review), self.golden(spec["items"]))
-                self.assertEqual(self.instance("OBC-A")["baselineCommit"], self.commits["mini_obc"]["F0"])
-                for item in review["items"]:
-                    payload = None
-                    if decision == "bind_candidate":
-                        j6 = next(c for c in item["candidates"] if c["reference"] == "J6")
-                        payload = {"portKey": j6["portKey"]}
-                    self.decide(review, item, decision, payload)
-                self.assertEqual(self.reviews("open"), [])
-                [applied] = self.reviews("applied", "OBC-A")
-                self.assertEqual(applied["id"], review["id"])
-                self.assertEqual(self.instance("OBC-A")["baselineCommit"], tip)
-                # A second fetch of the same tip is a no-op.
-                version = self.document()["system"]["version"]
-                self.assertEqual(self.fetch("mini_obc").get("already_checked"), 1)
-                self.assertEqual(self.document()["system"]["version"], version)
-                self.assert_reconciled(name, spec)
+    # One test per step, each from F0, so the parallel runner can spread them (CI plan item 4).
+    def test_review_step_f1_replays_to_its_golden_and_reconciles(self) -> None:
+        self.replay_review_step("F1", "accept")
+
+    def test_review_step_f4_replays_to_its_golden_and_reconciles(self) -> None:
+        self.replay_review_step("F4", "accept")
+
+    def test_review_step_f5_replays_to_its_golden_and_reconciles(self) -> None:
+        self.replay_review_step("F5", "accept")
+
+    def test_review_step_f8_replays_to_its_golden_and_reconciles(self) -> None:
+        self.replay_review_step("F8", "accept")
+
+    def test_review_step_f9_replays_to_its_golden_and_reconciles(self) -> None:
+        self.replay_review_step("F9", "bind_candidate")
+
+    def replay_review_step(self, name: str, decision: str) -> None:
+        spec = expected_steps()["steps"][name]
+        tip, outcomes = self.push_and_fetch("mini_obc", spec["candidate"].split("/")[1])
+        self.assertEqual(outcomes.get("review_opened"), 1, outcomes)
+        [review] = self.reviews("open", "OBC-A")
+        self.assertEqual((review["kind"], review["fromCommit"], review["toCommit"]),
+                         ("source_update", self.commits["mini_obc"]["F0"], tip))
+        self.assertEqual(self.comparable(review), self.golden(spec["items"]))
+        self.assertEqual(self.instance("OBC-A")["baselineCommit"], self.commits["mini_obc"]["F0"])
+        for item in review["items"]:
+            payload = None
+            if decision == "bind_candidate":
+                j6 = next(c for c in item["candidates"] if c["reference"] == "J6")
+                payload = {"portKey": j6["portKey"]}
+            self.decide(review, item, decision, payload)
+        self.assertEqual(self.reviews("open"), [])
+        [applied] = self.reviews("applied", "OBC-A")
+        self.assertEqual(applied["id"], review["id"])
+        self.assertEqual(self.instance("OBC-A")["baselineCommit"], tip)
+        # A second fetch of the same tip is a no-op.
+        version = self.document()["system"]["version"]
+        self.assertEqual(self.fetch("mini_obc").get("already_checked"), 1)
+        self.assertEqual(self.document()["system"]["version"], version)
+        self.assert_reconciled(name, spec)
 
     def assert_reconciled(self, name: str, spec: dict) -> None:
         if name == "F1":
@@ -465,29 +474,38 @@ class ReplayTest(unittest.TestCase):
 
     # ------------------------------------------------------------------ silent steps
 
-    def test_auto_advance_steps_move_the_baseline_without_a_review(self) -> None:
-        steps = expected_steps()["steps"]
-        for name in ("F2", "F3", "F6", "F7", "F10"):
-            with self.subTest(step=name):
-                if name != "F2":
-                    self.tearDown()
-                    self.setUp()
-                spec = steps[name]
-                board, snapshot = spec["candidate"].split("/")
-                version = self.document()["system"]["version"]
-                tip, outcomes = self.push_and_fetch(board, snapshot)
-                self.assertEqual(outcomes.get("auto_advanced"), 1, outcomes)
-                self.assertEqual(self.instance(spec["instance"])["baselineCommit"], tip)
-                self.assertEqual(self.reviews(), [])
-                self.assertEqual(self.document()["system"]["version"], version + 1)
-                history = self.call("GET", f"/{self.sid}/history").json
-                events = history["events"] if isinstance(history, dict) else history
-                advanced = [e for e in events if e["kind"] == "baseline_auto_advanced"]
-                self.assertEqual([e["actor"] for e in advanced], [DETECTION_ACTOR])
-                for silent in spec.get("silent", []):
-                    self.assertTrue([e for e in events if e["kind"] == silent["kind"]], silent)
-                if name == "F2":
-                    self.assertEqual(self.link("L-J2J1")["a"]["port"]["reference"], "J12")
+    def test_auto_advance_step_f2_moves_the_baseline_without_a_review(self) -> None:
+        self.replay_auto_advance_step("F2")
+
+    def test_auto_advance_step_f3_moves_the_baseline_without_a_review(self) -> None:
+        self.replay_auto_advance_step("F3")
+
+    def test_auto_advance_step_f6_moves_the_baseline_without_a_review(self) -> None:
+        self.replay_auto_advance_step("F6")
+
+    def test_auto_advance_step_f7_moves_the_baseline_without_a_review(self) -> None:
+        self.replay_auto_advance_step("F7")
+
+    def test_auto_advance_step_f10_moves_the_baseline_without_a_review(self) -> None:
+        self.replay_auto_advance_step("F10")
+
+    def replay_auto_advance_step(self, name: str) -> None:
+        spec = expected_steps()["steps"][name]
+        board, snapshot = spec["candidate"].split("/")
+        version = self.document()["system"]["version"]
+        tip, outcomes = self.push_and_fetch(board, snapshot)
+        self.assertEqual(outcomes.get("auto_advanced"), 1, outcomes)
+        self.assertEqual(self.instance(spec["instance"])["baselineCommit"], tip)
+        self.assertEqual(self.reviews(), [])
+        self.assertEqual(self.document()["system"]["version"], version + 1)
+        history = self.call("GET", f"/{self.sid}/history").json
+        events = history["events"] if isinstance(history, dict) else history
+        advanced = [e for e in events if e["kind"] == "baseline_auto_advanced"]
+        self.assertEqual([e["actor"] for e in advanced], [DETECTION_ACTOR])
+        for silent in spec.get("silent", []):
+            self.assertTrue([e for e in events if e["kind"] == silent["kind"]], silent)
+        if name == "F2":
+            self.assertEqual(self.link("L-J2J1")["a"]["port"]["reference"], "J12")
 
     # ------------------------------------------------------------------ sequences and pinned boards
 

@@ -638,8 +638,6 @@ jobs:
           platforms: linux/amd64
           build-args: KICAD_BASE_PLATFORM=linux/amd64
           push: false
-          cache-from: type=gha,scope=quality-backend-amd64
-          cache-to: type=gha,mode=max,scope=quality-backend-amd64
 
   kicad-live:
     name: Release Studio live KiCad
@@ -673,8 +671,9 @@ jobs:
           load: true
           push: false
           tags: release-studio-live-kicad:ci
-          cache-from: type=gha,scope=quality-backend-amd64
-          cache-to: type=gha,mode=max,scope=quality-backend-amd64
+          # No type=gha layer cache: the image's layers overflow the repository's 10 GB
+          # Actions cache, so it evicted itself (and the uv/npm caches) between runs while
+          # its export added ~3.5 min to every build.
 
       - name: Smoke-test native semantic compiler
         run: |
