@@ -243,9 +243,11 @@ interface LinkEditorProps {
   onDeleted: () => void;
   /** Opens a harness this link was just converted into (CONTRACTS_P2 §16.1). */
   onHarness?: (harnessId: string) => void;
+  /** SB2-112: a row to bring into view (a finding's Show). */
+  focusRow?: string;
 }
 
-export function LinkEditor({ systemId, document, link, etag, canEdit, findings, busy, run, onDeleted, onHarness }: LinkEditorProps) {
+export function LinkEditor({ systemId, document, link, etag, canEdit, findings, busy, run, onDeleted, onHarness, focusRow }: LinkEditorProps) {
   const pins = onEnds(document, link, useEndPins(systemId, link, document.instances));
   const [draft, setDraft] = useState<DraftRow[] | null>(null);
   // SB2-102: the rows before the last save, for one level of Undo; dropped on the next edit.
@@ -393,6 +395,7 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
         sideA={sideA}
         sideB={sideB}
         editable={editable}
+        focusKey={focusRow}
         onSignalChange={(key, signal) => editDraft((current) => current.map((row) => (row.key === key ? { ...row, signal } : row)))}
         onRemove={(key) => editDraft((current) => current.filter((row) => row.key !== key))}
       />

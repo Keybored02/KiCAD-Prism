@@ -142,19 +142,24 @@ def findings(harness: Mapping[str, Any], components: Mapping[str, Component],
     seen: dict[frozenset, str] = {}
     for wire in harness["wires"]:
         key = frozenset({(wire["from_end"], wire["from_pin"]), (wire["to_end"], wire["to_pin"])})
-        detail = {"harnessId": harness["id"], "wireId": wire["id"]}
+        # SB2-112: the wire's place, so each wire's finding keeps its own key (a waiver covers one wire).
+        side = lambda end_id: ends[end_id].get("mates_port") or {}  # noqa: E731
+        place = {"instance_id": ends[wire["from_end"]]["mates_instance_id"], "reference": side(wire["from_end"]).get("reference"),
+                 "pin": wire["from_pin"]}
+        detail = {"harnessId": harness["id"], "wireId": wire["id"], "pinB": wire["to_pin"],
+                  "referenceB": side(wire["to_end"]).get("reference")}
         if key in seen:
-            out.append(finding("SYS-V01", row_id=wire["id"], detail={**detail, "duplicateOf": seen[key]}))
+            out.append(finding("SYS-V01", row_id=wire["id"], **place, detail={**detail, "duplicateOf": seen[key]}))
         seen.setdefault(key, wire["id"])
         net_from, net_to = list(wire["net_from"]), list(wire["net_to"])
         if system_nets.name_mismatch(net_from, net_to):  # every system since D-P2-57
-            out.append(finding("SYS-V09", row_id=wire["id"], detail={**detail, "netA": net_from, "netB": net_to}))
+            out.append(finding("SYS-V09", row_id=wire["id"], **place, detail={**detail, "netA": net_from, "netB": net_to}))
         power = []
         for side in ("from", "to"):
             end, component = ends[wire[f"{side}_end"]], components.get(wire[f"{side}_end"])
             pad = SystemStore.end_pad(end, wire[f"{side}_pin"])
             power.append((exposure.pins_by_pad(component).get(pad) or {}).get("powerNet") if component else None)
         if system_nets.power_meets_signal(power[0], net_from, power[1], net_to):
-            out.append(finding("SYS-V10", row_id=wire["id"],
+            out.append(finding("SYS-V10", row_id=wire["id"], **place,
                                detail={**detail, "powerSide": "from" if power[0] else "to", "netA": net_from, "netB": net_to}))
     return out

@@ -19,6 +19,12 @@ describe("workspace URL state", () => {
     expect(workspaceStateFromParams(written).selection).toEqual({ kind: "harness", id: "shn_1" });
   });
 
+  it("keeps a link's row to show, and drops it from anything but a link (SB2-112)", () => {
+    const written = workspaceParams({ view: "3d", tray: "connections", selection: { kind: "link", id: "slk_1", row: "srw_4" } });
+    expect(workspaceStateFromParams(written).selection).toEqual({ kind: "link", id: "slk_1", row: "srw_4" });
+    expect(workspaceStateFromParams(params("sel=harness:shn_1&row=srw_4")).selection).toEqual({ kind: "harness", id: "shn_1" });
+  });
+
   it("translates links to the old tabs", () => {
     expect(migrateLegacyTab(params("view=icd"))).toBeNull();
     expect(migrateLegacyTab(params("tab=overview"))?.state).toEqual({ view: "3d", tray: null, selection: null });

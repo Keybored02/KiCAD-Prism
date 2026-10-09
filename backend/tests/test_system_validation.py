@@ -205,3 +205,18 @@ class ValidationRuleTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JoinFindingPlaceTest(unittest.TestCase):
+    """SB2-112: a join finding names side A's board, connector and pin (side B's in the detail), so each
+    row keeps its own key and a waiver covers one join, not every join of the link."""
+
+    def test_two_rows_of_one_link_have_their_own_keys(self) -> None:
+        from app.services.systems import validation
+
+        link = {"id": "slk_1", "a_instance_id": "sin_a", "a_port": {"reference": "J3"}, "b_port": {"reference": "J7"}}
+        found = [validation._finding("SYS-V09", link_id="slk_1", row_id=row["id"], **validation._row_place(link, row))
+                 for row in ({"id": "r1", "pin_a": "4", "pin_b": "4"}, {"id": "r2", "pin_a": "6", "pin_b": "6"})]
+        self.assertEqual((found[0]["instanceId"], found[0]["reference"], found[0]["pin"], found[0]["detail"]),
+                         ("sin_a", "J3", "4", {"pinB": "4", "referenceB": "J7"}))
+        self.assertNotEqual(validation.finding_key(found[0]), validation.finding_key(found[1]))

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import type { Finding, FindingWaiver, NetRename, Severity, SystemDocument } from "@/types/system";
 
 import { documentIndex } from "../document-index";
-import { findingText } from "../findings-ui";
+import { findingFacts, findingText } from "../findings-ui";
 import { endLabel } from "../link-editor";
 import type { Mutate } from "../use-system-mutation";
 import { findingKeys } from "./finding-keys";
@@ -61,7 +61,7 @@ function findingTarget(finding: Finding): WorkspaceSelection | null {
   const harnessId = (finding.detail as { harnessId?: string } | null)?.harnessId;
   if (harnessId) return { kind: "harness", id: harnessId };
   if (finding.rule === "SYS-V22" && finding.key) return { kind: "collision", id: finding.key };
-  if (finding.linkId) return { kind: "link", id: finding.linkId };
+  if (finding.linkId) return { kind: "link", id: finding.linkId, ...(finding.rowId ? { row: finding.rowId } : {}) };
   return finding.instanceId ? { kind: "instance", id: finding.instanceId } : null;
 }
 
@@ -190,13 +190,13 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
     if (row.kind === "finding") {
       const { finding } = row;
       const to = findingTarget(finding);
+      const facts = findingFacts(finding);
       const catalog = catalogHref(document, finding);
       return (
-        <div className="flex h-full items-center gap-3 border-b pl-9 pr-4 text-sm" title={findingText(finding)}>
-          <span className="min-w-0 flex-1 truncate">{findingPlace(document, finding)}</span>
-          <span className="hidden w-40 shrink-0 truncate font-mono text-xs text-muted-foreground md:block">
-            {[finding.reference, finding.pin].filter(Boolean).join(" · ")}
-          </span>
+        <div className="flex h-full items-center gap-3 border-b pl-9 pr-4 text-sm" title={[findingText(finding), facts.nets].filter(Boolean).join("\n")}>
+          <span className={cn("min-w-0 truncate", facts.nets ? "w-48 shrink-0" : "flex-1")}>{findingPlace(document, finding)}</span>
+          <span className="w-36 shrink-0 truncate font-mono text-xs">{facts.pins}</span>
+          {facts.nets && <span className="hidden min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground md:block">{facts.nets}</span>}
           {catalog ? <a className="w-14 shrink-0 text-right text-xs text-primary hover:underline" href={catalog}>Catalog</a>
             : finding.rule === "SYS-V09" ? <RenameSlot finding={finding} document={document} canEdit={canEdit} onPropose={propose} />
               : null}
