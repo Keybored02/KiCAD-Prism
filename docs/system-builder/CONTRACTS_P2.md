@@ -1579,5 +1579,16 @@ Prism never edits a board. When two boards name one signal differently, a system
   - Each end has a connector box with its name, block MPN and contact MPN, and a cavity table (cavity, signal, wire, gauge, colour).
   - A title block gives the harness name, system name and version, the estimated bundle length and the date.
   - Without a route, the ends are drawn in a row with no lengths.
-- **WireViz YAML.** One `connectors` entry per end (`type` = block MPN or `Generic`, `subtype` = contact MPN, `pincount`, `pinlabels` = signals). One `cables` entry per end pair carrying wires (`wirecount`, `gauge` in AWG, `colors` as WireViz codes when the colour is one, `length` = the longest cut length in m). One `connections` entry per wire. It renders with WireViz 0.4.
+- **WireViz YAML.** The output renders with WireViz 0.4.
+  - **Connectors:** one per end, `X1…`. `type` is the block part's name, or `Generic`. `mpn` and `manufacturer` come from the block part. `pinlabels` are the signals.
+    - A canonical number pin is a number; any other name (`01`, `A1`) stays text, so pins stay unique.
+    - A label equal to another pin's name gets a zero-width space, because WireViz resolves connections by label too.
+    - The contact is an additional component with `qty_multiplier: populated`, so WireViz's BOM counts one per wired cavity.
+  - **Cables:** one per end pair and gauge, `W1…`, category `bundle`. Each has its gauge in AWG, `colors` (striped `red/white` → `RDWH`) when every colour maps, and `length` = the longest cut length in m.
+  - **Connections:** one per wire. A splice is several connections on one pin.
+  - **Text:** escaped, because WireViz puts it into Graphviz HTML unescaped.
+  - **Limits (WireViz has no branch topology):**
+    - a harness with breakouts becomes one cable per end pair, with no branch points and no segment lengths; the layout drawing keeps them;
+    - coverings ride on the first cable as components, by segment length, so a covering's position is not shown;
+    - an end with no wires is a connector WireViz warns is unconnected.
 
