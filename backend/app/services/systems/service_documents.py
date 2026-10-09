@@ -16,7 +16,7 @@ from app.services.systems.jobs import (
 )
 from app.services.systems.store import Conflict, Invalid, NotFound, StaleVersion, SystemStore
 from app.services.systems.store_base import MAX_EXPORTS
-from app.services.systems.service_base import Caller, Result, _mating_summary, _iso
+from app.services.systems.service_base import Caller, Result, _mating_summary, _iso, logger
 
 MAX_BATCH_WAIVERS = 1000  # SB2-113: one group waive; the C&DH stack's largest group is 401
 
@@ -712,6 +712,11 @@ class DocumentsMixin:
                     tracked_ref=tracked_ref, pinned=pinned,
                 )
         self._enqueue_quietly(project_id, commit, caller)
+        if tracked_ref:  # SB2-124: check the branch now, not at the next fetch, so the board is never "Not checked"
+            try:
+                self._enqueue_check(row["id"], project_id, requested_by=caller.email)
+            except Exception:
+                logger.exception("Could not enqueue a source check for instance %s", row["id"])
         return Result(self._instance_row(row), system_id, change.version)
 
     def _resolve_baseline(

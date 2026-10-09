@@ -1,11 +1,11 @@
 import { Suspense, lazy, useState, useSyncExternalStore } from "react";
+import { toast } from "sonner";
 
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { addCatalogInstance, addInstance } from "@/lib/systems-api";
+import { addCatalogInstance } from "@/lib/systems-api";
 
-import { instanceInput } from "../board-fields";
-import { AddBoardDialog } from "../add-board-dialog";
+import { AddBoardDialog, addBoards } from "../add-board-dialog";
 import { AddPartDialog } from "../add-part-dialog";
 import { AddSubsystemDialog } from "../subsystem-detail";
 import type { SystemTabProps } from "../system-tab-content";
@@ -193,12 +193,16 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
           existingLabels={document.instances.map((instance) => instance.label)}
           busy={busy === "add"}
           onClose={() => setAdding(null)}
-          onSubmit={async (board) => {
-            const created = await run("add", () => addInstance(systemId, etag, instanceInput(board)), `Added ${board.label.trim()}`);
-            if (created) {
+          onSubmit={async (boards) => {
+            const outcome = await run("add", () => addBoards(systemId, etag, boards),
+              boards.length === 1 ? `Added ${boards[0].label.trim()}` : undefined);
+            if (!outcome) return boards.map((board) => ({ board, error: "Not added" }));
+            if (boards.length > 1 && outcome.added.length) toast.success(`Added ${outcome.added.length} of ${boards.length} boards`);
+            if (!outcome.failures.length) {
               setAdding(null);
-              select({ kind: "instance", id: created.body.id });
+              if (outcome.added.length === 1) select({ kind: "instance", id: outcome.added[0] });
             }
+            return outcome.failures;
           }}
         />
       )}
