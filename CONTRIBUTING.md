@@ -85,8 +85,9 @@ uv run --no-project --python venv/bin/python --with-requirements ../requirements
   python -m pytest -n auto
 ```
 
-This is the CI command. pytest runs the `unittest` suite in parallel, each
-worker on its own copy of the test databases (`backend/tests/conftest.py`). The
+This is the CI command (CI splits it over three runners with `--shard k/3`). pytest
+runs the `unittest` suite in parallel, each worker on its own copy of the test
+databases (`backend/tests/conftest.py`). The
 test tools are pinned in `requirements/test.txt`, outside the runtime lock, so
 `uv` layers them over the backend venv without changing it.
 
@@ -175,7 +176,9 @@ matters to a user's decision, state it directly.
 - Breaking or feature-freeze changes have explicit maintainer approval.
 
 The repository quality gate runs for pull requests and pushes targeting `dev`
-or `main`. Contributor pull requests target `dev`; maintainers promote a tested
+or `main`. On a pull request it skips the jobs your files cannot affect
+(`scripts/ci_changes.py` decides, from the changed paths and the files each
+area's tests read); pushes and the nightly run always run every job. Contributor pull requests target `dev`; maintainers promote a tested
 release through a separate `dev` to `main` pull request. Keep feature branches
 current with `dev` before merge.
 

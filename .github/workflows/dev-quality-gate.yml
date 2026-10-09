@@ -25,6 +25,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Changed areas
+    # Pull requests skip the jobs their files cannot affect (scripts/ci_changes.py). Pushes, the
+    # nightly run and manual runs run everything, so a rule that is too narrow fails late, never silently.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.areas.outputs.backend }}
+      frontend: ${{ steps.areas.outputs.frontend }}
+      viewer: ${{ steps.areas.outputs.viewer }}
+      agent: ${{ steps.areas.outputs.agent }}
+      deploy: ${{ steps.areas.outputs.deploy }}
+      deps: ${{ steps.areas.outputs.deps }}
+      image: ${{ steps.areas.outputs.image }}
+      image_live: ${{ steps.areas.outputs.image_live }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Test the path rules
+        run: python3 -m unittest scripts.test_ci_changes
+
+      - name: Decide which jobs this change needs
+        id: areas
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            python3 scripts/ci_changes.py --base "$BASE_SHA" --head HEAD >> "$GITHUB_OUTPUT"
+          else
+            python3 scripts/ci_changes.py --all >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
   catalog-architecture:
     name: Catalog architecture and agent guidance
     runs-on: ubuntu-latest
@@ -134,6 +173,8 @@ jobs:
 
   frontend:
     name: Frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -164,19 +205,56 @@ jobs:
         # warning backlog may shrink but never grow.
         run: npm run scan:gate
 
-      - name: Test
-        run: npm test
-
       - name: Build application
         run: npm run build
 
       - name: Build Remote Symbol Provider panel
         run: npm run build:panel
 
-  backend:
-    name: Backend
+  frontend-tests:
+    name: Frontend tests (${{ matrix.shard }}/2)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test -- --shard=${{ matrix.shard }}/2
+
+  backend:
+    name: Backend (${{ matrix.shard }}/3)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Whole test modules, balanced by backend/tests/.test_durations.json (backend/tests/conftest.py).
+        # Refresh that file with scripts/update_backend_test_durations.py when the shards drift apart.
+        shard: [1, 2, 3]
 
     services:
       postgres:
@@ -216,13 +294,22 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: requirements/runtime.lock
+
+      - name: Cache uv downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('.python-version', 'requirements/runtime.lock', 'requirements/test.txt') }}
+          restore-keys: uv-${{ runner.os }}-
 
       - name: Install dependencies
         # The runner is throwaway, so the test tools (requirements/test.txt) go
-        # beside the runtime here; locally they stay out of the venv.
-        run: python -m pip install -r requirements.txt -r ../requirements/test.txt
+        # beside the runtime here; locally they stay out of the venv. uv is the image's own pin.
+        run: |
+          version="$(sed -n 's/^ARG UV_VERSION=//p' Dockerfile | head -n 1)"
+          test -n "$version"
+          python -m pip install --disable-pip-version-check "uv==${version}"
+          uv pip install --system -r requirements.txt -r ../requirements/test.txt
 
       - name: Create the isolated catalog test database
         run: |
@@ -233,18 +320,45 @@ jobs:
         run: python -m compileall -q app
 
       - name: Run backend tests
-        # pytest-xdist runs the unittest suite on every core; conftest.py gives
+        # pytest-xdist runs this shard's modules on every core; conftest.py gives
         # each worker its own copy of the three databases. -rs lists skip reasons.
-        run: python -m pytest -n auto -q -rs --junitxml=results.xml
+        run: python -m pytest -n auto -q -rs --shard ${{ matrix.shard }}/3 --junitxml=results.xml
+
+      - name: Keep this shard's results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-results-${{ matrix.shard }}
+          path: backend/results.xml
+          retention-days: 7
+
+  backend-results:
+    name: Backend
+    needs: [changes, backend]
+    if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Collect the shards' results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: backend-results-*
+
+      - name: Require every shard to pass
+        env:
+          SHARDS_RESULT: ${{ needs.backend.result }}
+        run: test "$SHARDS_RESULT" = "success"
 
       - name: Require the integration suites to have run
         run: |
           # The catalog and legacy-survivor integration tests skip themselves
           # when their database URL is missing or points at the application
           # database, and the agent API tests without httpx, so a silent skip
-          # looks green. Read the skips from the run
-          # above instead of running the suites a second time.
+          # looks green. Read the skips from the shards' results instead of
+          # running the suites a second time.
           python - <<'PY'
+          import glob
           import sys
           import xml.etree.ElementTree as ET
 
@@ -255,7 +369,11 @@ jobs:
           }
           ran = dict.fromkeys(required, 0)
           failed = False
-          for case in ET.parse("results.xml").iter("testcase"):
+          cases = [case for path in sorted(glob.glob("backend-results-*/results.xml"))
+                   for case in ET.parse(path).iter("testcase")]
+          if not cases:
+              sys.exit("no backend results found")
+          for case in cases:
               module = case.get("classname", "").split(".")[-2] if "." in case.get("classname", "") else ""
               if module not in required:
                   continue
@@ -273,6 +391,8 @@ jobs:
 
   agent-plugin:
     name: Agent and plugin
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -301,6 +421,8 @@ jobs:
 
   semantic-viewer:
     name: Semantic viewer
+    needs: changes
+    if: needs.changes.outputs.viewer == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -354,6 +476,8 @@ jobs:
 
   deployment-config:
     name: Deployment configuration
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -446,6 +570,8 @@ jobs:
 
   dependency-identity:
     name: Dependency identity
+    needs: changes
+    if: needs.changes.outputs.deps == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -486,15 +612,46 @@ jobs:
         # an unreproducible bug report.
         run: .identity-venv/bin/python scripts/verify_dependency_identity.py
 
+  image:
+    name: Backend image
+    # PRs into dev/main build the image in the live KiCad job. Elsewhere, build it (no tests) when its
+    # inputs change, so a Dockerfile, viewer or shared-placement break fails on the PR that causes it.
+    needs: changes
+    if: >-
+      github.event_name == 'pull_request' && github.base_ref != 'main' && github.base_ref != 'dev'
+      && needs.changes.outputs.image == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          build-args: KICAD_BASE_PLATFORM=linux/amd64
+          push: false
+          cache-from: type=gha,scope=quality-backend-amd64
+          cache-to: type=gha,mode=max,scope=quality-backend-amd64
+
   kicad-live:
     name: Release Studio live KiCad
     # Rebuilds the Prism backend image (FROM pinned kicad/kicad). That proves
     # kicad-cli and the baked executor identity. It is not compiling KiCad, and
     # it is not a per-commit concern — run it where a merge or nightly matters.
+    needs: changes
     if: >-
       github.event_name == 'schedule'
       || github.event_name == 'workflow_dispatch'
-      || (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev'))
+      || (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev')
+          && needs.changes.outputs.image_live == 'true')
       || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -503,14 +660,21 @@ jobs:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
       - name: Build backend image from Dockerfile KiCad default
-        run: >-
-          docker build
-          --platform linux/amd64
-          --build-arg KICAD_BASE_PLATFORM=linux/amd64
-          --tag release-studio-live-kicad:ci
-          --file backend/Dockerfile
-          .
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          build-args: KICAD_BASE_PLATFORM=linux/amd64
+          load: true
+          push: false
+          tags: release-studio-live-kicad:ci
+          cache-from: type=gha,scope=quality-backend-amd64
+          cache-to: type=gha,mode=max,scope=quality-backend-amd64
 
       - name: Smoke-test native semantic compiler
         run: |
@@ -555,40 +719,36 @@ jobs:
     name: Quality gate
     if: ${{ always() }}
     needs:
+      - changes
       - catalog-architecture
       - frontend
+      - frontend-tests
       - backend
+      - backend-results
       - agent-plugin
       - semantic-viewer
       - deployment-config
       - dependency-identity
+      - image
       - kicad-live
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
       - name: Require every quality job
+        # A job the change does not need is skipped (scripts/ci_changes.py); skipped passes. The
+        # changes job itself must succeed, or every job would be skipped and the gate pass on nothing.
         env:
-          CATALOG_ARCHITECTURE_RESULT: ${{ needs.catalog-architecture.result }}
-          FRONTEND_RESULT: ${{ needs.frontend.result }}
-          BACKEND_RESULT: ${{ needs.backend.result }}
-          AGENT_PLUGIN_RESULT: ${{ needs.agent-plugin.result }}
-          VIEWER_RESULT: ${{ needs.semantic-viewer.result }}
-          DEPLOYMENT_RESULT: ${{ needs.deployment-config.result }}
-          IDENTITY_RESULT: ${{ needs.dependency-identity.result }}
-          KICAD_LIVE_RESULT: ${{ needs.kicad-live.result }}
+          RESULTS: ${{ toJSON(needs) }}
         run: |
-          test "$CATALOG_ARCHITECTURE_RESULT" = "success"
-          test "$FRONTEND_RESULT" = "success"
-          test "$BACKEND_RESULT" = "success"
-          test "$AGENT_PLUGIN_RESULT" = "success"
-          test "$VIEWER_RESULT" = "success"
-          test "$DEPLOYMENT_RESULT" = "success"
-          test "$IDENTITY_RESULT" = "success"
-          case "$KICAD_LIVE_RESULT" in
-            success|skipped) ;;
-            *)
-              echo "Release Studio live KiCad: $KICAD_LIVE_RESULT" >&2
-              exit 1
-              ;;
-          esac
+          python3 - <<'PY'
+          import json, os, sys
+
+          results = {job: info["result"] for job, info in json.loads(os.environ["RESULTS"]).items()}
+          for job, result in sorted(results.items()):
+              print(f"{job}: {result}")
+          bad = [job for job, result in results.items()
+                 if result != "success" and not (result == "skipped" and job not in ("changes", "catalog-architecture"))]
+          if bad:
+              sys.exit(f"failed or missing: {', '.join(sorted(bad))}")
+          PY
