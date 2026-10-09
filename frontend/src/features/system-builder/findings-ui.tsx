@@ -63,6 +63,26 @@ export function findingText(finding: Pick<Finding, "name">): string {
   return RULE_TEXT[finding.name] ?? finding.name.replace(/_/g, " ");
 }
 
+function netsText(nets: unknown): string {
+  return Array.isArray(nets) && nets.length ? nets.join(" | ") : "no net";
+}
+
+/**
+ * SB2-112: where a finding is and what it saw, for one line: the pins (`J3 4 ↔ J7 4` for a join,
+ * else `J7 · 18`) and the nets (`VCC ↔ no net`, or a PCB net that differs: `A ≠ PCB B`).
+ */
+export function findingFacts(finding: Finding): { pins: string; nets: string } {
+  const detail = (finding.detail ?? {}) as Record<string, unknown>;
+  const join = "pinB" in detail;
+  const pins = join
+    ? `${[finding.reference, finding.pin].filter(Boolean).join(" ")} ↔ ${[detail.referenceB, detail.pinB].filter(Boolean).join(" ")}`
+    : [finding.reference, finding.pin].filter(Boolean).join(" · ");
+  const nets = "netA" in detail ? `${netsText(detail.netA)} ↔ ${netsText(detail.netB)}`
+    : "schematic" in detail ? `${netsText(detail.schematic)} ≠ PCB ${netsText(detail.pcb)}`
+      : "nets" in detail ? netsText(detail.nets) : "";
+  return { pins, nets };
+}
+
 export interface FindingGroup {
   key: string;
   level: Level;
