@@ -152,7 +152,9 @@ each sub-port and the rest of the connector separately.
   catalog first.
 - **Subsystems.** **Add → Subsystem** places a published system. You connect
   to it through its exports. **Open its system** opens it; its **Inside**
-  section lists what it contains.
+  section lists what it contains. Its node, its inspector (**Findings
+  inside**) and the top bar ("+ N errors in subsystems") show the open
+  errors and warnings its pinned snapshot was taken with.
 
 Modules, parts and subsystems come from the catalog at a revision. **Updates**
 chooses **Follow releases** (take each new released revision) or **Keep this
@@ -183,6 +185,10 @@ cancels. Drag boards to arrange them. The layout is saved for everyone, but it
 is not part of the engineering record: moving a box changes no version and
 writes no history. **Auto-arrange** discards a saved arrangement.
 
+Without dragging: **Connect…** in a port's menu, or **New connection** on the
+Connections tab, picks the kind and both connectors from searchable lists
+that show each connector's part number and pin count.
+
 ### Connections
 
 The **Connections** tray tab lists every link and harness with its type, ends,
@@ -196,6 +202,10 @@ flags missing pads and duplicate pairs before you save, and shows the
 system's findings next to the rows they concern. Name, harness label and
 deletion are in **Link actions**. If you leave with unsaved edits, Prism asks
 before discarding them.
+
+A new, empty link offers **Fill pins**: **Same pin** (pin 1 to pin 1) or
+**Reversed**, applied at once; **Undo** empties it again. **More…** opens
+**Generate rows**.
 
 To fill a link quickly, use **Generate rows**:
 
@@ -255,7 +265,7 @@ pin landing on another pad) are listed as conflicts, never applied.
 A board-to-board link is a mate between two connectors. Its **Mating** panel
 shows each connector's mating frame (vertical, top or bottom side, or a
 right-angle direction), inferred from the footprint. **Confirm** it, or **Set
-by hand**. 3D placement only uses confirmed frames; a confirmed frame goes
+by hand**; **Confirm both** confirms the two inferred frames at once. 3D placement only uses confirmed frames; a confirmed frame goes
 stale when the footprint moves, and is flagged. Enter the **Stack height
 (mm)** from the connector datasheet (the gap between the two boards' facing
 surfaces); left empty, it is taken from the connector bodies plus 5 mm. The
@@ -413,7 +423,11 @@ unresolved; rebase it onto a commit that exists.
 ## Findings
 
 The top bar counts the open findings; the **Findings** tab lists them grouped
-by rule. **Show** selects what a finding is about. An editor can **Waive** a
+by rule. A finding on a pin pair shows both pins and both nets (`J3 4 ↔ J7 4 ·
+VCC_3V3 ↔ no net`). **Show** selects what a finding is about; for a pin pair
+it opens the link on that row. The filter narrows the list by any text
+(rule, board, connector, net). A rule with more than 8 findings is split by
+place, and **Waive all** waives a whole group or place with one note. An editor can **Waive** a
 warning or info finding with a note saying why it is acceptable; waived
 findings move to **Waived**, where **Unwaive** brings one back. Errors cannot
 be waived. Snapshots keep the waivers they were taken with.
@@ -478,7 +492,8 @@ re-checked against the schematic after they are written.
 ## Snapshots, the ICD and reports
 
 **Take snapshot** at a milestone (PDR, CDR, a build): give it a name and an
-optional note. A snapshot freezes every board's baseline, every link, row and
+optional note. The dialog shows the open errors and warnings, unreviewed
+changes and exports it will freeze. A snapshot freezes every board's baseline, every link, row and
 harness, the 3D positions, and the findings and waivers at that moment.
 Snapshots cannot be edited or deleted. **History** lists them, with the
 activity log of every change and who made it (automatic changes are
@@ -506,7 +521,9 @@ To place this system in other systems, publish one of its snapshots: **Publish
 to the catalog** on the snapshot. The first time, give it an **Internal part
 number**, an assembly name, a manufacturer and a description. A snapshot taken
 with unreviewed changes can be published, but the catalog will not release it.
-Releases then go through the catalog's own review.
+Releases then go through the catalog's own review. The publish dialog shows
+what the snapshot froze, and warns when it has no exports (a parent could not
+connect to it).
 
 ## Git tracking
 
