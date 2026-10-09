@@ -99,6 +99,8 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
       <InspectorFacts rows={[
         { label: "Revision", value: `${ref?.version ? `v${ref.version}` : "—"}${ref?.releaseStatus ? ` · ${STAGE[ref.releaseStatus] ?? ref.releaseStatus}` : ""}` },
         ...(!isModule && !isPart ? [{ label: "Snapshot", value: ref?.snapshotName ?? "—" }] : []),
+        ...(!isModule && !isPart && ref?.findingCounts ? [{ label: "Findings inside",
+          value: `${ref.findingCounts.error} ${ref.findingCounts.error === 1 ? "error" : "errors"} · ${ref.findingCounts.warning} ${ref.findingCounts.warning === 1 ? "warning" : "warnings"}` }] : []),
         { label: "Updates", value: updates },
       ]} />
 

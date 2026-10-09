@@ -29,6 +29,15 @@ class ParentIcdTest(AssemblyCase):
         self.assertNotIn("Inside subsystems", html)
         self.assertNotIn("unreleased revision", html)
 
+    def test_a_subsystem_carries_its_snapshots_open_findings(self) -> None:
+        """SB2-117: the parent shows the subsystem's open errors and warnings as its snapshot froze them."""
+        bus = self.bus()
+        [child] = [i for i in self.service.document(DESIGNER, bus).body["instances"] if i["kind"] == "assembly"]
+        frozen = self.conn.execute(
+            "SELECT document->'findingCounts' AS counts FROM system_snapshots WHERE system_id = %s AND name = 'CDR'",
+            (self.sid,)).fetchone()["counts"]
+        self.assertEqual(child["catalog"]["findingCounts"], {"error": frozen["error"], "warning": frozen["warning"]})
+
     def test_an_unreleased_pin_is_bannered(self) -> None:
         bus = self.bus(release=False)
         html, _name, _version = self.service.icd(VIEWER, bus, "html")

@@ -37,10 +37,24 @@ function useRepositoryState(systemId: string) {
       .then(([git, snapshots]) => ({ git, snapshot: snapshots[0] ?? null }))).data ?? null;
 }
 
+/** SB2-117: open errors and warnings inside the subsystems, as their pinned snapshots froze them. */
+export function childFindingCounts(document: SystemDocument): { error: number; warning: number } {
+  const total = { error: 0, warning: 0 };
+  for (const instance of document.instances) {
+    const found = instance.kind === "assembly" ? instance.catalog?.findingCounts : null;
+    if (found) {
+      total.error += found.error;
+      total.warning += found.warning;
+    }
+  }
+  return total;
+}
+
 /** The workspace's top bar (PLAN M8): the system, the view switch, its state and Take snapshot. */
 export function WorkspaceTopBar({ systemId, document, view, canEdit, onBack, onView, onFindings, onHistory, onTakeSnapshot, onOutline, onInspector, has3d }: TopBarProps) {
   const { system } = document;
   const counts = document.findingCounts;
+  const inChildren = childFindingCounts(document);
   const repository = useRepositoryState(systemId);
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 sm:gap-3 md:gap-5 md:px-4">
@@ -75,6 +89,12 @@ export function WorkspaceTopBar({ systemId, document, view, canEdit, onBack, onV
             </>
           ) : <span>Not evaluated</span>}
         </button>
+        {inChildren.error + inChildren.warning > 0 && (
+          <span className={cn("hidden lg:inline", inChildren.error && "text-destructive")}
+            title="Open in the subsystems' snapshots this system uses; open a subsystem to see them">
+            + {inChildren.error ? `${inChildren.error} ${inChildren.error === 1 ? "error" : "errors"}` : `${inChildren.warning} ${inChildren.warning === 1 ? "warning" : "warnings"}`} in subsystems
+          </span>
+        )}
         {repository?.git && (
           <button type="button" onClick={onHistory} className="hidden items-center gap-1.5 hover:text-foreground xl:flex" title={repository.git.url}>
             <GitBranch className="size-3.5" />

@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.81 · 2026-10-09 · tickets SB2-00 to SB2-113.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.86 · 2026-10-09 · tickets SB2-00 to SB2-117.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -552,6 +552,7 @@ Reading rules:
   - The occurrence column is the display path (`CNDH-A`, `CNDH-A ▸ PAY-SUB`) and comes first; the root system's own links have an empty occurrence.
   - Redaction follows §5.4: hidden boards keep their rows with connector and net blanked; a hidden child system's level is omitted entirely.
   - Without `depth`, or with `depth=own`, the CSV columns are exactly P1's.
+- **Health inside (SB2-117).** A subsystem instance's `catalog.findingCounts` is `{error, warning}` as its pinned snapshot froze them (the snapshot document's `findingCounts`; `null` when the source snapshot is gone). The node shows "{n} inside", the inspector a **Findings inside** fact, and the top bar "+ N errors in subsystems" (warnings when there are no errors). They are not added to the parent's own counts.
 - **Diagram (SB2-09):** a subsystem node has a double border, the revision (`vN`) and stage, and an **inside** toggle listing its boards and nested subsystems from `GET …/hierarchy`. The History tab offers an **All levels** ICD link whenever the system has a subsystem.
 - **Renderer** version 3.
 
@@ -953,6 +954,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.86 | 2026-10-09 | SB2-117: a subsystem's open findings, frozen in its pinned snapshot, on the node, inspector and top bar (§10). |
 | P2-1.81 | 2026-10-09 | SB2-113: batch waivers (§8.5), the Findings tray's filter, group and place waivers, and large groups split by place. |
 | P2-1.80 | 2026-10-09 | SB2-112: join findings (SYS-V01/V09/V10, rows and wires) placed at side A's pin with side B's in the detail, so each has its own key (§8.5); the Findings tray shows pins and nets, Show opens the row (`&row=`). |
 | P2-1.79 | 2026-10-09 | SB2-106 follow-up: the board page's Used in section restyled like the README; proposals no longer listed there (§23.5). |

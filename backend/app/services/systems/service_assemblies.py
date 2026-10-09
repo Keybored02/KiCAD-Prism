@@ -239,9 +239,9 @@ class AssembliesMixin:
             refs[instance["id"]] = revision
         return refs
 
-    def _catalog_instance_doc(self, instance: Mapping[str, Any]) -> dict:
+    def _catalog_instance_doc(self, instance: Mapping[str, Any], store: Optional[SystemStore] = None) -> dict:
         """An assembly/module instance as the document shows it: an assembly's exports, a module's
-        connectors (§5.6), are its ports."""
+        connectors (§5.6), are its ports. An assembly carries its snapshot's open finding counts (SB2-117)."""
         revision = self._catalog_revision(instance["catalog_revision_id"])
         if instance["kind"] == "part":
             exports = []  # a mechanical part has no ports (P2 §24.1)
@@ -276,8 +276,24 @@ class AssembliesMixin:
                 "systemId": ((revision or {}).get("sourceRef") or {}).get("systemId"),
                 "snapshotName": ((revision or {}).get("sourceRef") or {}).get("snapshotName"),
                 "openReviewCount": int(((revision or {}).get("sourceRef") or {}).get("openReviewCount") or 0),
+                "findingCounts": self._snapshot_counts(store, (revision or {}).get("sourceRef") or {})
+                if instance["kind"] == "assembly" else None,
             },
         }
+
+    _SNAPSHOT_COUNTS: dict[str, Optional[dict]] = {}
+
+    def _snapshot_counts(self, store: Optional[SystemStore], source: Mapping[str, Any]) -> Optional[dict]:
+        """SB2-117: a subsystem's open errors and warnings, as frozen in the snapshot its revision was
+        published from. A snapshot never changes, so the answer is kept."""
+        snapshot_id, system_id = source.get("snapshotId"), source.get("systemId")
+        if not snapshot_id or not system_id:
+            return None
+        if snapshot_id not in self._SNAPSHOT_COUNTS:
+            if store is None:
+                return None
+            self._SNAPSHOT_COUNTS[snapshot_id] = store.snapshot_counts(system_id, snapshot_id)
+        return self._SNAPSHOT_COUNTS[snapshot_id]
 
     def _child_loader(self, store: SystemStore):
         """hierarchy.Loader: catalog revision -> the snapshot it was published from."""
