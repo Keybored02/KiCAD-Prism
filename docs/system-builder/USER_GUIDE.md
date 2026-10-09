@@ -456,6 +456,7 @@ be waived. Snapshots keep the waivers they were taken with.
 | SYS-V20 | info | Harness bends tighter than its minimum radius (6 × bundle diameter) |
 | SYS-V21 | warning | Sub-port names a pad the connector no longer has |
 | SYS-V22 | warning | Bodies intersect in 3D (from the last collision check) |
+| SYS-V23 | warning | Named net meets a pin on no net (the other board leaves that pin unconnected) |
 
 A rule that cannot run (for example SYS-V06 on a board with no PCB) is listed
 as *not evaluated*; it never counts as a pass. The schematic is the source of
