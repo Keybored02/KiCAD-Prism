@@ -78,7 +78,7 @@
    "afterAccept": {
     "warnings": [
      {"rule": "SYS-V06", "instance": "OBC-A", "reference": "J7", "pin": "18", "schematic": ["PAYLOAD_INT#"], "pcb": ["PAYLOAD_IRQ#"]},
-     {"rule": "SYS-V09", "instance": null, "reference": null, "pin": null, "netA": ["PAYLOAD_INT#"], "netB": ["/IRQ_OUT#"],
+     {"rule": "SYS-V09", "instance": "OBC-A", "reference": "J7", "pin": "18", "netA": ["PAYLOAD_INT#"], "netB": ["/IRQ_OUT#"],
       "note": "P2-1.8: accepting the rename leaves the two sides of row 18 sharing no related token (INT vs IRQ)"}
     ]
    }

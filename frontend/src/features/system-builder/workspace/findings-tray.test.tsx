@@ -22,13 +22,25 @@ function doc(findings: Finding[], waivers: NonNullable<SystemDocument["validatio
 
 function renderTray(document: SystemDocument, canEdit = true) {
   const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
+  const onSelect = vi.fn();
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "sfw_1" }), {
     status: 201, headers: { "Content-Type": "application/json", ETag: '"sys:s:2"' } })));
-  render(<FindingsTray systemId="s" document={document} etag='"sys:s:1"' canEdit={canEdit} run={run as never} onSelect={vi.fn()} />);
-  return { run };
+  render(<FindingsTray systemId="s" document={document} etag='"sys:s:1"' canEdit={canEdit} run={run as never} onSelect={onSelect} />);
+  return { run, onSelect };
 }
 
 describe("FindingsTray (SB2-100)", () => {
+  it("names a join finding's pins and nets, and Show opens its row (SB2-112)", () => {
+    const linkId = base.links[0].id;
+    const { onSelect } = renderTray(doc([finding({
+      rule: "SYS-V10", name: "power_meets_signal", severity: "error", linkId, rowId: "row_4", end: "a", pin: "4",
+      detail: { pinB: "4", referenceB: "J2", netA: ["VCC_3V3"], netB: [] }, key: "e4" })]));
+    expect(screen.getByText("J1 4 ↔ J2 4")).toBeTruthy();
+    expect(screen.getByText("VCC_3V3 ↔ no net")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    expect(onSelect).toHaveBeenCalledWith({ kind: "link", id: linkId, row: "row_4" });
+  });
+
   it("says it is loading until the findings come with the document", () => {
     renderTray({ ...base, validation: undefined });
     expect(screen.getByText("Loading findings…")).toBeTruthy();

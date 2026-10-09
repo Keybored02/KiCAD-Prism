@@ -229,7 +229,7 @@ export function WorkspaceTray(props: TrayProps) {
           ) : link ? (
             <div className="p-4">
               <LinkEditor key={link.id} systemId={systemId} document={document} link={link} etag={etag}
-                canEdit={canEdit} findings={findings} busy={busy} run={run}
+                canEdit={canEdit} findings={findings} busy={busy} run={run} focusRow={selection?.row}
                 onDeleted={() => onSelect(null)} onHarness={(harnessId) => onSelect({ kind: "harness", id: harnessId })} />
             </div>
           ) : (
