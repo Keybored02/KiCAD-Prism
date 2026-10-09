@@ -300,7 +300,10 @@ two tables:
   - **Contact** sets the crimp contact part for the end's cavities.
 - **Wires**: from, to, signal, AWG and colour for each wire. **Generate**
   fills them from two ends (**Same pin**, **Reversed** or **By net name**).
-  Several wires on one pin form a splice. **Save wires** saves the draft.
+  Several wires on one pin form a splice. Paste a block copied from a
+  spreadsheet into a signal, AWG or colour cell to fill down and across from
+  there. Tick wires to give them one AWG or colour with **Set**. **Save wires**
+  saves the draft.
 
 **Harness actions** has **Edit details** (name, label such as `WH-003`, and a
 cut length), **Convert to a link** (two ends, no splices, no pin map) and
