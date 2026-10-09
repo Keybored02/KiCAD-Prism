@@ -65,11 +65,11 @@ _OTHER_COLOURS = {
 }
 _FALLBACK_COLOUR = "#afafaf"
 
-#: A layer is drawn as a mask: white where the plot is dark, black where it is empty or
-#: cleared. The layer's colour is then filled through that mask, so the SVG is its
-#: colour, fully opaque, where something is plotted and transparent everywhere else.
-#: That keeps Gerber's clear polarity working (a clear area cuts the layer's own
-#: artwork) without ever touching the layers around it.
+#: The plot is first drawn white on black. A layer with nothing cleared is then drawn
+#: straight in its colour; one with clear polarity (or an aperture with a hole) uses
+#: that plot as a mask and fills its colour through it, so a cleared area cuts the
+#: layer's own artwork without painting over the layers behind it. Either way the SVG
+#: is its colour, fully opaque, where something is plotted and transparent elsewhere.
 _MASK_ON = "#ffffff"
 _MASK_OFF = "#000000"
 _MASK_ID = "layer"
@@ -239,11 +239,17 @@ def classify(
     return "other", side if side != "inner" else "both"
 
 
-def _sort_key(info: LayerInfo) -> Tuple[int, int, int, str]:
+def _natural(name: str) -> Tuple[Any, ...]:
+    """``In2.Cu`` before ``In10.Cu``: digit runs compare as numbers."""
+
+    return tuple(int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", name))
+
+
+def _sort_key(info: LayerInfo) -> Tuple[Any, ...]:
     if info.role in _ROLE_RANK:
         # Group by side first so the list reads top to bottom through the board.
-        return (_SIDE_RANK[info.side], _ROLE_RANK[info.role], 0, info.name)
-    return (10 + ROLES.index(info.role), 0, 0, info.name)
+        return (_SIDE_RANK[info.side], _ROLE_RANK[info.role], _natural(info.name))
+    return (10 + ROLES.index(info.role), 0, _natural(info.name))
 
 
 def _unique_ids(layers: Sequence[fab.FabricationLayer]) -> List[str]:

@@ -237,6 +237,19 @@ class ColourTests(unittest.TestCase):
         self.assertEqual(self.colours["f.fab"], "#afafaf")
 
 
+class LayerOrderTests(unittest.TestCase):
+    def test_inner_layers_list_in_board_order_past_nine(self) -> None:
+        files = package_files()
+        for index in (10, 2, 1):
+            files[f"board-In{index}_Cu.g{index}"] = gerber(PAD)
+        names = [
+            layer["name"]
+            for layer in FabricationPackage.from_files(files).view()["layers"]
+            if layer["side"] == "inner"
+        ]
+        self.assertEqual([int("".join(filter(str.isdigit, name.split("_")[0]))) for name in names], [1, 2, 10])
+
+
 class RenderVersionTests(unittest.TestCase):
     def test_the_view_names_the_rendering_its_layer_urls_carry(self) -> None:
         from app.services.fabrication_view_service import RENDER_VERSION

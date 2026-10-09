@@ -71,15 +71,15 @@ function imagesReducer(
     }
 }
 
-/**
- * Layer SVGs, fetched the first time a layer is shown and kept after it is
- * hidden again. Object URLs are revoked when the viewer goes away.
- */
 /** A layer URL that changes whenever the backend draws layers differently. */
 export function withVersion(url: string, version: number): string {
     return `${url}${url.includes("?") ? "&" : "?"}r=${version}`;
 }
 
+/**
+ * Layer SVGs, fetched the first time a layer is shown and kept after it is
+ * hidden again. Object URLs are revoked when the viewer goes away.
+ */
 export function useLayerImages(
     source: FabricationSource,
     visibleIds: readonly string[],

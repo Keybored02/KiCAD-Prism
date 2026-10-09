@@ -433,12 +433,15 @@ def get_output_placement(
         return not _is_position_file(text)
 
     bom = _pick(others, is_bom, _BOM_NAME)
-    view = build_placement_view(
-        files[positions],
-        others[bom] if bom else None,
-        positions_name=positions,
-        bom_name=bom or "",
-    )
+    try:
+        view = build_placement_view(
+            files[positions],
+            others[bom] if bom else None,
+            positions_name=positions,
+            bom_name=bom or "",
+        )
+    except PlacementError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if _cacheable(commit):
         _placement_cache.put(key, view)
     return view
