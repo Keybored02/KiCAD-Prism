@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Check, ChevronDown, ChevronRight, FileText, Pencil, Tag } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, FileText, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -17,6 +16,7 @@ import {
 } from "@/types/manufacturing";
 import { DefectsSection } from "./run-defects";
 import { RunHeader } from "./run-view-header";
+import { RunReleaseLink } from "./run-release-link";
 
 interface RunViewProps {
     runId: string;
@@ -158,14 +158,11 @@ export function RunView({
                                     label="Release"
                                     value={
                                         run.release_tag && run.commit_sha ? (
-                                            <Link
-                                                to={`/project/${run.project_id}?section=history&commit=${encodeURIComponent(run.commit_sha)}`}
-                                                className="inline-flex items-center gap-1 text-primary hover:underline"
-                                                title={`Open ${run.release_tag} in History`}
-                                            >
-                                                <Tag className="h-3 w-3" />
-                                                {run.release_tag}
-                                            </Link>
+                                            <RunReleaseLink
+                                                projectId={run.project_id}
+                                                tag={run.release_tag}
+                                                commitSha={run.commit_sha}
+                                            />
                                         ) : (
                                             run.release_tag || "—"
                                         )

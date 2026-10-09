@@ -29,6 +29,10 @@ vi.mock("@/lib/manufacturing", () => ({
     evidenceUrl: (runId: string, digest: string) => `/api/x/${runId}/${digest}`,
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+const listCandidates = vi.fn();
+vi.mock("@/components/release-studio/api", () => ({
+    listCandidates: (...a: unknown[]) => listCandidates(...a),
+}));
 
 // Radix dialogs and menus need these in jsdom.
 vi.stubGlobal("ResizeObserver", class {
@@ -72,6 +76,7 @@ const openMenu = (name: string) => fireEvent.keyDown(screen.getByRole("button", 
 
 describe("RunView", () => {
     beforeEach(() => {
+        listCandidates.mockResolvedValue([]);
         updateRun.mockResolvedValue(undefined);
         updateRunStatus.mockResolvedValue(undefined);
         updateDefect.mockResolvedValue(undefined);
@@ -239,14 +244,36 @@ describe("RunView", () => {
             await waitFor(() => expect(updateRun).toHaveBeenCalledWith("run_1", { quantity_good: 88 }));
         });
 
-        it("lists the facts, linking the release to History", async () => {
+        it("lists the facts, linking the release to its package in Release Studio", async () => {
+            const build = (id: string, status: string, completed_at: string) => ({ id, status, completed_at });
+            listCandidates.mockResolvedValue([
+                { commit_sha: "ffff000", builds: [build("b_other", "succeeded", "2026-10-09T12:00:00Z")] },
+                {
+                    commit_sha: "abcdef1234567",
+                    builds: [
+                        build("b_failed", "failed", "2026-10-09T11:00:00Z"),
+                        build("b_new", "succeeded", "2026-10-09T10:00:00Z"),
+                        build("b_old", "succeeded", "2026-10-08T10:00:00Z"),
+                    ],
+                },
+            ]);
             renderView(makeRun({ release_tag: "v1.2", commit_sha: "abcdef1234567" }));
             await heading("JOB-2026-0001");
             const details = screen.getByRole("region", { name: "Details" });
             expect(within(details).getByText("Acme Fab")).toBeTruthy();
             expect(within(details).getByText("abcdef1")).toBeTruthy();
             const link = within(details).getByRole("link", { name: /v1.2/ });
-            expect(link.getAttribute("href")).toContain("/project/p1?section=history&commit=abcdef1234567");
+            // The newest successful build of the run's commit.
+            await waitFor(() => expect(link.getAttribute("href")).toBe("/project/p1?section=release-studio&build=b_new"));
+        });
+
+        it("links to Release Studio itself when the commit was never built", async () => {
+            listCandidates.mockResolvedValue([]);
+            renderView(makeRun({ release_tag: "v1.2", commit_sha: "abcdef1234567" }));
+            await heading("JOB-2026-0001");
+            const link = within(screen.getByRole("region", { name: "Details" })).getByRole("link", { name: /v1.2/ });
+            await waitFor(() => expect(listCandidates).toHaveBeenCalledWith("p1"));
+            expect(link.getAttribute("href")).toBe("/project/p1?section=release-studio");
         });
 
         it("shows the run's notes and saves an edit on blur", async () => {
