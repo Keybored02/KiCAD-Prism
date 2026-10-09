@@ -1,6 +1,6 @@
 import { useMemo, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ExternalLink, Factory, Search, SlidersHorizontal, StickyNote, Tag } from "lucide-react";
+import { AlertTriangle, ExternalLink, Factory, Search, SlidersHorizontal, StickyNote } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +30,7 @@ import {
     type StatusFilter,
 } from "./production-filters";
 import { DefectSummary } from "./defect-summary";
+import { RunReleaseLink } from "./run-release-link";
 import { RunStatusBadge } from "./status-badge";
 import { YieldBar } from "./yield-bar";
 
@@ -378,15 +379,12 @@ function RunRow({
             <div className="flex min-w-0 flex-col items-start gap-1">
                 <RunStatusBadge status={run.status} />
                 {run.release_tag && run.commit_sha && (
-                    <Link
-                        to={`/project/${run.project_id}?section=history&commit=${encodeURIComponent(run.commit_sha)}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex min-w-0 max-w-full items-center gap-1 text-xs text-primary hover:underline"
-                        title={`Open ${run.release_tag} in History`}
-                    >
-                        <Tag className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{run.release_tag}</span>
-                    </Link>
+                    <RunReleaseLink
+                        projectId={run.project_id}
+                        tag={run.release_tag}
+                        commitSha={run.commit_sha}
+                        className="text-xs"
+                    />
                 )}
             </div>
             <div className="min-w-0 text-right text-sm tabular-nums" title="Units ordered">

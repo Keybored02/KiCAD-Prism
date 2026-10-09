@@ -4,6 +4,26 @@ import { Tag } from "lucide-react";
 
 import { listCandidates } from "@/components/release-studio/api";
 import type { ReleaseBuild, ReleaseCandidate } from "@/components/release-studio/types";
+import { cn } from "@/lib/utils";
+
+/** A production list shows many runs of one project: they share one lookup for a minute. */
+const CANDIDATES_TTL_MS = 60_000;
+const candidatesCache = new Map<string, { at: number; request: Promise<ReleaseCandidate[]> }>();
+
+function candidatesFor(projectId: string): Promise<ReleaseCandidate[]> {
+    const cached = candidatesCache.get(projectId);
+    if (cached && Date.now() - cached.at < CANDIDATES_TTL_MS) return cached.request;
+    const request = listCandidates(projectId);
+    candidatesCache.set(projectId, { at: Date.now(), request });
+    // A failed lookup is not kept, so the next link asks again.
+    request.catch(() => candidatesCache.delete(projectId));
+    return request;
+}
+
+/** Tests only: forget the shared lookups. */
+export function resetReleaseLinkCache(): void {
+    candidatesCache.clear();
+}
 
 /** The newest succeeded Release Studio build of a commit, if it has one. */
 export function releaseBuildFor(candidates: ReleaseCandidate[], commitSha: string): string | null {
@@ -26,10 +46,12 @@ export function releaseBuildFor(candidates: ReleaseCandidate[], commitSha: strin
  * successful build of the run's commit, opened at its outputs, or Release
  * Studio itself when that commit was never built.
  */
-export function RunReleaseLink({ projectId, tag, commitSha }: {
+export function RunReleaseLink({ projectId, tag, commitSha, className }: {
     projectId: string;
     tag: string;
     commitSha: string;
+    /** Merged over the link's classes, such as a smaller size in a list row. */
+    className?: string;
 }) {
     const [buildId, setBuildId] = useState<string | null>(null);
 
@@ -37,7 +59,7 @@ export function RunReleaseLink({ projectId, tag, commitSha }: {
     // react-doctor-disable-next-line react-doctor/no-fetch-in-effect
     useEffect(() => {
         let cancelled = false;
-        listCandidates(projectId)
+        candidatesFor(projectId)
             .then((candidates) => {
                 if (!cancelled) setBuildId(releaseBuildFor(candidates, commitSha));
             })
@@ -52,11 +74,13 @@ export function RunReleaseLink({ projectId, tag, commitSha }: {
     return (
         <Link
             to={`/project/${projectId}?section=release-studio${build}`}
-            className="inline-flex items-center gap-1 text-primary hover:underline"
+            // Rows that open on click must not open as well.
+            onClick={(event) => event.stopPropagation()}
+            className={cn("inline-flex min-w-0 max-w-full items-center gap-1 text-primary hover:underline", className)}
             title={buildId ? `Open the ${tag} package in Release Studio` : "Open Release Studio"}
         >
-            <Tag className="h-3 w-3" />
-            {tag}
+            <Tag className="h-3 w-3 shrink-0" />
+            <span className="truncate">{tag}</span>
         </Link>
     );
 }

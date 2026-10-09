@@ -30,6 +30,7 @@ vi.mock("@/lib/manufacturing", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 const listCandidates = vi.fn();
+import { resetReleaseLinkCache } from "./run-release-link";
 vi.mock("@/components/release-studio/api", () => ({
     listCandidates: (...a: unknown[]) => listCandidates(...a),
 }));
@@ -76,6 +77,7 @@ const openMenu = (name: string) => fireEvent.keyDown(screen.getByRole("button", 
 
 describe("RunView", () => {
     beforeEach(() => {
+        resetReleaseLinkCache();
         listCandidates.mockResolvedValue([]);
         updateRun.mockResolvedValue(undefined);
         updateRunStatus.mockResolvedValue(undefined);

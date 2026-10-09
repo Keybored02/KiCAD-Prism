@@ -1,10 +1,16 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_FILTERS, type ProductionFilters } from "./production-filters";
 import { ProductionList } from "./production-list";
+import { resetReleaseLinkCache } from "./run-release-link";
 import { makeRun } from "./test-fixtures";
+
+const listCandidates = vi.fn();
+vi.mock("@/components/release-studio/api", () => ({
+    listCandidates: (...a: unknown[]) => listCandidates(...a),
+}));
 
 // Radix menus need these in jsdom.
 vi.stubGlobal("ResizeObserver", class {
@@ -44,6 +50,12 @@ function renderList(props: Partial<React.ComponentProps<typeof ProductionList>> 
 }
 
 describe("ProductionList", () => {
+    beforeEach(() => {
+        resetReleaseLinkCache();
+        listCandidates.mockReset();
+        listCandidates.mockResolvedValue([]);
+    });
+
     afterEach(cleanup);
 
     it("shows the active runs by default and counts every status on its chip", () => {
@@ -191,6 +203,24 @@ describe("ProductionList", () => {
         expect(link.getAttribute("href")).toBe("/project/p1?section=manufacturing");
         fireEvent.click(link);
         expect(onOpen).not.toHaveBeenCalled();
+    });
+
+    it("links a row's release to its package in Release Studio, without opening the run", async () => {
+        listCandidates.mockResolvedValue([
+            { commit_sha: "abc1234", builds: [{ id: "b1", status: "succeeded", completed_at: "2026-10-01T00:00:00Z" }] },
+        ]);
+        const runs = [
+            makeRun({ id: "r1", job_number: "JOB-0101", release_tag: "v1.0", commit_sha: "abc1234" }),
+            makeRun({ id: "r2", job_number: "JOB-0102", release_tag: "v1.0", commit_sha: "abc1234" }),
+        ];
+        const { onOpen } = renderList({ runs });
+        const row = screen.getByText("JOB-0101").closest("[data-run-row]") as HTMLElement;
+        const link = within(row).getByRole("link", { name: /v1\.0/ });
+        await waitFor(() => expect(link.getAttribute("href")).toBe("/project/p1?section=release-studio&build=b1&stage=outputs"));
+        fireEvent.click(link);
+        expect(onOpen).not.toHaveBeenCalled();
+        // Rows of one project share a single lookup.
+        expect(listCandidates).toHaveBeenCalledTimes(1);
     });
 
     it("has no project link when the list is one project's", () => {
