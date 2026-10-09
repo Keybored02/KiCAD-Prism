@@ -226,3 +226,21 @@
     height: calc(100vh - 4rem - var(--app-chrome-offset));
   }
 }
+
+/* Visualizer insets (ecad-viewer): map Prism's tokens onto the inset theme.
+   Custom properties inherit into the viewer's shadow root, so these follow
+   light/dark with the rest of the app. */
+ecad-viewer {
+  --inset-bg: hsl(var(--card));
+  --inset-fg: hsl(var(--card-foreground));
+  --inset-muted: hsl(var(--muted-foreground));
+  --inset-muted-bg: hsl(var(--muted));
+  --inset-border: hsl(var(--border));
+  --inset-radius: var(--radius);
+  --inset-font: 'Inter Variable', sans-serif;
+  --inset-tip-bg: hsl(var(--popover-foreground));
+  --inset-tip-fg: hsl(var(--popover));
+  --inset-bottom-bg: hsl(var(--primary) / 0.14);
+  --inset-bottom-fg: hsl(var(--primary));
+  --inset-focus: hsl(var(--ring));
+}
