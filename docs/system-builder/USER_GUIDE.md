@@ -160,6 +160,10 @@ Modules, parts and subsystems come from the catalog at a revision. **Updates**
 chooses **Follow releases** (take each new released revision) or **Keep this
 revision**. An item that is not released yet is pinned to its current
 revision, with a warning, until one is released.
+Its **Revision** shows where it stands, for example `v2 · released · v3
+released · v4 in QA review`: the one you use, a newer release you could take,
+and a newer revision still in review. The diagram node says "v3 released"
+when a newer release exists.
 
 ### Exports
 
