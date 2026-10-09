@@ -114,7 +114,7 @@ def build(
                             if end["mates_instance_id"] and end["mates_port"] else None),
                   "part": harnesses_module.part_ref(end),
                   "pinCount": end["pin_count"], "pinMap": end["pin_map"], "bootMm": end["boot_mm"],
-                  "partPins": end["part_pins"]}
+                  "partPins": end["part_pins"], "contactPart": harnesses_module.contact_ref(end)}
                  for end in harness["ends"]],
         "wires": [{"id": wire["id"], "from": {"end": wire["from_end"], "pin": wire["from_pin"]},
                    "to": {"end": wire["to_end"], "pin": wire["to_pin"]}, "signal": wire["signal"],
@@ -122,6 +122,7 @@ def build(
                    "netFrom": sorted(wire["net_from"]), "netTo": sorted(wire["net_to"])}
                   for wire in sorted(harness["wires"], key=lambda w: w["id"])],
         "nodes": [dict(node) for node in harness["nodes"]],
+        "coverings": harnesses_module.covering_docs(harness),
     } for harness in sorted(store.list_harnesses(system_id), key=lambda h: h["id"])]
     mating = [
         {"instanceId": instance["id"], "portKey": port_key, "mode": record["mode"],
@@ -294,12 +295,20 @@ def _populate(store: SystemStore, change: Any, manifest: Manifest) -> None:
                 catalog_component_id=end.part.componentId if end.part else None,
                 catalog_revision_id=end.part.revisionId if end.part else None, part_pins=end.partPins,
                 part_summary=({k: getattr(end.part, k) or "" for k in harnesses_module.PART_SUMMARY}
-                              if end.part else None))
+                              if end.part else None),
+                contact_component_id=end.contactPart.componentId if end.contactPart else None,
+                contact_revision_id=end.contactPart.revisionId if end.contactPart else None,
+                contact_summary=({k: getattr(end.contactPart, k) or "" for k in harnesses_module.PART_SUMMARY}
+                                 if end.contactPart else None))
         store.replace_wires(change, harness.id, [
             {"id": w.id, "from": {"end": w.source.end, "pin": w.source.pin},
              "to": {"end": w.target.end, "pin": w.target.pin}, "signal": w.signal, "gaugeAwg": w.gaugeAwg,
              "colour": w.colour, "label": w.label, "netFrom": w.netFrom, "netTo": w.netTo}
             for w in harness.wires], keep_new_ids=True)
+        if harness.coverings:  # §26.1
+            store.set_coverings(change, harness.id, [
+                {"segmentId": c.segmentId, "part": c.part.model_dump() if c.part else None, "description": c.description}
+                for c in harness.coverings])
         if harness.nodes:  # list order is chain and waypoint order (§17.9)
             store.replace_nodes(change, harness.id, [
                 {"id": n.id, "kind": n.kind, "positionMm": n.positionMm, "pinned": n.pinned, "ends": n.ends,

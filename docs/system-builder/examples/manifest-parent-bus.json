@@ -105,7 +105,8 @@
             "2",
             "3",
             "4"
-          ]
+          ],
+          "contactPart": null
         },
         {
           "id": "she_cd3dc8b6cffb41e4163dcbd857ca87da",
@@ -127,7 +128,8 @@
           "pinCount": 4,
           "pinMap": null,
           "bootMm": 12.0,
-          "partPins": null
+          "partPins": null,
+          "contactPart": null
         },
         {
           "id": "she_68a9e49bbc88c02083a062a78ab3bf30",
@@ -154,7 +156,8 @@
             "4": "4"
           },
           "bootMm": null,
-          "partPins": null
+          "partPins": null,
+          "contactPart": null
         }
       ],
       "wires": [
@@ -262,7 +265,8 @@
         }
       ],
       "cutLengthMm": null,
-      "serviceAllowancePct": 10.0
+      "serviceAllowancePct": 10.0,
+      "coverings": []
     }
   ],
   "mating": [],

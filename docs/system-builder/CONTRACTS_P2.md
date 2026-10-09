@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.75 · 2026-10-09 · tickets SB2-00 to SB2-109.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.76 · 2026-10-09 · tickets SB2-00 to SB2-110.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -951,6 +951,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.76 | 2026-10-09 | SB2-110: harness manufacturing outputs (§26). A contact part per end and coverings per segment (migration 54, manifest `contactPart`/`coverings`); per harness a layout drawing (SVG, PDF), a wiring list and a BOM (CSV) and a WireViz YAML. |
 | P2-1.75 | 2026-10-09 | SB2-109 (D-P2-59): the system STEP export (§25), an OCCT (cadquery-ocp) XCAF assembly of board STEPs from `kicad-cli` and catalog STEPs at their 3D-view poses, run as `system_step_export`; board STEPs cached per commit. |
 | P2-1.74 | 2026-10-09 | SB2-108 (D-P2-58): mechanical parts (§24.1), instance kind `part` from catalog parts with a model; the collision check (§24.2), mesh intersection with python-fcl run as `system_collision_check`, SYS-V22 `part_collision`; migration 52. |
 | P2-1.73 | 2026-10-09 | SB2-106 (D-P2-57): net rename proposals (§23): one per net on one board; migration 51; applied by the board's next commit with no review when the rename is the only change; `GET /api/systems/by-project/{projectId}` and its renames CSV for the board page's **Used in** panel; a Renames sheet in the report. SYS-V09 runs on every system; `optionalRules` is kept but has no effect. |
@@ -1542,4 +1543,41 @@ Prism never edits a board. When two boards name one signal differently, a system
   - `GET …/step/file` downloads `<system name>-v<version>.step` once it is ready. An export made at an older version stays downloadable until the next one starts; its `version` says which version it shows.
 - **Storage.** `system_step_exports` (migration 53, no foreign key, deleted with the system) holds the latest export per system. The file sits in `<semantic store>/../system-step/systems/<system id>.step`.
 - **UI.** The 3D view's toolbar gets **Export STEP**: running, then a download.
+
+## 26. Harness manufacturing outputs (SB2-110)
+
+### 26.1 Model additions
+
+- **Contact part per end.** `PATCH …/harnesses/{hid}/ends/{eid}` takes `contact: {componentId} | null`. The contact must be an active catalog `part`; it needs no pins. Every wired cavity of that end takes one. The part's current revision and `{name, mpn, manufacturer}` are kept, as for the block part (§17.3, SB2-18). Documents show it as `ends[].contact`, shaped like `part`.
+- **Coverings per segment.** `PUT …/harnesses/{hid}/coverings` (designer, If-Match) replaces the list `[{segmentId, componentId?, description}]` and returns the harness document.
+  - `segmentId` is a route segment (§17.7, `"<from>~<to>"`) or `"*"`, the whole bundle.
+  - A covering has a catalog part, a description (≤ 200 characters, e.g. "PET braid 6 mm"), or both. At most 64 per harness.
+  - A covering whose segment is not in the current route stays stored and is listed as `unrouted`.
+  - Documents show `coverings[]` as `{segmentId, part, description}`. Audited as `harness_updated` with `coverings`.
+- **Wire labels** are the existing `label` (§17.2).
+- **Segments.** The live document's `lengths` gains `segments: [{id, from, to, lengthMm, wires}]` (0.1 mm). They are the routed segments the coverings name.
+- **Storage (migration 54).** `system_harness_ends.contact_component_id`, `contact_revision_id`, `contact_summary`; `system_harnesses.coverings JSONB NOT NULL DEFAULT '[]'`.
+- **Manifest.** `HarnessEnd.contactPart` (a `PartRef`) and `Harness.coverings`, each omitted while null or empty, so older digests do not change.
+
+### 26.2 Outputs
+
+`GET …/harnesses/{hid}/outputs/{name}` (viewer), with `name` one of `drawing.svg`, `drawing.pdf`, `wiring.csv`, `bom.csv` or `wireviz.yaml`. The download is named `<harness name>-v<version>-<name>`. A harness with an end on a board the reader cannot see is 404, as for edits. All outputs read the live document at its version.
+
+- **Ends** are named by what they mate, `HPDRM J4` (the instance label and connector reference), or `End N` when unmated. A cavity is an end pin.
+- **Cut length** of a wire is its estimated length (§17.10, allowance included), rounded up to the next whole millimetre. While the harness has no route, or the wire is unplaced, it is the harness's `cutLengthMm` when set, else empty.
+- **Wiring list (CSV).** One row per wire, ordered by from end, cavity, to end, cavity. Columns: `wire`, `label`, `from_end`, `from_cavity`, `from_net`, `to_end`, `to_cavity`, `to_net`, `signal`, `gauge_awg`, `colour`, `cut_length_mm`. `wire` is `W1…` in that order.
+- **BOM (CSV).** Columns: `item`, `kind`, `mpn`, `manufacturer`, `description`, `qty`, `unit`, `where`. Rows:
+  - **housing:** one per end with a block part;
+  - **contact:** one per contact part, quantity = the wired cavities of the ends that use it;
+  - **wire:** one per (gauge, colour), quantity = Σ cut lengths in metres, rounded up to 0.01 m;
+  - **splice:** one per end pin that carries more than one wire, unit `each`;
+  - **covering:** one per covering, quantity = its segment's length in metres (the bundle's for `"*"`), rounded up to 0.01 m;
+  - **label:** quantity = wires with a label.
+  - An end with no block part is listed as a `housing` row with an empty MPN and description "Generic N-way (no part)", so the gap is visible.
+- **Layout drawing (SVG; PDF rendered from it).** The route tree flattened:
+  - End legs fan out from their breakout and each breakout chain runs left to right. Segments are drawn as lines labelled with their length and covering.
+  - Each end has a connector box with its name, block MPN and contact MPN, and a cavity table (cavity, signal, wire, gauge, colour).
+  - A title block gives the harness name, system name and version, the estimated bundle length and the date.
+  - Without a route, the ends are drawn in a row with no lengths.
+- **WireViz YAML.** One `connectors` entry per end (`type` = block MPN or `Generic`, `subtype` = contact MPN, `pincount`, `pinlabels` = signals). One `cables` entry per end pair carrying wires (`wirecount`, `gauge` in AWG, `colors` as WireViz codes when the colour is one, `length` = the longest cut length in m). One `connections` entry per wire. It renders with WireViz 0.4.
 

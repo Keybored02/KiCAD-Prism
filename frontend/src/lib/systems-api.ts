@@ -641,10 +641,26 @@ export function updateHarnessEnd(
     mates?: { instanceId: string; portKey: string } | null; pinMap?: Record<string, string> | null; bootMm?: number | null;
     /** A catalog part for the mating block, or null for Generic (CONTRACTS_P2 §17.2). */
     part?: { componentId: string } | null;
+    /** SB2-110 (§26.1): the end's crimp contact, or null for none. */
+    contact?: { componentId: string } | null;
   },
 ) {
   return versioned<SystemHarness>(path(systemId, "harnesses", harnessId, "ends", endId),
     { method: "PATCH", etag, body: json(fields) }, "Could not update the end");
+}
+
+/** SB2-110 (§26.1): replace a harness's coverings. */
+export function setHarnessCoverings(systemId: string, etag: string, harnessId: string,
+  coverings: { segmentId: string; componentId?: string | null; description: string }[]) {
+  return versioned<SystemHarness>(path(systemId, "harnesses", harnessId, "coverings"),
+    { method: "PUT", etag, body: json(coverings) }, "Could not save the coverings");
+}
+
+export const HARNESS_OUTPUTS = ["drawing.svg", "drawing.pdf", "wiring.csv", "bom.csv", "wireviz.yaml"] as const;
+
+/** SB2-110 (§26.2): a harness's manufacturing output as a download. */
+export function harnessOutputUrl(systemId: string, harnessId: string, name: (typeof HARNESS_OUTPUTS)[number]): string {
+  return `${path(systemId, "harnesses", harnessId, "outputs")}/${name}`;
 }
 
 export function deleteHarnessEnd(systemId: string, etag: string, harnessId: string, endId: string) {

@@ -695,7 +695,8 @@ def _rounded_lengths(lengths: Mapping[str, Any]) -> dict:
     return {"bundleMm": round(lengths["bundleMm"], 1), "estimatedMm": round(lengths["estimatedMm"], 1),
             "allowancePct": round(lengths["allowancePct"], 2), "complete": lengths["complete"],
             "wires": {wire: {"lengthMm": round(v["lengthMm"], 1), "estimatedMm": round(v["estimatedMm"], 1)}
-                      for wire, v in sorted(lengths["wires"].items())}}
+                      for wire, v in sorted(lengths["wires"].items())},
+            "segments": [{**segment, "lengthMm": round(segment["lengthMm"], 1)} for segment in lengths.get("segments") or []]}
 
 
 def _digest(value: Any) -> str:

@@ -29,6 +29,21 @@ def part_ref(end: Mapping[str, Any]) -> Optional[dict]:
             **{k: summary.get(k) for k in PART_SUMMARY}}
 
 
+def contact_ref(end: Mapping[str, Any]) -> Optional[dict]:
+    """The end's contact part (§26.1), shaped like ``part_ref``."""
+    if not end.get("contact_component_id"):
+        return None
+    summary = end.get("contact_summary") or {}
+    return {"componentId": end["contact_component_id"], "revisionId": end["contact_revision_id"],
+            **{k: summary.get(k) for k in PART_SUMMARY}}
+
+
+def covering_docs(harness: Mapping[str, Any]) -> list[dict]:
+    """The harness's coverings (§26.1) as documents show them."""
+    return [{"segmentId": c["segmentId"], "part": c.get("part"), "description": c.get("description") or ""}
+            for c in harness.get("coverings") or []]
+
+
 def end_pins(end: Mapping[str, Any], component: Component) -> list[str]:
     """The end's pin names, natural order: the assigned part's pins (SB2-18), else the connector's pads."""
     if end.get("part_pins") is not None:

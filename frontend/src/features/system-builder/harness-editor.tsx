@@ -24,9 +24,7 @@ import {
   harnessToLink,
   replaceWires,
   updateHarness,
-  searchCatalogParts,
   updateHarnessEnd,
-  type CatalogPartSummary,
   type EndSuggestions,
   type WireInput,
 } from "@/lib/systems-api";
@@ -37,6 +35,8 @@ import { FindingsAlert } from "./findings-ui";
 import { comparePads } from "./pads";
 import type { Mutate } from "./use-system-mutation";
 import { useDraftGuard } from "./draft-guard";
+import { HarnessOutputsSection } from "./harness-outputs-section";
+import { PartDialog, partText } from "./harness-part-dialog";
 
 /** A wire being edited: `key` is stable across edits; `id` is kept for existing wires. */
 export interface DraftWire extends WireInput {
@@ -118,65 +118,6 @@ interface HarnessEditorProps {
   onConverted: (linkId: string) => void;
 }
 
-function partText(part: { name?: string | null; mpn?: string | null; manufacturer?: string | null }): string {
-  return part.mpn ? [part.mpn, part.manufacturer].filter(Boolean).join(" · ") : part.name ?? "";
-}
-
-/** Pick a catalog part for an end's mating block: the connector's known partners first, or any part by search. */
-function PartDialog({ end, suggestions, busy, onClose, onPick }: {
-  end: HarnessEnd; suggestions: CatalogPartSummary[]; busy: boolean; onClose: () => void;
-  onPick: (part: CatalogPartSummary) => Promise<unknown>;
-}) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<{ query: string; items: CatalogPartSummary[] }>({ query: "", items: [] });
-  const text = query.trim();
-  useEffect(() => {
-    if (text.length < 2) return undefined;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      searchCatalogParts(text, controller.signal)
-        .then((items) => setResults({ query: text, items }))
-        .catch(() => undefined);
-    }, 200);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [text]);
-  const found = text.length >= 2 && results.query === text ? results.items : [];
-  const pick = async (part: CatalogPartSummary) => {
-    await onPick(part);
-    onClose();
-  };
-  const row = (part: CatalogPartSummary) => (
-    <li key={part.componentId} className="flex items-center gap-3 px-3 py-2 text-sm">
-      <span className="min-w-0 flex-1 truncate">{partText(part)}</span>
-      <Button size="sm" variant="outline" disabled={busy || part.componentId === end.part?.componentId}
-        aria-label={`Use ${part.mpn || part.name}`} onClick={() => void pick(part)}>Use</Button>
-    </li>
-  );
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{endLabel(end)} mating part</DialogTitle>
-          <DialogDescription>The part's pins become the end's pins. Map them onto the connector's pads where the names differ.</DialogDescription>
-        </DialogHeader>
-        {suggestions.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground">Mates with the connector</p>
-            <ul className="divide-y border" data-testid="part-suggestions">{suggestions.map(row)}</ul>
-          </div>
-        )}
-        <Input aria-label="Find a catalog part" placeholder="Find a part by MPN or name" value={query}
-          onChange={(event) => setQuery(event.target.value)} />
-        {found.length > 0 && <ul className="divide-y border">{found.map(row)}</ul>}
-        <DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button></DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 /**
  * An end's mating block: Generic or a catalog part (§17.2), with the catalog partners of the mated
  * connector as suggestions (§18). A part is only assigned when the user picks one.
@@ -185,7 +126,7 @@ function MatingBlock({ systemId, harnessId, end, etag, editable, busy, run }: {
   systemId: string; harnessId: string; end: HarnessEnd; etag: string; editable: boolean; busy: boolean; run: Mutate;
 }) {
   const [state, setState] = useState<{ key: string; body: EndSuggestions | null } | null>(null);
-  const [picking, setPicking] = useState(false);
+  const [picking, setPicking] = useState<"part" | "contact" | null>(null);
   const key = `${end.id}:${etag}`;
   const lookup = Boolean(end.mates && !end.mates.redacted);
   useEffect(() => {
@@ -205,6 +146,8 @@ function MatingBlock({ systemId, harnessId, end, etag, editable, busy, run }: {
     : body.connectorPart ? `No mating part recorded for ${body.connectorPart.mpn}` : null;
   const assign = (part: { componentId: string } | null, done: string) =>
     run("harness", () => updateHarnessEnd(systemId, etag, harnessId, end.id, { part }), done);
+  const setContact = (contact: { componentId: string } | null, done: string) =>
+    run("harness", () => updateHarnessEnd(systemId, etag, harnessId, end.id, { contact }), done);
   return (
     <>
       <span data-testid="mating-block">
@@ -213,7 +156,7 @@ function MatingBlock({ systemId, harnessId, end, etag, editable, busy, run }: {
       {hint && <span className="block text-xs text-muted-foreground" data-testid="end-suggestion">{hint}</span>}
       {editable && (
         <span className="mt-1 flex flex-wrap gap-x-2 text-xs">
-          <button type="button" className="whitespace-nowrap underline-offset-2 hover:underline" disabled={busy} onClick={() => setPicking(true)}>
+          <button type="button" className="whitespace-nowrap underline-offset-2 hover:underline" disabled={busy} onClick={() => setPicking("part")}>
             {end.part ? "Change part" : "Choose part"}
           </button>
           {end.part && (
@@ -222,9 +165,29 @@ function MatingBlock({ systemId, harnessId, end, etag, editable, busy, run }: {
           )}
         </span>
       )}
-      {picking && (
-        <PartDialog end={end} suggestions={suggestions} busy={busy} onClose={() => setPicking(false)}
+      {(end.contact || editable) && (
+        <span className="mt-1 flex flex-wrap items-center gap-x-2 text-xs" data-testid="end-contact">
+          <span className="truncate text-muted-foreground">Contact {end.contact ? partText(end.contact) : "—"}</span>
+          {editable && (
+            <button type="button" className="whitespace-nowrap underline-offset-2 hover:underline" disabled={busy}
+              onClick={() => setPicking("contact")}>{end.contact ? "Change" : "Choose"}</button>
+          )}
+          {editable && end.contact && (
+            <button type="button" className="whitespace-nowrap underline-offset-2 hover:underline" disabled={busy}
+              onClick={() => void setContact(null, "Contact removed")}>Clear</button>
+          )}
+        </span>
+      )}
+      {picking === "part" && (
+        <PartDialog title={`${endLabel(end)} mating part`} current={end.part?.componentId}
+          description="The part's pins become the end's pins. Map them onto the connector's pads where the names differ."
+          suggestions={suggestions} busy={busy} onClose={() => setPicking(null)}
           onPick={(part) => assign({ componentId: part.componentId }, `${part.mpn || part.name} assigned`)} />
+      )}
+      {picking === "contact" && (
+        <PartDialog title={`${endLabel(end)} contact`} current={end.contact?.componentId} busy={busy}
+          onClose={() => setPicking(null)}
+          onPick={(part) => setContact({ componentId: part.componentId }, `${part.mpn || part.name} contact set`)} />
       )}
     </>
   );
@@ -592,6 +555,8 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
           </div>
         )}
       </section>
+
+      <HarnessOutputsSection systemId={systemId} harness={harness} etag={etag} editable={editable} busy={isBusy} run={run} />
 
       {dialog === "details" && (
         <DetailsDialog harness={harness} busy={isBusy} onClose={() => setDialog(null)}

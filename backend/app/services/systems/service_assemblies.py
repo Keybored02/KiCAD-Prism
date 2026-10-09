@@ -554,7 +554,11 @@ class AssembliesMixin:
             if routed is None:
                 continue
             out[harness["id"]] = {
-                "lengths": harness_checks.lengths(routed, allowance.get(harness["id"])),
+                "lengths": {**harness_checks.lengths(routed, allowance.get(harness["id"])),
+                            # §26.1: the routed segments a covering names.
+                            "segments": [{"id": c["segmentId"], "from": c["from"], "to": c["to"],
+                                          "lengthMm": c["lengthMm"], "wires": list(c["wires"])}
+                                         for c in routed["curves"]]},
                 "collisions": harness_checks.collisions(routed, boards),
                 "tightBends": [{"segmentId": c["segmentId"], "radiusMm": c["tightBend"]["radiusMm"],
                                 "minRadiusMm": c["minRadiusAllowedMm"], "atMm": c["tightBend"]["atMm"]}

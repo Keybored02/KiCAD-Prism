@@ -48,6 +48,7 @@ from app.services.workspace_migrations import (
     m051_system_net_renames,
     m052_system_parts_collisions,
     m053_system_step_exports,
+    m054_system_harness_outputs,
 )
 from app.services.workspace_migrations.m026_system_builder import migrate
 from app.services.workspace_schema_migrations import MIGRATIONS
@@ -98,7 +99,7 @@ class StoreTest(unittest.TestCase):
                       m046_system_manifest_reviews, m047_system_bundle_frames,
                       m048_system_finding_waivers, m049_system_finding_counts, m050_system_subports,
                       m051_system_net_renames, m052_system_parts_collisions,
-                      m053_system_step_exports):
+                      m053_system_step_exports, m054_system_harness_outputs):
             later.migrate(self.conn)
         self.conn.commit()
         self.store = SystemStore(self.conn)
