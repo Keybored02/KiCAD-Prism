@@ -49,6 +49,8 @@ testers of unreleased behavior work from `dev`.
   selection, effective BOM data, and DNP visibility.
 - [PCB review tools](PROJECT_WORKFLOWS.md#pcb-labels-and-net-review) covers
   labels, multiple highlighted nets, and routing statistics.
+- [Insets](PROJECT_WORKFLOWS.md#insets) covers live PCB and schematic views
+  opened from a pin or pad, chained insets, and their keys.
 - [Live comments](architecture/live-comments.md) describes revision anchors,
   reconnect behavior, and transport rollback.
 - [Release Studio](release-studio/README.md) covers committed-revision

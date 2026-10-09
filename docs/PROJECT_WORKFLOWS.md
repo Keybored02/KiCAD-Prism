@@ -113,6 +113,44 @@ The PCB inspector also shows per-net routing statistics. Treat these as review
 measurements from the parsed board, not a replacement for KiCad DRC or routing
 sign-off.
 
+## Insets
+
+An inset shows a live view of the other document without leaving the one you are reading:
+hover a schematic pin to see the PCB around its footprint, or hover a PCB pad to see the
+schematic around its symbol. A dashed leader joins the pin or pad to its counterpart in the
+inset.
+
+- **Turn on inset mode** with `I` or the **Insets** button in the viewer controls rail. With
+  inset mode off, hold `Alt` (`⌥` on macOS) to peek; releasing it closes the peek.
+- **Hover** a pin or pad to open a preview, drawn with a dashed border. Moving away closes it,
+  unless the pointer is on the preview.
+- **Click** the pin or pad to pin its inset. Pinned insets stay until you close them.
+- **Hover a pin or pad inside an inset** to open the other document from there. Insets chain
+  (schematic → PCB → schematic …), and each chained inset names its parent in its header.
+  Closing an inset also closes the insets chained from it.
+- **Bottom-side** footprints open mirrored, with the back copper on top and a **BOT** badge.
+  Large parts, such as BGAs and FPGA symbols, open on the neighbourhood of the pin or pad
+  instead of the whole part.
+- **Insets follow the main view:** layer visibility, highlighted nets, the selection and the
+  design variant all appear in open insets.
+
+| Key | With the pointer over an inset |
+|---|---|
+| `R` / `⇧R` | Rotate +15° / −15° (`⇧` + wheel rotates freely) |
+| `M` | Mirror |
+| `L` | Lens (circular) shape |
+| `Home` | Refit |
+| `P` | Pin |
+| `X` | Close |
+| `Esc` | Close the preview, then all insets; the next `Esc` clears the selection |
+
+Drag an inset's header to move it, its corner to resize it, and its canvas to pan; the wheel
+zooms. At most eight insets stay open; opening another closes the least recently used one.
+Insets belong to their tab: switching tabs closes unpinned previews and keeps pinned insets.
+
+The PCB viewer loads the first time inset mode turns on, so the first PCB inset on a large
+board can take a moment to appear.
+
 ## Design variants
 
 A KiCad design can carry named assembly variants (for example a `Lite` and a
