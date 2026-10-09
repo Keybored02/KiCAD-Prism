@@ -45,6 +45,13 @@
   --ring: 221.2 83.2% 53.3%;
   --preview-surface: 0 0% 100%;
   --radius: 0.5rem;
+  /* System Builder kinds (D-P2-50): only for telling boards, modules, subsystems
+     and harnesses (and their links) apart; never for status. */
+  --kind-board: 221.2 83.2% 53.3%;
+  --kind-module: 262.1 83.3% 57.8%;
+  --kind-subsystem: 174.7 83.9% 31.6%;
+  --kind-harness: 32.1 94.6% 43.7%;
+  --kind-link: 215.4 16.3% 46.9%;
 }
 
 .dark {
@@ -76,6 +83,11 @@
      drawn over it has to come from `--foreground`, not from this token, which
      is why a preview's unit strip sits outside the frame rather than in it. */
   --preview-surface: 0 0% 100%;
+  --kind-board: 217.2 91.2% 59.8%;
+  --kind-module: 258.3 89.5% 66.3%;
+  --kind-subsystem: 172.5 66% 50.4%;
+  --kind-harness: 37.7 92.1% 50.2%;
+  --kind-link: 215 20.2% 65.1%;
 }
 
 @layer base {

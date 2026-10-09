@@ -1,0 +1,175 @@
+"""A PostgreSQL schema holding the SYS-01 fixture system at F0, for System Builder tests.
+
+``FixtureSystemCase`` builds the three fixture boards as Git repositories once
+per class, then gives every test an isolated schema with the workspace
+migrations applied and the fixture system loaded. Each instance tracks branch
+``track``; ``move_track`` simulates a fetch that moves it.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import tempfile
+import unittest
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+from types import SimpleNamespace
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # pragma: no cover - dependency guard for host-only checks
+    psycopg = None  # type: ignore[assignment]
+    dict_row = None  # type: ignore[assignment]
+
+from system_builder_fixtures import build_fixture_repo, fixture_system
+
+from app.services.systems.detection import Detector
+from app.services.systems.drift import pad_sort_key
+from app.services.systems.store import SystemStore
+
+POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip().replace(
+    "postgresql+psycopg://", "postgresql://", 1
+)
+BOARDS = {"mini_obc": "prj_obc", "mini_payload": "prj_pay", "mini_power": "prj_pwr"}
+
+
+@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for System Builder database tests")
+@unittest.skipUnless(psycopg is not None, "psycopg is required for System Builder database tests")
+class FixtureSystemCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._scratch = tempfile.TemporaryDirectory()
+        root = Path(cls._scratch.name)
+        cls.commits = {board: build_fixture_repo(board, root / board) for board in BOARDS}
+        cls.repos = {board: root / board for board in BOARDS}
+        cls.projects = {
+            project_id: SimpleNamespace(id=project_id, path=str(root / board),
+                                        project_file=f"{board}.kicad_pro")
+            for board, project_id in BOARDS.items()
+        }
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._scratch.cleanup()
+
+    def setUp(self) -> None:
+        from app.services.workspace_schema_migrations import apply_workspace_migrations
+
+        self.schema = f"system_detect_{uuid.uuid4().hex}"
+        self.conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
+        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
+        self.conn.execute(f'SET search_path TO "{self.schema}", public')
+        self.conn.execute(
+            """
+            CREATE TABLE ws_repositories (id TEXT PRIMARY KEY);
+            CREATE TABLE ws_folders (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT 'f',
+                parent_id TEXT, visibility_mode TEXT,
+                allowed_roles JSONB NOT NULL DEFAULT '[]'::jsonb);
+            CREATE TABLE ws_projects (id TEXT PRIMARY KEY,
+                repo_id TEXT NOT NULL REFERENCES ws_repositories(id),
+                name TEXT NOT NULL DEFAULT 'board', display_name TEXT,
+                folder_id TEXT REFERENCES ws_folders(id) ON DELETE SET NULL);
+            CREATE TABLE ws_project_portfolio (project_id TEXT PRIMARY KEY);
+            CREATE TABLE ws_jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL,
+                message TEXT NOT NULL DEFAULT '', percent REAL NOT NULL DEFAULT 0,
+                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+            INSERT INTO ws_repositories (id) VALUES ('repo_obc'), ('repo_pay'), ('repo_pwr');
+            INSERT INTO ws_projects (id, repo_id) VALUES
+                ('prj_obc', 'repo_obc'), ('prj_pay', 'repo_pay'), ('prj_pwr', 'repo_pwr');
+            """,
+            prepare=False,
+        )
+        apply_workspace_migrations(self.conn)
+        self.conn.commit()
+        schema = self.schema
+
+        @contextmanager
+        def connect():
+            conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
+            try:
+                conn.execute(f'SET search_path TO "{schema}", public')
+                yield conn
+            finally:
+                conn.close()
+
+        self.connect = connect
+        self.detector = Detector(connect=connect, project_loader=self.projects.get)
+        for board in BOARDS:
+            self.move_track(board, "F0")
+        self.store = SystemStore(self.conn)
+        self.sid, self.instances, self.links = self.load_fixture_system()
+
+    def tearDown(self) -> None:
+        self.conn.rollback()
+        self.conn.execute(f'DROP SCHEMA "{self.schema}" CASCADE')
+        self.conn.commit()
+        self.conn.close()
+
+    # ------------------------------------------------------------------ helpers
+
+    def move_track(self, board: str, snapshot: str) -> str:
+        sha = self.commits[board][snapshot]
+        subprocess.run(["git", "-C", str(self.repos[board]), "branch", "-f", "track", sha],
+                       check=True, capture_output=True)
+        return sha
+
+    def load_fixture_system(self):
+        system = fixture_system()
+        created = self.store.create_system(name="Fixture", folder_id=None, actor="user:t")
+        sid = created["id"]
+        instances, links = {}, {}
+        with self.store.mutation(sid, expected_version=None, actor="user:t") as change:
+            for label, spec in system["instances"].items():
+                row = self.store.add_instance(
+                    change, project_id=BOARDS[spec["board"]], label=label,
+                    baseline_commit=self.commits[spec["board"]][spec["baseline"]],
+                    tracked_ref="track", pinned=spec["pinned"],
+                )
+                instances[label] = row["id"]
+            for link in system["links"]:
+                ports = {end: {k: v for k, v in link[end].items() if k != "instance"} for end in "ab"}
+                made = self.store.create_link(
+                    change, a_instance_id=instances[link["a"]["instance"]], a_port=ports["a"],
+                    b_instance_id=instances[link["b"]["instance"]], b_port=ports["b"],
+                    name=link["id"], harness=link["harness"],
+                )
+                self.store.replace_rows(change, made["id"], link["rows"])
+                links[link["id"]] = made["id"]
+        self.conn.commit()
+        return sid, instances, links
+
+    def version(self) -> int:
+        self.conn.commit()
+        return self.store.get_system(self.sid)["version"]
+
+    def reviews(self, label: str, status: str | None = None) -> list[dict]:
+        self.conn.commit()
+        iid = self.instances[label]
+        return [r for r in self.store.list_reviews(self.sid, status=status) if r["instance_id"] == iid]
+
+    def events(self, kind: str) -> list[dict]:
+        self.conn.commit()
+        return [e for e in self.store.history(self.sid, limit=500) if e["kind"] == kind]
+
+    def comparable_items(self, review: dict) -> list[dict]:
+        link_names = {v: k for k, v in self.links.items()}
+        rows = {r["id"]: r for link in self.store.list_links(self.sid) for r in link["rows"]}
+        out = []
+        for item in review["items"]:
+            pins = sorted({rows[rid][f"pin_{item['link_end']}"] for rid in item["row_ids"]},
+                          key=pad_sort_key)
+            entry = {"kind": item["kind"], "link": link_names[item["link_id"]], "end": item["link_end"],
+                     "pins": pins}
+            if item["kind"] != "connector_missing":
+                entry["expected"], entry["observed"] = item["expected"], item["observed"]
+            out.append(entry)
+        return out
+
+    def golden_items(self, items: list[dict]) -> list[dict]:
+        return [{k: v for k, v in i.items() if k not in ("note", "candidates")} for i in items]
+

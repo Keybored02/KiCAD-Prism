@@ -78,9 +78,153 @@ def _import_proposal_draft_column(conn: Any) -> None:
     )
 
 
+def _component_kinds(conn: Any) -> None:
+    """System Builder P2 (CONTRACTS_P2 §3): ``part`` | ``module`` | ``assembly``.
+
+    Every existing component is a ``part``. Module and assembly revisions carry
+    their connector ``interface`` and (assemblies) the ``source_ref`` of the
+    system snapshot they were published from, both as JSON text like the rest
+    of the catalog's JSON columns.
+    """
+    conn.execute(
+        "ALTER TABLE components ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'part'"
+    )
+    conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'components_kind_check'
+            ) THEN
+                ALTER TABLE components
+                    ADD CONSTRAINT components_kind_check CHECK (kind IN ('part', 'module', 'assembly'));
+            END IF;
+        END $$
+        """
+    )
+    conn.execute(
+        "ALTER TABLE component_revisions ADD COLUMN IF NOT EXISTS interface_json TEXT NOT NULL DEFAULT '{}'"
+    )
+    conn.execute(
+        "ALTER TABLE component_revisions ADD COLUMN IF NOT EXISTS source_ref_json TEXT NOT NULL DEFAULT '{}'"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS components_kind_idx ON components (kind)")
+
+
+def _mates_with(conn: Any) -> None:
+    """System Builder P2 (CONTRACTS_P2 §18): parts that mate, stored once per pair with ``part_a < part_b``."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS catalog_mates_with (
+            part_a     TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+            part_b     TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+            created_by TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (part_a, part_b),
+            CHECK (part_a < part_b)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS catalog_mates_with_b_idx ON catalog_mates_with (part_b)")
+
+
+def _model_glb(conn: Any) -> None:
+    """System Builder P2 (CONTRACTS_P2 §18.2): GLBs converted from STEP models, and per-part model alignment.
+
+    A GLB is cached by ``key`` = sha256(STEP sha256 + converter), so it is shared by every part that
+    carries the same STEP and replaced only when the converter changes.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS catalog_model_glb (
+            key         TEXT PRIMARY KEY,
+            step_sha256 TEXT NOT NULL,
+            converter   TEXT NOT NULL,
+            glb_sha256  TEXT NOT NULL,
+            glb_path    TEXT NOT NULL,
+            bounds_json TEXT NOT NULL,
+            materials   INTEGER NOT NULL,
+            size_bytes  INTEGER NOT NULL,
+            created_at  TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS catalog_model_alignment (
+            component_id   TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+            asset_id       TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+            alignment_json TEXT NOT NULL,
+            updated_by     TEXT NOT NULL DEFAULT '',
+            updated_at     TEXT NOT NULL,
+            PRIMARY KEY (component_id, asset_id)
+        )
+        """
+    )
+
+
+def _agent_tokens_registry(conn: Any) -> None:
+    """Track issued KiCad agent sign-in tokens so they can be listed and revoked.
+
+    The token value is never stored; the jti is the handle the revocation list
+    keys on when a row is revoked from the web console.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_tokens (
+            jti TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            scopes TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            last_used_at TEXT,
+            revoked_at TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS agent_tokens_email_idx ON agent_tokens (email)"
+    )
+
+
+def _module_connectors(conn: Any) -> None:
+    """System Builder P2 (CONTRACTS_P2 §3.6): the connector part placed for each unit of a module's symbol.
+
+    Keyed by the unit's letter like model alignment is keyed by asset: a placement belongs to the
+    component, not to a revision.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS catalog_module_connectors (
+            component_id   TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+            unit_key       TEXT NOT NULL,
+            part_id        TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+            placement_json TEXT NOT NULL,
+            updated_by     TEXT NOT NULL DEFAULT '',
+            updated_at     TEXT NOT NULL,
+            PRIMARY KEY (component_id, unit_key)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS catalog_module_connectors_part_idx ON catalog_module_connectors (part_id)")
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "portable_column_types", _portable_column_types),
     (2, "import_proposal_draft_column", _import_proposal_draft_column),
+    (3, "component_kinds", _component_kinds),
+    (4, "mates_with", _mates_with),
+    (5, "model_glb", _model_glb),
+    (6, "agent_tokens_registry", _agent_tokens_registry),
+    (7, "module_connectors", _module_connectors),
+)
+
+# Migrations that a long-lived branch database recorded under an earlier number.
+# The ledger keys on version, so without this the old row would hide another
+# migration's version and the new one would fail on the unique name.
+RENUMBERED: tuple[tuple[str, int, int], ...] = (
+    ("agent_tokens_registry", 3, 6),
 )
 
 
@@ -114,6 +258,11 @@ def apply_catalog_migrations(conn: Any) -> None:
         )
         """
     )
+    for name, old_version, new_version in RENUMBERED:
+        conn.execute(
+            "UPDATE catalog_schema_versions SET version = %s WHERE version = %s AND name = %s",
+            (new_version, old_version, name),
+        )
     applied = {
         int(row["version"])
         for row in conn.execute("SELECT version FROM catalog_schema_versions").fetchall()
@@ -152,9 +301,10 @@ def pending_catalog_migrations(conn: Any) -> list[tuple[int, str]]:
     ).fetchone()
     applied: set[int] = set()
     if existing and existing["relation"]:
+        renumbered = {(old, name): new for name, old, new in RENUMBERED}
         applied = {
-            int(row["version"])
-            for row in conn.execute("SELECT version FROM catalog_schema_versions").fetchall()
+            renumbered.get((int(row["version"]), str(row["name"])), int(row["version"]))
+            for row in conn.execute("SELECT version, name FROM catalog_schema_versions").fetchall()
         }
     if not applied:
         applied |= _adopt_legacy_markers(conn)

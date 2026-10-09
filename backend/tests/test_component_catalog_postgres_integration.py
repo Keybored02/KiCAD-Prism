@@ -92,11 +92,11 @@ FIXTURE_FOOTPRINT_PREVIEW_FINGERPRINT = _fixture_preview_identity("footprint")[
 COMPONENT_PAYLOAD_KEYS = (
     "id", "slug", "external_source", "external_id", "external_workflow_source",
     "external_workflow_id", "external_workflow_url", "external_url", "external_payload",
-    "external_updated_at", "sync_status", "sync_error", "source", "identity_kind", "name",
+    "external_updated_at", "sync_status", "sync_error", "source", "identity_kind", "kind", "name",
     "value", "manufacturer", "mpn", "description", "package_name", "category",
     "datasheet_url", "vendor", "vendor_part_number", "mass_g", "rqjc_c_w",
     "rqjc_top_c_w", "temp_max_c", "temp_min_c", "power_dissipation_w", "rate",
-    "sap_code", "keywords", "extra_fields", "availability_state", "missing_assets",
+    "sap_code", "keywords", "extra_fields", "interface", "source_ref", "availability_state", "missing_assets",
     "place_enabled", "local_inventory", "stock_known", "stock_quantity", "stock_uom",
     "inventory_status", "supply", "serial_number", "lot_number", "pedigree",
     "last_synced_at", "is_active", "revision_id", "revision", "version",
@@ -866,7 +866,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(
             _contract_digest(imported_symbol),
-            "93e52eb5141723ec2a987ae9de938907923747cf1918a8e8528b69d6982e35e0",
+            "6c3b17c9d7a8a64543946db5617816f4b7aec3cef86956571e440f7ad4583562",
             {
                 "preview_status": [item.get("status") for item in imported_symbol["previews"]],
                 "preview_paths": [
@@ -882,7 +882,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(tuple(imported_footprint), COMPONENT_PAYLOAD_KEYS)
         self.assertEqual(
             _contract_digest(imported_footprint),
-            "ae8eeb5b599f1a8135cff4228878960d1ed2d137db8b49127feea53d7e687820",
+            "02087755b225e854f98fecc4c564b9c02c00a0f46e47fd3e4a8e15ec64c4ba18",
         )
         with_model = self.service.attach_auxiliary_asset(
             component["id"],
@@ -938,7 +938,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(tuple(released), COMPONENT_PAYLOAD_KEYS)
         self.assertEqual(
             _contract_digest(released),
-            "ecb19c09822c12c5ed0ab9249f7e42c57dea9576154b871f1e4c4a6a03ba670f",
+            "367962ef16d37c090efb18ac9e37e286c55e276ce114e9a3ec2bf070fe0b1c45",
         )
         self.assertEqual(released["identity_kind"], "mpn")
         self.assertEqual(released["mpn"], component["mpn"])

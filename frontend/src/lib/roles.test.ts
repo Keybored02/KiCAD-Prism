@@ -17,7 +17,7 @@ describe("role authorities", () => {
   });
 
   it("matches the catalog read, write, and QA role sets", () => {
-    expect(canOpenLibraryManager("viewer")).toBe(false);
+    expect(canOpenLibraryManager("viewer")).toBe(true); // D-P2-24: viewers browse the catalog
     expect(canOpenLibraryManager("designer")).toBe(true);
     expect(canOpenLibraryManager("qa")).toBe(true);
     expect(canOpenLibraryManager("admin")).toBe(true);

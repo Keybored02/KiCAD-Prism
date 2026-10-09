@@ -58,6 +58,9 @@ testers of unreleased behavior work from `dev`.
 
 ## Contributor references
 
+- [System Builder](system-builder/README.md) is in development: multi-board
+  systems whose interface control documents track revisioned KiCad sources.
+
 - [Dependency identity](DEPENDENCIES.md) covers Python, JavaScript, and native pins.
 - [Experimental Rust PCB geometry](PCB_RUST_GEOMETRY.md) covers explicit
   opt-in, limitations, verification, and rollback.
