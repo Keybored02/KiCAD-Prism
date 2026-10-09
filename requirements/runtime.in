@@ -39,3 +39,5 @@ openpyxl>=3.1,<4
 # System Builder collision check: mesh intersection (CONTRACTS_P2 §24.2), on meshes trimesh loads.
 python-fcl>=0.7,<0.8
 trimesh>=4,<6
+# System Builder STEP export: an OCCT XCAF assembly of board and catalog STEPs (CONTRACTS_P2 §25, D-P2-59).
+cadquery-ocp-novtk>=7.9.3,<7.10
