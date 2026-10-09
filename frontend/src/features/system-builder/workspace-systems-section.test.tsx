@@ -32,13 +32,16 @@ describe("WorkspaceSystemsSection", () => {
     render(
       <MemoryRouter initialEntries={["/"]}>
         <Routes>
-          <Route path="/" element={<WorkspaceSystemsSection systems={[summary({ openReviewCount: 2 })]} showHeading />} />
+          <Route path="/" element={<WorkspaceSystemsSection systems={[summary({ openReviewCount: 2, description: "Flight boards" })]} showHeading />} />
           <Route path="/systems/:id" element={<p>system page</p>} />
         </Routes>
       </MemoryRouter>,
     );
     expect(screen.getByText("3 boards")).toBeTruthy();
-    expect(screen.getByText(/2 reviews/)).toBeTruthy();
+    expect(screen.getByTitle("Source changes waiting for review").textContent).toBe("2");
+    const card = screen.getByRole("link", { name: "Open system Flight stack" });
+    expect(card.getAttribute("title")).toBe("Flight boards"); // on hover, not in the card
+    expect(screen.queryByText("Flight boards")).toBeNull();
     fireEvent.click(screen.getByRole("link", { name: "Open system Flight stack" }));
     expect(screen.getByText("system page")).toBeTruthy();
   });
