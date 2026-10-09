@@ -258,6 +258,19 @@ class CatalogSystemItemsFacade:
             found = catalog_models.cached(conn, [key]).get(key)
         return Path(found["glb_path"]) if found else None
 
+    def model_step_path(self, glb_key: str) -> Path | None:
+        """The STEP a converted model came from (SB2-109): the system STEP export places the source."""
+        self._initialize()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT a.canonical_path FROM catalog_model_glb g JOIN assets a ON a.sha256 = g.step_sha256
+                WHERE g.key = %s ORDER BY a.id LIMIT 1
+                """,
+                (glb_key,),
+            ).fetchone()
+        return Path(str(row["canonical_path"])) if row else None
+
     def _step_asset(self, conn: Any, component_id: str, asset_id: str) -> dict[str, Any]:
         asset = next((a for a in catalog_models.step_assets(conn, component_id) if str(a["id"]) == asset_id), None)
         if asset is None:

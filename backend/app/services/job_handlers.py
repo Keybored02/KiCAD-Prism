@@ -78,6 +78,9 @@ def load_builtin_job_handlers() -> None:
     from app.services.systems.service_collisions import COLLISION_JOB_KIND, run_collision_job
 
     register_job_handler(COLLISION_JOB_KIND, run_collision_job)
+    from app.services.systems.service_step_export import STEP_JOB_KIND, run_step_job
+
+    register_job_handler(STEP_JOB_KIND, run_step_job)
     from app.services.trackers.jobs import register_tracker_job_handlers
 
     register_tracker_job_handlers(register_job_handler)

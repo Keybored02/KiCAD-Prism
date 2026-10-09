@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.74 · 2026-10-09 · tickets SB2-00 to SB2-107.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.75 · 2026-10-09 · tickets SB2-00 to SB2-109.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -951,6 +951,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.75 | 2026-10-09 | SB2-109 (D-P2-59): the system STEP export (§25), an OCCT (cadquery-ocp) XCAF assembly of board STEPs from `kicad-cli` and catalog STEPs at their 3D-view poses, run as `system_step_export`; board STEPs cached per commit. |
 | P2-1.74 | 2026-10-09 | SB2-108 (D-P2-58): mechanical parts (§24.1), instance kind `part` from catalog parts with a model; the collision check (§24.2), mesh intersection with python-fcl run as `system_collision_check`, SYS-V22 `part_collision`; migration 52. |
 | P2-1.73 | 2026-10-09 | SB2-106 (D-P2-57): net rename proposals (§23): one per net on one board; migration 51; applied by the board's next commit with no review when the rename is the only change; `GET /api/systems/by-project/{projectId}` and its renames CSV for the board page's **Used in** panel; a Renames sheet in the report. SYS-V09 runs on every system; `optionalRules` is kept but has no effect. |
 | P2-1.72 | 2026-10-09 | SB2-105 (D-P2-55): sub-ports (§22). Named pad sets carved out of a connector or subsystem export, usable as link ends and export targets; the remainder stays on the connector; carving re-homes rows (retarget or split links) in one audited change with a preview; `b2b` connectors cannot be split; SYS-V21 `subport_pad_absent`; migration 50; manifest `subports` and `subportId` omitted while empty. |
@@ -1521,3 +1522,24 @@ Prism never edits a board. When two boards name one signal differently, a system
     - `atMm` is a contact point in root coordinates;
     - `pairs` is up to 10 colliding object pairs `{a, b, atMm}`.
 - **3D.** **Show** on a V22 finding frames both occurrences and marks `atMm`. The view's toolbar gets **Check collisions**, which shows the check's state.
+
+## 25. STEP export (SB2-109, D-P2-59)
+
+- **What.** One AP214 STEP of the placed system for MCAD: every board, module and part at the pose the 3D view uses (§14.9, §20.1), at every depth.
+- **Product tree.** The root product is the system's name. Each occurrence is a component named by its label. A subsystem is a sub-assembly holding its own occurrences, so the tree follows the instance paths (`C&DH ▸ OBC-1`).
+  - A board is one product per `(project, commit)`, shared by every instance of it. A module or part is one product per catalog STEP.
+  - Names and colours from the sources are kept. Most MCAD tools list a component by its product's name (`JTYU-IN @ 28550e6`); the instance label is the component's own (NAUO) name.
+- **Boards.** `kicad-cli pcb export step --subst-models` runs on the board file in a `git archive` of the instance's baseline commit (§14.2).
+  - The STEP's x and y are the board frame. Its z is offset by the copper mid-plane, the same shift the 3D bundle's `bundleToBoard` applies (§20.1). That shift is used when the board's bundle is ready; otherwise the shift is half the placement box's thickness (§14.7).
+  - Each result is cached as `<semantic store>/../system-step/<project>/<commit>-<kicad-cli version>.step`. A commit never changes.
+  - Its own models are what the board's 3D tab shows. A model that `kicad-cli` cannot find is left out of that board and is not an error.
+- **Modules and parts.** The catalog STEP behind the model the 3D view draws (§18.2), under its alignment. The STEP is in millimetres, in the same axes as its GLB.
+- **Size.** No surface curves (pcurves) are written, so the file stays close to the sum of its sources.
+- **Not exported.** These are listed in the result's `skipped` as `{occurrence, label, reason}`: an occurrence the caller can't read (`restricted`); a board whose STEP export failed (`export_failed`, with `kicad-cli`'s last line); a module or part without a STEP (`no_model`). Harness tubes are not exported yet.
+- **Running.**
+  - `POST …/step` (viewer) queues `system_step_export` (pool `prism`, needs `kicad-cli`) and answers 202 `{jobId}`. The job is keyed per system and version, so a second request at the same version joins the running one.
+  - `GET …/step` returns `{state: none|running|ready|failed, version, createdAt, sizeBytes, skipped, jobId, error}` for the latest export.
+  - `GET …/step/file` downloads `<system name>-v<version>.step` once it is ready. An export made at an older version stays downloadable until the next one starts; its `version` says which version it shows.
+- **Storage.** `system_step_exports` (migration 53, no foreign key, deleted with the system) holds the latest export per system. The file sits in `<semantic store>/../system-step/systems/<system id>.step`.
+- **UI.** The 3D view's toolbar gets **Export STEP**: running, then a download.
+
