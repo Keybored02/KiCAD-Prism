@@ -474,6 +474,8 @@ class SystemApiTest(unittest.TestCase):
 
     def test_check_now_queues_detection_for_a_tracked_instance(self) -> None:
         sid, _etag, obc, pay = self.two_boards()
+        self.assertEqual(self.checks, [(obc, "prj_obc")])  # SB2-124: a tracked board is checked when added
+        self.checks.clear()
         self.assertEqual(self.call("POST", f"/{sid}/instances/{obc}/check", user="viewer").status, 403)
         queued = self.call("POST", f"/{sid}/instances/{obc}/check")
         self.assertEqual((queued.status, queued.json), (202, {"job_id": "check-job", "status": "queued"}))
