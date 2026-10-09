@@ -44,6 +44,24 @@ async def waive_finding(
     return _respond(result, response, status_code=201)
 
 
+class BatchWaiverRequest(BaseModel):
+    findingKeys: list[str] = Field(min_length=1, max_length=1000)
+    note: str = Field(min_length=1, max_length=2000)
+
+
+@router.post("/{system_id}/waivers/batch", dependencies=[Depends(require_designer)], status_code=201)
+async def waive_findings(
+    system_id: str, body: BatchWaiverRequest, request: Request, response: Response,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """SB2-113: several findings waived with one note, in one version."""
+    version = _expected_version(request, system_id)
+    result = await _run(system_id, lambda: system_service.service.waive_findings(
+        _caller(user), system_id, version, body.findingKeys, body.note,
+    ))
+    return _respond(result, response, status_code=201)
+
+
 @router.delete("/{system_id}/waivers/{waiver_id}", dependencies=[Depends(require_designer)])
 async def unwaive_finding(system_id: str, waiver_id: str, request: Request, user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
