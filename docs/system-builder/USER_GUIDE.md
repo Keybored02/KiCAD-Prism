@@ -82,10 +82,13 @@ identity never changes) or **Remove export**.
 ## Add boards
 
 **Add → Board** asks for a project, a label and where the baseline comes
-from:
+from; **Another board** adds more rows, and all are added in one go. A board
+the server refuses stays in the dialog with the reason, and the others are
+added:
 
 - **Track a branch** (usual): the baseline starts at the branch tip, and later
-  pushes are checked automatically.
+  pushes are checked automatically. The branch is checked as soon as the board
+  is added.
 - **Fixed commit**: the baseline is the commit you enter. You can still set a
   tracked branch afterwards.
 
