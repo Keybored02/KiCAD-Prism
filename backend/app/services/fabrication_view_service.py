@@ -74,6 +74,11 @@ _MASK_ON = "#ffffff"
 _MASK_OFF = "#000000"
 _MASK_ID = "layer"
 
+#: Bump whenever `svg()` draws differently. Layer URLs carry it, so a browser that
+#: holds a year-long cached SVG from an older drawing fetches the new one instead
+#: of stacking stale artwork (an opaque black layer once hid everything under it).
+RENDER_VERSION = 2
+
 #: A drawn line is never thinner than this on screen. A 0.1 mm silkscreen or outline
 #: line is a fraction of a pixel when the whole board is in view, and anti-aliasing
 #: then dims it well below its layer colour. 1.5 px always leaves at least three
@@ -405,6 +410,7 @@ class FabricationPackage:
         copper = [info for info in self.infos if info.role == "copper"]
         return {
             "present": True,
+            "renderVersion": RENDER_VERSION,
             "bounds": list(self._bounds) if self._bounds else None,
             "board": board,
             "size": (

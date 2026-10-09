@@ -237,6 +237,14 @@ class ColourTests(unittest.TestCase):
         self.assertEqual(self.colours["f.fab"], "#afafaf")
 
 
+class RenderVersionTests(unittest.TestCase):
+    def test_the_view_names_the_rendering_its_layer_urls_carry(self) -> None:
+        from app.services.fabrication_view_service import RENDER_VERSION
+
+        view = FabricationPackage.from_files(package_files()).view()
+        self.assertEqual(view["renderVersion"], RENDER_VERSION)
+
+
 class OpaqueLayerTests(unittest.TestCase):
     """A layer is its colour, fully opaque, where plotted and transparent elsewhere."""
 

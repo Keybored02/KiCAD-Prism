@@ -47,7 +47,7 @@ function LoadedViewer({ source, view, focusFile }: {
         [highlighted, view.layers, shown, state.side],
     );
     const paintedIds = useMemo(() => painted.map((layer) => layer.id), [painted]);
-    const images = useLayerImages(source, paintedIds);
+    const images = useLayerImages(source, paintedIds, view.renderVersion);
 
     const drawn = view.bounds ? toRect(view.bounds) : null;
     const fitted = view.board ? toRect(view.board) : drawn;

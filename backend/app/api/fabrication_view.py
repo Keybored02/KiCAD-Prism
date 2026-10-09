@@ -32,6 +32,7 @@ from app.services.fabrication_view_service import (
     BoundedCache,
     FabricationPackage,
     FabricationViewError,
+    RENDER_VERSION,
 )
 from app.services.placement_service import PlacementError, parse_bom, parse_positions
 from app.services.placement_service import build_view as build_placement_view
@@ -176,7 +177,7 @@ def get_fabrication_layer(
         media_type="image/svg+xml",
         headers={
             "Cache-Control": "private, max-age=31536000, immutable",
-            "ETag": f'"{build_id}-{layer_id}"',
+            "ETag": f'"{build_id}-{layer_id}-r{RENDER_VERSION}"',
             **_SVG_HEADERS,
         },
     )

@@ -75,9 +75,15 @@ function imagesReducer(
  * Layer SVGs, fetched the first time a layer is shown and kept after it is
  * hidden again. Object URLs are revoked when the viewer goes away.
  */
+/** A layer URL that changes whenever the backend draws layers differently. */
+export function withVersion(url: string, version: number): string {
+    return `${url}${url.includes("?") ? "&" : "?"}r=${version}`;
+}
+
 export function useLayerImages(
     source: FabricationSource,
     visibleIds: readonly string[],
+    renderVersion: number,
 ): Record<string, LayerImage> {
     const [images, dispatch] = useReducer(imagesReducer, {});
     const requested = useRef(new Set<string>());
@@ -92,7 +98,7 @@ export function useLayerImages(
             dispatch({ type: "loading", id });
             // The dispatch is this hook's own reducer, not a callback into a parent.
             // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
-            fetchLayerObjectUrl(source.layerUrl(id))
+            fetchLayerObjectUrl(withVersion(source.layerUrl(id), renderVersion))
                 .then((url) => {
                     if (closed.current) {
                         URL.revokeObjectURL(url);
@@ -105,7 +111,7 @@ export function useLayerImages(
                     if (!closed.current) dispatch({ type: "error", id, message: messageOf(cause) });
                 });
         }
-    }, [visibleIds, source]);
+    }, [visibleIds, source, renderVersion]);
 
     useEffect(() => {
         closed.current = false;

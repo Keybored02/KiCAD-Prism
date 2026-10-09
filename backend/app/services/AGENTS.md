@@ -118,6 +118,11 @@ Rules that are easy to break:
   The plot is drawn white-on-black as a mask and the layer colour is filled through
   it, so Gerber's clear polarity cuts the layer's own artwork without touching the
   layers behind it. The viewer stacks the layers; nothing is blended.
+- **Bump `RENDER_VERSION` whenever `svg()` draws differently.** Build layers are
+  cached by the browser for a year as immutable, and the viewer puts the version in
+  every layer URL. Without the bump, a browser keeps the old drawing: after the
+  switch to opaque stacking, cached SVGs with a black background hid every layer
+  under the last one painted.
 - **A drawn line is at least 1.5 screen pixels wide.** `with_minimum_stroke` adds a
   `width` media-query ladder to each layer SVG: an image SVG evaluates those against
   its own rendered width, so the SVG can size its minimum line to the zoom without

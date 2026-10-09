@@ -24,6 +24,8 @@ export interface DrillTool {
 
 export interface FabricationView {
     present: boolean;
+    /** How the backend draws layers; part of every layer URL so a new drawing is never served from cache. */
+    renderVersion: number;
     /** Everything drawn, [minX, minY, maxX, maxY] in board millimetres. */
     bounds: [number, number, number, number] | null;
     /** The board profile, or the drawn extent when the package has none. */

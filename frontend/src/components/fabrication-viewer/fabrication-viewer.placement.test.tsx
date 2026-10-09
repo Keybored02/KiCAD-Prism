@@ -24,6 +24,7 @@ const layer = (id: string, role: string, side: string) => ({
 
 const VIEW = {
     present: true,
+    renderVersion: 2,
     bounds: [0, -10, 20, 0],
     board: [0, -10, 20, 0],
     size: { width: 20, height: 10 },

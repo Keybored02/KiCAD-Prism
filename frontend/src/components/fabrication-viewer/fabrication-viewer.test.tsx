@@ -31,6 +31,7 @@ function layer(partial: Partial<FabricationLayer> & Pick<FabricationLayer, "id" 
 
 const VIEW: FabricationView = {
     present: true,
+    renderVersion: 2,
     bounds: [0, -10, 20, 0],
     board: [0, -10, 20, 0],
     size: { width: 20, height: 10 },
@@ -59,7 +60,7 @@ const SOURCE = buildSource("p1", "b1");
 /** Layer ids the viewer has asked the API for, in order. */
 function requestedLayers(): string[] {
     return apiMock.fetchApi.mock.calls.map(([url]) =>
-        String(url).split("/layers/")[1].replace(".svg", ""),
+        String(url).split("/layers/")[1].replace(/\.svg.*$/, ""),
     );
 }
 
@@ -193,6 +194,14 @@ describe("FabricationViewer", () => {
         expect(flipped()).toBeInTheDocument();
         expect(boardSide("Bottom")).toHaveAttribute("aria-pressed", "true");
         expect(screen.getByText("Bottom (mirrored)")).toBeInTheDocument();
+    });
+
+    it("asks for every layer at the backend's current rendering, so a stale cached drawing is never reused", async () => {
+        await openViewer();
+        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
+        const urls = apiMock.fetchApi.mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/layers/"));
+        expect(urls.length).toBeGreaterThan(0);
+        for (const url of urls) expect(url).toMatch(/\.svg\?r=2$/);
     });
 
     it("draws every layer fully opaque: no blending, no fading", async () => {
