@@ -280,10 +280,6 @@ export function getProjectSystems(projectId: string): Promise<ProjectSystems> {
     .then((r) => r.body);
 }
 
-export function projectRenamesCsvUrl(projectId: string): string {
-  return `${path("by-project", projectId)}/renames.csv`;
-}
-
 // ---------------------------------------------------------------------------
 // Sub-ports (CONTRACTS_P2 §22). `preview` answers the row moves without writing.
 
