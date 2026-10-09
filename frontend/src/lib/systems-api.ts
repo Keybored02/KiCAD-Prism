@@ -124,6 +124,11 @@ export function createSystem(input: { name: string; description?: string; folder
   return versioned<SystemSummary>(BASE, { method: "POST", body: json(input) }, "Could not create the system");
 }
 
+/** Deletes a system (archived instead when parents or the catalog still use it, D-P2-31). */
+export function deleteSystem(systemId: string, etag: string) {
+  return versioned<{ deleted: boolean; archived: boolean }>(path(systemId), { method: "DELETE", etag }, "Could not delete the system");
+}
+
 /** SB2-101: every system the reader may see, with board totals, last snapshot, git and counts. */
 export async function listSystems(init?: RequestInit): Promise<SystemSummary[]> {
   return (await versioned<SystemSummary[]>(BASE, init ?? {}, "Could not load the systems")).body;
@@ -328,6 +333,12 @@ export function generateRows(
 /** SB2-100: waive one warning or info finding with a note (a versioned edit). */
 export function waiveFinding(systemId: string, etag: string, findingKey: string, note: string) {
   return versioned<FindingWaiver>(path(systemId, "waivers"), { method: "POST", etag, body: json({ findingKey, note }) });
+}
+
+/** SB2-113: several findings waived with one note, in one version; keys already waived are skipped. */
+export function waiveFindings(systemId: string, etag: string, findingKeys: string[], note: string) {
+  return versioned<{ waived: FindingWaiver[]; skipped: number }>(path(systemId, "waivers", "batch"),
+    { method: "POST", etag, body: json({ findingKeys, note }) });
 }
 
 export function unwaiveFinding(systemId: string, etag: string, waiverId: string) {
