@@ -160,7 +160,7 @@ class DocumentsMixin:
         exports = store.list_exports(system_id)
         report = self._validate(store, system_id, instances, links, interfaces, job_state, open_reviews, exports,
                                 system.get("optionalRules") or (), all_overrides)
-        catalog_docs = [self._catalog_instance_doc(i)
+        catalog_docs = [self._catalog_instance_doc(i, store)
                         for i in store.list_instances(system_id, kinds=("assembly", "module", "part"))]
         report = validation.with_findings(report, validation.child_findings([
             {"instanceId": doc["id"], "releaseStatus": doc["catalog"]["releaseStatus"],

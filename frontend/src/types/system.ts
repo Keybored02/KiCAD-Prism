@@ -129,6 +129,8 @@ export interface InstanceCatalogRef {
   /** The child system the revision was published from, and its snapshot. */
   systemId: string | null;
   snapshotName: string | null;
+  /** SB2-117: open errors and warnings in that snapshot (an assembly only); null when unknown. */
+  findingCounts?: { error: number; warning: number } | null;
 }
 
 export interface PortBaseline {

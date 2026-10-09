@@ -129,6 +129,7 @@ function BoardNodeView({ id, data, isConnectable, selected }: NodeProps<BoardNod
   const { instance, rows, hiddenCount, expanded, height, onToggle, inside } = data;
   const status = boardStatus(instance);
   const subsystem = instance.kind === "assembly";
+  const openInside = subsystem ? instance.catalog?.findingCounts : null;
   const [open, setOpen] = useState(false);
   const kind = blockKind(instance);
   const style = BLOCK_STYLE[kind];
@@ -163,6 +164,13 @@ function BoardNodeView({ id, data, isConnectable, selected }: NodeProps<BoardNod
         </div>
         {status.tone !== "ok" && (
           <Badge variant={TONE_BADGE[status.tone]} className="h-5 shrink-0 px-1.5 text-[10px]" title={status.detail}>{status.label}</Badge>
+        )}
+        {openInside && openInside.error + openInside.warning > 0 && (
+          // SB2-117: what the subsystem's snapshot still has open.
+          <Badge variant={openInside.error ? "destructive" : "warning"} className="h-5 shrink-0 px-1.5 text-[10px] tabular-nums"
+            title={`Open inside: ${openInside.error} errors · ${openInside.warning} warnings`}>
+            {openInside.error || openInside.warning} inside
+          </Badge>
         )}
       </div>
       {rows.length === 0 && (

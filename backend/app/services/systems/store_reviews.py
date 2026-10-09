@@ -203,6 +203,13 @@ class ReviewsStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def snapshot_counts(self, system_id: str, snapshot_id: str) -> Optional[dict]:
+        """``{error, warning}`` open in a snapshot's frozen document, or None if it is gone (SB2-117)."""
+        row = self.conn.execute(
+            "SELECT (document->'findingCounts'->>'error')::int AS error, (document->'findingCounts'->>'warning')::int AS warning "
+            "FROM system_snapshots WHERE system_id = %s AND id = %s", (system_id, snapshot_id)).fetchone()
+        return {"error": row["error"] or 0, "warning": row["warning"] or 0} if row else None
+
     def get_snapshot(self, system_id: str, snapshot_id: str) -> dict:
         row = self.conn.execute(
             f"SELECT {self._SNAPSHOT_META}, document, manifest FROM system_snapshots WHERE system_id = %s AND id = %s",
