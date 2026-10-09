@@ -184,13 +184,14 @@ number), edit the proposed names, and export them in one change.
 ### Diagram
 
 **Diagram** places the most-connected board in the middle and its partners on
-either side. Each board lists the connectors that are linked, with what each
+either side; boards with no link yet sit side by side below them, four to a
+row. Each board lists the connectors that are linked, with what each
 one connects to; the other ports sit behind "N unlinked ports". Wires run in
 separate lanes so they never overlap. Hover a wire to see its name and pin
 count, and click it to open its pins.
 
 Drag from a port on one board to a port on another to create a link (expand a
-board to reach an unlinked port). The toolbar switches what a drag creates: a
+board to reach an unlinked port; the boards below it move down to make room). The toolbar switches what a drag creates: a
 **Link**, a **Board-to-board** mate (**B**), or a **Harness** (**H**); **Esc**
 cancels. Drag boards to arrange them. The layout is saved for everyone, but it
 is not part of the engineering record: moving a box changes no version and

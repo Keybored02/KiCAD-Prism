@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.92 · 2026-10-09 · tickets SB2-00 to SB2-124.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.93 · 2026-10-09 · tickets SB2-00 to SB2-125.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -960,6 +960,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.93 | 2026-10-09 | SB2-125: default layout puts boards with no link side by side below the linked ones, four to a row (canvas and ICD block diagram, parity case added); an expanded board pushes the blocks below it in its column down. |
 | P2-1.92 | 2026-10-09 | SB2-122: the release chain of a subsystem revision (`latestReleasedVersion`, `newestVersion`, `newestReleaseStatus`; §10) in its inspector and diagram node. |
 | P2-1.91 | 2026-10-09 | SB2-123: the wire table takes a pasted spreadsheet block (signal, AWG, colour; down and right from the cell) and sets one AWG/colour on ticked wires. Editor only; no API change. |
 | P2-1.90 | 2026-10-09 | SB2-124: `POST …/instances` with a `trackedRef` also queues the source check (P1 §10.1), so a new board is never "Not checked"; **Add → Board** takes several boards (one call each, ETag carried), keeping refused ones with their reason. |

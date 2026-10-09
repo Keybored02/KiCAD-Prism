@@ -114,14 +114,16 @@ describe("layoutSystem", () => {
     expect(moved.y).toBeGreaterThanOrEqual(a.y + boardHeight(a.rows.length, a.hiddenPorts.length));
   });
 
-  it("stacks unconnected boards and separate groups without overlap", () => {
-    const boards = [board("A", ["J1"]), board("B", ["J1"]), board("C", ["J1"]), board("D", ["J1"])];
-    const links = [link("x", ["A", "J1"], ["B", "J1"])];
-    const layout = layoutSystem(boards, links);
-    const c = layout.get("C")!;
-    const d = layout.get("D")!;
+  it("puts unlinked boards side by side below the linked ones, four to a row (SB2-125)", () => {
+    const boards = [board("A", ["J1"]), board("B", ["J1"]), ...["C", "D", "E", "F", "G"].map((id) => board(id, ["J1"]))];
+    const layout = layoutSystem(boards, [link("x", ["A", "J1"], ["B", "J1"])]);
+    const [c, d, e, f, g] = ["C", "D", "E", "F", "G"].map((id) => layout.get(id)!);
+    const linkedBottom = Math.max(...["A", "B"].map((id) => layout.get(id)!.y + boardHeight(1, 0)));
     expect(c.rows).toEqual([]);
-    expect(Math.abs(c.y - d.y)).toBeGreaterThan(0);
+    expect([c, d, e, f].map((item) => item.y)).toEqual([c.y, c.y, c.y, c.y]);
+    expect(new Set([c, d, e, f].map((item) => item.x)).size).toBe(4);
+    expect(c.y).toBeGreaterThanOrEqual(linkedBottom);
+    expect([g.x, g.y > c.y]).toEqual([c.x, true]);
   });
 
   it("loops a link between two ports of one board on its right side", () => {
