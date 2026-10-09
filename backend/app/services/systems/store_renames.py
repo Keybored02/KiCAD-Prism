@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems.store_base import Conflict, Mutation, NotFound, new_id
 
@@ -100,3 +100,32 @@ class RenamesStore:
             """,
             (system_id, scene_key, version, Jsonb(result), job_id),
         )
+
+    # ------------------------------------------------------------------
+    # The latest STEP export (SB2-109, P2 §25), the same kind of read model.
+
+    def get_step_export(self, system_id: str) -> Optional[dict]:
+        row = self.conn.execute("SELECT * FROM system_step_exports WHERE system_id = %s", (system_id,)).fetchone()
+        return dict(row) if row else None
+
+    def record_step_export(self, system_id: str, *, version: int, state: str, job_id: Optional[str],
+                           path: Optional[str] = None, size_bytes: Optional[int] = None,
+                           skipped: Sequence[Mapping[str, Any]] = (), projects: Sequence[str] = (),
+                           error: Optional[str] = None) -> None:
+        """Outside any system mutation: no lock, no version bump. A new run replaces the last one."""
+        from psycopg.types.json import Jsonb
+
+        self.conn.execute(
+            """
+            INSERT INTO system_step_exports (system_id, version, state, job_id, path, size_bytes, skipped, projects,
+                                             error, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (system_id) DO UPDATE SET version = EXCLUDED.version, state = EXCLUDED.state,
+                job_id = EXCLUDED.job_id, path = EXCLUDED.path, size_bytes = EXCLUDED.size_bytes,
+                skipped = EXCLUDED.skipped, projects = EXCLUDED.projects, error = EXCLUDED.error,
+                created_at = CASE WHEN EXCLUDED.state = 'running' THEN NOW() ELSE system_step_exports.created_at END,
+                updated_at = NOW()
+            """,
+            (system_id, version, state, job_id, path, size_bytes, Jsonb(list(skipped)), sorted(set(projects)), error),
+        )
+

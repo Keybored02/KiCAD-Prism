@@ -467,6 +467,30 @@ export function requestCollisionCheck(systemId: string) {
   return fetchJson<{ jobId: string | null }>(path(systemId, "collisions"), { method: "POST" }, "Could not start the collision check");
 }
 
+/** SB2-109 (P2 §25): the latest STEP export of the placed system. */
+export interface StepExport {
+  systemId: string;
+  state: "none" | "running" | "ready" | "failed";
+  version: number | null;
+  createdAt: string | null;
+  sizeBytes: number | null;
+  skipped: { occurrence: string; label: string; reason: string; detail?: string }[];
+  jobId: string | null;
+  error: string | null;
+}
+
+export function requestStepExport(systemId: string) {
+  return fetchJson<{ jobId: string | null }>(path(systemId, "step"), { method: "POST" }, "Could not start the STEP export");
+}
+
+export function getStepExport(systemId: string, signal?: AbortSignal) {
+  return fetchJson<StepExport>(path(systemId, "step"), { signal });
+}
+
+export function stepFileUrl(systemId: string): string {
+  return `${path(systemId, "step")}/file`;
+}
+
 /** SB2-108: the stored collision check as the document reads it. */
 export function getCollisionCheck(systemId: string, signal?: AbortSignal) {
   return fetchJson<CollisionCheck & { systemId: string; findings: Finding[] }>(path(systemId, "collisions"), { signal });

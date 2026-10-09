@@ -1142,3 +1142,5 @@ from app.api import systems_findings  # noqa: E402,F401
 # Sub-ports (SB2-105) and net rename proposals (SB2-106) too.
 from app.api import systems_subports  # noqa: E402,F401
 from app.api import systems_renames  # noqa: E402,F401
+# The STEP export (SB2-109).
+from app.api import systems_step  # noqa: E402,F401

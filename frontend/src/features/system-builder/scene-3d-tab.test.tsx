@@ -70,7 +70,7 @@ describe("Scene3dTab", () => {
     expect(screen.getByText(/The 3D view of OBC-2 failed: kicad-cli missing/)).toBeTruthy();
     expect(screen.getByText(/Generating the 3D view of PSU/)).toBeTruthy();
     expect(screen.getByTitle(/^4 boards/)).toBeTruthy();
-    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain("/api/systems/sys_1/scene");
+    expect((fetchMock.mock.calls as unknown[][]).some((call) => String(call[0]).includes("/api/systems/sys_1/scene"))).toBe(true);
     // The board 3D tab's viewer, in system mode (SB2-31e.2).
     expect(document.querySelector("prism-semantic-viewer")?.getAttribute("mode")).toBe("system");
   });

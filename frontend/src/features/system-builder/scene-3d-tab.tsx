@@ -19,6 +19,7 @@ import type {
 import type { SystemScene } from "@/types/system";
 
 import { CollisionCheckButton } from "./collision-check-button";
+import { StepExportButton } from "./step-export-button";
 import { drawnBoards, failedNotice, names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
 import { HarnessPanel } from "./scene-harness-panel";
 import { MovePanel } from "./scene-move-panel";
@@ -429,6 +430,7 @@ export function Scene3dTab(props: SystemTabProps) {
           </ToolbarButton>
           <ToolbarButton title="Fit all (Home)" onClick={() => viewer?.frameAll?.()}><Maximize className="size-4" aria-hidden /></ToolbarButton>
           <CollisionCheckButton systemId={systemId} document={document} reload={reload} />
+          <StepExportButton systemId={systemId} version={document.system.version} />
           <ToolbarButton active={labels} title="Board names" onClick={() => { setLabels(!labels); viewer?.setLabelsVisible?.(!labels); }}>
             <Tag className="size-4" aria-hidden />
           </ToolbarButton>
