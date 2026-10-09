@@ -89,6 +89,23 @@ class WaiverTest(SnapshotCase):
         with self.assertRaises(StaleVersion):
             self.service.waive_finding(DESIGNER, self.sid, self.version() - 1, warning["key"], "x")
 
+    def test_a_group_is_waived_with_one_note_in_one_version(self) -> None:
+        """SB2-113: a batch skips findings already waived; an error or unknown key refuses it whole."""
+        warnings = [f for f in self.report()["findings"] if f["severity"] == "warning" and not f["waived"]]
+        if len(warnings) < 2:
+            self.skipTest("the fixture raises fewer than two warnings")
+        self.waive(warnings[0])
+        version = self.version()
+        body = self.service.waive_findings(DESIGNER, self.sid, version, [f["key"] for f in warnings], "Known fan-out").body
+        self.assertEqual((len(body["waived"]), body["skipped"]), (len(warnings) - 1, 1))
+        self.assertEqual(self.version(), version + 1, "one version for the whole group")
+        self.assertEqual(self.report()["counts"]["warning"], 0)
+        with self.assertRaises(NotFound):
+            self.service.waive_findings(DESIGNER, self.sid, self.version(), ["SYS-V99|nothing"], "x")
+        self.raise_an_error()
+        with self.assertRaisesRegex(Invalid, "finding_not_waivable"):
+            self.service.waive_findings(DESIGNER, self.sid, self.version(), [self.first("error")["key"]], "x")
+
     def test_unwaiving_brings_the_finding_back_into_the_counts(self) -> None:
         before = self.report()["counts"]
         waiver = self.waive(self.first("warning"))
