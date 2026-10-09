@@ -115,9 +115,11 @@ Rules that are easy to break:
   same columns differently, and a JLCPCB BOM has a `Designator` column, so a
   position file is recognised by having coordinates, not by its name.
 - **A layer SVG is its colour, fully opaque, where plotted and transparent elsewhere.**
-  The plot is drawn white-on-black as a mask and the layer colour is filled through
-  it, so Gerber's clear polarity cuts the layer's own artwork without touching the
-  layers behind it. The viewer stacks the layers; nothing is blended.
+  A layer with nothing cleared (most of them) is drawn in its colour directly. Only a
+  layer with clear polarity, or an aperture with a hole, is drawn white-on-black as a
+  mask with the colour filled through it, so the cut shows what is behind instead of
+  painting black. A mask costs the browser a second drawing, so it is used only then.
+  The viewer stacks the layers; nothing is blended, and no SVG carries `opacity`.
 - **Bump `RENDER_VERSION` whenever `svg()` draws differently.** Build layers are
   cached by the browser for a year as immutable, and the viewer puts the version in
   every layer URL. Without the bump, a browser keeps the old drawing: after the

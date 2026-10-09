@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Pan and zoom over a board rectangle, shared by every pane of a comparison.
@@ -97,6 +97,31 @@ export function paneLayout(
     };
 }
 
+/** How long the zoom has to rest before the artwork is drawn again at the new size. */
+export const ZOOM_SETTLE_MS = 150;
+
+/**
+ * The value once it has stopped changing for `delay` ms. The pane draws its
+ * artwork at the settled scale and covers the gap with a CSS scale, so a burst of
+ * wheel steps redraws heavy layers once instead of on every step.
+ */
+/**
+ * How far a press has to move, in screen pixels, before it becomes a pan. Below
+ * this it is still a click, so a press on something clickable over the board (a
+ * part marker) picks it, and a drag that starts on one pans the board.
+ */
+export const PAN_THRESHOLD_PX = 3;
+
+export function useSettled(value: number | null, delay: number): number | null {
+    const [settled, setSettled] = useState(value);
+    useEffect(() => {
+        if (value === settled) return;
+        const timer = setTimeout(() => setSettled(value), settled === null ? 0 : delay);
+        return () => clearTimeout(timer);
+    }, [value, settled, delay]);
+    return settled ?? value;
+}
+
 export interface ViewportOptions {
     /**
      * The pane is drawn mirrored left to right, as when a board is turned over
@@ -110,7 +135,7 @@ export function useBoardViewport(board: BoardRect | null, options: ViewportOptio
     const xSign = options.mirrorX ? -1 : 1;
     const [camera, setCamera] = useState<Camera | null>(null);
     const paneRef = useRef<PaneSize>({ width: 0, height: 0 });
-    const dragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+    const dragRef = useRef<{ pointerId: number; x: number; y: number; panning: boolean } | null>(null);
 
     const home = useMemo(
         () => board ? centreCamera(board) : { scale: 1, cx: 0, cy: 0 },
@@ -158,8 +183,12 @@ export function useBoardViewport(board: BoardRect | null, options: ViewportOptio
 
     const onPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
         if (event.button !== 0) return;
-        dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
-        event.currentTarget.setPointerCapture(event.pointerId);
+        // Nothing else may start from this press: no text selection, no native drag
+        // of the artwork. Either one cancels the pointer and the pan never begins.
+        event.preventDefault();
+        // The pointer is captured only once the press moves: capturing now would send
+        // the click to the pane instead of whatever was pressed.
+        dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, panning: false };
     }, []);
 
     const onPointerMove = useCallback((event: React.PointerEvent<HTMLElement>) => {
@@ -167,6 +196,11 @@ export function useBoardViewport(board: BoardRect | null, options: ViewportOptio
         if (!drag || drag.pointerId !== event.pointerId || !board) return;
         const dx = event.clientX - drag.x;
         const dy = event.clientY - drag.y;
+        if (!drag.panning) {
+            if (Math.hypot(dx, dy) < PAN_THRESHOLD_PX) return;
+            drag.panning = true;
+            event.currentTarget.setPointerCapture(event.pointerId);
+        }
         drag.x = event.clientX;
         drag.y = event.clientY;
         const box = event.currentTarget.getBoundingClientRect();

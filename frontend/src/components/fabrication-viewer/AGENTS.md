@@ -63,8 +63,20 @@ If one of these changes, the viewer should follow it.
   copper" draw only half the board, and turning a layer on did nothing. Clicking a
   layer's name shows it on its own with the profile (`soloStack`). No opacity
   anywhere: highlighting used to fade the rest to 20%.
-- **The pane is `select-none` and cancels `dragstart`,** so a pan never turns into
-  the browser dragging the artwork or a selection.
+- **The pane is `select-none` and cancels `dragstart`,** and `onPointerDown` calls
+  `preventDefault`, so a pan never turns into a native drag or a selection.
+- **A press becomes a pan after `PAN_THRESHOLD_PX` (3 px).** The pane captures the
+  pointer only then, so a click on a part marker still reaches it and picks the part,
+  and a drag that starts on a marker pans. Markers must not stop propagation: on a
+  dense board their hit areas cover most of it, and a stopped press never pans.
+- **Pan and zoom move the artwork with a transform, not layout.** The stack is laid
+  out at the settled zoom (`useSettled`, `ZOOM_SETTLE_MS`) and moved by
+  `translate3d(...) scale(...)` with `will-change: transform`. A pan only moves a
+  composited layer: on Cynthion with all 26 layers, a 40-step pan went from 7.3 s of
+  raster to none. Zoom scales what is drawn, then draws again once the wheel rests.
+  Without `will-change` every pan frame redraws every layer.
+- **The rail and the parts table are memoised, with stable callbacks.** The camera
+  changes on every pan frame; they must not re-render with it.
 - **The bottom view mirrors the whole pane.** `useBoardViewport` takes `mirrorX`
   and `Pane` takes `mirrored`, so dragging and zoom-to-cursor still follow the
   pointer; text drawn inside the pane (marker labels) must be flipped back.

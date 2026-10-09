@@ -1,4 +1,4 @@
-import { useMemo, useReducer, useState } from "react";
+import { useCallback, useMemo, useReducer, useState } from "react";
 
 import { useBoardViewport } from "@/components/design-comparison/fabrication-viewport";
 
@@ -11,7 +11,7 @@ import type { FabricationSource, FabricationView, PlacementPart } from "./types"
 import { useFabricationView, useLayerImages } from "./use-fabrication-data";
 import { usePlacement } from "./use-placement";
 import { ViewerFooter } from "./viewer-footer";
-import { initialState, paintOrder, soloStack, viewerReducer } from "./viewer-state";
+import { initialState, paintOrder, soloStack, viewerReducer, type LayerPreset } from "./viewer-state";
 import { ViewerToolbar, type ViewerView } from "./viewer-toolbar";
 
 /** Half the width of the square framed around a picked part, in millimetres. */
@@ -68,15 +68,28 @@ function LoadedViewer({ source, view, focusFile }: {
     );
     const picked = parts?.parts.find((part) => part.ref === state.selected) ?? null;
 
-    const pick = (part: PlacementPart) => {
+    // Stable callbacks: the camera changes on every pan frame, and the rail, the
+    // markers and the parts table must not re-render with it.
+    const { frame } = viewport;
+    const pick = useCallback((part: PlacementPart) => {
         dispatch({ type: "select", ref: part.ref, side: part.side, layers: view.layers });
-        viewport.frame({
+        frame({
             x: part.x - PICK_FRAME_MM,
             y: part.y - PICK_FRAME_MM,
             width: PICK_FRAME_MM * 2,
             height: PICK_FRAME_MM * 2,
         });
-    };
+    }, [view.layers, frame]);
+    const pickFromTable = useCallback((part: PlacementPart) => {
+        pick(part);
+        setMode("board");
+    }, [pick]);
+    const onToggle = useCallback((id: string) => dispatch({ type: "toggle", id }), []);
+    const onHighlight = useCallback((id: string) => dispatch({ type: "highlight", id }), []);
+    const onPreset = useCallback(
+        (preset: LayerPreset) => dispatch({ type: "preset", preset, layers: view.layers }),
+        [view.layers],
+    );
 
     const withWarnings = shown.filter((layer) => layer.warnings.length > 0);
     const note = highlighted
@@ -94,9 +107,9 @@ function LoadedViewer({ source, view, focusFile }: {
                     layers={view.layers}
                     visible={state.visible}
                     highlighted={state.highlighted}
-                    onToggle={(id) => dispatch({ type: "toggle", id })}
-                    onHighlight={(id) => dispatch({ type: "highlight", id })}
-                    onPreset={(preset) => dispatch({ type: "preset", preset, layers: view.layers })}
+                    onToggle={onToggle}
+                    onHighlight={onHighlight}
+                    onPreset={onPreset}
                 />
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
@@ -156,10 +169,7 @@ function LoadedViewer({ source, view, focusFile }: {
                             <PlacementPanel
                                 view={parts}
                                 selected={state.selected}
-                                onSelect={(part) => {
-                                    pick(part);
-                                    setMode("board");
-                                }}
+                                onSelect={pickFromTable}
                             />
                         </div>
                     )}

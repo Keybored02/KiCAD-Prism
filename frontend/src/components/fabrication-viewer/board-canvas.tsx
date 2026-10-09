@@ -80,6 +80,7 @@ export function BoardCanvas({
                                     src={image.url}
                                     alt={layer.name}
                                     draggable={false}
+                                    decoding="async"
                                     className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
                                 />
                             );

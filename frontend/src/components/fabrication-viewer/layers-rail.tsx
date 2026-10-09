@@ -1,4 +1,4 @@
-import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChevronLeft, ChevronRight, Layers3 } from "lucide-react";
 
 import { PcbLayerList } from "@/components/ecad-viewer-controls";
@@ -55,7 +55,7 @@ export function toListLayers(
  * The layer rail, built like the Visualizer's: a "Board display" header with a
  * collapse handle, then the same preset menu and layer list.
  */
-export function LayersRail({
+export const LayersRail = memo(function LayersRail({
     layers,
     visible,
     highlighted,
@@ -170,4 +170,4 @@ export function LayersRail({
             )}
         </aside>
     );
-}
+});

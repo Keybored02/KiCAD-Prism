@@ -1,4 +1,4 @@
-import { useMemo, useReducer, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useMemo, useReducer, type KeyboardEvent, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -108,7 +108,8 @@ function CheckSummary({ view, filters, dispatch }: {
     );
 }
 
-export function PlacementPanel({ view, selected, onSelect }: {
+/** Memoised: it stays mounted under the board, which re-renders on every pan frame. */
+export const PlacementPanel = memo(function PlacementPanel({ view, selected, onSelect }: {
     view: PlacementView;
     selected: string | null;
     onSelect: (part: PlacementPart) => void;
@@ -213,4 +214,4 @@ export function PlacementPanel({ view, selected, onSelect }: {
             </div>
         </div>
     );
-}
+});

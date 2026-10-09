@@ -251,42 +251,50 @@ class OpaqueLayerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.package = FabricationPackage.from_files(package_files())
 
-    def test_the_layer_colour_is_filled_through_a_mask_of_the_plot(self) -> None:
-        svg = self.package.svg("f.cu")
-        self.assertIn('<mask id="layer"', svg)
-        self.assertIn('fill="#c83434" mask="url(#layer)"', svg)
-
-    def test_nothing_is_painted_outside_the_plot(self) -> None:
-        # The only thing outside the mask is the colour fill; the black rectangle that
-        # used to be the layer's background now lives inside the mask, where it means
-        # "empty", so the layers behind show through.
-        svg = self.package.svg("f.cu")
-        outside = svg.split("</defs>")[1]
-        self.assertEqual(outside.count("<rect"), 1)
-        self.assertNotIn('fill="#000000"', outside)
-
-    def test_the_mask_plots_in_white_on_black(self) -> None:
-        mask = self.package.svg("f.cu").split("<mask")[1].split("</mask>")[0]
-        self.assertIn('fill="#000000"', mask)
-        self.assertIn('fill="#ffffff"', mask)
-        # The layer's own colour is never part of the mask.
-        self.assertNotIn("#c83434", mask)
-
-    def test_every_layer_is_its_own_colour_and_nothing_else(self) -> None:
-        view = self.package.view()
-        for layer in view["layers"]:
-            svg = self.package.svg(layer["id"])
-            outside = svg.split("</defs>")[1]
-            self.assertIn(f'fill="{layer["colour"]}"', outside, layer["id"])
-
-    def test_a_clear_area_still_cuts_the_layers_own_artwork(self) -> None:
+    def cleared(self) -> FabricationPackage:
         files = package_files()
         files["board-F_Cu.gtl"] = gerber(
             "D11*\nX5000000Y5000000D03*\n%LPC*%\nD10*\nX5000000Y5000000D03*\n"
         )
-        mask = FabricationPackage.from_files(files).svg("f.cu").split("<mask")[1].split("</mask>")[0]
+        return FabricationPackage.from_files(files)
+
+    def test_a_layer_with_nothing_cleared_is_drawn_in_its_colour_directly(self) -> None:
+        # No mask: it costs the browser a second drawing of every shape.
+        svg = self.package.svg("f.cu")
+        self.assertNotIn("<mask", svg)
+        self.assertIn('"#c83434"', svg)
+
+    def test_nothing_is_painted_outside_the_plot(self) -> None:
+        # No backdrop, black or otherwise: where nothing is plotted the layer is empty,
+        # so the layers behind show there.
+        for package in (self.package, self.cleared()):
+            svg = package.svg("f.cu")
+            outside = svg.split("</defs>")[-1]
+            self.assertNotIn('"#000000"', outside)
+            self.assertNotIn('"#ffffff"', outside)
+
+    def test_no_layer_is_ever_see_through(self) -> None:
+        for package in (self.package, self.cleared()):
+            for layer in package.view()["layers"]:
+                svg = package.svg(layer["id"])
+                self.assertNotIn("opacity", svg, layer["id"])
+                self.assertNotIn("mix-blend", svg, layer["id"])
+
+    def test_every_layer_is_its_own_colour_and_nothing_else(self) -> None:
+        for layer in self.package.view()["layers"]:
+            svg = self.package.svg(layer["id"])
+            outside = svg.split("</defs>")[-1]
+            self.assertIn(f'"{layer["colour"]}"', outside, layer["id"])
+
+    def test_a_clear_area_is_cut_through_a_mask(self) -> None:
+        svg = self.cleared().svg("f.cu")
+        self.assertIn('<mask id="layer"', svg)
+        self.assertIn('fill="#c83434" mask="url(#layer)"', svg)
+        mask = svg.split("<mask")[1].split("</mask>")[0]
         # Dark pad, then a clear flash over it: painted white, then black.
         self.assertLess(mask.index('fill="#ffffff"'), mask.rindex('fill="#000000"'))
+        # The layer's own colour is never part of the mask.
+        self.assertNotIn("#c83434", mask)
 
 
 class MinimumStrokeTests(unittest.TestCase):

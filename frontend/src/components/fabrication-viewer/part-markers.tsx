@@ -88,8 +88,8 @@ export const PartMarkers = memo(function PartMarkers({
                             r={mm(HIT_PX)}
                             fill="transparent"
                             className="cursor-pointer"
-                            // The pane captures the pointer to pan; a press on a marker is a pick, not a drag.
-                            onPointerDown={(event) => event.stopPropagation()}
+                            // A click picks the part; a press that moves pans the board, which
+                            // then captures the pointer, so no click reaches the marker.
                             onClick={() => onSelect(part)}
                         />
                         {chosen && (

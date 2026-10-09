@@ -77,7 +77,7 @@ _MASK_ID = "layer"
 #: Bump whenever `svg()` draws differently. Layer URLs carry it, so a browser that
 #: holds a year-long cached SVG from an older drawing fetches the new one instead
 #: of stacking stale artwork (an opaque black layer once hid everything under it).
-RENDER_VERSION = 2
+RENDER_VERSION = 3
 
 #: A drawn line is never thinner than this on screen. A 0.1 mm silkscreen or outline
 #: line is a fraction of a pixel when the whole board is in view, and anti-aliasing
@@ -357,15 +357,26 @@ class FabricationPackage:
             raise KeyError(layer_id)
         x0, y0, x1, y1 = self._bounds
         plot = fab.render_layer_svg(parsed, self._bounds, colour=_MASK_ON, background=_MASK_OFF)
-        # The renderer's own SVG, minus its wrapper: a black rectangle and the artwork.
-        artwork = plot[plot.index(">", plot.index("<svg")) + 1:plot.rindex("</svg>")]
+        # The renderer's own SVG, minus its wrapper: a black rectangle, then the artwork.
+        inner = plot[plot.index(">", plot.index("<svg")) + 1:plot.rindex("</svg>")]
+        backdrop_end = inner.index("/>") + 2
+        artwork = inner[backdrop_end:]
         box = f'x="{fab._fmt(x0)}" y="{fab._fmt(y0)}" width="{fab._fmt(x1 - x0)}" height="{fab._fmt(y1 - y0)}"'
+        if f'"{_MASK_OFF}"' in artwork:
+            # Something is cleared (clear polarity, or an aperture with a hole): fill the
+            # colour through the plot as a mask, so the cut shows what is behind.
+            body = (
+                f'<defs><mask id="{_MASK_ID}" maskUnits="userSpaceOnUse" {box}>{inner}</mask></defs>'
+                f'<rect {box} fill="{info.colour}" mask="url(#{_MASK_ID})"/>'
+            )
+        else:
+            # Nothing is cleared, which is most layers: draw the artwork in the colour
+            # directly. Same picture, and a mask costs the browser a second drawing.
+            body = artwork.replace(f'"{_MASK_ON}"', f'"{info.colour}"')
         svg = (
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{fab._fmt(x0)} {fab._fmt(y0)}'
             f' {fab._fmt(x1 - x0)} {fab._fmt(y1 - y0)}" preserveAspectRatio="xMidYMid meet">'
-            f'<defs><mask id="{_MASK_ID}" maskUnits="userSpaceOnUse" {box}>{artwork}</mask></defs>'
-            f'<rect {box} fill="{info.colour}" mask="url(#{_MASK_ID})"/>'
-            "</svg>"
+            f"{body}</svg>"
         )
         return with_minimum_stroke(svg, x1 - x0, holes=info.kind == "excellon")
 
