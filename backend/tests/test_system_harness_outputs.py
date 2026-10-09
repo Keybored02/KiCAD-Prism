@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import unittest
 
 import yaml
 from test_system_mates import DESIGNER, MatesCase
 
-from app.services.systems import harness_outputs
+from app.services.systems import harness_drawing, harness_outputs
 from app.services.systems import manifest as manifest_io
 from app.services.systems.manifest_schema import connectivity_view, full_view
 from app.services.systems.store import Invalid, NotFound
@@ -71,7 +72,7 @@ class OutputsTest(unittest.TestCase):
                           ("1 wire(s) without a cut length", 1, "each")])
         self.assertEqual([(r["where"], r["description"]) for r in by_kind["splice"]], [("HPDRM J4 1", "2 wires in one cavity")])
         self.assertEqual([(r["description"], r["qty"], r["where"]) for r in by_kind["covering"]],
-                         [("PET braid 6 mm", 0.17, "whole bundle"), ("Heat-shrink", 0.11, "shd_1~b"),
+                         [("PET braid 6 mm", 0.17, "whole bundle"), ("Heat-shrink", 0.11, "B1 – LPDRM J1"),
                           ("Old sleeve", "", "gone~x (unrouted)")])
         self.assertEqual(by_kind["label"][0]["qty"], 1)
         self.assertEqual([r["item"] for r in bom], list(range(1, len(bom) + 1)))
@@ -92,7 +93,7 @@ class OutputsTest(unittest.TestCase):
         self.assertEqual(doc["metadata"]["title"], "C&amp;DH power")
         # Coverings ride on the first cable, by segment length (the bundle's for "*").
         self.assertEqual([(c["type"], c.get("qty"), c.get("unit")) for c in w1["additional_components"]],
-                         [("Covering (whole bundle)", 0.17, "m"), ("Covering (shd_1~b)", 0.11, "m"), ("Covering (gone~x)", 1, None)])
+                         [("Covering (whole bundle)", 0.17, "m"), ("Covering (B1 – LPDRM J1)", 0.11, "m"), ("Covering (gone~x)", 1, None)])
 
     def test_wireviz_keeps_pin_names_unique_and_unambiguous(self) -> None:
         wire = model()["wires"][0]
@@ -111,15 +112,38 @@ class OutputsTest(unittest.TestCase):
                          [("22 AWG", ["RDWH"]), ("26 AWG", ["BK"])])  # one cable per gauge; stripes
 
     def test_drawing_draws_ends_segments_and_title_with_or_without_a_route(self) -> None:
-        svg = harness_outputs.drawing_svg(model()).decode()
+        svg = harness_drawing.drawing_svg(model()).decode()
         for text in ("HPDRM J4", "LPDRM J1", "End 3", "106 mm", "Heat-shrink", "PET braid 6 mm", "C&amp;DH power",
-                     "Bus v7", "bundle 162 mm"):
+                     "Bus v7", "162 mm", ">B1<", "B1 – LPDRM J1", "Bill of materials"):
             self.assertIn(text, svg)
-        self.assertEqual(svg.count("<circle"), 1)  # the breakout
-        flat = harness_outputs.drawing_svg({**model(segments=False),
+        self.assertEqual(svg.count("<circle cx") - svg.count("r='3'"), 1)  # the breakout; the rest are cavity ports
+        flat = harness_drawing.drawing_svg({**model(segments=False),
                                             "harness": {**model()["harness"], "bundleMm": None}}).decode()
         self.assertIn("not routed", flat)
-        self.assertNotIn(" mm</text>", flat.split("not routed")[0].split("End 3")[-1])
+        self.assertNotIn("106 mm", flat)
+
+    def test_drawing_tags_every_wire_for_tracing(self) -> None:
+        svg = harness_drawing.drawing_svg(model()).decode()
+        tags = re.findall(r"data-w='([^']*)'", svg)
+        for number in ("W1", "W2", "W3"):
+            # its fan, its tag, its cavity rows, the wire list and every sheath it runs through
+            self.assertGreaterEqual(sum(number in t.split() for t in tags), 5, number)
+        self.assertIn("data-w='W1 W2'", svg)  # HPDRM J4 cavity 1 is a splice: one row, two wires
+        segments = dict(re.findall(r"data-w='([^']*)' data-segment='([^']*)'", svg)[i][::-1] for i in range(3))
+        self.assertEqual(segments["shd_1~c"], "W2")  # End 3's branch carries only the wire to End 3
+
+    def test_drawing_hangs_an_in_line_end_off_a_tap(self) -> None:
+        m = model()
+        m["segments"] = [{"id": "a~c", "from": "a", "to": "c", "lengthMm": 40.0, "wires": ["w1", "w2", "w3"]},
+                         {"id": "c~b", "from": "c", "to": "b", "lengthMm": 90.0, "wires": ["w1", "w2"]}]
+        svg = harness_drawing.drawing_svg(m).decode()
+        self.assertIn("data-segment='tap:c~stub'", svg)
+        self.assertIn("90 mm", svg)
+        self.assertNotIn(">B1<", svg)
+
+    def test_drawing_renders_as_a_pdf(self) -> None:
+        pdf = harness_outputs.drawing_pdf(harness_drawing.drawing_svg(model()))
+        self.assertTrue(pdf.startswith(b"%PDF"))
 
 
 class ContactCoveringTest(MatesCase):

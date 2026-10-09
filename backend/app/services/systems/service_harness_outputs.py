@@ -7,7 +7,7 @@ import math
 import re
 from typing import Any, Mapping, Optional
 
-from app.services.systems import harness_outputs
+from app.services.systems import harness_drawing, harness_outputs
 from app.services.systems.service_base import Caller
 from app.services.systems.store import Invalid, NotFound
 
@@ -78,7 +78,7 @@ class HarnessOutputsMixin:
         elif name == "wireviz.yaml":
             content = harness_outputs.wireviz_yaml(model)
         else:
-            content = harness_outputs.drawing_svg(model)
+            content = harness_drawing.drawing_svg(model)
             if name == "drawing.pdf":
                 content = harness_outputs.drawing_pdf(content)
         stem = re.sub(r"[^\w.-]+", "_", harness["name"]).strip("_") or "harness"
