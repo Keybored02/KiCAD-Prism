@@ -268,6 +268,31 @@ def with_findings(report: Mapping[str, Any], extra: Sequence[Mapping[str, Any]])
 # ---------------------------------------------------------------------------
 # Waivers (SB2-100, D-P2-56)
 
+# How the rules read to people (the ICD, reports); the Findings tray's twin is findings-ui.tsx RULE_TEXT.
+RULE_LABELS = {
+    "row_duplicate": "Duplicate row", "pin_fanout": "Pin used by several links",
+    "port_not_exposed": "Connector is not a port", "pin_absent": "Pad does not exist",
+    "source_unavailable": "Board source unavailable", "pcb_out_of_sync": "PCB net differs from the schematic",
+    "pin_net_ambiguous": "Pin carries several nets", "open_review": "Open review",
+    "net_name_mismatch": "Joined nets share no name", "power_meets_signal": "Power net meets a signal net",
+    "mate_mismatch": "Mated connectors do not line up", "harness_collision": "Harness runs through a board",
+    "length_mismatch": "Cut length differs from the estimate",
+    "child_revision_unreleased": "Subsystem revision is not released",
+    "child_advance_blocked": "Subsystem update blocked by hierarchy limits",
+    "export_unresolved": "Export does not resolve",
+    "mating_stale": "Connector moved since its mating frame was confirmed",
+    "mate_pair_unknown": "Catalog does not list these parts as mating",
+    "mate_pin_mismatch": "Harness part pins do not land on connector pads",
+    "harness_tight_bend": "Harness bends tighter than its minimum radius",
+    "subport_pad_absent": "Sub-port names a pad the connector no longer has",
+    "part_collision": "Bodies intersect in 3D",
+}
+
+
+def rule_label(name: str) -> str:
+    return RULE_LABELS.get(name, name.replace("_", " "))
+
+
 WAIVABLE_SEVERITIES = frozenset({"warning", "info"})
 
 

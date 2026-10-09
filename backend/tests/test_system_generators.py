@@ -39,6 +39,13 @@ class GeneratorTest(unittest.TestCase):
         self.assertEqual((row["signal"], row["source"], row["netA"], row["pinNamesB"]),
                          ("N1", "generator", ["/N1"], ["P1"]))
 
+    def test_signal_prefers_a_named_net_over_kicad_auto_names(self) -> None:
+        """SB2-118: ``Net-(J3-Pad1)`` on side A gives way to side B's named net; two auto names keep A's."""
+        a = pins(3, {"1": ["Net-(J3-Pad1)"], "2": ["unconnected-(J3-Pad2)"], "3": ["/VIN"]})
+        b = pins(3, {"1": ["/+12V_CMBD_M"], "2": ["Net-(J7-Pad2)"], "3": ["/VIN_B"]})
+        result = generators.generate("identity", a, b, [], {"includeUnconnected": True})
+        self.assertEqual([r["signal"] for r in result["rows"]], ["+12V_CMBD_M", "unconnected-(J3-Pad2)", "VIN"])
+
     def test_reverse_and_ranges(self) -> None:
         self.assertEqual(pairs(generators.generate("reverse", pins(4), pins(4), [])),
                          [("1", "4"), ("2", "3"), ("3", "2"), ("4", "1")])

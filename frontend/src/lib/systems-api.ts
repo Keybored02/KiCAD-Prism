@@ -124,6 +124,11 @@ export function createSystem(input: { name: string; description?: string; folder
   return versioned<SystemSummary>(BASE, { method: "POST", body: json(input) }, "Could not create the system");
 }
 
+/** Deletes a system (archived instead when parents or the catalog still use it, D-P2-31). */
+export function deleteSystem(systemId: string, etag: string) {
+  return versioned<{ deleted: boolean; archived: boolean }>(path(systemId), { method: "DELETE", etag }, "Could not delete the system");
+}
+
 /** SB2-101: every system the reader may see, with board totals, last snapshot, git and counts. */
 export async function listSystems(init?: RequestInit): Promise<SystemSummary[]> {
   return (await versioned<SystemSummary[]>(BASE, init ?? {}, "Could not load the systems")).body;
