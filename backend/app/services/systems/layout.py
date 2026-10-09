@@ -34,6 +34,7 @@ FOOTER_HEIGHT = 28
 COLUMN_GAP = 220
 BOARD_GAP = 48
 COMPONENT_GAP = 96
+SINGLES_PER_ROW = 4  # SB2-125: unlinked boards sit side by side, this many to a row
 RESTRICTED = "__restricted__"
 
 
@@ -285,7 +286,11 @@ def layout_system(boards: list[dict], links: list[dict],
         board.rows = [entry[3] for entry in keyed]
 
     top = 0.0
+    singles = []
     for component in components:
+        if len(component) == 1 and not result[component[0]].rows:
+            singles.append(result[component[0]])
+            continue
         members = [result[i] for i in component]
         columns = sorted({b.column for b in members})
         left = columns[0]
@@ -326,6 +331,13 @@ def layout_system(boards: list[dict], links: list[dict],
         for board in members:
             board.y += top - lowest
         top = max(b.y + b.height for b in members) + COMPONENT_GAP
+    # SB2-125: boards with no link yet, in rows rather than one tall column.
+    for start in range(0, len(singles), SINGLES_PER_ROW):
+        row = singles[start:start + SINGLES_PER_ROW]
+        for index, board in enumerate(row):
+            board.x = float(index * (BOARD_WIDTH + COLUMN_GAP))
+            board.y = top
+        top = max(b.y + b.height for b in row) + BOARD_GAP
 
     for board_id, position in fixed.items():
         board = result.get(board_id)

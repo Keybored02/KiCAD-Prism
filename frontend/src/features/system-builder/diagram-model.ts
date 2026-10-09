@@ -232,6 +232,7 @@ export function buildDiagram(
 ): { nodes: DiagramNode[]; harnesses: HarnessDiagramNode[]; edges: DiagramEdge[] } {
   const inputs = layoutInputs(document);
   const layout = layoutSystem(inputs.boards, inputs.links, positions);
+  const grows = new Map<string, number>();
   const nodes = onCanvas(document).map((instance) => {
     const placed = layout.get(instance.id)!;
     const { orphans } = drawablePorts(document, instance);
@@ -260,10 +261,12 @@ export function buildDiagram(
         rows.push({ portKey: port.portKey, reference: port.reference, partners: [], linked: false, orphan: false });
       }
     }
+    const shown = placed.rows.length + placed.hiddenPorts.length - hidden.length;
+    if (open) grows.set(instance.id, nodeHeight(shown, hidden.length, true) - nodeHeight(shown, hidden.length, false));
     return {
       id: instance.id,
       position: { x: placed.x, y: placed.y },
-      height: nodeHeight(placed.rows.length + placed.hiddenPorts.length - hidden.length, hidden.length, open),
+      height: nodeHeight(shown, hidden.length, open),
       data: { instance, rows, hiddenCount: hidden.length, expanded: open },
     };
   });
@@ -315,7 +318,24 @@ export function buildDiagram(
       },
     };
   });
+  pushBelow([...nodes, ...harnessNodes], grows);
   return { nodes, harnesses: harnessNodes, edges };
+}
+
+/**
+ * SB2-125: an expanded board pushes the blocks below it in its column down by what it grew, so it
+ * never covers them. Top to bottom, so two expanded boards in one column add up.
+ */
+export function pushBelow(all: { id: string; position: { x: number; y: number } }[], grows: ReadonlyMap<string, number>): void {
+  const grown = all.filter((node) => (grows.get(node.id) ?? 0) > 0).sort((p, q) => p.position.y - q.position.y);
+  for (const node of grown) {
+    const { x, y } = node.position;
+    for (const other of all) {
+      if (other.id !== node.id && Math.abs(other.position.x - x) < BOARD_WIDTH && other.position.y > y) {
+        other.position = { ...other.position, y: other.position.y + (grows.get(node.id) ?? 0) };
+      }
+    }
+  }
 }
 
 export interface ConnectionLike {

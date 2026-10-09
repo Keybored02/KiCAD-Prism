@@ -9,6 +9,7 @@
  * - A board lists its linked ports as rows, ordered by where their partner
  *   port sits, so the wires of a bundle never cross.
  * - Boards are shifted vertically so linked rows face their partners.
+ * - Boards with no link yet sit side by side below them, four to a row (SB2-125).
  * - Wires are orthogonal (horizontal, vertical, horizontal). Each wire in the
  *   channel between two columns gets its own vertical lane, ordered so wires
  *   running the same way do not cross.
@@ -21,6 +22,8 @@ export const FOOTER_HEIGHT = 28;
 const COLUMN_GAP = 220;
 const BOARD_GAP = 48;
 const COMPONENT_GAP = 96;
+/** SB2-125: unlinked boards sit side by side, this many to a row, below the linked ones. */
+const SINGLES_PER_ROW = 4;
 
 export interface LayoutPortInput {
   portKey: string;
@@ -221,7 +224,13 @@ export function layoutSystem(
   };
 
   let top = 0;
+  const singles: LayoutBoard[] = [];
   for (const component of components) {
+    const only = component.length === 1 ? result.get(component[0]) : undefined;
+    if (only && !only.rows.length) {
+      singles.push(only);
+      continue;
+    }
     const members = component.map((id) => result.get(id)!);
     const columns = [...new Set(members.map((board) => board.column))].sort((p, q) => p - q);
     const left = columns[0];
@@ -265,6 +274,15 @@ export function layoutSystem(
     const minY = Math.min(...members.map((board) => board.y));
     for (const board of members) board.y += top - minY;
     top = Math.max(...members.map((board) => board.y + height(board))) + COMPONENT_GAP;
+  }
+  // SB2-125: boards with no link yet, in rows rather than one tall column.
+  for (let start = 0; start < singles.length; start += SINGLES_PER_ROW) {
+    const row = singles.slice(start, start + SINGLES_PER_ROW);
+    row.forEach((board, index) => {
+      board.x = index * (BOARD_WIDTH + COLUMN_GAP);
+      board.y = top;
+    });
+    top = Math.max(...row.map((board) => board.y + height(board))) + BOARD_GAP;
   }
 
   for (const [id, position] of Object.entries(fixed)) {

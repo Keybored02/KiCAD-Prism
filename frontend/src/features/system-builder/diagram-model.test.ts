@@ -13,6 +13,7 @@ import {
   nodeHeight,
   portKeyOf,
   subsystemContents,
+  pushBelow,
 } from "./diagram-model";
 import { exportOf, harness, harnessEnd, instance, link, port, systemDocument } from "./test-fixtures";
 import type { SystemOccurrence } from "@/types/system";
@@ -186,5 +187,17 @@ describe("harnesses on the diagram (CONTRACTS_P2 §17)", () => {
     expect(nextLinkMode("h", null, false)).toBe("harness");
     expect(nextLinkMode("b", "harness", false)).toBe("b2b");
     expect(nextLinkMode("H", "harness", false)).toBeNull();
+  });
+});
+
+describe("pushBelow (SB2-125)", () => {
+  it("moves the blocks under an expanded board in its column down by what it grew", () => {
+    const at = (id: string, x: number, y: number) => ({ id, position: { x, y } });
+    const open = at("A", 0, 0);
+    const below = at("B", 10, 200);
+    const beside = at("C", 460, 200);
+    const above = at("D", 0, -200);
+    pushBelow([open, below, beside, above], new Map([["A", 300]]));
+    expect([below.position.y, beside.position.y, above.position.y]).toEqual([500, 200, -200]);
   });
 });
