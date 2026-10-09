@@ -168,6 +168,10 @@ port's menu, then a name and a description. A sub-port can be exported, and
 the rest of its connector stays usable here. A linked port cannot be
 exported. A system can have up to 200 exports.
 
+**Export…** on the Exports section exports several connectors at once: tick
+them in a list of the free connectors (filter by board, connector or part
+number), edit the proposed names, and export them in one change.
+
 ## Connect boards
 
 ### Diagram

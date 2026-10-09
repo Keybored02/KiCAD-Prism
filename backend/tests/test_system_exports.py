@@ -78,6 +78,29 @@ class ExportTest(ExportCase):
                                      b={"instanceId": self.instances["OBC-B"], "portKey": other},
                                      name="x", harness=None)
 
+    def test_a_batch_exports_several_ports_in_one_version_or_none(self) -> None:
+        item = lambda name, label, ref: {"name": name, "instanceId": self.instances[label],  # noqa: E731
+                                         "portKey": self.port_key(label, ref)}
+        before = self.version()
+        refused = [item("DEBUG", "OBC-A", "J6"), item("BUS", "OBC-A", "J7")]  # J7 is an end of L-J7J4
+        with self.assertRaisesRegex(Conflict, "^BUS: export_port_linked"):
+            self.service.create_exports(DESIGNER, self.sid, before, refused)
+        self.assertEqual((self.document()["exports"], self.version()), ([], before))
+        result = self.service.create_exports(DESIGNER, self.sid, before, [item("DEBUG", "OBC-A", "J6"),
+                                                                          item("PWR", "OBC-B", "J5")])
+        self.assertEqual([e["name"] for e in result.body["exports"]], ["DEBUG", "PWR"])
+        self.assertEqual(self.version(), before + 1)
+        app = FastAPI()
+        app.include_router(systems_api.router, prefix="/api/systems")
+        with mock.patch.object(service_module, "service", self.service):
+            etag = self.service.document(DESIGNER, self.sid).etag
+            empty = _request(app, "POST", f"/api/systems/{self.sid}/exports/batch", headers={"If-Match": etag},
+                             body={"exports": []})
+            created = _request(app, "POST", f"/api/systems/{self.sid}/exports/batch", headers={"If-Match": etag},
+                               body={"exports": [item("SWD", "OBC-B", "J6")]})
+        self.assertEqual(empty.status, 422)
+        self.assertEqual((created.status, [e["name"] for e in created.json["exports"]]), (201, ["SWD"]), created.text)
+
     def test_rename_retarget_and_delete_keep_the_id_and_audit(self) -> None:
         created = self.export()
         renamed = self.service.update_export(DESIGNER, self.sid, self.version(), created["id"],

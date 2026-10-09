@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.88 · 2026-10-09 · tickets SB2-00 to SB2-120.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.89 · 2026-10-09 · tickets SB2-00 to SB2-121.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -237,6 +237,8 @@ An export is `{id, name, description, target}`:
    - When a baseline advances (auto-advance, rebase or an applied review), each export on that board moves to the component it now resolves to, audited `connector_relabelled` or `connector_rebound` with `exportId`.
    - An export that no longer resolves, or whose port is no longer exposed, is **SYS-V16 `export_unresolved`** (error), and its interface entry has `resolved: false` and no pins. Exported connectors are never linked inside the system, so drift never reviews them; this finding is what surfaces a broken export.
 8. **An exported port cannot be hidden** (UI) and cannot be an end of a link (409 `export_port_linked`, from both directions).
+
+9. **Batch (SB2-121).** `POST …/exports/batch {exports: [{name, description?, instanceId, portKey, subportId?}]}` (1–200 items, port exports only) creates them in **one** version, each under rules 1–8. The first refusal rolls the batch back; its message starts with that item's name. 201 `{exports}` in request order.
 
 **Storage (workspace migration 31).** `system_exports`: `id`, `system_id`, `name` (unique per system, case-insensitive), `description`, `target_instance_id`, and exactly one of `target_port` (JSONB port baseline) or `target_export_id`.
 
@@ -564,6 +566,7 @@ All routes are under `/api/systems/{id}` and follow P1 conventions (If-Match, 41
 | Method and path | Purpose |
 |---|---|
 | `GET …/exports`, `POST …/exports`, `PATCH …/exports/{xid}`, `DELETE …/exports/{xid}` | Export CRUD (§4) |
+| `POST …/exports/batch` | Several port exports in one version (§4.2 rule 9) |
 | `GET …/export-interface?snapshot=` | The interface (§4.3), live or for a snapshot |
 | `POST …/snapshots/{sid}/publish` | §3.3 |
 | `GET …/snapshots/{sid}/manifest` | The frozen manifest, whole or 403 (§9.4) |
@@ -956,6 +959,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.89 | 2026-10-09 | SB2-121: batch exports (§4.2 rule 9) and **Export connectors…**. |
 | P2-1.88 | 2026-10-09 | SB2-120: generator previews flag suspect pairs (`flags`, §17.3). |
 | P2-1.87 | 2026-10-09 | SB2-119: SYS-V23, a named net meets a pin on no net (§8.4). |
 | P2-1.86 | 2026-10-09 | SB2-117: a subsystem's open findings, frozen in its pinned snapshot, on the node, inspector and top bar (§10). |
