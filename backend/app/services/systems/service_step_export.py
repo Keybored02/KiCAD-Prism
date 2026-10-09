@@ -237,7 +237,59 @@ class StepExportMixin:
                 continue
             parent.children.append(step_assembly.Leaf(name, step, _multiply(local, alignment_matrix(model["alignment"])),
                                                       product=name))
+        root.children += self._step_harnesses(store, (tree, level, placement, extents), cut, skipped)
         return root, boards, skipped
+
+    def _step_harnesses(self, store: SystemStore, placed: tuple, cut: list[str], skipped: list[dict]) -> list:
+        """Every level's routed harnesses as tubes in the system's frame (§25), as the System 3D view
+        draws them. A harness of a restricted subsystem, or with an end on one, is skipped."""
+        def hidden(path: Optional[str]) -> bool:
+            return bool(path) and any(path == c or path.startswith(f"{c}/") for c in cut)
+
+        routes, _matrices = self._harness_routes(store, placed, root_only=False)
+        tubes = []
+        for harness, routed in routes:
+            name = harness["name"] or harness["id"]
+            label = f"{harness['level']}/{name}" if harness["level"] else name
+            if hidden(harness["level"]) or any(hidden(end.get("occurrence")) for end in harness["ends"]):
+                skipped.append({"occurrence": f"harness:{harness['level']}:{harness['id']}", "label": label,
+                                "reason": "restricted"})
+                continue
+            segments = [(curve["samplesMm"], float(curve["diameterMm"])) for curve in routed["curves"]
+                        if curve["wires"] and curve["diameterMm"] > 0]
+            parts: list = [step_assembly.Tube("Bundle", segments)] if segments else []
+            parts += self._step_housings(harness, routed)
+            if parts:
+                tubes.append(step_assembly.Assembly(f"Harness {label}", parts))
+        if not tubes:
+            return []
+        return [step_assembly.Assembly("Harnesses", tubes)]
+
+    def _step_housings(self, harness: dict, routed: dict) -> list:
+        """Each posed end's housing as the System 3D view draws it (§20.17): the part's STEP at the
+        end's mating frame · the model's alignment, else the proxy box the view draws."""
+        from app.services.catalog.models import alignment_matrix
+
+        leaves: list = []
+        for end in harness["ends"]:
+            posed, housing = routed["ends"].get(end["id"]), end.get("housing")
+            if not posed:
+                continue
+            name = f"{end.get('reference') or end['id']} housing"
+            mating = poses_module.matrix(posed["pose"])
+            step: Optional[Path] = None
+            if housing:
+                try:
+                    step = self._catalog().model_step_path(housing["glbKey"])
+                except Exception:
+                    logger.debug("No STEP for housing %s", housing["glbKey"], exc_info=True)
+            if step is not None and step.is_file():
+                leaves.append(step_assembly.Leaf(name, step, _multiply(mating, alignment_matrix(housing["alignment"]))))
+                continue
+            box = _proxy_box(end, float(posed["depthMm"]))
+            if box:
+                leaves.append(step_assembly.Block(name, *box, matrix=mating))
+        return leaves
 
     def _step_mid_plane(self, caller: Caller, occurrence: Any, box: Optional[dict]) -> float:
         """The z that takes the board's STEP (bottom face at 0) to its frame (§25): the 3D bundle's
@@ -252,10 +304,26 @@ class StepExportMixin:
         return -((box["maxMm"][2] - box["minMm"][2]) / 2 if box else 0.0)
 
 
+def _proxy_box(end: dict, depth_mm: float) -> Optional[tuple[list[float], list[float]]]:
+    """The housing proxy the System 3D view draws (§20.17, ``harness-housings.ts`` ``proxyBox``): the
+    connector body's x–y extent in the housing's mating frame (y flipped) and ``depth_mm`` behind it."""
+    from app.services.systems.placement.frames import connector_frame
+    from app.services.systems.placement.mate import _box_in, body_corners
+
+    connector = end.get("connector")
+    frame = connector_frame(connector["geometry"], connector.get("thicknessMm"), connector.get("stored")) \
+        if connector else None
+    if frame is None:
+        return None
+    lo, hi = _box_in(frame, body_corners(connector["geometry"], connector.get("thicknessMm")))
+    return [lo[0], -hi[1], -depth_mm], [hi[0], -lo[1], 0.0]
+
+
 def _prune(node: step_assembly.Assembly) -> bool:
     """Drop leaves with no STEP and the assemblies left empty; True when ``node`` still holds something."""
     node.children = [child for child in node.children
-                     if (child.step is not None if isinstance(child, step_assembly.Leaf) else _prune(child))]
+                     if isinstance(child, (step_assembly.Tube, step_assembly.Block))
+                     or (child.step is not None if isinstance(child, step_assembly.Leaf) else _prune(child))]
     return bool(node.children)
 
 

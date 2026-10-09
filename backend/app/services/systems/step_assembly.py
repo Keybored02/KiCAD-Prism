@@ -1,4 +1,4 @@
-"""One assembly STEP from STEP files placed in a tree (SB2-109, CONTRACTS_P2 §25, D-P2-59).
+"""One assembly STEP from STEP files placed in a tree, plus harness tubes (SB2-109, CONTRACTS_P2 §25, D-P2-59).
 
 The only module that talks to OpenCASCADE (``cadquery-ocp``): an XCAF document where each source
 STEP is read once into a product, every placement is a component of it under its parent
@@ -24,12 +24,110 @@ class Leaf:
 @dataclass
 class Assembly:
     name: str
-    children: list[Union["Assembly", Leaf]] = field(default_factory=list)
+    children: list[Union["Assembly", Leaf, "Tube", "Block"]] = field(default_factory=list)
     matrix: Optional[Sequence[float]] = None  # into the parent's frame; None is identity
+
+
+@dataclass
+class Tube:
+    """A harness as solids (§25): one tube swept along each segment's samples, in the parent's frame."""
+    name: str
+    segments: list[tuple[Sequence[Sequence[float]], float]]  # (samples in mm, bundle diameter in mm)
+    colour: tuple[float, float, float] = (0.36, 0.36, 0.39)  # the 3D view's harness grey
+    matrix: Optional[Sequence[float]] = None
+
+
+@dataclass
+class Block:
+    """A box solid from ``lo`` to ``hi`` in its own frame (a harness end's proxy housing, §25)."""
+    name: str
+    lo: Sequence[float]
+    hi: Sequence[float]
+    matrix: Optional[Sequence[float]] = None
+    colour: tuple[float, float, float] = (0.22, 0.22, 0.24)
 
 
 class StepAssemblyError(RuntimeError):
     pass
+
+
+def _points(samples: Sequence[Sequence[float]]) -> list:
+    """The samples as OCCT points, dropping repeats closer than a micron (they break interpolation)."""
+    from OCP.gp import gp_Pnt
+
+    out: list = []
+    for x, y, z in samples:
+        point = gp_Pnt(float(x), float(y), float(z))
+        if not out or point.Distance(out[-1]) > 1e-3:
+            out.append(point)
+    return out
+
+
+def _sweep(points: list, radius: float):
+    """A solid circle swept along a smooth curve through ``points`` (corrected Frenet frames)."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
+    from OCP.GeomAPI import GeomAPI_Interpolate
+    from OCP.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Vec
+    from OCP.TColgp import TColgp_HArray1OfPnt
+
+    array = TColgp_HArray1OfPnt(1, len(points))
+    for i, point in enumerate(points, 1):
+        array.SetValue(i, point)
+    interpolate = GeomAPI_Interpolate(array, False, 1e-6)
+    interpolate.Perform()
+    if not interpolate.IsDone():
+        return None
+    curve = interpolate.Curve()
+    spine = BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(curve).Edge()).Wire()
+    start, tangent = gp_Pnt(), gp_Vec()
+    curve.D1(curve.FirstParameter(), start, tangent)
+    profile = BRepBuilderAPI_MakeWire(
+        BRepBuilderAPI_MakeEdge(gp_Circ(gp_Ax2(start, gp_Dir(tangent)), radius)).Edge()).Wire()
+    pipe = BRepOffsetAPI_MakePipeShell(spine)
+    pipe.SetMode(False)  # corrected Frenet: no twist where the curve straightens
+    pipe.Add(profile)
+    pipe.Build()
+    if not pipe.IsDone() or not pipe.MakeSolid():
+        return None
+    shape = pipe.Shape()
+    return shape if BRepCheck_Analyzer(shape).IsValid() else None
+
+
+def _capsules(points: list, radius: float, builder, compound) -> None:
+    """The fallback when a sweep fails: a cylinder per span and a sphere at each joint."""
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder, BRepPrimAPI_MakeSphere
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Vec
+
+    for a, b in zip(points, points[1:]):
+        span = gp_Vec(a, b)
+        builder.Add(compound, BRepPrimAPI_MakeCylinder(gp_Ax2(a, gp_Dir(span)), radius, span.Magnitude()).Shape())
+    for point in points[1:-1]:
+        builder.Add(compound, BRepPrimAPI_MakeSphere(point, radius).Shape())
+
+
+def tube_shape(tube: Tube):
+    """``tube`` as one compound of solids: a swept tube per segment, capsules where a sweep fails."""
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Compound
+
+    builder, compound = BRep_Builder(), TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for samples, diameter in tube.segments:
+        points = _points(samples)
+        if diameter <= 0 or len(points) < 2:
+            continue
+        swept = None
+        try:
+            swept = _sweep(points, diameter / 2)
+        except Exception:  # OCCT raises on degenerate curves; the capsules always build
+            swept = None
+        if swept is not None:
+            builder.Add(compound, swept)
+        else:
+            _capsules(points, diameter / 2, builder, compound)
+    return compound
 
 
 def _location(matrix: Optional[Sequence[float]]):
@@ -73,8 +171,9 @@ def write(root: Assembly, output: Path) -> None:
     from OCP.STEPControl import STEPControl_AsIs
     from OCP.TCollection import TCollection_ExtendedString
     from OCP.TDF import TDF_LabelSequence
+    from OCP.Quantity import Quantity_Color, Quantity_TOC_RGB
     from OCP.TDocStd import TDocStd_Document
-    from OCP.XCAFDoc import XCAFDoc_DocumentTool
+    from OCP.XCAFDoc import XCAFDoc_ColorGen, XCAFDoc_DocumentTool
 
     doc = TDocStd_Document(TCollection_ExtendedString("XmlXCAF"))
     shapes = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
@@ -107,11 +206,27 @@ def write(root: Assembly, output: Path) -> None:
         products[key] = label
         return label
 
+    colours = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
+
+    def solid(node: Union[Tube, Block]):
+        if isinstance(node, Tube):
+            shape = tube_shape(node)
+        else:
+            from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+            from OCP.gp import gp_Pnt
+            shape = BRepPrimAPI_MakeBox(gp_Pnt(*map(float, node.lo)), gp_Pnt(*map(float, node.hi))).Shape()
+        label = shapes.AddShape(shape, False)
+        _name(label, node.name)
+        colours.SetColor(label, Quantity_Color(*node.colour, Quantity_TOC_RGB), XCAFDoc_ColorGen)
+        return label
+
     def build(node: Assembly):
         label = shapes.NewShape()
         _name(label, node.name)
         for child in node.children:
-            if isinstance(child, Leaf):
+            if isinstance(child, (Tube, Block)):
+                target, matrix = solid(child), child.matrix
+            elif isinstance(child, Leaf):
                 target, matrix = product(child.step, child.product or child.step.stem), child.matrix
             else:
                 target, matrix = build(child), child.matrix
