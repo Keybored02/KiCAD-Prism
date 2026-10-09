@@ -140,6 +140,10 @@ class SystemItemsTest(unittest.TestCase):
         self.assertNotEqual(again["revisionId"], created["revisionId"])
         latest = self.service.get_component(created["componentId"])
         self.assertEqual(latest["source_ref"]["snapshotId"], "ssn_" + "c" * 32)
+        # SB2-122: either revision knows where the chain stands: v1 released, v2 newest and not released yet.
+        first = self.service.system_items.system_revision(created["revisionId"])
+        self.assertEqual((first["version"], first["latestReleasedVersion"], first["newestVersion"]), (1, 1, 2))
+        self.assertNotEqual(first["newestReleaseStatus"], "released")
 
     def test_gates_fail_closed(self) -> None:
         released_child = self.assembly()

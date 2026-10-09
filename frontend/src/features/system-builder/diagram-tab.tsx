@@ -48,6 +48,7 @@ import { BLOCK_STYLE, CONNECTION_STYLE, blockKind } from "./kind-style";
 import { wirePoints } from "./system-layout";
 import type { SystemTabProps } from "./system-tab-content";
 import { TONE_BADGE, boardStatus } from "./system-format";
+import { releaseChain } from "./release-chain";
 import { useSystemMutation } from "./use-system-mutation";
 import { FloatingToolbar } from "./workspace/floating-toolbar";
 import { ToolbarButton } from "./workspace/toolbar-button";
@@ -133,8 +134,10 @@ function BoardNodeView({ id, data, isConnectable, selected }: NodeProps<BoardNod
   const [open, setOpen] = useState(false);
   const kind = blockKind(instance);
   const style = BLOCK_STYLE[kind];
+  const newer = kind !== "board" ? releaseChain(instance.catalog).newerReleased : null;
   const subtitle = kind !== "board"
-    ? [instance.projectName, instance.catalog?.version ? `v${instance.catalog.version}` : null].filter(Boolean).join(" · ")
+    ? [instance.projectName, instance.catalog?.version ? `v${instance.catalog.version}` : null,
+      newer ? `v${newer} released` : null].filter(Boolean).join(" · ")
     : instance.projectName ?? status.label;
   return (
     <div className={cn("relative rounded-md bg-card text-card-foreground shadow-sm",
