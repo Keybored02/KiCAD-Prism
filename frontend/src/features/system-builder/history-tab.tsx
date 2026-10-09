@@ -18,6 +18,7 @@ import type { SystemTabProps } from "./system-tab-content";
 import { shortSha, timeAgo } from "./system-format";
 import { GitLinkPanel, SnapshotGitBadge } from "./git-link-panel";
 import { PublicationBadge, PublishDialog } from "./publish-dialog";
+import { StateFacts } from "./state-facts";
 import { useSystemMutation } from "./use-system-mutation";
 
 const LIVE = "live";
@@ -201,9 +202,10 @@ function SnapshotsSection({ systemId, document, etag, refresh, canEdit, canPubli
             <DialogDescription>
               A snapshot freezes every board's baseline, the links and pins, and the findings under a name, for a design
               review or a release. It never changes afterwards.
-              {openReviews > 0 && ` It will record that ${openReviews} ${openReviews === 1 ? "change is" : "changes are"} still unreviewed.`}
             </DialogDescription>
           </DialogHeader>
+          <StateFacts errors={document.findingCounts?.error ?? 0} warnings={document.findingCounts?.warning ?? 0}
+            reviews={openReviews} exports={document.exports?.length ?? 0} />
           <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void take(); }}>
             <div className="grid gap-2">
               <Label htmlFor="snapshot-name">Name</Label>
