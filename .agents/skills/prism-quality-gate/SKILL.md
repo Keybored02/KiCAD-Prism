@@ -31,7 +31,11 @@ uv run --no-project --python venv/bin/python --with-requirements ../requirements
 ```
 
 This is CI's command: pytest (from `requirements/test.txt`) runs the
-`unittest` suite in parallel, about 3 minutes instead of 14 serially. Locally
+`unittest` suite in parallel, about 6 minutes instead of 14 serially. CI splits
+it over three runners with `--shard k/3`: whole modules, balanced by
+`backend/tests/.test_durations.json`. When the CI shards drift apart, refresh
+that file from a run's `backend-results-*` artifacts with
+`python scripts/update_backend_test_durations.py <results.xml…>`. Locally
 `uv` layers the test tools over the venv, so the venv still matches
 `runtime.lock`.
 
@@ -91,6 +95,14 @@ For dependency or runtime identity changes, reproduce the `dependency-identity`
 job. For Release Studio executor changes, the containerized live-KiCad job is
 the acceptance gate and may be left to CI if the required image is unavailable
 locally.
+
+## Which jobs a pull request runs
+
+`scripts/ci_changes.py` picks the jobs from the changed paths: a job runs when
+its own areas change, or a file its tests read by name from elsewhere. CI or
+toolchain-pin changes run everything. When you add a test that reads a file
+outside its area, refer to that file by name so the rule sees it, and run
+`python3 -m unittest scripts.test_ci_changes`.
 
 ## Report coverage
 

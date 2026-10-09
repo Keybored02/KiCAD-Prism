@@ -50,3 +50,50 @@ def _fresh_interface_cache():
     clear_all()
     yield
     clear_all()
+
+
+# ---------------------------------------------------------------------------
+# CI shards (``--shard k/n``): whole test modules, balanced by their recorded duration.
+
+DURATIONS_FILE = os.path.join(os.path.dirname(__file__), ".test_durations.json")
+
+
+def pytest_addoption(parser):
+    parser.addoption("--shard", default=None, metavar="K/N",
+                     help="run only shard K of N: whole modules, balanced by tests/.test_durations.json")
+
+
+def shard_plan(modules, durations, count):
+    """Module -> shard index. Longest first onto the lightest shard; a module with no recorded
+    duration counts as the median. Deterministic: the same inputs always give the same plan."""
+    known = sorted(durations.values())
+    default = known[len(known) // 2] if known else 1.0
+    loads = [0.0] * count
+    plan = {}
+    for module in sorted(modules, key=lambda name: (-durations.get(name, default), name)):
+        target = min(range(count), key=lambda index: (loads[index], index))
+        plan[module] = target
+        loads[target] += durations.get(module, default)
+    return plan
+
+
+def pytest_collection_modifyitems(config, items):
+    spec = config.getoption("--shard")
+    if not spec:
+        return
+    import json
+    from pathlib import Path
+
+    index, count = (int(part) for part in spec.split("/"))
+    if not 1 <= index <= count:
+        raise pytest.UsageError(f"--shard {spec}: K must be between 1 and N")
+    try:
+        with open(DURATIONS_FILE) as handle:
+            durations = json.load(handle)
+    except FileNotFoundError:
+        durations = {}
+    module_of = lambda item: Path(item.nodeid.split("::")[0]).stem  # noqa: E731
+    plan = shard_plan({module_of(item) for item in items}, durations, count)
+    keep = [item for item in items if plan[module_of(item)] == index - 1]
+    config.hook.pytest_deselected(items=[item for item in items if plan[module_of(item)] != index - 1])
+    items[:] = keep
