@@ -555,6 +555,7 @@ Reading rules:
   - The occurrence column is the display path (`CNDH-A`, `CNDH-A ▸ PAY-SUB`) and comes first; the root system's own links have an empty occurrence.
   - Redaction follows §5.4: hidden boards keep their rows with connector and net blanked; a hidden child system's level is omitted entirely.
   - Without `depth`, or with `depth=own`, the CSV columns are exactly P1's.
+- **Release chain (SB2-122).** A catalog instance's `catalog` also carries `latestReleasedVersion` (the component's released revision, or `null`), `newestVersion` and `newestReleaseStatus` (its newest revision, published or not). The inspector's **Revision** reads `v2 · released · v3 released · v4 in QA review`; the diagram node adds "v3 released" when a newer revision is released.
 - **Health inside (SB2-117).** A subsystem instance's `catalog.findingCounts` is `{error, warning}` as its pinned snapshot froze them (the snapshot document's `findingCounts`; `null` when the source snapshot is gone). The node shows "{n} inside", the inspector a **Findings inside** fact, and the top bar "+ N errors in subsystems" (warnings when there are no errors). They are not added to the parent's own counts.
 - **Diagram (SB2-09):** a subsystem node has a double border, the revision (`vN`) and stage, and an **inside** toggle listing its boards and nested subsystems from `GET …/hierarchy`. The History tab offers an **All levels** ICD link whenever the system has a subsystem.
 - **Renderer** version 3.
@@ -960,6 +961,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 | Version | Date | Change |
 |---|---|---|
 | P2-1.93 | 2026-10-09 | SB2-125: default layout puts boards with no link side by side below the linked ones, four to a row (canvas and ICD block diagram, parity case added); an expanded board pushes the blocks below it in its column down. |
+| P2-1.92 | 2026-10-09 | SB2-122: the release chain of a subsystem revision (`latestReleasedVersion`, `newestVersion`, `newestReleaseStatus`; §10) in its inspector and diagram node. |
 | P2-1.91 | 2026-10-09 | SB2-123: the wire table takes a pasted spreadsheet block (signal, AWG, colour; down and right from the cell) and sets one AWG/colour on ticked wires. Editor only; no API change. |
 | P2-1.90 | 2026-10-09 | SB2-124: `POST …/instances` with a `trackedRef` also queues the source check (P1 §10.1), so a new board is never "Not checked"; **Add → Board** takes several boards (one call each, ETag carried), keeping refused ones with their reason. |
 | P2-1.89 | 2026-10-09 | SB2-121: batch exports (§4.2 rule 9) and **Export connectors…**. |

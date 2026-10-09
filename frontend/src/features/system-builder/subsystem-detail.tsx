@@ -13,15 +13,13 @@ import type { CatalogComponent } from "@/types/catalog";
 import type { SystemDocument, SystemHierarchy, SystemInstance } from "@/types/system";
 
 import { catalogComponentHref } from "./publish-dialog";
+import { releaseChain } from "./release-chain";
 import { boardStatus } from "./system-format";
 import type { Mutate } from "./use-system-mutation";
 import { InspectorFacts } from "./workspace/inspector-facts";
 import { InspectorHeader } from "./workspace/inspector-header";
 import { InspectorSection } from "./workspace/inspector-section";
 
-const STAGE: Record<string, string> = {
-  open: "open", in_progress: "in progress", qa_review: "in QA review", done: "approved", released: "released", archived: "archived",
-};
 
 interface SubsystemDetailProps {
   systemId: string;
@@ -97,7 +95,7 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
         )} />
 
       <InspectorFacts rows={[
-        { label: "Revision", value: `${ref?.version ? `v${ref.version}` : "—"}${ref?.releaseStatus ? ` · ${STAGE[ref.releaseStatus] ?? ref.releaseStatus}` : ""}` },
+        { label: "Revision", value: releaseChain(ref).text },
         ...(!isModule && !isPart ? [{ label: "Snapshot", value: ref?.snapshotName ?? "—" }] : []),
         ...(!isModule && !isPart && ref?.findingCounts ? [{ label: "Findings inside",
           value: `${ref.findingCounts.error} ${ref.findingCounts.error === 1 ? "error" : "errors"} · ${ref.findingCounts.warning} ${ref.findingCounts.warning === 1 ? "warning" : "warnings"}` }] : []),

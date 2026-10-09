@@ -114,8 +114,15 @@ class CatalogSystemItemsFacade:
             row = conn.execute(
                 """
                 SELECT r.id, r.component_id, r.version, r.release_status, r.name, r.value,
-                       r.interface_json, r.source_ref_json, c.kind, c.is_active, c.released_revision_id
+                       r.interface_json, r.source_ref_json, c.kind, c.is_active, c.released_revision_id,
+                       rel.version AS released_version, newest.version AS newest_version,
+                       newest.release_status AS newest_status
                 FROM component_revisions r JOIN components c ON c.id = r.component_id
+                LEFT JOIN component_revisions rel ON rel.id = c.released_revision_id
+                LEFT JOIN LATERAL (
+                    SELECT n.version, n.release_status FROM component_revisions n
+                    WHERE n.component_id = r.component_id ORDER BY n.version DESC LIMIT 1
+                ) newest ON TRUE
                 WHERE r.id = %s
                 """,
                 (revision_id,),
@@ -128,6 +135,10 @@ class CatalogSystemItemsFacade:
             "version": int(row["version"]), "name": str(row["name"]), "identity": str(row["value"]),
             "releaseStatus": normalize_workflow_stage(str(row["release_status"])),
             "active": bool(row["is_active"]), "latestReleasedRevisionId": str(row["released_revision_id"] or "") or None,
+            # SB2-122: where this revision sits in the release chain.
+            "latestReleasedVersion": int(row["released_version"]) if row["released_version"] is not None else None,
+            "newestVersion": int(row["newest_version"]),
+            "newestReleaseStatus": normalize_workflow_stage(str(row["newest_status"])),
             "interface": payload["interface"], "sourceRef": payload["sourceRef"],
         }
 

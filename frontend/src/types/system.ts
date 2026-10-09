@@ -126,6 +126,10 @@ export interface InstanceCatalogRef {
   releaseStatus: string | null;
   identity: string | null;
   latestReleasedRevisionId: string | null;
+  /** SB2-122: the component's released version and its newest revision, for the release chain. */
+  latestReleasedVersion?: number | null;
+  newestVersion?: number | null;
+  newestReleaseStatus?: string | null;
   /** The child system the revision was published from, and its snapshot. */
   systemId: string | null;
   snapshotName: string | null;
