@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { isDialogSubmitShortcut } from "@/lib/dialog-shortcuts";
-import { addInstance, createSystem } from "@/lib/systems-api";
+import { addInstance, createSystem, deleteSystem } from "@/lib/systems-api";
 import type { Project } from "@/types/project";
 
 import { BoardFields, boardProblems, instanceInput, type BoardDraft } from "./board-fields";
@@ -33,8 +33,8 @@ export function validateDraft(name: string, boards: BoardDraft[]): string[] {
 
 /**
  * Create the system, then add each board in order, carrying the ETag from one
- * call to the next. A refused board does not undo the system: the caller can
- * fix it on the system page.
+ * call to the next. A refused board does not undo the system (the caller fixes it on the system
+ * page), unless every board was refused: then the empty system is deleted and the error lists why.
  */
 export async function submitSystem(
   input: { name: string; description: string; folderId: string | null },
@@ -52,6 +52,11 @@ export async function submitSystem(
     } catch (error) {
       failures.push({ label: board.label.trim(), error: error instanceof Error ? error.message : String(error) });
     }
+  }
+  // SB2-118: when no board could be added, an empty system helps nobody; drop it and keep the dialog.
+  if (boards.length > 0 && failures.length === boards.length) {
+    await deleteSystem(created.body.id, etag).catch(() => undefined);
+    throw new Error(`No board could be added. ${failures.map((failure) => `${failure.label}: ${failure.error}`).join("; ")}`);
   }
   return { systemId: created.body.id, failures };
 }

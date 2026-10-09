@@ -71,13 +71,14 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
   const large = useLargeScreen();
   // Without WebGPU the Diagram stands in for the 3D view (SB2-65).
   const [has3d] = useState(webgpuAvailable);
-  const shown = state.view === "3d" && !has3d ? "diagram" : state.view;
+  // An empty system has nothing to draw in 3D: it opens on the Diagram, where boards are added and connected (SB2-118).
+  const shown = state.view === "3d" && (!has3d || document.instances.length === 0) ? "diagram" : state.view;
 
   const update = (patch: Partial<WorkspaceState>) => onState({ ...state, ...patch });
   const select = (selection: WorkspaceSelection | null) => {
     setSheet(null);
     // SB2-112: a row to show opens the link's rows in the tray, in the same update.
-    update(selection?.row ? { selection, tray: "connections" } : { selection });
+    update(selection?.row || selection?.edit ? { selection, tray: "connections" } : { selection });
   };
   const setTray = (tray: TrayTab | null) => {
     if (tray !== "history") setTakeRequest(0);

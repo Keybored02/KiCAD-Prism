@@ -190,7 +190,7 @@ export function WorkspaceInspector(props: InspectorProps) {
         <div className="space-y-5">
           {props.part && <PartInspector part={props.part} />}
           <BoardDetail key={instance.id} systemId={props.systemId} document={document} instance={instance} etag={props.etag}
-            canEdit={props.canEdit} busy={props.busy} run={props.run} />
+            canEdit={props.canEdit} busy={props.busy} run={props.run} onConnected={props.onSelect} />
         </div>
       ) : link ? (
         <LinkSummary document={document} link={link} findings={findings} onEditRows={props.onEditRows} />

@@ -68,6 +68,20 @@ describe("submitSystem", () => {
   });
 });
 
+describe("submitSystem when no board can be added (SB2-118)", () => {
+  it("deletes the empty system and reports every board's error", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(reply(201, { id: "sys_1", etag: '"sys:sys_1:1"' }, '"sys:sys_1:1"'))
+      .mockResolvedValueOnce(reply(422, { detail: "project source is not available" }))
+      .mockResolvedValueOnce(reply(200, { deleted: true, archived: false }, '"sys:sys_1:2"'));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(submitSystem({ name: "Stack", description: "", folderId: null }, [board({})]))
+      .rejects.toThrow("No board could be added. OBC-A: project source is not available");
+    const [url, init] = fetchMock.mock.calls[2] as unknown as [string, RequestInit];
+    expect([url, init.method]).toEqual(["/api/systems/sys_1", "DELETE"]);
+  });
+});
+
 describe("CreateSystemDialog", () => {
   it("suggests a label from the project and blocks submission until valid", async () => {
     const onCreated = vi.fn();
