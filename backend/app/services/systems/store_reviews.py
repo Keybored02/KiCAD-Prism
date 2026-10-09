@@ -161,7 +161,11 @@ class ReviewsStore:
     # Snapshots (§9.1): immutable, stored unredacted
 
     _SNAPSHOT_META = ("id, system_id, name, note, created_by, created_at, digest, open_review_count, "
-                      "renderer_version, manifest_schema, connectivity_digest, git")
+                      "renderer_version, manifest_schema, connectivity_digest, git, "
+                      # SB2-116: what the snapshot froze, for the publish dialog.
+                      "(document->'findingCounts'->>'error')::int AS error_count, "
+                      "(document->'findingCounts'->>'warning')::int AS warning_count, "
+                      "jsonb_array_length(COALESCE(document->'exports', '[]'::jsonb)) AS export_count")
 
     def create_snapshot(
         self, change: Mutation, *, name: str, note: str, document: Mapping[str, Any], digest: str,
@@ -198,6 +202,13 @@ class ReviewsStore:
             (system_id,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def snapshot_counts(self, system_id: str, snapshot_id: str) -> Optional[dict]:
+        """``{error, warning}`` open in a snapshot's frozen document, or None if it is gone (SB2-117)."""
+        row = self.conn.execute(
+            "SELECT (document->'findingCounts'->>'error')::int AS error, (document->'findingCounts'->>'warning')::int AS warning "
+            "FROM system_snapshots WHERE system_id = %s AND id = %s", (system_id, snapshot_id)).fetchone()
+        return {"error": row["error"] or 0, "warning": row["warning"] or 0} if row else None
 
     def get_snapshot(self, system_id: str, snapshot_id: str) -> dict:
         row = self.conn.execute(

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronUp, ClipboardList, FileSpreadsheet, FileText, FileUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, ClipboardList, FileSpreadsheet, FileText, FileUp, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Finding, SystemDocument, SystemHarness, SystemLink } from "@/types/system";
 
 import { ChangesTab } from "../changes-tab";
+import { ConnectDialog } from "../connect-dialog";
 import { FindingCountBadge } from "../findings-ui";
 import { HarnessEditor } from "../harness-editor";
 import { HistoryTab } from "../history-tab";
@@ -168,6 +169,7 @@ export function WorkspaceTray(props: TrayProps) {
   const harness = selection?.kind === "harness" ? index.harnesses.get(selection.id) : undefined;
   const editing = tab === "connections" && (link || harness);
   const tray = useTrayHeight();
+  const [connecting, setConnecting] = useState(false);
   const tabProps: SystemTabProps = {
     systemId, document, etag, canEdit, user: props.user, reload: props.reload, onNavigate: props.onNavigate,
   };
@@ -195,6 +197,7 @@ export function WorkspaceTray(props: TrayProps) {
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {tab === "connections" && !editing && (
             <>
+              {canEdit && <Button variant="ghost" size="sm" className="h-7" aria-label="New connection" title="New connection" onClick={() => setConnecting(true)}><Plus className="size-3.5" /><span className="hidden sm:inline"> New connection</span></Button>}
               {canEdit && <Button variant="ghost" size="sm" className="h-7" aria-label="Import CSV" title="Import CSV" onClick={() => props.onImporting(true)}><FileUp className="size-3.5" /><span className="hidden sm:inline"> Import CSV</span></Button>}
               <Button asChild variant="ghost" size="sm" className="h-7">
                 <a href={icdUrl(systemId, "html")} target="_blank" rel="noreferrer" aria-label="ICD" title="ICD"><FileText className="size-3.5" /><span className="hidden sm:inline"> ICD</span></a>
@@ -229,7 +232,7 @@ export function WorkspaceTray(props: TrayProps) {
           ) : link ? (
             <div className="p-4">
               <LinkEditor key={link.id} systemId={systemId} document={document} link={link} etag={etag}
-                canEdit={canEdit} findings={findings} busy={busy} run={run}
+                canEdit={canEdit} findings={findings} busy={busy} run={run} focusRow={selection?.row}
                 onDeleted={() => onSelect(null)} onHarness={(harnessId) => onSelect({ kind: "harness", id: harnessId })} />
             </div>
           ) : (
@@ -260,6 +263,10 @@ export function WorkspaceTray(props: TrayProps) {
             }} />
           </SheetContent>
         </Sheet>
+      )}
+      {connecting && (
+        <ConnectDialog systemId={systemId} document={document} etag={etag} run={run} onClose={() => setConnecting(false)}
+          onCreated={(created) => { setConnecting(false); onSelect(created); }} />
       )}
     </section>
   );

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { readFileSync } from "node:fs";
@@ -102,6 +102,31 @@ describe("board-to-board link details", () => {
     fireEvent.blur(field);
     await waitFor(() => expect(calls.filter(([, i]) => i.method === "PATCH")).toHaveLength(2));
     expect(JSON.parse(String(calls.filter(([, i]) => i.method === "PATCH")[1][1].body))).toEqual({ stackHeightMm: null });
+  });
+
+  it("confirms both inferred frames in one go, and fills an empty mate pad to pad (SB2-114)", async () => {
+    const calls = stubApi({ [obc.id]: port(), [cmbd.id]: port() });
+    const generated = { linkId: "L1", generator: "identity", skipped: [], rows: [
+      { pinA: "1", pinB: "1", signal: "VIN", source: "generator", netA: ["/VIN"], netB: ["/VIN"], pinNamesA: null, pinNamesB: null }] };
+    const base = fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
+      if (url.endsWith("/generate")) {
+        calls.push([url, init]);
+        return new Response(JSON.stringify(generated), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return base(url, init);
+    }));
+    renderEditor({ ...link("L1", obc.id, "J1", cmbd.id, "J1", 0), type: "b2b", stackHeightMm: 8 });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm both" }));
+    await waitFor(() => expect(calls.filter(([, i]) => i.method === "PUT" && i.body && String(i.body).includes("confirmed"))).toHaveLength(2));
+    const puts = calls.filter(([, i]) => i.method === "PUT").map(([url]) => url);
+    expect(puts).toEqual([`/api/systems/sys_1/instances/${obc.id}/mating/key-J1`, `/api/systems/sys_1/instances/${cmbd.id}/mating/key-J1`]);
+
+    fireEvent.click(within(screen.getByRole("group", { name: "Fill pins" })).getByRole("button", { name: "Same pin" }));
+    await waitFor(() => expect(calls.some(([url, i]) => url.endsWith("/rows") && i.method === "PUT")).toBe(true));
+    const [, init] = calls.find(([url, i]) => url.endsWith("/rows") && i.method === "PUT")!;
+    expect(JSON.parse(String(init.body))).toEqual([{ pinA: "1", pinB: "1", signal: "VIN", source: "generator" }]);
   });
 
   it("does not offer Confirm over a frame set by hand", async () => {

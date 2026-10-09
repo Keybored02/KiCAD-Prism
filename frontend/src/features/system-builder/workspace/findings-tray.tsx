@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
-import { proposeRename, unwaiveFinding, waiveFinding, withdrawRename } from "@/lib/systems-api";
+import { Input } from "@/components/ui/input";
+import { proposeRename, unwaiveFinding, waiveFinding, waiveFindings, withdrawRename } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { Finding, FindingWaiver, NetRename, Severity, SystemDocument } from "@/types/system";
 
 import { documentIndex } from "../document-index";
-import { findingText } from "../findings-ui";
+import { findingFacts, findingText } from "../findings-ui";
 import { endLabel } from "../link-editor";
 import type { Mutate } from "../use-system-mutation";
 import { findingKeys } from "./finding-keys";
@@ -32,8 +33,9 @@ const WAIVABLE = new Set<Severity>(["warning", "info"]);
 const TONE: Record<Severity, string> = { error: "text-destructive", warning: "text-warning", info: "text-muted-foreground" };
 
 type Row =
-  | { kind: "group"; key: string; severity: Severity; rule: string; text: string; count: number; open: boolean }
-  | { kind: "finding"; key: string; finding: Finding }
+  | { kind: "group"; key: string; severity: Severity; rule: string; text: string; count: number; open: boolean; members: Finding[] }
+  | { kind: "place"; key: string; place: string; count: number; open: boolean; members: Finding[] }
+  | { kind: "finding"; key: string; finding: Finding; nested?: boolean }
   | { kind: "waived-header"; key: string; count: number; open: boolean }
   | { kind: "waiver"; key: string; waiver: FindingWaiver; finding: Finding | null }
   | { kind: "renames-header"; key: string; count: number; open: boolean }
@@ -57,11 +59,19 @@ export function findingPlace(document: SystemDocument, finding: Finding): string
   return (finding.instanceId && index.instances.get(finding.instanceId)?.label) || "";
 }
 
+/** Whether the filter matches the finding's place, pins and nets, its rule or the rule's label. */
+function matches(document: SystemDocument, finding: Finding, query: string): boolean {
+  if (!query) return true;
+  const facts = findingFacts(finding);
+  return [findingPlace(document, finding), facts.pins, facts.nets, finding.rule, findingText(finding)]
+    .join(" ").toLowerCase().includes(query);
+}
+
 function findingTarget(finding: Finding): WorkspaceSelection | null {
   const harnessId = (finding.detail as { harnessId?: string } | null)?.harnessId;
   if (harnessId) return { kind: "harness", id: harnessId };
   if (finding.rule === "SYS-V22" && finding.key) return { kind: "collision", id: finding.key };
-  if (finding.linkId) return { kind: "link", id: finding.linkId };
+  if (finding.linkId) return { kind: "link", id: finding.linkId, ...(finding.rowId ? { row: finding.rowId } : {}) };
   return finding.instanceId ? { kind: "instance", id: finding.instanceId } : null;
 }
 
@@ -72,7 +82,7 @@ function catalogHref(document: SystemDocument, finding: Finding): string | null 
   return componentId ? `/?section=library-manager&libraryView=catalog&catalogSelection=${encodeURIComponent(componentId)}` : null;
 }
 
-function WaivePopover({ onWaive }: { onWaive: (note: string) => Promise<boolean> }) {
+function WaivePopover({ onWaive, label = "Waive" }: { onWaive: (note: string) => Promise<boolean>; label?: string }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const save = async () => {
@@ -84,7 +94,7 @@ function WaivePopover({ onWaive }: { onWaive: (note: string) => Promise<boolean>
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" className="w-12 shrink-0 text-right text-xs text-muted-foreground hover:text-foreground hover:underline">Waive</button>
+        <button type="button" className="shrink-0 text-right text-xs text-muted-foreground hover:text-foreground hover:underline">{label}</button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 space-y-2">
         <Textarea aria-label="Why this is acceptable" placeholder="Why this is acceptable" value={note} rows={3}
@@ -104,9 +114,11 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
   const { height, scrollTop, viewportRef, onScroll } = useVirtualViewport();
 
+  const [filter, setFilter] = useState("");
   const rows = useMemo<Row[]>(() => {
     if (!findings) return [];
-    const open = findings.filter((finding) => !finding.waived);
+    const query = filter.trim().toLowerCase();
+    const open = findings.filter((finding) => !finding.waived && matches(document, finding, query));
     const groups = new Map<string, Finding[]>();
     for (const finding of [...open].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
       || a.rule.localeCompare(b.rule))) {
@@ -115,13 +127,31 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
     }
     const out: Row[] = [];
     for (const [key, members] of groups) {
-      const startsOpen = open.length <= OPEN_TOTAL || members.length <= OPEN_GROUP;
+      const startsOpen = Boolean(query) || open.length <= OPEN_TOTAL || members.length <= OPEN_GROUP;
       const isOpen = startsOpen !== toggled.has(key);
       const [first] = members;
-      out.push({ kind: "group", key, severity: first.severity, rule: first.rule, text: findingText(first), count: members.length, open: isOpen });
-      if (isOpen) {
-        const keys = findingKeys(members);
+      out.push({ kind: "group", key, severity: first.severity, rule: first.rule, text: findingText(first), count: members.length,
+        open: isOpen, members });
+      if (!isOpen) continue;
+      const keys = findingKeys(members);
+      // SB2-113: a large group splits by place (a link, a harness or a board), the unit an EE triages.
+      const places = new Map<string, number[]>();
+      members.forEach((finding, index) => {
+        const place = findingPlace(document, finding);
+        (places.get(place) ?? places.set(place, []).get(place)!).push(index);
+      });
+      if (members.length <= OPEN_GROUP || places.size < 2) {
         members.forEach((finding, index) => out.push({ kind: "finding", key: `${key}#${keys[index]}`, finding }));
+        continue;
+      }
+      for (const [place, indexes] of [...places].sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0]))) {
+        const placeKey = `${key}/${place}`;
+        const placeOpen = toggled.has(placeKey);
+        out.push({ kind: "place", key: placeKey, place, count: indexes.length, open: placeOpen,
+          members: indexes.map((index) => members[index]) });
+        if (placeOpen) {
+          indexes.forEach((index) => out.push({ kind: "finding", key: `${placeKey}#${keys[index]}`, finding: members[index], nested: true }));
+        }
       }
     }
     const waivers = report?.waivers ?? [];
@@ -144,7 +174,7 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
       if (isOpen) renames.forEach((rename) => out.push({ kind: "rename", key: `rename#${rename.id}`, rename }));
     }
     return out;
-  }, [findings, report?.waivers, document.renames, toggled]);
+  }, [findings, report?.waivers, document, toggled, filter]);
 
   if (!report || !findings) return <p className="p-4 text-sm text-muted-foreground">Loading findings…</p>;
   if (!findings.length && !report.waivers?.length && !document.renames?.length) {
@@ -158,6 +188,11 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
   });
   const waive = async (finding: Finding, note: string) =>
     Boolean(finding.key && await run("waive", () => waiveFinding(systemId, etag, finding.key!, note), "Finding waived"));
+  const waiveAll = async (members: Finding[], note: string) => {
+    const keys = members.flatMap((finding) => (finding.key && WAIVABLE.has(finding.severity) ? [finding.key] : []));
+    return Boolean(keys.length && await run("waive", () => waiveFindings(systemId, etag, keys, note),
+      `${keys.length} ${keys.length === 1 ? "finding" : "findings"} waived`));
+  };
   const unwaive = (waiver: FindingWaiver) =>
     void run("unwaive", () => unwaiveFinding(systemId, etag, waiver.id), "Waiver removed");
   const propose = async (side: RenameSide, name: string, note: string) => Boolean(await run("rename",
@@ -173,35 +208,55 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
   const render = (row: Row) => {
     if (row.kind === "group" || row.kind === "waived-header" || row.kind === "renames-header") {
       const Icon = row.open ? ChevronDown : ChevronRight;
+      const waivable = row.kind === "group" && canEdit && WAIVABLE.has(row.severity);
       return (
-        <button type="button" aria-expanded={row.open} onClick={() => toggle(row.key)}
-          className="flex h-full w-full items-center gap-2 border-b bg-muted/40 px-3 text-left text-xs font-medium hover:bg-muted">
-          <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-          {row.kind === "group" ? (
-            <>
-              <span className={cn("w-16 shrink-0 font-mono font-bold", TONE[row.severity])}>{row.rule}</span>
-              <span className="min-w-0 flex-1 truncate">{row.text}</span>
-            </>
-          ) : <span className="min-w-0 flex-1 truncate">{row.kind === "waived-header" ? "Waived" : "Rename proposals"}</span>}
-          <span className="shrink-0 tabular-nums text-muted-foreground">{row.count}</span>
-        </button>
+        <div className="flex h-full items-center gap-2 border-b bg-muted/40 pr-4 text-xs font-medium hover:bg-muted">
+          <button type="button" aria-expanded={row.open} onClick={() => toggle(row.key)}
+            className="flex h-full min-w-0 flex-1 items-center gap-2 px-3 text-left">
+            <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+            {row.kind === "group" ? (
+              <>
+                <span className={cn("w-16 shrink-0 font-mono font-bold", TONE[row.severity])}>{row.rule}</span>
+                <span className="min-w-0 flex-1 truncate">{row.text}</span>
+              </>
+            ) : <span className="min-w-0 flex-1 truncate">{row.kind === "waived-header" ? "Waived" : "Rename proposals"}</span>}
+            <span className="shrink-0 tabular-nums text-muted-foreground">{row.count}</span>
+          </button>
+          {waivable && <WaivePopover label="Waive all" onWaive={(note) => waiveAll(row.members, note)} />}
+        </div>
+      );
+    }
+    if (row.kind === "place") {
+      const Icon = row.open ? ChevronDown : ChevronRight;
+      const waivable = canEdit && row.members.some((finding) => WAIVABLE.has(finding.severity));
+      return (
+        <div className="flex h-full items-center gap-3 border-b pl-6 pr-4 text-sm">
+          <button type="button" aria-expanded={row.open} onClick={() => toggle(row.key)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left">
+            <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{row.place || "System"}</span>
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{row.count}</span>
+          </button>
+          {waivable && <WaivePopover label="Waive all" onWaive={(note) => waiveAll(row.members, note)} />}
+        </div>
       );
     }
     if (row.kind === "finding") {
       const { finding } = row;
       const to = findingTarget(finding);
+      const facts = findingFacts(finding);
       const catalog = catalogHref(document, finding);
       return (
-        <div className="flex h-full items-center gap-3 border-b pl-9 pr-4 text-sm" title={findingText(finding)}>
-          <span className="min-w-0 flex-1 truncate">{findingPlace(document, finding)}</span>
-          <span className="hidden w-40 shrink-0 truncate font-mono text-xs text-muted-foreground md:block">
-            {[finding.reference, finding.pin].filter(Boolean).join(" · ")}
-          </span>
+        <div className={cn("flex h-full items-center gap-3 border-b pr-4 text-sm", row.nested ? "pl-14" : "pl-9")}
+          title={[findingText(finding), facts.nets].filter(Boolean).join("\n")}>
+          <span className={cn("min-w-0 truncate", facts.nets ? "w-48 shrink-0" : "flex-1")}>{findingPlace(document, finding)}</span>
+          <span className="w-36 shrink-0 truncate font-mono text-xs">{facts.pins}</span>
+          {facts.nets && <span className="hidden min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground md:block">{facts.nets}</span>}
           {catalog ? <a className="w-14 shrink-0 text-right text-xs text-primary hover:underline" href={catalog}>Catalog</a>
             : finding.rule === "SYS-V09" ? <RenameSlot finding={finding} document={document} canEdit={canEdit} onPropose={propose} />
               : null}
           {canEdit && WAIVABLE.has(finding.severity) && finding.key
-            ? <WaivePopover onWaive={(note) => waive(finding, note)} />
+            ? <span className="w-12 shrink-0 text-right"><WaivePopover onWaive={(note) => waive(finding, note)} /></span>
             : <span className="w-12 shrink-0" />}
           {to ? (
             <button type="button" className="w-12 shrink-0 text-right text-xs text-primary hover:underline" onClick={() => onSelect(to)}>Show</button>
@@ -241,7 +296,12 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
   };
 
   return (
-    <div ref={viewportRef} onScroll={onScroll} className="h-full overflow-auto">
+    <div className="flex h-full flex-col">
+      <div className="border-b px-3 py-1.5">
+        <Input aria-label="Filter findings" placeholder="Filter: board, link, pin, net" value={filter} className="h-7 text-xs"
+          onChange={(event) => setFilter(event.target.value)} />
+      </div>
+    <div ref={viewportRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto">
       <ul aria-label="Findings" className="relative" style={{ height: rows.length * ROW_HEIGHT }}>
         {rows.slice(first, last).map((row, index) => (
           <li key={row.key} className="absolute inset-x-0" style={{ top: (first + index) * ROW_HEIGHT, height: ROW_HEIGHT }}>
@@ -249,6 +309,7 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
           </li>
         ))}
       </ul>
+    </div>
     </div>
   );
 }

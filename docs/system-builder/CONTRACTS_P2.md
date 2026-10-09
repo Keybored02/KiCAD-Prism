@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.79 · 2026-10-09 · tickets SB2-00 to SB2-111.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.86 · 2026-10-09 · tickets SB2-00 to SB2-117.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -456,6 +456,8 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 ### 8.5 Waivers (SB2-100, D-P2-56)
 
 - **Identity.** Every finding carries `key`: its rule, instance, link, harness (`detail.harnessId`), end, reference and pin joined by `|`. Not the row ID, which a row save may replace.
+- **Batch (SB2-113).** `POST …/waivers/batch {findingKeys: [1–1000], note}` (designer, `If-Match`) waives them with one note in one version and answers 201 `{waived: [waiver…], skipped}`; keys already waived are skipped, and an unknown or hidden finding (404) or an error (422 `finding_not_waivable`) refuses the whole batch. The Findings tray offers it as **Waive all** on a rule's group and on each place under it (a group of more than eight findings splits by link, harness or board), and filters findings by place, pin, net or rule.
+- **Join findings (SB2-112).** A finding on a row or a harness wire (SYS-V01, V09, V10) is placed at side A (a wire: its `from` end): `instanceId`, `end` `"a"` (links), `reference` and `pin`, with side B's pin and connector in `detail.pinB` and `detail.referenceB`. Each join therefore has its own key, and a waiver covers that join only. Before P2-1.80 these findings had no place, so every join of one link (or harness) shared a key; a waiver made then no longer matches and lists as no longer raised.
 - **What can be waived.** Warnings and info only, with a note. An error is fixed or reviewed; a waiver naming one has no effect.
 - **API.** `POST …/waivers {findingKey, note}` (designer, `If-Match`) answers 201 with the waiver; 404 for a finding the reader can't see or that doesn't occur, 422 `finding_not_waivable` for an error or an empty note, 409 `finding_waived` if already waived. `DELETE …/waivers/{id}` answers 204. Both bump the version and audit `finding_waived` / `finding_unwaived`. The lookup runs without the system lock; the lock only stores the waiver (SB2-94).
 - **Effect.** A waived finding stays in `findings` with `waived {id, note, by, at}` and leaves `counts`; `counts.waived` says how many. The report lists `waivers` with `active`: whether its finding still occurs. Waivers are applied after every rule, so snapshots freeze them.
@@ -550,6 +552,7 @@ Reading rules:
   - The occurrence column is the display path (`CNDH-A`, `CNDH-A ▸ PAY-SUB`) and comes first; the root system's own links have an empty occurrence.
   - Redaction follows §5.4: hidden boards keep their rows with connector and net blanked; a hidden child system's level is omitted entirely.
   - Without `depth`, or with `depth=own`, the CSV columns are exactly P1's.
+- **Health inside (SB2-117).** A subsystem instance's `catalog.findingCounts` is `{error, warning}` as its pinned snapshot froze them (the snapshot document's `findingCounts`; `null` when the source snapshot is gone). The node shows "{n} inside", the inspector a **Findings inside** fact, and the top bar "+ N errors in subsystems" (warnings when there are no errors). They are not added to the parent's own counts.
 - **Diagram (SB2-09):** a subsystem node has a double border, the revision (`vN`) and stage, and an **inside** toggle listing its boards and nested subsystems from `GET …/hierarchy`. The History tab offers an **All levels** ICD link whenever the system has a subsystem.
 - **Renderer** version 3.
 
@@ -951,6 +954,13 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.86 | 2026-10-09 | SB2-117: a subsystem's open findings, frozen in its pinned snapshot, on the node, inspector and top bar (§10). |
+| P2-1.85 | 2026-10-09 | SB2-116: snapshot listings carry `findingCounts {error, warning}` and `exportCount` from the frozen document; the snapshot dialog shows the live system's open errors, warnings, unreviewed changes and exports, and the publish dialog the snapshot's, warning when it has no exports. |
+| P2-1.84 | 2026-10-09 | SB2-115: **Connect…** on a port and **New connection** on the Connections tab make a link, board-to-board link or harness from two lists of connectors (board, reference, MPN, pin count, sub-ports included; a mated or split connector is refused where it cannot be used), then open it. |
+| P2-1.83 | 2026-10-09 | SB2-114: a link with no rows offers **Fill pins: Same pin / Reversed** (the generator's rows saved in one step, Undo after); a B2B mating panel offers **Confirm both** when both ends have an inferred frame and neither has a stored one. |
+| P2-1.82 | 2026-10-09 | SB2-118: generated rows take their signal from the first net a designer named (side A first), KiCad's `Net-(…)`/`unconnected-(…)` only when neither side has another; the ICD (renderer 6) names rules by their labels and its block diagram drops unlinked ports; creating a system whose boards all fail deletes it again; an empty system opens on the Diagram. |
+| P2-1.81 | 2026-10-09 | SB2-113: batch waivers (§8.5), the Findings tray's filter, group and place waivers, and large groups split by place. |
+| P2-1.80 | 2026-10-09 | SB2-112: join findings (SYS-V01/V09/V10, rows and wires) placed at side A's pin with side B's in the detail, so each has its own key (§8.5); the Findings tray shows pins and nets, Show opens the row (`&row=`). |
 | P2-1.79 | 2026-10-09 | SB2-106 follow-up: the board page's Used in section restyled like the README; proposals no longer listed there (§23.5). |
 | P2-1.78 | 2026-10-09 | SB2-109 part 2: harness tubes and end housings in the system STEP (§25); the STEP is not attached to snapshots. |
 | P2-1.77 | 2026-10-09 | SB2-111 (D-P2-60): the harness drawing restyled after WireViz on the route tree (§26.3): connector tables, every wire fanned into the bundle, wire list and BOM on the sheet, and a viewer in Prism that traces a wire. Segments named by their nodes in the BOM and WireViz. |

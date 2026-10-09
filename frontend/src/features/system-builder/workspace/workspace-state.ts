@@ -28,6 +28,10 @@ export type SelectionKind = "instance" | "link" | "harness" | "collision";
 export interface WorkspaceSelection {
   kind: SelectionKind;
   id: string;
+  /** SB2-112: a link's row to bring into view (`&row=`), from a finding's Show. */
+  row?: string;
+  /** SB2-115: open it in the tray to edit (a connection just made); not kept in the URL. */
+  edit?: boolean;
 }
 
 export interface WorkspaceState {
@@ -48,14 +52,18 @@ function parseSelection(value: string | null): WorkspaceSelection | null {
   return at > 0 && id && KINDS.includes(kind) ? { kind, id } : null;
 }
 
-/** `?view=&tray=&sel=kind:id`; unknown values fall back to the 3D view, a closed tray and no selection. */
+function withRow(selection: WorkspaceSelection | null, row: string | null): WorkspaceSelection | null {
+  return selection?.kind === "link" && row ? { ...selection, row } : selection;
+}
+
+/** `?view=&tray=&sel=kind:id&row=`; unknown values fall back to the 3D view, a closed tray and no selection. */
 export function workspaceStateFromParams(params: URLSearchParams): WorkspaceState {
   const view = params.get("view");
   const tray = params.get("tray");
   return {
     view: WORKSPACE_VIEWS.some((item) => item.id === view) ? (view as WorkspaceView) : "3d",
     tray: TRAY_TABS.some((item) => item.id === tray) ? (tray as TrayTab) : null,
-    selection: parseSelection(params.get("sel")),
+    selection: withRow(parseSelection(params.get("sel")), params.get("row")),
   };
 }
 
@@ -92,9 +100,10 @@ export function migrateLegacyTab(params: URLSearchParams): { state: WorkspaceSta
 /** The query string for `state`, keeping unrelated parameters (e.g. `import`). */
 export function workspaceParams(state: WorkspaceState, current: URLSearchParams = new URLSearchParams()): URLSearchParams {
   const params = new URLSearchParams(current);
-  for (const key of ["tab", "board", "link", "harness", "view", "tray", "sel"]) params.delete(key);
+  for (const key of ["tab", "board", "link", "harness", "view", "tray", "sel", "row"]) params.delete(key);
   if (state.view !== "3d") params.set("view", state.view);
   if (state.tray) params.set("tray", state.tray);
   if (state.selection) params.set("sel", `${state.selection.kind}:${state.selection.id}`);
+  if (state.selection?.row) params.set("row", state.selection.row);
   return params;
 }

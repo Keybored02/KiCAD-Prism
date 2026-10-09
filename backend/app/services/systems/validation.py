@@ -58,6 +58,14 @@ def _finding(rule: str, *, instance_id: Optional[str] = None, link_id: Optional[
             "detail": dict(detail or {})}
 
 
+def _row_place(link: Mapping[str, Any], row: Mapping[str, Any]) -> dict:
+    """A join finding's place (SB2-112): side A's board, connector and pin, with side B's in the detail.
+    It keeps each row's finding apart in ``finding_key``, so a waiver covers one join, not the link."""
+    ref = lambda end: (link.get(f"{end}_port") or {}).get("reference")  # noqa: E731
+    return {"instance_id": link.get("a_instance_id"), "end": "a", "reference": ref("a"), "pin": row.get("pin_a"),
+            "detail": {"pinB": row.get("pin_b"), "referenceB": ref("b")}}
+
+
 def make_finding(rule: str, **fields: Any) -> dict:
     """``_finding`` for rule modules outside this file (harnesses, CONTRACTS_P2 §17.2)."""
     return _finding(rule, **fields)
@@ -121,8 +129,9 @@ def validate(
         for row in sorted(link["rows"], key=lambda r: r["id"]):
             key = (row["pin_a"], row["pin_b"])
             if key in seen:
+                place = _row_place(link, row)
                 findings.append(_finding("SYS-V01", link_id=link["id"], row_id=row["id"],
-                                         detail={"duplicateOf": seen[key]}))
+                                         **{**place, "detail": {**place["detail"], "duplicateOf": seen[key]}}))
             else:
                 seen[key] = row["id"]
 
@@ -200,16 +209,18 @@ def validate(
             pins[end] = exposure.pins_by_pad(component) if component else None
         for row in link.get("rows") or []:
             net_a, net_b = list(row.get("net_a") or []), list(row.get("net_b") or [])
+            place = _row_place(link, row)
             if system_nets.name_mismatch(net_a, net_b):  # every system since D-P2-57
                 findings.append(_finding("SYS-V09", link_id=link["id"], row_id=row["id"],
-                                         detail={"netA": net_a, "netB": net_b}))
+                                         **{**place, "detail": {**place["detail"], "netA": net_a, "netB": net_b}}))
             if pins["a"] is None or pins["b"] is None:
                 continue
             power_a = (pins["a"].get(str(row["pin_a"])) or {}).get("powerNet")
             power_b = (pins["b"].get(str(row["pin_b"])) or {}).get("powerNet")
             if system_nets.power_meets_signal(power_a, net_a, power_b, net_b):
                 findings.append(_finding("SYS-V10", link_id=link["id"], row_id=row["id"],
-                                         detail={"powerSide": "a" if power_a else "b", "netA": net_a, "netB": net_b}))
+                                         **{**place, "detail": {**place["detail"], "powerSide": "a" if power_a else "b",
+                                                                "netA": net_a, "netB": net_b}}))
 
     # SYS-V16: exports that no longer resolve or are no longer exposed.
     from app.services.systems import exports as exports_module
@@ -267,6 +278,31 @@ def with_findings(report: Mapping[str, Any], extra: Sequence[Mapping[str, Any]])
 
 # ---------------------------------------------------------------------------
 # Waivers (SB2-100, D-P2-56)
+
+# How the rules read to people (the ICD, reports); the Findings tray's twin is findings-ui.tsx RULE_TEXT.
+RULE_LABELS = {
+    "row_duplicate": "Duplicate row", "pin_fanout": "Pin used by several links",
+    "port_not_exposed": "Connector is not a port", "pin_absent": "Pad does not exist",
+    "source_unavailable": "Board source unavailable", "pcb_out_of_sync": "PCB net differs from the schematic",
+    "pin_net_ambiguous": "Pin carries several nets", "open_review": "Open review",
+    "net_name_mismatch": "Joined nets share no name", "power_meets_signal": "Power net meets a signal net",
+    "mate_mismatch": "Mated connectors do not line up", "harness_collision": "Harness runs through a board",
+    "length_mismatch": "Cut length differs from the estimate",
+    "child_revision_unreleased": "Subsystem revision is not released",
+    "child_advance_blocked": "Subsystem update blocked by hierarchy limits",
+    "export_unresolved": "Export does not resolve",
+    "mating_stale": "Connector moved since its mating frame was confirmed",
+    "mate_pair_unknown": "Catalog does not list these parts as mating",
+    "mate_pin_mismatch": "Harness part pins do not land on connector pads",
+    "harness_tight_bend": "Harness bends tighter than its minimum radius",
+    "subport_pad_absent": "Sub-port names a pad the connector no longer has",
+    "part_collision": "Bodies intersect in 3D",
+}
+
+
+def rule_label(name: str) -> str:
+    return RULE_LABELS.get(name, name.replace("_", " "))
+
 
 WAIVABLE_SEVERITIES = frozenset({"warning", "info"})
 

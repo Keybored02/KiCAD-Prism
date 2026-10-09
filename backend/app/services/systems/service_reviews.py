@@ -273,6 +273,8 @@ class ReviewsMixin:
                 "connectivityDigest": row.get("connectivity_digest"),
                 "manifestSchema": row.get("manifest_schema"),
                 "openReviewCount": int(row["open_review_count"]), "rendererVersion": row["renderer_version"],
+                "findingCounts": {"error": row.get("error_count") or 0, "warning": row.get("warning_count") or 0},
+                "exportCount": row.get("export_count") or 0,
                 "git": _git_status(row.get("git"))}
 
     def _restricted_in(self, store: SystemStore, document: Mapping[str, Any], caller: Caller) -> redaction.Restricted:

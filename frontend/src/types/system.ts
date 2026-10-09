@@ -129,6 +129,8 @@ export interface InstanceCatalogRef {
   /** The child system the revision was published from, and its snapshot. */
   systemId: string | null;
   snapshotName: string | null;
+  /** SB2-117: open errors and warnings in that snapshot (an assembly only); null when unknown. */
+  findingCounts?: { error: number; warning: number } | null;
 }
 
 export interface PortBaseline {
@@ -542,6 +544,9 @@ export interface SnapshotMeta {
   manifestSchema?: string | null;
   openReviewCount: number;
   rendererVersion: string;
+  /** SB2-116: what it froze: open errors and warnings, and its exports. */
+  findingCounts?: { error: number; warning: number };
+  exportCount?: number;
   /** The catalog revision this snapshot was published as, if any. */
   publication?: SnapshotPublication | null;
   /** Its commit to the linked repository; null when the system was not linked (P2 §21.2). */

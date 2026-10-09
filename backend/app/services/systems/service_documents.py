@@ -17,6 +17,8 @@ from app.services.systems.jobs import (
 from app.services.systems.store import Conflict, Invalid, NotFound, StaleVersion, SystemStore
 from app.services.systems.service_base import Caller, Result, _mating_summary, _iso
 
+MAX_BATCH_WAIVERS = 1000  # SB2-113: one group waive; the C&DH stack's largest group is 401
+
 
 class DocumentsMixin:
     # ------------------------------------------------------------------
@@ -158,7 +160,7 @@ class DocumentsMixin:
         exports = store.list_exports(system_id)
         report = self._validate(store, system_id, instances, links, interfaces, job_state, open_reviews, exports,
                                 system.get("optionalRules") or (), all_overrides)
-        catalog_docs = [self._catalog_instance_doc(i)
+        catalog_docs = [self._catalog_instance_doc(i, store)
                         for i in store.list_instances(system_id, kinds=("assembly", "module", "part"))]
         report = validation.with_findings(report, validation.child_findings([
             {"instanceId": doc["id"], "releaseStatus": doc["catalog"]["releaseStatus"],
@@ -333,6 +335,37 @@ class DocumentsMixin:
                                        created_by=caller.actor)
         return Result({**validation.waiver_doc(row), "findingKey": row["finding_key"], "rule": row["rule"],
                        "active": True}, system_id, change.version)
+
+    def waive_findings(self, caller: Caller, system_id: str, version: int, finding_keys: Sequence[str],
+                       note: str) -> Result:
+        """SB2-113: waive several warnings or info findings with one note, in one version. Keys already
+        waived are skipped; an unknown, hidden or error finding refuses the whole batch."""
+        keys = list(dict.fromkeys(finding_keys))
+        if not keys or len(keys) > MAX_BATCH_WAIVERS:
+            raise Invalid(f"waive 1 to {MAX_BATCH_WAIVERS} findings at once")
+        with self._tx(consistent=True) as store:
+            system = self._system(store, system_id, caller)
+            if int(system["version"]) != int(version):
+                raise StaleVersion(int(system["version"]))
+            built, _instances, _jobs = self._build(store, system)
+            restricted = self._restricted_instances(store, system_id, caller)
+        report = redaction.redact_findings(built["validation"], restricted)
+        by_key = {f["key"]: f for f in report["findings"] if not f.get("redacted")}
+        missing = [key for key in keys if key not in by_key]
+        if missing:
+            raise NotFound(f"{len(missing)} of the findings were not found")
+        if any(by_key[key]["severity"] not in validation.WAIVABLE_SEVERITIES for key in keys):
+            raise Invalid("finding_not_waivable: errors are fixed or reviewed, never waived")
+        todo = [key for key in keys if not by_key[key].get("waived")]
+        rows: list[dict] = []
+        with self._tx() as store:
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                for key in todo:
+                    rows.append(store.add_waiver(change, finding_key=key, rule=by_key[key]["rule"], note=note,
+                                                 created_by=caller.actor))
+        return Result({"waived": [{**validation.waiver_doc(row), "findingKey": row["finding_key"], "rule": row["rule"],
+                                   "active": True} for row in rows],
+                       "skipped": len(keys) - len(todo)}, system_id, change.version)
 
     def unwaive_finding(self, caller: Caller, system_id: str, version: int, waiver_id: str) -> Result:
         with self._tx() as store:

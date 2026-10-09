@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { CircleAlert, Trash2, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -5,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { cn } from "@/lib/utils";
 import type { Finding, RowSource } from "@/types/system";
+
+import { findingText } from "./findings-ui";
 
 export const ROW_HEIGHT = 36;
 const OVERSCAN = 8;
@@ -69,10 +72,20 @@ interface LinkRowsTableProps {
   editable: boolean;
   onSignalChange?: (key: string, signal: string) => void;
   onRemove?: (key: string) => void;
+  /** SB2-112: the row a finding's Show points at, scrolled into view and outlined. */
+  focusKey?: string;
 }
 
-export function LinkRowsTable({ rows, sideA, sideB, editable, onSignalChange, onRemove }: LinkRowsTableProps) {
+export function LinkRowsTable({ rows, sideA, sideB, editable, onSignalChange, onRemove, focusKey }: LinkRowsTableProps) {
   const { height, scrollTop, viewportRef, onScroll } = useVirtualViewport();
+  const focusIndex = focusKey ? rows.findIndex((row) => row.key === focusKey) : -1;
+  const table = useRef<HTMLTableElement>(null);
+  useEffect(() => {
+    const viewport = table.current?.querySelector<HTMLElement>("[data-testid=link-rows-viewport]");
+    if (focusIndex < 0 || !viewport) return;
+    viewport.scrollTop = Math.max(0, (focusIndex - 2) * ROW_HEIGHT);
+    table.current?.scrollIntoView({ block: "nearest" });
+  }, [focusIndex]);
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const last = Math.min(rows.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN);
   const visible = rows.slice(first, last);
@@ -80,7 +93,7 @@ export function LinkRowsTable({ rows, sideA, sideB, editable, onSignalChange, on
   // A real table for screen readers; block/grid display so rows can be absolutely positioned (virtualised).
   return (
     <div className="relative overflow-x-auto border">
-      <table aria-label="Link pins" aria-rowcount={rows.length + 1} className="block min-w-[44rem] text-sm">
+      <table ref={table} aria-label="Link pins" aria-rowcount={rows.length + 1} className="block min-w-[44rem] text-sm">
         <thead className="block border-b bg-muted/50 text-left text-xs text-muted-foreground">
           <tr className={cn("grid gap-3 px-3 pt-2 font-semibold text-foreground", COLUMNS)} aria-hidden>
             <td className="col-span-2 truncate">{sideA}</td>
@@ -111,13 +124,15 @@ export function LinkRowsTable({ rows, sideA, sideB, editable, onSignalChange, on
               const worst = row.problems.length || row.findings.some((f) => f.severity === "error")
                 ? "error"
                 : row.findings.some((f) => f.severity === "warning") ? "warning" : null;
-              const tooltip = [...row.problems, ...row.findings.map((f) => `${f.rule} ${f.name}`)].join("\n");
+              const tooltip = [...row.problems, ...row.findings.map((f) => `${f.rule} ${findingText(f)}`)].join("\n");
               return (
                 <tr
                   key={row.key}
                   aria-rowindex={index + 2}
+                  aria-current={row.key === focusKey || undefined}
                   className={cn("absolute left-0 right-0 grid items-center gap-3 border-b px-3", COLUMNS,
-                    worst === "error" && "bg-destructive/5", worst === "warning" && "bg-warning/5")}
+                    worst === "error" && "bg-destructive/5", worst === "warning" && "bg-warning/5",
+                    row.key === focusKey && "ring-2 ring-inset ring-primary")}
                   style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
                 >
                   <td className="min-w-0"><Pin end={row.a} /></td>

@@ -5,6 +5,7 @@ import {
     useMemo,
     useRef,
     useState,
+    useSyncExternalStore,
     type PointerEvent as ReactPointerEvent,
     type ReactNode,
 } from "react";
@@ -15,6 +16,7 @@ import {
     EyeOff,
     Layers3,
     ListFilter,
+    PictureInPicture2,
     Search,
     Undo2,
     X,
@@ -62,6 +64,45 @@ const pcbPresets = [
     ["all", "Show all"],
     ["none", "Hide all"],
 ] as const;
+
+/**
+ * Inset mode of a viewer element: hovering a pin or pad opens a live view of
+ * the other document. Mirrors the element's state and its change event, so
+ * the I key and this toggle always agree.
+ */
+export function useInsetMode(viewer: ECadViewerElement | null) {
+    const subscribe = useCallback(
+        (notify: () => void) => {
+            if (!viewer) return () => {};
+            viewer.addEventListener("ecad-viewer:inset-mode", notify);
+            return () => viewer.removeEventListener("ecad-viewer:inset-mode", notify);
+        },
+        [viewer],
+    );
+    const on = useSyncExternalStore(subscribe, () => viewer?.insetMode ?? false);
+    const toggle = useCallback(() => {
+        viewer?.setInsetMode?.(!(viewer.insetMode ?? false));
+    }, [viewer]);
+    return { on, toggle, available: Boolean(viewer?.setInsetMode) };
+}
+
+function InsetModeToggle({ viewer }: { viewer: ECadViewerElement | null }) {
+    const { on, toggle, available } = useInsetMode(viewer);
+    if (!available) return null;
+    return (
+        <Button
+            variant={on ? "secondary" : "ghost"}
+            size="icon"
+            className={cn("size-8", on && "text-primary")}
+            onClick={toggle}
+            aria-pressed={on}
+            aria-label="Insets"
+            title="Insets · I"
+        >
+            <PictureInPicture2 className="size-4" />
+        </Button>
+    );
+}
 
 export function EcadViewerControls({
     context,
@@ -117,6 +158,7 @@ export function EcadViewerControls({
             ariaLabel={context === "SCH" ? "Schematic pages" : "PCB display controls"}
             icon={context === "SCH" ? <ListFilter className="size-4" /> : <Layers3 className="size-4" />}
             title={context === "SCH" ? "Schematic pages" : "Board display"}
+            actions={<InsetModeToggle viewer={viewer} />}
             onVisibleWidthChange={onVisibleWidthChange}
         >
             {context === "SCH" && <SchematicPageTree viewer={viewer} />}
@@ -216,12 +258,14 @@ export function ViewerSideRail({
     ariaLabel,
     icon,
     title,
+    actions,
     onVisibleWidthChange,
     children,
 }: {
     ariaLabel: string;
     icon: ReactNode;
     title: string;
+    actions?: ReactNode;
     onVisibleWidthChange?: (width: number) => void;
     children: ReactNode;
 }) {
@@ -305,7 +349,8 @@ export function ViewerSideRail({
                     {open && (
                         <>
                             {icon}
-                            <span>{title}</span>
+                            <span className="min-w-0 flex-1 truncate">{title}</span>
+                            {actions}
                         </>
                     )}
                 </div>

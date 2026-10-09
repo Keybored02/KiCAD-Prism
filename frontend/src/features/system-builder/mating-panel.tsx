@@ -188,6 +188,17 @@ export function MatingPanel({ systemId, etag, document, link, editable, busy, ru
   const label = (instanceId: string) => document.instances.find((candidate) => candidate.id === instanceId)?.label ?? "?";
   const status = placement ? placementStatus(placement, link, label) : null;
   const restricted = link.a.redacted || link.b.redacted;
+  // SB2-114: both ends' frames, so both inferred frames can be confirmed at once. Never over a stored one.
+  const frames = useKeyed(`${link.id}:frames:${etag}`, () => Promise.all((["a", "b"] as const).map(async (end) => {
+    const portKey = link[end].port?.portKey;
+    if (!portKey || link[end].redacted) return null;
+    return (await getMating(systemId, link[end].instanceId)).ports.find((port) => port.portKey === portKey) ?? null;
+  })));
+  const confirmBoth = editable && !restricted && Boolean(frames?.every((frame) => frame?.inferred.axis && !frame.stored));
+  const confirmFrames = () => void run("mating", async () => {
+    const first = await setMating(systemId, etag, link.a.instanceId, link.a.port!.portKey, { mode: "confirmed" });
+    return setMating(systemId, first.etag ?? etag, link.b.instanceId, link.b.port!.portKey, { mode: "confirmed" });
+  }, "Both mating frames confirmed");
   // A board this link could place instead of its current driving mate, and a choice to undo.
   const choices = placement && editable && !restricted
     ? (["a", "b"] as const).flatMap((end): { instanceId: string; kind: "use" | "reset" }[] => {
@@ -202,6 +213,10 @@ export function MatingPanel({ systemId, etag, document, link, editable, busy, ru
     <section className="space-y-2" aria-label="Mating">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold" title="3D placement uses only frames that are confirmed or set by hand">Mating</h3>
+        {confirmBoth && (
+          <Button size="sm" variant="outline" className="mr-auto" disabled={busy} onClick={confirmFrames}
+            title="Accept both connectors' inferred frames">Confirm both</Button>
+        )}
         <StackHeightField systemId={systemId} etag={etag} link={link} editable={editable && !restricted} busy={busy} run={run} />
       </div>
       {status && <p className={`text-xs ${STATUS_TONE[status.tone]}`} role="status">{status.text}</p>}

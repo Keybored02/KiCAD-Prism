@@ -22,13 +22,53 @@ function doc(findings: Finding[], waivers: NonNullable<SystemDocument["validatio
 
 function renderTray(document: SystemDocument, canEdit = true) {
   const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
+  const onSelect = vi.fn();
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "sfw_1" }), {
     status: 201, headers: { "Content-Type": "application/json", ETag: '"sys:s:2"' } })));
-  render(<FindingsTray systemId="s" document={document} etag='"sys:s:1"' canEdit={canEdit} run={run as never} onSelect={vi.fn()} />);
-  return { run };
+  render(<FindingsTray systemId="s" document={document} etag='"sys:s:1"' canEdit={canEdit} run={run as never} onSelect={onSelect} />);
+  return { run, onSelect };
 }
 
 describe("FindingsTray (SB2-100)", () => {
+  it("filters by board, pin or net, waives a group in one batch, and splits a large group by place (SB2-113)", async () => {
+    const linkId = base.links[0].id;
+    const v09 = (pin: string, a: string, b: string) => finding({ rule: "SYS-V09", name: "net_name_mismatch", linkId, rowId: `r${pin}`,
+      end: "a", pin, detail: { pinB: pin, referenceB: "J2", netA: [a], netB: [b] }, key: `V09|${pin}` });
+    const onPwr = Array.from({ length: 9 }, (_, i) => finding({ instanceId: pwr.id, reference: "J2", pin: String(i + 1), key: `V06|p${i}` }));
+    const { run } = renderTray(doc([v09("1", "GND_3", "GND"), v09("3", "CLK", "SCK"), finding({ pin: "9", key: "V06|9" }), ...onPwr]));
+    // SYS-V06 has 10 findings on two boards: one row per board, PWR first (9), each opening on demand.
+    const places = screen.getAllByRole("button", { name: /^(PWR|OBC)\s*\d+$/ });
+    expect(places.map((button) => button.textContent)).toEqual(["PWR9", "OBC1"]);
+    expect(screen.queryByText("J2 · 1")).toBeNull();
+    fireEvent.click(places[0]);
+    expect(screen.getByText("J2 · 1")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Filter findings"), { target: { value: "sck" } });
+    expect(screen.queryByText("GND_3 ↔ GND")).toBeNull();
+    expect(screen.getByText("CLK ↔ SCK")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Filter findings"), { target: { value: "" } });
+
+    const obc = screen.getByRole("button", { name: /^OBC\s*1$/ }).parentElement!;
+    fireEvent.click(within(obc).getByRole("button", { name: "Waive all" }));
+    fireEvent.change(screen.getByLabelText("Why this is acceptable"), { target: { value: "Board-level, accepted" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Waive" }).at(-1)!);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledWith("waive", expect.any(Function), "1 finding waived"));
+    const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(String(url)).toMatch(/\/waivers\/batch$/);
+    expect(JSON.parse(String(init.body))).toEqual({ findingKeys: ["V06|9"], note: "Board-level, accepted" });
+  });
+
+  it("names a join finding's pins and nets, and Show opens its row (SB2-112)", () => {
+    const linkId = base.links[0].id;
+    const { onSelect } = renderTray(doc([finding({
+      rule: "SYS-V10", name: "power_meets_signal", severity: "error", linkId, rowId: "row_4", end: "a", pin: "4",
+      detail: { pinB: "4", referenceB: "J2", netA: ["VCC_3V3"], netB: [] }, key: "e4" })]));
+    expect(screen.getByText("J1 4 ↔ J2 4")).toBeTruthy();
+    expect(screen.getByText("VCC_3V3 ↔ no net")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    expect(onSelect).toHaveBeenCalledWith({ kind: "link", id: linkId, row: "row_4" });
+  });
+
   it("says it is loading until the findings come with the document", () => {
     renderTray({ ...base, validation: undefined });
     expect(screen.getByText("Loading findings…")).toBeTruthy();

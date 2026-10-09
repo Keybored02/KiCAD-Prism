@@ -82,6 +82,16 @@ def _pairs(generator: str, pins_a: Mapping[str, Mapping[str, Any]], pins_b: Mapp
     raise Invalid(f"unknown generator {generator!r}; use one of {', '.join(GENERATORS)}")
 
 
+_AUTO_NET = re.compile(r"^(Net|unconnected)-\(")
+
+
+def _signal(nets_a: Sequence[str], nets_b: Sequence[str]) -> str:
+    """SB2-118: the row's signal is the first net a designer named, side A first; KiCad's own names
+    (``Net-(J3-Pad112)``, ``unconnected-(…)``) only when neither side has another."""
+    leaves = [_leaf(net) for net in [*nets_a, *nets_b]]
+    return next((leaf for leaf in leaves if not _AUTO_NET.match(leaf)), leaves[0] if leaves else "")
+
+
 def generate(generator: str, pins_a: Mapping[str, Mapping[str, Any]], pins_b: Mapping[str, Mapping[str, Any]],
              existing: Sequence[Mapping[str, Any]], options: Mapping[str, Any] | None = None) -> dict:
     """``{rows, skipped}`` for one generator run.
@@ -108,7 +118,7 @@ def generate(generator: str, pins_a: Mapping[str, Mapping[str, Any]], pins_b: Ma
         if reason:
             skipped.append({"pinA": pad_a, "pinB": pad_b, "reason": reason})
             continue
-        signal = _leaf(nets_a[0]) if nets_a else _leaf(nets_b[0]) if nets_b else ""
+        signal = _signal(nets_a, nets_b)
         rows.append({
             "pinA": pad_a, "pinB": pad_b, "signal": signal, "source": "generator",
             "netA": nets_a, "netB": nets_b,
