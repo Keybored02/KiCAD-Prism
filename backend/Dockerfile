@@ -144,6 +144,9 @@ RUN PRISM_VIEWER_ROOT=/opt/kicad-prism-viewer /app/scripts/build-prism-clipper2.
     && case "$ARCH" in aarch64|arm64) CLIPPER_ARCH=arm64 ;; *) CLIPPER_ARCH=x86_64 ;; esac \
     && cp "/opt/kicad-prism-viewer/native/prism-clipper2/linux-${CLIPPER_ARCH}/libprism_clipper2.so" \
         /usr/local/lib/libprism_clipper2.so
+# The viewer bundles System Builder's harness geometry from the frontend source (viewer/src/main.js
+# imports ../../../frontend/src/features/system-builder/placement/…), so that folder sits beside it.
+COPY frontend/src/features/system-builder/placement /opt/frontend/src/features/system-builder/placement
 RUN cd /opt/kicad-prism-viewer && npm run build
 
 COPY backend/ .
