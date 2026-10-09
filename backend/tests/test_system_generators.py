@@ -81,6 +81,15 @@ class GeneratorTest(unittest.TestCase):
         loose = generators.generate("identity", a, b, [], {"includeUnconnected": True})
         self.assertEqual(loose["rows"][-1]["signal"], "")
 
+    def test_rows_carry_the_join_rules_they_would_raise(self) -> None:
+        a = pins(4, {"1": ["/VCC_3V3"], "2": ["/TM_MON"], "3": ["GND"], "4": ["/SDA"]})
+        b = pins(4, {"1": [], "2": ["GND_3"], "3": ["/SCL"], "4": ["/I2C_SDA"]})
+        a["3"]["powerNet"], b["3"]["powerNet"] = True, False
+        flags = {r["pinA"]: [f["rule"] for f in r["flags"]] for r in generators.generate("identity", a, b, [])["rows"]}
+        self.assertEqual(flags, {"1": ["SYS-V23"], "2": ["SYS-V09"], "3": ["SYS-V09", "SYS-V10"], "4": []})
+        self.assertEqual(generators.suspect(a["3"], b["3"], ["GND"], ["/SCL"])[1],
+                         {"rule": "SYS-V10", "name": "power_meets_signal", "severity": "error"})
+
     def test_unknown_generator(self) -> None:
         with self.assertRaises(Invalid):
             generators.generate("magic", pins(1), pins(1), [])

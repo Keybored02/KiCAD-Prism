@@ -502,7 +502,8 @@ class HarnessesMixin:
                     for w in harness["wires"] if {w["from_end"], w["to_end"]} == {from_end, to_end}]
         body = generators.generate(generator, facts[0], facts[1], existing, options)
         wires = [{"from": {"end": from_end, "pin": row["pinA"]}, "to": {"end": to_end, "pin": row["pinB"]},
-                  "signal": row["signal"], "netFrom": row["netA"], "netTo": row["netB"]} for row in body["rows"]]
+                  "signal": row["signal"], "netFrom": row["netA"], "netTo": row["netB"], "flags": row["flags"]}
+                 for row in body["rows"]]
         skipped = [{"fromPin": s["pinA"], "toPin": s["pinB"], "reason": s["reason"]} for s in body["skipped"]]
         return {"harnessId": harness_id, "generator": generator, "wires": wires, "skipped": skipped}
 

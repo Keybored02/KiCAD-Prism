@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Wand2 } from "lucide-react";
+import { CircleAlert, TriangleAlert, Wand2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { generateRows } from "@/lib/systems-api";
 import type { GeneratedRow, GeneratorKind, GeneratorResult } from "@/types/system";
+
+import { findingText } from "./findings-ui";
 
 const GENERATOR_LABELS: Record<GeneratorKind, string> = {
   identity: "Same pin (1↔1, 2↔2…)",
@@ -23,6 +25,20 @@ function padRange(from: string, to: string) {
 
 function pairKey(row: GeneratedRow): string {
   return `${row.pinA}\u0000${row.pinB}`;
+}
+
+/** SB2-120: the rules a proposed pair would raise, as one icon with the labels in its title. */
+function PairFlags({ row }: { row: GeneratedRow }) {
+  const flags = row.flags ?? [];
+  if (!flags.length) return null;
+  const error = flags.some((flag) => flag.severity === "error");
+  const Icon = error ? CircleAlert : TriangleAlert;
+  const text = flags.map((flag) => `${flag.rule} ${findingText(flag)}`).join("\n");
+  return (
+    <span role="img" aria-label={text} title={text} className="inline-flex">
+      <Icon className={error ? "size-3.5 text-destructive" : "size-3.5 text-warning"} aria-hidden />
+    </span>
+  );
 }
 
 interface GeneratorPanelProps {
@@ -68,6 +84,8 @@ export function GeneratorPanel({ systemId, linkId, sideA, sideB, onApprove }: Ge
   const approved = result?.rows.filter((row) => !rejected.has(pairKey(row))) ?? [];
   const skippedExisting = result?.skipped.filter((s) => s.reason === "existing").length ?? 0;
   const skippedUnconnected = result?.skipped.filter((s) => s.reason === "unconnected").length ?? 0;
+  const suspect = result?.rows.filter((row) => row.flags?.length) ?? [];
+  const suspectKept = suspect.filter((row) => !rejected.has(pairKey(row))).length;
 
   return (
     <section className="grid gap-5 pb-6 pt-4" aria-label="Generate rows">
@@ -124,6 +142,13 @@ export function GeneratorPanel({ systemId, linkId, sideA, sideB, onApprove }: Ge
             {result.rows.length} proposed
             {skippedExisting > 0 && ` · ${skippedExisting} skipped (already used)`}
             {skippedUnconnected > 0 && ` · ${skippedUnconnected} skipped (no net)`}
+            {suspect.length > 0 && <span className="text-warning"> · {suspect.length} suspect</span>}
+            {suspectKept > 0 && (
+              <Button variant="link" size="sm" className="h-auto px-1.5 py-0 text-xs"
+                onClick={() => setRejected((current) => new Set([...current, ...suspect.map(pairKey)]))}>
+                Leave out suspect
+              </Button>
+            )}
           </p>
           {result.rows.length > 0 && (
             <div className="max-h-[50vh] overflow-y-auto border">
@@ -134,6 +159,7 @@ export function GeneratorPanel({ systemId, linkId, sideA, sideB, onApprove }: Ge
                     <th className="px-2 py-1.5 font-medium">Pins</th>
                     <th className="px-2 py-1.5 font-medium">Signal</th>
                     <th className="px-2 py-1.5 font-medium">Nets</th>
+                    <th className="w-6 px-1 py-1.5"><span className="sr-only">Flags</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -155,6 +181,7 @@ export function GeneratorPanel({ systemId, linkId, sideA, sideB, onApprove }: Ge
                           title={`${row.netA.join(" | ") || "no net"} ↔ ${row.netB.join(" | ") || "no net"}`}>
                           {row.netA.join(" | ") || "no net"} ↔ {row.netB.join(" | ") || "no net"}
                         </td>
+                        <td className="px-1 py-1"><PairFlags row={row} /></td>
                       </tr>
                     );
                   })}

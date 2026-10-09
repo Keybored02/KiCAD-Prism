@@ -219,6 +219,9 @@ To fill a link quickly, use **Generate rows**:
 You can limit either side to a pad range. Generators never overwrite rows you
 already have, and skip pins that are unconnected on both sides unless you ask
 for them. Their proposals go into your draft for you to check and save.
+The preview marks a pair that would raise a finding (unrelated net names,
+power meeting a signal, a named net meeting no net); **Leave out suspect**
+unticks them all.
 
 A **harness** label on a link records which cable it belongs to. Two links may
 use the same pin without a fan-out warning only when both carry the same
