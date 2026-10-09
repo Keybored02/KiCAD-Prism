@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { WorkspaceSectionHeading } from "@/components/workspace/workspace-section-heading";
-import { cn } from "@/lib/utils";
+import { FOLDER_GRID_CLASS, FOLDER_GRID_CLASS_COMPACT } from "@/components/workspace/workspace-types";
 import type { SystemSummary } from "@/types/system";
 
 export function systemPath(systemId: string): string {
@@ -21,12 +21,8 @@ export function systemsForLevel(
   return [...matching].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
-interface SystemCardProps {
-  system: SystemSummary;
-  dense?: boolean;
-}
-
-function SystemCard({ system, dense = false }: SystemCardProps) {
+/** One row like a folder card; the description is the hover title, so every card is one height. */
+function SystemCard({ system }: { system: SystemSummary }) {
   const navigate = useNavigate();
   const open = () => navigate(systemPath(system.id));
   const reviews = system.openReviewCount;
@@ -42,38 +38,31 @@ function SystemCard({ system, dense = false }: SystemCardProps) {
           open();
         }
       }}
-      className={cn(
-        "group flex cursor-pointer flex-col gap-2 rounded-xl border bg-card text-left transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        dense ? "p-3" : "p-4",
-      )}
+      title={system.description || undefined}
+      className="group flex h-full cursor-pointer items-center justify-between gap-3 rounded-xl border bg-card p-4 text-left transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="rounded-md bg-primary/10 p-2 text-primary">
-            <Boxes className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <p className="line-clamp-1 text-sm font-semibold">{system.name}</p>
-            <p className="text-xs text-muted-foreground">
-              {[
-                // SB2-101: no "0 boards" for a system made of subsystems and modules.
-                system.instanceCount || !(system.moduleCount || system.subsystemCount)
-                  ? `${system.instanceCount} ${system.instanceCount === 1 ? "board" : "boards"}` : "",
-                system.moduleCount ? `${system.moduleCount} ${system.moduleCount === 1 ? "module" : "modules"}` : "",
-                system.subsystemCount ? `${system.subsystemCount} ${system.subsystemCount === 1 ? "subsystem" : "subsystems"}` : "",
-              ].filter(Boolean).join(" · ")}
-            </p>
-          </div>
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="shrink-0 rounded-md bg-primary/10 p-2 text-primary">
+          <Boxes className="h-5 w-5" />
         </div>
-        {reviews > 0 && (
-          <Badge variant="warning" className="shrink-0" title="Source changes waiting for review">
-            <GitPullRequestArrow className="h-3 w-3" />
-            {reviews} {reviews === 1 ? "review" : "reviews"}
-          </Badge>
-        )}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">{system.name}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {[
+              // SB2-101: no "0 boards" for a system made of subsystems and modules.
+              system.instanceCount || !(system.moduleCount || system.subsystemCount)
+                ? `${system.instanceCount} ${system.instanceCount === 1 ? "board" : "boards"}` : "",
+              system.moduleCount ? `${system.moduleCount} ${system.moduleCount === 1 ? "module" : "modules"}` : "",
+              system.subsystemCount ? `${system.subsystemCount} ${system.subsystemCount === 1 ? "subsystem" : "subsystems"}` : "",
+            ].filter(Boolean).join(" · ")}
+          </p>
+        </div>
       </div>
-      {system.description && !dense && (
-        <p className="line-clamp-2 text-xs text-muted-foreground">{system.description}</p>
+      {reviews > 0 && (
+        <Badge variant="warning" className="shrink-0" title="Source changes waiting for review">
+          <GitPullRequestArrow className="h-3 w-3" />
+          {reviews}
+        </Badge>
       )}
     </div>
   );
@@ -96,15 +85,10 @@ export function WorkspaceSystemsSection({ systems, dense = false, showHeading }:
           <Link to="/systems" className="text-xs text-muted-foreground hover:text-foreground hover:underline">All</Link>
         </WorkspaceSectionHeading>
       )}
-      <div
-        className={
-          dense
-            ? "grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]"
-            : "grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
-        }
-      >
+      {/* The folders' grid, so system cards line up with the folder cards above them. */}
+      <div className={dense ? FOLDER_GRID_CLASS_COMPACT : FOLDER_GRID_CLASS}>
         {systems.map((system) => (
-          <SystemCard key={system.id} system={system} dense={dense} />
+          <SystemCard key={system.id} system={system} />
         ))}
       </div>
     </section>
