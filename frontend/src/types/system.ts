@@ -690,6 +690,8 @@ export interface GeneratedRow {
   netB: string[];
   pinNamesA: string[] | null;
   pinNamesB: string[] | null;
+  /** SB2-120: the join rules this pair would raise once saved (SYS-V09, V10, V23). */
+  flags?: { rule: string; name: string; severity: "error" | "warning" | "info" }[];
 }
 
 export interface GeneratorResult {

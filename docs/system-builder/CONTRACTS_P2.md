@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.87 · 2026-10-09 · tickets SB2-00 to SB2-119.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.88 · 2026-10-09 · tickets SB2-00 to SB2-120.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -821,6 +821,7 @@ All take If-Match and bump the system version. Audits `harness_created`, `harnes
 **As built (SB2-14).**
 - `POST …/harnesses` takes `{name, label?, ends: [{instanceId, portKey} | {pinCount}], identity?}`; `identity` needs two mated ends and runs the `identity` generator. An unmated end's pins are `1…pinCount`.
 - `POST …/harnesses/{hid}/generate` returns `{wires, skipped}` for `{fromEnd, toEnd, generator, options}`; skipped pairs carry `existing` or `unconnected`.
+- **Suspect pairs (SB2-120).** Each proposed row (`POST …/links/{lid}/generate`) and wire (`…/harnesses/{hid}/generate`) carries `flags`: `[{rule, name, severity}]` for the join rules it would raise once saved (SYS-V09, V10, V23), computed with the same functions as validation. The preview marks flagged pairs, counts them, and **Leave out suspect** unticks them. Nothing is dropped automatically.
 - Documents gain `harnesses[]`: `{id, name, label, cutLengthMm, serviceAllowancePct, linkable, ends: [{id, ordinal, mates: {instanceId, portKey, port, resolved, redacted} | null, part, pinCount, pinMap, bootMm, pins}], wires: [{id, from, to, signal, gaugeAwg, colour, label, netFrom, netTo, redactedEnds}]}`. An end on a hidden board keeps its place with `mates.port` null, no pins, and that side's wire nets null. Editing a harness with such an end is 404.
 - Drift reads each mated end as a link-shaped view (`store.drift_links`): the item's `linkId` is the end ID, `rowIds` are wire IDs and `pins` are connector pads. Accept rewrites the wire's net on that side; Remap writes the end's `pinMap`; Remove rows deletes wires; a port update re-mates the end.
 - Re-mating an end or editing its pin map recaptures every wire's nets. Converting links keeps their accepted row baselines as wire baselines.
@@ -955,6 +956,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.88 | 2026-10-09 | SB2-120: generator previews flag suspect pairs (`flags`, §17.3). |
 | P2-1.87 | 2026-10-09 | SB2-119: SYS-V23, a named net meets a pin on no net (§8.4). |
 | P2-1.86 | 2026-10-09 | SB2-117: a subsystem's open findings, frozen in its pinned snapshot, on the node, inspector and top bar (§10). |
 | P2-1.85 | 2026-10-09 | SB2-116: snapshot listings carry `findingCounts {error, warning}` and `exportCount` from the frozen document; the snapshot dialog shows the live system's open errors, warnings, unreviewed changes and exports, and the publish dialog the snapshot's, warning when it has no exports. |

@@ -13,8 +13,10 @@ import re
 from collections import defaultdict
 from typing import Any, Mapping, Optional, Sequence
 
+from app.services.systems import system_nets
 from app.services.systems.drift import pad_sort_key
 from app.services.systems.store import Invalid
+from app.services.systems.validation import RULES
 
 GENERATORS = ("identity", "reverse", "offset", "net_name")
 MAX_OFFSET = 10_000
@@ -92,6 +94,18 @@ def _signal(nets_a: Sequence[str], nets_b: Sequence[str]) -> str:
     return next((leaf for leaf in leaves if not _AUTO_NET.match(leaf)), leaves[0] if leaves else "")
 
 
+def suspect(pin_a: Mapping[str, Any], pin_b: Mapping[str, Any], nets_a: Sequence[str], nets_b: Sequence[str]) -> list[str]:
+    """SB2-120: the join rules this pair would raise once saved (SYS-V09, V10, V23) as ``{rule, name, severity}``."""
+    flags = []
+    if system_nets.name_mismatch(nets_a, nets_b):
+        flags.append("SYS-V09")
+    if system_nets.power_meets_signal(pin_a.get("powerNet"), nets_a, pin_b.get("powerNet"), nets_b):
+        flags.append("SYS-V10")
+    if system_nets.net_meets_none(nets_a, nets_b):
+        flags.append("SYS-V23")
+    return [{"rule": rule, "name": RULES[rule][0], "severity": RULES[rule][1]} for rule in flags]
+
+
 def generate(generator: str, pins_a: Mapping[str, Mapping[str, Any]], pins_b: Mapping[str, Mapping[str, Any]],
              existing: Sequence[Mapping[str, Any]], options: Mapping[str, Any] | None = None) -> dict:
     """``{rows, skipped}`` for one generator run.
@@ -121,7 +135,7 @@ def generate(generator: str, pins_a: Mapping[str, Mapping[str, Any]], pins_b: Ma
         signal = _signal(nets_a, nets_b)
         rows.append({
             "pinA": pad_a, "pinB": pad_b, "signal": signal, "source": "generator",
-            "netA": nets_a, "netB": nets_b,
+            "netA": nets_a, "netB": nets_b, "flags": suspect(pins_a[pad_a], pins_b[pad_b], nets_a, nets_b),
             "pinNamesA": pins_a[pad_a].get("pinNames"), "pinNamesB": pins_b[pad_b].get("pinNames"),
         })
     return {"generator": generator, "rows": rows, "skipped": skipped}
