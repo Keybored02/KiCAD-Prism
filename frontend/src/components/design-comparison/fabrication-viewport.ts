@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 /**
  * Pan and zoom over a board rectangle, shared by every pane of a comparison.
@@ -97,30 +97,12 @@ export function paneLayout(
     };
 }
 
-/** How long the zoom has to rest before the artwork is drawn again at the new size. */
-export const ZOOM_SETTLE_MS = 150;
-
-/**
- * The value once it has stopped changing for `delay` ms. The pane draws its
- * artwork at the settled scale and covers the gap with a CSS scale, so a burst of
- * wheel steps redraws heavy layers once instead of on every step.
- */
 /**
  * How far a press has to move, in screen pixels, before it becomes a pan. Below
  * this it is still a click, so a press on something clickable over the board (a
  * part marker) picks it, and a drag that starts on one pans the board.
  */
 export const PAN_THRESHOLD_PX = 3;
-
-export function useSettled(value: number | null, delay: number): number | null {
-    const [settled, setSettled] = useState(value);
-    useEffect(() => {
-        if (value === settled) return;
-        const timer = setTimeout(() => setSettled(value), settled === null ? 0 : delay);
-        return () => clearTimeout(timer);
-    }, [value, settled, delay]);
-    return settled ?? value;
-}
 
 export interface ViewportOptions {
     /**
@@ -135,6 +117,10 @@ export function useBoardViewport(board: BoardRect | null, options: ViewportOptio
     const xSign = options.mirrorX ? -1 : 1;
     const [camera, setCamera] = useState<Camera | null>(null);
     const paneRef = useRef<PaneSize>({ width: 0, height: 0 });
+    // True while a pan is under way. The pane puts the artwork on its own GPU layer
+    // only then: moving it costs nothing, but a permanent layer makes every zoom
+    // step paint the whole oversized board instead of what is in view.
+    const [panning, setPanning] = useState(false);
     const dragRef = useRef<{ pointerId: number; x: number; y: number; panning: boolean } | null>(null);
 
     const home = useMemo(
@@ -199,6 +185,7 @@ export function useBoardViewport(board: BoardRect | null, options: ViewportOptio
         if (!drag.panning) {
             if (Math.hypot(dx, dy) < PAN_THRESHOLD_PX) return;
             drag.panning = true;
+            setPanning(true);
             event.currentTarget.setPointerCapture(event.pointerId);
         }
         drag.x = event.clientX;
@@ -220,6 +207,7 @@ export function useBoardViewport(board: BoardRect | null, options: ViewportOptio
     const onPointerUp = useCallback((event: React.PointerEvent<HTMLElement>) => {
         if (dragRef.current?.pointerId !== event.pointerId) return;
         dragRef.current = null;
+        setPanning(false);
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
             event.currentTarget.releasePointerCapture(event.pointerId);
         }
@@ -235,5 +223,5 @@ export function useBoardViewport(board: BoardRect | null, options: ViewportOptio
         onPointerCancel: onPointerUp,
     }), [onWheel, onPointerDown, onPointerMove, onPointerUp]);
 
-    return { view, reset, zoomBy, frame, handlers };
+    return { view, reset, zoomBy, frame, handlers, panning };
 }

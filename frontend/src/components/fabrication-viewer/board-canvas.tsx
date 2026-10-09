@@ -66,6 +66,7 @@ export function BoardCanvas({
                 board={board}
                 camera={viewport.view}
                 handlers={viewport.handlers}
+                panning={viewport.panning}
                 mirrored={mirrored}
                 className="bg-black"
             >

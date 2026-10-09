@@ -69,12 +69,15 @@ If one of these changes, the viewer should follow it.
   pointer only then, so a click on a part marker still reaches it and picks the part,
   and a drag that starts on a marker pans. Markers must not stop propagation: on a
   dense board their hit areas cover most of it, and a stopped press never pans.
-- **Pan and zoom move the artwork with a transform, not layout.** The stack is laid
-  out at the settled zoom (`useSettled`, `ZOOM_SETTLE_MS`) and moved by
-  `translate3d(...) scale(...)` with `will-change: transform`. A pan only moves a
-  composited layer: on Cynthion with all 26 layers, a 40-step pan went from 7.3 s of
-  raster to none. Zoom scales what is drawn, then draws again once the wheel rests.
-  Without `will-change` every pan frame redraws every layer.
+- **A pan moves the artwork with a transform, not layout.** The stack is sized at
+  the current zoom and moved by `translate(...)`. While a pan is under way
+  (`useBoardViewport`'s `panning`, passed to `Pane`) it also gets
+  `will-change: transform`, so the pan only moves a GPU layer: on Cynthion with all
+  26 layers, a 40-step pan went from 7.3 s of raster to about 0.2 s. Only while
+  panning: a permanent layer made each zoom step paint the whole oversized board
+  instead of what is in view (zoom paint went from 1.5 s to 2.8 s for six steps). Each zoom step redraws at the new size, so the artwork is always
+  sharp. Do not cover a zoom with a CSS `scale` and redraw later: it shows the
+  stretched, grainy image until the redraw, which was tried and rejected.
 - **The rail and the parts table are memoised, with stable callbacks.** The camera
   changes on every pan frame; they must not re-render with it.
 - **The bottom view mirrors the whole pane.** `useBoardViewport` takes `mirrorX`
