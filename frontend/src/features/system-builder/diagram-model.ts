@@ -158,6 +158,11 @@ function linkEnd(document: SystemDocument, link: SystemLink, end: "a" | "b") {
 
 export const endLabel = (end: HarnessEnd) => `End ${end.ordinal + 1}`;
 
+/** Instances the diagram draws: everything with ports. A mechanical part (P2 §24.1) is 3D only. */
+function onCanvas(document: SystemDocument): SystemInstance[] {
+  return document.instances.filter((instance) => instance.kind !== "part");
+}
+
 export function endWireCount(harness: SystemHarness, endId: string): number {
   return harness.wires.filter((wire) => wire.from.end === endId || wire.to.end === endId).length;
 }
@@ -170,7 +175,7 @@ export function layoutInputs(document: SystemDocument): { boards: LayoutBoardInp
   const harnesses = document.harnesses ?? [];
   return {
     boards: [
-      ...document.instances.map((instance) => ({
+      ...onCanvas(document).map((instance) => ({
         id: instance.id,
         label: instance.label,
         ports: drawablePorts(document, instance).ports,
@@ -227,7 +232,7 @@ export function buildDiagram(
 ): { nodes: DiagramNode[]; harnesses: HarnessDiagramNode[]; edges: DiagramEdge[] } {
   const inputs = layoutInputs(document);
   const layout = layoutSystem(inputs.boards, inputs.links, positions);
-  const nodes = document.instances.map((instance) => {
+  const nodes = onCanvas(document).map((instance) => {
     const placed = layout.get(instance.id)!;
     const { orphans } = drawablePorts(document, instance);
     const open = expanded.has(instance.id);

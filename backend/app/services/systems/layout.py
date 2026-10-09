@@ -118,7 +118,9 @@ def layout_inputs(document: Mapping[str, Any]) -> tuple[list[dict], list[dict]]:
 
     harnesses = document.get("harnesses") or []
     instances = {i["id"]: i for i in document["instances"]}
-    boards = [{"id": i["id"], "label": i["label"], "ports": drawable_ports(document, i)[0]} for i in document["instances"]]
+    # A mechanical part (P2 §24.1) has no ports: it is in the 3D view only, as on the canvas.
+    boards = [{"id": i["id"], "label": i["label"], "ports": drawable_ports(document, i)[0]}
+              for i in document["instances"] if i.get("kind") != "part"]
     boards += [{"id": h["id"], "label": h["name"],
                 "ports": [{"portKey": end["id"], "reference": end_label(end)} for end in h["ends"]]} for h in harnesses]
     links = [{"id": link["id"], "name": link["name"], "a": _link_end(document, link, "a"),

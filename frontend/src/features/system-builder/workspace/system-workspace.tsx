@@ -6,6 +6,7 @@ import { addCatalogInstance, addInstance } from "@/lib/systems-api";
 
 import { instanceInput } from "../board-fields";
 import { AddBoardDialog } from "../add-board-dialog";
+import { AddPartDialog } from "../add-part-dialog";
 import { AddSubsystemDialog } from "../subsystem-detail";
 import type { SystemTabProps } from "../system-tab-content";
 import type { SystemTab } from "../system-tabs";
@@ -163,6 +164,20 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
           onSubmit={async (value) => {
             const created = await run("add", () => addCatalogInstance(systemId, etag, adding === "module" ? "module" : "assembly", value),
               `Added ${value.label}`);
+            if (created) {
+              setAdding(null);
+              select({ kind: "instance", id: created.body.id });
+            }
+          }}
+        />
+      )}
+      {adding === "part" && (
+        <AddPartDialog
+          existingLabels={document.instances.map((instance) => instance.label)}
+          busy={busy === "add"}
+          onClose={() => setAdding(null)}
+          onSubmit={async (value) => {
+            const created = await run("add", () => addCatalogInstance(systemId, etag, "part", value), `Added ${value.label}`);
             if (created) {
               setAdding(null);
               select({ kind: "instance", id: created.body.id });

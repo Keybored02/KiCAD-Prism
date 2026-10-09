@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Box, Cable, Layers, Lock, Plus, RectangleHorizontal, Spline } from "lucide-react";
+import { Box, Cable, Layers, Lock, Package, Plus, RectangleHorizontal, Spline } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -13,7 +13,7 @@ import { harnessFindings } from "./use-validation";
 import type { WorkspaceSelection } from "./workspace-state";
 import { instanceFindings, linkFindings } from "../document-index";
 
-export type AddKind = "board" | "module" | "subsystem";
+export type AddKind = "board" | "module" | "part" | "subsystem";
 
 interface OutlineProps {
   document: SystemDocument;
@@ -71,7 +71,7 @@ function instanceIcon(instance: SystemInstance) {
 }
 
 function instanceMeta(instance: SystemInstance): string {
-  if (instance.kind === "module" || instance.kind === "assembly") {
+  if (instance.kind === "module" || instance.kind === "assembly" || instance.kind === "part") {
     return instance.catalog?.version ? `v${instance.catalog.version}` : "";
   }
   return instance.restricted ? "" : shortSha(instance.baselineCommit).slice(0, 7);
@@ -83,6 +83,7 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
   const instances = (kind: SystemInstance["kind"]) => document.instances.filter((item) => (item.kind ?? "board") === kind);
   const boards = instances("board");
   const modules = instances("module");
+  const parts = instances("part");
   const subsystems = instances("assembly");
   const harnesses = document.harnesses ?? [];
   const instanceRow = (instance: SystemInstance) => {
@@ -109,6 +110,7 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
               <DropdownMenuItem onSelect={() => onAdd("board")}><RectangleHorizontal className="mr-2 size-4" /> Board</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onAdd("module")}><Box className="mr-2 size-4" /> Module</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onAdd("subsystem")}><Layers className="mr-2 size-4" /> Subsystem</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAdd("part")}><Package className="mr-2 size-4" /> Part</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -120,6 +122,7 @@ export function WorkspaceOutline({ document, findings, selection, canEdit, onSel
         <Group title="Boards" count={boards.length}>{boards.map(instanceRow)}</Group>
         <Group title="Modules" count={modules.length}>{modules.map(instanceRow)}</Group>
         <Group title="Subsystems" count={subsystems.length}>{subsystems.map(instanceRow)}</Group>
+        <Group title="Parts" count={parts.length}>{parts.map(instanceRow)}</Group>
         <Group title="Harnesses" count={harnesses.length}>
           {harnesses.map((harness) => (
             <Row key={harness.id} icon={<Cable className="size-3.5 text-kind-harness" />} label={harness.name}

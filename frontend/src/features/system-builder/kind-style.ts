@@ -1,9 +1,9 @@
-import { Box, Cable, Layers, RectangleHorizontal, type LucideIcon } from "lucide-react";
+import { Box, Cable, Layers, Package, RectangleHorizontal, type LucideIcon } from "lucide-react";
 
 import type { SystemInstance } from "@/types/system";
 
 /** What a block on the canvas (or a row in the outline) is (D-P2-50). */
-export type BlockKind = "board" | "module" | "subsystem" | "harness";
+export type BlockKind = "board" | "module" | "part" | "subsystem" | "harness";
 
 /** How a connection is made, for its colour (D-P2-50). */
 export type ConnectionKind = "b2b" | "harness" | "link";
@@ -21,6 +21,8 @@ interface KindStyle {
 export const BLOCK_STYLE: Record<BlockKind, KindStyle> = {
   board: { label: "Board", icon: RectangleHorizontal, text: "text-kind-board", bar: "bg-kind-board", tint: "bg-kind-board/15", border: "border-kind-board/50" },
   module: { label: "Module", icon: Box, text: "text-kind-module", bar: "bg-kind-module", tint: "bg-kind-module/15", border: "border-kind-module/50" },
+  // A mechanical part (P2 §24.1) shares the module colour: both are bought-out catalog items.
+  part: { label: "Part", icon: Package, text: "text-kind-module", bar: "bg-kind-module", tint: "bg-kind-module/15", border: "border-kind-module/50" },
   subsystem: { label: "Subsystem", icon: Layers, text: "text-kind-subsystem", bar: "bg-kind-subsystem", tint: "bg-kind-subsystem/15", border: "border-kind-subsystem/50" },
   harness: { label: "Harness", icon: Cable, text: "text-kind-harness", bar: "bg-kind-harness", tint: "bg-kind-harness/15", border: "border-kind-harness/50" },
 };
@@ -33,6 +35,7 @@ export const CONNECTION_STYLE: Record<ConnectionKind, { label: string; stroke: s
 
 export function blockKind(instance: Pick<SystemInstance, "kind">): BlockKind {
   if (instance.kind === "module") return "module";
+  if (instance.kind === "part") return "part";
   if (instance.kind === "assembly") return "subsystem";
   return "board";
 }

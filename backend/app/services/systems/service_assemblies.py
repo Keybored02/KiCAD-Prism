@@ -114,15 +114,25 @@ class AssembliesMixin:
         except Exception:  # the catalog is a separate service; the ports still link
             logger.exception("Could not read the connectors of module %s", revision["componentId"])
             connectors = None
+        return modules.as_interface(revision.get("interface"), connectors, self._catalog_model(revision["componentId"]))
+
+    def _catalog_model(self, component_id: str) -> Optional[dict]:
+        """A catalog component's first converted model with its alignment (§18.2), or None."""
         try:
-            found = next((m for m in catalog.list_models(revision["componentId"]) if m["glb"]), None)
+            found = next((m for m in self._catalog().list_models(component_id) if m["glb"]), None)
         except Exception:
-            logger.debug("No model for module %s", revision["componentId"], exc_info=True)
+            logger.debug("No model for component %s", component_id, exc_info=True)
             found = None
-        model = None if found is None else {
+        return None if found is None else {
             "glbKey": found["glb"]["key"], "boundsMm": found["glb"]["bounds"],
             "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
-        return modules.as_interface(revision.get("interface"), connectors, model)
+
+    def _part_interface(self, revision_id: str) -> Optional[dict]:
+        """A mechanical part (P2 §24.1) as an interface with no ports: its model and aligned bounds."""
+        revision = self._catalog_revision(revision_id)
+        if revision is None:
+            return None
+        return modules.as_interface({"units": []}, None, self._catalog_model(revision["componentId"]))
 
     def _child_interface(self, revision_id: str) -> Optional[dict]:
         """reconcile.ChildLoader: a catalog revision's exports as an interface artifact."""
@@ -147,8 +157,8 @@ class AssembliesMixin:
             raise NotFound("Catalog revision not found")
         with self._tx() as store:
             instance = store.get_instance(system_id, instance_id)
-            if instance.get("kind") not in ("assembly", "module"):
-                raise Invalid("only assembly and module instances take catalog revisions")
+            if instance.get("kind") not in ("assembly", "module", "part"):
+                raise Invalid("only assembly, module and part instances take catalog revisions")
             if revision["componentId"] != instance["catalog_component_id"]:
                 raise Invalid("the revision belongs to another component")
             if instance["catalog_revision_id"] == revision_id:
@@ -180,7 +190,8 @@ class AssembliesMixin:
             with store.mutation(system_id, expected_version=expected_version, actor=actor) as change:
                 current = store.get_instance(system_id, instance_id)
                 # A module's revision compares as its connectors (§5.6), an assembly's as its exports (§7).
-                candidate = self._module_interface(revision_id) if current.get("kind") == "module" else None
+                candidate = (self._module_interface(revision_id) if current.get("kind") == "module"
+                             else self._part_interface(revision_id) if current.get("kind") == "part" else None)
                 outcome, review_id = child_drift.apply_child_evaluation(store, change, current, revision,
                                                                         auto_kind=auto_kind, candidate=candidate)
             store.record_source_check(instance_id, tip_commit=None, checked_commit=None, outcome=outcome)
@@ -221,7 +232,7 @@ class AssembliesMixin:
     def _catalog_refs(self, store: SystemStore, system_id: str) -> dict[str, dict]:
         """Pinned catalog revision per assembly/module instance, for the manifest."""
         refs = {}
-        for instance in store.list_instances(system_id, kinds=("assembly", "module")):
+        for instance in store.list_instances(system_id, kinds=("assembly", "module", "part")):
             revision = self._catalog_revision(instance["catalog_revision_id"])
             if revision is None:
                 raise Conflict(f"the catalog revision of {instance['label']} cannot be read; try again")
@@ -232,7 +243,9 @@ class AssembliesMixin:
         """An assembly/module instance as the document shows it: an assembly's exports, a module's
         connectors (§5.6), are its ports."""
         revision = self._catalog_revision(instance["catalog_revision_id"])
-        if instance["kind"] == "module":
+        if instance["kind"] == "part":
+            exports = []  # a mechanical part has no ports (P2 §24.1)
+        elif instance["kind"] == "module":
             units = (self._module_interface(instance["catalog_revision_id"]) or {}).get("components") or [] \
                 if revision else []
             exports = [{"id": c["portKey"], "name": c["reference"], "libId": None, "footprint": c.get("footprint"),
@@ -577,15 +590,18 @@ class AssembliesMixin:
 
         def module(occurrence: hierarchy.Occurrence) -> Optional[dict]:
             if occurrence.revision_id not in modules_read:
-                modules_read[occurrence.revision_id] = self._module_interface(occurrence.revision_id)
+                read = self._part_interface if occurrence.kind == "part" else self._module_interface
+                modules_read[occurrence.revision_id] = read(occurrence.revision_id)
             return modules_read[occurrence.revision_id]
 
         def interface_of(occurrence: hierarchy.Occurrence) -> Optional[dict]:
-            if occurrence.kind == "module":
+            if occurrence.kind in ("module", "part"):
                 return module(occurrence) if occurrence.revision_id else None
             return extents.get((occurrence.project_id, occurrence.baseline_commit))
 
         def component_of(occurrence: hierarchy.Occurrence, port_key: str) -> Optional[dict]:
+            if occurrence.kind == "part":
+                return None
             if occurrence.kind == "module":
                 return modules.component(module(occurrence), port_key) if occurrence.revision_id else None
             if not occurrence.project_id or not occurrence.baseline_commit:

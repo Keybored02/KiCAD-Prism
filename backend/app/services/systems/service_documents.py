@@ -147,7 +147,7 @@ class DocumentsMixin:
                 interfaces[instance["id"]] = found
         pending = [i for i in instances if i["id"] not in interfaces]
         job_state = self._latest_jobs(store, pending)
-        for child in store.list_instances(system_id, kinds=("assembly", "module")):
+        for child in store.list_instances(system_id, kinds=("assembly", "module", "part")):
             synthetic = self._instance_interface(store, child)
             if synthetic is not None:
                 interfaces[child["id"]] = synthetic
@@ -158,7 +158,8 @@ class DocumentsMixin:
         exports = store.list_exports(system_id)
         report = self._validate(store, system_id, instances, links, interfaces, job_state, open_reviews, exports,
                                 system.get("optionalRules") or (), all_overrides)
-        catalog_docs = [self._catalog_instance_doc(i) for i in store.list_instances(system_id, kinds=("assembly", "module"))]
+        catalog_docs = [self._catalog_instance_doc(i)
+                        for i in store.list_instances(system_id, kinds=("assembly", "module", "part"))]
         report = validation.with_findings(report, validation.child_findings([
             {"instanceId": doc["id"], "releaseStatus": doc["catalog"]["releaseStatus"],
              "openReviewCount": doc["catalog"]["openReviewCount"],
@@ -582,7 +583,7 @@ class DocumentsMixin:
             self._system(store, system_id, caller)
             if snapshot_id is None:
                 instances = {i["id"]: i for i in store.list_instances(system_id)}
-                children = {i["id"]: i for i in store.list_instances(system_id, kinds=("assembly", "module"))}
+                children = {i["id"]: i for i in store.list_instances(system_id, kinds=("assembly", "module", "part"))}
                 exports = store.list_exports(system_id)
                 restricted = self._restricted_instances(store, system_id, caller)
                 subport_rows = store.list_subports(system_id)

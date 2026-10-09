@@ -85,7 +85,8 @@ export interface SystemInstance {
   /** For an assembly, its exports: `portKey` is the export ID (CONTRACTS_P2 §5.1). */
   ports: SystemPort[] | null;
   /** `board` when absent (documents from before P2). */
-  kind?: "board" | "assembly" | "module";
+  /** `part`: a mechanical part from the catalog, with a model and no ports (CONTRACTS_P2 §24.1). */
+  kind?: "board" | "assembly" | "module" | "part";
   /** Set for assembly and module instances. */
   catalog?: InstanceCatalogRef;
   /** Named pad sets carved out of its ports (CONTRACTS_P2 §22); absent before SB2-105. */
@@ -679,7 +680,7 @@ export interface SystemOccurrence {
   displayPath: string;
   labels: string[];
   instanceId: string;
-  kind: "board" | "assembly" | "module";
+  kind: "board" | "assembly" | "module" | "part";
   depth: number;
   systemId: string;
   projectId: string | null;

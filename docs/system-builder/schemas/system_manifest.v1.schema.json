@@ -134,7 +134,8 @@
         "kind": {
           "enum": [
             "assembly",
-            "module"
+            "module",
+            "part"
           ],
           "title": "Kind",
           "type": "string"
@@ -1504,7 +1505,8 @@
           "mapping": {
             "assembly": "#/$defs/CatalogInstance",
             "board": "#/$defs/BoardInstance",
-            "module": "#/$defs/CatalogInstance"
+            "module": "#/$defs/CatalogInstance",
+            "part": "#/$defs/CatalogInstance"
           },
           "propertyName": "kind"
         },

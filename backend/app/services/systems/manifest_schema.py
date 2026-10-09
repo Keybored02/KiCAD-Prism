@@ -152,7 +152,7 @@ class CatalogRef(_Model):
 class CatalogInstance(_Model):
     id: InstanceId
     label: Label
-    kind: Literal["assembly", "module"]
+    kind: Literal["assembly", "module", "part"]
     catalog: CatalogRef
     follow: Literal["pinned", "latest_released"]
     subports: list[Subport] = Field(default_factory=list)

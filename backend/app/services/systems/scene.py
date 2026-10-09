@@ -148,7 +148,7 @@ def place_tree(
         for member in members:
             if member.kind == "board":
                 local[member.path] = board_bounds(interface(member))
-            elif member.kind == "module":  # its model's aligned bounds (§5.6)
+            elif member.kind in ("module", "part"):  # its model's aligned bounds (§5.6, §24.1)
                 local[member.path] = (interface(member) or {}).get("boundsMm")
             else:
                 frozen = {p["instanceId"]: p for p in (member.child.poses if member.child else ())}
@@ -234,7 +234,7 @@ def build(
         if mate is not None:
             item["mate"] = {"linkId": mate["linkId"], "from": mate["from"], "overridden": mate["overridden"],
                             "autoPose": {k: mate["autoPose"][k] for k in ("translationMm", "rotation")}}
-        if occurrence.kind == "module" and not entry["restricted"]:
+        if occurrence.kind in ("module", "part") and not entry["restricted"]:
             model = (interface(occurrence) or {}).get("model")
             if model:  # §20.18: the viewer draws the module's GLB under its alignment
                 from app.services.catalog.models import alignment_matrix
