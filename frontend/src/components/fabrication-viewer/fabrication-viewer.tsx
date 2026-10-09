@@ -11,7 +11,7 @@ import type { FabricationSource, FabricationView, PlacementPart } from "./types"
 import { useFabricationView, useLayerImages } from "./use-fabrication-data";
 import { usePlacement } from "./use-placement";
 import { ViewerFooter } from "./viewer-footer";
-import { initialState, soloStack, viewerReducer, visibleStack } from "./viewer-state";
+import { initialState, paintOrder, soloStack, viewerReducer } from "./viewer-state";
 import { ViewerToolbar, type ViewerView } from "./viewer-toolbar";
 
 /** Half the width of the square framed around a picked part, in millimetres. */
@@ -43,7 +43,7 @@ function LoadedViewer({ source, view, focusFile }: {
     );
     const highlighted = view.layers.find((layer) => layer.id === state.highlighted) ?? null;
     const painted = useMemo(
-        () => highlighted ? soloStack(view.layers, highlighted) : visibleStack(shown, state.side),
+        () => highlighted ? soloStack(view.layers, highlighted) : paintOrder(shown, state.side),
         [highlighted, view.layers, shown, state.side],
     );
     const paintedIds = useMemo(() => painted.map((layer) => layer.id), [painted]);

@@ -57,13 +57,12 @@ If one of these changes, the viewer should follow it.
   holes go over everything. An earlier version used `screen`, then `lighten`
   blending; both mixed overlapping layers so a layer stopped matching its swatch
   (silkscreen over red copper went near-white). Do not reintroduce a blend mode.
-- **The board is opaque: nothing shows through it.** `visibleStack` draws only the
-  outermost sheet that has a layer shown (the near side, else the first inner
-  layer, else the far side), plus annotation, the profile and the holes. Layers
-  behind the board are not drawn or fetched; they used to show through the gaps in
-  the near side, which read as transparency. Clicking a layer's name shows it on
-  its own with the profile (`soloStack`), which is how an inner or far layer is
-  read. No opacity anywhere: highlighting used to fade the rest to 20%.
+- **Every layer that is on is drawn.** A layer behind the board is covered by the
+  nearer ones and shows only through their gaps, as it would on a stack of films. An
+  earlier version hid everything behind the near side; that made "Show all" and "All
+  copper" draw only half the board, and turning a layer on did nothing. Clicking a
+  layer's name shows it on its own with the profile (`soloStack`). No opacity
+  anywhere: highlighting used to fade the rest to 20%.
 - **The pane is `select-none` and cancels `dragstart`,** so a pan never turns into
   the browser dragging the artwork or a selection.
 - **The bottom view mirrors the whole pane.** `useBoardViewport` takes `mirrorX`

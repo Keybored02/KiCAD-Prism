@@ -211,21 +211,22 @@ describe("FabricationViewer", () => {
         expect(screen.getAllByRole("img")[0]!.closest(".cursor-grab")).toHaveClass("bg-black");
     });
 
-    it("draws only what can be seen: the board hides the far side, and the near side stacks in board order", async () => {
+    it("draws every layer that is on, opaque, in board order", async () => {
         const order = () => screen.getAllByRole("img").map((image) => (image as HTMLImageElement).alt);
         await openViewer();
         await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(4));
         fireEvent.click(show("B.CU")!);
         fireEvent.click(show("F.MASK")!);
-        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(5));
+        await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(6));
         // Farthest first, so the last one is on top. The profile and holes go over everything.
-        expect(order()).toEqual(["F.CU", "F.MASK", "F.SILK", "EDGE", "DRILL"]);
-        expect(requestedLayers()).not.toContain("b.cu");
+        expect(order()).toEqual(["B.CU", "F.CU", "F.MASK", "F.SILK", "EDGE", "DRILL"]);
 
         fireEvent.click(boardSide("Bottom"));
-        await waitFor(() => expect(order()).toEqual(["B.CU", "EDGE", "DRILL"]));
+        await waitFor(() => expect(requestedLayers()).toContain("b.cu"));
         fireEvent.click(show("F.CU")!);
-        await waitFor(() => expect(order()).toEqual(["B.CU", "EDGE", "DRILL"]));
+        fireEvent.click(show("F.MASK")!);
+        fireEvent.click(show("F.SILK")!);
+        await waitFor(() => expect(order()).toEqual(["F.SILK", "F.MASK", "F.CU", "B.CU", "EDGE", "DRILL"]));
     });
 
     it("keeps the rail narrow, and has no Parts & filters section to take room", async () => {

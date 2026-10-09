@@ -29,8 +29,8 @@ export function withMargin(rect: BoardRect, margin = FIT_MARGIN): BoardRect {
  * The visible layers stacked on one board rectangle, in the pane Design Comparison
  * draws its fabrication layers in.
  *
- * Every layer is fully opaque in its own colour, and the caller passes only what can
- * be seen (`visibleStack` or `soloStack`), in painting order. Nothing is blended or
+ * Every layer is fully opaque in its own colour, and the caller passes the layers
+ * to draw (`paintOrder` or `soloStack`), in painting order. Nothing is blended or
  * faded: a layer is its swatch colour wherever it is drawn.
  */
 export function BoardCanvas({
@@ -46,7 +46,7 @@ export function BoardCanvas({
     label: string;
     board: BoardRect;
     drawn: BoardRect;
-    /** The layers that can be seen, in the order to paint them: farthest first. */
+    /** The layers to draw, in the order to paint them: farthest first. */
     layers: FabricationLayer[];
     images: Record<string, LayerImage>;
     mirrored: boolean;
