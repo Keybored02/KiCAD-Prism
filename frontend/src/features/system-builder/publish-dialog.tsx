@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { SnapshotMeta, SnapshotPublication } from "@/types/system";
 
+import { StateFacts } from "./state-facts";
+
 export interface PublishFields {
   ipn?: string;
   name?: string;
@@ -66,6 +68,15 @@ export function PublishDialog({ snapshot, systemName, firstPublish, busy, onClos
               : "This adds a new revision of the system's assembly. It goes through the catalog workflow before parent systems following released revisions take it."}
           </DialogDescription>
         </DialogHeader>
+        {snapshot.findingCounts && (
+          <StateFacts errors={snapshot.findingCounts.error} warnings={snapshot.findingCounts.warning}
+            reviews={snapshot.openReviewCount} exports={snapshot.exportCount} />
+        )}
+        {snapshot.exportCount === 0 && (
+          <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
+            No exports: a parent system will have nothing to connect to. Export connectors, take a new snapshot, then publish.
+          </p>
+        )}
         {snapshot.openReviewCount > 0 && (
           <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
             This snapshot has {snapshot.openReviewCount} unreviewed {snapshot.openReviewCount === 1 ? "change" : "changes"}. It can be
