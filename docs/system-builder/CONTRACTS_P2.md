@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.77 · 2026-10-09 · tickets SB2-00 to SB2-111.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.78 · 2026-10-09 · tickets SB2-00 to SB2-111.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -951,6 +951,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.78 | 2026-10-09 | SB2-109 part 2: harness tubes and end housings in the system STEP (§25); the STEP is not attached to snapshots. |
 | P2-1.77 | 2026-10-09 | SB2-111 (D-P2-60): the harness drawing restyled after WireViz on the route tree (§26.3): connector tables, every wire fanned into the bundle, wire list and BOM on the sheet, and a viewer in Prism that traces a wire. Segments named by their nodes in the BOM and WireViz. |
 | P2-1.76 | 2026-10-09 | SB2-110: harness manufacturing outputs (§26). A contact part per end and coverings per segment (migration 54, manifest `contactPart`/`coverings`); per harness a layout drawing (SVG, PDF), a wiring list and a BOM (CSV) and a WireViz YAML. |
 | P2-1.75 | 2026-10-09 | SB2-109 (D-P2-59): the system STEP export (§25), an OCCT (cadquery-ocp) XCAF assembly of board STEPs from `kicad-cli` and catalog STEPs at their 3D-view poses, run as `system_step_export`; board STEPs cached per commit. |
@@ -1537,13 +1538,17 @@ Prism never edits a board. When two boards name one signal differently, a system
   - Its own models are what the board's 3D tab shows. A model that `kicad-cli` cannot find is left out of that board and is not an error.
 - **Modules and parts.** The catalog STEP behind the model the 3D view draws (§18.2), under its alignment. The STEP is in millimetres, in the same axes as its GLB.
 - **Size.** No surface curves (pcurves) are written, so the file stays close to the sum of its sources.
-- **Not exported.** These are listed in the result's `skipped` as `{occurrence, label, reason}`: an occurrence the caller can't read (`restricted`); a board whose STEP export failed (`export_failed`, with `kicad-cli`'s last line); a module or part without a STEP (`no_model`). Harness tubes are not exported yet.
+- **Not exported.** These are listed in the result's `skipped` as `{occurrence, label, reason}`: an occurrence the caller can't read (`restricted`); a board whose STEP export failed (`export_failed`, with `kicad-cli`'s last line); a module or part without a STEP (`no_model`). A harness the caller can't fully read (an end on, or a level in, a restricted occurrence) is skipped as `restricted`, its occurrence `harness:<level>:<id>`.
 - **Running.**
   - `POST …/step` (viewer) queues `system_step_export` (pool `prism`, needs `kicad-cli`) and answers 202 `{jobId}`. The job is keyed per system and version, so a second request at the same version joins the running one.
   - `GET …/step` returns `{state: none|running|ready|failed, version, createdAt, sizeBytes, skipped, jobId, error}` for the latest export.
   - `GET …/step/file` downloads `<system name>-v<version>.step` once it is ready. An export made at an older version stays downloadable until the next one starts; its `version` says which version it shows.
 - **Storage.** `system_step_exports` (migration 53, no foreign key, deleted with the system) holds the latest export per system. The file sits in `<semantic store>/../system-step/systems/<system id>.step`.
 - **UI.** The 3D view's toolbar gets **Export STEP**: running, then a download.
+- **Harnesses** (SB2-109 part 2). Every level's routed harnesses go under a `Harnesses` assembly in the system's frame, one sub-assembly `Harness <name>` each (a child system's prefixed with its level path), as the System 3D view draws them (§17.10, §20.15, §20.17):
+  - `Bundle`: per segment a wire crosses, a circle of the segment's bundle diameter swept along a curve interpolated through the route's samples (corrected Frenet). Where OCCT cannot sweep, the segment is a cylinder per span with a sphere at each joint. Harness grey.
+  - `<reference> housing` per posed end: the part's STEP model at the end's mating frame · alignment, or the proxy box the view draws (connector body x–y × housing depth).
+- **Not attached to snapshots** (user, 2026-10-09): a STEP is hundreds of MB; it stays an on-demand export.
 
 ## 26. Harness manufacturing outputs (SB2-110)
 

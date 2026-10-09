@@ -538,21 +538,13 @@ class AssembliesMixin:
             tree = self._tree(store, system_id)
             level = self._net_level(store, system_id, tree)
             placed = (tree, level, *self._placement(store, system_id, tree, level))
-        tree, level, placement, extents = placed
-        harnesses = [h for h in system_nets.harness_layout(level) if not h["level"]]
-        scene_module.harness_connectors(harnesses, tree.occurrences, level,
-                                        self._occurrence_lookups(store, extents)[1])
-        self._attach_housings(harnesses)
-        matrices = {path: poses_module.matrix(pose)
-                    for path, pose in scene_module.world_poses(tree.occurrences, placement["placed"]).items()}
+        tree, _level, placement, _extents = placed
+        routes, matrices = self._harness_routes(store, placed, root_only=True)
         boards = [{"id": o.path, "matrix": matrices[o.path], **placement["local"][o.path]}
                   for o in tree.occurrences if o.kind == "board" and placement["local"].get(o.path)]
         allowance = {row["id"]: row["service_allowance_pct"] for row in harness_rows}
         out = {}
-        for harness in harnesses:
-            routed = harness_route.route(harness, matrices.get)
-            if routed is None:
-                continue
+        for harness, routed in routes:
             out[harness["id"]] = {
                 "lengths": {**harness_checks.lengths(routed, allowance.get(harness["id"])),
                             # §26.1: the routed segments a covering names.
@@ -565,6 +557,21 @@ class AssembliesMixin:
                                for c in routed["curves"] if c["tightBend"] and c["diameterMm"] > 0],
             }
         return out
+
+    def _harness_routes(self, store: SystemStore, placed: tuple, root_only: bool) -> tuple[list[tuple[dict, dict]], dict]:
+        """``([(scene harness, route)], world matrix by occurrence path)`` for the solved ``placed``
+        (``(tree, level, placement, extents)``): the root level's harnesses, or every level's (a child
+        system's copies each routed through their own frame). Harnesses with no route are left out."""
+        tree, level, placement, extents = placed
+        harnesses = [h for h in system_nets.harness_layout(level) if not (root_only and h["level"])]
+        scene_module.harness_connectors(harnesses, tree.occurrences, level,
+                                        self._occurrence_lookups(store, extents)[1])
+        self._attach_housings(harnesses)
+        matrices = {path: poses_module.matrix(pose)
+                    for path, pose in scene_module.world_poses(tree.occurrences, placement["placed"]).items()}
+        routes = [(harness, routed) for harness in harnesses
+                  if (routed := harness_route.route(harness, matrices.get)) is not None]
+        return routes, matrices
 
     def _placement(self, store: SystemStore, system_id: str, tree: Optional[hierarchy.Tree] = None,
                    level: Optional[system_nets.Level] = None) -> tuple[dict, dict]:
