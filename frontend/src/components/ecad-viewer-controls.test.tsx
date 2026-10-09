@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ECadViewerElement, EcadPcbViewState } from "@/types/ecad-viewer";
 import { EcadViewerControls, SchematicPageTree } from "./ecad-viewer-controls";
@@ -126,5 +126,46 @@ describe("SchematicPageTree", () => {
     fireEvent.click(view.getByRole("button", { name: "Clear page search" }));
     expect(view.getByText("3/3")).toBeTruthy();
     expect(view.getByRole("button", { name: /Power/ })).toBeTruthy();
+  });
+});
+
+describe("EcadViewerControls inset toggle", () => {
+  function stubInsetViewer(initial = false) {
+    const target = new EventTarget();
+    const viewer = {
+      insetMode: initial,
+      setInsetMode: vi.fn((on: boolean) => {
+        viewer.insetMode = on;
+        target.dispatchEvent(new CustomEvent("ecad-viewer:inset-mode", { detail: { on } }));
+      }),
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      getPcbViewState: () => null,
+    };
+    return viewer as unknown as ECadViewerElement & { insetMode: boolean; setInsetMode: ReturnType<typeof vi.fn> };
+  }
+
+  it("reflects the viewer's inset mode and toggles it", () => {
+    const viewer = stubInsetViewer(false);
+    const view = render(<EcadViewerControls context="SCH" viewer={viewer} />);
+    const toggle = view.getByRole("button", { name: "Insets" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.getAttribute("title")).toBe("Insets · I");
+    fireEvent.click(toggle);
+    expect(viewer.setInsetMode).toHaveBeenCalledWith(true);
+    expect(view.getByRole("button", { name: "Insets" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("follows a mode change made with the I key", () => {
+    const viewer = stubInsetViewer(false);
+    const view = render(<EcadViewerControls context="PCB" viewer={viewer} />);
+    act(() => viewer.setInsetMode(true));
+    expect(view.getByRole("button", { name: "Insets" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("is hidden for a viewer without insets", () => {
+    const { viewer } = stubPcbViewer();
+    const view = render(<EcadViewerControls context="PCB" viewer={viewer} />);
+    expect(view.queryByRole("button", { name: "Insets" })).toBeNull();
   });
 });

@@ -5,6 +5,7 @@ import {
     useMemo,
     useRef,
     useState,
+    useSyncExternalStore,
     type PointerEvent as ReactPointerEvent,
     type ReactNode,
 } from "react";
@@ -15,6 +16,7 @@ import {
     EyeOff,
     Layers3,
     ListFilter,
+    PictureInPicture2,
     Search,
     Undo2,
     X,
@@ -62,6 +64,45 @@ const pcbPresets = [
     ["all", "Show all"],
     ["none", "Hide all"],
 ] as const;
+
+/**
+ * Inset mode of a viewer element: hovering a pin or pad opens a live view of
+ * the other document. Mirrors the element's state and its change event, so
+ * the I key and this toggle always agree.
+ */
+export function useInsetMode(viewer: ECadViewerElement | null) {
+    const subscribe = useCallback(
+        (notify: () => void) => {
+            if (!viewer) return () => {};
+            viewer.addEventListener("ecad-viewer:inset-mode", notify);
+            return () => viewer.removeEventListener("ecad-viewer:inset-mode", notify);
+        },
+        [viewer],
+    );
+    const on = useSyncExternalStore(subscribe, () => viewer?.insetMode ?? false);
+    const toggle = useCallback(() => {
+        viewer?.setInsetMode?.(!(viewer.insetMode ?? false));
+    }, [viewer]);
+    return { on, toggle, available: Boolean(viewer?.setInsetMode) };
+}
+
+function InsetModeToggle({ viewer }: { viewer: ECadViewerElement | null }) {
+    const { on, toggle, available } = useInsetMode(viewer);
+    if (!available) return null;
+    return (
+        <Button
+            variant={on ? "secondary" : "ghost"}
+            size="icon"
+            className={cn("size-8", on && "text-primary")}
+            onClick={toggle}
+            aria-pressed={on}
+            aria-label="Insets"
+            title="Insets · I"
+        >
+            <PictureInPicture2 className="size-4" />
+        </Button>
+    );
+}
 
 export function EcadViewerControls({
     context,
@@ -191,7 +232,8 @@ export function EcadViewerControls({
                     {open && (
                         <>
                             {context === "SCH" ? <ListFilter className="size-4" /> : <Layers3 className="size-4" />}
-                            <span>{context === "SCH" ? "Schematic pages" : "Board display"}</span>
+                            <span className="min-w-0 flex-1 truncate">{context === "SCH" ? "Schematic pages" : "Board display"}</span>
+                            <InsetModeToggle viewer={viewer} />
                         </>
                     )}
                 </div>
