@@ -22,7 +22,8 @@ export const TRAY_TABS = [
 
 export type TrayTab = (typeof TRAY_TABS)[number]["id"];
 
-export type SelectionKind = "instance" | "link" | "harness";
+/** `collision`: a SYS-V22 finding by its key (P2 §24.2); the 3D view frames both occurrences. */
+export type SelectionKind = "instance" | "link" | "harness" | "collision";
 
 export interface WorkspaceSelection {
   kind: SelectionKind;
@@ -37,7 +38,7 @@ export interface WorkspaceState {
   selection: WorkspaceSelection | null;
 }
 
-const KINDS: readonly SelectionKind[] = ["instance", "link", "harness"];
+const KINDS: readonly SelectionKind[] = ["instance", "link", "harness", "collision"];
 
 function parseSelection(value: string | null): WorkspaceSelection | null {
   if (!value) return null;

@@ -23,6 +23,7 @@ from __future__ import annotations
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION  # noqa: F401
 from app.services.systems.service_assemblies import AssembliesMixin
 from app.services.systems.service_base import Caller, Result, ServiceCore  # noqa: F401
+from app.services.systems.service_collisions import CollisionsMixin
 from app.services.systems.service_documents import DocumentsMixin
 from app.services.systems.service_git import GitMixin
 from app.services.systems.service_harnesses import HarnessesMixin
@@ -33,7 +34,7 @@ from app.services.systems.store import SystemStore  # noqa: F401
 
 
 class SystemService(DocumentsMixin, AssembliesMixin, HarnessesMixin, ReviewsMixin, SubportsMixin, RenamesMixin,
-                    GitMixin, ServiceCore):
+                    CollisionsMixin, GitMixin, ServiceCore):
     """The System Builder service. Each area lives in its own module (``service_*.py``)."""
 
 

@@ -404,8 +404,16 @@ export interface FindingWaiver extends WaiverStamp {
   redacted?: boolean;
 }
 
+/** SB2-108 (P2 §24.2): the stored collision check against the document's placement. */
+export interface CollisionCheck {
+  state: "current" | "stale" | "not_checked";
+  checkedAt: string | null;
+  notEvaluated: { occurrence: string; label: string; reason: string }[];
+}
+
 export interface ValidationReport {
   findings: Finding[];
+  collisionCheck?: CollisionCheck;
   waivers?: FindingWaiver[];
   notEvaluated: { rule: string; instanceId: string; reason: string }[];
   exempt: {

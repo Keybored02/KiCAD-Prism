@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { SystemScene } from "@/types/system";
+import type { Finding, SystemScene } from "@/types/system";
 
 import { instance, link, systemDocument } from "../test-fixtures";
 import { rootInstanceOf, selectionKey, viewerActionFor } from "./use-viewer-selection-sync";
@@ -30,5 +30,17 @@ describe("viewer selection sync", () => {
     expect(viewerActionFor({ kind: "link", id: "L2" }, scene, doc)).toEqual({ type: "parts", parts: [{ occurrence: "/sin_OBC", reference: "J3" }] });
     expect(viewerActionFor({ kind: "link", id: "missing" }, scene, doc)).toBeNull();
     expect(viewerActionFor(null, scene, doc)).toEqual({ type: "clear" });
+  });
+
+  it("frames both sides of a collision, a body side as its whole occurrence", () => {
+    const finding: Finding = { rule: "SYS-V22", name: "part_collision", severity: "warning", instanceId: obc.id, linkId: null,
+      rowId: null, end: null, reference: "OBC U1 ↔ Enclosure", pin: null, redacted: false, key: "k1",
+      detail: { a: { occurrence: "/sin_OBC", label: "OBC", reference: "U1" }, b: { occurrence: "/sin_ENC", label: "Enclosure", reference: null },
+        atMm: [0, 0, 0], pairs: [] } };
+    const withFinding = { ...doc, validation: { findings: [finding], notEvaluated: [], exempt: [],
+      counts: { error: 0, warning: 1, info: 0, notEvaluated: 0 } } };
+    expect(viewerActionFor({ kind: "collision", id: "k1" }, scene, withFinding)).toEqual({ type: "parts", parts: [
+      { occurrence: "/sin_OBC", reference: "U1" }, { occurrence: "/sin_ENC", reference: null }] });
+    expect(viewerActionFor({ kind: "collision", id: "gone" }, scene, withFinding)).toBeNull();
   });
 });

@@ -11,7 +11,9 @@ import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
 import type { PaginatedComponents } from "@/types/catalog";
 import type { PrismSemanticIndex } from "@/types/prism-selection";
 import type {
+  CollisionCheck,
   Decision,
+  Finding,
   GeneratorKind,
   GeneratorResult,
   GitLink,
@@ -458,6 +460,16 @@ export function icdUrl(systemId: string, format: "csv" | "html", snapshotId?: st
 /** SB2-107: open reviews and findings, one sheet per section (P2 §8.6). */
 export function reportUrl(systemId: string, format: "xlsx" | "csv" = "xlsx"): string {
   return `${path(systemId)}/report.${format}`;
+}
+
+/** SB2-108 (P2 §24.2): queue a collision check of the placed system. */
+export function requestCollisionCheck(systemId: string) {
+  return fetchJson<{ jobId: string | null }>(path(systemId, "collisions"), { method: "POST" }, "Could not start the collision check");
+}
+
+/** SB2-108: the stored collision check as the document reads it. */
+export function getCollisionCheck(systemId: string, signal?: AbortSignal) {
+  return fetchJson<CollisionCheck & { systemId: string; findings: Finding[] }>(path(systemId, "collisions"), { signal });
 }
 
 // ---------------------------------------------------------------------------

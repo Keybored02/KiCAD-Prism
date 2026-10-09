@@ -78,3 +78,25 @@ class RenamesStore:
         for proposal in applied:
             self.close_rename(change, proposal["id"], "applied", commit=commit)
         return len(applied)
+
+    # ------------------------------------------------------------------
+    # The last collision check (SB2-108, P2 §24.2); kept beside the proposals as a small read model.
+
+    def get_collision_check(self, system_id: str) -> Optional[dict]:
+        row = self.conn.execute("SELECT * FROM system_collision_checks WHERE system_id = %s", (system_id,)).fetchone()
+        return dict(row) if row else None
+
+    def record_collision_check(self, system_id: str, *, scene_key: str, version: int, result: dict,
+                               job_id: Optional[str]) -> None:
+        """Outside any system mutation, like the finding counts (SB2-101): no lock, no version bump."""
+        from psycopg.types.json import Jsonb
+
+        self.conn.execute(
+            """
+            INSERT INTO system_collision_checks (system_id, scene_key, version, result, job_id, checked_at)
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (system_id) DO UPDATE SET scene_key = EXCLUDED.scene_key, version = EXCLUDED.version,
+                result = EXCLUDED.result, job_id = EXCLUDED.job_id, checked_at = EXCLUDED.checked_at
+            """,
+            (system_id, scene_key, version, Jsonb(result), job_id),
+        )

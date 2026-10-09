@@ -60,6 +60,7 @@ export function findingPlace(document: SystemDocument, finding: Finding): string
 function findingTarget(finding: Finding): WorkspaceSelection | null {
   const harnessId = (finding.detail as { harnessId?: string } | null)?.harnessId;
   if (harnessId) return { kind: "harness", id: harnessId };
+  if (finding.rule === "SYS-V22" && finding.key) return { kind: "collision", id: finding.key };
   if (finding.linkId) return { kind: "link", id: finding.linkId };
   return finding.instanceId ? { kind: "instance", id: finding.instanceId } : null;
 }

@@ -30,6 +30,8 @@ cryptography==50.0.1
     # via pyjwt
 cssselect2==0.10.1
     # via cairosvg
+cython==3.3.0
+    # via python-fcl
 defusedxml==0.7.1
     # via cairosvg
 et-xmlfile==2.0.0
@@ -76,6 +78,7 @@ msgspec==0.21.1
 numpy==2.5.3
     # via
     #   kicad-monkey
+    #   python-fcl
     #   shapely
     #   trimesh
 openpyxl==3.1.5
@@ -122,6 +125,8 @@ python-dotenv==1.2.3
     # via
     #   -r requirements/runtime.in
     #   pydantic-settings
+python-fcl==0.7.0.11
+    # via -r requirements/runtime.in
 python-multipart==0.0.32
     # via -r requirements/runtime.in
 pyyaml==6.0.3
@@ -145,7 +150,9 @@ tinycss2==1.5.1
     #   cairosvg
     #   cssselect2
 trimesh==5.1.0
-    # via kicad-monkey
+    # via
+    #   -r requirements/runtime.in
+    #   kicad-monkey
 typing-extensions==4.16.0
     # via
     #   anyio

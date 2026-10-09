@@ -15,6 +15,18 @@ from app.services.systems.visibility import etag
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
+@router.post("/{system_id}/collisions", status_code=202)
+async def request_collision_check(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
+    """P2 §24.2: queue a collision check of the placed system; 202 ``{jobId}``."""
+    return await _run(system_id, lambda: system_service.service.request_collision_check(_caller(user), system_id))
+
+
+@router.get("/{system_id}/collisions")
+async def collision_check(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
+    """P2 §24.2: the last check, whether it is current, and its SYS-V22 findings."""
+    return await _run(system_id, lambda: system_service.service.collision_check(_caller(user), system_id))
+
+
 class WaiverRequest(BaseModel):
     findingKey: str = Field(min_length=1, max_length=2000)
     note: str = Field(min_length=1, max_length=2000)

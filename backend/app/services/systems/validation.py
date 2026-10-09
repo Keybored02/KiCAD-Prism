@@ -39,6 +39,7 @@ RULES = {
     "SYS-V19": ("mate_pin_mismatch", "error"),
     "SYS-V20": ("harness_tight_bend", "info"),
     "SYS-V21": ("subport_pad_absent", "warning"),
+    "SYS-V22": ("part_collision", "warning"),
 }
 # Rules a system may list in ``system_projects.optional_rules`` (CONTRACTS_P2 §8.4). Kept for
 # compatibility: since D-P2-57 (§23.4) SYS-V09 runs on every system and the list has no effect.
@@ -362,4 +363,18 @@ def subport_findings(subports: Sequence[Mapping[str, Any]], interfaces: Mapping[
             out.append(_finding("SYS-V21", instance_id=subport["instance_id"],
                                 reference=f"{component['reference']}.{subport['name']}",
                                 detail={"subportId": subport["id"], "name": subport["name"], "pads": missing}))
+    return out
+
+
+def collision_findings(collisions: Sequence[Mapping[str, Any]]) -> list[dict]:
+    """SYS-V22 (CONTRACTS_P2 §24.2): one per colliding occurrence pair of the stored check. The
+    instance is the first occurrence's root instance; the reference names the colliding part."""
+    out = []
+    for collision in collisions:
+        a, b = collision["a"], collision["b"]
+        instance_id = a["occurrence"].strip("/").split("/")[0] or None
+        out.append(_finding("SYS-V22", instance_id=instance_id,
+                            reference=f"{a['label']} {a['reference'] or ''} ↔ {b['label']} {b['reference'] or ''}".replace("  ", " ").strip(),
+                            detail={"a": dict(a), "b": dict(b), "atMm": list(collision["atMm"]),
+                                    "pairs": list(collision.get("pairs") or [])}))
     return out
