@@ -15,6 +15,7 @@ from app.services.systems.jobs import (
     artifact_key,
 )
 from app.services.systems.store import Conflict, Invalid, NotFound, StaleVersion, SystemStore
+from app.services.systems.store_base import MAX_EXPORTS
 from app.services.systems.service_base import Caller, Result, _mating_summary, _iso
 
 MAX_BATCH_WAIVERS = 1000  # SB2-113: one group waive; the C&DH stack's largest group is 401
@@ -562,6 +563,29 @@ class DocumentsMixin:
                                               instance_id=instance_id, child_export_id=child_export_id,
                                               subport_id=subport_id)
         return Result(self._export_body(caller, system_id, row["id"]), system_id, change.version)
+
+    def create_exports(self, caller: Caller, system_id: str, version: int, items: Sequence[Mapping[str, Any]]) -> Result:
+        """SB2-121: export several ports in one version. Each item is ``{name, description, instanceId, portKey,
+        subportId?}``; the first refusal names its item and rolls the whole batch back."""
+        if not items or len(items) > MAX_EXPORTS:
+            raise Invalid(f"export 1 to {MAX_EXPORTS} ports at once")
+        ids: list[str] = []
+        with self._tx() as store:
+            self._system(store, system_id, caller)
+            with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
+                for item in items:
+                    try:
+                        port = self._export_port(store, system_id, item["instanceId"], item["portKey"], caller)
+                        self._require_subport(store, system_id, item["instanceId"], port, item.get("subportId"))
+                        ids.append(store.create_export(change, name=item["name"], description=item.get("description") or "",
+                                                       instance_id=item["instanceId"], port=port,
+                                                       subport_id=item.get("subportId"))["id"])
+                    except (Invalid, Conflict, NotFound) as problem:
+                        raise type(problem)(f"{item['name']}: {problem}") from problem
+        with self._tx() as store:
+            built, _instances, _jobs = self._build(store, self._system(store, system_id, caller))
+        by_id = {e["id"]: e for e in built["exports"]}
+        return Result({"exports": [by_id[i] for i in ids if i in by_id]}, system_id, change.version)
 
     @staticmethod
     def _require_subport(store: SystemStore, system_id: str, instance_id: str, port: Mapping[str, Any],

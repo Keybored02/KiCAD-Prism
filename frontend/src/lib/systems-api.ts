@@ -253,6 +253,15 @@ export function createExport(
     "Could not export the port");
 }
 
+/** SB2-121: several port exports in one version; the first refusal names its item and rolls back. */
+export function createExports(
+  systemId: string, etag: string,
+  exports: { name: string; description?: string; instanceId: string; portKey: string; subportId?: string }[],
+) {
+  return versioned<{ exports: SystemExport[] }>(path(systemId, "exports", "batch"), { method: "POST", etag, body: json({ exports }) },
+    "Could not export the connectors");
+}
+
 export function updateExport(
   systemId: string, etag: string, exportId: string,
   fields: { name?: string; description?: string; instanceId?: string; portKey?: string },

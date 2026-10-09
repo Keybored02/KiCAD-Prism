@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Lock, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Lock, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { deleteExport, updateExport } from "@/lib/systems-api";
 import type { SystemDocument, SystemExport } from "@/types/system";
 
+import { ExportManyDialog } from "./export-many-dialog";
 import { subportLabel } from "./subport-model";
 import type { Mutate } from "./use-system-mutation";
 import { InspectorSection } from "./workspace/inspector-section";
@@ -92,11 +93,16 @@ interface ExportsSectionProps {
 export function ExportsSection({ systemId, document, etag, canEdit, busy, run, onOpenBoard }: ExportsSectionProps) {
   const [editing, setEditing] = useState<SystemExport | null>(null);
   const [removing, setRemoving] = useState<SystemExport | null>(null);
+  const [adding, setAdding] = useState(false);
   const exports = document.exports ?? [];
   const labels = new Map(document.instances.map((instance) => [instance.id, instance.label]));
 
   return (
-    <InspectorSection title="Exports" count={exports.length}>
+    <InspectorSection title="Exports" count={exports.length} action={canEdit && (
+      <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={() => setAdding(true)} title="Export several connectors">
+        <Plus className="size-3.5" /> Export…
+      </Button>
+    )}>
       {exports.length === 0 ? <p className="h-8 text-sm text-muted-foreground">None</p> : (
         <ul className="text-sm">
           {exports.map((entry) => {
@@ -144,6 +150,10 @@ export function ExportsSection({ systemId, document, etag, canEdit, busy, run, o
             const done = await run("export", () => updateExport(systemId, etag, editing.id, value), "Export updated");
             if (done) setEditing(null);
           }} />
+      )}
+      {adding && (
+        <ExportManyDialog systemId={systemId} document={document} etag={etag} busy={busy === "export"} run={run}
+          onClose={() => setAdding(false)} />
       )}
       <ConfirmDialog
         open={removing !== null}
