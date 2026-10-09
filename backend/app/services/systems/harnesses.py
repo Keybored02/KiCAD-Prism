@@ -159,6 +159,12 @@ def findings(harness: Mapping[str, Any], components: Mapping[str, Component],
             end, component = ends[wire[f"{side}_end"]], components.get(wire[f"{side}_end"])
             pad = SystemStore.end_pad(end, wire[f"{side}_pin"])
             power.append((exposure.pins_by_pad(component).get(pad) or {}).get("powerNet") if component else None)
+        known = all(components.get(wire[f"{side}_end"]) for side in ("from", "to"))
+        named_side = system_nets.net_meets_none(net_from, net_to) if known else None
+        if named_side:  # SYS-V23 only where both ends' interfaces are known
+            out.append(finding("SYS-V23", row_id=wire["id"], **place,
+                               detail={**detail, "namedSide": "from" if named_side == "a" else "to",
+                                       "netA": net_from, "netB": net_to}))
         if system_nets.power_meets_signal(power[0], net_from, power[1], net_to):
             out.append(finding("SYS-V10", row_id=wire["id"], **place,
                                detail={**detail, "powerSide": "from" if power[0] else "to", "netA": net_from, "netB": net_to}))

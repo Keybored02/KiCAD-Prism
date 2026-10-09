@@ -98,6 +98,24 @@ def name_mismatch(nets_a: Sequence[str], nets_b: Sequence[str]) -> bool:
     return True
 
 
+def _no_net(nets: Sequence[str]) -> bool:
+    """A pin on no net: none at all, or KiCad's ``unconnected-(…)`` for a pin that touches nothing."""
+    return all(leaf(n).startswith("unconnected-") for n in nets if n)
+
+
+def net_meets_none(nets_a: Sequence[str], nets_b: Sequence[str]) -> Optional[str]:
+    """SYS-V23 (P2-1.87): the side (``"a"``/``"b"``) whose designer-named net lands on a pin on no net, else ``None``.
+
+    A ``Net-(…)`` auto-net is a connection, so it is not "no net"; an unnamed net meeting
+    no net is ordinary (a spare pin on both boards) and is not reported.
+    """
+    if named(nets_a) and _no_net(nets_b):
+        return "a"
+    if named(nets_b) and _no_net(nets_a):
+        return "b"
+    return None
+
+
 def power_meets_signal(power_a: Optional[bool], nets_a: Sequence[str],
                        power_b: Optional[bool], nets_b: Sequence[str]) -> bool:
     """SYS-V10: exactly one side is a power net and the other is a named non-power net.

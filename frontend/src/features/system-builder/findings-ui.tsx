@@ -57,6 +57,7 @@ const RULE_TEXT: Record<string, string> = {
   mate_pin_mismatch: "Harness part pins do not land on connector pads",
   harness_tight_bend: "Harness bends tighter than its minimum radius",
   part_collision: "Bodies intersect in 3D",
+  net_meets_no_net: "Named net meets a pin on no net",
 };
 
 export function findingText(finding: Pick<Finding, "name">): string {
