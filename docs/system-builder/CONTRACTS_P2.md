@@ -1438,7 +1438,7 @@ Every change re-homes rows so no row is on the wrong end, in one audited system 
 
 ## 23. Net rename proposals (SB2-106, D-P2-57)
 
-Prism never edits a board. When two boards name one signal differently, a system's designer records which board should rename its net, and to what. The board's owner sees the proposal on the board's project page and applies it in KiCad; the board's next commit that carries the new name closes it, with no review.
+Prism never edits a board. When two boards name one signal differently, a system's designer records which board should rename its net, and to what. The board's owner learns of it from the system (its Findings tray, report and the by-project renames CSV) and applies it in KiCad; the board's next commit that carries the new name closes it, with no review.
 
 ### 23.1 Proposal
 

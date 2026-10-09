@@ -56,6 +56,7 @@ const RULE_TEXT: Record<string, string> = {
   mate_pair_unknown: "Catalog does not list these parts as mating",
   mate_pin_mismatch: "Harness part pins do not land on connector pads",
   harness_tight_bend: "Harness bends tighter than its minimum radius",
+  subport_pad_absent: "Sub-port names a pad the connector no longer has",
   part_collision: "Bodies intersect in 3D",
   net_meets_no_net: "Named net meets a pin on no net",
 };
