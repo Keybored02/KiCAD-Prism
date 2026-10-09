@@ -23,8 +23,8 @@ export function releaseBuildFor(candidates: ReleaseCandidate[], commitSha: strin
 
 /**
  * The run's release, linked to its package in Release Studio: the newest
- * successful build of the run's commit, or Release Studio itself when that
- * commit was never built.
+ * successful build of the run's commit, opened at its outputs, or Release
+ * Studio itself when that commit was never built.
  */
 export function RunReleaseLink({ projectId, tag, commitSha }: {
     projectId: string;
@@ -47,7 +47,8 @@ export function RunReleaseLink({ projectId, tag, commitSha }: {
         };
     }, [projectId, commitSha]);
 
-    const build = buildId ? `&build=${encodeURIComponent(buildId)}` : "";
+    // Straight to the package: the run's Outputs stage, not Release Studio's history list.
+    const build = buildId ? `&build=${encodeURIComponent(buildId)}&stage=outputs` : "";
     return (
         <Link
             to={`/project/${projectId}?section=release-studio${build}`}

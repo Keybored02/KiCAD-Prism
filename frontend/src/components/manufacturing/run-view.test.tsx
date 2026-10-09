@@ -264,7 +264,7 @@ describe("RunView", () => {
             expect(within(details).getByText("abcdef1")).toBeTruthy();
             const link = within(details).getByRole("link", { name: /v1.2/ });
             // The newest successful build of the run's commit.
-            await waitFor(() => expect(link.getAttribute("href")).toBe("/project/p1?section=release-studio&build=b_new"));
+            await waitFor(() => expect(link.getAttribute("href")).toBe("/project/p1?section=release-studio&build=b_new&stage=outputs"));
         });
 
         it("links to Release Studio itself when the commit was never built", async () => {
