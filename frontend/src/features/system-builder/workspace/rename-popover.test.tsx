@@ -68,16 +68,17 @@ describe("net rename proposals (SB2-106)", () => {
 });
 
 describe("Used in panel (SB2-106)", () => {
-  it("lists the systems that place the board and their renames, with the CSV", async () => {
+  it("lists the systems that place the board, a few placements each", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       projectId: "prj_obc",
       systems: [{ id: "sys_1", name: "C&DH", instances: [{ id: "sin_a", label: "OBC-1", baselineCommit: null, trackedRef: "main", pinned: false }],
         renames: [{ ...proposal, board: "OBC-1", connectors: ["J7.12"] }] }],
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
     render(<MemoryRouter><UsedInPanel projectId="prj_obc" /></MemoryRouter>);
-    expect(await screen.findByRole("link", { name: "C&DH" })).toBeTruthy();
-    expect(screen.getByText("J7.12")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /1 rename/ }).getAttribute("href")).toBe("/api/systems/by-project/prj_obc/renames.csv");
+    expect((await screen.findByRole("link", { name: "C&DH" })).getAttribute("href")).toBe("/systems/sys_1");
+    expect(screen.getByRole("cell", { name: "OBC-1" })).toBeTruthy();
+    expect(screen.queryByText("J7.12")).toBeNull(); // renames are not on the board page
+    expect(screen.getByRole("heading", { name: "Used in" })).toBeTruthy();
   });
 
   it("shows nothing when no system uses the board", async () => {
