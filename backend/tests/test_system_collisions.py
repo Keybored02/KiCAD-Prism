@@ -121,7 +121,8 @@ class CollisionServiceTest(PartCase):
         [collision] = [c for c in result["collisions"] if {c["a"]["label"], c["b"]["label"]} == {"Enclosure", "Lid"}]
         self.assertEqual(collision["atMm"][0] > 4000, True)
         state, [finding] = self.state()
-        self.assertEqual((state, finding["severity"], finding["reference"]), ("current", "warning", "Enclosure ↔ Lid"))
+        self.assertEqual((state, finding["severity"]), ("current", "warning"))
+        self.assertIn(finding["reference"], ("Enclosure ↔ Lid", "Lid ↔ Enclosure"))  # pairs sort by instance path
         self.assertEqual({finding["detail"]["a"]["label"], finding["detail"]["b"]["label"]}, {"Enclosure", "Lid"})
         # Boards without a 3D bundle are listed, never passed.
         self.assertTrue(all(gap["reason"].startswith("bundle_") or gap["reason"] in ("restricted", "no_outline")
