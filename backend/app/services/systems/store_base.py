@@ -303,8 +303,9 @@ class StoreCore:
         return self.get_system(change.system_id)
 
     def delete_system(self, system_id: str) -> None:
-        # No foreign key on purpose (migration 49), so no cascade either.
+        # No foreign key on purpose (migrations 49 and 52), so no cascade either.
         self.conn.execute("DELETE FROM system_finding_counts WHERE system_id = %s", (system_id,))
+        self.conn.execute("DELETE FROM system_collision_checks WHERE system_id = %s", (system_id,))
         deleted = self.conn.execute(
             "DELETE FROM system_projects WHERE id = %s RETURNING id", (system_id,)
         ).fetchone()

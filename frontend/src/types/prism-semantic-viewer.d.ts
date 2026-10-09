@@ -205,8 +205,9 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     isHelpVisible?: () => boolean;
     /** mode="system": frame one placed board. */
     frameBoard?: (key: string) => boolean;
-    /** mode="system": frame parts on their placements (SB2-32: a hop's two connectors); false when none is drawn. */
-    frameParts?: (parts: readonly { occurrence: string; reference: string }[]) => boolean;
+    /** mode="system": frame parts on their placements (SB2-32: a hop's two connectors); a null reference frames
+     *  its whole occurrence (SB2-108); false when none is drawn. */
+    frameParts?: (parts: readonly { occurrence: string; reference: string | null }[]) => boolean;
 }
 
 /** A surface pick (SB2-48b): the hit in world mm, the face normal and the direction to the camera (unit). */

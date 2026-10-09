@@ -2463,10 +2463,15 @@ function frameNetEmphasis(key = null, occurrence = null) {
  * connectors): `[{ occurrence, reference }]`. Parts not drawn are skipped;
  * false when none is.
  */
+/** Frame components by `{occurrence, reference}`; a part with no reference frames its whole occurrence (SB2-108). */
 function frameParts(parts) {
   const boxes = [];
   for (const part of Array.isArray(parts) ? parts : []) {
     const item = system?.placements.get(String(part?.occurrence));
+    if (item && !part?.reference) {
+      if (item.worldBounds) boxes.push(item.worldBounds);
+      continue;
+    }
     const component = item?.board?.scene.componentFeatures.get(String(part?.reference));
     const bounds = component ? item.board.scene.features.get(Number(component.featureId))?.bounds : null;
     if (bounds) boxes.push(transformBounds(item.matrix, bounds));

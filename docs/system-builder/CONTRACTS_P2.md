@@ -1497,25 +1497,27 @@ Prism never edits a board. When two boards name one signal differently, a system
 ### 24.2 Collision check
 
 - **What collides.** Each pair of occurrences in the system's 3D view (boards, modules, parts, at every depth) is checked, using the poses the 3D view uses (§14.9, §20.1).
-  - Boards: the board body (`geometry/base_board.glb`) and each component body (`geometry/components.glb`, one object per footprint node, named by reference) from the board's viewer bundle at its baseline. Both are mapped to the board frame (§14.2): glTF metres, Y-up, to millimetres, Z-up, about the copper mid-plane.
+  - Boards: the board body is a solid box, its outline bounds × thickness (the placement's own-frame box, §14.7). Each component body comes from `geometry/components.glb` of the board's viewer bundle at its baseline: one object per footprint node, named by reference (`semantic_geometry.json`). It is mapped to the board frame (§14.2) by the scene's `bundleToBoard`: glTF metres, Y-up, to millimetres, Z-up, about the copper mid-plane. The bundle's board mesh is not used: it is heavy and a box is what the 3D view's separation already assumes.
   - Modules and parts: the catalog GLB, scaled ×1000 and given its alignment (§18.2).
-  - An occurrence with no geometry yet (no bundle built, no converted model) is listed under `notEvaluated` with its reason. It is never assumed clear.
+  - An occurrence that cannot be checked is listed in the result's `notEvaluated` as `{occurrence, label, reason}`, with `reason` one of `no_outline`, `restricted`, `bundle_<status>` (no ready bundle) or `no_model`. It is never assumed clear.
 - **Method.**
-  1. Occurrence world boxes find candidate pairs.
-  2. Object boxes narrow them to object pairs.
-  3. Exact triangle-mesh intersection decides (python-fcl BVH).
-  - Two objects on the same occurrence are never a pair.
-  - **Exempt:** the two connector bodies of each `b2b` link (any depth) where the pair is mated. Mated connectors touch by design.
-  - Contact closer than 0.05 mm counts as touching, not colliding.
+  1. Object boxes, placed from each mesh's own-frame box, find candidate pairs: a sweep on x, then an overlap of more than 0.05 mm on every axis. Bodies that only touch are never a pair.
+  2. python-fcl decides each candidate pair: triangle meshes (one BVH per mesh, placed by its transform), or a primitive box for a board body.
+  - A board body is solid: a component wholly inside it collides. A mesh is a surface: a body wholly inside a module's or part's mesh, touching none of its triangles, does not.
+  - Two objects of the same occurrence are never a pair.
+  - **Exempt:** the two connector bodies of each `b2b` link (any depth). Mated connectors touch by design. A module's end is its whole body.
+  - Component meshes are cached per bundle as `.npz` beside the semantic store. A bundle never changes once built.
 - **Running.**
-  - `POST …/collisions` (viewer) queues `system_collision_check` (pool `prism`) and answers 202 `{jobId}`.
-  - The result is stored per system with the `sceneKey` it was computed for (§SB2-98), in `system_collision_checks` (migration 52, no foreign key, deleted with the system).
-  - Taking a snapshot queues a check when the stored one is stale. The snapshot freezes whatever the document shows at that moment, so a stale check is frozen as not evaluated.
-- **SYS-V22 `part_collision`** (warning, waivable, §8.5). There is one finding per colliding occurrence pair, raised only while the stored result's `sceneKey` equals the document's.
-  - `instanceId` is the first occurrence's root instance.
+  - `POST …/collisions` (viewer) queues `system_collision_check` (pool `prism`) and answers 202 `{jobId}`. `GET …/collisions` returns `{systemId, state, checkedAt, notEvaluated, findings}` (the SYS-V22 findings).
+  - The result `{collisions, notEvaluated, stats}` is stored per system with the `sceneKey` it was computed for (SB2-98), in `system_collision_checks` (migration 52, no foreign key, deleted with the system). There is no automatic check: a placement edit makes the stored check stale.
+- **Document.** `validation.collisionCheck` is `{state, checkedAt, notEvaluated}`:
+  - `state` is `current` when the stored check was made for the document's `sceneKey`, `stale` when it was made for another, or `not_checked`;
+  - `notEvaluated` is the current check's unchecked occurrences.
+  - It is separate from `counts.notEvaluated`. A snapshot freezes it as it stands.
+- **SYS-V22 `part_collision`** (warning, waivable, §8.5). There is one finding per colliding occurrence pair, raised only while the check is `current`.
+  - `instanceId` is the first occurrence's root instance. `reference` is `"<label a> <ref a> ↔ <label b> <ref b>"`.
   - `detail` is `{a: {occurrence, label, reference}, b: {…}, atMm, pairs}`:
     - `reference` is the first colliding component, or null for a body;
     - `atMm` is a contact point in root coordinates;
-    - `pairs` is up to 10 colliding object pairs.
-  - With no stored result, or a stale one, SYS-V22 is listed under `notEvaluated` with the reason `not_checked` or `stale`.
-- **3D.** **Show** on a V22 finding frames both parts (`frameParts`) and marks `atMm`. The view's toolbar gets **Check collisions**.
+    - `pairs` is up to 10 colliding object pairs `{a, b, atMm}`.
+- **3D.** **Show** on a V22 finding frames both occurrences and marks `atMm`. The view's toolbar gets **Check collisions**, which shows the check's state.

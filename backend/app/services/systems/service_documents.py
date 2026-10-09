@@ -211,9 +211,6 @@ class DocumentsMixin:
         # SB2-106 (P2 §23.4): V09 findings on a net with an open rename proposal say so.
         open_renames = store.list_renames(system_id)
         report = {**report, "findings": renames_module.annotate(report["findings"], links, open_renames)}
-        # SB2-100 (D-P2-56): waivers last, over every finding above.
-        report = validation.apply_waivers(report, store.list_waivers(system_id))
-        store.record_finding_counts(system_id, system["version"], report["counts"])  # SB2-101: for the systems list
         review_rows = sorted({rid for review in open_reviews for item in review["items"] for rid in item["row_ids"]})
         subports_by_id = {row["id"]: row for row in subport_rows}
         drift_rows = store.drift_links(system_id) if open_renames else links  # rows and harness wires
@@ -228,6 +225,21 @@ class DocumentsMixin:
         ] + catalog_docs
         for doc in instance_docs:
             doc["subports"] = [_subport_entry(row) for row in subport_rows if row["instance_id"] == doc["id"]]
+        # SB2-98: what the 3D scene and the system nets depend on, so readers re-read them only when
+        # these change rather than on every version (a signal label moves neither).
+        scene_key = _digest({
+            "instances": [[i["id"], i.get("kind"), i.get("label"), i.get("project_id"), i.get("baseline_commit"),
+                           i.get("catalog_revision_id")] for i in all_instances],
+            "links": [[link["id"], link.get("type"), _end_key(link["a"]), _end_key(link["b"]),
+                       link.get("stackHeightMm")] for link in link_docs],
+            "harnesses": harness_docs, "mating": mating, "poses": store.list_poses(system_id),
+            "driving": store.list_driving_mates(system_id),
+        })
+        # SB2-108 (P2 §24.2): collisions from the last check while it matches this placement.
+        report = collision_report(report, store.get_collision_check(system_id), scene_key)
+        # SB2-100 (D-P2-56): waivers last, over every finding above.
+        report = validation.apply_waivers(report, store.list_waivers(system_id))
+        store.record_finding_counts(system_id, system["version"], report["counts"])  # SB2-101: for the systems list
         return {
             "system": dict(system),
             "instances": instance_docs,
@@ -237,16 +249,7 @@ class DocumentsMixin:
             # P2 §23: open net rename proposals, with the rows each covers.
             "renames": [rename_doc(r, len(renames_module.covered(drift_rows, r["instance_id"], r["net"])))
                         for r in open_renames],
-            # SB2-98: what the 3D scene and the system nets depend on, so readers re-read them only when
-            # these change rather than on every version (a signal label moves neither).
-            "sceneKey": _digest({
-                "instances": [[i["id"], i.get("kind"), i.get("label"), i.get("project_id"), i.get("baseline_commit"),
-                               i.get("catalog_revision_id")] for i in all_instances],
-                "links": [[link["id"], link.get("type"), _end_key(link["a"]), _end_key(link["b"]),
-                           link.get("stackHeightMm")] for link in link_docs],
-                "harnesses": harness_docs, "mating": mating, "poses": store.list_poses(system_id),
-                "driving": store.list_driving_mates(system_id),
-            }),
+            "sceneKey": scene_key,
             "netsKey": _digest({
                 "instances": [[i["id"], i.get("baseline_commit"), i.get("catalog_revision_id")] for i in all_instances],
                 "links": [[link["id"], _end_key(link["a"]), _end_key(link["b"]),
@@ -726,3 +729,17 @@ def rename_doc(rename: Mapping[str, Any], rows: Optional[int] = None) -> dict:
             "note": rename["note"], "state": rename["state"], "rows": rows, "createdBy": rename["created_by"],
             "createdAt": _iso(rename["created_at"]), "closedBy": rename.get("closed_by"),
             "closedAt": _iso(rename.get("closed_at")), "closedCommit": rename.get("closed_commit")}
+
+
+def collision_report(report: Mapping[str, Any], check: Optional[Mapping[str, Any]], scene_key: str) -> dict:
+    """SYS-V22 (P2 §24.2): the stored check's collisions while it was made for ``scene_key``.
+    ``collisionCheck`` says whether it is ``current``, ``stale`` or ``not_checked``, and lists the
+    occurrences it could not check (no 3D bundle or model): never a pass."""
+    if check is None or check["scene_key"] != scene_key:
+        state = {"state": "not_checked" if check is None else "stale", "checkedAt": _iso(check["checked_at"]) if check else None,
+                 "notEvaluated": []}
+        return {**report, "collisionCheck": state}
+    result = check["result"]
+    report = validation.with_findings(report, validation.collision_findings(result.get("collisions") or []))
+    return {**report, "collisionCheck": {"state": "current", "checkedAt": _iso(check["checked_at"]),
+                                         "notEvaluated": list(result.get("notEvaluated") or [])}}

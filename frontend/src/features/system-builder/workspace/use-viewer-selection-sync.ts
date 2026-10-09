@@ -9,8 +9,13 @@ import type { WorkspaceSelection } from "./workspace-state";
 export type ViewerAction =
   | { type: "board"; path: string }
   | { type: "harness"; id: string }
-  | { type: "parts"; parts: { occurrence: string; reference: string }[] }
+  | { type: "parts"; parts: { occurrence: string; reference: string | null }[] }
   | { type: "clear" };
+
+interface CollisionSide {
+  occurrence: string;
+  reference: string | null;
+}
 
 /** The root-level instance an occurrence path belongs to (`/sin_a/sin_b` → `sin_a`). */
 export function rootInstanceOf(path: string | null | undefined): string | null {
@@ -29,6 +34,12 @@ export function viewerActionFor(selection: WorkspaceSelection | null, scene: Sys
     return path ? { type: "board", path } : null;
   }
   if (selection.kind === "harness") return { type: "harness", id: selection.id };
+  if (selection.kind === "collision") {
+    const finding = document.validation?.findings.find((item) => item.rule === "SYS-V22" && item.key === selection.id);
+    const detail = finding?.detail as { a?: CollisionSide; b?: CollisionSide } | undefined;
+    const parts = [detail?.a, detail?.b].flatMap((side) => (side ? [{ occurrence: side.occurrence, reference: side.reference }] : []));
+    return parts.length ? { type: "parts", parts } : null;
+  }
   const link = document.links.find((item) => item.id === selection.id);
   if (!link) return null;
   const parts = [link.a, link.b].flatMap((end) => {

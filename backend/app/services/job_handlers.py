@@ -75,6 +75,9 @@ def load_builtin_job_handlers() -> None:
 
     register_job_handler(git_tracking.SYNC_JOB_KIND, git_tracking.run_sync_job)
     register_job_handler(git_tracking.COMMIT_JOB_KIND, git_tracking.run_commit_job)
+    from app.services.systems.service_collisions import COLLISION_JOB_KIND, run_collision_job
+
+    register_job_handler(COLLISION_JOB_KIND, run_collision_job)
     from app.services.trackers.jobs import register_tracker_job_handlers
 
     register_tracker_job_handlers(register_job_handler)
