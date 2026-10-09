@@ -77,7 +77,7 @@ export function SystemWorkspace({ state, importing, onState, onImporting, onBack
   const select = (selection: WorkspaceSelection | null) => {
     setSheet(null);
     // SB2-112: a row to show opens the link's rows in the tray, in the same update.
-    update(selection?.row ? { selection, tray: "connections" } : { selection });
+    update(selection?.row || selection?.edit ? { selection, tray: "connections" } : { selection });
   };
   const setTray = (tray: TrayTab | null) => {
     if (tray !== "history") setTakeRequest(0);

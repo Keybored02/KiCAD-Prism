@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.80 · 2026-10-09 · tickets SB2-00 to SB2-112.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.84 · 2026-10-09 · tickets SB2-00 to SB2-115.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -952,6 +952,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.84 | 2026-10-09 | SB2-115: **Connect…** on a port and **New connection** on the Connections tab make a link, board-to-board link or harness from two lists of connectors (board, reference, MPN, pin count, sub-ports included; a mated or split connector is refused where it cannot be used), then open it. |
 | P2-1.80 | 2026-10-09 | SB2-112: join findings (SYS-V01/V09/V10, rows and wires) placed at side A's pin with side B's in the detail, so each has its own key (§8.5); the Findings tray shows pins and nets, Show opens the row (`&row=`). |
 | P2-1.79 | 2026-10-09 | SB2-106 follow-up: the board page's Used in section restyled like the README; proposals no longer listed there (§23.5). |
 | P2-1.78 | 2026-10-09 | SB2-109 part 2: harness tubes and end housings in the system STEP (§25); the STEP is not attached to snapshots. |

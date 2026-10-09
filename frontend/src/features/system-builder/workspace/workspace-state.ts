@@ -30,6 +30,8 @@ export interface WorkspaceSelection {
   id: string;
   /** SB2-112: a link's row to bring into view (`&row=`), from a finding's Show. */
   row?: string;
+  /** SB2-115: open it in the tray to edit (a connection just made); not kept in the URL. */
+  edit?: boolean;
 }
 
 export interface WorkspaceState {
