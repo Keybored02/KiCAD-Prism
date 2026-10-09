@@ -16,9 +16,10 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import layout as system_layout
+from app.services.systems.validation import rule_label
 from app.services.systems.drift import pad_sort_key
 
-RENDERER_VERSION = "5"  # 5: waived findings listed apart (SB2-100)
+RENDERER_VERSION = "6"  # 5: waived findings listed apart (SB2-100); 6: rule labels, no unlinked ports (SB2-118)
 
 CSV_COLUMNS = (
     "row_id", "link_id", "link_name", "harness", "signal",
@@ -235,8 +236,8 @@ def _diagram(document: Mapping[str, Any], positions: Optional[Mapping[str, Any]]
     drawn: list[tuple[Any, float]] = []
     for block in blocks.values():
         if block.id in instances:
-            rows, hidden = _block_rows(document, instances[block.id], block)
-            height = system_layout.board_height(len(rows), hidden)
+            rows, _hidden = _block_rows(document, instances[block.id], block)
+            height = system_layout.board_height(len(rows), 0)  # unlinked ports are no part of the record (SB2-118)
         else:
             height = system_layout.board_height(len(block.rows) + len(block.hidden_ports), 0)
         drawn.append((block, height))
@@ -298,10 +299,6 @@ def _diagram(document: Mapping[str, Any], positions: Optional[Mapping[str, Any]]
             parts.append(f'<text x="12" y="{y + 17}" class="row-ref">{_e(reference)}</text>')
             parts.append(f'<text x="{bw - 12}" y="{y + 17}" class="row-partner{" row-export" if exported else ""}" '
                          f'text-anchor="end">{_e(_clip(partner, 30))}</text>')
-        if hidden:
-            y = system_layout.HEADER_HEIGHT + max(1, len(rows)) * system_layout.ROW_HEIGHT
-            parts.append(f'<text x="{bw / 2}" y="{y + 18}" class="row-partner" text-anchor="middle">'
-                         f'{hidden} unlinked port{"s" if hidden != 1 else ""}</text>')
         parts.append("</g>")
     parts.append("</svg>")
     return "".join(parts)
@@ -352,7 +349,7 @@ def _link_findings(findings: Sequence[Mapping[str, Any]]) -> str:
         return ""
     items = "".join(
         f'<li><span class="chip {"error" if f["severity"] == "error" else "review"}">{_e(f["rule"])}</span> '
-        f'{_e(f["name"].replace("_", " "))}'
+        f'{_e(rule_label(f["name"]))}'
         + (f' <span class="meta">· {_e(f["reference"])}</span>' if f.get("reference") else "")
         + (f' <span class="meta mono">· pin{"s" if len(pins) != 1 else ""} {_e(", ".join(pins))}</span>' if pins else "")
         + "</li>" for f, pins in shown)
@@ -788,7 +785,7 @@ def render_html(document: Mapping[str, Any], *, source: str, generated_at: str,
             finding, pins = groups[key]["finding"], sorted(groups[key]["pins"], key=pad_sort_key)
             severity = {"warning": "review", "error": "error"}.get(finding["severity"], "info")
             out.append(f'<tr><td><span class="chip {severity}">{_e(finding["severity"])}</span></td>'
-                       f'<td><b>{_e(finding["rule"])}</b> {_e(finding["name"].replace("_", " "))}</td>'
+                       f'<td><b>{_e(finding["rule"])}</b> {_e(rule_label(finding["name"]))}</td>'
                        f"<td>{_e(labels.get(finding['instanceId'], ''))}</td><td class=\"mono\">{_e(finding['reference'] or '')}</td>"
                        f'<td class="mono">{_e(", ".join(pins))}</td><td>{_finding_link(finding, link_names, document)}</td></tr>')
         out.append("</tbody></table>")
