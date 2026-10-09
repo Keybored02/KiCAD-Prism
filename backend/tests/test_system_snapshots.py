@@ -70,6 +70,12 @@ class SnapshotTest(SnapshotCase):
         [event] = self.events("snapshot_created")
         self.assertEqual(event["payload"], {"snapshotId": meta["id"], "name": "CDR", "digest": meta["digest"]})
         self.assertEqual([s["id"] for s in self.service.list_snapshots(DESIGNER, self.sid)], [meta["id"]])
+        # SB2-116: the listing says what the snapshot froze, for the publish dialog.
+        listed = self.service.list_snapshots(DESIGNER, self.sid)[0]
+        frozen = stored["document"]
+        self.assertEqual((listed["findingCounts"], listed["exportCount"]),
+                         ({"error": frozen["findingCounts"]["error"], "warning": frozen["findingCounts"]["warning"]},
+                          len(frozen.get("exports") or [])))
 
         read = self.service.get_snapshot(DESIGNER, self.sid, meta["id"])
         live = self.service.document(DESIGNER, self.sid).body

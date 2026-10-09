@@ -955,6 +955,10 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 | Version | Date | Change |
 |---|---|---|
 | P2-1.86 | 2026-10-09 | SB2-117: a subsystem's open findings, frozen in its pinned snapshot, on the node, inspector and top bar (§10). |
+| P2-1.85 | 2026-10-09 | SB2-116: snapshot listings carry `findingCounts {error, warning}` and `exportCount` from the frozen document; the snapshot dialog shows the live system's open errors, warnings, unreviewed changes and exports, and the publish dialog the snapshot's, warning when it has no exports. |
+| P2-1.84 | 2026-10-09 | SB2-115: **Connect…** on a port and **New connection** on the Connections tab make a link, board-to-board link or harness from two lists of connectors (board, reference, MPN, pin count, sub-ports included; a mated or split connector is refused where it cannot be used), then open it. |
+| P2-1.83 | 2026-10-09 | SB2-114: a link with no rows offers **Fill pins: Same pin / Reversed** (the generator's rows saved in one step, Undo after); a B2B mating panel offers **Confirm both** when both ends have an inferred frame and neither has a stored one. |
+| P2-1.82 | 2026-10-09 | SB2-118: generated rows take their signal from the first net a designer named (side A first), KiCad's `Net-(…)`/`unconnected-(…)` only when neither side has another; the ICD (renderer 6) names rules by their labels and its block diagram drops unlinked ports; creating a system whose boards all fail deletes it again; an empty system opens on the Diagram. |
 | P2-1.81 | 2026-10-09 | SB2-113: batch waivers (§8.5), the Findings tray's filter, group and place waivers, and large groups split by place. |
 | P2-1.80 | 2026-10-09 | SB2-112: join findings (SYS-V01/V09/V10, rows and wires) placed at side A's pin with side B's in the detail, so each has its own key (§8.5); the Findings tray shows pins and nets, Show opens the row (`&row=`). |
 | P2-1.79 | 2026-10-09 | SB2-106 follow-up: the board page's Used in section restyled like the README; proposals no longer listed there (§23.5). |

@@ -41,6 +41,17 @@ function renderWorkspace(state: WorkspaceState) {
 }
 
 describe("SystemWorkspace", () => {
+  it("opens an empty system on the Diagram, not an empty 3D view (SB2-118)", () => {
+    stub();
+    // Its own system ID: the diagram keeps per-system state that the other tests' "sys_1" must not see.
+    render(
+      <SystemWorkspace systemId="sys_empty" document={{ ...doc, instances: [], links: [] }} etag='"sys:sys_empty:1"' canEdit user={null}
+        reload={vi.fn(async () => undefined)} state={{ view: "3d", tray: null, selection: null }} importing={false} onState={vi.fn()}
+        onImporting={vi.fn()} onBack={vi.fn()} />,
+    );
+    expect(screen.getByRole("tab", { name: "Diagram" }).getAttribute("aria-selected")).toBe("true");
+  });
+
   it("shows the system overview, the outline and the tray, and selects from the outline", async () => {
     stub();
     const onState = renderWorkspace({ view: "icd", tray: null, selection: null });
@@ -179,7 +190,8 @@ describe("SystemWorkspace without WebGPU", () => {
     const tab = screen.getByRole("tab", { name: "3D" }) as HTMLButtonElement;
     expect(tab.disabled).toBe(true);
     expect(screen.getByRole("tab", { name: "Diagram" }).getAttribute("aria-selected")).toBe("true");
-    expect(await screen.findByText(/Loading the diagram|Board-to-board/)).toBeTruthy();
+    // The Diagram is lazy: its module placeholder, then its own loading state, then the diagram.
+    await waitFor(() => expect(screen.queryByText(/Loading (the )?diagram/) ?? screen.queryByRole("application", { name: "System diagram" })).toBeTruthy());
   });
 
   it("gives every button a name (SB2-102)", async () => {

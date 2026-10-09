@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Eye, EyeOff, Link2, Loader2, Lock, MoreHorizontal, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Scissors, Share2, Trash2 } from "lucide-react";
+import { Cable, Eye, EyeOff, Link2, Loader2, Lock, MoreHorizontal, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Scissors, Share2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -33,6 +33,7 @@ import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 import type { InstanceComponent, Subport, SystemDocument, SystemInstance, SystemPort } from "@/types/system";
 
+import { ConnectDialog } from "./connect-dialog";
 import { ExportDialog, exportForPort } from "./exports-section";
 import { subportLabel, subportsOf } from "./subport-model";
 import { SubportDialog, SubportRows } from "./subport-section";
@@ -42,6 +43,7 @@ import { useSystemMutation } from "./use-system-mutation";
 import { InspectorFacts } from "./workspace/inspector-facts";
 import { InspectorHeader } from "./workspace/inspector-header";
 import { InspectorSection } from "./workspace/inspector-section";
+import type { WorkspaceSelection } from "./workspace/workspace-state";
 
 type Mutate = ReturnType<typeof useSystemMutation>["run"];
 
@@ -73,6 +75,8 @@ interface BoardDetailProps {
   canEdit: boolean;
   busy: string | null;
   run: Mutate;
+  /** SB2-115: a connection made from a port's Connect…, to open. */
+  onConnected?: (selection: WorkspaceSelection) => void;
 }
 
 interface EditBoardDialogProps {
@@ -125,7 +129,7 @@ export function BoardDetail(props: BoardDetailProps) {
     ? <SubsystemDetail {...props} /> : <BoardDetailBody {...props} />;
 }
 
-function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, run }: BoardDetailProps) {
+function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, run, onConnected }: BoardDetailProps) {
   const status = boardStatus(instance);
   const [dialog, setDialog] = useState<"edit" | "remove" | null>(null);
   const linkCount = document.links.filter((link) => link.a.instanceId === instance.id || link.b.instanceId === instance.id).length;
@@ -229,7 +233,8 @@ function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, ru
         }] : []),
       ]} />
 
-      <PortsSection systemId={systemId} document={document} instance={instance} etag={etag} editable={editable} busy={busy} run={run} />
+      <PortsSection systemId={systemId} document={document} instance={instance} etag={etag} editable={editable} busy={busy} run={run}
+        onConnected={onConnected} />
 
       {dialog === "edit" && (
         <EditBoardDialog instance={instance} busy={busy === "update"} onClose={() => setDialog(null)}
@@ -249,11 +254,13 @@ interface PortsSectionProps {
   editable: boolean;
   busy: string | null;
   run: Mutate;
+  onConnected?: (selection: WorkspaceSelection) => void;
 }
 
-function PortsSection({ systemId, document, instance, etag, editable, busy, run }: PortsSectionProps) {
+function PortsSection({ systemId, document, instance, etag, editable, busy, run, onConnected }: PortsSectionProps) {
   const [showAll, setShowAll] = useState(false);
   const [exporting, setExporting] = useState<{ port: SystemPort; subport?: Subport } | null>(null);
+  const [connecting, setConnecting] = useState<SystemPort | null>(null);
   const [splitting, setSplitting] = useState<{ port: SystemPort; subport?: Subport } | null>(null);
   // CONTRACTS_P2 §22.2: a connector in a board-to-board link is never split.
   const b2bMated = new Set<string>();
@@ -339,6 +346,9 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run 
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      {port.exposed && onConnected && (
+                        <DropdownMenuItem onSelect={() => setConnecting(port)}><Cable className="mr-2 h-4 w-4" /> Connect…</DropdownMenuItem>
+                      )}
                       {port.exposed && !isLinked && !exported && (
                         <DropdownMenuItem onSelect={() => setExporting({ port })}><Share2 className="mr-2 h-4 w-4" /> Export</DropdownMenuItem>
                       )}
@@ -381,6 +391,11 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run 
         <SubportDialog systemId={systemId} etag={etag} document={document} instance={instance} port={splitting.port}
           subport={splitting.subport} busy={busy} run={run} onClose={() => setSplitting(null)}
           others={subportsOf(instance, splitting.port.portKey).filter((other) => other.id !== splitting.subport?.id)} />
+      )}
+      {connecting && onConnected && (
+        <ConnectDialog systemId={systemId} document={document} etag={etag} run={run}
+          from={{ instanceId: instance.id, portKey: connecting.portKey }} onClose={() => setConnecting(null)}
+          onCreated={(selection) => { setConnecting(null); onConnected(selection); }} />
       )}
       {exporting && (() => {
         const { port, subport } = exporting;

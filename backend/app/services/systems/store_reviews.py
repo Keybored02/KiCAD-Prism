@@ -161,7 +161,11 @@ class ReviewsStore:
     # Snapshots (§9.1): immutable, stored unredacted
 
     _SNAPSHOT_META = ("id, system_id, name, note, created_by, created_at, digest, open_review_count, "
-                      "renderer_version, manifest_schema, connectivity_digest, git")
+                      "renderer_version, manifest_schema, connectivity_digest, git, "
+                      # SB2-116: what the snapshot froze, for the publish dialog.
+                      "(document->'findingCounts'->>'error')::int AS error_count, "
+                      "(document->'findingCounts'->>'warning')::int AS warning_count, "
+                      "jsonb_array_length(COALESCE(document->'exports', '[]'::jsonb)) AS export_count")
 
     def create_snapshot(
         self, change: Mutation, *, name: str, note: str, document: Mapping[str, Any], digest: str,
