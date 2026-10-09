@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Plus, X } from "lucide-react";
+import { Download, Eye, Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { HARNESS_OUTPUTS, harnessOutputUrl, setHarnessCoverings } from "@/lib/systems-api";
 import type { HarnessCovering, SystemHarness } from "@/types/system";
 
+import { HarnessDrawingViewer } from "./harness-drawing-viewer";
 import { PartDialog, partText } from "./harness-part-dialog";
 import type { Mutate } from "./use-system-mutation";
 
@@ -44,6 +45,7 @@ export function HarnessOutputsSection({ systemId, harness, etag, editable, busy,
   const stored = (harness.coverings ?? []).map(toDraft);
   const [draft, setDraft] = useState<{ etag: string; rows: Draft[] } | null>(null);
   const [picking, setPicking] = useState<number | null>(null);
+  const [viewing, setViewing] = useState(false);
   const rows = draft?.etag === etag ? draft.rows : stored;
   const dirty = draft?.etag === etag && comparable(draft.rows) !== comparable(stored);
   const segments = harness.lengths?.segments ?? [];
@@ -78,7 +80,10 @@ export function HarnessOutputsSection({ systemId, harness, etag, editable, busy,
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDraft(null)}>Discard</Button>
           </>
         )}
-        <span className="ml-auto flex flex-wrap gap-1" aria-label="Outputs">
+        <Button variant="outline" size="sm" className="ml-auto h-7 gap-1 px-2 text-xs" onClick={() => setViewing(true)}>
+          <Eye className="h-3 w-3" aria-hidden />Drawing
+        </Button>
+        <span className="flex flex-wrap gap-1" aria-label="Outputs">
           {HARNESS_OUTPUTS.map((name) => (
             <a key={name} href={harnessOutputUrl(systemId, harness.id, name)} download
               className="inline-flex h-7 items-center gap-1 rounded border px-2 text-xs hover:bg-accent">
@@ -119,6 +124,7 @@ export function HarnessOutputsSection({ systemId, harness, etag, editable, busy,
           ))}
         </ul>
       )}
+      {viewing && <HarnessDrawingViewer systemId={systemId} harness={harness} onClose={() => setViewing(false)} />}
       {picking !== null && rows[picking] && (
         <PartDialog title="Covering part" current={rows[picking].componentId} busy={busy} onClose={() => setPicking(null)}
           onPick={async (part) => edit((current) => current.map((r, i) => (i === picking

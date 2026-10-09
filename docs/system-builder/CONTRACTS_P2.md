@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.76 · 2026-10-09 · tickets SB2-00 to SB2-110.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.77 · 2026-10-09 · tickets SB2-00 to SB2-111.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -951,6 +951,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.77 | 2026-10-09 | SB2-111 (D-P2-60): the harness drawing restyled after WireViz on the route tree (§26.3): connector tables, every wire fanned into the bundle, wire list and BOM on the sheet, and a viewer in Prism that traces a wire. Segments named by their nodes in the BOM and WireViz. |
 | P2-1.76 | 2026-10-09 | SB2-110: harness manufacturing outputs (§26). A contact part per end and coverings per segment (migration 54, manifest `contactPart`/`coverings`); per harness a layout drawing (SVG, PDF), a wiring list and a BOM (CSV) and a WireViz YAML. |
 | P2-1.75 | 2026-10-09 | SB2-109 (D-P2-59): the system STEP export (§25), an OCCT (cadquery-ocp) XCAF assembly of board STEPs from `kicad-cli` and catalog STEPs at their 3D-view poses, run as `system_step_export`; board STEPs cached per commit. |
 | P2-1.74 | 2026-10-09 | SB2-108 (D-P2-58): mechanical parts (§24.1), instance kind `part` from catalog parts with a model; the collision check (§24.2), mesh intersection with python-fcl run as `system_collision_check`, SYS-V22 `part_collision`; migration 52. |
@@ -1574,11 +1575,7 @@ Prism never edits a board. When two boards name one signal differently, a system
   - **covering:** one per covering, quantity = its segment's length in metres (the bundle's for `"*"`), rounded up to 0.01 m;
   - **label:** quantity = wires with a label.
   - An end with no block part is listed as a `housing` row with an empty MPN and description "Generic N-way (no part)", so the gap is visible.
-- **Layout drawing (SVG; PDF rendered from it).** The route tree flattened:
-  - End legs fan out from their breakout and each breakout chain runs left to right. Segments are drawn as lines labelled with their length and covering.
-  - Each end has a connector box with its name, block MPN and contact MPN, and a cavity table (cavity, signal, wire, gauge, colour).
-  - A title block gives the harness name, system name and version, the estimated bundle length and the date.
-  - Without a route, the ends are drawn in a row with no lengths.
+- **Drawing (SVG; PDF rendered from it):** §26.3.
 - **WireViz YAML.** The output renders with WireViz 0.4.
   - **Connectors:** one per end, `X1…`. `type` is the block part's name, or `Generic`. `mpn` and `manufacturer` come from the block part. `pinlabels` are the signals.
     - A canonical number pin is a number; any other name (`01`, `A1`) stays text, so pins stay unique.
@@ -1588,7 +1585,21 @@ Prism never edits a board. When two boards name one signal differently, a system
   - **Connections:** one per wire. A splice is several connections on one pin.
   - **Text:** escaped, because WireViz puts it into Graphviz HTML unescaped.
   - **Limits (WireViz has no branch topology):**
-    - a harness with breakouts becomes one cable per end pair, with no branch points and no segment lengths; the layout drawing keeps them;
+    - a harness with breakouts becomes one cable per end pair, with no branch points and no segment lengths; the drawing (§26.3) keeps them;
     - coverings ride on the first cable as components, by segment length, so a covering's position is not shown;
     - an end with no wires is a connector WireViz warns is unconnected.
+- **Segments are named** by their two nodes, `HPDRM J4 – B1`, in the BOM's `where` and WireViz's covering type; breakouts are `B1…` in route order. A covering whose segment the route no longer has keeps its segment ID.
+
+### 26.3 Drawing (SB2-111, D-P2-60)
+
+One sheet, the route tree in WireViz's look. Not to scale.
+- **Connector tables.** One per end: a header (name; block MPN and manufacturer; `N-way · M used · contact MPN`), then a row per wired cavity in cavity order, the cavity number and the net at that end, with a port facing the bundle. A cavity with several wires (a splice) is one row with a filled port.
+- **Layout.** The first end that is a route leaf sits on the left; every other end is stacked on the right in route order, so branches do not cross. Breakouts sit by route depth between them, at the middle of the ends they lead to.
+- **Wires.** Each wire leaves its cavity as a straight lead tagged `W5 RDWH` (number and colour code), then fans into the bundle at its end. Wires are drawn in their colours, a second colour as a dashed stripe; an unknown colour is grey and keeps its text.
+- **Bundle.** A sheath per segment, as thick as √(wires carried), labelled with its length, wire count and covering; a covered segment is hatched (every segment for `"*"`). A breakout is a dot named `B1…`.
+  - An end the route passes through hangs off a tap (a hollow dot) by a short stub.
+  - An end the route does not reach, or every end without a route, joins the left end by a dashed `not routed` line.
+- **Under the drawing:** the wire list (the wiring list's columns with a colour swatch), the BOM (§26.2 rows) and a title block (harness, system and version, wires, bundle length or `not routed`, whole-bundle covering, sheet, date).
+- **Tracing.** Every element that belongs to wires carries `data-w="W1 W2"` (fan, tag, cavity row, sheath, breakout, wire-list row); a fan also carries `data-wire` with the wire ID. The viewer uses them; a PDF ignores them.
+- **Viewer.** The harness panel opens the drawing in Prism. Hovering anything dims every element not on the hovered wires, so a wire is followed through the bundle; clicking pins the trace, Escape clears it. The status line names a single traced wire (ends and cavities, signal, gauge, colour). Zoom: fit to width, 1:1, ±, ctrl/⌘ + wheel.
 

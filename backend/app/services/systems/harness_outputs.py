@@ -1,5 +1,5 @@
 """Harness manufacturing outputs (SB2-110, CONTRACTS_P2 §26.2): wiring list, BOM, layout drawing
-and WireViz YAML, all from one harness model the service builds from the live document.
+and WireViz YAML (the drawing is ``harness_drawing``), all from one harness model the service builds from the live document.
 
 Pure: no database, no catalog. The model is
 
@@ -18,7 +18,6 @@ import io
 import math
 import re
 from collections import defaultdict
-from datetime import date
 from html import escape
 from typing import Any, Mapping, Optional, Sequence
 
@@ -95,6 +94,29 @@ def segment_lengths(model: Model) -> dict[str, float]:
     return segments
 
 
+def node_names(model: Model) -> dict[str, str]:
+    """Route node -> name: an end by its name, a breakout ``B1``, ``B2``… in segment order (§26.3)."""
+    names = _end_names(model)
+    breakouts = 0
+    for segment in model.get("segments") or []:
+        for side in ("from", "to"):
+            if segment[side] not in names:
+                breakouts += 1
+                names[segment[side]] = f"B{breakouts}"
+    return names
+
+
+def segment_name(model: Model, segment_id: str) -> str:
+    """``HPDRM J4 – B1``; ``whole bundle`` for ``*``; the ID when the route no longer has it."""
+    if segment_id == "*":
+        return "whole bundle"
+    found = next((s for s in model.get("segments") or [] if s["id"] == segment_id), None)
+    if not found:
+        return segment_id
+    names = node_names(model)
+    return f"{names[found['from']]} – {names[found['to']]}"
+
+
 def splices(model: Model) -> list[tuple[str, str, int]]:
     """``(end, pin, wires)`` for every end pin that carries more than one wire (§17.2)."""
     count: dict[tuple[str, str], int] = defaultdict(int)
@@ -155,7 +177,7 @@ def bom_rows(model: Model) -> list[dict]:
     lengths = segment_lengths(model)
     for covering in model.get("coverings") or []:
         length = lengths.get(covering["segmentId"])
-        where = "whole bundle" if covering["segmentId"] == "*" else covering["segmentId"]
+        where = segment_name(model, covering["segmentId"])
         if length is None:
             add("covering", covering.get("part"), covering.get("description") or named(covering.get("part"), "Covering"),
                 "", "m", f"{where} (unrouted)")
@@ -249,7 +271,7 @@ def wireviz_yaml(model: Model) -> bytes:
             connections.append([{tags[a]: [_wv_pin(wire["from"]["pin"])]}, {name: [index]},
                                 {tags[b]: [_wv_pin(wire["to"]["pin"])]}])
     lengths = segment_lengths(model)
-    coverings = [{"type": _wv(f"Covering ({'whole bundle' if c['segmentId'] == '*' else c['segmentId']})"),
+    coverings = [{"type": _wv(f"Covering ({segment_name(model, c['segmentId'])})"),
                   "subtype": _wv(c.get("description") or ""), **_wv_part(c.get("part")),
                   "qty": _metres(lengths[c["segmentId"]]) if c["segmentId"] in lengths else 1,
                   "unit": "m" if c["segmentId"] in lengths else None}
@@ -263,135 +285,7 @@ def wireviz_yaml(model: Model) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Layout drawing
-
-ROW = 14  # px per cavity row
-FONT = "font-family='Helvetica, Arial, sans-serif'"
-
-
-def _tree_positions(model: Model) -> tuple[dict[str, tuple[float, float]], list[dict]]:
-    """Node -> (column, row) for the route tree (ends and breakouts), and the edges to draw."""
-    ends = [end["id"] for end in model["ends"]]
-    segments = model.get("segments")
-    if not segments:  # no route: the ends in a row, joined in order
-        edges = [{"from": a, "to": b, "lengthMm": None, "id": None} for a, b in zip(ends, ends[1:])]
-        return {end: (n, 0.0) for n, end in enumerate(ends)}, edges
-    adjacent: dict[str, list[str]] = defaultdict(list)
-    for segment in segments:
-        adjacent[segment["from"]].append(segment["to"])
-        adjacent[segment["to"]].append(segment["from"])
-    root = next((e for e in ends if e in adjacent), segments[0]["from"])
-    column, order, seen = {root: 0}, [root], {root}
-    for node in order:
-        for nxt in adjacent[node]:
-            if nxt not in seen:
-                seen.add(nxt)
-                column[nxt] = column[node] + 1
-                order.append(nxt)
-    children = {node: [n for n in adjacent[node] if column.get(n, -1) == column[node] + 1] for node in order}
-    rows: dict[str, float] = {}
-    counter = [0.0]
-
-    def place(node: str) -> float:
-        kids = children.get(node) or []
-        if not kids:
-            rows[node] = counter[0]
-            counter[0] += 1
-            return rows[node]
-        spots = [place(kid) for kid in kids]
-        rows[node] = sum(spots) / len(spots)
-        return rows[node]
-
-    place(root)
-    for node in ends:  # an end the route did not reach
-        if node not in rows:
-            rows[node], column[node] = counter[0], 0
-            counter[0] += 1
-    return {node: (column[node], rows[node]) for node in rows}, [dict(s) for s in segments]
-
-
-def drawing_svg(model: Model) -> bytes:
-    """§26.2: the route tree flattened, connector boxes with cavity tables, a title block."""
-    names = _end_names(model)
-    wires = ordered_wires(model)
-    by_end: dict[str, list[tuple[str, dict]]] = defaultdict(list)
-    for wire in wires:
-        for side in ("from", "to"):
-            by_end[wire[side]["end"]].append((wire[side]["pin"], wire))
-    positions, edges = _tree_positions(model)
-    ends = {end["id"]: end for end in model["ends"]}
-    table_w, col_w = 330, 520
-    heights = {e: 60 + ROW * (len(by_end.get(e, [])) + 1) for e in ends}
-    row_h = max([120] + list(heights.values())) + 40
-    max_col = max([c for c, _ in positions.values()] + [0])
-    max_row = max([r for _, r in positions.values()] + [0])
-    width = 80 + (max_col + 1) * col_w + table_w
-    height = 140 + (max_row + 1) * row_h + 90
-
-    def xy(node: str) -> tuple[float, float]:
-        c, r = positions[node]
-        return 40 + c * col_w + (table_w if c > 0 else 0) + (0 if c == 0 else 0), 100 + r * row_h + 40
-
-    anchor: dict[str, tuple[float, float]] = {}
-    out = [f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' viewBox='0 0 {width} {height}' {FONT}>",
-           f"<rect width='{width}' height='{height}' fill='white'/>",
-           f"<text x='40' y='40' font-size='20' font-weight='bold'>{escape(model['harness']['name'])}</text>"]
-    if model["harness"].get("label"):
-        out.append(f"<text x='40' y='62' font-size='12' fill='#555'>{escape(model['harness']['label'])}</text>")
-    for node, _ in positions.items():
-        x, y = xy(node)
-        if node in ends:
-            end = ends[node]
-            c, _r = positions[node]
-            box_x = x if c == 0 else x
-            anchor[node] = (box_x + (table_w if c == 0 else 0), y + 20)
-            rows = sorted(by_end.get(node, []), key=lambda pw: _pin_key(pw[0]))
-            h = heights[node]
-            out.append(f"<rect x='{box_x}' y='{y}' width='{table_w}' height='{h}' fill='#f7f7f7' stroke='#222'/>")
-            out.append(f"<text x='{box_x + 8}' y='{y + 18}' font-size='14' font-weight='bold'>{escape(end['name'])}</text>")
-            part = (end.get("part") or {}).get("mpn") or "Generic (no part)"
-            contact = (end.get("contact") or {}).get("mpn") or "contact unset"
-            out.append(f"<text x='{box_x + 8}' y='{y + 34}' font-size='11'>{escape(part)} · {escape(contact)}</text>")
-            ty = y + 54
-            for col, text in ((8, "Cav"), (44, "Signal"), (190, "Wire"), (230, "AWG"), (268, "Colour")):
-                out.append(f"<text x='{box_x + col}' y='{ty}' font-size='10' font-weight='bold'>{text}</text>")
-            for pin, wire in rows:
-                ty += ROW
-                values = ((8, pin), (44, (wire.get("signal") or "")[:22]), (190, wire["number"]),
-                          (230, wire.get("gaugeAwg") or ""), (268, (wire.get("colour") or "")[:10]))
-                for col, text in values:
-                    out.append(f"<text x='{box_x + col}' y='{ty}' font-size='10'>{escape(str(text))}</text>")
-        else:
-            anchor[node] = (x + table_w / 2, y + 20)
-            out.append(f"<circle cx='{anchor[node][0]}' cy='{anchor[node][1]}' r='5' fill='#222'/>")
-    coverings = {c["segmentId"]: c for c in model.get("coverings") or []}
-    for edge in edges:
-        if edge["from"] not in anchor or edge["to"] not in anchor:
-            continue
-        (x1, y1), (x2, y2) = anchor[edge["from"]], anchor[edge["to"]]
-        if positions[edge["to"]][0] > 0 and edge["to"] in ends:
-            x2 = xy(edge["to"])[0]
-        out.append(f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='#222' stroke-width='4'/>")
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        if edge.get("lengthMm") is not None:
-            out.append(f"<text x='{mx}' y='{my - 8}' font-size='12' text-anchor='middle'>{edge['lengthMm']:.0f} mm</text>")
-        covering = coverings.get(edge.get("id") or "") or None
-        if covering:
-            text = covering.get("description") or (covering.get("part") or {}).get("mpn") or ""
-            out.append(f"<text x='{mx}' y='{my + 18}' font-size='11' text-anchor='middle' fill='#555'>{escape(text)}</text>")
-    whole = coverings.get("*")
-    ty = height - 70
-    harness = model["harness"]
-    facts = [f"{model['system']['name']} v{model['system']['version']}", f"{len(wires)} wires",
-             f"bundle {harness['bundleMm']:.0f} mm, estimated {harness['estimatedMm']:.0f} mm"
-             if harness.get("bundleMm") is not None else "not routed",
-             date.today().isoformat()]
-    if whole:
-        facts.insert(2, f"covering: {whole.get('description') or (whole.get('part') or {}).get('mpn') or ''}")
-    out.append(f"<rect x='40' y='{ty - 20}' width='{width - 80}' height='50' fill='none' stroke='#222'/>")
-    out.append(f"<text x='52' y='{ty + 10}' font-size='12'>{escape(' · '.join(facts))}</text>")
-    out.append("</svg>")
-    return "\n".join(out).encode("utf-8")
+# Drawing (the SVG itself is harness_drawing, §26.3)
 
 
 def drawing_pdf(svg: bytes) -> bytes:
