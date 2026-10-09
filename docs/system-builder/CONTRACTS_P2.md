@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.82 · 2026-10-09 · tickets SB2-00 to SB2-118.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.83 · 2026-10-09 · tickets SB2-00 to SB2-114.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -953,6 +953,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.83 | 2026-10-09 | SB2-114: a link with no rows offers **Fill pins: Same pin / Reversed** (the generator's rows saved in one step, Undo after); a B2B mating panel offers **Confirm both** when both ends have an inferred frame and neither has a stored one. |
 | P2-1.82 | 2026-10-09 | SB2-118: generated rows take their signal from the first net a designer named (side A first), KiCad's `Net-(…)`/`unconnected-(…)` only when neither side has another; the ICD (renderer 6) names rules by their labels and its block diagram drops unlinked ports; creating a system whose boards all fail deletes it again; an empty system opens on the Diagram. |
 | P2-1.81 | 2026-10-09 | SB2-113: batch waivers (§8.5), the Findings tray's filter, group and place waivers, and large groups split by place. |
 | P2-1.80 | 2026-10-09 | SB2-112: join findings (SYS-V01/V09/V10, rows and wires) placed at side A's pin with side B's in the detail, so each has its own key (§8.5); the Findings tray shows pins and nets, Show opens the row (`&row=`). |

@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { deleteLink, getInstanceInterface, harnessFromLabel, linkToHarness, replaceRows, updateLink } from "@/lib/systems-api";
+import { deleteLink, generateRows, getInstanceInterface, harnessFromLabel, linkToHarness, replaceRows, updateLink } from "@/lib/systems-api";
 import type { Finding, LinkType, SystemDocument, SystemInstance, SystemLink } from "@/types/system";
 
 import { FindingsAlert } from "./findings-ui";
@@ -323,6 +323,15 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
       setUndo({ linkId: link.id, rows: before });
     }
   };
+  // SB2-114: an empty link fills in one click (a B2B mate is nearly always pad to pad, or mirrored); Undo follows.
+  const fill = async (generator: "identity" | "reverse") => {
+    const done = await run("rows", async () => {
+      const proposed = (await generateRows(systemId, link.id, generator)).body.rows;
+      if (!proposed.length) throw new Error("No pins to pair: the two connectors share no connected pad");
+      return replaceRows(systemId, etag, link.id, proposed.map(({ pinA, pinB, signal }) => ({ pinA, pinB, signal, source: "generator" })));
+    }, generator === "identity" ? "Pins filled pad to pad" : "Pins filled mirrored");
+    if (done) setUndo({ linkId: link.id, rows: [] });
+  };
   const undoSave = async () => {
     if (!undo) return;
     const done = await run("rows", () => replaceRows(systemId, etag, undo.linkId, undo.rows), "Pins restored");
@@ -388,6 +397,16 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
 
       {redacted && (
         <p className="text-sm text-muted-foreground">One end of this link is on a board you cannot see, so it cannot be edited here.</p>
+      )}
+
+      {editable && !draft && link.rows.length === 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm" role="group" aria-label="Fill pins">
+          <span className="text-muted-foreground">Fill pins:</span>
+          <Button size="sm" disabled={busy !== null} onClick={() => void fill("identity")} title="Pad 1 to pad 1, 2 to 2, …">Same pin</Button>
+          <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void fill("reverse")}
+            title="Pad 1 to the last pad, 2 to the one before, …">Reversed</Button>
+          <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setDialog("generate")}>More…</Button>
+        </div>
       )}
 
       <LinkRowsTable
