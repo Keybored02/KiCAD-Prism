@@ -1,6 +1,6 @@
 # System Builder P2 — contracts
 
-**Version P2-1.86 · 2026-10-09 · tickets SB2-00 to SB2-117.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
+**Version P2-1.87 · 2026-10-09 · tickets SB2-00 to SB2-119.** §0 choices S1–S8 were signed off by the user on 2026-09-30, with S6 revised. The M1 choices T1–T7 (§0.1) were signed off by the user on 2026-09-30.
 
 This document extends [CONTRACTS.md](CONTRACTS.md) (P1, v1.12) and never overrides it
 silently. Where P2 changes a P1 rule, the P1 section is named and the change is listed in §19.
@@ -448,6 +448,7 @@ A net's **tokens** are the last path segment, uppercased, with KiCad markup (`~{
 | SYS-V20 | `harness_tight_bend` | info | A root-level harness segment still bends tighter than 6 × its bundle diameter after relaxation (§17.8). Detail `{harnessId, segmentId, radiusMm, minRadiusMm, atMm}`. |
 | SYS-V21 | `subport_pad_absent` | warning | A sub-port names a pad its connector (or subsystem export) no longer has (§22.4). Detail `{subportId, name, pads}`. |
 | SYS-V22 | `part_collision` | warning | Two occurrences' meshes intersect in the 3D view's placement (§24.2). Detail `{a, b, atMm, pairs}`. Raised from the last check while it matches the current `sceneKey`; otherwise not evaluated. |
+| SYS-V23 | `net_meets_no_net` | warning | At a join (row or wire), a designer-named net on one side meets a pin on **no net** on the other: no net at all, or KiCad's `unconnected-(…)` (P2-1.87). A `Net-(…)` auto-net is a connection and does not count; an unnamed net meeting no net is not reported. Evaluated only when both ends' interfaces are known. Placed like V09 (§8.5); detail `{pinB, referenceB, namedSide, netA, netB}`, `namedSide` `a`/`b` (links) or `from`/`to` (wires). |
 
 **Optional rules (P2-1.10, user decision 2026-09-30; superseded by D-P2-57 in P2-1.73: SYS-V09 now always runs and the list has no effect).** `system_projects.optional_rules` (migration 35) lists the opt-in rules a system runs; today the only one is `SYS-V09`, because real boards rename nets across connectors far more often than they miswire them (108 warnings on the JTYU C&DH set). It is set with `PATCH /systems/{id}` `{"optionalRules": ["SYS-V09"]}` (the list replaces the stored one; `null` clears it; any other rule is 422), bumps the system version, is audited as `system_updated`, and is shown in the system summary and the manifest header. The Overview tab has a **Checks** section with the switch. `SYS-V10` always runs.
 
@@ -954,6 +955,7 @@ Python `placement/harness_route.py` and `placement/harness_checks.py`, TypeScrip
 
 | Version | Date | Change |
 |---|---|---|
+| P2-1.87 | 2026-10-09 | SB2-119: SYS-V23, a named net meets a pin on no net (§8.4). |
 | P2-1.86 | 2026-10-09 | SB2-117: a subsystem's open findings, frozen in its pinned snapshot, on the node, inspector and top bar (§10). |
 | P2-1.85 | 2026-10-09 | SB2-116: snapshot listings carry `findingCounts {error, warning}` and `exportCount` from the frozen document; the snapshot dialog shows the live system's open errors, warnings, unreviewed changes and exports, and the publish dialog the snapshot's, warning when it has no exports. |
 | P2-1.84 | 2026-10-09 | SB2-115: **Connect…** on a port and **New connection** on the Connections tab make a link, board-to-board link or harness from two lists of connectors (board, reference, MPN, pin count, sub-ports included; a mated or split connector is refused where it cannot be used), then open it. |

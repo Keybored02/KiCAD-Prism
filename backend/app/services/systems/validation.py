@@ -40,6 +40,7 @@ RULES = {
     "SYS-V20": ("harness_tight_bend", "info"),
     "SYS-V21": ("subport_pad_absent", "warning"),
     "SYS-V22": ("part_collision", "warning"),
+    "SYS-V23": ("net_meets_no_net", "warning"),
 }
 # Rules a system may list in ``system_projects.optional_rules`` (CONTRACTS_P2 §8.4). Kept for
 # compatibility: since D-P2-57 (§23.4) SYS-V09 runs on every system and the list has no effect.
@@ -197,7 +198,7 @@ def validate(
                         findings.append(_finding("SYS-V06", **common,
                                                  detail={"schematic": nets, "pcb": pcb}))
 
-    # SYS-V09 / V10: each join (row) of this system's own links (CONTRACTS_P2 §8.4).
+    # SYS-V09 / V10 / V23: each join (row) of this system's own links (CONTRACTS_P2 §8.4).
     from app.services.systems import system_nets
 
     for link in links:
@@ -215,6 +216,11 @@ def validate(
                                          **{**place, "detail": {**place["detail"], "netA": net_a, "netB": net_b}}))
             if pins["a"] is None or pins["b"] is None:
                 continue
+            named_side = system_nets.net_meets_none(net_a, net_b)
+            if named_side:
+                findings.append(_finding("SYS-V23", link_id=link["id"], row_id=row["id"],
+                                         **{**place, "detail": {**place["detail"], "namedSide": named_side,
+                                                                "netA": net_a, "netB": net_b}}))
             power_a = (pins["a"].get(str(row["pin_a"])) or {}).get("powerNet")
             power_b = (pins["b"].get(str(row["pin_b"])) or {}).get("powerNet")
             if system_nets.power_meets_signal(power_a, net_a, power_b, net_b):
@@ -297,6 +303,7 @@ RULE_LABELS = {
     "harness_tight_bend": "Harness bends tighter than its minimum radius",
     "subport_pad_absent": "Sub-port names a pad the connector no longer has",
     "part_collision": "Bodies intersect in 3D",
+    "net_meets_no_net": "Named net meets a pin on no net",
 }
 
 

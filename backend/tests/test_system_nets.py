@@ -10,7 +10,7 @@ from test_system_snapshots import DESIGNER, VIEWER
 
 from app.services.systems import system_nets, validation
 from app.services.systems.store import Invalid
-from app.services.systems.system_nets import Level, name_mismatch, power_meets_signal
+from app.services.systems.system_nets import Level, name_mismatch, net_meets_none, power_meets_signal
 
 
 class JoinRuleTest(unittest.TestCase):
@@ -46,6 +46,33 @@ class JoinRuleTest(unittest.TestCase):
         self.assertEqual(rules, [("SYS-V09", "warning"), ("SYS-V10", "error")])
         [v10] = [f for f in report["findings"] if f["rule"] == "SYS-V10"]
         self.assertEqual((v10["linkId"], v10["rowId"], v10["detail"]["powerSide"]), ("L", "r", "a"))
+
+
+    def test_v23_named_net_on_a_pin_on_no_net(self) -> None:
+        cases = [
+            (["/VCC_CMBD_3V3_M"], [], "a"), ([], ["/VCC"], "b"),
+            (["/VCC"], ["unconnected-(J7-Pad4)"], "a"), (["/VCC"], ["/Sheet/unconnected-(J7-Pad4)"], "a"),
+            (["/VCC"], ["Net-(J7-Pad4)"], None),  # an auto-net is a connection
+            (["Net-(J3-Pad1)"], [], None), ([], [], None), (["/A"], ["/B"], None),
+        ]
+        for net_a, net_b, expected in cases:
+            with self.subTest(a=net_a, b=net_b):
+                self.assertEqual(net_meets_none(net_a, net_b), expected)
+
+    def test_v23_in_validation_needs_both_interfaces(self) -> None:
+        def interface(net: str | None) -> dict:
+            return {"components": [{"portKey": "k", "memberKeys": ["k"], "reference": "J1", "candidate": True,
+                                    "pins": [{"pad": "1", "nets": [net] if net else [], "powerNet": False}]}], "hasPcb": False}
+        instances = [{"id": "a", "resolution": "resolved"}, {"id": "b", "resolution": "resolved"}]
+        port = {"portKey": "k", "memberKeys": ["k"], "reference": "J1"}
+        links = [{"id": "L", "a_instance_id": "a", "b_instance_id": "b", "a_port": port, "b_port": port, "harness": None,
+                  "rows": [{"id": "r", "pin_a": "1", "pin_b": "1", "net_a": ["/VCC_3V3"], "net_b": []}]}]
+        report = validation.validate(instances, links, {"a": interface("/VCC_3V3"), "b": interface(None)}, {"a": {}, "b": {}})
+        [v23] = report["findings"]
+        self.assertEqual((v23["rule"], v23["severity"], v23["pin"], v23["detail"]["namedSide"]), ("SYS-V23", "warning", "1", "a"))
+        self.assertEqual(validation.rule_label("net_meets_no_net"), "Named net meets a pin on no net")
+        unextracted = validation.validate(instances, links, {"a": interface("/VCC_3V3")}, {"a": {}, "b": {}})
+        self.assertFalse([f for f in unextracted["findings"] if f["rule"] == "SYS-V23"])
 
 
 def _level(prefix: str, boards: list[str], links: list[dict], exports=(), assemblies=()) -> Level:
