@@ -6,7 +6,7 @@ import hashlib
 import io
 from itertools import chain
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.api.catalog_errors import raise_catalog_value_error
 from app.core.config import settings
-from app.core.security import AuthenticatedUser, require_catalog_reader, require_catalog_writer
+from app.core.security import AuthenticatedUser, require_catalog_browser, require_catalog_reader, require_catalog_writer
 from app.services.component_catalog_service import catalog_service
 from app.services.catalog import workflow_policy
 from app.services.catalog_job_service import catalog_jobs
@@ -50,6 +50,8 @@ def _enqueue_catalog_job(
 
 
 class CreateManualComponentRequest(BaseModel):
+    # CONTRACTS_P2 §3.5: a module is created like a part; its symbol's units are its connectors.
+    kind: Literal["part", "module"] = "part"
     value: str
     description: str
     datasheet: str
@@ -227,13 +229,14 @@ def list_catalog_components(
     workflow_stage: str | None = Query(default=None),
     validation_status: str | None = Query(default=None),
     category: str | None = Query(default=None),
+    kind: Literal["part", "module", "assembly"] | None = Query(default=None),
     include_inactive: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
     sort_by: str = Query(default=""),
     sort_dir: str = Query(default="asc"),
     lightweight: bool = Query(default=False),
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
     try:
@@ -244,6 +247,7 @@ def list_catalog_components(
             workflow_stage=workflow_stage,
             validation_status=validation_status,
             category=category,
+            kind=kind,
             include_inactive=include_inactive,
             page=page,
             page_size=page_size,
@@ -256,13 +260,13 @@ def list_catalog_components(
 
 
 @router.get("/categories")
-def list_catalog_categories(user: AuthenticatedUser = Depends(require_catalog_reader)):
+def list_catalog_categories(user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
     return {"categories": catalog_service.list_categories()}
 
 
 @router.get("/workflow/summary")
-def workflow_summary(user: AuthenticatedUser = Depends(require_catalog_reader)):
+def workflow_summary(user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
     return catalog_service.workflow_summary()
 
@@ -273,7 +277,7 @@ def release_queue(
     workflow_stage: str = Query(default="all", pattern="^(all|qa_review|done)$"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
     stages = "qa_review,done" if workflow_stage == "all" else workflow_stage
@@ -777,7 +781,7 @@ def search_catalog_assets(
     asset_type: str = Query(default="footprint"),
     q: str = Query(default=""),
     limit: int = Query(default=25, ge=1, le=100),
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     """Search existing catalog assets so an import can reference one instead of copying it."""
     try:
@@ -815,7 +819,7 @@ def create_catalog_component(
 def get_catalog_component(
     component_id: str,
     representation: str = Query(default=""),
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
     try:
@@ -830,7 +834,7 @@ def get_catalog_component(
 
 
 @router.get("/components/{component_id}/revisions")
-def list_component_revisions(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def list_component_revisions(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
     try:
         return {"items": catalog_service.list_component_revisions(component_id)}
@@ -843,7 +847,7 @@ def compare_component_revisions(
     component_id: str,
     before: str = Query(...),
     after: str = Query(...),
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
     try:
@@ -856,7 +860,7 @@ def compare_component_revisions(
 def get_component_revision(
     component_id: str,
     revision_id: str,
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
     revision = catalog_service.get_component_revision(component_id, revision_id)
@@ -866,7 +870,7 @@ def get_component_revision(
 
 
 @router.get("/components/{component_id}/audit")
-def list_component_audit(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def list_component_audit(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
     try:
         return {"items": catalog_service.list_component_audit_events(component_id)}
@@ -875,7 +879,7 @@ def list_component_audit(component_id: str, user: AuthenticatedUser = Depends(re
 
 
 @router.get("/components/{component_id}/audit/verify")
-def verify_component_audit(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def verify_component_audit(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
     try:
         return catalog_service.verify_component_audit_chain(component_id)
@@ -887,7 +891,7 @@ def verify_component_audit(component_id: str, user: AuthenticatedUser = Depends(
 def list_component_usage(
     component_id: str,
     mode: str = Query(default="current", pattern="^(current|history)$"),
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     try:
         visible_projects = {str(project["id"]) for project in workspace.get_all_projects(user.role)}
@@ -898,7 +902,7 @@ def list_component_usage(
 
 
 @router.get("/components/{component_id}/reviews")
-def list_component_reviews(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def list_component_reviews(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
     try:
         return {"items": catalog_service.list_component_review_decisions(component_id)}
@@ -907,7 +911,7 @@ def list_component_reviews(component_id: str, user: AuthenticatedUser = Depends(
 
 
 @router.get("/components/{component_id}/releases")
-def list_component_releases(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def list_component_releases(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
     try:
         return {"items": catalog_service.list_component_release_records(component_id)}
@@ -916,7 +920,7 @@ def list_component_releases(component_id: str, user: AuthenticatedUser = Depends
 
 
 @router.get("/previews/{preview_id}")
-def get_catalog_preview(preview_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_catalog_preview(preview_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
     preview = catalog_service.catalog_preview_path(preview_id)
     if not preview:
@@ -926,7 +930,7 @@ def get_catalog_preview(preview_id: str, user: AuthenticatedUser = Depends(requi
 
 
 @router.get("/assets/{asset_id}/content")
-def get_catalog_asset_content(asset_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_catalog_asset_content(asset_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     """Serve an asset's stored bytes so the browser can render it.
 
     Deliberately not the placement payload from the remote-provider download:
@@ -1227,7 +1231,7 @@ def validate_component_klc(component_id: str, user: AuthenticatedUser = Depends(
 
 
 @router.get("/components/{component_id}/validation")
-def get_component_validation(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_component_validation(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
     try:
         return catalog_service.get_component_validation(component_id)
@@ -1311,7 +1315,7 @@ def _metadata_batch_for_user(batch_id: str, user: AuthenticatedUser) -> dict[str
 @router.get("/metadata/fields")
 def list_metadata_fields(
     include_archived: bool = Query(default=False),
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
     return {"schema": "prism.component_metadata_a1", "items": catalog_service.list_metadata_fields(include_archived=include_archived)}
@@ -1354,14 +1358,14 @@ def restore_metadata_field(field_id: str, user: AuthenticatedUser = Depends(requ
 
 
 @router.get("/metadata/grid-preferences")
-def get_metadata_grid_preferences(user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_metadata_grid_preferences(user: AuthenticatedUser = Depends(require_catalog_browser)):
     return catalog_service.get_metadata_grid_preferences(user.email)
 
 
 @router.put("/metadata/grid-preferences")
 def save_metadata_grid_preferences(
     payload: MetadataGridPreferencesRequest,
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     return catalog_service.save_metadata_grid_preferences(user.email, payload.model_dump())
 
@@ -1378,7 +1382,7 @@ def metadata_grid(
     sort_by: str = Query(default="updated_at"),
     sort_dir: str = Query(default="desc"),
     field: list[str] | None = Query(default=None),
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
     try:
@@ -1449,7 +1453,7 @@ def get_metadata_job(job_id: str, user: AuthenticatedUser = Depends(require_cata
 @router.get("/metadata/export.csv")
 def export_metadata_csv(
     field: list[str] | None = Query(default=None),
-    user: AuthenticatedUser = Depends(require_catalog_reader),
+    user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     selected_fields = field
     if selected_fields is None:

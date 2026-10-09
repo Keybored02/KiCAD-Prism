@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 import uuid
+from unittest import mock
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -1787,9 +1788,78 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (23, "tracker_connectors_identities_policy"),
                 (24, "tracker_connector_delete_cascade"),
                 (25, "tracker_webhook_oauth_tables"),
+                (26, "system_builder"),
+                (27, "system_workspace_version"),
+                (28, "system_review_pending_changes"),
+                (29, "system_import_sessions"),
+                (30, "system_snapshot_manifest"),
+                (31, "system_exports"),
+                (32, "system_catalog_binding"),
+                (33, "system_catalog_instances"),
+                (34, "system_child_reviews"),
+                (35, "system_optional_rules"),
+                (36, "system_port_mating"),
+                (37, "system_link_types"),
+                (38, "system_harnesses"),
+                (39, "system_harness_part_pins"),
+                (40, "system_poses"),
+                (41, "repository_origin"),
+                (42, "system_archive"),
+                (43, "system_driving_mates"),
+                (44, "system_harness_nodes"),
+                (45, "system_git"),
+                (46, "system_manifest_reviews"),
+                (47, "system_bundle_frames"),
+                (48, "system_finding_waivers"),
+                (49, "system_finding_counts"),
+                (50, "system_subports"),
+                (51, "system_net_renames"),
+                (52, "system_parts_collisions"),
+                (53, "system_step_exports"),
+                (54, "system_harness_outputs"),
             ],
         )
 
+
+class _LedgerOnlyConnection:
+    """Just the ws_schema_migrations ledger; migration bodies are stubbed out."""
+
+    def __init__(self, ledger: dict[int, str]) -> None:
+        self.ledger = dict(ledger)
+
+    def execute(self, sql: str, params: tuple = ()):
+        statement = " ".join(sql.split())
+        rows: list[dict] = []
+        if statement.startswith("UPDATE ws_schema_migrations SET version"):
+            new_version, old_version, name = params
+            if self.ledger.get(old_version) == name:
+                self.ledger[new_version] = self.ledger.pop(old_version)
+        elif statement.startswith("SELECT version FROM ws_schema_migrations"):
+            rows = [{"version": version} for version in self.ledger]
+        elif statement.startswith("INSERT INTO ws_schema_migrations"):
+            version, name = params
+            if version in self.ledger or name in self.ledger.values():
+                raise AssertionError(f"migration {version} ({name}) recorded twice")
+            self.ledger[version] = name
+        return mock.Mock(fetchall=mock.Mock(return_value=rows))
+
+
+class WorkspaceMigrationRenumberTests(unittest.TestCase):
+    def test_branch_database_keeps_repository_origin_under_its_new_number(self) -> None:
+        """repository_origin was 26 on the agent branch; 26-40 belong to System Builder."""
+        stubbed = tuple((version, name, lambda conn: None) for version, name, _ in MIGRATIONS)
+        ledger = {version: name for version, name, _ in MIGRATIONS if version <= 25}
+        ledger[26] = "repository_origin"
+        conn = _LedgerOnlyConnection(ledger)
+
+        with mock.patch("app.services.workspace_schema_migrations.MIGRATIONS", stubbed):
+            apply_workspace_migrations(conn)
+
+        self.assertEqual(conn.ledger[41], "repository_origin")
+        self.assertEqual(list(conn.ledger.values()).count("repository_origin"), 1)
+        # 26 is free again for the migration that owns it.
+        self.assertNotEqual(conn.ledger.get(26), "repository_origin")
+        self.assertEqual(sorted(conn.ledger), [version for version, _, _ in MIGRATIONS])
 
 if __name__ == "__main__":
     unittest.main()

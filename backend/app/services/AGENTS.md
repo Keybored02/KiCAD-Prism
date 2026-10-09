@@ -33,7 +33,8 @@ HTTP handlers can use; avoid creating another caller of private catalog methods.
 equivalent of `job_handlers.py`:
 
 `catalog_validation`, `catalog_preview_generation`, `project_component_import`,
-`folder_library_import`, `artifact_maintenance`, `catalog_metadata_batch`.
+`folder_library_import`, `artifact_maintenance`, `catalog_metadata_batch`,
+`catalog_model_glb` (System Builder STEP → GLB with Geometer).
 
 The catalog wrapper restores `catalog_checkpoint` and `catalog_result` into the
 legacy handler envelope and persists updates reported through `progress`.
@@ -75,6 +76,33 @@ to get it wrong are visible on the frontend side.
 
 One backend rule: the viewer must never infer the old route from the comparison
 object (`design_compare_nodes.py`). Each revision carries its own geometry.
+
+## System Builder
+
+`systems/` implements `docs/system-builder/CONTRACTS.md`, and the contract
+wins over code. `systems/store.py` is the only writer: every engineering
+change goes through `SystemStore.mutation`, which locks the system, checks the
+ETag version and writes audit events in the same transaction.
+`systems/service.py` owns authorization and O1 redaction, and is the only
+thing `backend/app/api/systems.py` calls. `systems/visibility.py` holds the
+folder predicate, which must stay in step with
+`WorkspaceService.get_project_for_role`. `systems/sources.py` is read-only Git
+on the child clone. `systems/jobs.py` runs `systems/interface_extractor.py`
+into the `system_interface_artifacts` cache; `systems/interface_cache.py` keeps
+parsed artifacts in process (immutable, LRU by size; callers must not mutate
+them, and the test suite verifies that). `systems/drift.py` is the pure
+drift engine; `systems/detection.py` resolves tips after a fetch and applies
+its outcome. Project sync queues detection after every successful fetch.
+`systems/reconcile.py` validates and applies review decisions, and
+`systems/validation.py` computes the §7.2 findings. Documents are built
+unredacted and redacted for the reader last by `systems/redaction.py`, which is
+what lets `systems/icd.py` render frozen snapshots and diffs for any reader.
+`systems/csv_import.py` parses, classifies and writes connection CSV imports;
+`systems/generators.py` proposes rows and never writes. A change to what the
+extractor reports must bump `EXTRACTOR_VERSION`, since it keys the cache.
+`backend/tests/test_system_e2e_replay.py` pushes the SYS-01 history to real upstreams
+and runs sync, detection and reconcile end to end; run it after touching any
+of these.
 
 ## Comments and issue publication
 

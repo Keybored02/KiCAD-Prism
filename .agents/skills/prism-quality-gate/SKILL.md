@@ -25,8 +25,25 @@ python3 scripts/check_agent_docs.py
 
 ```bash
 backend/venv/bin/python -m compileall -q backend/app
-backend/venv/bin/python -m unittest discover -s backend/tests -p 'test_*.py'
+cd backend
+uv run --no-project --python venv/bin/python --with-requirements ../requirements/test.txt \
+  python -m pytest -n auto -rs
 ```
+
+This is CI's command: pytest (from `requirements/test.txt`) runs the
+`unittest` suite in parallel, about 6 minutes instead of 14 serially. CI splits
+it over three runners with `--shard k/3`: whole modules, balanced by
+`backend/tests/.test_durations.json`. When the CI shards drift apart, refresh
+that file from a run's `backend-results-*` artifacts with
+`python scripts/update_backend_test_durations.py <results.xml…>`. Locally
+`uv` layers the test tools over the venv, so the venv still matches
+`runtime.lock`.
+
+While iterating, add `--testmon` to run only the tests affected by your Python
+changes. Fixtures, migrations' SQL and environment changes are invisible to it,
+so finish with a full run. Each xdist worker gets its own copy of the three
+databases (`backend/tests/conftest.py`). `-rs` lists skips: the two PostgreSQL
+integration modules must not appear there.
 
 PostgreSQL integration tests require `TEST_POSTGRES_URL` pointing to a
 disposable database distinct from the application database. They can skip when
@@ -36,9 +53,9 @@ it is absent, so record whether they actually ran.
 
 ```bash
 cd frontend
-npm run lint
+npm run lint          # ESLint keeps a cache in node_modules/.cache/eslint
 npm run scan:gate
-npm test
+npm test              # while iterating: npx vitest run --changed <base branch>
 npm run build
 npm run build:panel
 ```
@@ -78,6 +95,14 @@ For dependency or runtime identity changes, reproduce the `dependency-identity`
 job. For Release Studio executor changes, the containerized live-KiCad job is
 the acceptance gate and may be left to CI if the required image is unavailable
 locally.
+
+## Which jobs a pull request runs
+
+`scripts/ci_changes.py` picks the jobs from the changed paths: a job runs when
+its own areas change, or a file its tests read by name from elsewhere. CI or
+toolchain-pin changes run everything. When you add a test that reads a file
+outside its area, refer to that file by name so the rule sees it, and run
+`python3 -m unittest scripts.test_ci_changes`.
 
 ## Report coverage
 

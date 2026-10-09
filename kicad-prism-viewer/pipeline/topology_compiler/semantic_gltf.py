@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 import math
@@ -34,6 +35,17 @@ TILE_SIZE_MM = 20.0
 SEMANTIC_GEOMETRY_PROTOCOL_VERSION = "prism.semantic_geometry_protocol_a1"
 SEMANTIC_CLIPPER_PROTOCOL_VERSION = "prism.semantic_clipper_response_a1"
 SEMANTIC_GEOMETRY_COMPILER_VERSION = "semantic-gltf-clipper-a2-canonical-frame"
+
+
+def _polygon_rings(polygon: Any) -> list[list[list[float]]]:
+    """A shapely polygon's exterior then interiors, as the builder's open point lists."""
+    import numpy as np
+    import shapely
+
+    coords, ring_index = shapely.get_coordinates(shapely.get_rings(polygon), return_index=True)
+    ends = np.flatnonzero(np.diff(ring_index)) + 1
+    # Shapely's rings are closed and free of repeated points: drop each closing point.
+    return [ring[:-1].tolist() for ring in np.split(coords, ends)]
 
 
 class SemanticGltfBuilder:
@@ -77,6 +89,13 @@ class SemanticGltfBuilder:
             for alias in aliases:
                 self.net_id_by_name.setdefault(alias, net_id)
         self.objects: list[dict[str, Any]] = []
+        # Outer-ring bounding box of each object, for the drilling pass.
+        self._object_boxes: list[tuple[float, float, float, float]] = []
+        # Index of the drill an object was built around (its own hole), or -1.
+        self._object_drill: list[int] = []
+        self._own_drill = -1
+        # Set by build_input_payload: the objects as compact JSON.
+        self.objects_json: str | None = None
         self.object_features = [
             {
                 "id": 0,
@@ -99,6 +118,8 @@ class SemanticGltfBuilder:
         self.source_polygon_record_id = 0
         self.board_y_min_mm: float | None = None
         self.board_y_max_mm: float | None = None
+        # Centred stackup z plus this is KiCad's board frame (bottom copper inner face at 0).
+        self.board_z_offset_mm: float | None = None
         self.board_thickness_mm = float(topology.get("board", {}).get("thickness_mm") or 0.0)
         self._set_canonical_board_y_range()
 
@@ -149,9 +170,10 @@ class SemanticGltfBuilder:
         """Derive KiCad's board-body frame from stackup facts, without opening a GLB.
 
         KiCad's exported substrate spans the inward faces of the outer copper
-        layers.  Mapping the authored stackup thickness onto that interval is
-        equivalent to the former mesh-axis inspection while allowing semantic
-        compilation to run before either GLB export finishes.
+        layers, and its outer copper sits on those faces.  The stackup is therefore
+        shifted, not scaled, into that frame: scaling the full board thickness onto
+        the substrate pushed the outer copper inside the substrate, where the solder
+        mask openings showed substrate instead of copper.
         """
 
         if len(self.copper_layers) < 2 or self.board_thickness_mm <= 0:
@@ -169,16 +191,12 @@ class SemanticGltfBuilder:
         if body_thickness > 0:
             self.board_y_min_mm = 0.0
             self.board_y_max_mm = body_thickness
+            self.board_z_offset_mm = -bottom_inner
 
     def _runtime_z_mm(self, centered_z_mm: float) -> float:
-        if (
-            self.board_y_min_mm is None
-            or self.board_y_max_mm is None
-            or self.board_thickness_mm <= 0
-        ):
+        if self.board_z_offset_mm is None:
             return centered_z_mm
-        normalized = (centered_z_mm + self.board_thickness_mm / 2.0) / self.board_thickness_mm
-        return self.board_y_min_mm + normalized * (self.board_y_max_mm - self.board_y_min_mm)
+        return centered_z_mm + self.board_z_offset_mm
 
     def _layers_for(self, values: list[Any]) -> list[str]:
         names = [str(item) for item in values]
@@ -278,10 +296,13 @@ class SemanticGltfBuilder:
             feature_id = self._feature_id(source_uid, net_id, layer_id, kind)
         self.source_polygon_record_id += 1
         source_polygon_record_id = self.source_polygon_record_id
-        z_mm = self._runtime_z_mm(float(layer.get("z_mm") or 0.0))
+        centered_z_mm = float(layer.get("z_mm") or 0.0)
+        z_mm = self._runtime_z_mm(centered_z_mm)
         thickness_mm = float(layer.get("thickness_mm") or 0.035) or 0.035
         xs = [point[0] for point in outer]
         ys = [point[1] for point in outer]
+        self._object_boxes.append((min(xs), min(ys), max(xs), max(ys)))
+        self._object_drill.append(self._own_drill)
         bounds = [
             min(xs),
             min(ys),
@@ -298,6 +319,8 @@ class SemanticGltfBuilder:
                 "layerName": layer_name,
                 "zMm": z_mm,
                 "thicknessMm": thickness_mm,
+                # Face drawn for the layer: the outward one, so outer copper is on the surface.
+                "surfaceSign": 1 if centered_z_mm >= 0 else -1,
                 "kindId": KIND_IDS.get(kind, KIND_IDS["unknown"]),
                 "polygons": [
                     {
@@ -330,18 +353,31 @@ class SemanticGltfBuilder:
     ) -> None:
         payload = pcb_ir.to_dict() if hasattr(pcb_ir, "to_dict") else pcb_ir
         pad_holes = pad_holes or {}
-        for record in payload.get("records", []) or []:
-            kind = str(record.get("kind") or "")
-            if kind == "segment":
-                self._add_track(record)
-            elif kind in {"track_arc", "arc"}:
-                self._add_arc(record)
-            elif kind == "zone_fill":
-                self._add_zone(record)
-            elif kind == "via":
-                self._add_via(record)
-            elif kind == "footprint":
-                self._add_pads(record, pad_holes)
+        self._drills: list[tuple[tuple[float, float], float, frozenset[str] | None]] = []
+        first_object = len(self.objects)
+        # A board makes millions of small point lists and no reference cycles;
+        # the cyclic collector would rescan them all over and over.
+        collecting = gc.isenabled()
+        gc.disable()
+        try:
+            for record in payload.get("records", []) or []:
+                kind = str(record.get("kind") or "")
+                self._own_drill = -1
+                if kind == "segment":
+                    self._add_track(record)
+                elif kind in {"track_arc", "arc"}:
+                    self._add_arc(record)
+                elif kind == "zone_fill":
+                    self._add_zone(record)
+                elif kind == "via":
+                    self._add_via(record)
+                elif kind == "footprint":
+                    self._add_pads(record, pad_holes)
+            self._own_drill = -1
+            self._drill_copper(first_object)
+        finally:
+            if collecting:
+                gc.enable()
 
     def add_copper_geometry(self, document: Any) -> None:
         """Add renderer-ready polygons emitted by kicad-monkey."""
@@ -396,6 +432,145 @@ class SemanticGltfBuilder:
                 )
                 self.net_trace_length[self._net_id(net_name)] += math.dist(start, end)
 
+    def _drill_copper(self, first_object: int) -> None:
+        """Knock every drill out of the copper it passes through.
+
+        KiCad leaves holes to the drill file: a zone fill covers a same-net,
+        solidly connected hole (stitching vias, a mounting hole on GND), a
+        track ends at the centre of its via or pin, and a mounting pad covers
+        the stitching vias in its ring. Each pad and via is built with its own
+        hole only, so without this pass those holes render capped wherever
+        other copper on the same layer covers them.
+
+        Large boards have thousands of drills inside a few huge pours, so the
+        tests run in bulk against prepared shapes, and a drill lying wholly
+        inside a shape becomes a new hole ring without a polygon overlay.
+        """
+        if not self._drills:
+            return
+        import numpy as np
+        import shapely
+
+        objects = self.objects[first_object:]
+        if not objects:
+            return
+        # The same 32-gon each pad and via cuts for its own hole.
+        disc_rings = [[[x, y] for x, y in circle(center, radius)] for center, radius, _ in self._drills]
+        discs = shapely.polygons(np.array(disc_rings, dtype=float))
+        tree = shapely.STRtree(discs)
+        boxes = np.array(self._object_boxes[first_object:], dtype=float)
+        box_index, disc_index = tree.query(shapely.box(*boxes.T), predicate="intersects")
+        # An object's own drill is already its hole.
+        own = np.array(self._object_drill[first_object:], dtype=np.int64)
+        keep = own[box_index] != disc_index
+        box_index, disc_index = box_index[keep], disc_index[keep]
+        keep = np.fromiter(
+            (
+                self._drills[disc][2] is None or objects[item]["layerName"] in self._drills[disc][2]
+                for item, disc in zip(box_index.tolist(), disc_index.tolist())
+            ),
+            dtype=bool,
+            count=len(box_index),
+        )
+        box_index, disc_index = box_index[keep], disc_index[keep]
+        if not len(box_index):
+            return
+
+        candidates, pair_shape = np.unique(box_index, return_inverse=True)
+        shapes = np.array(
+            [
+                shapely.polygons(
+                    np.asarray(objects[item]["polygons"][0]["outer"], dtype=float),
+                    [np.asarray(hole, dtype=float) for hole in objects[item]["polygons"][0].get("holes") or []]
+                    or None,
+                )
+                for item in candidates.tolist()
+            ],
+            dtype=object,
+        )
+        # KiCad zone fills arrive fractured: one ring with zero-width slits out
+        # to each hole. "structure" rebuilds a polygon with real holes; the
+        # default repair returns a collection that the predicates crawl on.
+        repaired = ~shapely.is_valid(shapes)
+        if repaired.any():
+            shapes[repaired] = shapely.make_valid(shapes[repaired], method="structure", keep_collapsed=False)
+        shapely.prepare(shapes)
+        pair_shapes = shapes[pair_shape]
+        pair_discs = discs[disc_index]
+        inside = shapely.contains_properly(pair_shapes, pair_discs)
+        crossing = np.zeros(len(inside), dtype=bool)
+        touching = ~inside & shapely.intersects(pair_shapes, pair_discs)
+        if touching.any():
+            # Copper that only touches a drill keeps its outline.
+            crossing[touching] = shapely.relate_pattern(pair_shapes[touching], pair_discs[touching], "T********")
+
+        per_shape: dict[int, tuple[list[int], list[int]]] = {}
+        for shape_slot, disc, is_inside, is_crossing in zip(
+            pair_shape.tolist(), disc_index.tolist(), inside.tolist(), crossing.tolist()
+        ):
+            if is_inside or is_crossing:
+                per_shape.setdefault(shape_slot, ([], []))[0 if is_inside else 1].append(disc)
+        if not per_shape:
+            return
+        # Drills that overlap each other (a via in a pad's hole) become one hole.
+        overlap_a, overlap_b = tree.query(discs, predicate="intersects")
+        overlapping = set(overlap_a[overlap_a != overlap_b].tolist())
+
+        for shape_slot, (inner, cross) in per_shape.items():
+            item = objects[int(candidates[shape_slot])]
+            polygon = item["polygons"][0]
+            shape = shapes[shape_slot]
+            if cross:
+                cut = shapely.union_all(discs[cross])
+                if inner:
+                    touched = shapely.intersects(discs[inner], cut)
+                    if touched.any():
+                        cut = shapely.union_all([cut, *discs[inner][touched]])
+                        inner = np.asarray(inner)[~touched].tolist()
+                shape = shape.difference(cut)
+            pieces = [
+                piece
+                for piece in shapely.get_parts(shape).tolist()
+                if piece.geom_type == "Polygon" and not piece.is_empty
+            ]
+            hole_rings: list[list[list[float]]] = []
+            hole_points: list[tuple[float, float]] = []
+            merged = [disc for disc in inner if disc in overlapping]
+            for disc in inner:
+                if disc not in overlapping:
+                    hole_rings.append(disc_rings[disc])
+                    hole_points.append(self._drills[disc][0])
+            if merged:
+                for hole in shapely.get_parts(shapely.union_all(discs[merged])).tolist():
+                    hole_rings.append(_polygon_rings(hole)[0])
+                    point = hole.representative_point()
+                    hole_points.append((point.x, point.y))
+            extra: list[list[list[list[float]]]] = [[] for _ in pieces]
+            if hole_rings and len(pieces) == 1:
+                extra[0] = hole_rings
+            elif hole_rings and pieces:
+                point_index, piece_index = shapely.STRtree(pieces).query(
+                    shapely.points(np.array(hole_points, dtype=float)), predicate="within"
+                )
+                for ring_slot, owner in zip(point_index.tolist(), piece_index.tolist()):
+                    extra[owner].append(hole_rings[ring_slot])
+            keep_source = not cross and not repaired[shape_slot] and len(pieces) == 1
+            drilled = []
+            for slot, piece in enumerate(pieces):
+                if keep_source:
+                    outer = polygon["outer"]
+                    holes = list(polygon.get("holes") or [])
+                else:
+                    outer, *holes = _polygon_rings(piece)
+                piece_record = dict(polygon)
+                if slot:
+                    # Clipping and tiling key on the record id: each piece is its own record.
+                    self.source_polygon_record_id += 1
+                    piece_record["sourcePolygonRecordId"] = self.source_polygon_record_id
+                    piece_record["sourceOrder"] = self.source_polygon_record_id - 1
+                drilled.append({**piece_record, "outer": outer, "holes": holes + extra[slot]})
+            item["polygons"] = drilled
+
     def _add_zone(self, record: dict[str, Any]) -> None:
         operations = [op for op in record.get("operations", []) or [] if op.get("kind") == "PlotPoly"]
         fill_layers = [str(item) for item in record.get("fill_layers", []) or []]
@@ -430,6 +605,8 @@ class SemanticGltfBuilder:
         drill = float(record.get("drill") or 0.0)
         outer = circle(center, radius)
         holes = [circle(center, drill / 2.0)] if drill > 0 else []
+        if drill > 0:
+            self._record_drill(center, drill / 2.0, self._via_span(layers))
         net_id = self._net_id(str(record.get("net_name") or ""))
         layer_ids = [int(self.layer_by_name[layer]["id"]) for layer in layers]
         feature_id = self._source_feature_id(
@@ -491,6 +668,10 @@ class SemanticGltfBuilder:
             drill = float(hole_info.get("drill_mm") or 0.0)
             center = transform(point_nm(op.get("x"), op.get("y")), origin, angle)
             holes = [circle(center, drill / 2.0)] if drill > 0 else []
+            self._own_drill = -1
+            if drill > 0:
+                # A pad's hole goes through the board, whatever layers its copper is on.
+                self._record_drill(center, drill / 2.0, None)
             net_id = self._net_id(net_name)
             layer_ids = [int(self.layer_by_name[layer]["id"]) for layer in layers]
             is_plated = drill > 0 and bool(hole_info.get("plated", True))
@@ -522,6 +703,20 @@ class SemanticGltfBuilder:
                     layer_names=layers,
                     plating_thickness=0.025,
                 )
+
+    def _record_drill(self, center: tuple[float, float], radius: float, layers: frozenset[str] | None) -> None:
+        drills = getattr(self, "_drills", None)
+        if drills is not None:
+            self._own_drill = len(drills)
+            drills.append((center, radius, layers))
+
+    def _via_span(self, layers: list[str]) -> frozenset[str] | None:
+        """Copper layers a via's drill passes through: from its first to its last layer in stackup order."""
+        copper = [layer["name"] for layer in self.layers if layer.get("role") == "copper" or str(layer.get("name", "")).endswith(".Cu")]
+        positions = [copper.index(layer) for layer in layers if layer in copper]
+        if not positions:
+            return None
+        return frozenset(copper[min(positions): max(positions) + 1])
 
     def _append_barrel(
         self,
@@ -591,16 +786,21 @@ class SemanticGltfBuilder:
             }
         for feature in self.object_features:
             feature["boundsMm"] = self.feature_bounds.get(int(feature["id"]))
-        revision_source = json.dumps(
-            {
-                "layers": self.layers,
-                "nets": self.nets,
-                "objects": self.objects,
-                "barrels": self.barrels,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        # The objects are most of the input: encode them once, for the
+        # revision here and for the input file (serialize_semantic_input).
+        self.objects_json = json.dumps(self.objects, separators=(",", ":"))
+        revision = hashlib.sha256(
+            json.dumps(
+                {
+                    "layers": self.layers,
+                    "nets": self.nets,
+                    "barrels": self.barrels,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        revision.update(self.objects_json.encode("utf-8"))
         components = _component_manifest_entries(
             self.topology,
             self.component_nodes,
@@ -609,7 +809,7 @@ class SemanticGltfBuilder:
         payload = {
             "schema": "prism.semantic_gltf_build_a0",
             "tileSizeMm": tile_size_mm,
-            "geometryRevision": hashlib.sha256(revision_source).hexdigest(),
+            "geometryRevision": revision.hexdigest(),
             "coordinateSystem": {
                 "source": {
                     "axes": {"x": "board-right", "y": "board-down", "z": "stackup-up"},
@@ -640,8 +840,23 @@ class SemanticGltfBuilder:
 
     def write_input(self, path: Path, *, tile_size_mm: float = TILE_SIZE_MM) -> dict[str, Any]:
         payload = self.build_input_payload(tile_size_mm=tile_size_mm)
-        path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        path.write_bytes(serialize_semantic_input(payload, self.objects_json))
         return payload
+
+
+_OBJECTS_SLOT = "\u0000prism-objects\u0000"
+
+
+def serialize_semantic_input(payload: dict[str, Any], objects_json: str | None = None) -> bytes:
+    """The builder input as compact JSON, splicing in already-encoded objects."""
+    if objects_json is None:
+        return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    head, slot, tail = json.dumps(
+        {**payload, "objects": _OBJECTS_SLOT}, separators=(",", ":")
+    ).partition(json.dumps(_OBJECTS_SLOT))
+    if not slot or json.dumps(_OBJECTS_SLOT) in tail:
+        return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return "".join((head, objects_json, tail)).encode("utf-8")
 
 
 def build_semantic_gltf_scene(
@@ -663,6 +878,50 @@ def build_semantic_gltf_scene(
     base_asset = str(assets.get("base_board_glb") or "")
     base_path = output_dir / base_asset if base_asset else None
     collect_started = time.perf_counter()
+    # The build makes millions of small lists and no reference cycles; the
+    # cyclic collector would rescan them all over and over (seconds on a
+    # large board), in collection and in reading the clipper's response.
+    collecting = gc.isenabled()
+    gc.disable()
+    try:
+        return _build_semantic_gltf_scene(
+            topology,
+            semantic_geometry,
+            geometry_source,
+            output_dir,
+            base_path=base_path,
+            collect_started=collect_started,
+            pad_holes=pad_holes,
+            tile_size_mm=tile_size_mm,
+            force_rebuild=force_rebuild,
+            clean_cache=clean_cache,
+            cache_dir=cache_dir,
+            meshopt_level=meshopt_level,
+            progress=progress,
+            profile_callback=profile_callback,
+        )
+    finally:
+        if collecting:
+            gc.enable()
+
+
+def _build_semantic_gltf_scene(
+    topology: dict[str, Any],
+    semantic_geometry: dict[str, Any],
+    geometry_source: Any,
+    output_dir: Path,
+    *,
+    base_path: Path | None,
+    collect_started: float,
+    pad_holes: dict[str, dict[str, Any]] | None,
+    tile_size_mm: float,
+    force_rebuild: bool,
+    clean_cache: bool,
+    cache_dir: Path | None,
+    meshopt_level: str,
+    progress: Callable[[str], None] | None,
+    profile_callback: Callable[[str, dict[str, Any]], None] | None,
+) -> dict[str, Any]:
     started = time.perf_counter()
     builder = SemanticGltfBuilder(topology, base_path)
     if profile_callback:
@@ -776,7 +1035,7 @@ def build_semantic_gltf_scene(
             {"elapsed_ms": (time.perf_counter() - started) * 1000.0},
         )
     started = time.perf_counter()
-    input_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    input_bytes = serialize_semantic_input(payload, builder.objects_json)
     input_digest = hashlib.sha256(input_bytes).hexdigest()
     input_path = input_cache_dir / f"{payload['geometryRevision']}-{meshopt_level}.json"
     input_cache_hit = input_path.exists()

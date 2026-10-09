@@ -28,10 +28,15 @@ from app.api.tracker_webhooks import router as tracker_webhooks_router
 from app.api.tracker_identity import admin_router as tracker_identity_admin_router
 from app.api.tracker_identity import router as tracker_identity_router
 from app.api.catalog_admin import router as catalog_admin_router
+from app.api.catalog_system_items import router as catalog_system_items_router
 from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
+from app.api.systems import router as systems_router
 from app.api.health import router as health_router
+from app.api.plugin import router as plugin_router
+from app.api.git_http import router as git_http_router
+from app.api.agent import router as agent_router
 from app.services import password_credential_service, rate_limit_service, session_store_service
 from app.services.comments_store_service import initialize_comments_store
 from app.services.comment_live_broker import broker as comment_live_broker
@@ -273,8 +278,13 @@ app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(systems_router, prefix="/api/systems", tags=["systems"])
+app.include_router(plugin_router, prefix="/api/plugin", tags=["plugin"])
+app.include_router(git_http_router, prefix="/git", tags=["git"])
+app.include_router(agent_router)
 app.include_router(health_router)
 app.include_router(catalog_admin_router)
+app.include_router(catalog_system_items_router)
 app.include_router(oauth_router)
 app.include_router(service_clients_router)
 app.include_router(remote_provider_router, tags=["remote-provider"])
