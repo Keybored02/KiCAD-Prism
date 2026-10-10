@@ -59,11 +59,10 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(len(versions), len(set(versions)))
         self.assertIn(WORKSPACE_MIGRATION_VERSION, versions)
         self.assertEqual(names[WORKSPACE_MIGRATION_VERSION], WORKSPACE_MIGRATION_NAME)
-        # The tracker's three migrations are registered under their own versions, in order.
-        # Migrations from other features may come after them, so the last one is not pinned.
-        self.assertGreaterEqual(max(versions), WORKSPACE_WEBHOOK_OAUTH_VERSION)
         self.assertIn(WORKSPACE_FK_CASCADE_VERSION, versions)
         self.assertEqual(names[WORKSPACE_FK_CASCADE_VERSION], WORKSPACE_FK_CASCADE_NAME)
+        # Later features append their own migrations; the tracker ones must stay
+        # registered once, under their names, in order.
         self.assertIn(WORKSPACE_WEBHOOK_OAUTH_VERSION, versions)
         self.assertEqual(names[WORKSPACE_WEBHOOK_OAUTH_VERSION], WORKSPACE_WEBHOOK_OAUTH_NAME)
         self.assertLess(WORKSPACE_MIGRATION_VERSION, WORKSPACE_FK_CASCADE_VERSION)

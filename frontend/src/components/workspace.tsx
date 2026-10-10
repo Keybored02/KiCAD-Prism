@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
+import { Boxes, CircuitBoard, FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import type { User } from "@/types/auth";
@@ -14,6 +14,7 @@ import { settingsTabFromParam } from "@/lib/settings-tabs";
 import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
 import { fetchApi, readApiError } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { WorkspaceSectionHeading } from "./workspace/workspace-section-heading";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
 import { WorkspaceListView } from "./workspace/workspace-list-view";
@@ -25,6 +26,7 @@ import { WorkspaceProjectPropertiesSheet } from "./workspace/workspace-project-p
 import { WorkspaceProjectToolbar } from "./workspace/workspace-project-toolbar";
 import { WorkspaceSidebar } from "./workspace/workspace-sidebar";
 import { WorkspaceSection, ViewMode } from "./workspace/workspace-types";
+import { WorkspaceSystemsSection, systemPath, systemsForLevel } from "@/features/system-builder/workspace-systems-section";
 
 const WORKSPACE_PAGE_SIZE = 25;
 
@@ -50,6 +52,9 @@ const DeleteProjectDialog = lazy(() =>
 const MoveProjectDialog = lazy(() =>
   import("./workspace/move-project-dialog").then((module) => ({ default: module.MoveProjectDialog }))
 );
+const CreateSystemDialog = lazy(() =>
+  import("@/features/system-builder/create-system-dialog").then((module) => ({ default: module.CreateSystemDialog }))
+);
 const RenameFolderDialog = lazy(() =>
   import("./workspace/rename-folder-dialog").then((module) => ({ default: module.RenameFolderDialog }))
 );
@@ -67,7 +72,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const { projects, folders, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
+  const { projects, folders, systems, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
     useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
 
   const sectionParam = searchParams.get("section");
@@ -78,6 +83,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isCreateSystemOpen, setIsCreateSystemOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -182,6 +188,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   }, [projects, currentFolderId]);
 
   const { isSearching, searchResults } = useWorkspaceSearch(projects, folderById, searchQuery);
+  const levelSystems = useMemo(
+    () => systemsForLevel(systems, currentFolderId, isSearching ? searchQuery : ""),
+    [systems, currentFolderId, isSearching, searchQuery],
+  );
 
   const breadcrumbs = useMemo(() => {
     const trail: FolderTreeItem[] = [];
@@ -263,6 +273,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       commands.push(
         { id: "workspace:import", label: "Import project", group: "Workspace", icon: FolderPlus, keywords: "add new repository clone", run: () => setIsImportOpen(true) },
         { id: "workspace:new-folder", label: "New folder", group: "Workspace", icon: FolderPlus, keywords: "create directory", run: () => setIsCreateFolderOpen(true) },
+        { id: "workspace:new-system", label: "New system", group: "Workspace", icon: Boxes, keywords: "system builder multi-board harness interconnect", run: () => setIsCreateSystemOpen(true) },
       );
     }
     commands.push({
@@ -538,6 +549,76 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     return <div className="flex h-64 items-center justify-center rounded-xl border text-destructive">{error}</div>;
   }
 
+  const systemsSection = (
+    <WorkspaceSystemsSection systems={levelSystems} dense={selectedProject !== null} showHeading />
+  );
+  const projectsToolbar = (
+    <>
+<>
+                          {canManageProjects && listProjects.length > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={toggleVisibleProjectSelection}
+                            >
+                              {allVisibleProjectsSelected ? "Clear selection" : `Select visible (${listProjects.length})`}
+                            </Button>
+                          )}
+                          {canManageProjects && selectedVisibleProjects.length > 0 && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() => setProjectsToMove(selectedVisibleProjects)}
+                              >
+                                <FolderInput className="mr-1.5 h-3.5 w-3.5" />
+                                Move selected ({selectedVisibleProjects.length})
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-[11px]"
+                                disabled={isRegeneratingThumbnails}
+                                onClick={() => void handleRegenerateThumbnails(selectedVisibleProjects)}
+                              >
+                                <Image className="mr-1.5 h-3.5 w-3.5" />
+                                Regenerate thumbnails ({selectedVisibleProjects.length})
+                              </Button>
+                            </>
+                          )}
+                        </>
+{totalPages > 1 && (
+<>
+<span className="text-[11px] text-muted-foreground">{pageLabel}</span>
+<div className="flex items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            disabled={currentPage <= 1}
+                            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                          >
+                            Previous
+                          </Button>
+                          <span className="px-1 text-[11px] text-muted-foreground">
+                            Page {currentPage} of {totalPages}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            disabled={currentPage >= totalPages}
+                            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                          >
+                            Next
+                          </Button>
+                        </div>
+</>
+)}
+    </>
+  );
+
   return (
     <>
       <div className="flex h-full min-h-0 w-full overflow-hidden border bg-background">
@@ -566,6 +647,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                 viewMode={viewMode}
                 onViewModeChange={setViewMode}
                 onImport={() => canManageProjects && setIsImportOpen(true)}
+                onCreateSystem={() => canManageProjects && setIsCreateSystemOpen(true)}
                 onCreateFolder={() => canManageProjects && setIsCreateFolderOpen(true)}
                 onRefresh={() => void refresh()}
                 onOpenSettings={() => canOpenSettings && setIsSettingsOpen(true)}
@@ -603,12 +685,11 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                   <WorkspaceBreadcrumbs
                     isSearching={isSearching}
                     breadcrumbs={breadcrumbs}
-                    viewMode={viewMode}
                     onGoRoot={() => setFolderInUrl(null)}
                     onSelectFolder={(folderId) => setFolderInUrl(folderId)}
                   />
 
-                  <div className="relative mt-6 min-h-0 flex-1 overflow-hidden">
+                  <div className={`relative min-h-0 flex-1 overflow-hidden ${breadcrumbs.length > 0 && !isSearching ? "mt-4" : ""}`}>
                     <div
                       className={`h-full overflow-y-auto pr-1 ${
                         selectedProject !== null
@@ -616,70 +697,12 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           : ""
                       }`}
                     >
-                      <div className="mb-4 flex items-center justify-between rounded-lg border bg-card/30 px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-xs text-muted-foreground">
-                            {pageLabel}
-                          </p>
-                          {canManageProjects && listProjects.length > 0 && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-[11px]"
-                              onClick={toggleVisibleProjectSelection}
-                            >
-                              {allVisibleProjectsSelected ? "Clear selection" : `Select visible (${listProjects.length})`}
-                            </Button>
-                          )}
-                          {canManageProjects && selectedVisibleProjects.length > 0 && (
-                            <>
-                              <Button
-                                size="sm"
-                                className="h-7 px-2 text-[11px]"
-                                onClick={() => setProjectsToMove(selectedVisibleProjects)}
-                              >
-                                <FolderInput className="mr-1.5 h-3.5 w-3.5" />
-                                Move selected ({selectedVisibleProjects.length})
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-[11px]"
-                                disabled={isRegeneratingThumbnails}
-                                onClick={() => void handleRegenerateThumbnails(selectedVisibleProjects)}
-                              >
-                                <Image className="mr-1.5 h-3.5 w-3.5" />
-                                Regenerate thumbnails ({selectedVisibleProjects.length})
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-[11px]"
-                            disabled={currentPage <= 1}
-                            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                          >
-                            Previous
-                          </Button>
-                          <span className="px-1 text-[11px] text-muted-foreground">
-                            Page {currentPage} of {totalPages}
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-[11px]"
-                            disabled={currentPage >= totalPages}
-                            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                          >
-                            Next
-                          </Button>
-                        </div>
-                      </div>
+                      {viewMode === "list" && <div className="mb-8">{systemsSection}</div>}
                       {viewMode === "gallery" ? (
                         <WorkspaceGalleryView
+                          systemsSection={systemsSection}
+                          projectsToolbar={projectsToolbar}
+                          projectCount={allListProjects.length}
                           searchQuery={searchQuery}
                           isSearching={isSearching}
                           searchResults={listProjects}
@@ -702,6 +725,8 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           canManageProjects={canManageProjects}
                         />
                       ) : (
+                        <div className="space-y-3">
+                          <WorkspaceSectionHeading icon={CircuitBoard} title="Folders and boards">{projectsToolbar}</WorkspaceSectionHeading>
                         <WorkspaceListView
                           isSearching={isSearching}
                           selectedProjectId={selectedProjectId}
@@ -722,6 +747,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           onRegenerateThumbnail={handleRegenerateThumbnail}
                           canManageProjects={canManageProjects}
                         />
+                        </div>
                       )}
                     </div>
 
@@ -753,6 +779,29 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
         </div>
       </div>
 
+      {isCreateSystemOpen && (
+        <Suspense fallback={null}>
+          <CreateSystemDialog
+            open={isCreateSystemOpen}
+            projects={projects}
+            folderId={currentFolderId}
+            folderName={currentFolderId ? folderById.get(currentFolderId)?.name ?? null : null}
+            onOpenChange={setIsCreateSystemOpen}
+            onCreated={({ systemId, failures }) => {
+              setIsCreateSystemOpen(false);
+              if (failures.length > 0) {
+                toast.error(`System created, but ${failures.length} board(s) could not be added`, {
+                  description: failures.map((failure) => `${failure.label}: ${failure.error}`).join("\n"),
+                });
+              } else {
+                toast.success("System created");
+              }
+              void refresh();
+              navigate(systemPath(systemId));
+            }}
+          />
+        </Suspense>
+      )}
       {isImportOpen && (
         <Suspense fallback={null}>
           <ImportDialog open={isImportOpen} onOpenChange={setIsImportOpen} onImportComplete={refresh} />

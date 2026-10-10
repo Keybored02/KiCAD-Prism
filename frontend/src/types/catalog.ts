@@ -91,6 +91,8 @@ export interface CatalogValidationFinding {
   message: string;
 }
 
+export type CatalogItemKind = "part" | "module" | "assembly";
+
 export interface CatalogComponentValidationEvidence {
   summary: CatalogValidationSummary;
   runs: CatalogValidationRun[];
@@ -132,6 +134,11 @@ export interface CatalogComponent {
   sync_error?: string;
   source: ComponentSource;
   identity_kind: "mpn" | "provisional_ipn";
+  /** `part` = a KiCad library part; `module`/`assembly` are System Builder items (CONTRACTS_P2 §3). */
+  kind?: CatalogItemKind;
+  /** Module/assembly revisions: the connector interface and (assemblies) the source snapshot. */
+  interface?: Record<string, unknown>;
+  source_ref?: Record<string, unknown>;
   name: string;
   value: string;
   manufacturer: string;

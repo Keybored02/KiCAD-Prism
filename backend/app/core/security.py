@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.roles import (
+    CATALOG_BROWSE_ROLES,
     CATALOG_QA_ROLES,
     CATALOG_READ_ROLES,
     CATALOG_WRITE_ROLES,
@@ -17,6 +18,7 @@ from app.core.roles import (
 from app.core.session import SESSION_COOKIE_NAME, decode_session_token
 from app.services import (
     access_service,
+    agent_auth_service,
     auth_service,
     provider_auth_service,
     service_client_service,
@@ -104,6 +106,26 @@ def _resolve_bearer_user(token: str) -> AuthenticatedUser:
     provider_error: HTTPException | None = None
     if token.startswith("v1."):
         try:
+            payload = agent_auth_service.validate_agent_token(token)
+            # Best-effort, throttled: keep the registry's "last used" column honest
+            # without a DB write on every request. Never fails the request.
+            agent_auth_service.touch_agent_token(payload)
+            return AuthenticatedUser(
+                email=str(payload["email"]),
+                name=str(payload["name"]),
+                picture=str(payload.get("picture") or ""),
+                role=normalize_role(str(payload["role"])) or "viewer",
+                auth_type="agent",
+                client_id=str(payload.get("client_id") or ""),
+                scopes=str(payload.get("scope") or "").split(),
+            )
+        except HTTPException as exc:
+            if exc.status_code >= 500:
+                raise
+            # Not an agent token (or an invalid one); fall through to the other
+            # bearer kinds, which use the same v1. envelope.
+
+        try:
             payload = provider_auth_service.validate_access_token(token)
             scopes = str(payload.get("scope") or "").split()
             return AuthenticatedUser(
@@ -148,6 +170,8 @@ async def require_viewer(user: AuthenticatedUser = Depends(get_current_user)) ->
 async def require_designer(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
     if user.auth_type == "kicad_provider":
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
+    # Role and scope are separate requirements: a read-only token of a designer stays read-only.
+    _require_bearer_scope(user, "api:write")
     if not role_meets_minimum(user.role, "designer"):
         raise HTTPException(status_code=403, detail="Designer role required")
     return user
@@ -164,6 +188,7 @@ async def require_comment_writer(user: AuthenticatedUser = Depends(get_current_u
 async def require_admin(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
     if user.auth_type == "kicad_provider":
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot access admin APIs")
+    _require_bearer_scope(user, "api:write")
     if not role_meets_minimum(user.role, "admin"):
         raise HTTPException(status_code=403, detail="Admin role required")
     return user
@@ -180,6 +205,7 @@ async def require_project_release_actor(
 
     if user.auth_type == "kicad_provider":
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
+    _require_bearer_scope(user, "api:write")
     if user.role not in PROJECT_RELEASE_ACTOR_ROLES:
         raise HTTPException(status_code=403, detail="Designer, QA, or Admin role required")
     return user
@@ -213,6 +239,14 @@ def _require_bearer_scope(user: AuthenticatedUser, *required_scopes: str) -> Non
 async def require_catalog_reader(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
     _require_bearer_scope(user, "api:read")
     if user.role not in CATALOG_READ_ROLES:
+        raise HTTPException(status_code=403, detail="Catalog read access required")
+    return user
+
+
+async def require_catalog_browser(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    """Read-only browsing of the component database; viewers included (D-P2-24)."""
+    _require_bearer_scope(user, "api:read")
+    if user.role not in CATALOG_BROWSE_ROLES:
         raise HTTPException(status_code=403, detail="Catalog read access required")
     return user
 

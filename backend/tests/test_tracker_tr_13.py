@@ -77,8 +77,6 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertEqual(list(CHECKPOINT_KINDS), ["poll", "sweep", "recovery"])
         versions = [version for version, _, _ in WS_MIGRATIONS]
         self.assertIn(23, versions)
-        # Later migrations from other features may follow the tracker's.
-        self.assertGreaterEqual(max(versions), WORKSPACE_WEBHOOK_OAUTH_VERSION)
         self.assertIn(WORKSPACE_WEBHOOK_OAUTH_VERSION, versions)
 
     def test_sanitize_error_redacts_tokens_and_caps_length(self) -> None:

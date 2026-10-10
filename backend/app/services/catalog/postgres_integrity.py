@@ -10,7 +10,7 @@ from app.services.catalog.postgres_runtime import PostgresCatalogRuntime
 logger = logging.getLogger(__name__)
 
 POSTGRES_SEARCH_VERSION = "catalog-search-v3"
-POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v4"
+POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v5"
 
 
 def ensure_postgres_search_indexes(runtime: PostgresCatalogRuntime) -> None:
@@ -272,13 +272,19 @@ def ensure_postgres_integrity_guards(runtime: PostgresCatalogRuntime) -> None:
                 AS $$
                 DECLARE
                     component_identity_kind TEXT;
+                    component_kind TEXT;
                     complete_defaults INTEGER;
                 BEGIN
                     IF NEW.release_status NOT IN ('done', 'released') THEN
                         RETURN NEW;
                     END IF;
-                    SELECT identity_kind INTO component_identity_kind
+                    SELECT identity_kind, COALESCE(kind, 'part') INTO component_identity_kind, component_kind
                     FROM components WHERE id = NEW.component_id;
+                    -- Modules and assemblies are IPN-identified and have no library
+                    -- representation; their gates live in the application (v5).
+                    IF component_kind <> 'part' THEN
+                        RETURN NEW;
+                    END IF;
                     IF component_identity_kind = 'provisional_ipn' THEN
                         RAISE EXCEPTION 'provisional components cannot reach done or released';
                     END IF;

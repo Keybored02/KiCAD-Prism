@@ -62,6 +62,25 @@ def load_builtin_job_handlers() -> None:
     register_job_handler("project_thumbnail", run_project_thumbnail_job_v3)
     for job_type in catalog_handlers:
         register_job_handler(job_type, run_catalog_job_v3)
+    from app.services.systems.jobs import EXTRACT_JOB_KIND, run_system_interface_job
+
+    register_job_handler(EXTRACT_JOB_KIND, run_system_interface_job)
+    from app.services.systems.detection import SOURCE_CHECK_JOB_KIND, run_source_check_job
+
+    register_job_handler(SOURCE_CHECK_JOB_KIND, run_source_check_job)
+    from app.services.systems.child_drift import CHILD_CHECK_JOB_KIND, run_child_check_job
+
+    register_job_handler(CHILD_CHECK_JOB_KIND, run_child_check_job)
+    from app.services.systems import git_tracking
+
+    register_job_handler(git_tracking.SYNC_JOB_KIND, git_tracking.run_sync_job)
+    register_job_handler(git_tracking.COMMIT_JOB_KIND, git_tracking.run_commit_job)
+    from app.services.systems.service_collisions import COLLISION_JOB_KIND, run_collision_job
+
+    register_job_handler(COLLISION_JOB_KIND, run_collision_job)
+    from app.services.systems.service_step_export import STEP_JOB_KIND, run_step_job
+
+    register_job_handler(STEP_JOB_KIND, run_step_job)
     from app.services.trackers.jobs import register_tracker_job_handlers
 
     register_tracker_job_handlers(register_job_handler)

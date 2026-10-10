@@ -47,6 +47,13 @@
   --ring: 221.2 83.2% 53.3%;
   --preview-surface: 0 0% 100%;
   --radius: 0.5rem;
+  /* System Builder kinds (D-P2-50): only for telling boards, modules, subsystems
+     and harnesses (and their links) apart; never for status. */
+  --kind-board: 221.2 83.2% 53.3%;
+  --kind-module: 262.1 83.3% 57.8%;
+  --kind-subsystem: 174.7 83.9% 31.6%;
+  --kind-harness: 32.1 94.6% 43.7%;
+  --kind-link: 215.4 16.3% 46.9%;
 }
 
 .dark {
@@ -80,6 +87,11 @@
      drawn over it has to come from `--foreground`, not from this token, which
      is why a preview's unit strip sits outside the frame rather than in it. */
   --preview-surface: 0 0% 100%;
+  --kind-board: 217.2 91.2% 59.8%;
+  --kind-module: 258.3 89.5% 66.3%;
+  --kind-subsystem: 172.5 66% 50.4%;
+  --kind-harness: 37.7 92.1% 50.2%;
+  --kind-link: 215 20.2% 65.1%;
 }
 
 @layer base {
@@ -217,4 +229,22 @@
   .h-app-main {
     height: calc(100vh - 4rem - var(--app-chrome-offset));
   }
+}
+
+/* Visualizer insets (ecad-viewer): map Prism's tokens onto the inset theme.
+   Custom properties inherit into the viewer's shadow root, so these follow
+   light/dark with the rest of the app. */
+ecad-viewer {
+  --inset-bg: hsl(var(--card));
+  --inset-fg: hsl(var(--card-foreground));
+  --inset-muted: hsl(var(--muted-foreground));
+  --inset-muted-bg: hsl(var(--muted));
+  --inset-border: hsl(var(--border));
+  --inset-radius: var(--radius);
+  --inset-font: 'Inter Variable', sans-serif;
+  --inset-tip-bg: hsl(var(--popover-foreground));
+  --inset-tip-fg: hsl(var(--popover));
+  --inset-bottom-bg: hsl(var(--primary) / 0.14);
+  --inset-bottom-fg: hsl(var(--primary));
+  --inset-focus: hsl(var(--ring));
 }

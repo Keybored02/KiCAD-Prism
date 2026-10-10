@@ -1,0 +1,94 @@
+"""Interface extraction as a job (§3, §8 ``202``).
+
+One job per ``(project, commit, extractor version)``: the artifact key makes
+concurrent requests share the active job, and ``system_interface_artifacts``
+is the cache, so a finished extraction is never repeated.
+"""
+
+from __future__ import annotations
+
+import logging
+from contextlib import contextmanager
+from typing import Any, Callable, ContextManager, Iterator
+
+from app.services.systems.interface_extractor import EXTRACTOR_VERSION, extract_for_revision
+from app.services.systems.store import SystemStore
+
+logger = logging.getLogger(__name__)
+
+EXTRACT_JOB_KIND = "system_interface_extract"
+
+
+def artifact_key(project_id: str, commit: str) -> str:
+    return f"system-interface:v{EXTRACTOR_VERSION}:{project_id}:{commit}"
+
+
+@contextmanager
+def workspace_connection() -> Iterator[Any]:
+    from app.services.postgres_database import database
+
+    with database.connection() as conn:
+        conn.execute("SET search_path TO workspace, public")
+        yield conn
+
+
+def enqueue_extraction(project_id: str, commit: str, *, requested_by: str = "") -> dict[str, Any]:
+    from app.services.job_service import jobs
+    from app.services.workspace_service import workspace
+
+    row = workspace.get_project_by_id(project_id) or {}
+    repository_id = str(row.get("repo_id") or "")
+    return jobs.enqueue(
+        EXTRACT_JOB_KIND,
+        {"project_id": project_id, "commit": commit},
+        worker_pool="prism",
+        artifact_key=artifact_key(project_id, commit),
+        project_id=project_id,
+        repository_id=repository_id or None,
+        requested_by=requested_by,
+        resources={"prism_worker": 1, "semantic_compile": 1},
+        locks=(
+            [{"key": f"repository:{repository_id}", "mode": "read"}]
+            if repository_id
+            else [{"key": f"project:{project_id}", "mode": "read"}]
+        ),
+    )
+
+
+def extract_and_store(
+    project: Any, commit: str, connect: Callable[[], ContextManager[Any]] = workspace_connection
+) -> dict[str, Any]:
+    """Return the cached artifact, or extract it and cache it."""
+
+    with connect() as conn:
+        cached = SystemStore(conn).get_interface(str(project.id), commit, EXTRACTOR_VERSION)
+    if cached is not None:
+        return cached
+    payload = extract_for_revision(project, commit)
+    with connect() as conn:
+        stored = SystemStore(conn).put_interface(payload)
+        conn.commit()
+    return stored
+
+
+def run_system_interface_job(context: Any) -> Any:
+    from app.services.job_runtime import JobResult, PermanentJobError
+    from app.services.project_service import _workspace_row_to_project
+    from app.services.workspace_service import workspace
+
+    project_id = str(context.payload["project_id"])
+    commit = str(context.payload["commit"])
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise PermanentJobError("Project not found", code="project_missing")
+    context.progress(stage="system-interface", message="Extracting board interface", percent=10, force=True)
+    try:
+        stored = extract_and_store(_workspace_row_to_project(row), commit)
+    except ValueError as error:
+        # Missing commit or project file at that commit: retrying cannot help.
+        logger.info("System interface extraction failed for %s@%s: %s", project_id, commit, error)
+        raise PermanentJobError("Source is not readable at this commit", code="source_unavailable") from error
+    return JobResult(
+        message="Board interface is ready",
+        details={"digest": stored["digest"], "components": len(stored.get("components") or [])},
+    )

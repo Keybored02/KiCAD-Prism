@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import type { User } from "@/types/auth";
 import { FolderTreeItem, Project } from "@/types/project";
+import type { SystemSummary } from "@/types/system";
 
 export interface WorkspaceActionResult {
   ok: boolean;
@@ -12,6 +13,8 @@ export interface WorkspaceActionResult {
 interface WorkspaceDataState {
   projects: Project[];
   folders: FolderTreeItem[];
+  /** System Builder systems the caller may see (contract §8.4). */
+  systems: SystemSummary[];
   /** No data to show yet for this session. */
   loading: boolean;
   /** The latest load failed and there is no data to fall back on. */
@@ -33,6 +36,7 @@ interface WorkspaceDataState {
 interface WorkspaceBootstrapResponse {
   projects: Project[];
   folders: FolderTreeItem[];
+  systems?: SystemSummary[];
 }
 
 /**
@@ -104,6 +108,7 @@ function initialSnapshot(sessionKey: string): Snapshot {
 
 const EMPTY_PROJECTS: Project[] = [];
 const EMPTY_FOLDERS: FolderTreeItem[] = [];
+const EMPTY_SYSTEMS: SystemSummary[] = [];
 
 const isAbortError = (error: unknown): boolean =>
   error instanceof DOMException && error.name === "AbortError";
@@ -184,6 +189,7 @@ export function useWorkspaceData({ sessionKey }: { sessionKey: string }): Worksp
 
   const projects = current.data?.projects ?? EMPTY_PROJECTS;
   const folders = current.data?.folders ?? EMPTY_FOLDERS;
+  const systems = current.data?.systems ?? EMPTY_SYSTEMS;
 
   const folderById = useMemo(() => {
     const lookup = new Map<string, FolderTreeItem>();
@@ -298,6 +304,7 @@ export function useWorkspaceData({ sessionKey }: { sessionKey: string }): Worksp
   return {
     projects,
     folders,
+    systems,
     loading: current.loading,
     error: current.error,
     refreshError: current.refreshError,

@@ -216,6 +216,15 @@ def run_metadata_batch(job: dict[str, Any], progress: Progress) -> dict[str, Any
     return result
 
 
+def run_model_glb(job: dict[str, Any], progress: Progress) -> dict[str, Any]:
+    """CONTRACTS_P2 §18.2: convert a part's STEP models to GLB with Geometer."""
+    component_id = str(job["payload"].get("componentId") or "")
+    progress(message="Converting 3D models", progress=0.0)
+    models = catalog_service.system_items.convert_models(component_id)
+    progress(message="Converted 3D models", progress=100.0)
+    return {"componentId": component_id, "converted": sum(1 for m in models if m["glb"]), "models": len(models)}
+
+
 HANDLERS: dict[str, Callable[[dict[str, Any], Progress], dict[str, Any]]] = {
     "catalog_validation": run_validation,
     "catalog_preview_generation": run_previews,
@@ -223,6 +232,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any], Progress], dict[str, Any]]] = {
     "folder_library_import": run_folder_import,
     "artifact_maintenance": run_artifact_maintenance,
     "catalog_metadata_batch": run_metadata_batch,
+    "catalog_model_glb": run_model_glb,
 }
 
 KICAD_HEAVY_JOB_TYPES = {

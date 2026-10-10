@@ -856,6 +856,38 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         if (activeTab === "pcb") setPcbActivated(true);
     }, [activeTab]);
 
+    // Insets: hovering a pin or pad opens a live view of the other document.
+    // Both elements take the mode on their own (I, or the rail toggle); the
+    // PCB is mounted the first time the mode turns on, then the two are
+    // linked so each serves the other's insets.
+    useEffect(() => {
+        schematicViewerElement?.enableInsets?.();
+    }, [schematicViewerElement]);
+
+    useEffect(() => {
+        pcbViewerElement?.enableInsets?.();
+    }, [pcbViewerElement]);
+
+    useEffect(() => {
+        const element = schematicViewerElement;
+        if (!element) return;
+        const activate = (event: Event) => {
+            if ((event as CustomEvent<{ on: boolean }>).detail?.on) setPcbActivated(true);
+        };
+        element.addEventListener("ecad-viewer:inset-mode", activate);
+        return () => element.removeEventListener("ecad-viewer:inset-mode", activate);
+    }, [schematicViewerElement]);
+
+    useEffect(() => {
+        if (!schematicViewerElement?.setInsetPeer || !pcbViewerElement?.setInsetPeer) return;
+        schematicViewerElement.setInsetPeer(pcbViewerElement);
+        pcbViewerElement.setInsetPeer(schematicViewerElement);
+        return () => {
+            schematicViewerElement.setInsetPeer?.(null);
+            pcbViewerElement.setInsetPeer?.(null);
+        };
+    }, [schematicViewerElement, pcbViewerElement]);
+
     // Re-apply an active cross-probe when SCH/PCB becomes visible so hatch/net
     // Focus paints that ran while the canvas was hidden are rebuilt. For SCH,
     // also force the hierarchical page from the probe so the correct sheet is
@@ -1475,6 +1507,15 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             ) return;
 
             if (event.key === "Escape") {
+                // Insets take Escape first: the preview, then every inset;
+                // only an Escape with no insets open clears the selection.
+                const viewer = activeTab === "sch"
+                    ? schematicViewerRef.current
+                    : activeTab === "pcb" ? pcbViewerRef.current : null;
+                if (viewer?.escapeInsets?.()) {
+                    event.preventDefault();
+                    return;
+                }
                 clearSelectionAndHighlights();
                 setRightRailTab(null);
                 setCommentMode(false);
