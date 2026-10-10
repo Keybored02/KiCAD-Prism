@@ -42,6 +42,13 @@ class Project(BaseModel):
     project_file: Optional[str] = None
     parent_repo: Optional[str] = None  # Parent monorepo name
     repo_url: Optional[str] = None  # Original Git URL
+    # The repository's real git origin, asked of git rather than trusting `url`
+    # (which for a local import is a filesystem path). origin_owner is
+    # "external" (a real remote like GitLab), "prism" (Prism hosts it), or
+    # "none". The desktop agent's Open-in-KiCad needs these to know what it can
+    # clone from.
+    origin_url: Optional[str] = None
+    origin_owner: Optional[str] = None
     import_type: Optional[str] = None  # "type1" or "type2_subproject"
     parent_repo_path: Optional[str] = None  # Path to parent repo for Type-2
     folder_id: Optional[str] = None  # Optional folder assignment for workspace organization
@@ -479,6 +486,31 @@ def _find_cli_path():
 
     return kicad_jobset_service.find_kicad_cli_path()
 
+def webgpu_artifact_key(row: dict, commit: str | None, *, force: bool = False) -> str:
+    """The ``webgpu_3d`` job key for a project row at ``commit`` (or its workspace).
+
+    It names the 3D generator build, so a completed job from an older viewer or
+    pipeline build never stands in for a bundle the current build cannot read.
+    """
+    from app.services import semantic_visualizer_service
+
+    source_selector = commit or f"workspace:{row.get('last_modified') or ''}"
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "project": str(row.get("id") or ""),
+                "projectFileRel": str(row.get("project_file_rel") or ""),
+                "source": source_selector,
+                "force": bool(force),
+                "generator": semantic_index_service.generator_cache_tag(),
+                "webgpuBuild": semantic_visualizer_service.BUILD_FINGERPRINT,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def start_workflow_job(
     project_id: str,
     workflow_type: str,
@@ -495,20 +527,7 @@ def start_workflow_job(
     project_file_rel = str(row.get("project_file_rel") or "")
 
     if workflow_type == "webgpu_3d":
-        source_selector = commit or f"workspace:{row.get('last_modified') or ''}"
-        artifact_key = hashlib.sha256(
-            json.dumps(
-                {
-                    "project": project_id,
-                    "projectFileRel": project_file_rel,
-                    "source": source_selector,
-                    "force": bool(force),
-                    "generator": semantic_index_service.generator_cache_tag(),
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        artifact_key = webgpu_artifact_key(row, commit, force=force)
         queued = v3_jobs.enqueue(
             "webgpu_3d",
             {

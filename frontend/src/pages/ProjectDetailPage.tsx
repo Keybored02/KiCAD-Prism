@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from
 import { Button } from "@/components/ui/button";
 import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, Link2 } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, Factory, ExternalLink, Link2 } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -22,6 +22,7 @@ import {
 import { VISUALIZER_DESIGN_SEARCH_SLOT_ID } from "@/lib/design-search";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { projectLastUpdated } from "@/lib/project-dates";
+import { UsedInPanel } from "@/features/system-builder/used-in-panel";
 
 const AssetsPortal = lazy(() =>
     import("@/components/assets-portal").then((module) => ({ default: module.AssetsPortal }))
@@ -44,6 +45,9 @@ const Visualizer = lazy(() =>
 );
 const MarkdownContent = lazy(() =>
     import("@/components/markdown-content").then((module) => ({ default: module.MarkdownContent }))
+);
+const ProjectManufacturing = lazy(() =>
+    import("@/components/manufacturing/project-manufacturing").then((module) => ({ default: module.ProjectManufacturing }))
 );
 
 interface Project {
@@ -92,6 +96,7 @@ function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection 
         || section === "documentation"
         || section === "workflows"
         || section === "release-studio"
+        || section === "manufacturing"
     ) {
         return section;
     }
@@ -105,6 +110,7 @@ const NAV_ITEMS = [
     { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
     { id: "workflows" as ProjectSection, label: "Workflows", icon: PlayCircle },
     { id: "release-studio" as ProjectSection, label: "Release Studio", icon: ShieldCheck },
+    { id: "manufacturing" as ProjectSection, label: "Manufacturing", icon: Factory },
     { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
     { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
 ];
@@ -140,8 +146,16 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     // Helper function to get display name
     const selectedBranchRef = searchParams.get('branch');
     const currentCommit = searchParams.get('commit');
+    // Matched on ref first, then on name. Prism's clone never checks branches out, so
+    // a branch somebody pushed exists in it only as origin/<name> and its ref reads
+    // "origin/test" where the user (and anything linking here, like the KiCad plugin)
+    // calls it "test". Without the fallback that link selected nothing and the picker
+    // fell back to its first option, showing the wrong branch for the commit on screen.
     const selectedBranch = useMemo(
-        () => branches.find((branch) => branch.ref === selectedBranchRef) || null,
+        () =>
+            branches.find((branch) => branch.ref === selectedBranchRef) ||
+            branches.find((branch) => branch.name === selectedBranchRef) ||
+            null,
         [branches, selectedBranchRef]
     );
     // The empty-value option means "the branch the repo is checked out to".
@@ -514,8 +528,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         // map it back to the default value to keep the select
                         // in sync rather than falling through to the first item.
                         value={
-                            selectedBranchRef && selectedBranchRef !== currentBranch?.ref
-                                ? selectedBranchRef
+                            selectedBranch && selectedBranch.ref !== currentBranch?.ref
+                                ? selectedBranch.ref
                                 : ""
                         }
                         onChange={(event) => handleBranchChange(event.target.value)}
@@ -553,6 +567,22 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     <Button variant="outline" size="sm"
                         onClick={() => setViewerPin({ key: viewerSelectionKey, commit: activeCommit })}>
                         New revision available · View
+                    </Button>
+                )}
+
+                {/* Open in KiCad. Fires a prism:// link the local Prism agent
+                    handles: it finds the project by its marker, clones it if this
+                    machine doesn't have it, and opens it. Nothing happens if the
+                    agent isn't installed, the browser silently ignores an
+                    unregistered scheme, so we can't detect it and shouldn't pretend to. */}
+                {project && (
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => { window.location.href = `prism://open/${project.id}`; }}
+                        title="Open in KiCad (requires the Prism agent)"
+                    >
+                        <ExternalLink className="h-4 w-4" />
                     </Button>
                 )}
 
@@ -708,6 +738,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                         <span>Last updated: {projectLastUpdated(project)}</span>
                                     </div>
+                                    {projectId && <UsedInPanel projectId={projectId} />}
                                     {readme ? (
                                         <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
                                             <MarkdownContent
@@ -752,6 +783,29 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                     </Suspense>
                                 )}
                             </ErrorBoundary>
+                        </ProjectSectionPanel>
+                    )}
+
+                    {visitedSections.has("manufacturing") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:manufacturing`}
+                            active={activeSection === "manufacturing"}
+                            className="themed-scrollbar"
+                        >
+                            <h2 className="mb-6 text-2xl font-bold">Manufacturing</h2>
+                            {projectId && (
+                                <ErrorBoundary label="the manufacturing panel" resetKeys={[projectId, refreshKey]}>
+                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading manufacturing...</div>}>
+                                        <ProjectManufacturing
+                                            projectId={projectId}
+                                            canEdit={canMutateProject}
+                                            canLogDefects={canMutateProject || user?.role === "qa"}
+                                            canChangeStatus={user?.role === "qa" || user?.role === "admin"}
+                                            projectName={project ? getDisplayName(project) : undefined}
+                                        />
+                                    </Suspense>
+                                </ErrorBoundary>
+                            )}
                         </ProjectSectionPanel>
                     )}
 

@@ -142,7 +142,9 @@ from app.services.catalog.revision_kernel import (
     WORKFLOW_STAGES,
     normalize_workflow_stage,
 )
+from app.services.catalog import system_items
 from app.services.catalog.signed_urls import CatalogAssetUrlSigner
+from app.services.catalog.system_items_facade import CatalogSystemItemsFacade
 from app.services.catalog.runtime import (
     CatalogRuntime, DBL_EXPORT_DIRNAME, DEFAULT_STORE_DIRNAME, KLC_VALIDATION_DIRNAME,
     _ASSET_BROWSE_CACHE_TTL_SECONDS,
@@ -249,6 +251,14 @@ class ComponentCatalogDomainService:
             runtime = CatalogRuntime()
             self.__dict__["_catalog_runtime"] = runtime
         return runtime
+
+    @property
+    def system_items(self) -> CatalogSystemItemsFacade:
+        """Modules, assemblies, "mates with" and model alignment (``catalog/system_items_facade.py``)."""
+        return CatalogSystemItemsFacade(
+            connect=self._connect, initialize=self.initialize, runtime=self._runtime_for_compat(),
+            component_writer=self._component_writer, revision_kernel=self._revision_kernel,
+            revision_finalizer=self._revision_finalizer)
 
     @property
     def _store_root(self) -> Path:
@@ -391,34 +401,6 @@ class ComponentCatalogDomainService:
 
     def _revision_row(self, conn: Any, revision_id: str) -> dict[str, Any] | None:
         return self._revision_kernel.revision_row(conn, revision_id)
-
-    def _active_revision_row(
-        self,
-        conn: Any,
-        component_id: str,
-        *,
-        released: bool = False,
-    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        return self._revision_kernel.active_revision_row(conn, component_id, released=released)
-
-    def _append_audit_event(
-        self,
-        conn: Any,
-        *,
-        component_id: str,
-        revision_id: str,
-        event_type: str,
-        actor: str = "",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        return self._revision_kernel.append_audit_event(
-            conn,
-            component_id=component_id,
-            revision_id=revision_id,
-            event_type=event_type,
-            actor=actor,
-            details=details,
-        )
 
     def _revision_manifest_hash(self, conn: Any, revision_id: str) -> str:
         return self._revision_kernel.revision_manifest_hash(conn, revision_id)
@@ -836,6 +818,7 @@ class ComponentCatalogDomainService:
         workflow_stage: str | None = None,
         validation_status: str | None = None,
         category: str | None = None,
+        kind: str | None = None,
         include_inactive: bool = False,
         page: int = 1,
         page_size: int = 50,
@@ -846,6 +829,7 @@ class ComponentCatalogDomainService:
     ) -> dict[str, Any]:
         self.initialize()
         plan = self._component_queries.prepare_list_components(
+            kind=kind,
             query=query,
             source=source,
             availability_state=availability_state,
@@ -1038,7 +1022,12 @@ class ComponentCatalogDomainService:
             conn.commit()
         return self.get_component(component_id) or {}
 
-    def create_manual_component(self, *, actor: str = "", change_summary: str = "Create component", **payload: Any) -> dict[str, Any]:
+    def create_manual_component(self, *, actor: str = "", change_summary: str = "Create component",
+                                kind: str = "part", **payload: Any) -> dict[str, Any]:
+        """A new component record. ``kind="module"`` (CONTRACTS_P2 §3.5, D-P2-39) makes a module: the
+        same record and page as a part, whose symbol's units are its connectors."""
+        if kind not in ("part", "module"):
+            raise ValueError("kind must be part or module")
         self.initialize()
         with self._connect() as conn:
             component_id = self._component_writer.create_component(
@@ -1047,6 +1036,7 @@ class ComponentCatalogDomainService:
                 payload,
                 actor=actor,
                 change_summary=change_summary,
+                kind=kind,
             )
             conn.commit()
         return self.get_component(component_id) or {}
@@ -1868,6 +1858,7 @@ class ComponentCatalogDomainService:
                 expected_manifest_hash=expected_manifest_hash,
             )
             conn.commit()
+        self.system_items.notify_release(component_id, release_status)
         return self.get_component(component_id) or {}
 
     def deactivate_component(self, component_id: str, *, actor: str = "", reason: str = "") -> bool:
@@ -1981,7 +1972,7 @@ class ComponentCatalogDomainService:
         return [
             component
             for component in self.list_components_flat(released_only=True, include_inactive=False)
-            if component["place_enabled"]
+            if component["place_enabled"] and system_items.is_library_part(component)
         ]
 
     def _dbl_row_for_component(

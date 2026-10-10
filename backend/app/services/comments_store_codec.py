@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
-from app.services import comments_revisions
+from app.services import comment_bundle, comments_revisions
 from app.services.comments_revisions import Editor
 
 # 1.1 adds authorUserId/authorKind, reply ids, revision/updatedAt and the anchor
@@ -40,13 +40,13 @@ _COMMENT_COLUMNS = """
     forge_provider, forge_issue_id, forge_issue_url, forge_sync_state,
     author_user_id, author_kind, revision, updated_at, deleted_at,
     anchor_commit, anchor_revision_key, anchor_source, anchor_state,
-    selected_side, project_relative_path
+    selected_side, project_relative_path, content_format
 """
 
 _REPLY_COLUMNS = """
     id, comment_id, author, timestamp, content,
     author_user_id, author_kind, revision, updated_at, deleted_at, origin,
-    sync_state
+    sync_state, content_format
 """
 
 COMMENT_CLASSES = ("general", "observation", "question", "task")
@@ -176,6 +176,7 @@ def _row_to_reply_dict(row) -> Dict:
         "updatedAt": _iso_timestamp(row.get("updated_at") or row["timestamp"]),
         "revision": int(row.get("revision") or 1),
         "content": row["content"],
+        "contentFormat": row.get("content_format") or "plain",
         "origin": row.get("origin") or comments_revisions.ORIGIN_PRISM,
     }
     if row.get("deleted_at"):
@@ -211,6 +212,7 @@ def _row_to_comment_dict(row, replies: List[Dict]) -> Dict:
         "context": row["context"],
         "location": location,
         "content": row["content"],
+        "contentFormat": row.get("content_format") or "plain",
         "replies": replies,
         "commentClass": _normalize_comment_class(row.get("comment_class")),
         "severity": _normalize_severity(row.get("severity")),
@@ -262,8 +264,11 @@ def _row_to_comment_dict(row, replies: List[Dict]) -> Dict:
     return comment
 
 
-def import_comments_payload(conn, project_id: str, payload: Dict) -> None:
+def import_comments_payload(conn, project_id: str, payload: Dict, bundle_dir: Optional[str] = None) -> None:
     """Load a comments.json (1.0 or 1.1) once, as legacy rows.
+
+    Rich bodies (``contentFormat: "md"``) are restored with the attachments
+    exported beside the file in ``bundle_dir``; see ``comment_bundle``.
 
     A file in the repository is not an authentication source: even when
     it carries ``authorUserId`` the imported rows get no owner, only the
@@ -291,7 +296,8 @@ def import_comments_payload(conn, project_id: str, payload: Dict) -> None:
         comment_id = str(raw_comment.get("id") or f"c_{uuid.uuid4().hex[:8]}")
         author = str(raw_comment.get("author") or "anonymous")
         timestamp = str(raw_comment.get("timestamp") or _utc_now_iso())
-        content = str(raw_comment.get("content") or "")
+        body = comment_bundle.import_body(conn, project_id, raw_comment, bundle_dir)
+        content = body.content
 
         try:
             loc_x = float(location.get("x", 0.0))
@@ -322,9 +328,9 @@ def import_comments_payload(conn, project_id: str, payload: Dict) -> None:
                 area_x, area_y, area_w, area_h,
                 element_id, element_ref, element_type,
                 comment_class, severity, mentions,
-                author_kind, updated_at
+                author_kind, updated_at, content_format
             )
-            VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+            VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s)
             ON CONFLICT (id) DO NOTHING
             """,
             (
@@ -351,8 +357,10 @@ def import_comments_payload(conn, project_id: str, payload: Dict) -> None:
                 json.dumps(mentions),
                 AUTHOR_KIND_LEGACY,
                 timestamp,
+                body.content_format,
             ),
         )
+        comment_bundle.link_imported(conn, project_id, body, comment_id=comment_id)
         comments_revisions.ensure_create_revision(
             conn, project_id=project_id, target_kind=comments_revisions.ROOT,
             table="comments", target_id=comment_id,
@@ -369,15 +377,16 @@ def import_comments_payload(conn, project_id: str, payload: Dict) -> None:
             reply_id = str(raw_reply.get("id") or f"r_{uuid.uuid4().hex[:8]}")
             reply_author = str(raw_reply.get("author") or "anonymous")
             reply_timestamp = str(raw_reply.get("timestamp") or _utc_now_iso())
-            reply_content = str(raw_reply.get("content") or "")
+            reply_body = comment_bundle.import_body(conn, project_id, raw_reply, bundle_dir)
+            reply_content = reply_body.content
 
             conn.execute(
                 """
                 INSERT INTO comment_replies(
                     id, comment_id, project_id, author, timestamp, content,
-                    author_kind, updated_at
+                    author_kind, updated_at, content_format
                 )
-                VALUES(%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO NOTHING
                 """,
                 (
@@ -389,8 +398,10 @@ def import_comments_payload(conn, project_id: str, payload: Dict) -> None:
                     reply_content,
                     AUTHOR_KIND_LEGACY,
                     reply_timestamp,
+                    reply_body.content_format,
                 ),
             )
+            comment_bundle.link_imported(conn, project_id, reply_body, comment_id=comment_id, reply_id=reply_id)
             comments_revisions.ensure_create_revision(
                 conn, project_id=project_id, target_kind=comments_revisions.REPLY,
                 table="comment_replies", target_id=reply_id,

@@ -124,6 +124,14 @@ resolution) →
 `frontend/src/components/visualizer.tsx` ·
 `frontend/src/components/engineering-bom-table.tsx` (viewer-side selection)
 
+**Connect boards into a system**
+`backend/app/api/systems.py` → `backend/app/services/systems/service.py` →
+`backend/app/services/systems/store.py` (every change, audited) ·
+`backend/app/services/systems/detection.py` (after each project sync) →
+`frontend/src/lib/systems-api.ts` → `frontend/src/pages/SystemDetailPage.tsx`
+→ `frontend/src/features/system-builder/`. The contract is
+`docs/system-builder/CONTRACTS.md`; read it before changing a rule.
+
 **Place a symbol from desktop KiCad**
 `backend/app/api/remote_provider.py` · `backend/app/api/provider_oauth.py` →
 `backend/app/services/provider_auth_service.py` →

@@ -16,7 +16,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, List, Tuple
 
-from app.services import comment_live_events
+from app.services import comment_live_events, comment_social
+from app.services.trackers import attachment_links
 from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema
 from app.services.trackers.migrations import (
     cascade_comments_tracker_fks,
@@ -191,6 +192,43 @@ def _m011_comment_scope_columns(conn) -> None:
     )
 
 
+def _m013_rich_content_and_attachments(conn) -> None:
+    """Markdown bodies and first-class attachments (issue #417).
+
+    Rows written before this stay ``plain`` and render exactly as before.
+    Attachments are soft-owned by the root or reply that first referenced
+    them; tombstoned threads keep theirs so revision history still resolves.
+    """
+    conn.execute(
+        """
+        ALTER TABLE comments ADD COLUMN IF NOT EXISTS content_format TEXT NOT NULL DEFAULT 'plain';
+        ALTER TABLE comment_replies ADD COLUMN IF NOT EXISTS content_format TEXT NOT NULL DEFAULT 'plain';
+        ALTER TABLE comment_revisions ADD COLUMN IF NOT EXISTS content_format TEXT;
+        CREATE TABLE IF NOT EXISTS comment_attachments (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            comment_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
+            reply_id TEXT REFERENCES comment_replies(id) ON DELETE CASCADE,
+            uploader_user_id TEXT,
+            uploader_display TEXT NOT NULL DEFAULT '',
+            sha256 TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            size_bytes BIGINT NOT NULL,
+            width INTEGER,
+            height INTEGER,
+            state TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_comment_attachments_project
+            ON comment_attachments(project_id, state, created_at);
+        CREATE INDEX IF NOT EXISTS idx_comment_attachments_sha
+            ON comment_attachments(sha256);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "identity_revisions_tombstones", _m001_identity_revisions_tombstones),
     (2, "backfill_create_revisions", _m002_backfill_create_revisions),
@@ -205,6 +243,9 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (11, "comment_scope_columns", _m011_comment_scope_columns),
     # Re-installs the v10 trigger function without retry-bookkeeping columns.
     (12, "tracker_projection_ignores_retry_bookkeeping", apply_tracker_projection_events),
+    (13, "rich_content_and_attachments", _m013_rich_content_and_attachments),
+    (14, "attachment_remote_links", attachment_links.apply_schema),
+    (15, "comment_reactions", comment_social.apply_schema),
 ]
 
 

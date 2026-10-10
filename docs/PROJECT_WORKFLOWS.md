@@ -113,6 +113,44 @@ The PCB inspector also shows per-net routing statistics. Treat these as review
 measurements from the parsed board, not a replacement for KiCad DRC or routing
 sign-off.
 
+## Insets
+
+An inset shows a live view of the other document without leaving the one you are reading:
+hover a schematic pin to see the PCB around its footprint, or hover a PCB pad to see the
+schematic around its symbol. A dashed leader joins the pin or pad to its counterpart in the
+inset.
+
+- **Turn on inset mode** with `I` or the **Insets** button in the viewer controls rail. With
+  inset mode off, hold `Alt` (`⌥` on macOS) to peek; releasing it closes the peek.
+- **Hover** a pin or pad to open a preview, drawn with a dashed border. Moving away closes it,
+  unless the pointer is on the preview.
+- **Click** the pin or pad to pin its inset. Pinned insets stay until you close them.
+- **Hover a pin or pad inside an inset** to open the other document from there. Insets chain
+  (schematic → PCB → schematic …), and each chained inset names its parent in its header.
+  Closing an inset also closes the insets chained from it.
+- **Bottom-side** footprints open mirrored, with the back copper on top and a **BOT** badge.
+  Large parts, such as BGAs and FPGA symbols, open on the neighbourhood of the pin or pad
+  instead of the whole part.
+- **Insets follow the main view:** layer visibility, highlighted nets, the selection and the
+  design variant all appear in open insets.
+
+| Key | With the pointer over an inset |
+|---|---|
+| `R` / `⇧R` | Rotate +15° / −15° (`⇧` + wheel rotates freely) |
+| `M` | Mirror |
+| `L` | Lens (circular) shape |
+| `Home` | Refit |
+| `P` | Pin |
+| `X` | Close |
+| `Esc` | Close the preview, then all insets; the next `Esc` clears the selection |
+
+Drag an inset's header to move it, its corner to resize it, and its canvas to pan; the wheel
+zooms. At most eight insets stay open; opening another closes the least recently used one.
+Insets belong to their tab: switching tabs closes unpinned previews and keeps pinned insets.
+
+The PCB viewer loads the first time inset mode turns on, so the first PCB inset on a large
+board can take a moment to appear.
+
 ## Design variants
 
 A KiCad design can carry named assembly variants (for example a `Lite` and a
@@ -165,6 +203,22 @@ misleading marker. Reviewers can reattach an unresolved anchor on a revision;
 legacy threads without provenance remain visibly unpinned. Comparison comments
 retain the base and compare SHAs.
 
+The composer is WYSIWYG: bold, italic, code, lists, quotes and links, with
+`@email` mentions. Paste a screenshot (Ctrl/⌘+V), drop a file, or use the
+paperclip to attach images (PNG, JPEG, WebP, GIF), PDF, ZIP or UTF-8 text, up
+to `COMMENT_ATTACHMENT_MAX_BYTES` each. Images are re-encoded on upload and
+render inline; other files render as downloads. Attachments are stored under
+`COMMENT_ATTACHMENT_ROOT`, never in the project repository, and are served only
+to project members.
+A project's attachments are capped in total by
+`COMMENT_ATTACHMENT_PROJECT_QUOTA_BYTES` (2 GiB by default, `0` for no limit).
+
+Each message carries emoji reactions, an "edited" marker once its text has
+changed, and actions to quote it into a reply or (for its author) edit it in
+place. The comments panel lists every snip in the review in one gallery and
+marks threads with activity since you last opened them; unread state is kept
+per browser. Reactions are not exported to the `.comments/` bundle.
+
 Threads and replies update live across viewers. After a disconnection, the
 client replays changes or refreshes the HTTP snapshot; HTTP polling provides a
 fallback when the socket is unavailable. See the
@@ -176,7 +230,13 @@ publish a thread as a GitHub or GitLab issue. The rail shows the linked issue
 and synchronization/retry state; local discussion remains available during a
 forge outage. Configure this through [GitHub setup](GITHUB_APP_SETUP.md),
 [GitLab setup](GITLAB_SETUP.md), and [tracker operations](TRACKER_INTEGRATION.md).
-Exporting `.comments/comments.json` is explicit and does not push a Git commit.
+Exporting comments is explicit and does not push a Git commit. It writes a
+`.comments/` bundle: `comments.json`, `attachments/` with every file
+a live comment references, and `threads/<id>.md`, which forges render with
+images. Importing a repository that carries a bundle restores formatting and
+attachments; files from the repository are re-validated like uploads. A
+comparison's discussion can be downloaded from its rail as Markdown plus
+attachments.
 
 ## Design Comparison
 

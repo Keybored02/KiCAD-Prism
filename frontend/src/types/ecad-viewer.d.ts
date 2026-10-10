@@ -396,6 +396,18 @@ export interface ECadViewerElement extends HTMLElement {
     appendSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
     setActive(active: boolean): void;
     setViewportInsets(insets: EcadViewportInsets | null): void;
+    /**
+     * Cross-document insets: hovering a pin or pad opens a live view of the
+     * other document. Link the schematic and PCB elements with setInsetPeer;
+     * `I` toggles inset mode (event "ecad-viewer:inset-mode", detail.on).
+     */
+    enableInsets?(): void;
+    setInsetPeer?(peer: ECadViewerElement | null): void;
+    setInsetMode?(on: boolean): void;
+    readonly insetMode?: boolean;
+    /** Close the inset preview, else all insets; true if anything closed. */
+    escapeInsets?(): boolean;
+    closeInsets?(): boolean;
     resize?(): void;
     /**
      * Drop the inspected object; the highlighted nets too unless

@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
+import { Boxes, CircuitBoard, FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import type { User } from "@/types/auth";
@@ -14,6 +14,7 @@ import { settingsTabFromParam } from "@/lib/settings-tabs";
 import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
 import { fetchApi, readApiError } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { WorkspaceSectionHeading } from "./workspace/workspace-section-heading";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
 import { WorkspaceListView } from "./workspace/workspace-list-view";
@@ -25,8 +26,13 @@ import { WorkspaceProjectPropertiesSheet } from "./workspace/workspace-project-p
 import { WorkspaceProjectToolbar } from "./workspace/workspace-project-toolbar";
 import { WorkspaceSidebar } from "./workspace/workspace-sidebar";
 import { WorkspaceSection, ViewMode } from "./workspace/workspace-types";
+import { WorkspaceSystemsSection, systemPath, systemsForLevel } from "@/features/system-builder/workspace-systems-section";
 
 const WORKSPACE_PAGE_SIZE = 25;
+
+const ManufacturingDashboard = lazy(() =>
+  import("./manufacturing/manufacturing-dashboard").then((module) => ({ default: module.ManufacturingDashboard }))
+);
 
 const ImportDialog = lazy(() =>
   import("./import-dialog").then((module) => ({ default: module.ImportDialog }))
@@ -46,6 +52,9 @@ const DeleteProjectDialog = lazy(() =>
 const MoveProjectDialog = lazy(() =>
   import("./workspace/move-project-dialog").then((module) => ({ default: module.MoveProjectDialog }))
 );
+const CreateSystemDialog = lazy(() =>
+  import("@/features/system-builder/create-system-dialog").then((module) => ({ default: module.CreateSystemDialog }))
+);
 const RenameFolderDialog = lazy(() =>
   import("./workspace/rename-folder-dialog").then((module) => ({ default: module.RenameFolderDialog }))
 );
@@ -63,15 +72,18 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const { projects, folders, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
+  const { projects, folders, systems, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
     useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
 
-  const requestedSection = searchParams.get("section") === "library-manager" ? "library-manager" : "projects";
+  const sectionParam = searchParams.get("section");
+  const requestedSection: WorkspaceSection =
+    sectionParam === "library-manager" || sectionParam === "manufacturing" ? sectionParam : "projects";
   const [section, setSection] = useState<WorkspaceSection>(requestedSection);
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isCreateSystemOpen, setIsCreateSystemOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -140,10 +152,12 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     setSection(nextSection);
     setSearchParams((currentParams) => {
       const next = new URLSearchParams(currentParams);
-      if (nextSection === "library-manager") {
+      if (nextSection === "library-manager" || nextSection === "manufacturing") {
         next.set("section", nextSection);
       } else {
         next.delete("section");
+      }
+      if (nextSection !== "library-manager") {
         next.delete("libraryView");
         next.delete("session");
       }
@@ -174,6 +188,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   }, [projects, currentFolderId]);
 
   const { isSearching, searchResults } = useWorkspaceSearch(projects, folderById, searchQuery);
+  const levelSystems = useMemo(
+    () => systemsForLevel(systems, currentFolderId, isSearching ? searchQuery : ""),
+    [systems, currentFolderId, isSearching, searchQuery],
+  );
 
   const breadcrumbs = useMemo(() => {
     const trail: FolderTreeItem[] = [];
@@ -255,6 +273,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       commands.push(
         { id: "workspace:import", label: "Import project", group: "Workspace", icon: FolderPlus, keywords: "add new repository clone", run: () => setIsImportOpen(true) },
         { id: "workspace:new-folder", label: "New folder", group: "Workspace", icon: FolderPlus, keywords: "create directory", run: () => setIsCreateFolderOpen(true) },
+        { id: "workspace:new-system", label: "New system", group: "Workspace", icon: Boxes, keywords: "system builder multi-board harness interconnect", run: () => setIsCreateSystemOpen(true) },
       );
     }
     commands.push({
@@ -530,85 +549,12 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     return <div className="flex h-64 items-center justify-center rounded-xl border text-destructive">{error}</div>;
   }
 
-  return (
+  const systemsSection = (
+    <WorkspaceSystemsSection systems={levelSystems} dense={selectedProject !== null} showHeading />
+  );
+  const projectsToolbar = (
     <>
-      <div className="flex h-full min-h-0 w-full overflow-hidden border bg-background">
-        <WorkspaceSidebar
-          section={section}
-          isCollapsed={isSidebarCollapsed}
-          onToggle={() => setIsSidebarCollapsed((previous) => !previous)}
-          onSectionChange={handleSectionChange}
-        />
-
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="border-b">
-            <div className="flex h-12 items-center gap-3 px-4 sm:hidden">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setIsSidebarCollapsed((previous) => !previous)}
-                aria-label="Toggle sidebar"
-              >
-                {isSidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-              </Button>
-            </div>
-
-            {section === "projects" && (
-              <WorkspaceProjectToolbar
-                viewMode={viewMode}
-                onViewModeChange={setViewMode}
-                onImport={() => canManageProjects && setIsImportOpen(true)}
-                onCreateFolder={() => canManageProjects && setIsCreateFolderOpen(true)}
-                onRefresh={() => void refresh()}
-                onOpenSettings={() => canOpenSettings && setIsSettingsOpen(true)}
-                canManageProjects={canManageProjects}
-                canOpenSettings={canOpenSettings}
-              />
-            )}
-          </header>
-
-          {/* Scoped to the content area so a crash here leaves the sidebar and
-              the section switcher alive — the reviewer can navigate out of a
-              broken section instead of reloading. Keyed to the section so
-              switching away and back retries rather than staying broken. */}
-          <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <WorkspaceRefreshNotice refreshError={refreshError} refresh={refresh} />
-            <div className="min-h-0 flex-1 overflow-hidden">
-            <ErrorBoundary label="this section" resetKeys={[section]}>
-              {loading ? (
-                <WorkspaceLoadingState />
-              ) : section === "library-manager" ? (
-                canOpenLibrary ? (
-                  <LibraryManagerWorkspace user={user} projects={projects} />
-                ) : (
-                  <WorkspaceAppsPlaceholder
-                    canOpenLibraryManager={canOpenLibrary}
-                    onOpenLibraryManager={() => {}}
-                  />
-                )
-              ) : (
-                <div className="flex h-full min-h-0 flex-col p-6">
-                  <WorkspaceBreadcrumbs
-                    isSearching={isSearching}
-                    breadcrumbs={breadcrumbs}
-                    viewMode={viewMode}
-                    onGoRoot={() => setFolderInUrl(null)}
-                    onSelectFolder={(folderId) => setFolderInUrl(folderId)}
-                  />
-
-                  <div className="relative mt-6 min-h-0 flex-1 overflow-hidden">
-                    <div
-                      className={`h-full overflow-y-auto pr-1 ${
-                        selectedProject !== null
-                          ? "md:pr-[376px] lg:pr-[416px] xl:pr-[476px]"
-                          : ""
-                      }`}
-                    >
-                      <div className="mb-4 flex items-center justify-between rounded-lg border bg-card/30 px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-xs text-muted-foreground">
-                            {pageLabel}
-                          </p>
+<>
                           {canManageProjects && listProjects.length > 0 && (
                             <Button
                               size="sm"
@@ -641,8 +587,11 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                               </Button>
                             </>
                           )}
-                        </div>
-                        <div className="flex items-center gap-1.5">
+                        </>
+{totalPages > 1 && (
+<>
+<span className="text-[11px] text-muted-foreground">{pageLabel}</span>
+<div className="flex items-center gap-1.5">
                           <Button
                             size="sm"
                             variant="outline"
@@ -665,9 +614,95 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                             Next
                           </Button>
                         </div>
-                      </div>
+</>
+)}
+    </>
+  );
+
+  return (
+    <>
+      <div className="flex h-full min-h-0 w-full overflow-hidden border bg-background">
+        <WorkspaceSidebar
+          section={section}
+          isCollapsed={isSidebarCollapsed}
+          onToggle={() => setIsSidebarCollapsed((previous) => !previous)}
+          onSectionChange={handleSectionChange}
+        />
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="border-b">
+            <div className="flex h-12 items-center gap-3 px-4 sm:hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsSidebarCollapsed((previous) => !previous)}
+                aria-label="Toggle sidebar"
+              >
+                {isSidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+              </Button>
+            </div>
+
+            {section === "projects" && (
+              <WorkspaceProjectToolbar
+                viewMode={viewMode}
+                onViewModeChange={setViewMode}
+                onImport={() => canManageProjects && setIsImportOpen(true)}
+                onCreateSystem={() => canManageProjects && setIsCreateSystemOpen(true)}
+                onCreateFolder={() => canManageProjects && setIsCreateFolderOpen(true)}
+                onRefresh={() => void refresh()}
+                onOpenSettings={() => canOpenSettings && setIsSettingsOpen(true)}
+                canManageProjects={canManageProjects}
+                canOpenSettings={canOpenSettings}
+              />
+            )}
+          </header>
+
+          {/* Scoped to the content area so a crash here leaves the sidebar and
+              the section switcher alive — the reviewer can navigate out of a
+              broken section instead of reloading. Keyed to the section so
+              switching away and back retries rather than staying broken. */}
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <WorkspaceRefreshNotice refreshError={refreshError} refresh={refresh} />
+            <div className="min-h-0 flex-1 overflow-hidden">
+            <ErrorBoundary label="this section" resetKeys={[section]}>
+              {loading ? (
+                <WorkspaceLoadingState />
+              ) : section === "library-manager" ? (
+                canOpenLibrary ? (
+                  <LibraryManagerWorkspace user={user} projects={projects} />
+                ) : (
+                  <WorkspaceAppsPlaceholder
+                    canOpenLibraryManager={canOpenLibrary}
+                    onOpenLibraryManager={() => {}}
+                  />
+                )
+              ) : section === "manufacturing" ? (
+                <Suspense fallback={<WorkspaceLoadingState />}>
+                  <ManufacturingDashboard user={user} projects={projects} />
+                </Suspense>
+              ) : (
+                <div className="flex h-full min-h-0 flex-col p-6">
+                  <WorkspaceBreadcrumbs
+                    isSearching={isSearching}
+                    breadcrumbs={breadcrumbs}
+                    onGoRoot={() => setFolderInUrl(null)}
+                    onSelectFolder={(folderId) => setFolderInUrl(folderId)}
+                  />
+
+                  <div className={`relative min-h-0 flex-1 overflow-hidden ${breadcrumbs.length > 0 && !isSearching ? "mt-4" : ""}`}>
+                    <div
+                      className={`h-full overflow-y-auto pr-1 ${
+                        selectedProject !== null
+                          ? "md:pr-[376px] lg:pr-[416px] xl:pr-[476px]"
+                          : ""
+                      }`}
+                    >
+                      {viewMode === "list" && <div className="mb-8">{systemsSection}</div>}
                       {viewMode === "gallery" ? (
                         <WorkspaceGalleryView
+                          systemsSection={systemsSection}
+                          projectsToolbar={projectsToolbar}
+                          projectCount={allListProjects.length}
                           searchQuery={searchQuery}
                           isSearching={isSearching}
                           searchResults={listProjects}
@@ -690,6 +725,8 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           canManageProjects={canManageProjects}
                         />
                       ) : (
+                        <div className="space-y-3">
+                          <WorkspaceSectionHeading icon={CircuitBoard} title="Folders and boards">{projectsToolbar}</WorkspaceSectionHeading>
                         <WorkspaceListView
                           isSearching={isSearching}
                           selectedProjectId={selectedProjectId}
@@ -710,6 +747,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           onRegenerateThumbnail={handleRegenerateThumbnail}
                           canManageProjects={canManageProjects}
                         />
+                        </div>
                       )}
                     </div>
 
@@ -741,6 +779,29 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
         </div>
       </div>
 
+      {isCreateSystemOpen && (
+        <Suspense fallback={null}>
+          <CreateSystemDialog
+            open={isCreateSystemOpen}
+            projects={projects}
+            folderId={currentFolderId}
+            folderName={currentFolderId ? folderById.get(currentFolderId)?.name ?? null : null}
+            onOpenChange={setIsCreateSystemOpen}
+            onCreated={({ systemId, failures }) => {
+              setIsCreateSystemOpen(false);
+              if (failures.length > 0) {
+                toast.error(`System created, but ${failures.length} board(s) could not be added`, {
+                  description: failures.map((failure) => `${failure.label}: ${failure.error}`).join("\n"),
+                });
+              } else {
+                toast.success("System created");
+              }
+              void refresh();
+              navigate(systemPath(systemId));
+            }}
+          />
+        </Suspense>
+      )}
       {isImportOpen && (
         <Suspense fallback={null}>
           <ImportDialog open={isImportOpen} onOpenChange={setIsImportOpen} onImportComplete={refresh} />

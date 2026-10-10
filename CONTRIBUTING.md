@@ -80,8 +80,21 @@ npm run build:panel
 ### Backend
 
 ```bash
-backend/venv/bin/python -m unittest discover -s backend/tests -p 'test_*.py'
+cd backend
+uv run --no-project --python venv/bin/python --with-requirements ../requirements/test.txt \
+  python -m pytest -n auto
 ```
+
+This is the CI command (CI splits it over three runners with `--shard k/3`). pytest
+runs the `unittest` suite in parallel, each worker on its own copy of the test
+databases (`backend/tests/conftest.py`). The
+test tools are pinned in `requirements/test.txt`, outside the runtime lock, so
+`uv` layers them over the backend venv without changing it.
+
+Add `--testmon` while iterating: it records which code each test runs and, on
+the next run, runs only the tests affected by your changes (seconds instead of
+minutes). It sees Python changes only, so run the full suite before you open a
+pull request.
 
 PostgreSQL integration tests use `TEST_POSTGRES_URL` and, for the catalog
 epoch-2 cutover, `LEGACY_SURVIVOR_TEST_POSTGRES_URL`. Use disposable test
@@ -163,7 +176,9 @@ matters to a user's decision, state it directly.
 - Breaking or feature-freeze changes have explicit maintainer approval.
 
 The repository quality gate runs for pull requests and pushes targeting `dev`
-or `main`. Contributor pull requests target `dev`; maintainers promote a tested
+or `main`. On a pull request it skips the jobs your files cannot affect
+(`scripts/ci_changes.py` decides, from the changed paths and the files each
+area's tests read); pushes and the nightly run always run every job. Contributor pull requests target `dev`; maintainers promote a tested
 release through a separate `dev` to `main` pull request. Keep feature branches
 current with `dev` before merge.
 

@@ -39,7 +39,7 @@ from pipeline.topology_compiler.prism_clipper2 import (
 from pipeline.topology_compiler.context import PrismCompilationContext
 from pipeline.topology_compiler.pcb_extract import _board_bbox, _declared_layers, _stackup_metadata_from_pcb_file
 from pipeline.topology_compiler.pcb_extract import compile_pcb_artifacts, extract_pcb_metadata_light
-from pipeline.topology_compiler.pcb_geometry import extract_pad_holes
+from pipeline.topology_compiler.pcb_geometry import KIND_IDS, circle, extract_pad_holes
 from pipeline.topology_compiler.kicad_cli_export import (
     BOARD_CONTEXT_CACHE_VERSION,
     ExportResult,
@@ -60,6 +60,7 @@ from pipeline.topology_compiler.copper_geometry import (
 )
 from pipeline.topology_compiler.semantic_gltf import (
     SemanticGltfBuilder,
+    serialize_semantic_input,
     _native_backend_for_semantic_mode,
     _reconcile_packed_net_metadata,
     _semantic_clipper_backend,
@@ -118,8 +119,12 @@ class TopologyCompilerTests(unittest.TestCase):
         )
         self.assertEqual(builder.board_y_min_mm, 0.0)
         self.assertAlmostEqual(builder.board_y_max_mm or 0.0, 1.86)
-        self.assertAlmostEqual(builder._runtime_z_mm(-1.0), 0.0)
-        self.assertAlmostEqual(builder._runtime_z_mm(1.0), 1.86)
+        # Shifted, not scaled: outer copper inner faces land on the substrate faces,
+        # and the copper itself sits outside them.
+        self.assertAlmostEqual(builder._runtime_z_mm(-0.93), 0.0)
+        self.assertAlmostEqual(builder._runtime_z_mm(0.93), 1.86)
+        self.assertAlmostEqual(builder._runtime_z_mm(0.95), 1.88)
+        self.assertAlmostEqual(builder._runtime_z_mm(-0.95), -0.02)
 
     def test_component_bindings_patch_manifest_without_rebuilding_tiles(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -215,6 +220,36 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(len(topology["nets"]), 1)
         self.assertEqual(len(topology["terminals"]), 2)
         self.assertEqual(topology["indexes"]["net_name_to_net"]["VBUS"], "net_vbus")
+
+    def test_footprint_body_prefers_the_courtyard_then_the_pads(self) -> None:
+        design = {"components": [{"designator": "U1"}, {"designator": "J1"}, {"designator": "TP1"}], "nets": []}
+        pcb_metadata = {
+            "board": {"bbox_mm": [0.0, 0.0, 50.0, 50.0]},
+            "components": [
+                {"designator": "U1", "layer": "F.Cu", "x_mm": 40.0, "y_mm": 40.0,
+                 "bbox_mm": [39.0, 39.0, 41.0, 41.0], "body_bbox_mm": [37.5, 38.0, 42.5, 42.0]},
+                {"designator": "J1", "layer": "B.Cu", "x_mm": 15.0, "y_mm": 12.0,
+                 "bbox_mm": [10.0, 10.0, 20.0, 14.0]},
+                {"designator": "TP1", "layer": "F.Cu", "x_mm": 30.0, "y_mm": 30.0},
+            ],
+        }
+        topology = compile_topology(design, [], pcb_metadata, {})
+        bodies = {
+            item["designator"]: item
+            for item in topology["physical_objects"]
+            if item["kind"] == "footprint_body"
+        }
+
+        def rounded(bbox: list[float]) -> list[float]:
+            return [round(value, 6) for value in bbox]
+
+        # Courtyard or fab outline, as given.
+        self.assertEqual(rounded(bodies["U1"]["bbox_mm"]), [37.5, 38.0, 42.5, 42.0])
+        # Pads only: their extent plus a margin.
+        self.assertEqual(rounded(bodies["J1"]["bbox_mm"]), [9.65, 9.65, 20.35, 14.35])
+        self.assertEqual(bodies["J1"]["layer"], "B.Cu")
+        # No pad extent: a small box around the position.
+        self.assertEqual(rounded(bodies["TP1"]["bbox_mm"]), [28.05, 29.0, 31.95, 31.0])
 
     def test_board_net_names_reconcile_with_the_schematic_netlist(self) -> None:
         # A bus member crossing sheet pins: the board calls it /SIG, the
@@ -656,10 +691,21 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(unified["terminal_pad_links"], legacy["terminal_pad_links"])
         self.assertEqual(unified["stats"], legacy["stats"])
         self.assertEqual(unified_holes, legacy_holes)
+        topology = compile_topology(design_payload, [], unified, {})
+        self.assertEqual(topology, compile_topology(design_payload, [], legacy, {}))
+        # Terminals carry the pad's KiCad UUID: the 3D pad feature's sourceUid.
         self.assertEqual(
-            compile_topology(design_payload, [], unified, {}),
-            compile_topology(design_payload, [], legacy, {}),
+            {t["pin"]: t["pcb_pad_source_uid"] for t in topology["terminals"]},
+            {"1": "pad-r1-1", "2": "pad-r1-2"},
         )
+        pad_block_uuids = {
+            operation.get("data_uuid")
+            for record in pcb_ir.get("records", [])
+            if record.get("kind") == "footprint"
+            for operation in record.get("operations", [])
+            if operation.get("kind") == "StartBlock" and operation.get("data_ref") == "pad"
+        }
+        self.assertLessEqual({"pad-r1-1", "pad-r1-2"}, pad_block_uuids)
 
     def test_board_compilation_is_cached_across_all_consumers(self) -> None:
         calls = {"ir": 0, "payload": 0, "artifacts": 0}
@@ -852,11 +898,99 @@ class TopologyCompilerTests(unittest.TestCase):
 
     def test_board_context_export_excludes_duplicate_pad_geometry(self) -> None:
         args = _board_context_export_args(Path("geometry"), Path("unit.kicad_pcb"))
-        self.assertIn("--include-soldermask", args)
+        # The mask comes from soldermask.py; kicad-cli only cuts pad openings
+        # into it when it also exports the pads.
+        self.assertNotIn("--include-soldermask", args)
         self.assertIn("--include-silkscreen", args)
         self.assertIn("--no-components", args)
         self.assertNotIn("--include-pads", args)
-        self.assertIn("no-pads", BOARD_CONTEXT_CACHE_VERSION)
+        self.assertIn("no-mask", BOARD_CONTEXT_CACHE_VERSION)
+
+    def test_soldermask_outline_closes_across_micron_gaps(self) -> None:
+        # JTYU-IN ends a corner arc 6 um from its line: the outline must still close, or the board gets no mask.
+        from pipeline.topology_compiler.soldermask import join_outline_ends, soldermask_polygons
+
+        joined = join_outline_ends([[(0.0, 0.0), (20.0, 0.0)], [(20.006, 0.0), (20.0, 10.0)], [(20.0, 10.0), (0.0, 0.0)]])
+        self.assertEqual(joined[1][0], (20.0, 0.0))
+        apart = join_outline_ends([[(0.0, 0.0), (1.0, 0.0)], [(1.05, 0.0), (2.0, 0.0)]])
+        self.assertEqual(apart[1][0], (1.05, 0.0))  # 50 um is a real gap, not a drawing slip
+
+        pcb_text = """(kicad_pcb (version 20240108) (generator "pcbnew")
+  (general (thickness 1.6))
+  (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (38 "B.Mask" user) (39 "F.Mask" user) (44 "Edge.Cuts" user))
+  (net 0 "")
+  (gr_line (start 0 0) (end 20 0) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts") (uuid "e1"))
+  (gr_line (start 20.006 0) (end 20 10) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts") (uuid "e2"))
+  (gr_line (start 20 10) (end 0 10) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts") (uuid "e3"))
+  (gr_line (start 0 10) (end 0 0) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts") (uuid "e4"))
+)
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            board_path = Path(tmp) / "gap.kicad_pcb"
+            board_path.write_text(pcb_text, encoding="utf-8")
+            from kicad_monkey import KiCadPcb
+
+            pcb = KiCadPcb.from_file(board_path)
+            polygons = soldermask_polygons(pcb.to_ir(source_path=str(board_path)).to_dict())
+        self.assertIsNotNone(polygons)
+        self.assertTrue(polygons["sides"]["top"])
+
+    def test_soldermask_opens_mask_pads_and_drills(self) -> None:
+        from shapely.geometry import Point, Polygon
+
+        from pipeline.topology_compiler.soldermask import (
+            board_paste_margin,
+            board_tenting,
+            soldermask_polygons,
+        )
+
+        pcb_text = """(kicad_pcb (version 20240108) (generator "pcbnew")
+  (general (thickness 1.6))
+  (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (35 "F.Paste" user) (38 "B.Mask" user) (39 "F.Mask" user) (44 "Edge.Cuts" user))
+  (setup (pad_to_mask_clearance 0.1) (pad_to_paste_clearance -0.05))
+  (net 0 "")
+  (gr_rect (start 0 0) (end 20 10) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts") (uuid "edge"))
+  (footprint "Device:R" (layer "F.Cu") (at 5 5 0) (uuid "fp-r1")
+    (property "Reference" "R1" (at 0 0 0) (layer "F.SilkS"))
+    (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (uuid "pad-mask"))
+    (pad "2" smd rect (at 3 0) (size 1 1) (layers "F.Cu") (uuid "pad-covered"))
+    (pad "3" smd rect (at -3 0) (size 1 1) (layers "F.Cu" "F.Mask" "F.Paste") (uuid "pad-paste"))
+    (fp_circle (center 8 0) (end 8.5 0) (stroke (width 0) (type solid)) (fill yes) (layer "F.Mask") (uuid "mask-circle")))
+  (via (at 15 5) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net 0) (uuid "via1"))
+)
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            board_path = Path(tmp) / "mask.kicad_pcb"
+            board_path.write_text(pcb_text, encoding="utf-8")
+            from kicad_monkey import KiCadPcb
+
+            pcb = KiCadPcb.from_file(board_path)
+            pcb_ir = pcb.to_ir(source_path=str(board_path)).to_dict()
+            paste_margin = board_paste_margin(pcb)
+            polygons = soldermask_polygons(pcb_ir, tented=board_tenting(pcb), paste_margin_mm=paste_margin)
+
+        self.assertIsNotNone(polygons)
+        top = [Polygon(ring["outer"], ring["holes"]) for ring in polygons["sides"]["top"]]
+        bottom = [Polygon(ring["outer"], ring["holes"]) for ring in polygons["sides"]["bottom"]]
+
+        def covered(shapes, x, y):
+            return any(shape.contains(Point(x, y)) for shape in shapes)
+
+        self.assertFalse(covered(top, 5.0, 5.0), "pad on F.Mask is open")
+        self.assertFalse(covered(top, 5.55, 5.0), "board mask margin widens the opening")
+        self.assertTrue(covered(top, 8.0, 5.0), "pad without F.Mask stays covered")
+        self.assertFalse(covered(top, 13.0, 5.0), "F.Mask graphic is an opening")
+        self.assertFalse(covered(top, 15.0, 5.0), "via drill goes through")
+        self.assertTrue(covered(top, 15.25, 5.0), "tented via ring stays covered")
+        self.assertTrue(covered(bottom, 5.0, 5.0), "top pad does not open the bottom mask")
+        self.assertTrue(covered(top, 1.0, 1.0))
+
+        self.assertAlmostEqual(paste_margin, -0.05)
+        paste = [Polygon(ring["outer"], ring["holes"]) for ring in polygons["paste"]["top"]]
+        self.assertTrue(covered(paste, 2.0, 5.0), "pad on F.Paste gets paste")
+        self.assertFalse(covered(paste, 2.48, 5.0), "board paste clearance shrinks it")
+        self.assertFalse(covered(paste, 5.0, 5.0), "pad without F.Paste gets none")
+        self.assertNotIn("bottom", polygons["paste"])
 
     def test_native_board_manifest_retains_native_silkscreen_group(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -931,6 +1065,103 @@ class TopologyCompilerTests(unittest.TestCase):
                     )
 
             self.assertFalse((geometry / ".native-board-pack").exists())
+
+    def test_copper_is_drilled_by_every_hole_through_its_layer(self) -> None:
+        # KiCad leaves holes to the drill file: a zone fills a same-net, solidly
+        # connected hole (stitching vias, a mounting hole on GND) and a track
+        # ends at its via's centre. Copper must be drilled here, on every layer
+        # the drill passes through, or the hole renders capped.
+        square = [[0, 0], [20_000_000, 0], [20_000_000, 20_000_000], [0, 20_000_000]]
+        builder = SemanticGltfBuilder(self.semantic_topology())
+        builder.add_pcb_ir({"records": [
+            {"uuid": "zone-top", "kind": "zone_fill", "net_name": "GND", "layers": ["F.Cu"],
+             "operations": [{"kind": "PlotPoly", "points": square}]},
+            {"uuid": "zone-inner", "kind": "zone_fill", "net_name": "GND", "layers": ["In1.Cu"],
+             "operations": [{"kind": "PlotPoly", "points": square}]},
+            {"uuid": "via-through", "kind": "via", "net_name": "GND", "layers": ["F.Cu", "B.Cu"], "drill": 0.4,
+             "operations": [{"kind": "FlashPadCircle", "x": 5_000_000, "y": 5_000_000, "diameter_nm": 800_000}]},
+            # A blind via from F.Cu to In1.Cu... declared F.Cu only: it must not drill In1.Cu.
+            {"uuid": "via-blind", "kind": "via", "net_name": "GND", "layers": ["F.Cu"], "drill": 0.3,
+             "operations": [{"kind": "FlashPadCircle", "x": 15_000_000, "y": 15_000_000, "diameter_nm": 600_000}]},
+            {"uuid": "track-1", "kind": "segment", "net_name": "GND", "layer": "B.Cu",
+             "operations": [{"kind": "ThickSegment", "start_x": 1_000_000, "start_y": 5_000_000,
+                             "end_x": 5_000_000, "end_y": 5_000_000, "width_nm": 600_000}]},
+        ]})
+        zones = {item["layerName"]: item for item in builder.objects if item["kindId"] == KIND_IDS["zone"]}
+        track = next(item for item in builder.objects if item["kindId"] == KIND_IDS["track"])
+
+        def drilled_at(zone, x, y):
+            return any(
+                min(px for px, _ in hole) < x < max(px for px, _ in hole)
+                and min(py for _, py in hole) < y < max(py for _, py in hole)
+                for polygon in zone["polygons"] for hole in polygon["holes"]
+            )
+
+        self.assertTrue(drilled_at(zones["F.Cu"], 5.0, 5.0))
+        self.assertTrue(drilled_at(zones["F.Cu"], 15.0, 15.0))
+        self.assertTrue(drilled_at(zones["In1.Cu"], 5.0, 5.0))
+        self.assertFalse(drilled_at(zones["In1.Cu"], 15.0, 15.0))
+        # The track ending at the through via is drilled too: the drill sits inside its round end.
+        self.assertTrue(drilled_at(track, 5.0, 5.0))
+        # The fill keeps its area apart from the drills.
+        outer = zones["F.Cu"]["polygons"][0]["outer"]
+        self.assertAlmostEqual(max(x for x, _ in outer) - min(x for x, _ in outer), 20.0, places=3)
+
+    def test_fractured_zone_is_drilled_where_its_slit_crosses_a_drill(self) -> None:
+        # KiCad fills arrive fractured: one ring with a zero-width slit out to
+        # each hole. A drill on the slit must still cut a clean hole.
+        from shapely.geometry import Point, Polygon
+
+        mm = 1_000_000
+        # Around the hole the other way from the outline.
+        hole = [[9 * mm, 11 * mm], [11 * mm, 11 * mm], [11 * mm, 9 * mm], [9 * mm, 9 * mm]]
+        ring = [[0, 10 * mm], [0, 0], [20 * mm, 0], [20 * mm, 20 * mm], [0, 20 * mm], [0, 10 * mm],
+                [9 * mm, 10 * mm], *hole, [9 * mm, 10 * mm]]
+        builder = SemanticGltfBuilder(self.semantic_topology())
+        builder.add_pcb_ir({"records": [
+            {"uuid": "zone", "kind": "zone_fill", "net_name": "GND", "layers": ["F.Cu"],
+             "operations": [{"kind": "PlotPoly", "points": ring}]},
+            {"uuid": "via", "kind": "via", "net_name": "GND", "layers": ["F.Cu", "B.Cu"], "drill": 0.4,
+             "operations": [{"kind": "FlashPadCircle", "x": 5 * mm, "y": 10 * mm, "diameter_nm": 800_000}]},
+        ]})
+        zone = next(item for item in builder.objects if item["kindId"] == KIND_IDS["zone"])
+        shapes = [Polygon(polygon["outer"], polygon["holes"]) for polygon in zone["polygons"]]
+        self.assertTrue(all(shape.is_valid for shape in shapes))
+        self.assertFalse(any(shape.contains(Point(5.0, 10.0)) for shape in shapes))
+        self.assertFalse(any(shape.contains(Point(10.0, 10.0)) for shape in shapes))
+        self.assertTrue(any(shape.contains(Point(5.0, 10.5)) for shape in shapes))
+        area = sum(shape.area for shape in shapes)
+        self.assertAlmostEqual(area, 400.0 - 4.0 - Polygon(circle((5.0, 10.0), 0.2)).area, places=6)
+
+    def test_copper_cut_in_two_by_a_drill_keeps_a_record_per_piece(self) -> None:
+        # Tiling and clipping key on the source polygon record: two pieces of
+        # one track must not share it.
+        builder = SemanticGltfBuilder(self.semantic_topology())
+        builder.add_pcb_ir({"records": [
+            {"uuid": "via", "kind": "via", "net_name": "GND", "layers": ["F.Cu", "B.Cu"], "drill": 0.4,
+             "operations": [{"kind": "FlashPadCircle", "x": 5_000_000, "y": 5_000_000, "diameter_nm": 800_000}]},
+            {"uuid": "track", "kind": "segment", "net_name": "GND", "layer": "B.Cu",
+             "operations": [{"kind": "ThickSegment", "start_x": 1_000_000, "start_y": 5_000_000,
+                             "end_x": 9_000_000, "end_y": 5_000_000, "width_nm": 200_000}]},
+        ]})
+        track = next(item for item in builder.objects if item["kindId"] == KIND_IDS["track"])
+        self.assertEqual(len(track["polygons"]), 2)
+        records = [polygon["sourcePolygonRecordId"] for item in builder.objects for polygon in item["polygons"]]
+        self.assertEqual(len(records), len(set(records)))
+
+    def test_semantic_input_splices_the_encoded_objects(self) -> None:
+        builder = SemanticGltfBuilder(self.semantic_topology())
+        builder.add_pcb_ir({"records": [
+            {"uuid": "track", "kind": "segment", "net_name": "GND", "layer": "F.Cu",
+             "operations": [{"kind": "ThickSegment", "start_x": 0, "start_y": 0,
+                             "end_x": 1_000_000, "end_y": 0, "width_nm": 200_000}]},
+        ]})
+        payload = builder.build_input_payload()
+        payload["meshoptLevel"] = "medium"
+        self.assertEqual(
+            serialize_semantic_input(payload, builder.objects_json),
+            json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+        )
 
     def test_via_caps_and_barrel_share_one_source_feature(self) -> None:
         builder = SemanticGltfBuilder(self.semantic_topology())

@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterator, Mapping
 from app.core.config import settings
 from app.services.trackers.contracts import Destination, RemoteComment
 from app.services.trackers.drafts import escape_generated_text, guard_generated_text_no_email
+from app.services.trackers import attachment_links
 from app.services.trackers.errors import ProviderError
 from app.services.trackers.executor_support import (
     NON_CONSUMING_ERROR_CLASSES,
@@ -177,6 +178,12 @@ def recover_reply_op(conn: Any, op: Mapping[str, Any]) -> None:
 
 
 
+def _issue_adapter_for_uploads(connector: Mapping[str, Any]) -> Any:
+    from app.services.trackers.create_executor import _issue_adapter
+
+    return _issue_adapter(connector)
+
+
 def _comment_adapter(connector: Mapping[str, Any], *, http: Any | None = None) -> Any:
     from app.services.trackers.create_executor import _issue_adapter
 
@@ -263,6 +270,7 @@ def _load_reply_context(conn: Any, op: Mapping[str, Any]) -> _ReplyContext:
     reply = {
         "id": str(reply_row["id"]),
         "content": reply_row.get("content") or "",
+        "contentFormat": reply_row.get("content_format") or "plain",
         "revision": int(reply_row.get("revision") or 1),
         "author": reply_row.get("author") or "",
         "origin": reply_row.get("origin") or "prism",
@@ -416,8 +424,27 @@ def _execute_reply(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
         return
     body: str | None = None
     if kind in ("add_comment", "edit_comment"):
+        try:
+            content = attachment_links.render_outbound(
+                conn, str(ctx.reply.get("content") or ""), str(ctx.reply.get("contentFormat") or "plain"),
+                project_id=ctx.project_id, destination=ctx.destination,
+                # Uploads are a project capability; the issue adapter owns them.
+                adapter_factory=lambda: _issue_adapter_for_uploads(ctx.connector),
+            )
+        except ProviderError as exc:
+            apply_provider_error(
+                conn,
+                ops,
+                op=op,
+                fence=fence,
+                exc=exc,
+                connector_id=str(ctx.connector["id"]),
+                remote_container_id=str(ctx.destination.remoteContainerId),
+                pre_io=True,
+            )
+            return
         body = build_reply_body(
-            content=str(ctx.reply.get("content") or ""),
+            content=content,
             connector_id=ctx.destination.connectorId,
             container_id=ctx.destination.remoteContainerId,
             reply_id=ctx.reply_id,

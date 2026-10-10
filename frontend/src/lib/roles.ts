@@ -94,7 +94,7 @@ export const ROLE_AUTHORITIES: readonly RoleAuthority[] = [
     category: "Component library",
     label: "View component library",
     description: "Browse components, revisions, validation, and release queues.",
-    roles: ["designer", "qa", "admin"],
+    roles: ["viewer", "designer", "qa", "admin"],
   },
   {
     key: "edit_catalog",

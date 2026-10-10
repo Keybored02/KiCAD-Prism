@@ -70,3 +70,13 @@ if (!("ResizeObserver" in globalThis)) {
   }
   globalThis.ResizeObserver = NoLayoutResizeObserver;
 }
+
+/**
+ * jsdom lacks the pointer-capture and scrolling methods Radix Select calls when
+ * it opens, so a test that picks an option would throw before the list shows.
+ */
+if (typeof Element !== "undefined") {
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.releasePointerCapture ??= () => undefined;
+  Element.prototype.scrollIntoView ??= () => undefined;
+}

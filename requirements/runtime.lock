@@ -8,6 +8,10 @@ anyio==4.15.1
     # via starlette
 bcrypt==4.3.0
     # via -r requirements/runtime.in
+cadquery-ocp-novtk==7.9.3.1.1
+    # via -r requirements/runtime.in
+cadquery-ocp-proxy==7.9.3.1.1
+    # via cadquery-ocp-novtk
 cairocffi==1.7.1
     # via cairosvg
 cairosvg==2.9.1
@@ -19,7 +23,9 @@ cffi==2.1.1
     #   cairocffi
     #   cryptography
 charset-normalizer==3.5.1
-    # via requests
+    # via
+    #   reportlab
+    #   requests
 click==8.5.0
     # via uvicorn
 colorama==0.4.6
@@ -30,6 +36,8 @@ cryptography==50.0.1
     # via pyjwt
 cssselect2==0.10.1
     # via cairosvg
+cython==3.3.0
+    # via python-fcl
 defusedxml==0.7.1
     # via cairosvg
 et-xmlfile==2.0.0
@@ -76,10 +84,13 @@ msgspec==0.21.1
 numpy==2.5.3
     # via
     #   kicad-monkey
+    #   python-fcl
     #   shapely
     #   trimesh
 openpyxl==3.1.5
-    # via kicad-cruncher
+    # via
+    #   -r requirements/runtime.in
+    #   kicad-cruncher
 packaging==26.3
     # via pikepdf
 pikepdf==10.13.0.post1
@@ -89,6 +100,7 @@ pillow==12.3.0
     #   -r requirements/runtime.in
     #   cairosvg
     #   pikepdf
+    #   reportlab
 platformdirs==4.11.11
     # via textual
 psycopg==3.3.6
@@ -120,9 +132,13 @@ python-dotenv==1.2.3
     # via
     #   -r requirements/runtime.in
     #   pydantic-settings
+python-fcl==0.7.0.11
+    # via -r requirements/runtime.in
 python-multipart==0.0.32
     # via -r requirements/runtime.in
 pyyaml==6.0.3
+    # via -r requirements/runtime.in
+reportlab==4.5.1
     # via -r requirements/runtime.in
 requests==2.34.2
     # via -r requirements/runtime.in
@@ -143,7 +159,9 @@ tinycss2==1.5.1
     #   cairosvg
     #   cssselect2
 trimesh==5.1.0
-    # via kicad-monkey
+    # via
+    #   -r requirements/runtime.in
+    #   kicad-monkey
 typing-extensions==4.16.0
     # via
     #   anyio

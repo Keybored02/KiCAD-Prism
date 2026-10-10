@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterator, Mapping
 
 from app.core.config import settings
+from app.services.trackers import attachment_links
 from app.services.trackers.contracts import IssuePatch, RemoteComment, RemoteIssue
 from app.services.trackers.create_executor import (
     _issue_adapter,
@@ -207,7 +208,10 @@ def _execute_update_issue(conn: Any, op: Mapping[str, Any], ops: OpStore) -> Non
         if not isinstance(fetched, RemoteIssue):
             raise ProviderError("transient", "Issue fetch did not return a readable issue")
         composed = compose_outbound_issue_body(
-            local_prose=str(ctx.comment.get("content") or ""),
+            local_prose=attachment_links.render_outbound(
+                conn, str(ctx.comment.get("content") or ""), str(ctx.comment.get("contentFormat") or "plain"),
+                project_id=ctx.project_id, destination=ctx.destination, adapter_factory=lambda: adapter,
+            ),
             remote_body=fetched.body or "",
         )
         if composed is None:

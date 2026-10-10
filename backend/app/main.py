@@ -11,11 +11,13 @@ from app.api.projects import router as projects_router
 from app.api.project_variants import router as project_variants_router
 from app.api.project_import_followups import router as project_import_followups_router
 from app.api.comments import router as comments_router
+from app.api.comment_attachment_links import router as comment_attachment_links_router
 from app.api.comment_live import router as comment_live_router
 from app.api.design_compare import router as design_compare_router
 from app.api.release_studio import router as release_studio_router
 from app.api.folders import router as folders_router
 from app.api.settings import router as settings_router
+from app.api.manufacturing import router as manufacturing_router
 from app.api.workspace import router as workspace_router
 from app.api.remote_provider import router as remote_provider_router
 from app.api.provider_oauth import router as provider_oauth_router
@@ -26,10 +28,15 @@ from app.api.tracker_webhooks import router as tracker_webhooks_router
 from app.api.tracker_identity import admin_router as tracker_identity_admin_router
 from app.api.tracker_identity import router as tracker_identity_router
 from app.api.catalog_admin import router as catalog_admin_router
+from app.api.catalog_system_items import router as catalog_system_items_router
 from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
+from app.api.systems import router as systems_router
 from app.api.health import router as health_router
+from app.api.plugin import router as plugin_router
+from app.api.git_http import router as git_http_router
+from app.api.agent import router as agent_router
 from app.services import password_credential_service, rate_limit_service, session_store_service
 from app.services.comments_store_service import initialize_comments_store
 from app.services.comment_live_broker import broker as comment_live_broker
@@ -184,6 +191,17 @@ async def lifespan(app: FastAPI):
     catalog_service.initialize()
     workspace.initialize()
     jobs.initialize()
+    # Create and refresh the built-in manufacturers (JLCPCB, PCBWay) and their spec
+    # templates. Runs every startup; refreshes only templates the user has not
+    # edited. Best-effort: never block startup on it.
+    try:
+        from app.services import manufacturing_service
+
+        changes = manufacturing_service.seed_builtin_manufacturers()
+        if changes:
+            logger.info("Built-in spec templates: %s", ", ".join(changes))
+    except Exception:
+        logger.exception("Failed to sync built-in manufacturers")
     from app.services.trackers.connector_service import initialize_tracker_connector_service
     from app.services.trackers.identity_service import initialize_tracker_identity_service
     from app.services.trackers.github_webhooks import initialize_tracker_webhook_service
@@ -267,11 +285,17 @@ app.include_router(project_variants_router, prefix="/api/projects", tags=["varia
 app.include_router(design_compare_router, prefix="/api/projects", tags=["design-compare"])
 app.include_router(release_studio_router, prefix="/api/projects", tags=["release-studio"])
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
+app.include_router(manufacturing_router, prefix="/api/manufacturing", tags=["manufacturing"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(systems_router, prefix="/api/systems", tags=["systems"])
+app.include_router(plugin_router, prefix="/api/plugin", tags=["plugin"])
+app.include_router(git_http_router, prefix="/git", tags=["git"])
+app.include_router(agent_router)
 app.include_router(health_router)
 app.include_router(catalog_admin_router)
+app.include_router(catalog_system_items_router)
 app.include_router(oauth_router)
 app.include_router(service_clients_router)
 app.include_router(remote_provider_router, tags=["remote-provider"])
@@ -283,3 +307,4 @@ app.include_router(tracker_identity_admin_router)
 app.include_router(project_trackers_router)
 app.include_router(tracker_sync_router)
 app.include_router(tracker_webhooks_router)
+app.include_router(comment_attachment_links_router, tags=["comments"])

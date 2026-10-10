@@ -20,6 +20,28 @@ export default defineConfig({
         // OAuth redirect URI) point at the dev server, not the proxied port.
         xfwd: true,
       },
+      // The OAuth surface is on the backend too: the provider flow KiCad's Remote
+      // Symbols panel uses, and the session handoff behind "Continue as <user>".
+      // vite.config.panel.ts has always proxied both; this one only had /api, so
+      // every /oauth/* request through the dev server 404d.
+      "/oauth": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
+      // The Remote Symbols panel is a separate app the backend serves, and the
+      // provider metadata points KiCad at PUBLIC_BASE_URL, which in dev is this
+      // server. Without this, /remote-provider/panel hit the SPA catch-all and
+      // KiCad opened the main web UI instead of the panel.
+      "/remote-provider": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
+      // The discovery document KiCad reads before anything else, to find
+      // panel_url and the auth metadata. It is on the backend as well.
+      "/.well-known": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
     },
   },
   build: {
@@ -49,6 +71,17 @@ export default defineConfig({
           ) {
             return "ui-runtime"
           }
+          if (
+            id.includes("node_modules/@tiptap/") ||
+            id.includes("node_modules/prosemirror-") ||
+            id.includes("node_modules/linkifyjs") ||
+            id.includes("node_modules/marked") ||
+            id.includes("node_modules/orderedmap") ||
+            id.includes("node_modules/rope-sequence") ||
+            id.includes("node_modules/w3c-keyname")
+          ) {
+            return "editor-runtime"
+          }
           if (id.includes("node_modules/lucide-react")) {
             return "icons-runtime"
           }
@@ -57,6 +90,15 @@ export default defineConfig({
           }
           if (id.includes("node_modules/three")) {
             return "three-runtime"
+          }
+          // System Builder's diagram canvas; loaded only with that tab.
+          if (
+            id.includes("node_modules/@xyflow/") ||
+            id.includes("node_modules/d3-") ||
+            id.includes("node_modules/zustand") ||
+            id.includes("node_modules/classcat")
+          ) {
+            return "diagram-runtime"
           }
           if (id.includes("node_modules")) {
             return "vendor"
