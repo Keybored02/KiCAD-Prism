@@ -1,18 +1,20 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ListChecks, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Boxes, ListChecks, ShieldAlert, type LucideIcon } from "lucide-react";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 
+const PartsView = lazy(() => import("./parts-view").then((module) => ({ default: module.PartsView })));
 const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
 
 const VIEWS: ReadonlyArray<{ id: SupplyView; label: string; icon: LucideIcon }> = [
+  { id: "parts", label: "Parts", icon: Boxes },
   { id: "review", label: "Review", icon: ListChecks },
 ];
 
-type SupplyView = "review";
+type SupplyView = "parts" | "review";
 
 function isSupplyView(value: string | null): value is SupplyView {
   return VIEWS.some((view) => view.id === value);
@@ -22,7 +24,7 @@ function isSupplyView(value: string | null): value is SupplyView {
 export function SupplyWorkspace({ user }: { user: User | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get("supplyView");
-  const view: SupplyView = isSupplyView(requested) ? requested : "review";
+  const view: SupplyView = isSupplyView(requested) ? requested : "parts";
 
   if (!canOpenSupply(user?.role)) {
     return (
@@ -39,6 +41,10 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       const updated = new URLSearchParams(current);
       updated.set("section", "supply");
       updated.set("supplyView", next);
+      // The open part and the search belong to the Parts tab.
+      updated.delete("part");
+      updated.delete("partsQ");
+      updated.delete("partsScope");
       return updated;
     });
   };
@@ -61,6 +67,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       </Tabs>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>}>
         <div className="min-h-0 flex-1 overflow-hidden">
+          {view === "parts" && <PartsView user={user} />}
           {view === "review" && <ReviewView user={user} />}
         </div>
       </Suspense>

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   canManageProjects,
   canOpenLibraryManager,
+  canEditSupply,
   canOpenSupply,
   canReviewCatalogQa,
   canReviewSupply,
@@ -24,6 +25,11 @@ describe("role authorities", () => {
     expect(canOpenSupply("qa")).toBe(true);
     expect(canOpenSupply("admin")).toBe(true);
     expect(canOpenSupply(null)).toBe(false);
+
+    expect(canEditSupply("designer")).toBe(true);
+    expect(canEditSupply("qa")).toBe(false);
+    expect(canEditSupply("admin")).toBe(true);
+    expect(canEditSupply("viewer")).toBe(false);
 
     expect(canReviewSupply("designer")).toBe(false);
     expect(canReviewSupply("qa")).toBe(true);

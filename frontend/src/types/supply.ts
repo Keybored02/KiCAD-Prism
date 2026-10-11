@@ -125,3 +125,105 @@ export interface SupplyReviewQueue {
 export type ConfirmAliasInput =
   | { alias_key: string; manufacturer_id: string }
   | { alias_key: string; new_manufacturer_name: string };
+
+export type SupplyStatus = "ok" | "warning" | "error" | "fatal" | "unknown";
+export type SupplyLifecycle = "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
+export type SupplyTier = "hot" | "warm" | "normal" | "cold";
+export type PartsScope = "watched" | "all";
+
+export interface SupplyWatchSummary {
+  id: string;
+  threshold: number | null;
+  pinned: boolean;
+  owner: string;
+}
+
+export interface SupplyWatch {
+  id: string;
+  part_id: string;
+  manufacturer: string;
+  mpn: string;
+  threshold: number | null;
+  pinned: boolean;
+  owner: string;
+}
+
+export interface SupplyPartRow {
+  id: string;
+  mpn: string;
+  manufacturer: string;
+  watch: SupplyWatchSummary | null;
+  status: SupplyStatus;
+  /** Null until something that counts has been read. */
+  stock: number | null;
+  listings: number;
+  lifecycle: SupplyLifecycle;
+  unit_price: string | null;
+  currency: string;
+  fetched_at: string | null;
+  tier: SupplyTier | null;
+}
+
+export interface SupplyPartsPage {
+  items: SupplyPartRow[];
+  total: number;
+  limit: number;
+}
+
+export interface SupplyOffer {
+  fetched_at: string;
+  stock: number;
+  incoming: Array<[number, string | null]>;
+  moq: number;
+  order_multiple: number;
+  price_breaks: Array<[number, string]>;
+  currency: string;
+  lead_time_days: number | null;
+  lifecycle: SupplyLifecycle;
+  discontinued: boolean;
+  rohs: boolean | null;
+  marketplace: boolean;
+  product_url: string;
+}
+
+export interface SupplyListing {
+  id: string;
+  connector_id: string;
+  connector_name: string;
+  sku: string;
+  packaging: string;
+  match_state: string;
+  /** Only counted listings feed stock and price. */
+  counted: boolean;
+  offer: SupplyOffer | null;
+  poll: {
+    tier: SupplyTier;
+    next_poll_at: string | null;
+    last_polled_at: string | null;
+    error_streak: number;
+    last_error_code: string;
+  } | null;
+}
+
+export interface SupplyPartDetail {
+  part: { id: string; mpn: string; manufacturer: string };
+  watch: SupplyWatchSummary | null;
+  status: SupplyStatus;
+  stock: { total: number | null; by_connector: Array<{ connector_id: string; connector_name: string; stock: number }> };
+  lifecycle: SupplyLifecycle;
+  listings: SupplyListing[];
+  history: Array<{ day: string; stock: number }>;
+}
+
+export interface AddWatchInput {
+  manufacturer: string;
+  mpn: string;
+  threshold?: number | null;
+  pinned?: boolean;
+}
+
+/** Leave a field out to keep it; send null to clear the threshold. */
+export interface UpdateWatchInput {
+  threshold?: number | null;
+  pinned?: boolean;
+}

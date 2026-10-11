@@ -2,14 +2,20 @@
 
 import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
 import type {
+  AddWatchInput,
   ConfirmAliasInput,
   CreateSupplyConnectorInput,
+  PartsScope,
   SupplyConnector,
   SupplyCsvResult,
   SupplyCsvRowError,
+  SupplyPartDetail,
+  SupplyPartsPage,
   SupplyProvider,
   SupplyReviewQueue,
+  SupplyWatch,
   UpdateSupplyConnectorInput,
+  UpdateWatchInput,
 } from "@/types/supply";
 
 const BASE = "/api/supply";
@@ -134,4 +140,33 @@ export function pinSupplyListing(listingId: string): Promise<void> {
 
 export function rejectSupplyListing(listingId: string): Promise<void> {
   return decide(listingId, "reject", "Could not reject the listing");
+}
+
+export function listSupplyParts(scope: PartsScope, query: string, signal?: AbortSignal): Promise<SupplyPartsPage> {
+  const params = new URLSearchParams({ scope });
+  if (query.trim()) params.set("q", query.trim());
+  return fetchJson<SupplyPartsPage>(`${BASE}/parts?${params}`, { signal }, "Could not load parts");
+}
+
+export function getSupplyPart(partId: string, signal?: AbortSignal): Promise<SupplyPartDetail> {
+  return fetchJson<SupplyPartDetail>(`${BASE}/parts/${encodeURIComponent(partId)}`, { signal }, "Could not load the part");
+}
+
+export function addSupplyWatch(input: AddWatchInput): Promise<SupplyWatch> {
+  return post(`${BASE}/watches`, input, "Could not watch the part");
+}
+
+export function updateSupplyWatch(watchId: string, changes: UpdateWatchInput): Promise<SupplyWatch> {
+  return fetchJson<SupplyWatch>(
+    `${BASE}/watches/${encodeURIComponent(watchId)}`,
+    { method: "PATCH", body: JSON.stringify(changes) },
+    "Could not save the watch",
+  );
+}
+
+export async function removeSupplyWatch(watchId: string): Promise<void> {
+  const response = await fetchApi(`${BASE}/watches/${encodeURIComponent(watchId)}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new ApiHttpError(response.status, await readApiError(response, "Could not stop watching the part"));
+  }
 }

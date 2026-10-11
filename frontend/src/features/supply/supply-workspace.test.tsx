@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { User, UserRole } from "@/types/auth";
 
+vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
 vi.mock("./review-view", () => ({ ReviewView: () => <div>Review content</div> }));
 
 import { SupplyWorkspace } from "./supply-workspace";
@@ -26,8 +27,14 @@ function renderAt(role: UserRole | null, url = "/?section=supply") {
 }
 
 describe("the Supply section", () => {
-  it.each<UserRole>(["designer", "qa", "admin"])("opens for %s on the Review tab", async (role) => {
+  it.each<UserRole>(["designer", "qa", "admin"])("opens for %s on the Parts tab", async (role) => {
     renderAt(role);
+    expect(await screen.findByText("Parts content")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Parts" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("shows Review when asked for it", async () => {
+    renderAt("qa", "/?section=supply&supplyView=review");
     expect(await screen.findByText("Review content")).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected")).toBe("true");
   });
@@ -41,14 +48,24 @@ describe("the Supply section", () => {
     expect(screen.getByText("Supply data is not available to your role")).toBeTruthy();
   });
 
-  it("falls back to Review for an unknown view in the URL", async () => {
+  it("falls back to Parts for an unknown view in the URL", async () => {
     renderAt("admin", "/?section=supply&supplyView=nonsense");
-    expect(await screen.findByText("Review content")).toBeTruthy();
+    expect(await screen.findByText("Parts content")).toBeTruthy();
+  });
+
+  it("drops the open part and search when another tab is chosen", async () => {
+    renderAt("admin", "/?section=supply&part=p1&partsQ=lm&partsScope=all&other=1");
+    // Radix tabs switch on mouse down, as a real press does.
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Review" }), { button: 0, ctrlKey: false });
+    const location = screen.getByLabelText("location").textContent ?? "";
+    expect(location).toContain("supplyView=review");
+    expect(location).toContain("other=1");
+    for (const gone of ["part=", "partsQ", "partsScope"]) expect(location).not.toContain(gone);
   });
 
   it("leaves the URL alone when the open tab is clicked again", async () => {
     renderAt("admin", "/?section=supply&other=1");
-    fireEvent.click(await screen.findByRole("tab", { name: "Review" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Parts" }));
     expect(screen.getByLabelText("location").textContent).toBe("/?section=supply&other=1");
   });
 });
