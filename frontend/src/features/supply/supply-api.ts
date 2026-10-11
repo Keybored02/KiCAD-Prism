@@ -3,6 +3,7 @@
 import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
 import type {
   AddWatchInput,
+  BomLineInput,
   ConfirmAliasInput,
   CreateSupplyConnectorInput,
   PartsScope,
@@ -10,6 +11,8 @@ import type {
   SupplyCsvResult,
   SupplyCsvRowError,
   SupplyAlert,
+  SupplyBomLookup,
+  SupplyBomWatchResult,
   SupplyCapacity,
   SupplyConnectorCheck,
   SupplyManufacturer,
@@ -67,6 +70,18 @@ export function pauseSupplyConnector(id: string, reason: string): Promise<Supply
 
 export function resumeSupplyConnector(id: string): Promise<SupplyConnector> {
   return post(connectorPath(id, "resume"), undefined, "Could not resume the connector");
+}
+
+export function lookupSupplyBom(lines: BomLineInput[], buildQuantity: number, signal?: AbortSignal): Promise<SupplyBomLookup> {
+  return fetchJson<SupplyBomLookup>(
+    `${BASE}/bom/lookup`,
+    { method: "POST", body: JSON.stringify({ build_quantity: buildQuantity, lines }), signal },
+    "Could not look the BOM up",
+  );
+}
+
+export function watchSupplyBomLines(lines: BomLineInput[]): Promise<SupplyBomWatchResult> {
+  return post(`${BASE}/bom/watch`, { lines }, "Could not watch the BOM's parts");
 }
 
 export function testSupplyConnector(id: string): Promise<SupplyConnectorCheck> {

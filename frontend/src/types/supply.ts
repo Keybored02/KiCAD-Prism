@@ -109,6 +109,73 @@ export interface SupplyCapacity {
   searches_pending: number;
 }
 
+/** One distinct part on a BOM: what goes into a lookup. `quantity` is fitted parts per board. */
+export interface BomLineInput {
+  key: string;
+  manufacturer: string;
+  mpn: string;
+  quantity: number;
+}
+
+export interface SupplyBomBuy {
+  /** What must be ordered: the need rounded up to the minimum order and multiples. */
+  quantity: number;
+  unit_price: string;
+  currency: string;
+  extended: string;
+  /** False when no offer holds enough stock; the cheapest is shown anyway. */
+  covers: boolean;
+  connector_name: string;
+  sku: string;
+  product_url: string;
+}
+
+export interface SupplyBomLineResult {
+  /** "tracked" has data; the rest say why a line has none. */
+  state: "no_mpn" | "unknown" | "ambiguous" | "tracked";
+  part_id: string | null;
+  /** How the manufacturer matched: "missing" and "unmatched" mean the part number alone found it. */
+  manufacturer_match: "exact" | "missing" | "unmatched" | null;
+  need: number;
+  watched?: boolean;
+  status?: SupplyStatus;
+  problem?: SupplyProblem | null;
+  stock?: number | null;
+  lifecycle?: SupplyLifecycle;
+  lead_time_days?: number | null;
+  fetched_at?: string | null;
+  short?: boolean;
+  buy?: SupplyBomBuy | null;
+}
+
+export interface SupplyBomRollup {
+  lines: number;
+  tracked: number;
+  not_tracked: number;
+  watched: number;
+  at_risk: number;
+  short: number;
+  priced: number;
+  currency: string | null;
+  cost_build: string | null;
+  cost_per_board: string | null;
+  can_build: number | null;
+  limited_by: string | null;
+  without_stock_data: number;
+}
+
+export interface SupplyBomLookup {
+  build_quantity: number;
+  lines: Record<string, SupplyBomLineResult>;
+  rollup: SupplyBomRollup;
+}
+
+export interface SupplyBomWatchResult {
+  watched: number;
+  already_watched: number;
+  skipped: Array<{ key: string; reason: "no_mpn" | "no_manufacturer" | "unknown_manufacturer" }>;
+}
+
 export interface SupplyManufacturer {
   id: string;
   name: string;

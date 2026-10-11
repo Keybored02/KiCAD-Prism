@@ -1853,6 +1853,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                             <EngineeringBomTable
                                 semanticIndex={semanticIndex}
                                 components={effectiveComponents}
+                                user={user}
                                 loading={semanticIndexLoading}
                                 error={semanticIndexError}
                                 selection={globalSelection}
