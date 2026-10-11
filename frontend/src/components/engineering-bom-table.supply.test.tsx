@@ -66,7 +66,7 @@ function lookupFor(build: number): SupplyBomLookup {
       [key("", "")]: { state: "no_mpn", part_id: null, manufacturer_match: null, need: build },
     },
     rollup: {
-      lines: 4, tracked: 2, not_tracked: 2, watched: 1, at_risk: 1, short: 1, priced: 1, currency: "EUR",
+      lines: 4, tracked: 2, not_tracked: 2, watched: 1, at_risk: 1, short: 1, priced: 1, lines_priced: 1, parts: 2, currency: "EUR",
       cost_build: "5.00", cost_per_board: "0.5000", can_build: 3, limited_by: key("Acme", "C-100N"), without_stock_data: 0,
     },
   };

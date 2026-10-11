@@ -2,14 +2,21 @@ import type { SemanticComponent } from "@/types/prism-selection";
 import type { BomLineInput, SupplyBomLineResult, SupplyStatus } from "@/types/supply";
 
 /**
- * Field names KiCad projects use for the manufacturer and the manufacturer part number,
- * compared ignoring case. The BOM table's search accepts the same spellings. Plan 6.4 moves this
- * list to one backend contract; until then the supply columns and the table agree through here.
+ * Field names KiCad projects use for the manufacturer and the manufacturer part number, best
+ * first, compared ignoring case. When a part carries several, the earliest in the list wins, so an
+ * explicit "Manufacturer Part Number" beats a looser "PartNumber". Plan 6.4 moves this list to one
+ * backend contract; until then the supply columns read their fields through here.
+ *
+ * Found in real projects: satnogs-comms uses "Mnf." and "PartNumber"; others use "MPN" or "Mfr. No.".
+ * "Vendor Part Number" is a distributor's number, not the manufacturer's, and is deliberately absent.
  */
-const MANUFACTURER_FIELDS: ReadonlySet<string> = new Set(["manufacturer", "manufacturer name", "manufacturer_name", "mfr", "mfr.", "mfg"]);
-const MPN_FIELDS: ReadonlySet<string> = new Set([
-  "manufacturer part number", "manufacturer_part_number", "mpn", "mfr. no.", "mfr no", "mfr part number", "mfg part number",
-]);
+const MANUFACTURER_FIELDS: readonly string[] = [
+  "manufacturer", "manufacturer name", "manufacturer_name", "mfr", "mfr.", "mfg", "mnf", "mnf.", "make", "brand",
+];
+const MPN_FIELDS: readonly string[] = [
+  "manufacturer part number", "manufacturer_part_number", "mpn", "mfr. no.", "mfr no", "mfr part number",
+  "mfg part number", "manufacturer pn", "mfr pn", "mnf part number", "partnumber", "part number", "part_number",
+];
 
 /** The columns the supply data adds to the BOM table, in the order they appear. */
 export const BOM_SUPPLY_COLUMNS = ["Supply", "Stock", "Unit price", "Extended", "Lead time"] as const;
@@ -20,11 +27,16 @@ export function isSupplyColumn(column: string): boolean {
 
 const SEPARATOR = " | ";
 
-function fieldText(component: SemanticComponent, names: ReadonlySet<string>): string {
+function fieldText(component: SemanticComponent, names: readonly string[]): string {
+  const byName = new Map<string, string>();
   for (const [key, raw] of Object.entries(component.fields ?? {})) {
-    if (!names.has(key.trim().toLowerCase())) continue;
     const text = raw === null || raw === undefined ? "" : String(raw).trim();
-    if (text) return text;
+    const name = key.trim().toLowerCase();
+    if (text && !byName.has(name)) byName.set(name, text);
+  }
+  for (const name of names) {
+    const found = byName.get(name);
+    if (found) return found;
   }
   return "";
 }

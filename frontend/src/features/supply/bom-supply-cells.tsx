@@ -39,14 +39,19 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
       return result.stock === null || result.stock === undefined ? (
         <span className="text-muted-foreground">None yet</span>
       ) : (
-        <span className={result.short ? "text-destructive" : undefined} title={`Needs ${result.need.toLocaleString()} for this build`}>
+        <span
+          className={result.short ? "text-destructive" : undefined}
+          title={`Needs ${(result.part_need ?? result.need).toLocaleString()} for this build${result.part_need !== undefined && result.part_need !== result.need ? ", counting every line this part is on" : ""}`}
+        >
           {formatStock(result.stock)}
-          <span className="text-muted-foreground"> / {result.need.toLocaleString()}</span>
+          <span className="text-muted-foreground"> / {(result.part_need ?? result.need).toLocaleString()}</span>
         </span>
       );
     case "Unit price":
+      if (result.bought_with) return <span className="text-muted-foreground" title="This part is on more than one line and is bought once">with another line</span>;
       return buy ? <span title={`At ${buy.quantity.toLocaleString()} pieces`}>{formatPrice(buy.unit_price, buy.currency)}</span> : MUTED;
     case "Extended":
+      if (result.bought_with) return MUTED;
       return buy ? (
         <span
           className={buy.covers ? undefined : "text-warning"}

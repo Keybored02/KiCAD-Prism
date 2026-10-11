@@ -144,8 +144,12 @@ export interface SupplyBomLineResult {
   lifecycle?: SupplyLifecycle;
   lead_time_days?: number | null;
   fetched_at?: string | null;
+  /** What the whole part needs when it is on several lines; `need` is this line's own. */
+  part_need?: number;
   short?: boolean;
   buy?: SupplyBomBuy | null;
+  /** Set on the later lines of a part: the key of the line that carries the purchase. */
+  bought_with?: string | null;
 }
 
 export interface SupplyBomRollup {
@@ -156,6 +160,9 @@ export interface SupplyBomRollup {
   at_risk: number;
   short: number;
   priced: number;
+  /** How many lines the cost covers. */
+  lines_priced: number;
+  parts: number;
   currency: string | null;
   cost_build: string | null;
   cost_per_board: string | null;

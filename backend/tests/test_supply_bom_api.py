@@ -199,6 +199,7 @@ class BomLookupTests(unittest.TestCase):
         rollup = data["rollup"]
         self.assertEqual((rollup["lines"], rollup["tracked"], rollup["not_tracked"], rollup["watched"]), (5, 3, 2, 1))
         self.assertEqual((rollup["at_risk"], rollup["short"], rollup["priced"], rollup["without_stock_data"]), (1, 0, 2, 1))
+        self.assertEqual((rollup["lines_priced"], rollup["lines"]), (2, 5), "the cost covers two of five lines")
         self.assertEqual((rollup["currency"], rollup["cost_build"], rollup["cost_per_board"]), ("EUR", "24.00", "2.4000"))
         self.assertEqual((rollup["can_build"], rollup["limited_by"]), (15, "b"), "30 pieces at 2 a board: 15 boards")
 
@@ -209,6 +210,34 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual((rollup["short"], rollup["can_build"]), (1, 4))
         empty = self.lookup([{"key": "x", "manufacturer": "Acme", "mpn": "NOPE"}])["rollup"]
         self.assertEqual((empty["can_build"], empty["limited_by"], empty["cost_build"], empty["currency"]), (None, None, None, None))
+
+    def test_one_part_on_two_lines_is_checked_and_bought_once(self) -> None:
+        part_id = self.part("Kemet", "C0402-100N", watch=True)
+        self.offer(part_id, "MOUSER-1", stock=500, price="0.05")
+        lines = [
+            {"key": "named", "manufacturer": "Kemet", "mpn": "C0402-100N", "quantity": 44},
+            {"key": "blank", "manufacturer": "", "mpn": "C0402-100N", "quantity": 4},
+        ]
+        data = self.lookup(lines, build=10)
+        named, blank = data["lines"]["named"], data["lines"]["blank"]
+        self.assertEqual((named["need"], blank["need"], named["part_need"], blank["part_need"]), (440, 40, 480, 480))
+        self.assertEqual((named["short"], blank["short"]), (False, False), "480 needed, 500 in stock")
+        self.assertEqual((named["buy"]["quantity"], named["buy"]["extended"]), (480, "24"), "bought once, for both lines")
+        self.assertEqual((blank["buy"], blank["bought_with"], named["bought_with"]), (None, "named", None))
+        rollup = data["rollup"]
+        self.assertEqual((rollup["lines"], rollup["tracked"], rollup["parts"], rollup["priced"], rollup["lines_priced"]), (2, 2, 1, 1, 2))
+        self.assertEqual((rollup["cost_build"], rollup["can_build"], rollup["limited_by"]), ("24.00", 10, "named"),
+                         "500 pieces at 48 a board: ten boards, not eleven")
+
+    def test_two_lines_that_together_exceed_the_stock_are_short_though_each_alone_is_not(self) -> None:
+        part_id = self.part("Kemet", "C0402-100N")
+        self.offer(part_id, "A", stock=450)
+        lines = [
+            {"key": "named", "manufacturer": "Kemet", "mpn": "C0402-100N", "quantity": 44},
+            {"key": "blank", "manufacturer": "", "mpn": "C0402-100N", "quantity": 4},
+        ]
+        data = self.lookup(lines, build=10)
+        self.assertEqual((data["lines"]["named"]["short"], data["lines"]["blank"]["short"], data["rollup"]["short"]), (True, True, 1))
 
     def test_requests_are_checked(self) -> None:
         for body in ({"lines": [], "build_quantity": 0}, {"lines": [{"key": "a", "quantity": 0}]},

@@ -27,10 +27,11 @@ export function rollupSentences(rollup: SupplyBomRollup, build: number, lines: r
 
   if (rollup.cost_build !== null && rollup.currency) {
     const each = rollup.cost_per_board ? ` (${formatPrice(rollup.cost_per_board, rollup.currency)} each)` : "";
-    const unpriced = rollup.tracked - rollup.priced;
+    // A cost that leaves lines out is not the cost of the BOM, so it says how much it covers.
+    const covers = rollup.lines_priced < rollup.lines ? `, covers ${rollup.lines_priced.toLocaleString()} of ${plural(rollup.lines, "line", "lines")}` : "";
     sentences.push({
-      text: `${formatPrice(rollup.cost_build, rollup.currency)} for ${plural(build, "board", "boards")}${each}${unpriced > 0 ? `, ${plural(unpriced, "line", "lines")} unpriced` : ""}`,
-      tone: "plain",
+      text: `${formatPrice(rollup.cost_build, rollup.currency)} for ${plural(build, "board", "boards")}${each}${covers}`,
+      tone: rollup.lines_priced < rollup.lines ? "warn" : "plain",
     });
   } else if (rollup.priced > 0) {
     sentences.push({ text: "Prices are in more than one currency, so no total", tone: "warn" });

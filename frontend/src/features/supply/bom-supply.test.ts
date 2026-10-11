@@ -20,8 +20,18 @@ describe("part identity from field names", () => {
     expect(identityOf(part("R1", { Manufacturer_Name: "Acme", Manufacturer_Part_Number: "X-1" }))).toEqual({ manufacturer: "Acme", mpn: "X-1" });
     expect(identityOf(part("R1", { MFR: "Acme", MPN: "X-1" }))).toEqual({ manufacturer: "Acme", mpn: "X-1" });
     expect(identityOf(part("R1", { "Mfr. No.": " X-1 " }))).toEqual({ manufacturer: "", mpn: "X-1" });
+    // satnogs-comms writes its manufacturer as "Mnf." and its number as "PartNumber".
+    expect(identityOf(part("R1", { "Mnf.": "TRACO", PartNumber: "TSR 1-2450" }))).toEqual({ manufacturer: "TRACO", mpn: "TSR 1-2450" });
+    expect(identityOf(part("R1", { "Part Number": "X-9" }))).toEqual({ manufacturer: "", mpn: "X-9" });
     expect(identityOf(part("R1", { Value: "10k", "Manufacturer Part Number": null }))).toEqual({ manufacturer: "", mpn: "" });
     expect(identityOf(part("R1"))).toEqual({ manufacturer: "", mpn: "" });
+  });
+
+  it("prefers the explicit name when a part has more than one, and never reads the distributor's number", () => {
+    const both = part("R1", { PartNumber: "LOOSE-1", "Manufacturer Part Number": "EXACT-1", "Vendor Part Number": "DIST-9" });
+    expect(identityOf(both).mpn).toBe("EXACT-1");
+    expect(identityOf(part("R1", { "Vendor Part Number": "DIST-9", "Supplier PN": "DIST-9" })).mpn).toBe("");
+    expect(identityOf(part("R1", { "Manufacturer Part Number": "  ", PartNumber: "FALLBACK" })).mpn).toBe("FALLBACK");
   });
 
   it("gives one key to a part however its number is written", () => {
@@ -103,7 +113,7 @@ describe("what could still be watched", () => {
 
 describe("the rollup in words", () => {
   const rollup = {
-    lines: 10, tracked: 8, not_tracked: 2, watched: 6, at_risk: 1, short: 2, priced: 7, currency: "EUR",
+    lines: 10, tracked: 8, not_tracked: 2, watched: 6, at_risk: 1, short: 2, priced: 7, lines_priced: 7, parts: 8, currency: "EUR",
     cost_build: "24.00", cost_per_board: "2.4000", can_build: 15, limited_by: "k", without_stock_data: 0,
   };
   const lines = [{ key: "k", manufacturer: "Acme", mpn: "B-1", quantity: 2, references: ["U1"] }];
@@ -113,12 +123,15 @@ describe("the rollup in words", () => {
     const sentences = rollupSentences(rollup, 10, lines);
     expect(text(sentences)).toEqual([
       "Stock covers 10 boards",
-      expect.stringMatching(/24\.00.* for 10 boards \(.*2\.40.* each\), 1 line unpriced/),
+      expect.stringMatching(/24\.00.* for 10 boards \(.*2\.40.* each\), covers 7 of 10 lines/),
       "1 at risk",
       "2 short for this build",
       "2 not tracked",
     ]);
-    expect(sentences.map((sentence) => sentence.tone)).toEqual(["plain", "plain", "bad", "bad", "warn"]);
+    expect(sentences.map((sentence) => sentence.tone)).toEqual(["plain", "warn", "bad", "bad", "warn"]);
+    const complete = rollupSentences({ ...rollup, lines_priced: 10, not_tracked: 0 }, 10, lines);
+    expect(complete[1].text).not.toContain("covers");
+    expect(complete[1].tone).toBe("plain");
   });
 
   it("names the part that limits the build when stock falls short", () => {
