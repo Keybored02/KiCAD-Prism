@@ -11,14 +11,14 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
-from app.services.supply import insights, parts, pricing, stock
+from app.services.supply import insights, parts, pricing, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
 from app.services.supply.tiers import Tier
 from app.services.supply.vocabulary import Lifecycle
 
-Scope = Literal["watched", "all"]
+Scope = Literal["watched", "in_use", "all"]
 MAX_LIMIT = 200
 # Parts are ordered by how much they need a look, which needs every candidate's
 # status, so the list reads this many at most before it cuts to the page.
@@ -101,8 +101,12 @@ def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
     return result
 
 
+_USES = "FROM bom_usage u JOIN bom_usage_projects up ON up.project_id = u.project_id WHERE " + usage.MATCHES_PART + " AND " + usage.VISIBLE
+_IN_USE = "EXISTS (SELECT 1 " + _USES + ")"
+
 _ROW_SELECT = (
-    "SELECT p.id, p.mpn, m.name AS manufacturer, w.id AS watch_id, w.threshold, w.pinned, w.owner "
+    "SELECT p.id, p.mpn, m.name AS manufacturer, w.id AS watch_id, w.threshold, w.pinned, w.owner, "
+    "(SELECT COUNT(DISTINCT u.project_id) " + _USES + ") AS used_in "
     "FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id LEFT JOIN watches w ON w.part_id = p.id "
 )
 
@@ -160,6 +164,7 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
             "currency": currency,
             "fetched_at": combined.newest_fetched_at.isoformat() if combined and combined.newest_fetched_at else None,
             "tier": min(tiers, key=_TIER_ORDER.index) if tiers else None,
+            "used_in": int(row["used_in"]),
         })
     return items
 
@@ -170,21 +175,21 @@ def summaries_for(conn, part_ids: list[str]) -> list[dict[str, Any]]:
     return summaries_with_offers(conn, part_ids)[0]
 
 
-def summaries_with_offers(conn, part_ids: list[str]) -> tuple[list[dict[str, Any]], dict[str, list[dict]]]:
+def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) -> tuple[list[dict[str, Any]], dict[str, list[dict]]]:
     """Summaries of the given parts and the counted offers behind them, for callers that price."""
 
     if not part_ids:
         return [], {}
-    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", (list(part_ids),)).fetchall()
+    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [*usage.role_params(role), list(part_ids)]).fetchall()
     offers = offers_by_part(conn, [row["id"] for row in rows])
     return _summaries(conn, rows, offers), offers
 
 
-def ranked_parts(conn, *, scope: Scope = "watched", query: str = "") -> tuple[list[dict[str, Any]], int]:
+def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str | None = None) -> tuple[list[dict[str, Any]], int]:
     """Every matching part (up to ``MAX_CANDIDATES``), the ones that need a look first, and the true count."""
 
-    conditions = ["TRUE" if scope == "all" else "w.id IS NOT NULL"]
-    params: list[Any] = []
+    conditions = [{"all": "TRUE", "watched": "w.id IS NOT NULL", "in_use": "(" + _IN_USE + ")"}[scope]]
+    params: list[Any] = usage.role_params(role) if scope == "in_use" else []
     text = query.strip()
     if text:
         conditions.append("(p.mpn ILIKE %s OR m.name ILIKE %s)")
@@ -195,7 +200,7 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "") -> tuple[li
         f"LEFT JOIN watches w ON w.part_id = p.id WHERE {where}", params,
     ).fetchone()["n"]
     rows = conn.execute(
-        _ROW_SELECT + f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*params, MAX_CANDIDATES],
+        _ROW_SELECT + f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*usage.role_params(role), *params, MAX_CANDIDATES],
     ).fetchall()
     items = _summaries(conn, rows)
     # The sort is stable, so parts of equal status keep their name order.
@@ -203,11 +208,11 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "") -> tuple[li
     return items, int(total)
 
 
-def list_parts(conn, *, scope: Scope = "watched", query: str = "", limit: int = 100) -> dict[str, Any]:
+def list_parts(conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None) -> dict[str, Any]:
     """Parts that need a look first (worst status), then by name."""
 
     limit = max(1, min(limit, MAX_LIMIT))
-    items, total = ranked_parts(conn, scope=scope, query=query)
+    items, total = ranked_parts(conn, scope=scope, query=query, role=role)
     return {"items": items[:limit], "total": total, "limit": limit}
 
 
@@ -288,7 +293,7 @@ def insight_from(days: list[dict[str, Any]], threshold: int | None, now: datetim
     return insights.analyse(points, threshold=threshold, today=now.astimezone(timezone.utc).date())
 
 
-def part_detail(conn, part_id: str, *, now: datetime | None = None) -> dict[str, Any]:
+def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     part = parts.get_part(conn, part_id)
     watch_row = conn.execute(
@@ -372,5 +377,6 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None) -> dict[str,
         "lifecycle": lifecycle.value,
         "listings": listings,
         "history": days,
+        "used_in": usage.used_in(conn, part_id, role),
         "insight": insight_from(days, watch_row["threshold"], now),
     }

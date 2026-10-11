@@ -227,7 +227,7 @@ export type ConfirmAliasInput =
 export type SupplyStatus = "ok" | "warning" | "error" | "fatal" | "unknown";
 export type SupplyLifecycle = "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
 export type SupplyTier = "hot" | "warm" | "normal" | "cold";
-export type PartsScope = "watched" | "all";
+export type PartsScope = "watched" | "in_use" | "all";
 /** Why a part with nothing counted is in trouble. */
 export type SupplyProblem = "not_found" | "gone";
 
@@ -265,6 +265,8 @@ export interface SupplyPartRow {
   currency: string;
   fetched_at: string | null;
   tier: SupplyTier | null;
+  /** How many projects' BOMs carry this part, among those whose BOM Prism has read. */
+  used_in: number;
 }
 
 export interface SupplyPartsPage {
@@ -320,6 +322,7 @@ export interface SupplyPartDetail {
   /** `listings` is how many listings stood behind the day, so a jump from a new one is not read as a restock. */
   history: Array<{ day: string; stock: number; listings: number }>;
   insight: SupplyInsight;
+  used_in: Array<{ project_id: string; project_name: string; quantity: number; references: string }>;
 }
 
 export interface SupplyManufacturer {

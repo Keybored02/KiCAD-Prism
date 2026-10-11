@@ -37,6 +37,8 @@ root first.
 | `capacity.py` | Whether each metered connector's budget keeps up with the watchlist: calls a day against usable calls, counting a provider's calls per batch. |
 | `bom_lookup.py` | Looks a BOM up in supply data without calling a distributor: each line resolves to a part (manufacturer and number, or number alone when unambiguous), reports stock, status, lead time and the cheapest offer that covers the need, and rolls up cost, shortages and "can build N". Also watches the parts on a BOM. |
 | `backend/app/api/supply_bom.py` | BOM lookup (readers) and watch-all-lines (admin, designer). |
+| `bom_fields.py` | Which symbol fields are the manufacturer and the manufacturer part number (best name first; never the distributor's number), and what counts as fitted. The frontend's `frontend/src/features/supply/bom-supply.ts` keeps the same lists; a test compares them. |
+| `usage.py` | Where parts are used: one row per distinct part on each project's BOM, read from semantic indexes that already exist (it builds none). Each project carries the roles its folder lets see it, and every read filters by the caller's role. |
 | `overview.py` | The Supply overview: counts, what needs attention, open alerts, data age, quota today. |
 | `backend/app/api/supply_alerts.py` | Overview and alerts API. Readers see both; admin and designer acknowledge and snooze. |
 | `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. |
@@ -65,6 +67,8 @@ root first.
 - **A decrease in stock is called "observed net decrease", never consumption.** Transfers and
   reporting caps look the same. A rupture warning needs at least medium confidence and no regular
   restock due first.
+- **Usage reads are role-aware.** A project hidden from a role by its folder never shows in that role's
+  "Used in" or "In use"; `usage.VISIBLE` is the filter and every read passes the caller's role.
 - **Only approvers introduce a manufacturer.** A designer watching a part must pick a
   manufacturer Prism already knows (`ensure_manufacturer(may_create=False)`), so a stray
   "TI" cannot become a second Texas Instruments.

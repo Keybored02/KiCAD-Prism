@@ -9,6 +9,7 @@ reported, not created.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import bom_lookup
+from app.services.supply import bom_lookup, usage
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
 
@@ -61,6 +62,28 @@ async def _run(call: Callable[[], T]) -> T:
 
 def _lines(items: list[LineIn]) -> list[bom_lookup.BomLine]:
     return [bom_lookup.BomLine(item.key, item.manufacturer, item.mpn, item.quantity) for item in items]
+
+
+@router.post("/usage/refresh")
+async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, int]:
+    """Read where parts are used from the projects' existing semantic indexes. Builds none, so it is cheap."""
+
+    def run() -> dict[str, int]:
+        # Imported here so the supply API loads without the project services in tests that do not need them.
+        from app.services import project_service, semantic_index_service
+        from app.services.workspace_service import workspace
+
+        # Every project, whatever its folder allows: usage is a cache, and reads filter by the caller's role.
+        rows = workspace.get_all_projects(None)
+        projects = [project_service._workspace_row_to_project(row) for row in rows]
+        visible = {
+            row["id"]: [role for role in usage.ALL_ROLES if workspace._is_folder_visible(row, role)]
+            for row in rows
+        }
+        with _store().connection() as conn:
+            return usage.refresh(conn, projects, semantic_index_service.get_existing, datetime.now(timezone.utc), visible)
+
+    return await _run(run)
 
 
 @router.post("/lookup")

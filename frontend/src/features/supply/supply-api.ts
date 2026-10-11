@@ -72,6 +72,18 @@ export function resumeSupplyConnector(id: string): Promise<SupplyConnector> {
   return post(connectorPath(id, "resume"), undefined, "Could not resume the connector");
 }
 
+export interface SupplyUsageRefresh {
+  updated: number;
+  unchanged: number;
+  without_index: number;
+  removed: number;
+}
+
+/** Read where parts are used from the projects' existing indexes. Cheap: it builds none. */
+export function refreshSupplyUsage(): Promise<SupplyUsageRefresh> {
+  return post(`${BASE}/bom/usage/refresh`, undefined, "Could not read where parts are used");
+}
+
 export function lookupSupplyBom(lines: BomLineInput[], buildQuantity: number, signal?: AbortSignal): Promise<SupplyBomLookup> {
   return fetchJson<SupplyBomLookup>(
     `${BASE}/bom/lookup`,

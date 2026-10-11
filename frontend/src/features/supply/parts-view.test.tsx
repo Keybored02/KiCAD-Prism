@@ -23,6 +23,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   updateSupplyWatch: vi.fn(),
   removeSupplyWatch: vi.fn(),
   listSupplyManufacturers: vi.fn(),
+  refreshSupplyUsage: vi.fn(),
 }));
 
 import { PartsView } from "./parts-view";
@@ -54,6 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100 });
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
+  mocked.refreshSupplyUsage.mockResolvedValue({ updated: 0, unchanged: 0, without_index: 0, removed: 0 });
   mocked.listSupplyManufacturers.mockResolvedValue({ items: [{ id: "m1", name: "Texas Instruments", part_count: 3 }] });
 });
 afterEach(cleanup);
@@ -321,6 +323,54 @@ describe("the watch settings", () => {
     renderView("designer", "/?part=p1");
     await screen.findByRole("region", { name: "Watch" });
     expect(screen.queryByRole("region", { name: "Trend" })).toBeNull();
+  });
+
+  it("reads where parts are used when the In use scope is chosen, then reloads the list", async () => {
+    mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ used_in: 3 })], total: 1, limit: 100 });
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "In use" }));
+    expect(search()).toContain("partsScope=in_use");
+    await waitFor(() => expect(mocked.refreshSupplyUsage).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("in_use", "", expect.anything()));
+    // Once for the first load of the scope and once after the usage was read.
+    await waitFor(() => expect(mocked.listSupplyParts.mock.calls.filter((call) => call[0] === "in_use").length).toBeGreaterThanOrEqual(2));
+    expect(await screen.findByText("Used in 3 projects")).toBeTruthy();
+  });
+
+  it("does not read usage for the other scopes", async () => {
+    renderView();
+    await screen.findByRole("button", { name: "LM358D" });
+    fireEvent.click(screen.getByRole("button", { name: "All known" }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("all", "", expect.anything()));
+    expect(mocked.refreshSupplyUsage).not.toHaveBeenCalled();
+  });
+
+  it("says why the In use scope is empty", async () => {
+    mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 100 });
+    renderView("designer", "/?partsScope=in_use");
+    expect(await screen.findByText("No parts in use yet")).toBeTruthy();
+    expect(screen.getByText(/Open a project BOM, then watch its parts/)).toBeTruthy();
+  });
+
+  it("lists the projects a part is used in, with links", async () => {
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
+      used_in: [
+        { project_id: "prj_1", project_name: "satnogs-comms-hardware", quantity: 44, references: "C201 C202" },
+        { project_id: "prj_2", project_name: "Another board", quantity: 1, references: "C1" },
+      ],
+    }));
+    renderView("designer", "/?part=p1");
+    const used = await screen.findByRole("region", { name: "Used in" });
+    const link = within(used).getByRole("link", { name: "satnogs-comms-hardware" });
+    expect(link.getAttribute("href")).toBe("/project/prj_1");
+    expect(within(used).getByText("44 per board")).toBeTruthy();
+    expect(within(used).getByText("Used in (2)")).toBeTruthy();
+  });
+
+  it("shows no Used in section for a part no BOM carries", async () => {
+    renderView("designer", "/?part=p1");
+    await screen.findByRole("region", { name: "Watch" });
+    expect(screen.queryByRole("region", { name: "Used in" })).toBeNull();
   });
 
   it("quotes the price at the quantity it applies to", async () => {

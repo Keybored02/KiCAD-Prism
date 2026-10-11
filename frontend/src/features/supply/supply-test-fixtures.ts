@@ -61,6 +61,7 @@ export function partRowFixture(overrides: Partial<SupplyPartRow> = {}): SupplyPa
     currency: "EUR",
     fetched_at: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
     tier: "normal",
+    used_in: 0,
     ...overrides,
   };
 }
@@ -90,6 +91,7 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
         match_state: "near", counted: false, offer: null, poll: null,
       },
     ],
+    used_in: [],
     insight: {
       confidence: "none", trend: null, decrease_per_day: null, days_to_zero: null, days_to_threshold: null,
       restocks: 0, restock_interval_days: null, restock_expected_in_days: null,

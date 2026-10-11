@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Eye, PackageSearch, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -13,23 +13,34 @@ import type { User } from "@/types/auth";
 import type { PartsScope } from "@/types/supply";
 import { PartSheet } from "./part-sheet";
 import { PartsTable } from "./parts-table";
+import { refreshSupplyUsage } from "./supply-api";
 import { useSupplyPartsList } from "./use-supply-parts";
 import { WatchPartDialog } from "./watch-part-dialog";
 
 const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
   { id: "watched", label: "Watched" },
+  { id: "in_use", label: "In use" },
   { id: "all", label: "All known" },
 ];
 
 /** Parts Prism knows about, with their stock. The URL holds the scope, search and open part. */
 export function PartsView({ user }: { user: User | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const scope: PartsScope = searchParams.get("partsScope") === "all" ? "all" : "watched";
+  const requestedScope = searchParams.get("partsScope");
+  const scope: PartsScope = requestedScope === "all" || requestedScope === "in_use" ? requestedScope : "watched";
   const query = searchParams.get("partsQ") ?? "";
   const openPart = searchParams.get("part");
   const canEdit = canEditSupply(user?.role);
   const [watching, setWatching] = useState(false);
   const { status, data, error, retry, refresh } = useSupplyPartsList(scope, query);
+
+  // Where parts are used comes from project BOMs read earlier; bring it up to date when the scope is chosen.
+  useEffect(() => {
+    if (scope !== "in_use") return;
+    void refreshSupplyUsage().then(() => refresh()).catch(() => undefined);
+    // `refresh` changes with the query; the usage read is for entering the scope.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
 
   const setParams = (changes: Record<string, string | null>) => {
     setSearchParams((current) => {
@@ -140,13 +151,15 @@ function EmptyState({ scope, searching, canEdit, onWatch }: { scope: PartsScope;
   return (
     <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center">
       <PackageSearch className="h-8 w-8 text-muted-foreground" />
-      <p className="text-sm font-medium">{searching ? "No parts match" : scope === "watched" ? "No watched parts yet" : "No parts yet"}</p>
+      <p className="text-sm font-medium">{searching ? "No parts match" : scope === "watched" ? "No watched parts yet" : scope === "in_use" ? "No parts in use yet" : "No parts yet"}</p>
       <p className="max-w-md text-sm text-muted-foreground">
         {searching
           ? "Try a shorter part number or another manufacturer."
           : scope === "watched"
             ? "Watch a part to have its stock read regularly."
-            : "Parts appear here once they are watched or matched."}
+            : scope === "in_use"
+              ? "No project BOM that Prism has read uses a part it knows. Open a project BOM, then watch its parts."
+              : "Parts appear here once they are watched or matched."}
       </p>
       {!searching && scope === "watched" && canEdit ? <Button size="sm" onClick={onWatch}>Watch a part</Button> : null}
     </div>

@@ -44,6 +44,7 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
                 </button>
                 <div className="text-xs text-muted-foreground">{part.manufacturer}</div>
                 {part.problem ? <div className="text-xs text-destructive">{PROBLEM_LABEL[part.problem]}</div> : null}
+                {part.used_in > 0 ? <div className="text-xs text-muted-foreground">Used in {part.used_in} {part.used_in === 1 ? "project" : "projects"}</div> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}

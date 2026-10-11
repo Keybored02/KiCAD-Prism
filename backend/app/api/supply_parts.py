@@ -72,23 +72,23 @@ def _watch_dto(record: watches.WatchRecord) -> dict[str, Any]:
 
 @router.get("/parts")
 async def list_parts(
-    scope: Literal["watched", "all"] = "watched",
+    scope: Literal["watched", "in_use", "all"] = "watched",
     q: str = Query(default="", max_length=100),
     limit: int = Query(default=100, ge=1, le=parts_view.MAX_LIMIT),
-    _user: AuthenticatedUser = Depends(require_supply_reader),
+    user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return parts_view.list_parts(conn, scope=scope, query=q, limit=limit)
+            return parts_view.list_parts(conn, scope=scope, query=q, limit=limit, role=user.role)
 
     return await _run(read)
 
 
 @router.get("/parts/{part_id}")
-async def get_part(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+async def get_part(part_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return parts_view.part_detail(conn, part_id)
+            return parts_view.part_detail(conn, part_id, role=user.role)
 
     return await _run(read)
 

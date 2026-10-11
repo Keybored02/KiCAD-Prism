@@ -353,6 +353,53 @@ def _m007_alerts(conn) -> None:
     )
 
 
+def _m008_bom_usage(conn) -> None:
+    """Where parts are used: one row per distinct part on each project's BOM.
+
+    Read from semantic indexes that already exist (see ``usage.py``). A row carries the part
+    number key and the manufacturer spelling key, so it matches a supply part however that part
+    got here. ``bom_usage_projects`` remembers which revision a project's rows were read from.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bom_usage_projects (
+            project_id TEXT PRIMARY KEY,
+            project_name TEXT NOT NULL,
+            revision_key TEXT NOT NULL,
+            line_count INTEGER NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS bom_usage (
+            project_id TEXT NOT NULL REFERENCES bom_usage_projects(project_id) ON DELETE CASCADE,
+            line_key TEXT NOT NULL,
+            manufacturer TEXT NOT NULL DEFAULT '',
+            mpn TEXT NOT NULL,
+            alias_key TEXT NOT NULL DEFAULT '',
+            match_key TEXT NOT NULL,
+            quantity INTEGER NOT NULL CHECK (quantity >= 1),
+            refs TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (project_id, line_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_bom_usage_match ON bom_usage (match_key);
+        """,
+        prepare=False,
+    )
+
+
+def _m009_usage_visibility(conn) -> None:
+    """Which roles may see a project, copied from its folder when usage is read.
+
+    A folder can hide its projects from some roles. Usage is a cache over every project, so each
+    project carries the supply roles that may see it and reads filter on the caller's role.
+    """
+
+    conn.execute(
+        "ALTER TABLE bom_usage_projects ADD COLUMN IF NOT EXISTS visible_roles TEXT[] NOT NULL DEFAULT '{admin,designer,qa}'",
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -361,6 +408,8 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (5, "discovery_runs", _m005_discovery_runs),
     (6, "events_rollups", _m006_events_rollups),
     (7, "alerts", _m007_alerts),
+    (8, "bom_usage", _m008_bom_usage),
+    (9, "usage_visibility", _m009_usage_visibility),
 ]
 
 

@@ -1,5 +1,7 @@
 import { lazy, Suspense } from "react";
 
+import { Link } from "react-router-dom";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -122,6 +124,20 @@ function PartDetail({ detail, canEdit, onChanged }: { detail: SupplyPartDetail; 
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Watch</h3>
         <WatchSettings part={detail.part} watch={detail.watch} canEdit={canEdit} onChanged={onChanged} />
       </section>
+
+      {detail.used_in.length > 0 ? (
+        <section aria-label="Used in" className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Used in ({detail.used_in.length})</h3>
+          <ul className="space-y-1 text-sm">
+            {detail.used_in.map((use) => (
+              <li key={use.project_id} className="flex items-baseline justify-between gap-3">
+                <Link to={`/project/${encodeURIComponent(use.project_id)}`} className="text-primary hover:underline">{use.project_name}</Link>
+                <span className="text-xs text-muted-foreground" title={use.references}>{use.quantity} per board</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section aria-label="Listings" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Listings ({detail.listings.length})</h3>
