@@ -10,6 +10,7 @@ from app.core.roles import (
     CATALOG_READ_ROLES,
     CATALOG_WRITE_ROLES,
     PROJECT_RELEASE_ACTOR_ROLES,
+    SUPPLY_APPROVE_ROLES,
     SUPPLY_READ_ROLES,
     Role,
     normalize_role,
@@ -230,6 +231,15 @@ async def require_supply_reader(user: AuthenticatedUser = Depends(get_current_us
     _require_bearer_scope(user, "api:read")
     if user.role not in SUPPLY_READ_ROLES:
         raise HTTPException(status_code=403, detail="Supply read access required")
+    return user
+
+
+async def require_supply_approver(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    if user.auth_type == "kicad_provider":
+        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
+    _require_bearer_scope(user, "api:write")
+    if user.role not in SUPPLY_APPROVE_ROLES:
+        raise HTTPException(status_code=403, detail="Supply review access required")
     return user
 
 

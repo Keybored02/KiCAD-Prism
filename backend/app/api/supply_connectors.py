@@ -106,8 +106,13 @@ def _provider_dto(spec) -> dict[str, Any]:
     }
 
 
+# `input` is what the caller sent. `ctx` can hold the exception a validator raised,
+# which is not JSON, and fragments of the input.
+_UNSAFE_ERROR_KEYS = frozenset({"input", "ctx"})
+
+
 def _strip_validation_input(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [{key: value for key, value in item.items() if key != "input"} for item in errors]
+    return [{key: value for key, value in item.items() if key not in _UNSAFE_ERROR_KEYS} for item in errors]
 
 
 def register_validation_redaction(app: FastAPI) -> None:

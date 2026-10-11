@@ -25,6 +25,7 @@ from app.api.supply_connectors import (
     register_validation_redaction as register_supply_validation_redaction,
     router as supply_connectors_router,
 )
+from app.api.supply_review import router as supply_review_router
 from app.api.project_trackers import router as project_trackers_router
 from app.api.tracker_sync import router as tracker_sync_router
 from app.api.tracker_webhooks import router as tracker_webhooks_router
@@ -296,6 +297,7 @@ app.include_router(provider_oauth_router, tags=["provider-oauth"])
 app.include_router(tracker_connectors_router)
 register_validation_redaction(app)
 app.include_router(supply_connectors_router)
+app.include_router(supply_review_router)
 register_supply_validation_redaction(app)
 app.include_router(tracker_identity_router)
 app.include_router(tracker_identity_admin_router)

@@ -17,6 +17,8 @@ root first.
 | `identity.py` | `match_key`: the lookup key for part numbers. Conservative on purpose: dots and slashes stay. |
 | `parts.py` | Manufacturers, spellings (`pending` until a person maps them) and parts. Functions on a connection; none commit. |
 | `discovery.py` | `DiscoveryService`: sorts a provider's answers into match states. Also `pin_listing`, `reject_listing`, `counted_listings`. |
+| `review.py` | Reads the review queue: pending spellings and listings waiting for a person. |
+| `backend/app/api/supply_review.py` | Review API. Everyone who reads supply data sees the queue; confirming a spelling and pinning or rejecting a listing need admin or qa. |
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
 | `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
 | `csv_offers.py`, `csv_import_service.py` | Storage for uploaded offers and the import and clear service. |
@@ -67,7 +69,7 @@ rules in `frontend/src/features/supply/connector-form-model.ts`, not in componen
 
 ## Tests
 
-`backend/tests/test_supply_foundation.py` and
+`backend/tests/test_supply_foundation.py`, `backend/tests/test_supply_csv_format.py` and
 `backend/tests/test_supply_http_client.py` need no database or network.
 `backend/tests/test_supply_connectors_postgres.py` and
 `backend/tests/test_supply_connectors_api.py` need `PRISM_DATABASE_URL` and use a

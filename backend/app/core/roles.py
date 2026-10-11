@@ -32,6 +32,8 @@ CATALOG_QA_ROLES: frozenset[Role] = frozenset({"admin", "qa"})
 # Supply data follows the catalog: same people read it. Write and approve sets
 # are added with the features that use them.
 SUPPLY_READ_ROLES: frozenset[Role] = CATALOG_READ_ROLES
+# Matching decisions (confirm a spelling, pin or reject a listing) follow catalog QA.
+SUPPLY_APPROVE_ROLES: frozenset[Role] = CATALOG_QA_ROLES
 PROJECT_VIEW_ROLES: frozenset[Role] = frozenset({"viewer", "qa"})
 PROJECT_RELEASE_ACTOR_ROLES: frozenset[Role] = frozenset({"admin", "designer", "qa"})
 
