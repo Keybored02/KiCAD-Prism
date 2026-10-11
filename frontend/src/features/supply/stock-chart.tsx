@@ -1,3 +1,4 @@
+// react-doctor-disable-next-line prefer-dynamic-import - the whole module is loaded with React.lazy (see part-sheet)
 import { CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";

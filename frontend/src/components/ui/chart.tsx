@@ -1,4 +1,5 @@
 import * as React from "react";
+// react-doctor-disable-next-line prefer-dynamic-import - this module is only ever reached through React.lazy (see part-sheet), in its own chunk
 import * as RechartsPrimitive from "recharts";
 
 import { cn } from "@/lib/utils";
@@ -23,12 +24,13 @@ interface ChartContainerProps extends React.ComponentProps<"div"> {
 function ChartContainer({ id, className, children, config, style, ...props }: ChartContainerProps) {
   const uniqueId = React.useId();
   const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`;
+  const context = React.useMemo(() => ({ config }), [config]);
   const colors: Record<string, string> = {};
   for (const [key, item] of Object.entries(config)) {
     if (item.color) colors[`--color-${key}`] = item.color;
   }
   return (
-    <ChartContext.Provider value={{ config }}>
+    <ChartContext.Provider value={context}>
       <div
         data-slot="chart"
         data-chart={chartId}
