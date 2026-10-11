@@ -12,7 +12,7 @@ import threading
 from importlib.metadata import entry_points
 from typing import Iterable
 
-from app.services.supply.providers import csv_provider, fake
+from app.services.supply.providers import csv_provider, fake, mouser, tme
 from app.services.supply.providers.base import ProviderSpec
 
 logger = logging.getLogger(__name__)
@@ -83,3 +83,5 @@ def load_plugins() -> list[str]:
 
 register(fake.SPEC)
 register(csv_provider.SPEC)
+register(tme.SPEC)
+register(mouser.SPEC)

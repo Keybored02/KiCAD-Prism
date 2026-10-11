@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json as jsonlib
 from dataclasses import dataclass
-from typing import Any, Collection, Mapping, Protocol
+from typing import Any, Collection, Mapping, Protocol, Sequence
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
 import requests
@@ -205,7 +205,8 @@ class SafeHttpClient:
         method: str,
         url: str,
         *,
-        params: Mapping[str, str] | None = None,
+        # A sequence of pairs repeats a key (symbols[]=a&symbols[]=b), as some APIs want.
+        params: Mapping[str, str] | Sequence[tuple[str, str]] | None = None,
         headers: Mapping[str, str] | None = None,
         json: Any = None,
         form: Mapping[str, str] | None = None,

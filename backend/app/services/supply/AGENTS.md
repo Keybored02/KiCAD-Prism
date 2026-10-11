@@ -13,6 +13,9 @@ root first.
 | `models.py` | Provider-neutral `Offer`, `PriceBreak`, `Incoming`, `PartMatch`, `PartData`. Validate on construction. |
 | `providers/base.py` | `ProviderSpec`, the `SupplyProvider` protocol, `ProviderError` subclasses. |
 | `providers/registry.py` | Provider lookup. Built-ins register at import; plugins load from the `prism.supply_providers` entry point. |
+| `providers/tme.py` | TME API v2: OAuth client-credentials token (kept until shortly before it expires), `/products?mpns[]` to find listings, `/products` plus `/products/data` for offers (two calls a batch of 50). The storefront is the country. Gross prices are turned net. |
+| `providers/mouser.py` | Mouser Search API V1: `search/partnumber` with up to 10 numbers per call, `Exact` matching, calls spaced 2 seconds apart. Errors arrive in a 200 answer. |
+| `providers/text_values.py` | Reads numbers sent as display text: "1,234 In Stock", "0,52 EUR", "42 Days". |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
 | `identity.py` | `match_key`: the lookup key for part numbers. Conservative on purpose: dots and slashes stay. |
 | `parts.py` | Manufacturers, spellings (`pending` until a person maps them) and parts. Functions on a connection; none commit. |
@@ -63,6 +66,9 @@ root first.
   same manufacturer, using its alias table.
 - **The manufacturer part is the spine.** A feature that needs part data reads
   it from there. No feature keeps its own copy.
+- **Adapters follow the provider's published API description**, and their fixtures say where
+  they come from (`backend/tests/fixtures/supply`). Replace a schema-shaped fixture with a
+  recorded answer when one is available.
 - **Network providers do not touch the database and do not log credentials.**
   They return models or raise `ProviderError`. Callers decide what to store.
   The CSV provider is the one that reads a table, and only its own.

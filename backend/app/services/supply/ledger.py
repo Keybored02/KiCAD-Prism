@@ -81,11 +81,11 @@ def try_spend(
     return True
 
 
-def spend_call(store, connector: Mapping, *, now: datetime, interactive: bool = False) -> bool:
+def spend_call(store, connector: Mapping, *, now: datetime, interactive: bool = False, units: int = 1) -> bool:
     """Spend one call for a connector, in its own transaction. Free connectors never get here."""
 
     with store.connection() as conn:
         return try_spend(
-            conn, connector["id"], 1, interactive=interactive,
+            conn, connector["id"], units, interactive=interactive,
             daily_budget=connector["daily_budget"], reserve_pct=connector["interactive_reserve_pct"], now=now,
         )

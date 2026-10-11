@@ -296,6 +296,10 @@ class QuotaTests(unittest.TestCase):
         self.assertEqual(batch.calls_per_day, 16)
         self.assertEqual(single.calls_per_day, 800)
 
+    def test_a_provider_that_needs_two_calls_a_batch_needs_twice_the_calls(self) -> None:
+        estimate = quota.estimate_capacity({"warm": 200}, max_batch=50, daily_budget=1000, calls_per_batch=2)
+        self.assertEqual(estimate.calls_per_day, 32)
+
     def test_empty_watchlist_needs_nothing(self) -> None:
         estimate = quota.estimate_capacity({}, max_batch=1, daily_budget=0)
         self.assertEqual(estimate.calls_per_day, 0)

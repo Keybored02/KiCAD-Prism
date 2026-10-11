@@ -115,7 +115,9 @@ class Poller:
         calls = polled = gone = 0
         stopped: str | None = None
         for batch in _chunks(due, spec.max_batch):
-            if spec.metered and not ledger.spend_call(self._store, connector, now=now, interactive=interactive):
+            if spec.metered and not ledger.spend_call(
+                self._store, connector, now=now, interactive=interactive, units=spec.calls_per_offers_batch
+            ):
                 stopped = STOPPED_BUDGET
                 break
             calls += 1

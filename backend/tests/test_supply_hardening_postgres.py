@@ -222,6 +222,24 @@ class HardeningTests(unittest.TestCase):
         (row,) = self.rows("SELECT cooldown_until FROM connectors WHERE id = %s", cid)
         self.assertEqual(row["cooldown_until"], self.clock.now + self.trouble.MAX_COOLDOWN)
 
+    def test_a_batch_that_costs_two_calls_is_charged_two(self) -> None:
+        from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderSpec
+
+        registry.register(ProviderSpec(
+            key="demo_twocall", label="Two calls", capabilities=frozenset({"offers"}), max_batch=10,
+            stock_pooling="separate", credential_fields=(), factory=lambda config: self.FakeProvider(config),
+            calls_per_offers_batch=2,
+        ), replace=True)
+        try:
+            cid = self.connector("demo_twocall", daily_budget=1000)
+            self.add_listing(self.watch().part_id, cid, "FAKE-ABC123-CT")
+            summary = self.poller().poll_connector(cid)
+            (row,) = self.rows("SELECT spent FROM quota_ledger WHERE connector_id = %s", cid)
+            self.assertEqual((summary.calls, row["spent"]), (1, 2), "one batch, two calls on the budget")
+        finally:
+            registry.unregister("demo_twocall")
+
     # --- rollups ----------------------------------------------------------
 
     def test_old_samples_become_daily_rollups_and_recent_ones_stay(self) -> None:

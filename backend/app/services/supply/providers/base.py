@@ -112,6 +112,8 @@ class ProviderSpec:
     dev_only: bool = False
     # False when a call costs nothing (local data), so no call budget applies.
     metered: bool = True
+    # Calls one get_offers batch makes, so the budget is charged what is really spent.
+    calls_per_offers_batch: int = 1
 
     def __post_init__(self) -> None:
         if not _KEY.match(self.key):
@@ -121,6 +123,8 @@ class ProviderSpec:
             raise ValueError(f"unknown capabilities: {sorted(unknown)}")
         if self.max_batch < 1:
             raise ValueError("max_batch must be at least 1")
+        if self.calls_per_offers_batch < 1:
+            raise ValueError("calls_per_offers_batch must be at least 1")
         if self.default_daily_budget < 0:
             raise ValueError("default_daily_budget must not be negative")
         names = [item.name for item in self.credential_fields]
