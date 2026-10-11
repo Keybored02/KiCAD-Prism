@@ -12,6 +12,7 @@ import {
 import { BOM_SUPPLY_COLUMNS, isSupplyColumn, rowSupply } from "@/features/supply/bom-supply";
 import { BomSupplyBar } from "@/features/supply/bom-supply-bar";
 import { SupplyCell } from "@/features/supply/bom-supply-cells";
+import { useBomRowDetail } from "@/features/supply/use-bom-row-detail";
 import { useBomSupply } from "@/features/supply/use-bom-supply";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
@@ -213,6 +214,7 @@ export function EngineeringBomTable({
     // Supply figures are for what is fitted, whichever rows the assembly filter shows.
     const fitted = useMemo(() => allComponents.filter(isAssembled), [allComponents]);
     const supply = useBomSupply(fitted, user ?? null);
+    const detail = useBomRowDetail(supply, user ?? null);
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
         if (typeof window === "undefined") return {};
         try {
@@ -359,6 +361,7 @@ export function EngineeringBomTable({
                 </div>
             </div>
             {supply.enabled ? <BomSupplyBar supply={supply} /> : null}
+            {supply.enabled ? detail.element : null}
             <div className="min-h-0 flex-1 overflow-auto">
                 <table className="min-w-max border-separate border-spacing-0 text-xs">
                     <thead className="sticky top-0 z-20 bg-muted shadow-sm">
@@ -451,7 +454,13 @@ export function EngineeringBomTable({
                                         } else if (column === "Qty") {
                                             content = group.components.length;
                                         } else if (isSupplyColumn(column)) {
-                                            content = <SupplyCell column={column} supply={rowSupply(group.components, supply.lookup?.lines ?? null, supply.fittedKeys)} />;
+                                            content = (
+                                                <SupplyCell
+                                                    column={column}
+                                                    supply={rowSupply(group.components, supply.lookup?.lines ?? null, supply.fittedKeys)}
+                                                    onDetails={() => detail.open(group.components)}
+                                                />
+                                            );
                                         } else {
                                             const value = group.fields[column] || "";
                                             const url = column === "Datasheet" ? datasheetUrl(value) : null;

@@ -28,6 +28,10 @@ export interface BomSupply {
   retry: () => void;
   /** Watch every part on the BOM that has a manufacturer and a number, then reload the figures. */
   watchAll: () => Promise<SupplyBomWatchResult>;
+  /** Watch just these lines, then reload the figures. */
+  watchLines: (subset: readonly BomLineDetail[]) => Promise<SupplyBomWatchResult>;
+  /** Reload the figures without the loading state. */
+  refresh: () => Promise<void>;
 }
 
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
@@ -51,9 +55,9 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
   );
   const { status: loadStatus, data, error, retry, refresh } = useLoaded<SupplyBomLookup>(requestKey, fetcher, "Could not look the BOM up");
 
-  const watchAll = useCallback(async () => {
+  const watchLines = useCallback(async (subset: readonly BomLineDetail[]) => {
     const batches: BomLineDetail[][] = [];
-    for (let start = 0; start < lines.length; start += WATCH_BATCH) batches.push(lines.slice(start, start + WATCH_BATCH));
+    for (let start = 0; start < subset.length; start += WATCH_BATCH) batches.push(subset.slice(start, start + WATCH_BATCH));
     // Each part is on exactly one line, so the batches do not overlap and can run together.
     const results = await Promise.all(
       batches.map((batch) => watchSupplyBomLines(batch.map(({ key, manufacturer, mpn, quantity }) => ({ key, manufacturer, mpn, quantity })))),
@@ -66,7 +70,8 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
     }
     await refresh();
     return totals;
-  }, [lines, refresh]);
+  }, [refresh]);
+  const watchAll = useCallback(() => watchLines(lines), [lines, watchLines]);
 
   const status = requestKey === null ? "idle" : loadStatus;
   return {
@@ -82,5 +87,7 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
     error,
     retry,
     watchAll,
+    watchLines,
+    refresh,
   };
 }

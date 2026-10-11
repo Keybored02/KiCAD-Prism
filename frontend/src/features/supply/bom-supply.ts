@@ -76,6 +76,12 @@ export function buildLines(fitted: readonly SemanticComponent[]): BomLineDetail[
   return [...lines.values()];
 }
 
+/** The distinct parts among a row's components, in the BOM's line order. */
+export function rowLines(rowComponents: readonly SemanticComponent[], lines: readonly BomLineDetail[]): BomLineDetail[] {
+  const keys = new Set(rowComponents.map((component) => lineKey(identityOf(component))));
+  return lines.filter((line) => keys.has(line.key));
+}
+
 const SEVERITY: SupplyStatus[] = ["fatal", "error", "warning", "unknown", "ok"];
 
 /** What a table row shows: one part's figures, or a summary when the row holds several. */

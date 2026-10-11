@@ -14,10 +14,16 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/features/supply/supply-api", () => ({
   lookupSupplyBom: vi.fn(),
   watchSupplyBomLines: vi.fn(),
+  getSupplyPart: vi.fn(),
 }));
+
+// Recharts is slow to load cold and is not what these tests are about.
+vi.mock("@/features/supply/stock-chart", () => ({ default: () => <div role="img" aria-label="Stock over the last 90 days" /> }));
 
 import * as api from "@/features/supply/supply-api";
 import { lineKey } from "@/features/supply/bom-supply";
+import { partDetailFixture } from "@/features/supply/supply-test-fixtures";
+import { toast } from "sonner";
 import { EngineeringBomTable } from "./engineering-bom-table";
 
 const mocked = vi.mocked(api);
@@ -63,6 +69,8 @@ function lookupFor(build: number): SupplyBomLookup {
         lifecycle: "active", lead_time_days: null, short: true, buy: null,
       },
       [key("Other", "C-220N")]: { state: "unknown", part_id: null, manufacturer_match: null, need: build },
+      [key("Acme", "R-47K-A")]: { state: "unknown", part_id: null, manufacturer_match: null, need: build },
+      [key("Acme", "R-47K-B")]: { state: "unknown", part_id: null, manufacturer_match: null, need: build },
       [key("", "")]: { state: "no_mpn", part_id: null, manufacturer_match: null, need: build },
     },
     rollup: {
@@ -211,5 +219,70 @@ describe("actions on the BOM", () => {
     expect(await screen.findByText("Backend is down")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("1 at risk")).toBeTruthy();
+  });
+});
+
+describe("the part drawer", () => {
+  async function openDetails(rowValue: string) {
+    const row = await waitFor(() => {
+      const found = rowOf(rowValue);
+      expect(within(found).getByRole("button", { name: "Show part details" })).toBeTruthy();
+      return found;
+    });
+    fireEvent.click(within(row).getByRole("button", { name: "Show part details" }));
+    return screen.findByRole("dialog");
+  }
+
+  it("lists every part on a row that holds several, with a way to watch the unknown ones", async () => {
+    mocked.watchSupplyBomLines.mockResolvedValue({ watched: 1, already_watched: 0, skipped: [] });
+    renderTable("designer");
+    const drawer = await openDetails("47k");
+    expect(within(drawer).getByText("2 parts on this row")).toBeTruthy();
+    expect(within(drawer).getByText("R-47K-A")).toBeTruthy();
+    expect(within(drawer).getByText("R-47K-B")).toBeTruthy();
+    expect(within(drawer).getAllByText(/does not know this part yet/)).toHaveLength(2);
+
+    const [first] = within(drawer).getAllByRole("button", { name: /Watch this part/ });
+    fireEvent.click(first);
+    await waitFor(() => expect(mocked.watchSupplyBomLines).toHaveBeenCalledTimes(1));
+    const sent = mocked.watchSupplyBomLines.mock.calls[0][0];
+    expect(sent).toHaveLength(1);
+    expect(["R-47K-A", "R-47K-B"]).toContain(sent[0].mpn);
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(2));
+  });
+
+  it("says what is known about a tracked part and where to buy it", async () => {
+    renderTable("designer");
+    const drawer = await openDetails("10k");
+    expect(within(drawer).getByText("R-10K")).toBeTruthy();
+    expect(within(drawer).getByText("2 per board:", { exact: false })).toBeTruthy();
+    expect(within(drawer).getByText(/5,000 in stock, 2 needed\./)).toBeTruthy();
+    const link = within(drawer).getByRole("link", { name: /R-10K-TME/ });
+    expect(link.getAttribute("href")).toBe("https://shop.example/r");
+    expect(within(drawer).queryByRole("button", { name: /Watch this part/ })).toBeNull();
+  });
+
+  it("opens the full part sheet from a tracked part", async () => {
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
+    renderTable("designer");
+    const drawer = await openDetails("10k");
+    fireEvent.click(within(drawer).getByRole("button", { name: "Open part" }));
+    await waitFor(() => expect(mocked.getSupplyPart).toHaveBeenCalledWith("p1", expect.anything()));
+    expect(await screen.findByRole("region", { name: "Stock" })).toBeTruthy();
+  });
+
+  it("gives a reader the facts without the watch buttons", async () => {
+    renderTable("qa");
+    const drawer = await openDetails("47k");
+    expect(within(drawer).getByText("2 parts on this row")).toBeTruthy();
+    expect(within(drawer).queryByRole("button", { name: /Watch this part/ })).toBeNull();
+  });
+
+  it("explains a part with no number on its symbol", async () => {
+    renderTable("designer");
+    const drawer = await openDetails("LM358");
+    expect(within(drawer).getByText(/cannot track it/)).toBeTruthy();
+    expect(within(drawer).queryByRole("button", { name: /Watch this part/ })).toBeNull();
   });
 });

@@ -1,4 +1,6 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ChevronRight } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
 
 import type { SupplyBomLineResult } from "@/types/supply";
 import { untrackedLabel, type RowSupply } from "./bom-supply";
@@ -68,7 +70,7 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
 }
 
 /** One supply cell of a BOM row: one part's figure, a summary when the row holds several parts, or a dash. */
-export function SupplyCell({ column, supply }: { column: string; supply: RowSupply }) {
+export function SupplyCell({ column, supply, onDetails }: { column: string; supply: RowSupply; onDetails?: () => void }) {
   if (supply.kind === "none") return MUTED;
   if (supply.kind === "mixed") {
     if (column !== "Supply") return <span className="text-muted-foreground">Mixed</span>;
@@ -76,8 +78,24 @@ export function SupplyCell({ column, supply }: { column: string; supply: RowSupp
       <span className="flex items-center gap-1.5" title="This row holds several different parts">
         {supply.worst ? <StatusDot status={supply.worst} /> : null}
         {supply.count} parts
+        <DetailsButton onDetails={onDetails} />
       </span>
     );
   }
-  return <LineCell column={column} result={supply.result} />;
+  if (column !== "Supply") return <LineCell column={column} result={supply.result} />;
+  return (
+    <span className="flex items-center justify-between gap-1.5">
+      <LineCell column={column} result={supply.result} />
+      <DetailsButton onDetails={onDetails} />
+    </span>
+  );
+}
+
+function DetailsButton({ onDetails }: { onDetails?: () => void }) {
+  if (!onDetails) return null;
+  return (
+    <Button type="button" variant="ghost" size="icon-xs" aria-label="Show part details" title="Show part details" onClick={onDetails}>
+      <ChevronRight className="h-3.5 w-3.5" />
+    </Button>
+  );
 }
