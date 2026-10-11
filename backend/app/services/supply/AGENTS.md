@@ -15,6 +15,8 @@ root first.
 | `providers/registry.py` | Provider lookup. Built-ins register at import; plugins load from the `prism.supply_providers` entry point. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
 | `identity.py` | `match_key`: the lookup key for part numbers. Conservative on purpose: dots and slashes stay. |
+| `parts.py` | Manufacturers, spellings (`pending` until a person maps them) and parts. Functions on a connection; none commit. |
+| `discovery.py` | `DiscoveryService`: sorts a provider's answers into match states. Also `pin_listing`, `reject_listing`, `counted_listings`. |
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
 | `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
 | `csv_offers.py`, `csv_import_service.py` | Storage for uploaded offers and the import and clear service. |
@@ -32,6 +34,11 @@ root first.
 
 - **Supply data never enters component revisions.** Revisions are hashed;
   prices change daily.
+- **Only `exact` and `manual` listings count** toward stock and price. A person's
+  decision (`manual`, `rejected`) is never overwritten by discovery, and an
+  `exact` listing is never downgraded by a search for a different part.
+- **A manufacturer argument is a hint, never a filter.** Prism decides who is the
+  same manufacturer, using its alias table.
 - **The manufacturer part is the spine.** A feature that needs part data reads
   it from there. No feature keeps its own copy.
 - **Network providers do not touch the database and do not log credentials.**

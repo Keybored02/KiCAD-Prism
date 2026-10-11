@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Sequence
 
 from app.services.supply.csv_format import CsvOfferRow
-from app.services.supply.identity import match_key
+from app.services.supply.identity import alias_key, match_key
 from app.services.supply.models import Incoming, Offer, PartMatch, PriceBreak
 from app.services.supply.vocabulary import Lifecycle, Packaging
 
@@ -114,18 +114,26 @@ class CsvOfferStore:
     def matches_for_mpn(
         self, conn, connector_id: str, mpn: str, manufacturer: str | None, *, limit: int = 50
     ) -> list[PartMatch]:
+        """Rows with this part number. ``manufacturer`` ranks, it never excludes.
+
+        A file spells manufacturers its own way, so excluding by text would hide
+        "Texas Instruments Inc." from a search for "Texas Instruments". Whether
+        a row is the same manufacturer is decided later, with the alias table.
+        """
+
         key = match_key(mpn)
         if not key:
             return []
         rows = conn.execute(
             """
             SELECT sku, mpn, manufacturer, product_url FROM csv_offers
-            WHERE connector_id = %s AND match_key = %s
-              AND (%s::text IS NULL OR lower(manufacturer) = lower(%s::text))
-            ORDER BY sku LIMIT %s
+            WHERE connector_id = %s AND match_key = %s ORDER BY sku LIMIT %s
             """,
-            (connector_id, key, manufacturer, manufacturer, limit),
+            (connector_id, key, limit),
         ).fetchall()
+        hint = alias_key(manufacturer or "")
+        if hint:
+            rows = sorted(rows, key=lambda row: alias_key(row["manufacturer"]) != hint)
         return [
             PartMatch(PROVIDER_KEY, row["sku"], row["mpn"], row["manufacturer"], product_url=row["product_url"])
             for row in rows

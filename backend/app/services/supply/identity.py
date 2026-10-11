@@ -24,3 +24,26 @@ def match_key(part_number: str) -> str:
     """The lookup key for a manufacturer part number. Empty for blank input."""
 
     return _IGNORED.sub("", unicodedata.normalize("NFKC", part_number or "")).upper()
+
+
+# Legal-form words dropped from the end of a manufacturer name. Only these:
+# "TI" and "Texas Instruments" stay different until a person confirms the alias.
+_LEGAL_FORMS = frozenset({
+    "inc", "incorporated", "corp", "corporation", "co", "company", "ltd", "limited", "llc", "plc",
+    "gmbh", "ag", "sa", "bv", "nv", "srl", "spa", "ab", "as", "oy", "kg", "kk", "pte", "pty",
+})
+_PUNCTUATION = re.compile(r"[.,;:'\"()\[\]!?]")
+
+
+def alias_key(name: str) -> str:
+    """The key under which a manufacturer spelling is looked up. Blank for blank input.
+
+    Case, punctuation, ``&`` and trailing legal forms are ignored, so
+    ``Texas Instruments Inc.`` and ``TEXAS INSTRUMENTS`` share a key.
+    """
+
+    text = unicodedata.normalize("NFKC", name or "").casefold().replace("&", " and ")
+    words = _PUNCTUATION.sub(" ", text).replace("-", " ").split()
+    while len(words) > 1 and words[-1] in _LEGAL_FORMS:
+        words.pop()
+    return " ".join(words)

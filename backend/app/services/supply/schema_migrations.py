@@ -123,9 +123,73 @@ def _m002_csv_offers(conn) -> None:
     )
 
 
+def _m003_parts_and_listings(conn) -> None:
+    """Manufacturers, their spellings, parts, and distributor listings.
+
+    The manufacturer part is the spine every supply feature reads. A listing
+    always points at the part it is a candidate for; ``match_state`` decides
+    whether it counts. ``manufacturer_aliases`` rows are ``pending`` until a
+    person maps the spelling to a manufacturer.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS manufacturers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            name_key TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS manufacturer_aliases (
+            alias_key TEXT PRIMARY KEY,
+            alias_text TEXT NOT NULL,
+            manufacturer_id TEXT REFERENCES manufacturers(id) ON DELETE CASCADE,
+            status TEXT NOT NULL CHECK (status IN ('confirmed', 'pending')),
+            seen_at_provider TEXT NOT NULL DEFAULT '',
+            confirmed_by TEXT NOT NULL DEFAULT '',
+            first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CHECK ((status = 'confirmed') = (manufacturer_id IS NOT NULL))
+        );
+
+        CREATE TABLE IF NOT EXISTS parts (
+            id TEXT PRIMARY KEY,
+            manufacturer_id TEXT NOT NULL REFERENCES manufacturers(id),
+            mpn TEXT NOT NULL,
+            match_key TEXT NOT NULL,
+            lifecycle TEXT NOT NULL DEFAULT 'unknown',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (manufacturer_id, match_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_parts_match_key ON parts (match_key);
+
+        CREATE TABLE IF NOT EXISTS listings (
+            id TEXT PRIMARY KEY,
+            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            sku TEXT NOT NULL,
+            part_id TEXT REFERENCES parts(id) ON DELETE SET NULL,
+            raw_mpn TEXT NOT NULL,
+            raw_manufacturer TEXT NOT NULL,
+            packaging TEXT NOT NULL DEFAULT 'unknown',
+            match_state TEXT NOT NULL CHECK (match_state IN (
+                'exact', 'manual', 'manufacturer_unresolved', 'near', 'rejected', 'gone'
+            )),
+            match_reason TEXT NOT NULL DEFAULT '',
+            matched_by TEXT NOT NULL DEFAULT 'discovery',
+            first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (connector_id, sku)
+        );
+        CREATE INDEX IF NOT EXISTS idx_listings_part ON listings (part_id, match_state);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
+    (3, "parts_and_listings", _m003_parts_and_listings),
 ]
 
 

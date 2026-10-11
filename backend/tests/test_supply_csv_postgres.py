@@ -123,13 +123,15 @@ class SupplyCsvDatabaseTests(unittest.TestCase):
         (offer,) = self._provider(connector["id"]).get_offers(["S1"])
         self.assertEqual((offer.currency, offer.price_breaks[0].unit_price), ("GBP", Decimal("0.50")))
 
-    def test_lookup_ignores_case_dashes_and_filters_by_manufacturer(self) -> None:
+    def test_lookup_ignores_case_and_dashes_and_only_ranks_by_manufacturer(self) -> None:
         connector = self._connector()
         self._import(connector["id"], f"{HEADER}\nA,LM358-D,TI,1\nB,LM358D,Onsemi,1\nC,LM358DR,TI,1")
         provider = self._provider(connector["id"])
         self.assertEqual([m.sku for m in provider.lookup_mpn("lm358d")], ["A", "B"])
-        self.assertEqual([m.sku for m in provider.lookup_mpn("LM358-D", "ti")], ["A"])
-        self.assertEqual(provider.lookup_mpn("LM358-D", "Other"), [])
+        self.assertEqual([m.sku for m in provider.lookup_mpn("LM358-D", "ti")], ["A", "B"])
+        self.assertEqual([m.sku for m in provider.lookup_mpn("LM358-D", "ON Semi")], ["A", "B"], "unknown hint ranks nothing")
+        self.assertEqual([m.sku for m in provider.lookup_mpn("LM358-D", "onsemi")], ["B", "A"])
+        self.assertEqual([m.sku for m in provider.lookup_mpn("LM358-D", "Other")], ["A", "B"], "never excludes")
         self.assertEqual(provider.lookup_mpn("  "), [])
 
     def test_optional_fields_round_trip(self) -> None:

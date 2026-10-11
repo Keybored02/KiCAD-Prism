@@ -84,7 +84,12 @@ class ProviderConfig:
 
 class SupplyProvider(Protocol):
     def lookup_mpn(self, mpn: str, manufacturer: str | None = None) -> list[PartMatch]:
-        """Search by manufacturer part number. Empty list when nothing matches."""
+        """Search by manufacturer part number. Empty list when nothing matches.
+
+        ``manufacturer`` is a hint for ranking. Do not use it to exclude results:
+        whether a result is the same manufacturer is decided by Prism, which knows
+        every spelling a manufacturer has gone by.
+        """
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         """Current offers for known SKUs. Unknown SKUs are left out, not raised."""

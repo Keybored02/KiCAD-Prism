@@ -72,7 +72,9 @@ class SupplyDatabaseTests(unittest.TestCase):
 
     def test_migrations_are_recorded_once_and_reapplying_is_a_no_op(self) -> None:
         with self.store.connection() as conn:
-            self.assertEqual(self.schema_migrations.applied_versions(conn), {1, 2})
+            declared = {version for version, _name, _step in self.schema_migrations.MIGRATIONS}
+            self.assertEqual(self.schema_migrations.applied_versions(conn), declared)
+            self.assertEqual(sorted(declared), list(range(1, len(declared) + 1)), "versions are consecutive")
             self.assertEqual(self.schema_migrations.apply_supply_migrations(conn), [])
 
     # --- connectors -------------------------------------------------------
