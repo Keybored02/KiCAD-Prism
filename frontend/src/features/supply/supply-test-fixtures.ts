@@ -1,4 +1,4 @@
-import type { SupplyConnector, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
+import type { SupplyAlert, SupplyConnector, SupplyOverview, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
 
 export function connectorFixture(overrides: Partial<SupplyConnector> = {}): SupplyConnector {
   return {
@@ -94,6 +94,37 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
       { day: "2026-02-27", stock: 9000, listings: 1 }, { day: "2026-02-28", stock: 11000, listings: 1 },
       { day: "2026-03-01", stock: 12500, listings: 1 },
     ],
+    ...overrides,
+  };
+}
+
+export function alertFixture(overrides: Partial<SupplyAlert> = {}): SupplyAlert {
+  return {
+    id: 1,
+    part_id: "p1",
+    mpn: "LM358D",
+    manufacturer: "Texas Instruments",
+    kind: "below_threshold",
+    severity: "warning",
+    state: "open",
+    detail: { stock: 40, threshold: 100 },
+    opened_at: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
+    last_event_at: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
+    acknowledged_by: "",
+    snoozed_until: null,
+    resolved_at: null,
+    ...overrides,
+  };
+}
+
+export function overviewFixture(overrides: Partial<SupplyOverview> = {}): SupplyOverview {
+  return {
+    figures: { watched: 4, at_risk: 2, out_of_stock: 1, lifecycle: 1, no_data: 0 },
+    needs_attention: [partRowFixture({ id: "p2", mpn: "TPS62840", status: "error", stock: 0 })],
+    open_alerts: 2,
+    data_age: { oldest: new Date(Date.now() - 26 * 3600 * 1000).toISOString(), newest: new Date(Date.now() - 600 * 1000).toISOString() },
+    connectors: 1,
+    quota: [{ connector_id: "c1", name: "Mouser EU", metered: true, spent: 450, budget: 1000, paused: false }],
     ...overrides,
   };
 }

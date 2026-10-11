@@ -9,7 +9,9 @@ import type {
   SupplyConnector,
   SupplyCsvResult,
   SupplyCsvRowError,
+  SupplyAlert,
   SupplyManufacturer,
+  SupplyOverview,
   SupplyPartDetail,
   SupplyPartsPage,
   SupplyProvider,
@@ -147,6 +149,33 @@ export function listSupplyParts(scope: PartsScope, query: string, signal?: Abort
   const params = new URLSearchParams({ scope });
   if (query.trim()) params.set("q", query.trim());
   return fetchJson<SupplyPartsPage>(`${BASE}/parts?${params}`, { signal }, "Could not load parts");
+}
+
+export function getSupplyOverview(signal?: AbortSignal): Promise<SupplyOverview> {
+  return fetchJson<SupplyOverview>(`${BASE}/overview`, { signal }, "Could not load the overview");
+}
+
+export function listSupplyAlerts(includeResolved: boolean, signal?: AbortSignal): Promise<{ items: SupplyAlert[] }> {
+  const query = includeResolved ? "?include_resolved=true" : "";
+  return fetchJson<{ items: SupplyAlert[] }>(`${BASE}/alerts${query}`, { signal }, "Could not load alerts");
+}
+
+async function alertAction(alertId: number, action: string, body: unknown, fallback: string): Promise<void> {
+  const response = await fetchApi(`${BASE}/alerts/${alertId}/${action}`, {
+    method: "POST",
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new ApiHttpError(response.status, await readApiError(response, fallback));
+  }
+}
+
+export function acknowledgeSupplyAlert(alertId: number): Promise<void> {
+  return alertAction(alertId, "acknowledge", undefined, "Could not acknowledge the alert");
+}
+
+export function snoozeSupplyAlert(alertId: number, hours: number): Promise<void> {
+  return alertAction(alertId, "snooze", { hours }, "Could not snooze the alert");
 }
 
 export function listSupplyManufacturers(signal?: AbortSignal): Promise<{ items: SupplyManufacturer[] }> {

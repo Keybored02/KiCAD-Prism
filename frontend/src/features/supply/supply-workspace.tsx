@@ -1,20 +1,24 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Boxes, ListChecks, ShieldAlert, type LucideIcon } from "lucide-react";
+import { BellRing, Boxes, LayoutDashboard, ListChecks, ShieldAlert, type LucideIcon } from "lucide-react";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 
+const OverviewView = lazy(() => import("./overview-view").then((module) => ({ default: module.OverviewView })));
+const InboxView = lazy(() => import("./inbox-view").then((module) => ({ default: module.InboxView })));
 const PartsView = lazy(() => import("./parts-view").then((module) => ({ default: module.PartsView })));
 const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
 
 const VIEWS: ReadonlyArray<{ id: SupplyView; label: string; icon: LucideIcon }> = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "parts", label: "Parts", icon: Boxes },
+  { id: "inbox", label: "Inbox", icon: BellRing },
   { id: "review", label: "Review", icon: ListChecks },
 ];
 
-type SupplyView = "parts" | "review";
+type SupplyView = "overview" | "parts" | "inbox" | "review";
 
 function isSupplyView(value: string | null): value is SupplyView {
   return VIEWS.some((view) => view.id === value);
@@ -24,7 +28,7 @@ function isSupplyView(value: string | null): value is SupplyView {
 export function SupplyWorkspace({ user }: { user: User | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get("supplyView");
-  const view: SupplyView = isSupplyView(requested) ? requested : "parts";
+  const view: SupplyView = isSupplyView(requested) ? requested : "overview";
 
   if (!canOpenSupply(user?.role)) {
     return (
@@ -67,7 +71,9 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       </Tabs>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>}>
         <div className="min-h-0 flex-1 overflow-hidden">
+          {view === "overview" && <OverviewView />}
           {view === "parts" && <PartsView user={user} />}
+          {view === "inbox" && <InboxView user={user} />}
           {view === "review" && <ReviewView user={user} />}
         </div>
       </Suspense>

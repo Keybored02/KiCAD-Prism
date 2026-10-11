@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { User, UserRole } from "@/types/auth";
 
+vi.mock("./overview-view", () => ({ OverviewView: () => <div>Overview content</div> }));
+vi.mock("./inbox-view", () => ({ InboxView: () => <div>Inbox content</div> }));
 vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
 vi.mock("./review-view", () => ({ ReviewView: () => <div>Review content</div> }));
 
@@ -27,10 +29,18 @@ function renderAt(role: UserRole | null, url = "/?section=supply") {
 }
 
 describe("the Supply section", () => {
-  it.each<UserRole>(["designer", "qa", "admin"])("opens for %s on the Parts tab", async (role) => {
+  it.each<UserRole>(["designer", "qa", "admin"])("opens for %s on the Overview tab", async (role) => {
     renderAt(role);
+    expect(await screen.findByText("Overview content")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("has Parts and Inbox tabs too", async () => {
+    renderAt("qa", "/?section=supply&supplyView=parts");
     expect(await screen.findByText("Parts content")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Parts" }).getAttribute("aria-selected")).toBe("true");
+    cleanup();
+    renderAt("qa", "/?section=supply&supplyView=inbox");
+    expect(await screen.findByText("Inbox content")).toBeTruthy();
   });
 
   it("shows Review when asked for it", async () => {
@@ -48,9 +58,9 @@ describe("the Supply section", () => {
     expect(screen.getByText("Supply data is not available to your role")).toBeTruthy();
   });
 
-  it("falls back to Parts for an unknown view in the URL", async () => {
+  it("falls back to the Overview for an unknown view in the URL", async () => {
     renderAt("admin", "/?section=supply&supplyView=nonsense");
-    expect(await screen.findByText("Parts content")).toBeTruthy();
+    expect(await screen.findByText("Overview content")).toBeTruthy();
   });
 
   it("drops the open part and search when another tab is chosen", async () => {
@@ -65,7 +75,7 @@ describe("the Supply section", () => {
 
   it("leaves the URL alone when the open tab is clicked again", async () => {
     renderAt("admin", "/?section=supply&other=1");
-    fireEvent.click(await screen.findByRole("tab", { name: "Parts" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Overview" }));
     expect(screen.getByLabelText("location").textContent).toBe("/?section=supply&other=1");
   });
 });

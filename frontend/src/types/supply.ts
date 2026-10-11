@@ -229,6 +229,36 @@ export interface SupplyManufacturer {
   part_count: number;
 }
 
+export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost";
+export type SupplyAlertState = "open" | "acknowledged" | "snoozed" | "resolved";
+
+export interface SupplyAlert {
+  id: number;
+  part_id: string;
+  mpn: string;
+  manufacturer: string;
+  kind: SupplyAlertKind;
+  severity: "warning" | "error" | "fatal";
+  state: SupplyAlertState;
+  /** Facts behind the alert: stock, threshold, lifecycle or problem. */
+  detail: { stock?: number; threshold?: number; lifecycle?: string; problem?: string };
+  opened_at: string | null;
+  last_event_at: string | null;
+  acknowledged_by: string;
+  snoozed_until: string | null;
+  resolved_at: string | null;
+}
+
+export interface SupplyOverview {
+  figures: { watched: number; at_risk: number; out_of_stock: number; lifecycle: number; no_data: number };
+  needs_attention: SupplyPartRow[];
+  open_alerts: number;
+  data_age: { oldest: string | null; newest: string | null };
+  /** Enabled connectors. */
+  connectors: number;
+  quota: Array<{ connector_id: string; name: string; metered: boolean; spent: number; budget: number | null; paused: boolean }>;
+}
+
 export interface AddWatchInput {
   manufacturer: string;
   mpn: string;
