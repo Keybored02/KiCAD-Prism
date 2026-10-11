@@ -209,10 +209,14 @@ def _incoming(part: Mapping[str, Any]) -> tuple[Incoming, ...]:
 
 
 def _packaging(part: Mapping[str, Any]) -> Packaging:
+    # Attribute names follow the account's language ("Confezione" for Packaging in Italian),
+    # but the packaging values stay in English, so they are matched by value.
     values = {
-        _PACKAGING.get(str(item.get("AttributeValue") or "").strip().lower(), Packaging.OTHER)
+        _PACKAGING[value]
         for item in part.get("ProductAttributes") or []
-        if isinstance(item, dict) and str(item.get("AttributeName") or "").strip().lower() == "packaging"
+        if isinstance(item, dict)
+        for value in [str(item.get("AttributeValue") or "").strip().lower()]
+        if value in _PACKAGING
     }
     # One Mouser number often covers cut tape and reel together; then there is no single packaging.
     return values.pop() if len(values) == 1 else Packaging.UNKNOWN
@@ -229,12 +233,14 @@ def _rohs(text: object) -> bool | None:
 
 def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer:
     breaks, currency = _price_breaks(part)
+    # A restriction message means Mouser does not sell this number to this account's region.
+    restricted = bool(str(part.get("RestrictionMessage") or "").strip())
     return Offer(
         provider=KEY,
         sku=sku,
         mpn=str(part.get("ManufacturerPartNumber") or sku),
         manufacturer=str(part.get("Manufacturer") or ""),
-        stock=_stock(part),
+        stock=0 if restricted else _stock(part),
         fetched_at=now,
         incoming=_incoming(part),
         moq=max(parse_count(part.get("Min")) or 1, 1),

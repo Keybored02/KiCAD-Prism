@@ -30,6 +30,8 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "supply"
 NOW = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
 TME = json.loads((FIXTURES / "tme_v2_examples.json").read_text(encoding="utf-8"))
 MOUSER = json.loads((FIXTURES / "mouser_v1_partnumber.json").read_text(encoding="utf-8"))
+LIVE_TME = json.loads((FIXTURES / "tme_live_lm358dr.json").read_text(encoding="utf-8"))
+LIVE_MOUSER = json.loads((FIXTURES / "mouser_live_lm358dr.json").read_text(encoding="utf-8"))["answer"]
 
 
 class FakeClient:
@@ -106,6 +108,13 @@ class TextValueTests(unittest.TestCase):
         self.assertEqual(parse_lead_time_days("P10D"), 10)
         self.assertIsNone(parse_lead_time_days(None))
         self.assertIsNone(parse_lead_time_days("Unknown"))
+        # Mouser writes the unit in the account's language.
+        self.assertEqual(parse_lead_time_days("140 Giorni"), 140)
+        self.assertEqual(parse_lead_time_days("12 Settimane"), 84)
+        self.assertEqual(parse_lead_time_days("6 Wochen"), 42)
+        self.assertEqual(parse_lead_time_days("30 Tage"), 30)
+        self.assertEqual(parse_lead_time_days("42"), 42, "a bare number is days")
+        self.assertIsNone(parse_lead_time_days("12 Mesi"), "a unit it does not know gives nothing, not a wrong number")
 
 
 class TmeTests(unittest.TestCase):
@@ -346,6 +355,53 @@ class MouserTests(unittest.TestCase):
         with self.assertRaises(ProviderError) as caught:
             mouser_provider(client, api_key="SECRET-KEY-123").lookup_mpn("LM358DR")
         self.assertNotIn("SECRET-KEY-123", str(caught.exception))
+
+
+class RecordedAnswerTests(unittest.TestCase):
+    """Answers recorded from the live services (see the ``_source`` note in each fixture)."""
+
+    def test_tme_as_it_really_answers(self) -> None:
+        client = FakeClient({
+            "/auth/token": [TOKEN],
+            "/products": [LIVE_TME["products_lookup"], LIVE_TME["products"]],
+            "/products/data": [LIVE_TME["products_data"]],
+        })
+        provider = tme_provider(client, storefront="AT", currency="")
+        (match,) = provider.lookup_mpn("LM358DR")
+        self.assertEqual((match.sku, match.mpn, match.manufacturer), ("LM358DR", "LM358DR", "TEXAS INSTRUMENTS"))
+        (offer,) = provider.get_offers(["LM358DR"])
+        self.assertEqual((offer.stock, offer.currency, offer.moq, offer.order_multiple), (0, "EUR", 1, 1))
+        # Gross prices with 22% VAT become net; the first tier was 0.22 gross.
+        self.assertEqual(offer.price_breaks[0].quantity, 1)
+        self.assertEqual(offer.price_breaks[0].unit_price, Decimal("0.180328"))
+        self.assertEqual([b.quantity for b in offer.price_breaks], sorted(b.quantity for b in offer.price_breaks))
+        self.assertFalse(offer.discontinued, "a status TME does not document is not read as a reason")
+        self.assertFalse(offer.marketplace)
+
+    def test_mouser_as_it_really_answers_in_italian(self) -> None:
+        provider = mouser_provider(FakeClient({SEARCH: [LIVE_MOUSER, LIVE_MOUSER, LIVE_MOUSER]}))
+        matches = provider.lookup_mpn("LM358DR")
+        self.assertEqual({(m.sku, m.manufacturer) for m in matches},
+                         {("595-LM358DR", "Texas Instruments"), ("755-LM358DR", "ROHM Semiconductor")})
+        offers = {o.sku: o for o in provider.get_offers(["595-LM358DR", "755-LM358DR"])}
+
+        sold = offers["595-LM358DR"]
+        self.assertEqual((sold.stock, sold.lead_time_days, sold.moq, sold.currency, sold.rohs), (69338, 140, 1, "EUR", True))
+        self.assertEqual(sold.price_breaks[0].unit_price, Decimal("0.224"))
+        self.assertEqual(len(sold.price_breaks), 9)
+        self.assertEqual(sold.packaging, Packaging.UNKNOWN, "reel, cut tape and MouseReel share one number")
+
+        restricted = offers["755-LM358DR"]
+        self.assertEqual((restricted.stock, restricted.moq, restricted.lifecycle), (0, 2500, Lifecycle.NRND))
+        self.assertEqual((restricted.price_breaks, restricted.packaging), ((), Packaging.TAPE_REEL),
+                         "the packaging value is English even when the attribute name is Italian")
+
+    def test_a_restricted_listing_has_no_stock_whatever_the_figures_say(self) -> None:
+        answer = copy.deepcopy(LIVE_MOUSER)
+        restricted = next(p for p in answer["SearchResults"]["Parts"] if p["MouserPartNumber"] == "755-LM358DR")
+        restricted["AvailabilityInStock"] = "900"
+        (offer,) = mouser_provider(FakeClient({SEARCH: [answer]})).get_offers(["755-LM358DR"])
+        self.assertEqual(offer.stock, 0)
 
 
 if __name__ == "__main__":

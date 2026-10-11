@@ -56,8 +56,14 @@ def parse_count(text: object) -> int | None:
     return int(value)
 
 
+# Unit words by language, from what Mouser sends: the text follows the account's locale
+# ("140 Giorni"). A unit that is not here gives no lead time rather than a wrong one.
+_DAY_WORDS = ("day", "giorn", "tag", "jour", "dia", "dni", "dag")
+_WEEK_WORDS = ("week", "settiman", "woche", "semain", "seman", "tygod", "weken")
+
+
 def parse_lead_time_days(text: object) -> int | None:
-    """``"84 Days"``, ``"12 Weeks"`` or ISO-8601 ``"P5W"`` as days."""
+    """``"84 Days"``, ``"12 Weeks"``, ``"140 Giorni"`` or ISO-8601 ``"P5W"`` as days."""
 
     if text is None:
         return None
@@ -68,4 +74,9 @@ def parse_lead_time_days(text: object) -> int | None:
     amount = parse_count(raw)
     if amount is None:
         return None
-    return amount * 7 if re.search(r"week", raw, flags=re.IGNORECASE) else amount
+    unit = re.sub(r"[\d.,\s\u00a0\u202f]+", " ", raw).strip().lower()
+    if not unit or any(unit.startswith(word) for word in _DAY_WORDS):
+        return amount
+    if any(unit.startswith(word) for word in _WEEK_WORDS):
+        return amount * 7
+    return None
