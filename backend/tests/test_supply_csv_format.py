@@ -29,7 +29,8 @@ def errors_of(text: str, **kwargs) -> list[tuple[int, str, str]]:
 
 class MatchKeyTests(unittest.TestCase):
     def test_ignores_case_whitespace_and_dashes(self) -> None:
-        for variant in ("LM358-D", "lm358d", " LM 358 D ", "LM358_D", "LM358–D", "LM358−D"):
+        for variant in ("LM358-D", "lm358d", " LM 358 D ", "LM358_D",
+                        "LM358" + chr(0x2013) + "D", "LM358" + chr(0x2212) + "D", "LM358" + chr(0x2014) + "D"):
             self.assertEqual(match_key(variant), "LM358D", variant)
 
     def test_keeps_characters_that_carry_meaning(self) -> None:

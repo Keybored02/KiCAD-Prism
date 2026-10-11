@@ -15,9 +15,10 @@ from __future__ import annotations
 import re
 import unicodedata
 
-# Hyphen-like characters: hyphen-minus, hyphen, non-breaking hyphen, figure
-# dash, en dash, em dash, minus sign.
-_IGNORED = re.compile(r"[\s_‐‑‒–—−-]+")
+# Hyphen-like characters by code point (hyphen, non-breaking hyphen, figure dash,
+# en dash, em dash, minus sign), so this file holds no ambiguous glyphs.
+_DASH_CODES = (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2212)
+_IGNORED = re.compile(r"[\s_\-" + "".join(map(chr, _DASH_CODES)) + r"]+")
 
 
 def match_key(part_number: str) -> str:
