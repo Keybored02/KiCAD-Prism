@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   canManageProjects,
   canOpenLibraryManager,
+  canOpenSupply,
   canReviewCatalogQa,
+  canReviewSupply,
   canWriteCatalog,
   roleHasAuthority,
 } from "./roles";
@@ -14,6 +16,18 @@ describe("role authorities", () => {
     expect(canManageProjects("qa")).toBe(false);
     expect(canManageProjects("designer")).toBe(true);
     expect(canManageProjects("admin")).toBe(true);
+  });
+
+  it("matches the supply read and review role sets enforced by the backend", () => {
+    expect(canOpenSupply("viewer")).toBe(false); // supply reads follow catalog reads, which exclude viewers
+    expect(canOpenSupply("designer")).toBe(true);
+    expect(canOpenSupply("qa")).toBe(true);
+    expect(canOpenSupply("admin")).toBe(true);
+    expect(canOpenSupply(null)).toBe(false);
+
+    expect(canReviewSupply("designer")).toBe(false);
+    expect(canReviewSupply("qa")).toBe(true);
+    expect(canReviewSupply("admin")).toBe(true);
   });
 
   it("matches the catalog read, write, and QA role sets", () => {

@@ -2,11 +2,13 @@
 
 import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
 import type {
+  ConfirmAliasInput,
   CreateSupplyConnectorInput,
   SupplyConnector,
   SupplyCsvResult,
   SupplyCsvRowError,
   SupplyProvider,
+  SupplyReviewQueue,
   UpdateSupplyConnectorInput,
 } from "@/types/supply";
 
@@ -109,4 +111,27 @@ export async function clearSupplyCsv(id: string): Promise<void> {
   if (!response.ok) {
     throw new ApiHttpError(response.status, await readApiError(response, "Could not remove the data"));
   }
+}
+
+export function getSupplyReviewQueue(signal?: AbortSignal): Promise<SupplyReviewQueue> {
+  return fetchJson<SupplyReviewQueue>(`${BASE}/review`, { signal }, "Could not load the review queue");
+}
+
+export function confirmSupplyAlias(input: ConfirmAliasInput): Promise<{ listings_updated: number }> {
+  return post(`${BASE}/review/aliases/confirm`, input, "Could not map the spelling");
+}
+
+async function decide(listingId: string, decision: "pin" | "reject", fallback: string): Promise<void> {
+  const response = await fetchApi(`${BASE}/review/listings/${encodeURIComponent(listingId)}/${decision}`, { method: "POST" });
+  if (!response.ok) {
+    throw new ApiHttpError(response.status, await readApiError(response, fallback));
+  }
+}
+
+export function pinSupplyListing(listingId: string): Promise<void> {
+  return decide(listingId, "pin", "Could not confirm the listing");
+}
+
+export function rejectSupplyListing(listingId: string): Promise<void> {
+  return decide(listingId, "reject", "Could not reject the listing");
 }

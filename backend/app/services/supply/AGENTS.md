@@ -62,7 +62,9 @@ root first.
 ## Frontend
 
 `frontend/src/features/supply/` holds the UI, with types in
-`frontend/src/types/supply.ts`. The Connectors tab mounts from
+`frontend/src/types/supply.ts`. The Supply section (`frontend/src/features/supply/supply-workspace.tsx`, opened
+from the sidebar through `frontend/src/components/workspace.tsx`) owns the Review
+tab; add new tabs to its `VIEWS` list. The Connectors tab mounts from
 `frontend/src/components/workspace/library-manager-workspace.tsx`. Each form
 mounts only while its dialog is open, so it resets without effects; keep form
 rules in `frontend/src/features/supply/connector-form-model.ts`, not in components.

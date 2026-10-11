@@ -22,6 +22,8 @@ export type RoleAuthorityKey =
   | "view_catalog"
   | "edit_catalog"
   | "review_catalog_qa"
+  | "view_supply"
+  | "review_supply"
   | "administer_workspace";
 
 export interface RoleAuthority {
@@ -111,6 +113,20 @@ export const ROLE_AUTHORITIES: readonly RoleAuthority[] = [
     roles: ["qa", "admin"],
   },
   {
+    key: "view_supply",
+    category: "Component library",
+    label: "View supply data",
+    description: "See distributor stock, prices, connectors, and the matching review queue.",
+    roles: ["designer", "qa", "admin"],
+  },
+  {
+    key: "review_supply",
+    category: "Component library",
+    label: "Decide supply matches",
+    description: "Map manufacturer spellings and confirm or reject distributor listings.",
+    roles: ["qa", "admin"],
+  },
+  {
     key: "administer_workspace",
     category: "Administration",
     label: "Administer workspace",
@@ -134,6 +150,14 @@ export function canManageProjects(role?: UserRole | null): boolean {
 
 export function canOpenLibraryManager(role?: UserRole | null): boolean {
   return roleHasAuthority(role, "view_catalog");
+}
+
+export function canOpenSupply(role?: UserRole | null): boolean {
+  return roleHasAuthority(role, "view_supply");
+}
+
+export function canReviewSupply(role?: UserRole | null): boolean {
+  return roleHasAuthority(role, "review_supply");
 }
 
 export function canWriteCatalog(role?: UserRole | null): boolean {

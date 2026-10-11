@@ -84,3 +84,44 @@ export interface UpdateSupplyConnectorInput {
   daily_budget?: number;
   interactive_reserve_pct?: number;
 }
+
+export interface SupplyManufacturer {
+  id: string;
+  name: string;
+  part_count: number;
+}
+
+/** A spelling a distributor used that maps to no manufacturer yet. */
+export interface SupplyReviewAlias {
+  alias_key: string;
+  alias_text: string;
+  seen_at_provider: string;
+  first_seen_at: string;
+  waiting_listings: number;
+}
+
+export interface SupplyReviewListing {
+  id: string;
+  connector_id: string;
+  connector_name: string;
+  sku: string;
+  raw_mpn: string;
+  raw_manufacturer: string;
+  match_state: "manufacturer_unresolved" | "near";
+  match_reason: string;
+  first_seen_at: string;
+  /** The part this listing is a candidate for. */
+  part: { id: string; mpn: string; manufacturer: string } | null;
+}
+
+export interface SupplyReviewQueue {
+  aliases: SupplyReviewAlias[];
+  listings: SupplyReviewListing[];
+  counts: { aliases: number; unresolved: number; near: number };
+  manufacturers: SupplyManufacturer[];
+}
+
+/** Map a spelling to an existing manufacturer, or name a new one. Exactly one. */
+export type ConfirmAliasInput =
+  | { alias_key: string; manufacturer_id: string }
+  | { alias_key: string; new_manufacturer_name: string };
