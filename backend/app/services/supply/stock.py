@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any, Iterable, Mapping
 
 from app.services.supply.providers import registry
 
@@ -23,17 +24,8 @@ class PartStock:
     newest_fetched_at: datetime | None = None
 
 
-def part_stock(conn, part_id: str) -> PartStock:
-    rows = conn.execute(
-        """
-        SELECT l.connector_id, c.provider, o.stock, o.marketplace, o.fetched_at
-        FROM listings l
-        JOIN offers o ON o.listing_id = l.id
-        JOIN connectors c ON c.id = l.connector_id
-        WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual')
-        """,
-        (part_id,),
-    ).fetchall()
+def aggregate(rows: Iterable[Mapping[str, Any]]) -> PartStock:
+    """Combine offer rows of one part. Each row needs connector_id, provider, stock, marketplace, fetched_at."""
 
     pools: dict[str, list[int]] = {}
     providers: dict[str, str] = {}
@@ -56,3 +48,17 @@ def part_stock(conn, part_id: str) -> PartStock:
             pooled = False  # a removed plugin: add up rather than hide stock
         by_connector[connector_id] = max(stocks) if pooled else sum(stocks)
     return PartStock(sum(by_connector.values()), by_connector, counted, newest)
+
+
+def part_stock(conn, part_id: str) -> PartStock:
+    rows = conn.execute(
+        """
+        SELECT l.connector_id, c.provider, o.stock, o.marketplace, o.fetched_at
+        FROM listings l
+        JOIN offers o ON o.listing_id = l.id
+        JOIN connectors c ON c.id = l.connector_id
+        WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual')
+        """,
+        (part_id,),
+    ).fetchall()
+    return aggregate(rows)

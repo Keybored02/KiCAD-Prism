@@ -1,0 +1,129 @@
+"""Parts and watches API.
+
+Everyone who can read supply data sees parts, stock and history. Watching a part
+and changing a watch's rules need write access (admin, designer).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any, Callable, Literal, Optional, TypeVar
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.api import supply_connectors
+from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
+from app.services.supply import parts, parts_view, watches
+
+router = APIRouter(prefix="/api/supply", tags=["supply"])
+
+T = TypeVar("T")
+
+
+class AddWatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    manufacturer: str = Field(min_length=1, max_length=120)
+    mpn: str = Field(min_length=1, max_length=100)
+    threshold: Optional[int] = Field(default=None, ge=0)
+    pinned: bool = False
+
+
+class UpdateWatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Absent leaves it alone; null clears the threshold.
+    threshold: Optional[int] = Field(default=None, ge=0)
+    pinned: Optional[bool] = None
+
+
+def _store():
+    # Resolved per call so a replaced connector service (tests) brings its own store.
+    return supply_connectors.service.store
+
+
+def _http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (watches.WatchNotFound, parts.PartNotFound)):
+        return HTTPException(status_code=404, detail="Not found")
+    if isinstance(exc, watches.WatchError):
+        return HTTPException(status_code=400, detail={"code": "watch_error", "message": str(exc)})
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)})
+    raise exc
+
+
+async def _run(call: Callable[[], T]) -> T:
+    try:
+        return await asyncio.to_thread(call)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+def _watch_dto(record: watches.WatchRecord) -> dict[str, Any]:
+    return {
+        "id": record.id, "part_id": record.part_id, "manufacturer": record.manufacturer_name, "mpn": record.mpn,
+        "threshold": record.threshold, "pinned": record.pinned, "owner": record.owner,
+    }
+
+
+@router.get("/parts")
+async def list_parts(
+    scope: Literal["watched", "all"] = "watched",
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=100, ge=1, le=parts_view.MAX_LIMIT),
+    _user: AuthenticatedUser = Depends(require_supply_reader),
+) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return parts_view.list_parts(conn, scope=scope, query=q, limit=limit)
+
+    return await _run(read)
+
+
+@router.get("/parts/{part_id}")
+async def get_part(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return parts_view.part_detail(conn, part_id)
+
+    return await _run(read)
+
+
+@router.post("/watches", status_code=201)
+async def add_watch(body: AddWatchRequest, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            record = watches.add_watch(
+                conn, body.manufacturer, body.mpn, writer.email, threshold=body.threshold, pinned=body.pinned
+            )
+        return _watch_dto(record)
+
+    return await _run(run)
+
+
+@router.patch("/watches/{watch_id}")
+async def update_watch(
+    watch_id: str, body: UpdateWatchRequest, writer: AuthenticatedUser = Depends(require_supply_writer)
+) -> dict[str, Any]:
+    changes: dict[str, Any] = {}
+    if "threshold" in body.model_fields_set:
+        changes["threshold"] = body.threshold
+    if "pinned" in body.model_fields_set:
+        changes["pinned"] = body.pinned
+
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return _watch_dto(watches.update_watch(conn, watch_id, writer.email, **changes))
+
+    return await _run(run)
+
+
+@router.delete("/watches/{watch_id}", status_code=204)
+async def remove_watch(watch_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> Response:
+    def run() -> None:
+        with _store().connection() as conn:
+            watches.remove_watch(conn, watch_id, writer.email)
+
+    await _run(run)
+    return Response(status_code=204)

@@ -26,6 +26,9 @@ root first.
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
 | `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. |
 | `poller.py` | `Poller.poll_connector`: asks for due listings in batches within the call budget and records offers and samples. |
+| `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. |
+| `part_status.py` | The interim status of a part (ok, warning, error, fatal, unknown). The assessment pipeline replaces it. |
+| `backend/app/api/supply_parts.py` | Parts and watches API. Readers see parts, stock and history; admin and designer watch parts and change watch rules. |
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
 | `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
 | `csv_offers.py`, `csv_import_service.py` | Storage for uploaded offers and the import and clear service. |
