@@ -38,6 +38,7 @@ from app.api.git_http import router as git_http_router
 from app.api.agent import router as agent_router
 from app.services import password_credential_service, rate_limit_service, session_store_service
 from app.services.comments_store_service import initialize_comments_store
+from app.services.supply.store import initialize_supply_store
 from app.services.comment_live_broker import broker as comment_live_broker
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
@@ -187,6 +188,7 @@ async def lifespan(app: FastAPI):
     configure_git()
     ensure_ssh_dir()
     initialize_comments_store()
+    initialize_supply_store()
     catalog_service.initialize()
     workspace.initialize()
     jobs.initialize()
