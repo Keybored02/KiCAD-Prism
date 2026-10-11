@@ -16,6 +16,8 @@ from typing import Any, Callable, Mapping
 from psycopg.errors import UniqueViolation
 
 from app.services.supply import credentials as sealed
+from app.services.supply.audit import actor_text, write_audit
+from app.services.supply.csv_offers import CsvImportInfo, CsvOfferStore
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import ProviderConfig, ProviderSpec, SupplyProvider
 from app.services.supply.store import SupplyStore, supply_store
@@ -82,21 +84,6 @@ def _clean_credentials(spec: ProviderSpec, given: Mapping[str, Any] | None) -> d
     return {name: cleaned[name] for name in required}
 
 
-def _actor(value: str | None) -> str:
-    text = (value or "").strip()
-    if not text:
-        raise ValueError("actor is required")
-    return text
-
-
-def _audit(conn, actor: str, action: str, connector_id: str, detail: Mapping[str, Any]) -> None:
-    conn.execute(
-        "INSERT INTO audit_events (actor, action, subject_kind, subject_id, detail) "
-        "VALUES (%s, %s, 'connector', %s, %s::jsonb)",
-        (actor, action, connector_id, json.dumps(dict(detail))),
-    )
-
-
 def _fetch(conn, connector_id: str):
     row = conn.execute("SELECT * FROM connectors WHERE id = %s", (connector_id,)).fetchone()
     if row is None:
@@ -114,15 +101,21 @@ class ConnectorService:
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._offers = CsvOfferStore()
         self._store = store
         self._keyring = keyring_factory or sealed.default_keyring_factory
         self._allow_dev = allow_dev or _settings_allow_dev
+
+    @property
+    def store(self) -> SupplyStore:
+        return self._store
 
     def list(self) -> list[dict[str, Any]]:
         with self._store.connection() as conn:
             rows = conn.execute("SELECT * FROM connectors ORDER BY created_at, id").fetchall()
             usage = self._usage_today(conn)
-        return [self._dto(row, usage.get(row["id"])) for row in rows]
+            imports = self._offers.import_infos(conn)
+        return [self._dto(row, usage.get(row["id"]), imports.get(row["id"])) for row in rows]
 
     def get(self, connector_id: str) -> dict[str, Any]:
         with self._store.connection() as conn:
@@ -140,7 +133,7 @@ class ConnectorService:
         daily_budget: int | None = None,
         interactive_reserve_pct: int = 10,
     ) -> dict[str, Any]:
-        actor = _actor(actor)
+        actor = actor_text(actor)
         spec = self._spec(provider)
         if spec.dev_only and not self._allow_dev():
             raise ConnectorError("provider_disabled", f"{spec.label} is not enabled on this server.")
@@ -172,7 +165,7 @@ class ConnectorService:
                         envelope, json.dumps(list(cleaned)), budget, reserve, actor,
                     ),
                 )
-                _audit(conn, actor, "connector.create", connector_id,
+                write_audit(conn, actor, "connector.create", connector_id,
                        {"provider": spec.key, "storefront": storefront})
                 row = _fetch(conn, connector_id)
         except UniqueViolation:
@@ -182,7 +175,7 @@ class ConnectorService:
         return self._dto(row)  # a new connector has spent nothing
 
     def update(self, connector_id: str, *, actor: str, **changes: Any) -> dict[str, Any]:
-        actor = _actor(actor)
+        actor = actor_text(actor)
         unknown = sorted(set(changes) - _UPDATABLE)
         if unknown:
             raise ConnectorError("invalid_field", "Cannot change: " + ", ".join(unknown) + ".")
@@ -210,7 +203,7 @@ class ConnectorService:
             )
             if result.rowcount == 0:
                 raise ConnectorNotFound(connector_id)
-            _audit(conn, actor, "connector.update", connector_id, {"fields": sorted(fields)})
+            write_audit(conn, actor, "connector.update", connector_id, {"fields": sorted(fields)})
             return self._dto_from(conn, _fetch(conn, connector_id))
 
     def set_credentials(
@@ -218,7 +211,7 @@ class ConnectorService:
     ) -> dict[str, Any]:
         """Replace the whole credential set."""
 
-        actor = _actor(actor)
+        actor = actor_text(actor)
         with self._store.connection() as conn:
             spec = self._spec(_fetch(conn, connector_id)["provider"])
             cleaned = _clean_credentials(spec, credentials)
@@ -230,23 +223,23 @@ class ConnectorService:
                 "updated_at = NOW() WHERE id = %s",
                 (envelope, json.dumps(list(cleaned)), connector_id),
             )
-            _audit(conn, actor, "connector.credentials", connector_id, {"names": list(cleaned)})
+            write_audit(conn, actor, "connector.credentials", connector_id, {"names": list(cleaned)})
             return self._dto_from(conn, _fetch(conn, connector_id))
 
     def pause(self, connector_id: str, *, actor: str, reason: str) -> dict[str, Any]:
-        actor = _actor(actor)
+        actor = actor_text(actor)
         reason = (reason or "").strip()
         if not reason or len(reason) > _MAX_REASON:
             raise ConnectorError("invalid_reason", f"Give a reason of up to {_MAX_REASON} characters.")
         return self._set_paused(connector_id, actor, reason, "connector.pause")
 
     def resume(self, connector_id: str, *, actor: str) -> dict[str, Any]:
-        return self._set_paused(connector_id, _actor(actor), "", "connector.resume")
+        return self._set_paused(connector_id, actor_text(actor), "", "connector.resume")
 
     def confirm_terms_review(self, connector_id: str, *, actor: str) -> dict[str, Any]:
         """Record that someone read this provider's terms of use."""
 
-        actor = _actor(actor)
+        actor = actor_text(actor)
         with self._store.connection() as conn:
             result = conn.execute(
                 "UPDATE connectors SET terms_reviewed_by = %s, terms_reviewed_at = NOW(), "
@@ -255,15 +248,15 @@ class ConnectorService:
             )
             if result.rowcount == 0:
                 raise ConnectorNotFound(connector_id)
-            _audit(conn, actor, "connector.terms_review", connector_id, {})
+            write_audit(conn, actor, "connector.terms_review", connector_id, {})
             return self._dto_from(conn, _fetch(conn, connector_id))
 
     def delete(self, connector_id: str, *, actor: str) -> None:
-        actor = _actor(actor)
+        actor = actor_text(actor)
         with self._store.connection() as conn:
             row = _fetch(conn, connector_id)
             conn.execute("DELETE FROM connectors WHERE id = %s", (connector_id,))
-            _audit(conn, actor, "connector.delete", connector_id,
+            write_audit(conn, actor, "connector.delete", connector_id,
                    {"provider": row["provider"], "storefront": row["storefront"]})
 
     def record_result(self, connector_id: str, error_code: str | None = None) -> None:
@@ -307,7 +300,7 @@ class ConnectorService:
             )
             if result.rowcount == 0:
                 raise ConnectorNotFound(connector_id)
-            _audit(conn, actor, action, connector_id, {"reason": reason} if reason else {})
+            write_audit(conn, actor, action, connector_id, {"reason": reason} if reason else {})
             return self._dto_from(conn, _fetch(conn, connector_id))
 
     @staticmethod
@@ -318,7 +311,7 @@ class ConnectorService:
             raise ConnectorError("unknown_provider", f"Unknown provider: {provider}.") from None
 
     def _dto_from(self, conn, row: Mapping[str, Any]) -> dict[str, Any]:
-        return self._dto(row, self._usage_today(conn).get(row["id"]))
+        return self._dto(row, self._usage_today(conn).get(row["id"]), self._offers.import_info(conn, row["id"]))
 
     def _usage_today(self, conn) -> dict[str, dict[str, Any]]:
         today: date = self._clock().astimezone(timezone.utc).date()
@@ -330,7 +323,12 @@ class ConnectorService:
             for row in rows
         }
 
-    def _dto(self, row: Mapping[str, Any], usage: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    def _dto(
+        self,
+        row: Mapping[str, Any],
+        usage: Mapping[str, Any] | None = None,
+        csv_import: CsvImportInfo | None = None,
+    ) -> dict[str, Any]:
         try:
             spec: ProviderSpec | None = registry.get_spec(row["provider"])
         except registry.UnknownProvider:
@@ -348,7 +346,9 @@ class ConnectorService:
             "paused_reason": row["paused_reason"],
             "daily_budget": row["daily_budget"],
             "interactive_reserve_pct": row["interactive_reserve_pct"],
+            "metered": spec.metered if spec else True,
             "usage_today": {"spent": 0, "interactive_spent": 0, **(usage or {})},
+            "csv_import": csv_import.to_dto() if csv_import else None,
             "credentials": {name: name in names for name in (spec.required_credentials if spec else ())},
             "credentials_status": sealed.status(self._keyring, row["credential_envelope"]),
             "terms_reviewed_by": row["terms_reviewed_by"],

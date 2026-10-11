@@ -78,8 +78,54 @@ def _m001_connectors_quota_audit(conn) -> None:
     )
 
 
+def _m002_csv_offers(conn) -> None:
+    """Offers uploaded as a file, for connectors with no API (or no internet).
+
+    One import per connector, replaced whole on each upload. ``match_key`` is
+    the lookup key from ``identity.match_key``; ``price_breaks`` is a list of
+    ``[quantity, "price"]`` pairs.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS csv_imports (
+            connector_id TEXT PRIMARY KEY REFERENCES connectors(id) ON DELETE CASCADE,
+            filename TEXT NOT NULL DEFAULT '',
+            imported_by TEXT NOT NULL,
+            imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            row_count INTEGER NOT NULL CHECK (row_count >= 0)
+        );
+
+        CREATE TABLE IF NOT EXISTS csv_offers (
+            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            sku TEXT NOT NULL,
+            mpn TEXT NOT NULL,
+            match_key TEXT NOT NULL,
+            manufacturer TEXT NOT NULL,
+            stock INTEGER NOT NULL CHECK (stock >= 0),
+            currency TEXT NOT NULL DEFAULT '',
+            moq INTEGER NOT NULL DEFAULT 1 CHECK (moq >= 1),
+            order_multiple INTEGER NOT NULL DEFAULT 1 CHECK (order_multiple >= 1),
+            packaging TEXT NOT NULL DEFAULT 'unknown',
+            lead_time_days INTEGER CHECK (lead_time_days IS NULL OR lead_time_days >= 0),
+            lifecycle TEXT NOT NULL DEFAULT 'unknown',
+            discontinued BOOLEAN NOT NULL DEFAULT FALSE,
+            rohs BOOLEAN,
+            product_url TEXT NOT NULL DEFAULT '',
+            incoming_qty INTEGER CHECK (incoming_qty IS NULL OR incoming_qty >= 1),
+            incoming_date DATE,
+            price_breaks JSONB NOT NULL DEFAULT '[]'::jsonb,
+            PRIMARY KEY (connector_id, sku)
+        );
+        CREATE INDEX IF NOT EXISTS idx_csv_offers_match ON csv_offers (connector_id, match_key);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
+    (2, "csv_offers", _m002_csv_offers),
 ]
 
 

@@ -21,12 +21,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
 
-def _request(app, method: str, path: str, *, user, body=None):
+def _request(app, method: str, path: str, *, user, body=None, raw: bytes | None = None, query: str = "",
+             content_type: str = "application/json"):
     """One ASGI request without adding httpx to Prism's runtime/test lock."""
 
     from app.core.security import get_current_user
 
-    payload = b"" if body is None else json.dumps(body).encode()
+    payload = raw if raw is not None else (b"" if body is None else json.dumps(body).encode())
     messages: list[dict] = []
     sent = False
 
@@ -44,18 +45,20 @@ def _request(app, method: str, path: str, *, user, body=None):
     try:
         asyncio.run(app({
             "type": "http", "http_version": "1.1", "method": method, "scheme": "http",
-            "path": path, "raw_path": path.encode(), "query_string": b"",
-            "headers": [(b"content-type", b"application/json")],
+            "path": path, "raw_path": path.encode(), "query_string": query.encode(),
+            "headers": [(b"content-type", content_type.encode()), (b"content-length", str(len(payload)).encode())],
             "client": ("test", 1), "server": ("test", 80), "root_path": "",
         }, receive, send))
     finally:
         app.dependency_overrides.pop(get_current_user, None)
     start = next(m for m in messages if m["type"] == "http.response.start")
     data = b"".join(m.get("body", b"") for m in messages if m["type"] == "http.response.body")
+    headers = {key.decode().lower(): value.decode() for key, value in start["headers"]}
     return SimpleNamespace(
         status=start["status"],
+        headers=headers,
         text=data.decode("utf-8", "replace"),
-        json=json.loads(data) if data else None,
+        json=json.loads(data) if data and headers.get("content-type", "").startswith("application/json") else None,
     )
 
 
@@ -126,8 +129,8 @@ class SupplyConnectorsApiTests(unittest.TestCase):
             conn.execute("DELETE FROM connectors")
             conn.execute("DELETE FROM audit_events")
 
-    def call(self, method: str, path: str, *, role: str = "admin", body=None, user=None):
-        return _request(self.app, method, path, user=user or self.users[role], body=body)
+    def call(self, method: str, path: str, *, role: str = "admin", body=None, user=None, **kwargs):
+        return _request(self.app, method, path, user=user or self.users[role], body=body, **kwargs)
 
     def _create(self, **overrides):
         body = {"provider": "fake"}
@@ -315,6 +318,88 @@ class SupplyConnectorsApiTests(unittest.TestCase):
                           body={"provider": 5})
         self.assertEqual(inside.status, 422)
         self.assertNotIn("handled_by", inside.json)
+
+    # --- offers file ------------------------------------------------------
+
+    CSV_OK = "sku,mpn,manufacturer,stock,currency,price_1\nS1,M1,Acme,10,EUR,0.5\n"
+
+    def _csv_connector(self, **overrides):
+        return self._create(provider="csv", **overrides)
+
+    def _upload(self, connector_id: str, content: bytes, *, role: str = "admin", query: str = ""):
+        return self.call("POST", f"/api/supply/connectors/{connector_id}/csv", role=role, raw=content,
+                         query=query, content_type="text/csv")
+
+    def test_csv_provider_is_listed_and_unmetered(self) -> None:
+        providers = {item["key"]: item for item in self.call("GET", "/api/supply/providers").json}
+        self.assertFalse(providers["csv"]["metered"])
+        self.assertEqual(providers["csv"]["credential_fields"], [])
+        self.assertTrue(providers["demo_keyed"]["metered"])
+
+    def test_template_is_a_downloadable_csv_for_readers_only(self) -> None:
+        response = self.call("GET", "/api/supply/csv-template", role="qa")
+        self.assertEqual(response.status, 200)
+        self.assertTrue(response.text.startswith("sku,mpn,manufacturer,stock"))
+        self.assertEqual(self.call("GET", "/api/supply/csv-template", role="viewer").status, 403)
+
+    def test_admin_uploads_a_file_and_readers_see_the_result(self) -> None:
+        cid = self._csv_connector()["id"]
+        response = self._upload(cid, self.CSV_OK.encode(), query="filename=stock.csv")
+        self.assertEqual(response.status, 200, response.text)
+        self.assertEqual((response.json["row_count"], response.json["filename"], response.json["imported_by"]),
+                         (1, "stock.csv", "admin@example.com"))
+        self.assertEqual(response.json["ignored_columns"], [])
+        shown = self.call("GET", "/api/supply/connectors", role="designer").json[0]
+        self.assertEqual(shown["csv_import"]["row_count"], 1)
+        self.assertFalse(shown["metered"])
+
+    def test_only_admin_may_upload_or_clear(self) -> None:
+        cid = self._csv_connector()["id"]
+        for role in ("designer", "qa", "viewer"):
+            self.assertEqual(self._upload(cid, self.CSV_OK.encode(), role=role).status, 403, role)
+            self.assertEqual(self.call("DELETE", f"/api/supply/connectors/{cid}/csv", role=role).status, 403, role)
+        self.assertIsNone(self.call("GET", "/api/supply/connectors").json[0]["csv_import"])
+
+    def test_a_bad_file_is_rejected_with_line_and_column(self) -> None:
+        cid = self._csv_connector()["id"]
+        self._upload(cid, self.CSV_OK.encode(), query="filename=good.csv")
+        bad = b"sku,mpn,manufacturer,stock,notes\nS1,M1,Acme,10,x\nS2,M2,Acme,oops,y\n"
+        response = self._upload(cid, bad)
+        self.assertEqual(response.status, 400)
+        detail = response.json["detail"]
+        self.assertEqual(detail["code"], "csv_rejected")
+        self.assertEqual(detail["error_count"], 1)
+        self.assertEqual(detail["errors"], [{"line": 3, "column": "stock", "message": "A whole number, digits only."}])
+        self.assertEqual(detail["ignored_columns"], ["notes"])
+        kept = self.call("GET", "/api/supply/connectors").json[0]["csv_import"]
+        self.assertEqual(kept["filename"], "good.csv", "the earlier data is untouched")
+
+    def test_upload_limits_and_targets(self) -> None:
+        from app.services.supply.csv_format import MAX_BYTES
+
+        cid = self._csv_connector()["id"]
+        self.assertEqual(self._upload(cid, b"x" * (MAX_BYTES + 1)).status, 413)
+        self.assertEqual(self._upload(cid, b"").status, 400)
+        self.assertEqual(self._upload("missing", self.CSV_OK.encode()).status, 404)
+        other = self._create(provider="demo_keyed", credentials={"api_key": "k"})["id"]
+        refused = self._upload(other, self.CSV_OK.encode())
+        self.assertEqual((refused.status, refused.json["detail"]["code"]), (400, "not_csv"))
+
+    def test_the_connector_currency_is_the_default(self) -> None:
+        cid = self._csv_connector()["id"]
+        priced = b"sku,mpn,manufacturer,stock,price_1\nS1,M1,Acme,1,0.5\n"
+        refused = self._upload(cid, priced)
+        self.assertEqual(refused.status, 400)
+        self.assertEqual(refused.json["detail"]["errors"][0]["column"], "currency")
+        self.call("PATCH", f"/api/supply/connectors/{cid}", body={"currency": "gbp"})
+        self.assertEqual(self._upload(cid, priced).status, 200)
+
+    def test_clearing_removes_the_data(self) -> None:
+        cid = self._csv_connector()["id"]
+        self._upload(cid, self.CSV_OK.encode())
+        self.assertEqual(self.call("DELETE", f"/api/supply/connectors/{cid}/csv").status, 204)
+        self.assertIsNone(self.call("GET", "/api/supply/connectors").json[0]["csv_import"])
+        self.assertEqual(self.call("DELETE", "/api/supply/connectors/missing/csv").status, 404)
 
 
 if __name__ == "__main__":

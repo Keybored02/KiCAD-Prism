@@ -14,6 +14,11 @@ root first.
 | `providers/base.py` | `ProviderSpec`, the `SupplyProvider` protocol, `ProviderError` subclasses. |
 | `providers/registry.py` | Provider lookup. Built-ins register at import; plugins load from the `prism.supply_providers` entry point. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
+| `identity.py` | `match_key`: the lookup key for part numbers. Conservative on purpose: dots and slashes stay. |
+| `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
+| `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
+| `csv_offers.py`, `csv_import_service.py` | Storage for uploaded offers and the import and clear service. |
+| `providers/csv_provider.py` | Offers from an uploaded file. Unmetered. Reads its own table, never writes. |
 | `egress.py` | Outbound URL validation. Required before any fetch of a URL that is not hard-coded. |
 | `http_client.py` | `SafeHttpClient`: the only way a provider makes a request. Validates every hop, connects to the checked address, maps statuses to `ProviderError` subclasses, keeps query strings out of messages. |
 | `quota.py` | Pure budget policy: background allowance, interactive reserve, capacity estimate. |
@@ -29,8 +34,9 @@ root first.
   prices change daily.
 - **The manufacturer part is the spine.** A feature that needs part data reads
   it from there. No feature keeps its own copy.
-- **Providers do not touch the database and do not log credentials.** They
-  return models or raise `ProviderError`. Callers decide what to store.
+- **Network providers do not touch the database and do not log credentials.**
+  They return models or raise `ProviderError`. Callers decide what to store.
+  The CSV provider is the one that reads a table, and only its own.
 - **Credentials go through `credentials.py` only.** Reads return which
   credentials are set, never their values. There is no plaintext fallback.
 - **Every outbound request goes through `http_client.py`**, which validates

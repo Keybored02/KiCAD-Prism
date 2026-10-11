@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -20,6 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import settings
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
 from app.services.supply.connectors import ConnectorError, ConnectorNotFound, ConnectorService
+from app.services.supply.csv_format import MAX_BYTES, TEMPLATE
+from app.services.supply.csv_import_service import CsvImportService, CsvRejected
 from app.services.supply.providers import registry
 from app.services.trackers.secrets import SecretStoreLocked
 
@@ -100,6 +102,7 @@ def _provider_dto(spec) -> dict[str, Any]:
         ],
         "storefronts": list(spec.storefronts),
         "default_daily_budget": spec.default_daily_budget,
+        "metered": spec.metered,
     }
 
 
@@ -185,4 +188,64 @@ async def delete_connector(
     connector_id: str, admin: AuthenticatedUser = Depends(require_admin)
 ) -> Response:
     await _run(lambda: service.delete(connector_id, actor=_actor(admin)))
+    return Response(status_code=204)
+
+
+def _csv_service() -> CsvImportService:
+    # Built per request so it follows `service`, including a replaced one in tests.
+    return CsvImportService(service, store=service.store)
+
+
+def _rejection(exc: CsvRejected) -> HTTPException:
+    parsed = exc.parsed
+    return HTTPException(
+        status_code=400,
+        detail={
+            "code": "csv_rejected",
+            "message": f"The file was not imported. {parsed.error_count} problem(s) found.",
+            "error_count": parsed.error_count,
+            "errors": [{"line": e.line, "column": e.column, "message": e.message} for e in parsed.errors],
+            "ignored_columns": list(parsed.ignored_columns),
+        },
+    )
+
+
+@router.get("/csv-template")
+async def csv_template(_user: AuthenticatedUser = Depends(require_supply_reader)) -> Response:
+    return Response(
+        TEMPLATE,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="supply-offers-template.csv"'},
+    )
+
+
+@router.post("/connectors/{connector_id}/csv")
+async def upload_offers_csv(
+    connector_id: str,
+    request: Request,
+    filename: str = Query(default="", max_length=200),
+    admin: AuthenticatedUser = Depends(require_admin),
+) -> dict[str, Any]:
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="The file is too large")
+    content = await request.body()
+    if len(content) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="The file is too large")
+
+    def run() -> dict[str, Any]:
+        info, parsed = _csv_service().import_file(connector_id, content, actor=_actor(admin), filename=filename)
+        return {**info.to_dto(), "ignored_columns": list(parsed.ignored_columns)}
+
+    try:
+        return await asyncio.to_thread(run)
+    except CsvRejected as exc:
+        raise _rejection(exc) from exc
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@router.delete("/connectors/{connector_id}/csv", status_code=204)
+async def clear_offers_csv(connector_id: str, admin: AuthenticatedUser = Depends(require_admin)) -> Response:
+    await _run(lambda: _csv_service().clear(connector_id, actor=_actor(admin)))
     return Response(status_code=204)

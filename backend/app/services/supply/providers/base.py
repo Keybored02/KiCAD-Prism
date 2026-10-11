@@ -105,6 +105,8 @@ class ProviderSpec:
     storefronts: tuple[str, ...] = ()
     default_daily_budget: int = 1000
     dev_only: bool = False
+    # False when a call costs nothing (local data), so no call budget applies.
+    metered: bool = True
 
     def __post_init__(self) -> None:
         if not _KEY.match(self.key):
