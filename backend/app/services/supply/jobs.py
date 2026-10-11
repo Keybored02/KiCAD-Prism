@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
+from app.services.supply import ledger, quota, retention
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import REDO_AFTER, Discoverer
 from app.services.supply.poller import Poller
@@ -32,8 +33,26 @@ def artifact_key(connector_id: str) -> str:
     return f"supply-poll:{connector_id}"
 
 
+def _has_budget(conn, row, now: datetime) -> bool:
+    """Whether a connector may spend a background call right now. Free connectors always may."""
+
+    try:
+        if not registry.get_spec(row["provider"]).metered:
+            return True
+    except registry.UnknownProvider:
+        return False
+    state = ledger.get_state(
+        conn, row["id"], daily_budget=row["daily_budget"], reserve_pct=row["interactive_reserve_pct"], now=now
+    )
+    return quota.background_allowance(state, now) > 0
+
+
 def connectors_with_work(conn, now: datetime) -> list[str]:
-    """Active connectors with a listing due or a watched part to search for."""
+    """Active connectors with a listing due or a watched part to search for, and a call to spend.
+
+    A connector whose budget for this stretch of the day is used up is left out, so
+    a quiet budget does not queue a job a minute that can only find it empty.
+    """
 
     active = """
         c.enabled AND c.paused_reason = '' AND (c.cooldown_until IS NULL OR c.cooldown_until <= %(now)s)
@@ -67,7 +86,12 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
             searchable = False
         if searchable and row["id"] not in ids:
             ids.append(row["id"])
-    return sorted(ids)
+    if not ids:
+        return []
+    funded = conn.execute(
+        "SELECT id, provider, daily_budget, interactive_reserve_pct FROM connectors WHERE id = ANY(%s)", (ids,)
+    ).fetchall()
+    return sorted(row["id"] for row in funded if _has_budget(conn, row, now))
 
 
 def schedule_due_supply_jobs(
@@ -110,9 +134,12 @@ def run_supply_poll_job(context: Any) -> Any:
     found = Discoverer(connectors).run(connector_id)
     context.progress(stage="supply-poll", message="Reading stock and prices", percent=50, force=True)
     polled = Poller(connectors).poll_connector(connector_id)
+    with connectors.store.connection() as conn:
+        compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
     details: Mapping[str, Any] = {
         "searched": found.searched, "listings_found": found.listings, "discovery_stopped": found.stopped,
         "calls": polled.calls, "polled": polled.polled, "gone": polled.gone, "poll_stopped": polled.stopped,
+        "samples_compacted": compacted,
     }
     return JobResult(
         message=f"Searched {found.searched} part(s), polled {polled.polled} listing(s)",

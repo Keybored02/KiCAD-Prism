@@ -29,6 +29,7 @@ GONE = "gone"
 
 # A person's decision is never overwritten by discovery.
 _STICKY = frozenset({MANUAL, REJECTED})
+_WAITING = frozenset({UNRESOLVED, NEAR})
 
 
 class ListingNotFound(KeyError):
@@ -89,7 +90,7 @@ class DiscoveryService:
         """Record one listing. Returns the state it ends up in."""
 
         existing = conn.execute(
-            "SELECT id, match_state FROM listings WHERE connector_id = %s AND sku = %s FOR UPDATE",
+            "SELECT id, match_state, part_id FROM listings WHERE connector_id = %s AND sku = %s FOR UPDATE",
             (connector_id, match.sku),
         ).fetchone()
         if existing is None:
@@ -104,6 +105,10 @@ class DiscoveryService:
             return state
         current = existing["match_state"]
         keep = current in _STICKY or (current == EXACT and state != EXACT)
+        # A listing waiting for review stays a candidate for the first part it was
+        # found for, so searching for another part does not keep moving it.
+        if current in _WAITING and state in _WAITING and existing["part_id"] not in (None, part_id):
+            keep = True
         if keep:
             conn.execute(
                 "UPDATE listings SET last_seen_at = NOW(), raw_mpn = %s, raw_manufacturer = %s WHERE id = %s",

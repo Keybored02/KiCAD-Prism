@@ -24,6 +24,10 @@ class AliasError(ValueError):
     """The alias cannot be confirmed as asked. The message is safe to show."""
 
 
+class UnknownManufacturer(ValueError):
+    """A person without approval rights named a manufacturer Prism does not know yet."""
+
+
 @dataclass(frozen=True, slots=True)
 class Resolution:
     manufacturer_id: str | None
@@ -61,8 +65,15 @@ def resolve_manufacturer(conn, name: str, *, provider: str = "") -> Resolution:
     return Resolution(None, "pending")
 
 
-def ensure_manufacturer(conn, name: str, actor: str) -> str:
-    """The manufacturer for a name a person typed, created on first use."""
+def ensure_manufacturer(conn, name: str, actor: str, *, may_create: bool = True) -> str:
+    """The manufacturer for a name a person typed.
+
+    A known name (a manufacturer or a confirmed spelling) is always accepted. A new
+    name creates a manufacturer only when ``may_create`` is set, which is for people
+    who can approve spellings: otherwise a stray "TI" would become a second Texas
+    Instruments. Creating one from a spelling distributors reported confirms that
+    spelling, and moves the listings that were waiting on it.
+    """
 
     actor = actor_text(actor)
     key = alias_key(name)
@@ -73,12 +84,22 @@ def ensure_manufacturer(conn, name: str, actor: str) -> str:
     ).fetchone()
     if row:
         return row["manufacturer_id"]
-    manufacturer_id = uuid.uuid4().hex
-    conn.execute(
-        "INSERT INTO manufacturers (id, name, name_key) VALUES (%s, %s, %s) ON CONFLICT (name_key) DO NOTHING",
-        (manufacturer_id, name.strip(), key),
-    )
-    manufacturer_id = conn.execute("SELECT id FROM manufacturers WHERE name_key = %s", (key,)).fetchone()["id"]
+    known = conn.execute("SELECT id FROM manufacturers WHERE name_key = %s", (key,)).fetchone()
+    if known is None and not may_create:
+        raise UnknownManufacturer(
+            f"Prism does not know the manufacturer \"{name.strip()}\". Pick one from the list, "
+            "or ask QA or an administrator to add it."
+        )
+    manufacturer_id = known["id"] if known else uuid.uuid4().hex
+    if known is None:
+        conn.execute(
+            "INSERT INTO manufacturers (id, name, name_key) VALUES (%s, %s, %s) ON CONFLICT (name_key) DO NOTHING",
+            (manufacturer_id, name.strip(), key),
+        )
+        manufacturer_id = conn.execute("SELECT id FROM manufacturers WHERE name_key = %s", (key,)).fetchone()["id"]
+    pending = conn.execute(
+        "SELECT 1 FROM manufacturer_aliases WHERE alias_key = %s AND status = 'pending' FOR UPDATE", (key,)
+    ).fetchone()
     conn.execute(
         """
         INSERT INTO manufacturer_aliases (alias_key, alias_text, manufacturer_id, status, confirmed_by)
@@ -88,17 +109,19 @@ def ensure_manufacturer(conn, name: str, actor: str) -> str:
         """,
         (key, name.strip(), manufacturer_id, actor),
     )
+    if pending:
+        _release_waiting(conn, key, manufacturer_id, actor)
     return manufacturer_id
 
 
-def ensure_part(conn, manufacturer_name: str, mpn: str, actor: str) -> PartRecord:
+def ensure_part(conn, manufacturer_name: str, mpn: str, actor: str, *, may_create: bool = True) -> PartRecord:
     """The part for a manufacturer and part number a person typed, created on first use."""
 
     actor = actor_text(actor)
     key = match_key(mpn)
     if not key:
         raise ValueError("mpn is required")
-    manufacturer_id = ensure_manufacturer(conn, manufacturer_name, actor)
+    manufacturer_id = ensure_manufacturer(conn, manufacturer_name, actor, may_create=may_create)
     part_id = uuid.uuid4().hex
     created = conn.execute(
         "INSERT INTO parts (id, manufacturer_id, mpn, match_key) VALUES (%s, %s, %s, %s) "
@@ -156,6 +179,19 @@ def confirm_alias(conn, key: str, manufacturer_id: str, actor: str) -> int:
         "WHERE alias_key = %s",
         (manufacturer_id, actor, key),
     )
+    moved = _release_waiting(conn, key, manufacturer_id, actor)
+    write_audit(conn, actor, "alias.confirm", key, {"manufacturer_id": manufacturer_id, "listings": moved},
+                subject_kind="manufacturer_alias")
+    return moved
+
+
+def _release_waiting(conn, key: str, manufacturer_id: str, actor: str) -> int:
+    """Settle the listings that waited on a spelling. Returns how many moved.
+
+    They become exact when the manufacturer is the part's own, and near when it
+    is a different one.
+    """
+
     waiting = conn.execute(
         "SELECT l.id, l.raw_manufacturer, p.manufacturer_id AS part_manufacturer FROM listings l "
         "JOIN parts p ON p.id = l.part_id WHERE l.match_state = 'manufacturer_unresolved'"
@@ -175,6 +211,4 @@ def confirm_alias(conn, key: str, manufacturer_id: str, actor: str) -> int:
             ),
         )
         moved += 1
-    write_audit(conn, actor, "alias.confirm", key, {"manufacturer_id": manufacturer_id, "listings": moved},
-                subject_kind="manufacturer_alias")
     return moved

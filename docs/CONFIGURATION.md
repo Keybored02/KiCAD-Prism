@@ -139,6 +139,12 @@ root key (`TRACKER_CREDENTIAL_ROOT_KEY`); without it, connectors that need
 credentials cannot be saved. `SUPPLY_ENABLE_SIMULATED_PROVIDER=true` allows a
 simulated distributor for development and demos. Leave it unset in production.
 
+Distributor calls ignore the `HTTPS_PROXY` environment variables on purpose.
+Behind a corporate proxy, set `SUPPLY_HTTPS_PROXY` (for example
+`http://proxy.example.com:3128`). The proxy then resolves host names, so Prism
+still checks each host against the provider's allowlist but cannot check the
+addresses itself.
+
 ## Project-level `.prism.json`
 
 Place `.prism.json` in a KiCad project root when auto-detection does not find the

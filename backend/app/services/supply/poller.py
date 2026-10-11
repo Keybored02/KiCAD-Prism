@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import ledger, stock, tiers, trouble
+from app.services.supply import ledger, pricing, stock, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.models import Offer
 from app.services.supply.providers import registry
@@ -165,11 +165,20 @@ class Poller:
         return gone
 
     def _record_offer(self, conn, row: DueListing, offer: Offer, now: datetime) -> None:
-        price = offer.price_breaks[0].unit_price if offer.price_breaks else None
+        price = pricing.unit_price_at(
+            [(item.quantity, item.unit_price) for item in offer.price_breaks],
+            moq=offer.moq, order_multiple=offer.order_multiple,
+        )
         previous = conn.execute(
-            "SELECT stock, unit_price FROM samples WHERE listing_id = %s ORDER BY sampled_at DESC LIMIT 1", (row.id,)
+            "SELECT stock, unit_price, lifecycle, discontinued FROM samples WHERE listing_id = %s "
+            "ORDER BY sampled_at DESC LIMIT 1", (row.id,)
         ).fetchone()
-        changed = previous is None or previous["stock"] != offer.stock or previous["unit_price"] != price
+        changed = previous is None or (
+            previous["stock"] != offer.stock
+            or previous["unit_price"] != price
+            or previous["lifecycle"] != offer.lifecycle.value
+            or previous["discontinued"] != offer.discontinued
+        )
 
         conn.execute(
             """
@@ -196,11 +205,11 @@ class Poller:
         conn.execute(
             """
             INSERT INTO samples (listing_id, sampled_at, stock, incoming_qty, unit_price, currency, lead_time_days,
-                                 lifecycle, discontinued)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (listing_id, sampled_at) DO NOTHING
+                                 lifecycle, discontinued, marketplace)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (listing_id, sampled_at) DO NOTHING
             """,
             (row.id, offer.fetched_at, offer.stock, sum(item.quantity for item in offer.incoming), price,
-             offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued),
+             offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.marketplace),
         )
         conn.execute("UPDATE listings SET packaging = %s, last_seen_at = %s WHERE id = %s", (offer.packaging.value, now, row.id))
 
@@ -216,8 +225,15 @@ class Poller:
                 (row.id,),
             )
             conn.execute("DELETE FROM poll_state WHERE listing_id = %s", (row.id,))
+            conn.execute(
+                "INSERT INTO events (kind, part_id, listing_id, payload) VALUES ('listing_gone', %s, %s, %s::jsonb)",
+                (row.part_id, row.id, json.dumps({"sku": row.sku})),
+            )
             return 1
-        self._write_state(conn, row.id, tiers.Tier.NORMAL, now, row.last_change_at, key=row.id, missing=misses)
+        # Asking again soon does not change how urgent the listing is.
+        current = conn.execute("SELECT tier FROM poll_state WHERE listing_id = %s", (row.id,)).fetchone()
+        tier = tiers.Tier(current["tier"]) if current else tiers.Tier.NORMAL
+        self._write_state(conn, row.id, tier, now, row.last_change_at, key=row.id, missing=misses)
         return 0
 
     def _tier_for(self, conn, row: DueListing, lifecycle: Lifecycle, last_change: datetime | None, now: datetime) -> tiers.Tier:

@@ -11,16 +11,22 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
-from app.services.supply import parts, stock
-from app.services.supply.part_status import part_status, worst_lifecycle
+from app.services.supply import parts, pricing, stock
+from app.services.supply.part_status import (
+    PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
+)
 from app.services.supply.tiers import Tier
 from app.services.supply.vocabulary import Lifecycle
 
 Scope = Literal["watched", "all"]
 MAX_LIMIT = 200
+# Parts are ordered by how much they need a look, which needs every candidate's
+# status, so the list reads this many at most before it cuts to the page.
+MAX_CANDIDATES = 5000
 HISTORY_DAYS = 90
 _COUNTED = ("exact", "manual")
 _TIER_ORDER = [tier.value for tier in (Tier.HOT, Tier.WARM, Tier.NORMAL, Tier.COLD)]
+_STATUS_RANK = {status.value: rank for rank, status in enumerate(STATUS_ORDER)}
 
 
 def _like(text: str) -> str:
@@ -36,17 +42,68 @@ def _watch_dto(row) -> dict[str, Any] | None:
     return {"id": row["watch_id"], "threshold": row["threshold"], "pinned": bool(row["pinned"]), "owner": row["owner"]}
 
 
-def _cheapest(offers: list[dict]) -> tuple[str | None, str]:
-    """The lowest first-break price, if every priced offer is in one currency."""
+def _cheapest(offers: list[dict]) -> tuple[str | None, str, int]:
+    """The lowest price, as (price, currency, quantity it is quoted at).
 
-    priced = [(Decimal(o["price_breaks"][0][1]), o["currency"]) for o in offers if o["price_breaks"] and o["currency"]]
-    if not priced or len({currency for _, currency in priced}) != 1:
-        return None, ""
-    price, currency = min(priced)
-    return format(price.normalize(), "f"), currency
+    Prices are compared at the reference quantity. An offer that cannot be bought
+    in that quantity (its minimum order is higher, as with a full reel) only
+    counts when nothing else can, and then it is quoted at what must be ordered.
+    Mixed currencies give no price: nothing here converts them.
+    """
+
+    within, beyond = [], []
+    for offer in offers:
+        if not offer["currency"]:
+            continue
+        breaks = [(int(quantity), Decimal(price)) for quantity, price in offer["price_breaks"]]
+        quantity = pricing.order_quantity(pricing.REFERENCE_QUANTITY, offer["moq"], offer["order_multiple"])
+        price = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"])
+        if price is not None:
+            (within if offer["moq"] <= pricing.REFERENCE_QUANTITY else beyond).append((price, offer["currency"], quantity))
+    priced = within or beyond
+    if not priced or len({currency for _, currency, _ in priced}) != 1:
+        return None, "", pricing.REFERENCE_QUANTITY
+    price, currency, quantity = min(priced)
+    return format(price.normalize(), "f"), currency, quantity
+
+
+def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
+    """Why a part with nothing counted is in trouble, per part."""
+
+    if not part_ids:
+        return {}
+    facts = {
+        row["part_id"]: row
+        for row in conn.execute(
+            """
+            SELECT part_id,
+                   bool_or(match_state = ANY(%s)) AS counted,
+                   bool_or(match_state = 'gone') AS gone,
+                   bool_or(match_state <> 'rejected') AS listed
+            FROM listings WHERE part_id = ANY(%s) GROUP BY part_id
+            """,
+            (list(_COUNTED), part_ids),
+        ).fetchall()
+    }
+    searched = {
+        row["part_id"]
+        for row in conn.execute("SELECT DISTINCT part_id FROM discovery_runs WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
+    }
+    result: dict[str, str | None] = {}
+    for part_id in part_ids:
+        fact = facts.get(part_id)
+        result[part_id] = part_problem(
+            has_counted=bool(fact and fact["counted"]),
+            has_gone=bool(fact and fact["gone"]),
+            has_listings=bool(fact and fact["listed"]),
+            was_searched=part_id in searched,
+        )
+    return result
 
 
 def list_parts(conn, *, scope: Scope = "watched", query: str = "", limit: int = 100) -> dict[str, Any]:
+    """Parts that need a look first (worst status), then by name."""
+
     limit = max(1, min(limit, MAX_LIMIT))
     conditions = ["TRUE" if scope == "all" else "w.id IS NOT NULL"]
     params: list[Any] = []
@@ -62,70 +119,108 @@ def list_parts(conn, *, scope: Scope = "watched", query: str = "", limit: int = 
     rows = conn.execute(
         f"SELECT p.id, p.mpn, m.name AS manufacturer, w.id AS watch_id, w.threshold, w.pinned, w.owner "
         f"FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id LEFT JOIN watches w ON w.part_id = p.id "
-        f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*params, limit],
+        f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*params, MAX_CANDIDATES],
     ).fetchall()
 
     offers_by_part: dict[str, list[dict]] = defaultdict(list)
+    ids = [r["id"] for r in rows]
     if rows:
         for row in conn.execute(
             """
             SELECT l.part_id, l.connector_id, c.provider, o.stock, o.marketplace, o.fetched_at, o.lifecycle,
-                   o.price_breaks, o.currency, ps.tier
+                   o.price_breaks, o.currency, o.moq, o.order_multiple, ps.tier
             FROM listings l
             JOIN offers o ON o.listing_id = l.id
             JOIN connectors c ON c.id = l.connector_id
             LEFT JOIN poll_state ps ON ps.listing_id = l.id
             WHERE l.part_id = ANY(%s) AND l.match_state = ANY(%s)
             """,
-            ([r["id"] for r in rows], list(_COUNTED)),
+            (ids, list(_COUNTED)),
         ).fetchall():
             offers_by_part[row["part_id"]].append(dict(row))
+    problems = _problems(conn, ids)
 
     items = []
     for row in rows:
         offers = offers_by_part.get(row["id"], [])
         combined = stock.aggregate(offers) if offers else None
         lifecycle = worst_lifecycle(Lifecycle(o["lifecycle"]) for o in offers)
-        price, currency = _cheapest([o for o in offers if not o["marketplace"]])
+        price, currency, price_quantity = _cheapest([o for o in offers if not o["marketplace"]])
         tiers = [o["tier"] for o in offers if o["tier"]]
+        problem = problems.get(row["id"]) if combined is None else None
         items.append({
             "id": row["id"],
             "mpn": row["mpn"],
             "manufacturer": row["manufacturer"],
             "watch": _watch_dto(row),
-            "status": part_status(combined.total if combined else None, row["threshold"], lifecycle).value,
+            "status": part_status(combined.total if combined else None, row["threshold"], lifecycle, problem).value,
+            "problem": problem,
             "stock": combined.total if combined else None,
             "listings": combined.listings if combined else 0,
             "lifecycle": lifecycle.value,
             "unit_price": price,
+            "price_quantity": price_quantity,
             "currency": currency,
             "fetched_at": combined.newest_fetched_at.isoformat() if combined and combined.newest_fetched_at else None,
             "tier": min(tiers, key=_TIER_ORDER.index) if tiers else None,
         })
-    return {"items": items, "total": int(total), "limit": limit}
+    # The sort is stable, so parts of equal status keep their name order.
+    items.sort(key=lambda item: _STATUS_RANK[item["status"]])
+    return {"items": items[:limit], "total": int(total), "limit": limit}
 
 
-def _history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
-    """Total counted stock per day, carrying each listing's last known figure forward."""
+def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
+    """Each listing's last known stock per day: raw samples where they exist, rollups before that."""
 
-    since = now - timedelta(days=HISTORY_DAYS)
-    rows = conn.execute(
+    states = list(_COUNTED) + ["gone"]
+    raw = conn.execute(
         """
         SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-               s.listing_id, l.connector_id, c.provider, (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock
+               s.listing_id, l.connector_id, c.provider, l.match_state,
+               (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.marketplace
         FROM samples s
         JOIN listings l ON l.id = s.listing_id
         JOIN connectors c ON c.id = l.connector_id
         WHERE l.part_id = %s AND l.match_state = ANY(%s) AND s.sampled_at >= %s
         ORDER BY s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date, s.sampled_at DESC
         """,
-        (part_id, list(_COUNTED), since),
+        (part_id, states, since),
     ).fetchall()
+    rolled = conn.execute(
+        """
+        SELECT d.listing_id, l.connector_id, c.provider, l.match_state, d.day, d.last_stock AS stock, d.marketplace
+        FROM samples_daily d
+        JOIN listings l ON l.id = d.listing_id
+        JOIN connectors c ON c.id = l.connector_id
+        WHERE l.part_id = %s AND l.match_state = ANY(%s) AND d.day >= %s
+        """,
+        (part_id, states, since.date()),
+    ).fetchall()
+    merged = {(r["listing_id"], r["day"]): dict(r) for r in rolled}
+    merged.update({(r["listing_id"], r["day"]): dict(r) for r in raw})
+    return list(merged.values())
+
+
+def _history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
+    """Total counted stock per day, carrying each listing's last known figure forward.
+
+    Marketplace stock is left out, as in the current total. A listing that has
+    disappeared stops counting after its last reading. ``listings`` says how
+    many listings stood behind each day, so a jump from a new listing reads as a
+    change in coverage and not as a restock.
+    """
+
+    rows = _day_rows(conn, part_id, now - timedelta(days=HISTORY_DAYS))
     if not rows:
         return []
     by_day: dict[date, list] = defaultdict(list)
+    last_day: dict[str, date] = {}
+    gone: set[str] = set()
     for row in rows:
         by_day[row["day"]].append(row)
+        last_day[row["listing_id"]] = max(row["day"], last_day.get(row["listing_id"], row["day"]))
+        if row["match_state"] == "gone":
+            gone.add(row["listing_id"])
     last: dict[str, dict] = {}
     series = []
     day, end = min(by_day), max(by_day)
@@ -133,9 +228,13 @@ def _history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
         for row in by_day.get(day, []):
             last[row["listing_id"]] = {
                 "connector_id": row["connector_id"], "provider": row["provider"], "stock": row["stock"],
-                "marketplace": False, "fetched_at": day,
+                "marketplace": bool(row["marketplace"]), "fetched_at": day,
             }
-        series.append({"day": day.isoformat(), "stock": stock.aggregate(last.values()).total})
+        for listing_id in gone:
+            if last_day[listing_id] < day:
+                last.pop(listing_id, None)
+        combined = stock.aggregate(last.values())
+        series.append({"day": day.isoformat(), "stock": combined.total, "listings": combined.listings})
         day += timedelta(days=1)
     return series
 
@@ -167,6 +266,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None) -> dict[str,
     combined = stock.aggregate(counted) if counted else None
     lifecycle = worst_lifecycle(Lifecycle(r["lifecycle"]) for r in counted)
     names = {r["connector_id"]: r["connector_name"] for r in rows}
+    problem = _problems(conn, [part_id])[part_id] if combined is None else None
 
     def iso(value: datetime | None) -> str | None:
         return value.isoformat() if value else None
@@ -209,7 +309,9 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None) -> dict[str,
     return {
         "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name},
         "watch": _watch_dto(watch_row),
-        "status": part_status(combined.total if combined else None, watch_row["threshold"], lifecycle).value,
+        "status": part_status(combined.total if combined else None, watch_row["threshold"], lifecycle, problem).value,
+        "problem": problem,
+        "problem_text": PROBLEM_LABEL.get(problem or "", ""),
         "stock": {
             "total": combined.total if combined else None,
             "by_connector": [

@@ -100,7 +100,7 @@ class SupplyJobTests(unittest.TestCase):
 
     def watch(self, mpn: str = "ABC123"):
         with self.store.connection() as conn:
-            return self.watches.add_watch(conn, "Acme", mpn, ACTOR)
+            return self.watches.add_watch(conn, "Acme", mpn, ACTOR)[0]
 
     def rows(self, sql: str, *params):
         with self.store.connection() as conn:

@@ -27,7 +27,9 @@ root first.
 | `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. |
 | `poller.py` | `Poller.poll_connector`: asks for due listings in batches within the call budget and records offers and samples. |
 | `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. |
-| `part_status.py` | The interim status of a part (ok, warning, error, fatal, unknown). The assessment pipeline replaces it. |
+| `part_status.py` | The interim status of a part (ok, warning, error, fatal, unknown), with the problems that make an unread part an error (no distributor carries it, every listing gone). The assessment pipeline replaces it. |
+| `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. |
+| `retention.py` | Rolls raw samples older than 60 days into `samples_daily`, in slices of 30 days. Run at the end of each poll job. |
 | `backend/app/api/supply_parts.py` | Parts and watches API. Readers see parts, stock and history; admin and designer watch parts and change watch rules. |
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
 | `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
@@ -49,6 +51,11 @@ root first.
 - **Only `exact` and `manual` listings count** toward stock and price. A person's
   decision (`manual`, `rejected`) is never overwritten by discovery, and an
   `exact` listing is never downgraded by a search for a different part.
+- **Only approvers introduce a manufacturer.** A designer watching a part must pick a
+  manufacturer Prism already knows (`ensure_manufacturer(may_create=False)`), so a stray
+  "TI" cannot become a second Texas Instruments.
+- **A job is queued only when the connector can spend a call now** (`jobs._has_budget`),
+  and a repeated provider failure rests the connector. Neither may become a job a minute.
 - **A manufacturer argument is a hint, never a filter.** Prism decides who is the
   same manufacturer, using its alias table.
 - **The manufacturer part is the spine.** A feature that needs part data reads

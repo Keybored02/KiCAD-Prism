@@ -279,12 +279,54 @@ def _m005_discovery_runs(conn) -> None:
     )
 
 
+def _m006_events_rollups(conn) -> None:
+    """Market events, the marketplace flag on samples, and daily rollups of old samples.
+
+    ``events`` records changes worth telling someone about (first kind: a listing
+    that disappeared). ``samples.marketplace`` lets the history leave out
+    marketplace stock like the current total does. ``samples_daily`` keeps one row
+    per listing per day once the raw rows are old enough to compact.
+    """
+
+    conn.execute(
+        """
+        ALTER TABLE samples ADD COLUMN IF NOT EXISTS marketplace BOOLEAN NOT NULL DEFAULT FALSE;
+        CREATE INDEX IF NOT EXISTS idx_samples_sampled_at ON samples (sampled_at);
+
+        CREATE TABLE IF NOT EXISTS samples_daily (
+            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+            day DATE NOT NULL,
+            min_stock INTEGER NOT NULL,
+            max_stock INTEGER NOT NULL,
+            last_stock INTEGER NOT NULL,
+            last_unit_price NUMERIC(14, 6),
+            currency TEXT NOT NULL DEFAULT '',
+            marketplace BOOLEAN NOT NULL DEFAULT FALSE,
+            sample_count INTEGER NOT NULL CHECK (sample_count >= 1),
+            PRIMARY KEY (listing_id, day)
+        );
+
+        CREATE TABLE IF NOT EXISTS events (
+            id BIGSERIAL PRIMARY KEY,
+            at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            kind TEXT NOT NULL,
+            part_id TEXT REFERENCES parts(id) ON DELETE CASCADE,
+            listing_id TEXT REFERENCES listings(id) ON DELETE CASCADE,
+            payload JSONB NOT NULL DEFAULT '{}'::jsonb
+        );
+        CREATE INDEX IF NOT EXISTS idx_supply_events_part ON events (part_id, at);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
     (3, "parts_and_listings", _m003_parts_and_listings),
     (4, "watches_offers_samples", _m004_watches_offers_samples),
     (5, "discovery_runs", _m005_discovery_runs),
+    (6, "events_rollups", _m006_events_rollups),
 ]
 
 

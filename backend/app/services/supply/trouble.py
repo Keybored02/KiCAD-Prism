@@ -18,6 +18,8 @@ from app.services.supply.store import SupplyStore
 
 RATE_LIMIT_DEFAULT = timedelta(minutes=15)
 ERROR_COOLDOWN = timedelta(minutes=5)
+# A provider's own Retry-After is believed, but not beyond this.
+MAX_COOLDOWN = timedelta(hours=24)
 SYSTEM_ACTOR = "system:poller"
 
 RATE_LIMITED = "rate_limited"
@@ -39,7 +41,7 @@ def react(
         connectors.pause(connector_id, actor=SYSTEM_ACTOR, reason="The provider rejected the credentials.")
         return AUTH_FAILED
     if isinstance(error, RateLimited):
-        wait = timedelta(seconds=error.retry_after_seconds) if error.retry_after_seconds else RATE_LIMIT_DEFAULT
+        wait = min(timedelta(seconds=error.retry_after_seconds), MAX_COOLDOWN) if error.retry_after_seconds else RATE_LIMIT_DEFAULT
         reason = RATE_LIMITED
     else:
         wait, reason = ERROR_COOLDOWN, ERROR

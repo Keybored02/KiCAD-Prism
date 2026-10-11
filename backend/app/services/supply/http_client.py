@@ -7,8 +7,10 @@ connect cannot redirect the request. Certificates are verified against the
 original host name.
 
 The environment's proxy settings are ignored on purpose: a proxy would resolve
-the name itself and bypass the pin. Proxy support, if needed, is an explicit
-setting added to the transport.
+the name itself and bypass the pin. A proxy is used only when
+``SUPPLY_HTTPS_PROXY`` is set. Then the proxy resolves names, so the host
+allowlist still applies but the address check cannot, and the operator is
+trusting the proxy for that part.
 
 Error messages carry the host and path only. Query strings often hold API keys,
 so they never appear in messages or logs.
@@ -92,7 +94,16 @@ class _PinnedAdapter(HTTPAdapter):
 
 
 class RequestsTransport:
+    def __init__(self, proxy: str = "") -> None:
+        self._proxy = proxy.strip()
+
+    @property
+    def proxied(self) -> bool:
+        return bool(self._proxy)
+
     def send(self, *, method, target, headers, body, timeout, max_bytes) -> HttpResponse:
+        if self._proxy:
+            return self._send_via_proxy(method, target, headers, body, timeout, max_bytes)
         parts = urlsplit(target.url)
         for address in target.addresses:
             netloc = f"[{address}]" if ":" in address else address
@@ -114,6 +125,27 @@ class RequestsTransport:
                         body=_read_capped(response, max_bytes),
                     )
         raise ConnectFailed(target.host)
+
+
+    def _send_via_proxy(self, method, target, headers, body, timeout, max_bytes) -> HttpResponse:
+        """Send through the configured proxy. The proxy resolves the name; the certificate is still verified."""
+
+        with requests.Session() as session:
+            session.trust_env = False
+            session.proxies = {"https": self._proxy}
+            try:
+                response = session.request(
+                    method, target.url, headers=headers, data=body,
+                    timeout=timeout, allow_redirects=False, stream=True,
+                )
+            except requests.ConnectionError:
+                raise ConnectFailed(target.host) from None
+            with response:
+                return HttpResponse(
+                    status=response.status_code,
+                    headers={key.lower(): value for key, value in response.headers.items()},
+                    body=_read_capped(response, max_bytes),
+                )
 
 
 def _read_capped(response: requests.Response, max_bytes: int) -> bytes:
@@ -158,7 +190,11 @@ class SafeHttpClient:
         max_redirects: int = MAX_REDIRECTS,
     ) -> None:
         self._allowed = None if allowed_hosts is None else tuple(allowed_hosts)
-        self._transport = transport or RequestsTransport()
+        if transport is None:
+            from app.core.config import settings
+
+            transport = RequestsTransport(settings.SUPPLY_HTTPS_PROXY)
+        self._transport = transport
         self._resolve = resolve
         self._max_bytes = max_bytes
         self._timeout = timeout
@@ -212,7 +248,10 @@ class SafeHttpClient:
 
     def _send_once(self, method: str, url: str, headers: Mapping[str, str], body: bytes | None) -> HttpResponse:
         try:
-            target = validate_url(url, allowed_hosts=self._allowed, resolve=self._resolve)
+            target = validate_url(
+                url, allowed_hosts=self._allowed, resolve=self._resolve,
+                check_addresses=not getattr(self._transport, "proxied", False),
+            )
         except EgressDenied as exc:
             raise EgressBlocked(str(exc)) from None
         try:

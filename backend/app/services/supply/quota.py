@@ -84,13 +84,16 @@ class CapacityEstimate:
 
 
 def estimate_capacity(
-    parts_by_tier: Mapping[str, int],
+    listings_by_tier: Mapping[str, int],
     *,
     max_batch: int,
     daily_budget: int,
     reserve_pct: int = 10,
 ) -> CapacityEstimate:
     """Calls per day the watchlist needs against what the budget allows.
+
+    Polling is per listing, not per part: a part sold in three packagings is three
+    listings. Pass listing counts per tier.
 
     ``shortfall_pct`` is the share of polls that will run later than their tier
     asks. It is shown before it happens, in Connectors.
@@ -99,11 +102,11 @@ def estimate_capacity(
     if max_batch < 1:
         raise ValueError("max_batch must be at least 1")
     needed = 0.0
-    for tier, parts in parts_by_tier.items():
+    for tier, listings in listings_by_tier.items():
         interval = TIER_INTERVAL_HOURS[tier]
-        if parts < 0:
-            raise ValueError("part counts must not be negative")
-        needed += math.ceil(parts / max_batch) * (24 / interval)
+        if listings < 0:
+            raise ValueError("listing counts must not be negative")
+        needed += math.ceil(listings / max_batch) * (24 / interval)
     calls = math.ceil(needed)
     usable = daily_budget - interactive_reserve(daily_budget, reserve_pct)
     shortfall = 0 if calls <= usable or calls == 0 else math.ceil(100 * (1 - usable / calls))

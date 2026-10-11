@@ -13,8 +13,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
+from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import parts, parts_view, watches
+from app.services.supply import parts, parts_view, review, watches
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -46,6 +47,8 @@ def _store():
 def _http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, (watches.WatchNotFound, parts.PartNotFound)):
         return HTTPException(status_code=404, detail="Not found")
+    if isinstance(exc, parts.UnknownManufacturer):
+        return HTTPException(status_code=400, detail={"code": "unknown_manufacturer", "message": str(exc)})
     if isinstance(exc, watches.WatchError):
         return HTTPException(status_code=400, detail={"code": "watch_error", "message": str(exc)})
     if isinstance(exc, ValueError):
@@ -90,16 +93,30 @@ async def get_part(part_id: str, _user: AuthenticatedUser = Depends(require_supp
     return await _run(read)
 
 
-@router.post("/watches", status_code=201)
-async def add_watch(body: AddWatchRequest, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
-    def run() -> dict[str, Any]:
+@router.get("/manufacturers")
+async def list_manufacturers(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            record = watches.add_watch(
-                conn, body.manufacturer, body.mpn, writer.email, threshold=body.threshold, pinned=body.pinned
-            )
-        return _watch_dto(record)
+            return {"items": review.manufacturers(conn)}
 
-    return await _run(run)
+    return await _run(read)
+
+
+@router.post("/watches")
+async def add_watch(
+    body: AddWatchRequest, response: Response, writer: AuthenticatedUser = Depends(require_supply_writer)
+) -> dict[str, Any]:
+    def run() -> tuple[dict[str, Any], bool]:
+        with _store().connection() as conn:
+            record, created = watches.add_watch(
+                conn, body.manufacturer, body.mpn, writer.email, threshold=body.threshold, pinned=body.pinned,
+                may_create_manufacturer=writer.role in SUPPLY_APPROVE_ROLES,
+            )
+        return _watch_dto(record), created
+
+    dto, created = await _run(run)
+    response.status_code = 201 if created else 200
+    return dto
 
 
 @router.patch("/watches/{watch_id}")

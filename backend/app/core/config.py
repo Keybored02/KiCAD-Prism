@@ -315,6 +315,15 @@ class Settings(BaseSettings):
         description="Allow connectors for the simulated distributor. For development, tests and demos only.",
     )
 
+    SUPPLY_HTTPS_PROXY: str = Field(
+        default="",
+        description=(
+            "HTTPS proxy for distributor calls, for example http://proxy.example.com:3128. "
+            "Environment proxy variables are ignored on purpose. With a proxy set, the proxy resolves "
+            "host names, so Prism checks the host against the allowlist but cannot check addresses itself."
+        ),
+    )
+
     TRACKER_CREDENTIAL_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
     TRACKER_CREDENTIAL_ROOT_KEY_ID: str = Field(default="v1")
     TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY: SecretStr = Field(default=SecretStr(""))

@@ -64,11 +64,15 @@ def validate_url(
     *,
     allowed_hosts: Collection[str] | None = None,
     resolve: Resolver = system_resolver,
+    check_addresses: bool = True,
 ) -> ValidatedTarget:
     """Check ``url`` and return the addresses it resolved to.
 
     ``allowed_hosts=None`` means any public host, for links a distributor
     hands back. Provider API calls always pass their own host list.
+
+    ``check_addresses=False`` is for traffic that goes through a configured proxy:
+    the proxy resolves the name, so there are no addresses to check here.
     """
 
     parts = urlsplit(url.strip())
@@ -94,6 +98,8 @@ def validate_url(
     if allowed_hosts is not None and not host_allowed(host, allowed_hosts):
         raise EgressDenied(f"host is not on the allowlist: {host}")
 
+    if not check_addresses:
+        return ValidatedTarget(url=url.strip(), host=host, addresses=())
     addresses = resolve(host)
     if not addresses:
         raise EgressDenied(f"cannot resolve {host}")

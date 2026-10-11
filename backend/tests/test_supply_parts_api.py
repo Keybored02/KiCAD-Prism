@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from supply_api_helpers import request as _request  # noqa: E402
 
+from app.services.supply import pricing  # noqa: E402
 from app.services.supply.part_status import part_status, worst_lifecycle  # noqa: E402
 from app.services.supply.vocabulary import Lifecycle, Status  # noqa: E402
 
@@ -99,9 +100,9 @@ class SupplyPartsApiTests(unittest.TestCase):
     def call(self, method: str, path: str, *, role: str = "admin", body=None, user=None, query: str = ""):
         return _request(self.app, method, path, user=user or self.users[role], body=body, query=query)
 
-    def watch_via_api(self, mpn: str = "ABC123", **extra) -> dict:
+    def watch_via_api(self, mpn: str = "ABC123", *, status: int = 201, **extra) -> dict:
         response = self.call("POST", "/api/supply/watches", body={"manufacturer": "Acme", "mpn": mpn, **extra})
-        self.assertEqual(response.status, 201, response.text)
+        self.assertEqual(response.status, status, response.text)
         return response.json
 
     def fake_connector(self, **overrides) -> str:
@@ -178,7 +179,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertEqual(item["watch"], {"id": watch["id"], "threshold": 100, "pinned": False, "owner": "admin@example.com"})
 
     def test_watching_twice_is_one_watch(self) -> None:
-        first, second = self.watch_via_api("LM358-D"), self.watch_via_api("lm358d")
+        first, second = self.watch_via_api("LM358-D"), self.watch_via_api("lm358d", status=200)
         self.assertEqual(first["id"], second["id"])
         self.assertEqual(self.call("GET", "/api/supply/parts").json["total"], 1)
 
@@ -247,7 +248,11 @@ class SupplyPartsApiTests(unittest.TestCase):
         item = self.part_row("ABC123")
         expected = self.provider(cid).get_offers(["FAKE-ABC123-CT"])[0]
         self.assertEqual((item["stock"], item["listings"], item["lifecycle"], item["currency"]), (expected.stock, 1, "active", "EUR"))
-        self.assertEqual(float(item["unit_price"]), float(expected.price_breaks[0].unit_price))
+        at_reference = pricing.unit_price_at(
+            [(b.quantity, b.unit_price) for b in expected.price_breaks], moq=expected.moq, order_multiple=expected.order_multiple
+        )
+        self.assertEqual(float(item["unit_price"]), float(at_reference))
+        self.assertEqual(item["price_quantity"], pricing.REFERENCE_QUANTITY)
         self.assertIn(item["status"], ("ok", "warning"))
         self.assertIn(item["tier"], ("hot", "warm", "normal"))
         self.assertEqual(item["fetched_at"], self.now.isoformat())
@@ -352,6 +357,118 @@ class SupplyPartsApiTests(unittest.TestCase):
         with self.store.connection() as conn:
             history = parts_view.part_detail(conn, part_id, now=START)["history"]
         self.assertEqual([h["stock"] for h in history], [9])
+
+    def test_history_leaves_out_marketplace_stock_and_listings_that_disappeared(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("COVER")["part_id"]
+        kept = self.insert_listing(part_id, cid, "KEPT", stock=0)
+        vanished = self.insert_listing(part_id, cid, "VANISHED", state="gone", stock=0)
+        resold = self.insert_listing(part_id, cid, "RESOLD", stock=0)
+        start = (datetime.now(timezone.utc) - timedelta(days=4)).replace(hour=9, minute=0, second=0, microsecond=0)
+        self.insert_sample(kept, start, 10)
+        self.insert_sample(kept, start + timedelta(days=2), 20)
+        self.insert_sample(vanished, start, 50)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO samples (listing_id, sampled_at, stock, marketplace) VALUES (%s, %s, 900, TRUE)", (resold, start))
+        history = self.call("GET", f"/api/supply/parts/{part_id}").json["history"]
+        self.assertEqual([(h["stock"], h["listings"]) for h in history], [(50, 2), (10, 1), (20, 1)],
+                         "a gone listing counts until its last reading (pooled stock takes the larger); marketplace stock never does")
+
+    def test_older_days_come_from_the_rollups(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("ROLL")["part_id"]
+        listing = self.insert_listing(part_id, cid, "A", stock=0)
+        old_day = (datetime.now(timezone.utc) - timedelta(days=80)).date()
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO samples_daily (listing_id, day, min_stock, max_stock, last_stock, sample_count) VALUES (%s, %s, 5, 40, 30, 6)",
+                (listing, old_day))
+        self.insert_sample(listing, datetime.now(timezone.utc) - timedelta(days=1), 7)
+        history = self.call("GET", f"/api/supply/parts/{part_id}").json["history"]
+        self.assertEqual((history[0]["day"], history[0]["stock"]), (old_day.isoformat(), 30))
+        self.assertEqual(history[-1]["stock"], 7)
+
+    def test_a_part_no_distributor_carries_is_an_error_not_unknown(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("NOBODY")["part_id"]
+        self.assertEqual(self.part_row("NOBODY")["status"], "unknown", "not searched yet")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 0)", (part_id, cid, START))
+        item = self.part_row("NOBODY")
+        self.assertEqual((item["status"], item["problem"]), ("error", "not_found"))
+        self.assertIn("No distributor", self.call("GET", f"/api/supply/parts/{part_id}").json["problem_text"])
+        self.insert_listing(part_id, cid, "CANDIDATE", state="near")
+        self.assertEqual(self.part_row("NOBODY")["status"], "unknown", "a candidate waiting in Review is not 'nobody carries it'")
+
+    def test_a_part_whose_listings_all_disappeared_is_an_error(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("VANISH")["part_id"]
+        self.insert_listing(part_id, cid, "A", state="gone", stock=10)
+        item = self.part_row("VANISH")
+        self.assertEqual((item["status"], item["problem"], item["stock"]), ("error", "gone", None))
+        self.insert_listing(part_id, cid, "B", stock=10)
+        self.assertEqual(self.part_row("VANISH")["status"], "ok", "one live listing is enough")
+
+    def test_parts_that_need_a_look_come_first(self) -> None:
+        cid = self.fake_connector()
+        for mpn, stock in (("AAA", 5000), ("BBB", 0), ("CCC", 5000)):
+            self.insert_listing(self.watch_via_api(mpn)["part_id"], cid, mpn, stock=stock)
+        self.assertEqual([i["mpn"] for i in self.call("GET", "/api/supply/parts").json["items"]], ["BBB", "AAA", "CCC"])
+
+    def test_prices_are_compared_at_one_quantity(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("QTY")["part_id"]
+        with self.store.connection() as conn:
+            for sku, moq, breaks in (("TAPE", 1, [[1, "0.50"], [100, "0.30"]]), ("REEL", 3000, [[3000, "0.10"]])):
+                listing = self.insert_listing(part_id, cid, sku, stock=10)
+                conn.execute("UPDATE offers SET moq = %s, price_breaks = %s::jsonb WHERE listing_id = %s", (moq, json.dumps(breaks), listing))
+        item = self.part_row("QTY")
+        self.assertEqual((item["unit_price"], item["price_quantity"]), ("0.3", 100), "the reel needs 3,000 pieces, so it is not the price at 100")
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM listings WHERE sku = 'TAPE'")
+        item = self.part_row("QTY")
+        self.assertEqual((item["unit_price"], item["price_quantity"]), ("0.1", 3000), "alone, the reel is quoted at what must be ordered")
+
+    # --- who may name a manufacturer --------------------------------------
+
+    def test_only_approvers_can_introduce_a_new_manufacturer(self) -> None:
+        body = {"manufacturer": "TI", "mpn": "TPS1"}
+        denied = self.call("POST", "/api/supply/watches", role="designer", body=body)
+        self.assertEqual(denied.status, 400)
+        self.assertEqual(denied.json["detail"]["code"], "unknown_manufacturer")
+        with self.store.connection() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM manufacturers").fetchone()["n"], 0)
+        self.assertEqual(self.call("POST", "/api/supply/watches", role="admin", body=body).status, 201)
+        self.assertEqual(self.call("POST", "/api/supply/watches", role="designer", body={"manufacturer": "ti", "mpn": "TPS2"}).status, 201,
+                         "once it exists a designer can use it")
+        names = [m["name"] for m in self.call("GET", "/api/supply/manufacturers", role="designer").json["items"]]
+        self.assertEqual(names, ["TI"])
+
+    def test_naming_a_manufacturer_distributors_reported_settles_the_listings_waiting_on_it(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("LM1")["part_id"]
+        waiting = self.insert_listing(part_id, cid, "W", state="manufacturer_unresolved")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE listings SET raw_manufacturer = 'Zeta Works' WHERE id = %s", (waiting,))
+            conn.execute("INSERT INTO manufacturer_aliases (alias_key, alias_text, status) VALUES ('zeta works', 'Zeta Works', 'pending')")
+        self.assertEqual(self.call("POST", "/api/supply/watches", role="admin", body={"manufacturer": "Zeta Works", "mpn": "OTHER"}).status, 201)
+        with self.store.connection() as conn:
+            state = conn.execute("SELECT match_state FROM listings WHERE id = %s", (waiting,)).fetchone()["match_state"]
+        self.assertEqual(state, "near", "Zeta Works is a different manufacturer from the part's own (Acme)")
+
+    def test_watching_a_watched_part_applies_what_was_asked(self) -> None:
+        first = self.watch_via_api("RULES")
+        second = self.watch_via_api("RULES", status=200, threshold=250, pinned=True)
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual((second["threshold"], second["pinned"]), (250, True))
+
+    def test_watch_changes_are_audited_with_before_and_after(self) -> None:
+        watch = self.watch_via_api("AUDIT", threshold=5)
+        self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"threshold": 9})
+        with self.store.connection() as conn:
+            detail = conn.execute(
+                "SELECT detail FROM audit_events WHERE action = 'watch.update' AND subject_id = %s", (watch["id"],)).fetchone()["detail"]
+        self.assertEqual(detail, {"before": {"threshold": 5}, "after": {"threshold": 9}})
 
     def test_unknown_parts(self) -> None:
         self.assertEqual(self.call("GET", "/api/supply/parts/missing").status, 404)

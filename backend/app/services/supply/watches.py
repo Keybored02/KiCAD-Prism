@@ -82,27 +82,45 @@ def list_watches(conn) -> list[WatchRecord]:
 
 
 def add_watch(
-    conn, manufacturer_name: str, mpn: str, actor: str, *, threshold: int | None = None, pinned: bool = False
-) -> WatchRecord:
-    """Watch a part, creating it if needed. Watching a watched part returns the existing watch."""
+    conn,
+    manufacturer_name: str,
+    mpn: str,
+    actor: str,
+    *,
+    threshold: int | None = None,
+    pinned: bool = False,
+    may_create_manufacturer: bool = True,
+) -> tuple[WatchRecord, bool]:
+    """Watch a part, creating it if needed. Returns the watch and whether it is new.
+
+    Watching a part that is already watched keeps that watch, and applies the rules
+    that were asked for on top of it, so nothing the caller sent is dropped.
+    """
 
     actor = actor_text(actor)
     threshold = _check_threshold(threshold)
-    part = parts.ensure_part(conn, manufacturer_name, mpn, actor)
+    part = parts.ensure_part(conn, manufacturer_name, mpn, actor, may_create=may_create_manufacturer)
     existing = conn.execute("SELECT id FROM watches WHERE part_id = %s", (part.id,)).fetchone()
     if existing:
-        return get_watch(conn, existing["id"])
+        asked: dict[str, Any] = {}
+        if threshold is not None:
+            asked["threshold"] = threshold
+        if pinned:
+            asked["pinned"] = True
+        return (update_watch(conn, existing["id"], actor, **asked) if asked else get_watch(conn, existing["id"])), False
     if pinned:
         _check_pin_room(conn)
     watch_id = uuid.uuid4().hex
-    conn.execute(
+    created = conn.execute(
         "INSERT INTO watches (id, part_id, threshold, pinned, owner, created_by) VALUES (%s, %s, %s, %s, %s, %s) "
-        "ON CONFLICT (part_id) DO NOTHING",
+        "ON CONFLICT (part_id) DO NOTHING RETURNING id",
         (watch_id, part.id, threshold, pinned, actor, actor),
-    )
+    ).fetchone()
     row = conn.execute("SELECT id FROM watches WHERE part_id = %s", (part.id,)).fetchone()
-    write_audit(conn, actor, "watch.add", row["id"], {"part_id": part.id, "pinned": pinned}, subject_kind="watch")
-    return get_watch(conn, row["id"])
+    if created:
+        write_audit(conn, actor, "watch.add", row["id"],
+                    {"part_id": part.id, "threshold": threshold, "pinned": pinned}, subject_kind="watch")
+    return get_watch(conn, row["id"]), bool(created)
 
 
 def update_watch(conn, watch_id: str, actor: str, *, threshold: Any = _UNSET, pinned: Any = _UNSET) -> WatchRecord:
@@ -124,12 +142,15 @@ def update_watch(conn, watch_id: str, actor: str, *, threshold: Any = _UNSET, pi
     # Column names come from the fixed set above, never from the caller.
     assignments = ", ".join(f"{column} = %s" for column in changes)
     conn.execute(f"UPDATE watches SET {assignments}, updated_at = NOW() WHERE id = %s", (*changes.values(), watch_id))
-    write_audit(conn, actor, "watch.update", watch_id, {"fields": sorted(changes)}, subject_kind="watch")
+    before = {field: getattr(current, field) for field in changes}
+    write_audit(conn, actor, "watch.update", watch_id, {"before": before, "after": changes}, subject_kind="watch")
     return get_watch(conn, watch_id)
 
 
 def remove_watch(conn, watch_id: str, actor: str) -> None:
     actor = actor_text(actor)
-    get_watch(conn, watch_id)
+    current = get_watch(conn, watch_id)
     conn.execute("DELETE FROM watches WHERE id = %s", (watch_id,))
-    write_audit(conn, actor, "watch.remove", watch_id, {}, subject_kind="watch")
+    write_audit(conn, actor, "watch.remove", watch_id,
+                {"part_id": current.part_id, "threshold": current.threshold, "pinned": current.pinned},
+                subject_kind="watch")

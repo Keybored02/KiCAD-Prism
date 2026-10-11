@@ -35,7 +35,7 @@ class PollingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         from app.services.postgres_database import database
-        from app.services.supply import discovery, parts, poller, stock, watches
+        from app.services.supply import discovery, parts, poller, pricing, stock, watches
         from app.services.supply.connectors import ConnectorService
         from app.services.supply.providers import registry
         from app.services.supply.providers.base import CredentialField, ProviderConfig, ProviderSpec
@@ -44,7 +44,7 @@ class PollingTests(unittest.TestCase):
         from app.services.trackers.secrets import CredentialKeyring
 
         cls.database, cls.discovery, cls.parts, cls.poller_module = database, discovery, parts, poller
-        cls.stock, cls.watches, cls.registry = stock, watches, registry
+        cls.stock, cls.watches, cls.registry, cls.pricing = stock, watches, registry, pricing
         cls.FakeProvider, cls.ProviderConfig = FakeProvider, ProviderConfig
         cls.store = type("TestSupplyStore", (SupplyStore,), {"schema": f"supply_poll_test_{uuid.uuid4().hex[:8]}"})()
         cls.store.initialize()
@@ -88,7 +88,7 @@ class PollingTests(unittest.TestCase):
 
     def watch(self, mpn: str = "ABC123", **kwargs):
         with self.store.connection() as conn:
-            return self.watches.add_watch(conn, "Acme", mpn, ACTOR, **kwargs)
+            return self.watches.add_watch(conn, "Acme", mpn, ACTOR, **kwargs)[0]
 
     def discover(self, watch, connector_id: str) -> None:
         service = self.discovery.DiscoveryService(lambda cid: self.provider_for(cid), self.store)
@@ -214,7 +214,9 @@ class PollingTests(unittest.TestCase):
         self.assertEqual(len(offer["price_breaks"]), 4)
         (sample,) = self.rows("SELECT * FROM samples")
         self.assertEqual((sample["stock"], sample["sampled_at"]), (expected.stock, self.clock.now))
-        self.assertEqual(sample["unit_price"], expected.price_breaks[0].unit_price)
+        self.assertEqual(sample["unit_price"], self.pricing.unit_price_at(
+            [(b.quantity, b.unit_price) for b in expected.price_breaks], moq=expected.moq, order_multiple=expected.order_multiple
+        ))
         state = self.state_of("FAKE-ABC123-CT")
         self.assertGreater(state["next_poll_at"], self.clock.now)
         self.assertEqual((state["error_streak"], state["last_change_at"]), (0, self.clock.now))

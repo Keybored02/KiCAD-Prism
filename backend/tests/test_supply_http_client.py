@@ -328,5 +328,39 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(http_client._read_capped(_FakeResponse(chunks=(b"ab", b"cd")), 100), b"abcd")
 
 
+class ProxyTests(unittest.TestCase):
+    """With a proxy set, the proxy resolves names, so only the host allowlist applies."""
+
+    class ProxiedTransport(ScriptedTransport):
+        proxied = True
+
+    def client(self, *steps, resolve=None):
+        transport = self.ProxiedTransport(*steps)
+        return SafeHttpClient(("api.example.com",), transport=transport, resolve=resolve or _resolver()), transport
+
+    def test_no_address_check_is_made_and_none_is_pinned(self) -> None:
+        def never(host):
+            raise AssertionError("the name must not be resolved here")
+
+        client, transport = self.client(_response(200, {"ok": True}), resolve=never)
+        self.assertEqual(client.request_json("GET", "https://api.example.com/v1"), {"ok": True})
+        self.assertEqual(transport.calls[0]["addresses"], ())
+
+    def test_the_allowlist_and_the_url_rules_still_apply(self) -> None:
+        client, transport = self.client()
+        for url in ("https://evil.example.org/", "http://api.example.com/", "https://10.0.0.1/", "https://user@api.example.com/"):
+            with self.assertRaises(EgressBlocked, msg=url):
+                client.request("GET", url)
+        self.assertEqual(transport.calls, [])
+
+    def test_the_default_transport_follows_the_setting(self) -> None:
+        self.assertFalse(http_client.RequestsTransport("").proxied)
+        self.assertTrue(http_client.RequestsTransport("http://proxy.example.com:3128").proxied)
+        with mock.patch("app.core.config.settings.SUPPLY_HTTPS_PROXY", "http://proxy.example.com:3128"):
+            self.assertTrue(SafeHttpClient(("api.example.com",))._transport.proxied)
+        with mock.patch("app.core.config.settings.SUPPLY_HTTPS_PROXY", ""):
+            self.assertFalse(SafeHttpClient(("api.example.com",))._transport.proxied)
+
+
 if __name__ == "__main__":
     unittest.main()
