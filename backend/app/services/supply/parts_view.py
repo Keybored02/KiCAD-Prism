@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
-from app.services.supply import parts, pricing, stock
+from app.services.supply import insights, parts, pricing, stock
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -227,7 +227,7 @@ def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
     return list(merged.values())
 
 
-def _history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
+def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     """Total counted stock per day, carrying each listing's last known figure forward.
 
     Marketplace stock is left out, as in the current total. A listing that has
@@ -263,6 +263,13 @@ def _history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
         series.append({"day": day.isoformat(), "stock": combined.total, "listings": combined.listings})
         day += timedelta(days=1)
     return series
+
+
+def insight_from(days: list[dict[str, Any]], threshold: int | None, now: datetime) -> dict[str, Any]:
+    """What the daily history says (see ``insights``)."""
+
+    points = [insights.Point(date.fromisoformat(day["day"]), day["stock"], day["listings"]) for day in days]
+    return insights.analyse(points, threshold=threshold, today=now.astimezone(timezone.utc).date())
 
 
 def part_detail(conn, part_id: str, *, now: datetime | None = None) -> dict[str, Any]:
@@ -332,6 +339,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None) -> dict[str,
             } if r["tier"] else None,
         })
 
+    days = history(conn, part_id, now)
     return {
         "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name},
         "watch": _watch_dto(watch_row),
@@ -347,5 +355,6 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None) -> dict[str,
         },
         "lifecycle": lifecycle.value,
         "listings": listings,
-        "history": _history(conn, part_id, now),
+        "history": days,
+        "insight": insight_from(days, watch_row["threshold"], now),
     }

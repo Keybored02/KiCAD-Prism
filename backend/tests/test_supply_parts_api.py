@@ -470,6 +470,24 @@ class SupplyPartsApiTests(unittest.TestCase):
                 "SELECT detail FROM audit_events WHERE action = 'watch.update' AND subject_id = %s", (watch["id"],)).fetchone()["detail"]
         self.assertEqual(detail, {"before": {"threshold": 5}, "after": {"threshold": 9}})
 
+    def test_the_detail_carries_the_insight_with_its_inputs(self) -> None:
+        cid = self.fake_connector()
+        part_id = self.watch_via_api("TREND", threshold=100)["part_id"]
+        listing = self.insert_listing(part_id, cid, "A", stock=300)
+        today = datetime.now(timezone.utc)
+        for index in range(12):
+            self.insert_sample(listing, today - timedelta(days=12 - index), 900 - 50 * index)
+        insight = self.call("GET", f"/api/supply/parts/{part_id}").json["insight"]
+        self.assertEqual((insight["trend"], insight["decrease_per_day"], insight["restocks"]), ("falling", 50.0, 0))
+        self.assertEqual(insight["confidence"], "medium")
+        self.assertEqual(insight["inputs"]["points"], 12)
+        self.assertIsNotNone(insight["days_to_zero"])
+        self.assertIsNotNone(insight["days_to_threshold"])
+
+    def test_the_insight_of_a_part_nobody_read_is_empty_not_missing(self) -> None:
+        insight = self.call("GET", f"/api/supply/parts/{self.watch_via_api('NEW')['part_id']}").json["insight"]
+        self.assertEqual((insight["confidence"], insight["decrease_per_day"], insight["days_to_zero"]), ("none", None, None))
+
     def test_unknown_parts(self) -> None:
         self.assertEqual(self.call("GET", "/api/supply/parts/missing").status, 404)
 

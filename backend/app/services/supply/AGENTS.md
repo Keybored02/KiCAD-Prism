@@ -32,6 +32,7 @@ root first.
 | `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. |
 | `part_status.py` | The interim status of a part (ok, warning, error, fatal, unknown), with the problems that make an unread part an error (no distributor carries it, every listing gone). The assessment pipeline replaces it. |
 | `alerts.py` | Alerts on watched parts: one per part and kind, opened after two looks 30 minutes apart (a lost part opens at once), cleared when the condition clears, acknowledged or snoozed by people. In-app only; nothing is sent anywhere. Evaluated after every read and every watch change. |
+| `insights.py` | Pure: what a part's daily stock history says. Observed net decrease (Theil-Sen slope since the last restock), days to zero and to the threshold, restocks and cadence, and a confidence. A change in how many listings stand behind the figure is cut, never read as a restock. Every answer lists its inputs. |
 | `overview.py` | The Supply overview: counts, what needs attention, open alerts, data age, quota today. |
 | `backend/app/api/supply_alerts.py` | Overview and alerts API. Readers see both; admin and designer acknowledge and snooze. |
 | `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. |
@@ -57,6 +58,9 @@ root first.
 - **Only `exact` and `manual` listings count** toward stock and price. A person's
   decision (`manual`, `rejected`) is never overwritten by discovery, and an
   `exact` listing is never downgraded by a search for a different part.
+- **A decrease in stock is called "observed net decrease", never consumption.** Transfers and
+  reporting caps look the same. A rupture warning needs at least medium confidence and no regular
+  restock due first.
 - **Only approvers introduce a manufacturer.** A designer watching a part must pick a
   manufacturer Prism already knows (`ensure_manufacturer(may_create=False)`), so a stray
   "TI" cannot become a second Texas Instruments.

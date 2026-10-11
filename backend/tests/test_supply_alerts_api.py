@@ -215,6 +215,54 @@ class SupplyAlertsTests(unittest.TestCase):
         (alert,) = self.listed()
         self.assertEqual((alert["part_id"], alert["kind"]), (watch["part_id"], "out_of_stock"))
 
+    def falling_part(self, mpn: str = "DRAIN", *, days: int = 35, start: int = 2000, step: int = 50, **watch_extra):
+        """A watched part whose stock fell ``step`` a day for ``days`` days, ending at the offer's figure."""
+
+        watch = self.watch(mpn, **watch_extra)
+        listing = self.listing(watch["part_id"], "A", stock=start - step * (days - 1))
+        with self.store.connection() as conn:
+            for index in range(days):
+                conn.execute(
+                    "INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, %s)",
+                    (listing, START - timedelta(days=days - index), start - step * index),
+                )
+        return watch
+
+    def test_a_steady_drawdown_inside_the_horizon_raises_a_warning_after_two_looks(self) -> None:
+        watch = self.falling_part()
+        self.evaluate(watch["part_id"])
+        self.assertEqual(self.listed(), [])
+        self.evaluate(watch["part_id"], after=timedelta(hours=1))
+        (alert,) = self.listed()
+        self.assertEqual((alert["kind"], alert["severity"]), ("rupture_soon", "warning"))
+        self.assertEqual(alert["detail"]["confidence"], "high")
+        self.assertEqual(alert["detail"]["decrease_per_day"], 50.0)
+        self.assertEqual(alert["detail"]["days_to_zero"], 6)
+
+    def test_a_threshold_already_crossed_is_the_alert_not_also_a_projection(self) -> None:
+        watch = self.falling_part(threshold=1000)
+        for later in (timedelta(0), timedelta(hours=1)):
+            self.evaluate(watch["part_id"], after=later)
+        self.assertEqual([a["kind"] for a in self.listed()], ["below_threshold"])
+
+    def test_a_slow_drawdown_far_from_zero_raises_nothing(self) -> None:
+        watch = self.falling_part("SLOW", start=100_000, step=10)
+        for later in (timedelta(0), timedelta(hours=1)):
+            self.evaluate(watch["part_id"], after=later)
+        self.assertEqual(self.listed(), [])
+
+    def test_a_projection_clears_when_the_part_is_restocked(self) -> None:
+        watch = self.falling_part()
+        for later in (timedelta(0), timedelta(hours=1)):
+            self.evaluate(watch["part_id"], after=later)
+        self.assertEqual(len(self.listed()), 1)
+        with self.store.connection() as conn:
+            listing = conn.execute("SELECT id FROM listings").fetchone()["id"]
+            conn.execute("UPDATE offers SET stock = 5000")
+            conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5000)", (listing, START))
+        self.evaluate(watch["part_id"], after=timedelta(hours=3))
+        self.assertEqual(self.listed(), [])
+
     # --- acting on alerts ----------------------------------------------------
 
     def open_alert(self) -> dict:
