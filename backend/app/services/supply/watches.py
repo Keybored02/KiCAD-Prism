@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
-from app.services.supply import parts
+from app.services.supply import alerts, parts
 from app.services.supply.audit import actor_text, write_audit
 
 MAX_PINNED = 25
@@ -144,6 +144,7 @@ def update_watch(conn, watch_id: str, actor: str, *, threshold: Any = _UNSET, pi
     conn.execute(f"UPDATE watches SET {assignments}, updated_at = NOW() WHERE id = %s", (*changes.values(), watch_id))
     before = {field: getattr(current, field) for field in changes}
     write_audit(conn, actor, "watch.update", watch_id, {"before": before, "after": changes}, subject_kind="watch")
+    alerts.evaluate_parts(conn, [current.part_id], datetime.now(timezone.utc))
     return get_watch(conn, watch_id)
 
 
@@ -151,6 +152,8 @@ def remove_watch(conn, watch_id: str, actor: str) -> None:
     actor = actor_text(actor)
     current = get_watch(conn, watch_id)
     conn.execute("DELETE FROM watches WHERE id = %s", (watch_id,))
+    # Without a watch every condition is false, so its alerts clear.
+    alerts.evaluate_parts(conn, [current.part_id], datetime.now(timezone.utc))
     write_audit(conn, actor, "watch.remove", watch_id,
                 {"part_id": current.part_id, "threshold": current.threshold, "pinned": current.pinned},
                 subject_kind="watch")

@@ -320,6 +320,39 @@ def _m006_events_rollups(conn) -> None:
     )
 
 
+def _m007_alerts(conn) -> None:
+    """Alerts on watched parts: one per part and kind until it clears.
+
+    ``pending`` rows are conditions seen once and not yet shown; they open after a
+    second look (see ``alerts.py``). In-app only: nothing here is sent anywhere.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS alerts (
+            id BIGSERIAL PRIMARY KEY,
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL,
+            severity TEXT NOT NULL CHECK (severity IN ('warning', 'error', 'fatal')),
+            state TEXT NOT NULL CHECK (state IN ('pending', 'open', 'acknowledged', 'snoozed', 'resolved')),
+            first_seen_at TIMESTAMPTZ NOT NULL,
+            seen_count INTEGER NOT NULL DEFAULT 1,
+            opened_at TIMESTAMPTZ,
+            last_event_at TIMESTAMPTZ NOT NULL,
+            acknowledged_by TEXT NOT NULL DEFAULT '',
+            acknowledged_at TIMESTAMPTZ,
+            snoozed_until TIMESTAMPTZ,
+            resolved_at TIMESTAMPTZ,
+            detail JSONB NOT NULL DEFAULT '{}'::jsonb
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_one_live
+            ON alerts (part_id, kind) WHERE state <> 'resolved';
+        CREATE INDEX IF NOT EXISTS idx_alerts_state ON alerts (state, last_event_at);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -327,6 +360,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (4, "watches_offers_samples", _m004_watches_offers_samples),
     (5, "discovery_runs", _m005_discovery_runs),
     (6, "events_rollups", _m006_events_rollups),
+    (7, "alerts", _m007_alerts),
 ]
 
 

@@ -101,26 +101,14 @@ def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
     return result
 
 
-def list_parts(conn, *, scope: Scope = "watched", query: str = "", limit: int = 100) -> dict[str, Any]:
-    """Parts that need a look first (worst status), then by name."""
+_ROW_SELECT = (
+    "SELECT p.id, p.mpn, m.name AS manufacturer, w.id AS watch_id, w.threshold, w.pinned, w.owner "
+    "FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id LEFT JOIN watches w ON w.part_id = p.id "
+)
 
-    limit = max(1, min(limit, MAX_LIMIT))
-    conditions = ["TRUE" if scope == "all" else "w.id IS NOT NULL"]
-    params: list[Any] = []
-    text = query.strip()
-    if text:
-        conditions.append("(p.mpn ILIKE %s OR m.name ILIKE %s)")
-        params += [_like(text), _like(text)]
-    where = " AND ".join(conditions)
-    total = conn.execute(
-        f"SELECT COUNT(*) AS n FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id "
-        f"LEFT JOIN watches w ON w.part_id = p.id WHERE {where}", params,
-    ).fetchone()["n"]
-    rows = conn.execute(
-        f"SELECT p.id, p.mpn, m.name AS manufacturer, w.id AS watch_id, w.threshold, w.pinned, w.owner "
-        f"FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id LEFT JOIN watches w ON w.part_id = p.id "
-        f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*params, MAX_CANDIDATES],
-    ).fetchall()
+
+def _summaries(conn, rows) -> list[dict[str, Any]]:
+    """The list-row summary of each part row: status, stock, price, lifecycle, tier."""
 
     offers_by_part: dict[str, list[dict]] = defaultdict(list)
     ids = [r["id"] for r in rows]
@@ -164,9 +152,47 @@ def list_parts(conn, *, scope: Scope = "watched", query: str = "", limit: int = 
             "fetched_at": combined.newest_fetched_at.isoformat() if combined and combined.newest_fetched_at else None,
             "tier": min(tiers, key=_TIER_ORDER.index) if tiers else None,
         })
+    return items
+
+
+def summaries_for(conn, part_ids: list[str]) -> list[dict[str, Any]]:
+    """Summaries of the given parts, in no particular order."""
+
+    if not part_ids:
+        return []
+    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", (list(part_ids),)).fetchall()
+    return _summaries(conn, rows)
+
+
+def ranked_parts(conn, *, scope: Scope = "watched", query: str = "") -> tuple[list[dict[str, Any]], int]:
+    """Every matching part (up to ``MAX_CANDIDATES``), the ones that need a look first, and the true count."""
+
+    conditions = ["TRUE" if scope == "all" else "w.id IS NOT NULL"]
+    params: list[Any] = []
+    text = query.strip()
+    if text:
+        conditions.append("(p.mpn ILIKE %s OR m.name ILIKE %s)")
+        params += [_like(text), _like(text)]
+    where = " AND ".join(conditions)
+    total = conn.execute(
+        f"SELECT COUNT(*) AS n FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id "
+        f"LEFT JOIN watches w ON w.part_id = p.id WHERE {where}", params,
+    ).fetchone()["n"]
+    rows = conn.execute(
+        _ROW_SELECT + f"WHERE {where} ORDER BY lower(m.name), lower(p.mpn) LIMIT %s", [*params, MAX_CANDIDATES],
+    ).fetchall()
+    items = _summaries(conn, rows)
     # The sort is stable, so parts of equal status keep their name order.
     items.sort(key=lambda item: _STATUS_RANK[item["status"]])
-    return {"items": items[:limit], "total": int(total), "limit": limit}
+    return items, int(total)
+
+
+def list_parts(conn, *, scope: Scope = "watched", query: str = "", limit: int = 100) -> dict[str, Any]:
+    """Parts that need a look first (worst status), then by name."""
+
+    limit = max(1, min(limit, MAX_LIMIT))
+    items, total = ranked_parts(conn, scope=scope, query=query)
+    return {"items": items[:limit], "total": total, "limit": limit}
 
 
 def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:

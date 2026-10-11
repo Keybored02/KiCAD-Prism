@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import ledger, pricing, stock, tiers, trouble
+from app.services.supply import alerts, ledger, pricing, stock, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.models import Offer
 from app.services.supply.providers import registry
@@ -130,6 +130,7 @@ class Poller:
                 break
             with self._store.connection() as conn:
                 gone += self._record_answer(conn, batch, offers, now)
+                alerts.evaluate_parts(conn, (row.part_id for row in batch), now)
             polled += len(batch)
             self._connectors.record_result(connector_id)
         return PollSummary(connector_id, calls=calls, polled=polled, gone=gone, stopped=stopped)

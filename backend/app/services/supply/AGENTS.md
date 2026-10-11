@@ -28,6 +28,9 @@ root first.
 | `poller.py` | `Poller.poll_connector`: asks for due listings in batches within the call budget and records offers and samples. |
 | `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. |
 | `part_status.py` | The interim status of a part (ok, warning, error, fatal, unknown), with the problems that make an unread part an error (no distributor carries it, every listing gone). The assessment pipeline replaces it. |
+| `alerts.py` | Alerts on watched parts: one per part and kind, opened after two looks 30 minutes apart (a lost part opens at once), cleared when the condition clears, acknowledged or snoozed by people. In-app only; nothing is sent anywhere. Evaluated after every read and every watch change. |
+| `overview.py` | The Supply overview: counts, what needs attention, open alerts, data age, quota today. |
+| `backend/app/api/supply_alerts.py` | Overview and alerts API. Readers see both; admin and designer acknowledge and snooze. |
 | `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. |
 | `retention.py` | Rolls raw samples older than 60 days into `samples_daily`, in slices of 30 days. Run at the end of each poll job. |
 | `backend/app/api/supply_parts.py` | Parts and watches API. Readers see parts, stock and history; admin and designer watch parts and change watch rules. |
