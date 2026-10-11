@@ -10,6 +10,7 @@ from app.core.roles import (
     CATALOG_READ_ROLES,
     CATALOG_WRITE_ROLES,
     PROJECT_RELEASE_ACTOR_ROLES,
+    SUPPLY_READ_ROLES,
     Role,
     normalize_role,
     role_meets_minimum,
@@ -222,6 +223,13 @@ async def require_catalog_reader(user: AuthenticatedUser = Depends(get_current_u
     _require_bearer_scope(user, "api:read")
     if user.role not in CATALOG_READ_ROLES:
         raise HTTPException(status_code=403, detail="Catalog read access required")
+    return user
+
+
+async def require_supply_reader(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    _require_bearer_scope(user, "api:read")
+    if user.role not in SUPPLY_READ_ROLES:
+        raise HTTPException(status_code=403, detail="Supply read access required")
     return user
 
 

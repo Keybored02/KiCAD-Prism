@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timezone
 from typing import Any, Callable, Mapping
 
 from psycopg.errors import UniqueViolation
@@ -111,7 +111,9 @@ class ConnectorService:
         *,
         keyring_factory: sealed.KeyringFactory | None = None,
         allow_dev: Callable[[], bool] | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._store = store
         self._keyring = keyring_factory or sealed.default_keyring_factory
         self._allow_dev = allow_dev or _settings_allow_dev
@@ -119,11 +121,12 @@ class ConnectorService:
     def list(self) -> list[dict[str, Any]]:
         with self._store.connection() as conn:
             rows = conn.execute("SELECT * FROM connectors ORDER BY created_at, id").fetchall()
-        return [self._dto(row) for row in rows]
+            usage = self._usage_today(conn)
+        return [self._dto(row, usage.get(row["id"])) for row in rows]
 
     def get(self, connector_id: str) -> dict[str, Any]:
         with self._store.connection() as conn:
-            return self._dto(_fetch(conn, connector_id))
+            return self._dto_from(conn, _fetch(conn, connector_id))
 
     def create(
         self,
@@ -176,7 +179,7 @@ class ConnectorService:
             raise ConnectorError(
                 "duplicate", "A connector for this provider and storefront already exists."
             ) from None
-        return self._dto(row)
+        return self._dto(row)  # a new connector has spent nothing
 
     def update(self, connector_id: str, *, actor: str, **changes: Any) -> dict[str, Any]:
         actor = _actor(actor)
@@ -208,7 +211,7 @@ class ConnectorService:
             if result.rowcount == 0:
                 raise ConnectorNotFound(connector_id)
             _audit(conn, actor, "connector.update", connector_id, {"fields": sorted(fields)})
-            return self._dto(_fetch(conn, connector_id))
+            return self._dto_from(conn, _fetch(conn, connector_id))
 
     def set_credentials(
         self, connector_id: str, *, actor: str, credentials: Mapping[str, Any]
@@ -228,7 +231,7 @@ class ConnectorService:
                 (envelope, json.dumps(list(cleaned)), connector_id),
             )
             _audit(conn, actor, "connector.credentials", connector_id, {"names": list(cleaned)})
-            return self._dto(_fetch(conn, connector_id))
+            return self._dto_from(conn, _fetch(conn, connector_id))
 
     def pause(self, connector_id: str, *, actor: str, reason: str) -> dict[str, Any]:
         actor = _actor(actor)
@@ -253,7 +256,7 @@ class ConnectorService:
             if result.rowcount == 0:
                 raise ConnectorNotFound(connector_id)
             _audit(conn, actor, "connector.terms_review", connector_id, {})
-            return self._dto(_fetch(conn, connector_id))
+            return self._dto_from(conn, _fetch(conn, connector_id))
 
     def delete(self, connector_id: str, *, actor: str) -> None:
         actor = _actor(actor)
@@ -305,7 +308,7 @@ class ConnectorService:
             if result.rowcount == 0:
                 raise ConnectorNotFound(connector_id)
             _audit(conn, actor, action, connector_id, {"reason": reason} if reason else {})
-            return self._dto(_fetch(conn, connector_id))
+            return self._dto_from(conn, _fetch(conn, connector_id))
 
     @staticmethod
     def _spec(provider: str) -> ProviderSpec:
@@ -314,7 +317,20 @@ class ConnectorService:
         except registry.UnknownProvider:
             raise ConnectorError("unknown_provider", f"Unknown provider: {provider}.") from None
 
-    def _dto(self, row: Mapping[str, Any]) -> dict[str, Any]:
+    def _dto_from(self, conn, row: Mapping[str, Any]) -> dict[str, Any]:
+        return self._dto(row, self._usage_today(conn).get(row["id"]))
+
+    def _usage_today(self, conn) -> dict[str, dict[str, Any]]:
+        today: date = self._clock().astimezone(timezone.utc).date()
+        rows = conn.execute(
+            "SELECT connector_id, spent, interactive_spent FROM quota_ledger WHERE day = %s", (today,)
+        ).fetchall()
+        return {
+            row["connector_id"]: {"spent": int(row["spent"]), "interactive_spent": int(row["interactive_spent"])}
+            for row in rows
+        }
+
+    def _dto(self, row: Mapping[str, Any], usage: Mapping[str, Any] | None = None) -> dict[str, Any]:
         try:
             spec: ProviderSpec | None = registry.get_spec(row["provider"])
         except registry.UnknownProvider:
@@ -332,6 +348,7 @@ class ConnectorService:
             "paused_reason": row["paused_reason"],
             "daily_budget": row["daily_budget"],
             "interactive_reserve_pct": row["interactive_reserve_pct"],
+            "usage_today": {"spent": 0, "interactive_spent": 0, **(usage or {})},
             "credentials": {name: name in names for name in (spec.required_credentials if spec else ())},
             "credentials_status": sealed.status(self._keyring, row["credential_envelope"]),
             "terms_reviewed_by": row["terms_reviewed_by"],

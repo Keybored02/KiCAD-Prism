@@ -19,6 +19,7 @@ root first.
 | `ledger.py` | Atomic daily spending (`try_spend` locks the day's row). |
 | `credentials.py` | The one adapter over the credential keyring. |
 | `connectors.py` | Connector setup, credentials, pause, state. |
+| `backend/app/api/supply_connectors.py` | HTTP API for connectors. Readers are admin, designer and qa; only admin changes anything. Strips request bodies from 422 errors. |
 | `schema_migrations.py`, `store.py` | The `supply` schema, its own migration ledger, and connections. |
 
 ## Rules
@@ -44,6 +45,7 @@ root first.
 ## Tests
 
 `backend/tests/test_supply_foundation.py` needs no database or network.
-`backend/tests/test_supply_connectors_postgres.py` needs `PRISM_DATABASE_URL`
-and uses a disposable schema. Provider tests use recorded fixtures, never live
+`backend/tests/test_supply_connectors_postgres.py` and
+`backend/tests/test_supply_connectors_api.py` need `PRISM_DATABASE_URL` and use a
+disposable schema. Provider tests use recorded fixtures, never live
 calls.
