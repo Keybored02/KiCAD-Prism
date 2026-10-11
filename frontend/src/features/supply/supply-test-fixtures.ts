@@ -90,6 +90,11 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
         match_state: "near", counted: false, offer: null, poll: null,
       },
     ],
+    insight: {
+      confidence: "none", trend: null, decrease_per_day: null, days_to_zero: null, days_to_threshold: null,
+      restocks: 0, restock_interval_days: null, restock_expected_in_days: null,
+      inputs: { points: 3, span_days: 2, points_in_run: 3, current: 12500 },
+    },
     history: [
       { day: "2026-02-27", stock: 9000, listings: 1 }, { day: "2026-02-28", stock: 11000, listings: 1 },
       { day: "2026-03-01", stock: 12500, listings: 1 },

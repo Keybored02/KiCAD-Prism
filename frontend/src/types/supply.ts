@@ -221,6 +221,7 @@ export interface SupplyPartDetail {
   listings: SupplyListing[];
   /** `listings` is how many listings stood behind the day, so a jump from a new one is not read as a restock. */
   history: Array<{ day: string; stock: number; listings: number }>;
+  insight: SupplyInsight;
 }
 
 export interface SupplyManufacturer {
@@ -229,7 +230,21 @@ export interface SupplyManufacturer {
   part_count: number;
 }
 
-export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost";
+export interface SupplyInsight {
+  confidence: "none" | "low" | "medium" | "high";
+  trend: "falling" | "rising" | "steady" | null;
+  /** Observed net decrease, pieces a day. Not consumption: transfers and caps look the same. */
+  decrease_per_day: number | null;
+  days_to_zero: number | null;
+  days_to_threshold: number | null;
+  restocks: number;
+  restock_interval_days: number | null;
+  /** Negative when a regular restock is overdue. */
+  restock_expected_in_days: number | null;
+  inputs: { points: number; span_days: number; points_in_run: number; current: number | null };
+}
+
+export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon";
 export type SupplyAlertState = "open" | "acknowledged" | "snoozed" | "resolved";
 
 export interface SupplyAlert {
@@ -241,7 +256,10 @@ export interface SupplyAlert {
   severity: "warning" | "error" | "fatal";
   state: SupplyAlertState;
   /** Facts behind the alert: stock, threshold, lifecycle or problem. */
-  detail: { stock?: number; threshold?: number; lifecycle?: string; problem?: string };
+  detail: {
+    stock?: number; threshold?: number; lifecycle?: string; problem?: string;
+    days_to_zero?: number; decrease_per_day?: number; confidence?: string;
+  };
   opened_at: string | null;
   last_event_at: string | null;
   acknowledged_by: string;

@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
+import { InsightPanel } from "./insight-panel";
 import { ListingTable } from "./listing-table";
 import { Sparkline } from "./sparkline";
 import { StatusDot } from "./status-dot";
@@ -107,6 +108,8 @@ function PartDetail({ detail, canEdit, onChanged }: { detail: SupplyPartDetail; 
           <p className="text-xs text-muted-foreground">History builds up as the part is read.</p>
         )}
       </section>
+
+      <InsightPanel insight={detail.insight} />
 
       <section aria-label="Watch" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Watch</h3>

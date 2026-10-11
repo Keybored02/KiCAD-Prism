@@ -288,6 +288,28 @@ describe("the watch settings", () => {
     expect(screen.getAllByText("No distributor carries this part number").length).toBe(2);
   });
 
+  it("shows the trend with its confidence and the readings it rests on", async () => {
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
+      insight: {
+        confidence: "high", trend: "falling", decrease_per_day: 50, days_to_zero: 6, days_to_threshold: 2,
+        restocks: 0, restock_interval_days: null, restock_expected_in_days: null,
+        inputs: { points: 35, span_days: 34, points_in_run: 35, current: 300 },
+      },
+    }));
+    renderView("designer", "/?part=p1");
+    const trend = await screen.findByRole("region", { name: "Trend" });
+    expect(within(trend).getByText("High confidence")).toBeTruthy();
+    expect(within(trend).getByText("Observed net decrease: 50 a day.")).toBeTruthy();
+    expect(within(trend).getByText("At that rate it reaches zero in about 6 days.")).toBeTruthy();
+    expect(within(trend).getByText(/35 daily readings over 34 days/)).toBeTruthy();
+  });
+
+  it("shows no trend section while there is no insight to give", async () => {
+    renderView("designer", "/?part=p1");
+    await screen.findByRole("region", { name: "Watch" });
+    expect(screen.queryByRole("region", { name: "Trend" })).toBeNull();
+  });
+
   it("quotes the price at the quantity it applies to", async () => {
     mocked.listSupplyParts.mockResolvedValue({
       items: [partRowFixture({ unit_price: "0.1", price_quantity: 3000 })], total: 1, limit: 100,

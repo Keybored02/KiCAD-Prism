@@ -15,7 +15,13 @@ export function alertTitle(alert: SupplyAlert): string {
         : `Now ${LIFECYCLE_LABEL[(detail.lifecycle ?? "unknown") as SupplyLifecycle].toLowerCase()}`;
     case "part_lost":
       return PROBLEM_LABEL[(detail.problem ?? "gone") as SupplyProblem];
+    case "rupture_soon":
+      return `Could run out in about ${detail.days_to_zero ?? 0} days at the recent rate (${confidenceWord(detail.confidence)} confidence)`;
   }
+}
+
+function confidenceWord(value: string | undefined): string {
+  return value === "high" || value === "medium" || value === "low" ? value : "unknown";
 }
 
 export const SNOOZE_CHOICES: ReadonlyArray<{ hours: number; label: string }> = [
