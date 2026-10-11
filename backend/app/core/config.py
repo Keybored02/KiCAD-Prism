@@ -310,6 +310,11 @@ class Settings(BaseSettings):
         description="Enable the comment WebSocket gateway; disable during staged rollout to use HTTP refresh fallback.",
     )
 
+    SUPPLY_ENABLE_SIMULATED_PROVIDER: bool = Field(
+        default=False,
+        description="Allow connectors for the simulated distributor. For development, tests and demos only.",
+    )
+
     TRACKER_CREDENTIAL_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
     TRACKER_CREDENTIAL_ROOT_KEY_ID: str = Field(default="v1")
     TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
