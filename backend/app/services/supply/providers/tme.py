@@ -137,6 +137,11 @@ class TmeProvider:
         elements = data.get("elements") or []
         return [element for element in elements if isinstance(element, dict)]
 
+    def check_connection(self) -> None:
+        """Ask for a fresh token: the cheapest call that proves the token and secret are accepted."""
+
+        self._token(renew=True)
+
     # --- the contract ------------------------------------------------------
 
     def lookup_mpn(self, mpn: str, manufacturer: str | None = None) -> list[PartMatch]:

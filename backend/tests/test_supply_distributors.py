@@ -176,6 +176,15 @@ class TmeTests(unittest.TestCase):
         with self.assertRaises(AuthError):
             tme_provider(client).lookup_mpn("MPN-1")
 
+    def test_checking_the_connection_asks_for_a_token_and_nothing_else(self) -> None:
+        client = FakeClient({"/auth/token": [TOKEN]})
+        tme_provider(client).check_connection()
+        self.assertEqual([call["path"] for call in client.calls], ["/auth/token"])
+        with self.assertRaises(AuthError):
+            tme_provider(FakeClient({"/auth/token": [AuthError("refused")]})).check_connection()
+        with self.assertRaises(AuthError):
+            tme_provider(FakeClient({}), credentials={}).check_connection()
+
     def test_missing_or_refused_credentials_are_an_auth_error(self) -> None:
         with self.assertRaises(AuthError):
             tme_provider(FakeClient({}), credentials={}).lookup_mpn("MPN-1")

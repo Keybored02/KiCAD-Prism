@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader
+from app.services.supply import capacity, connector_check
 from app.services.supply.connectors import ConnectorError, ConnectorNotFound, ConnectorService
 from app.services.supply.csv_format import MAX_BYTES, TEMPLATE
 from app.services.supply.csv_import_service import CsvImportService, CsvRejected
@@ -178,6 +179,24 @@ async def pause_connector(
     connector_id: str, body: PauseRequest, admin: AuthenticatedUser = Depends(require_admin)
 ) -> dict[str, Any]:
     return await _run(lambda: service.pause(connector_id, actor=_actor(admin), reason=body.reason))
+
+
+@router.post("/connectors/{connector_id}/test")
+async def test_connector_connection(
+    connector_id: str, admin: AuthenticatedUser = Depends(require_admin)
+) -> dict[str, Any]:
+    """One real call to the provider. Always answers 200 with ``ok``, so a failure carries its reason."""
+
+    return await _run(lambda: connector_check.check_connector(service, connector_id, _actor(admin)))
+
+
+@router.get("/capacity")
+async def get_capacity(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
+    def read() -> list[dict[str, Any]]:
+        with service.store.connection() as conn:
+            return capacity.connector_capacity(conn)
+
+    return await _run(read)
 
 
 @router.post("/connectors/{connector_id}/resume")
