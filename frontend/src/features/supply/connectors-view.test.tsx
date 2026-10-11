@@ -7,7 +7,9 @@ import { connectorFixture, providerFixture } from "./supply-test-fixtures";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-vi.mock("./supply-api", () => ({
+vi.mock("./supply-api", async (importOriginal) => ({
+  // Keep the real error classes and constants; replace only what talks to the network.
+  ...(await importOriginal<typeof import("./supply-api")>()),
   listSupplyProviders: vi.fn(),
   listSupplyConnectors: vi.fn(),
   createSupplyConnector: vi.fn(),
@@ -17,6 +19,8 @@ vi.mock("./supply-api", () => ({
   resumeSupplyConnector: vi.fn(),
   confirmSupplyTermsReview: vi.fn(),
   deleteSupplyConnector: vi.fn(),
+  uploadSupplyCsv: vi.fn(),
+  clearSupplyCsv: vi.fn(),
 }));
 
 import * as api from "./supply-api";

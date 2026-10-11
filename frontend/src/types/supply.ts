@@ -15,6 +15,28 @@ export interface SupplyProvider {
   credential_fields: SupplyCredentialField[];
   storefronts: string[];
   default_daily_budget: number;
+  /** False when calls cost nothing (local data), so no call budget applies. */
+  metered: boolean;
+}
+
+/** The provider whose data comes from an uploaded file. */
+export const CSV_PROVIDER = "csv";
+
+export interface SupplyCsvImport {
+  filename: string;
+  imported_by: string;
+  imported_at: string;
+  row_count: number;
+}
+
+export interface SupplyCsvRowError {
+  line: number;
+  column: string;
+  message: string;
+}
+
+export interface SupplyCsvResult extends SupplyCsvImport {
+  ignored_columns: string[];
 }
 
 export interface SupplyConnector {
@@ -29,6 +51,8 @@ export interface SupplyConnector {
   paused_reason: string;
   daily_budget: number;
   interactive_reserve_pct: number;
+  metered: boolean;
+  csv_import: SupplyCsvImport | null;
   usage_today: { spent: number; interactive_spent: number };
   /** Which credentials are set. Values are never returned. */
   credentials: Record<string, boolean>;

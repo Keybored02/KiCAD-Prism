@@ -4,6 +4,8 @@ import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
 import type {
   CreateSupplyConnectorInput,
   SupplyConnector,
+  SupplyCsvResult,
+  SupplyCsvRowError,
   SupplyProvider,
   UpdateSupplyConnectorInput,
 } from "@/types/supply";
@@ -62,5 +64,49 @@ export async function deleteSupplyConnector(id: string): Promise<void> {
   const response = await fetchApi(connectorPath(id), { method: "DELETE" });
   if (!response.ok) {
     throw new ApiHttpError(response.status, await readApiError(response, "Could not delete the connector"));
+  }
+}
+
+export const SUPPLY_CSV_TEMPLATE_URL = `${BASE}/csv-template`;
+
+/** The server refused the file. Nothing was imported; `errors` says where to look. */
+export class CsvRejectedError extends ApiHttpError {
+  errors: SupplyCsvRowError[];
+  errorCount: number;
+
+  constructor(message: string, errors: SupplyCsvRowError[], errorCount: number) {
+    super(400, message, "csv_rejected");
+    this.name = "CsvRejectedError";
+    this.errors = errors;
+    this.errorCount = errorCount;
+  }
+}
+
+export async function uploadSupplyCsv(id: string, file: File): Promise<SupplyCsvResult> {
+  const query = new URLSearchParams({ filename: file.name });
+  const response = await fetchApi(`${connectorPath(id, "csv")}?${query}`, {
+    method: "POST",
+    headers: { "Content-Type": "text/csv" },
+    body: file,
+  });
+  if (response.ok) return (await response.json()) as SupplyCsvResult;
+  if (response.status === 413) throw new ApiHttpError(413, "The file is larger than 5 MB.");
+  const payload = (await response.clone().json().catch(() => null)) as { detail?: unknown } | null;
+  const detail = payload?.detail;
+  if (detail && typeof detail === "object" && (detail as { code?: string }).code === "csv_rejected") {
+    const rejected = detail as { message?: string; errors?: SupplyCsvRowError[]; error_count?: number };
+    throw new CsvRejectedError(
+      rejected.message ?? "The file was not imported.",
+      rejected.errors ?? [],
+      rejected.error_count ?? rejected.errors?.length ?? 0,
+    );
+  }
+  throw new ApiHttpError(response.status, await readApiError(response, "Could not upload the file"));
+}
+
+export async function clearSupplyCsv(id: string): Promise<void> {
+  const response = await fetchApi(connectorPath(id, "csv"), { method: "DELETE" });
+  if (!response.ok) {
+    throw new ApiHttpError(response.status, await readApiError(response, "Could not remove the data"));
   }
 }

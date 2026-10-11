@@ -22,6 +22,14 @@ describe("connectorState", () => {
       .toBe("Disabled");
   });
 
+  it("treats a CSV connector without an upload as not ready", () => {
+    const csv = connectorFixture({ provider: "csv", credentials: {}, metered: false });
+    expect(connectorState(csv)).toEqual({ label: "No file uploaded", tone: "warning" });
+    const withFile = { ...csv, csv_import: { filename: "a.csv", imported_by: "x", imported_at: "2026-03-01T00:00:00Z", row_count: 2 } };
+    expect(connectorState(withFile).label).toBe("Active");
+    expect(connectorState({ ...csv, paused_reason: "x" }).label).toBe("Paused");
+  });
+
   it("flags a changed credential key and unset credentials", () => {
     expect(connectorState(connectorFixture({ credentials_status: "unknown_key" })).label).toBe("Credential key changed");
     expect(connectorState(connectorFixture({ credentials: { api_key: false } })).label).toBe("Needs credentials");

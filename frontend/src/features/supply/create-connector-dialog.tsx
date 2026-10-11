@@ -135,24 +135,28 @@ function CreateForm({
             onChange={(event) => dispatch({ type: "field", name: "currency", value: event.target.value })}
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="connector-budget">Daily call budget</Label>
-          <Input
-            id="connector-budget"
-            inputMode="numeric"
-            value={form.budget}
-            onChange={(event) => dispatch({ type: "field", name: "budget", value: event.target.value })}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="connector-reserve">Held for lookups (%)</Label>
-          <Input
-            id="connector-reserve"
-            inputMode="numeric"
-            value={form.reserve}
-            onChange={(event) => dispatch({ type: "field", name: "reserve", value: event.target.value })}
-          />
-        </div>
+        {provider?.metered !== false ? (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="connector-budget">Daily call budget</Label>
+              <Input
+                id="connector-budget"
+                inputMode="numeric"
+                value={form.budget}
+                onChange={(event) => dispatch({ type: "field", name: "budget", value: event.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="connector-reserve">Held for lookups (%)</Label>
+              <Input
+                id="connector-reserve"
+                inputMode="numeric"
+                value={form.reserve}
+                onChange={(event) => dispatch({ type: "field", name: "reserve", value: event.target.value })}
+              />
+            </div>
+          </>
+        ) : null}
       </div>
 
       {provider ? (

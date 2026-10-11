@@ -9,8 +9,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { SupplyConnector } from "@/types/supply";
-import { budgetUsedPercent, connectorState, errorCodeLabel, formatWhen, lastCallFailed } from "./connector-status";
+import { CSV_PROVIDER, type SupplyConnector } from "@/types/supply";
+import { CallBudget, OffersFile } from "./connector-card-parts";
+import { connectorState, errorCodeLabel, formatWhen, lastCallFailed } from "./connector-status";
 
 export type ConnectorAction =
   | "edit"
@@ -20,6 +21,8 @@ export type ConnectorAction =
   | "enable"
   | "disable"
   | "terms"
+  | "csv-upload"
+  | "csv-clear"
   | "delete";
 
 interface ConnectorCardProps {
@@ -30,7 +33,6 @@ interface ConnectorCardProps {
 
 export function ConnectorCard({ connector, isAdmin, onAction }: ConnectorCardProps) {
   const state = connectorState(connector);
-  const used = budgetUsedPercent(connector);
   const credentialNames = Object.keys(connector.credentials);
   const where = [connector.provider_label, connector.storefront, connector.currency].filter(Boolean).join(" · ");
 
@@ -47,25 +49,7 @@ export function ConnectorCard({ connector, isAdmin, onAction }: ConnectorCardPro
         {isAdmin ? <ConnectorMenu connector={connector} onAction={onAction} /> : null}
       </div>
 
-      <div className="mt-3 space-y-1">
-        <div className="flex items-baseline justify-between text-xs">
-          <span className="font-medium uppercase tracking-wider text-muted-foreground">Calls today</span>
-          <span className="tabular-nums">
-            {connector.usage_today.spent.toLocaleString()} / {connector.daily_budget.toLocaleString()}
-          </span>
-        </div>
-        <div
-          role="progressbar"
-          aria-label="Share of today's call budget spent"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={used}
-          className="h-1.5 overflow-hidden rounded-full bg-muted"
-        >
-          <div className={used >= 90 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${used}%` }} />
-        </div>
-        <p className="text-[11px] text-muted-foreground">{connector.interactive_reserve_pct}% held for lookups</p>
-      </div>
+      {connector.metered ? <CallBudget connector={connector} /> : <OffersFile connector={connector} />}
 
       <dl className="mt-3 grid gap-1.5 text-xs">
         {credentialNames.length > 0 ? (
@@ -123,6 +107,14 @@ function ConnectorMenu({ connector, onAction }: Pick<ConnectorCardProps, "connec
         <DropdownMenuItem onClick={() => onAction("edit", connector)}>Edit settings</DropdownMenuItem>
         {takesCredentials ? (
           <DropdownMenuItem onClick={() => onAction("credentials", connector)}>Replace credentials</DropdownMenuItem>
+        ) : null}
+        {connector.provider === CSV_PROVIDER ? (
+          <>
+            <DropdownMenuItem onClick={() => onAction("csv-upload", connector)}>Upload CSV</DropdownMenuItem>
+            {connector.csv_import ? (
+              <DropdownMenuItem onClick={() => onAction("csv-clear", connector)}>Remove uploaded data</DropdownMenuItem>
+            ) : null}
+          </>
         ) : null}
         {paused ? (
           <DropdownMenuItem onClick={() => onAction("resume", connector)}>Resume</DropdownMenuItem>

@@ -1,4 +1,4 @@
-import type { SupplyConnector } from "@/types/supply";
+import { CSV_PROVIDER, type SupplyConnector } from "@/types/supply";
 
 export type ConnectorTone = "success" | "warning" | "destructive" | "outline";
 
@@ -25,6 +25,7 @@ export function connectorState(connector: SupplyConnector): ConnectorState {
   if (connector.paused_reason) return { label: "Paused", tone: "warning" };
   if (!connector.enabled) return { label: "Disabled", tone: "outline" };
   if (hasUnsetCredentials(connector)) return { label: "Needs credentials", tone: "warning" };
+  if (connector.provider === CSV_PROVIDER && !connector.csv_import) return { label: "No file uploaded", tone: "warning" };
   if (lastCallFailed(connector)) return { label: "Last call failed", tone: "destructive" };
   return { label: "Active", tone: "success" };
 }

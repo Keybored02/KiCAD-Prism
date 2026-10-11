@@ -70,14 +70,18 @@ function EditForm({ connector, onClose, onSaved }: { connector: SupplyConnector 
           <Label htmlFor="edit-connector-currency">Currency</Label>
           <Input id="edit-connector-currency" maxLength={3} value={values.currency} onChange={(event) => update({ currency: event.target.value })} />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="edit-connector-budget">Daily call budget</Label>
-          <Input id="edit-connector-budget" inputMode="numeric" value={values.budget} onChange={(event) => update({ budget: event.target.value })} />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="edit-connector-reserve">Held for lookups (%)</Label>
-          <Input id="edit-connector-reserve" inputMode="numeric" value={values.reserve} onChange={(event) => update({ reserve: event.target.value })} />
-        </div>
+        {connector.metered ? (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-connector-budget">Daily call budget</Label>
+              <Input id="edit-connector-budget" inputMode="numeric" value={values.budget} onChange={(event) => update({ budget: event.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-connector-reserve">Held for lookups (%)</Label>
+              <Input id="edit-connector-reserve" inputMode="numeric" value={values.reserve} onChange={(event) => update({ reserve: event.target.value })} />
+            </div>
+          </>
+        ) : null}
       </div>
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
       <DialogFooter>

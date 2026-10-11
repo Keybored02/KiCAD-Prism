@@ -13,6 +13,8 @@ export function connectorFixture(overrides: Partial<SupplyConnector> = {}): Supp
     paused_reason: "",
     daily_budget: 1000,
     interactive_reserve_pct: 10,
+    metered: true,
+    csv_import: null,
     usage_today: { spent: 120, interactive_spent: 0 },
     credentials: { api_key: true },
     credentials_status: "ready",
@@ -38,6 +40,7 @@ export function providerFixture(overrides: Partial<SupplyProvider> = {}): Supply
     credential_fields: [{ name: "api_key", label: "API key", secret: true }],
     storefronts: [],
     default_daily_budget: 1000,
+    metered: true,
     ...overrides,
   };
 }

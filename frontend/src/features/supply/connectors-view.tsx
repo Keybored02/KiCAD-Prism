@@ -11,9 +11,10 @@ import type { User } from "@/types/auth";
 import { ConnectorCard, type ConnectorAction } from "./connector-card";
 import { ConnectorCredentialsDialog } from "./connector-credentials-dialog";
 import { CreateConnectorDialog } from "./create-connector-dialog";
+import { CsvUploadDialog } from "./csv-upload-dialog";
 import { EditConnectorDialog } from "./edit-connector-dialog";
 import { PauseConnectorDialog } from "./pause-connector-dialog";
-import { deleteSupplyConnector } from "./supply-api";
+import { clearSupplyCsv, deleteSupplyConnector } from "./supply-api";
 import { isQuickAction, useQuickConnectorActions } from "./use-connector-actions";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useSupplyConnectors } from "./use-supply-connectors";
@@ -27,6 +28,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const quick = useQuickConnectorActions(apply);
   const deletion = useConnectorSubmit();
+  const clearing = useConnectorSubmit();
 
   const target = dialog && dialog.kind !== "create" ? connectors.find((item) => item.id === dialog.id) ?? null : null;
   const fieldsFor = target ? providers.find((item) => item.key === target.provider)?.credential_fields ?? [] : [];
@@ -48,6 +50,16 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
       toast.success("Connector deleted");
     });
     if (deleted) closeDialog();
+  };
+
+  const confirmClear = async () => {
+    if (!target) return;
+    const cleared = await clearing.run(async () => {
+      await clearSupplyCsv(target.id);
+      apply({ ...target, csv_import: null });
+      toast.success("Uploaded data removed");
+    });
+    if (cleared) closeDialog();
   };
 
   const canAdd = isAdmin && providers.length > 0;
@@ -110,6 +122,26 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
         connector={dialog?.kind === "pause" ? target : null}
         onClose={closeDialog}
         onPaused={(connector) => { apply(connector); toast.success("Connector paused"); }}
+      />
+      <CsvUploadDialog
+        connector={dialog?.kind === "csv-upload" ? target : null}
+        onClose={closeDialog}
+        onUploaded={(connector, result) => {
+          const { ignored_columns: ignored, ...csvImport } = result;
+          apply({ ...connector, csv_import: csvImport, last_ok_at: result.imported_at, last_error_code: "" });
+          toast.success(`Imported ${result.row_count.toLocaleString()} rows`, {
+            description: ignored.length > 0 ? `Ignored columns: ${ignored.join(", ")}` : undefined,
+          });
+        }}
+      />
+      <ConfirmDialog
+        open={dialog?.kind === "csv-clear" && target !== null}
+        onOpenChange={(open) => { if (!open) closeDialog(); }}
+        title={`Remove data from ${target?.display_name ?? "connector"}`}
+        description="The uploaded offers are deleted. Stock history already collected stays."
+        confirmLabel="Remove"
+        busy={clearing.busy}
+        onConfirm={() => void confirmClear()}
       />
       <ConfirmDialog
         open={dialog?.kind === "delete" && target !== null}
