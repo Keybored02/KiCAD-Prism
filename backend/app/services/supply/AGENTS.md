@@ -50,7 +50,7 @@ root first.
 `frontend/src/types/supply.ts`. The Connectors tab mounts from
 `frontend/src/components/workspace/library-manager-workspace.tsx`. Each form
 mounts only while its dialog is open, so it resets without effects; keep form
-rules in `connector-form-model.ts`, not in components.
+rules in `frontend/src/features/supply/connector-form-model.ts`, not in components.
 
 ## Tests
 
