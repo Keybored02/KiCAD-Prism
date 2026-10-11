@@ -44,6 +44,14 @@ root first.
   add supply tables to the workspace or catalog ledgers.
 - **Role-aware lookups only** when supply data is joined to projects.
 
+## Frontend
+
+`frontend/src/features/supply/` holds the UI, with types in
+`frontend/src/types/supply.ts`. The Connectors tab mounts from
+`frontend/src/components/workspace/library-manager-workspace.tsx`. Each form
+mounts only while its dialog is open, so it resets without effects; keep form
+rules in `connector-form-model.ts`, not in components.
+
 ## Tests
 
 `backend/tests/test_supply_foundation.py` and
@@ -51,4 +59,4 @@ root first.
 `backend/tests/test_supply_connectors_postgres.py` and
 `backend/tests/test_supply_connectors_api.py` need `PRISM_DATABASE_URL` and use a
 disposable schema. Provider tests use recorded fixtures, never live
-calls.
+calls. Frontend tests are `*.test.ts(x)` beside the code.

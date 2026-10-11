@@ -1,0 +1,88 @@
+import type { SupplyConnector, SupplyProvider, UpdateSupplyConnectorInput } from "@/types/supply";
+
+export interface FormState {
+  provider: string;
+  storefront: string;
+  displayName: string;
+  currency: string;
+  budget: string;
+  reserve: string;
+  credentials: Record<string, string>;
+}
+
+export type FormAction =
+  | { type: "provider"; provider: SupplyProvider }
+  | { type: "field"; name: "storefront" | "displayName" | "currency" | "budget" | "reserve"; value: string }
+  | { type: "credential"; name: string; value: string };
+
+export function initialState(provider: SupplyProvider | undefined): FormState {
+  return {
+    provider: provider?.key ?? "",
+    storefront: provider?.storefronts[0] ?? "",
+    displayName: "",
+    currency: "",
+    budget: String(provider?.default_daily_budget ?? 0),
+    reserve: "10",
+    credentials: {},
+  };
+}
+
+export function reducer(state: FormState, action: FormAction): FormState {
+  switch (action.type) {
+    case "provider":
+      return {
+        ...state,
+        provider: action.provider.key,
+        storefront: action.provider.storefronts[0] ?? "",
+        budget: String(action.provider.default_daily_budget),
+        credentials: {},
+      };
+    case "field":
+      return { ...state, [action.name]: action.value };
+    case "credential":
+      return { ...state, credentials: { ...state.credentials, [action.name]: action.value } };
+  }
+}
+
+/** Currency, budget and reserve checks shared by the create and edit forms. */
+export function settingsProblem(values: { currency: string; budget: string; reserve: string }): string | null {
+  if (values.currency && !/^[A-Za-z]{3}$/.test(values.currency)) return "Currency is a three letter code.";
+  if (!/^\d+$/.test(values.budget)) return "Daily budget is a whole number.";
+  if (!/^\d+$/.test(values.reserve) || Number(values.reserve) > 50) return "Reserve is 0 to 50 percent.";
+  return null;
+}
+
+/** The first thing wrong with the create form, or null. Mirrors the server's rules. */
+export function createProblem(state: FormState, provider: SupplyProvider | undefined): string | null {
+  if (!provider) return "Choose a provider.";
+  if (provider.storefronts.length > 0 && !state.storefront) return "Choose a storefront.";
+  const missing = provider.credential_fields.find((field) => !(state.credentials[field.name] ?? "").trim());
+  if (missing) return `Enter ${missing.label}.`;
+  return settingsProblem(state);
+}
+
+export interface EditValues {
+  displayName: string;
+  currency: string;
+  budget: string;
+  reserve: string;
+}
+
+export function valuesOf(connector: SupplyConnector): EditValues {
+  return {
+    displayName: connector.display_name,
+    currency: connector.currency,
+    budget: String(connector.daily_budget),
+    reserve: String(connector.interactive_reserve_pct),
+  };
+}
+
+/** Only what differs from the saved connector, so an untouched form sends nothing. */
+export function changesFrom(connector: SupplyConnector, values: EditValues): UpdateSupplyConnectorInput {
+  const changes: UpdateSupplyConnectorInput = {};
+  if (values.displayName.trim() !== connector.display_name) changes.display_name = values.displayName.trim();
+  if (values.currency.trim().toUpperCase() !== connector.currency) changes.currency = values.currency.trim().toUpperCase();
+  if (Number(values.budget) !== connector.daily_budget) changes.daily_budget = Number(values.budget);
+  if (Number(values.reserve) !== connector.interactive_reserve_pct) changes.interactive_reserve_pct = Number(values.reserve);
+  return changes;
+}

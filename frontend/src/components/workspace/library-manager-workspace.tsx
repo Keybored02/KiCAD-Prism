@@ -2,7 +2,6 @@ import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Database, DownloadCloud, PackageCheck, Plug, Table2, type LucideIcon } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { User } from "@/types/auth";
 import type { Project } from "@/types/project";
@@ -12,6 +11,7 @@ const LibraryBulkEditWorkspace = lazy(() => import("./library-bulk-edit-workspac
 const LibraryComponentWorkspace = lazy(() => import("./library-component-workspace").then((module) => ({ default: module.LibraryComponentWorkspace })));
 const LibraryImportCenter = lazy(() => import("./library-import-center").then((module) => ({ default: module.LibraryImportCenter })));
 const LibraryReleaseQueue = lazy(() => import("./library-release-queue").then((module) => ({ default: module.LibraryReleaseQueue })));
+const SupplyConnectorsView = lazy(() => import("@/features/supply/connectors-view").then((module) => ({ default: module.SupplyConnectorsView })));
 
 type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases" | "connectors";
 
@@ -97,11 +97,6 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
               <TabsTrigger key={item} value={item} className="gap-2 px-2 text-sm">
                 <Icon className="h-4 w-4" />
                 {VIEW_LABELS[item]}
-                {item === "connectors" ? (
-                  <Badge variant="outline" className="px-1 text-[10px] font-normal text-muted-foreground">
-                    Coming soon
-                  </Badge>
-                ) : null}
               </TabsTrigger>
             );
           })}
@@ -113,16 +108,7 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
         {view === "bulk-edit" && <LibraryBulkEditWorkspace user={user} />}
         {view === "imports" && <LibraryImportCenter projects={projects} user={user} initialSessionId={searchParams.get("session") || undefined} />}
         {view === "releases" && <LibraryReleaseQueue onOpenComponent={(id) => openComponent(id, "review", "releases")} />}
-        {view === "connectors" && (
-          <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-            <Plug className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-medium">Connectors are not available yet</p>
-            <p className="max-w-md text-sm text-muted-foreground">
-              PLM and MRP integrations will be configured here. Machine access is already
-              possible today through OAuth2 service clients.
-            </p>
-          </div>
-        )}
+        {view === "connectors" && <SupplyConnectorsView user={user} />}
       </div>
       </Suspense>
     </div>
