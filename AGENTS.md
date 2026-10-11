@@ -21,6 +21,7 @@ change:
 | --- | --- |
 | Release Studio | `backend/app/release_studio/AGENTS.md` |
 | Catalog services | `backend/app/services/AGENTS.md` |
+| Supply chain data | `backend/app/services/supply/AGENTS.md` |
 | Design comparison | `frontend/src/components/design-comparison/AGENTS.md` |
 | Library workspace | `frontend/src/components/workspace/AGENTS.md` |
 
