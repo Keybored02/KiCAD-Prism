@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@/types/auth";
 import { connectorFixture, providerFixture } from "./supply-test-fixtures";
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(() => "toast-id") } }));
 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
@@ -14,6 +14,8 @@ vi.mock("./supply-api", async (importOriginal) => ({
   updateSupplyConnector: vi.fn(),
   uploadSupplyCsv: vi.fn(),
   clearSupplyCsv: vi.fn(),
+  testSupplyConnector: vi.fn(),
+  listSupplyCapacity: vi.fn(),
 }));
 
 import { SupplyConnectorsView } from "./connectors-view";
@@ -48,7 +50,10 @@ function pick(file: File) {
   fireEvent.change(screen.getByLabelText("CSV file"), { target: { files: [file] } });
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocked.listSupplyCapacity.mockResolvedValue([]);
+});
 afterEach(cleanup);
 
 describe("a CSV connector", () => {

@@ -9,12 +9,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CSV_PROVIDER, type SupplyConnector } from "@/types/supply";
-import { CallBudget, OffersFile } from "./connector-card-parts";
+import { CSV_PROVIDER, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
+import { CallBudget, CapacityNote, OffersFile } from "./connector-card-parts";
 import { connectorState, errorCodeLabel, formatWhen, lastCallFailed } from "./connector-status";
 
 export type ConnectorAction =
   | "edit"
+  | "test"
   | "credentials"
   | "pause"
   | "resume"
@@ -27,11 +28,12 @@ export type ConnectorAction =
 
 interface ConnectorCardProps {
   connector: SupplyConnector;
+  capacity?: SupplyCapacity;
   isAdmin: boolean;
   onAction: (action: ConnectorAction, connector: SupplyConnector) => void;
 }
 
-export function ConnectorCard({ connector, isAdmin, onAction }: ConnectorCardProps) {
+export function ConnectorCard({ connector, capacity, isAdmin, onAction }: ConnectorCardProps) {
   const state = connectorState(connector);
   const credentialNames = Object.keys(connector.credentials);
   const where = [connector.provider_label, connector.storefront, connector.currency].filter(Boolean).join(" · ");
@@ -50,6 +52,7 @@ export function ConnectorCard({ connector, isAdmin, onAction }: ConnectorCardPro
       </div>
 
       {connector.metered ? <CallBudget connector={connector} /> : <OffersFile connector={connector} />}
+      {connector.metered ? <CapacityNote capacity={capacity} /> : null}
 
       <dl className="mt-3 grid gap-1.5 text-xs">
         {credentialNames.length > 0 ? (
@@ -104,6 +107,7 @@ function ConnectorMenu({ connector, onAction }: Pick<ConnectorCardProps, "connec
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => onAction("test", connector)}>Test connection</DropdownMenuItem>
         <DropdownMenuItem onClick={() => onAction("edit", connector)}>Edit settings</DropdownMenuItem>
         {takesCredentials ? (
           <DropdownMenuItem onClick={() => onAction("credentials", connector)}>Replace credentials</DropdownMenuItem>

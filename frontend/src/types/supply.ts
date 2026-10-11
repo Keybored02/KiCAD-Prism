@@ -85,6 +85,30 @@ export interface UpdateSupplyConnectorInput {
   interactive_reserve_pct?: number;
 }
 
+/** The outcome of one real call to a provider. A failure is a result, not an error. */
+export interface SupplyConnectorCheck {
+  ok: boolean;
+  /** "ok", a provider error code, or "inactive" / "budget" / "unknown_provider". */
+  code: string;
+  message: string;
+  took_ms: number;
+  checked_at: string;
+}
+
+/** Whether a connector's budget keeps up with what is watched. Metered connectors only. */
+export interface SupplyCapacity {
+  connector_id: string;
+  name: string;
+  listings: number;
+  calls_per_day: number;
+  usable_per_day: number;
+  /** Share of reads that will run later than their tier asks. */
+  shortfall_pct: number;
+  fits: boolean;
+  /** Watched parts not yet searched for at this connector. */
+  searches_pending: number;
+}
+
 export interface SupplyManufacturer {
   id: string;
   name: string;

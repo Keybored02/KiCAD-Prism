@@ -1,11 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { toast } from "sonner";
+
 import { ApiHttpError } from "@/lib/api";
 import type { User } from "@/types/auth";
-import { connectorFixture, providerFixture } from "./supply-test-fixtures";
+import { capacityFixture, connectorFixture, providerFixture } from "./supply-test-fixtures";
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(() => "toast-id") } }));
 
 vi.mock("./supply-api", async (importOriginal) => ({
   // Keep the real error classes and constants; replace only what talks to the network.
@@ -21,6 +23,8 @@ vi.mock("./supply-api", async (importOriginal) => ({
   deleteSupplyConnector: vi.fn(),
   uploadSupplyCsv: vi.fn(),
   clearSupplyCsv: vi.fn(),
+  testSupplyConnector: vi.fn(),
+  listSupplyCapacity: vi.fn(),
 }));
 
 import * as api from "./supply-api";
@@ -43,6 +47,7 @@ async function openMenu(name: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocked.listSupplyCapacity.mockResolvedValue([]);
 });
 afterEach(cleanup);
 
@@ -209,5 +214,110 @@ describe("changing a connector", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Mark terms as reviewed" }));
     await waitFor(() => expect(mocked.confirmSupplyTermsReview).toHaveBeenCalledWith("c1"));
     expect(await screen.findByText(/Reviewed by ana@example.com/)).toBeTruthy();
+  });
+});
+
+
+describe("testing a connection", () => {
+  async function clickTest() {
+    await openMenu("Demo EU");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Test connection" }));
+  }
+
+  it("makes one call, says the provider answered, and reloads the numbers", async () => {
+    load();
+    mocked.testSupplyConnector.mockResolvedValue({ ok: true, code: "ok", message: "The provider accepted the credentials and answered.", took_ms: 812, checked_at: "2026-03-01T10:00:00Z" });
+    render(<SupplyConnectorsView user={admin} />);
+    await clickTest();
+    await waitFor(() => expect(mocked.testSupplyConnector).toHaveBeenCalledWith("c1"));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+      "Demo EU answered",
+      expect.objectContaining({ description: "The provider accepted the credentials and answered. (812 ms)" }),
+    ));
+    await waitFor(() => expect(mocked.listSupplyConnectors).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows why a test failed", async () => {
+    load();
+    mocked.testSupplyConnector.mockResolvedValue({ ok: false, code: "auth_failed", message: "The provider rejected the credentials.", took_ms: 90, checked_at: "2026-03-01T10:00:00Z" });
+    render(<SupplyConnectorsView user={admin} />);
+    await clickTest();
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Demo EU failed",
+      expect.objectContaining({ description: "The provider rejected the credentials." }),
+    ));
+  });
+
+  it("does not start a second call while one is running", async () => {
+    load();
+    let finish!: (value: Awaited<ReturnType<typeof api.testSupplyConnector>>) => void;
+    mocked.testSupplyConnector.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    render(<SupplyConnectorsView user={admin} />);
+    await clickTest();
+    await clickTest();
+    expect(mocked.testSupplyConnector).toHaveBeenCalledTimes(1);
+    finish({ ok: true, code: "ok", message: "fine", took_ms: 1, checked_at: "2026-03-01T10:00:00Z" });
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+  });
+
+  it("reports a test that could not run at all", async () => {
+    load();
+    mocked.testSupplyConnector.mockRejectedValue(new ApiHttpError(503, "Credential encryption is not set up"));
+    render(<SupplyConnectorsView user={admin} />);
+    await clickTest();
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "The test could not run",
+      expect.objectContaining({ description: "Credential encryption is not set up" }),
+    ));
+  });
+
+  it("is for administrators: others get no menu", async () => {
+    load();
+    render(<SupplyConnectorsView user={designer} />);
+    await screen.findByRole("article", { name: "Demo EU" });
+    expect(screen.queryByRole("button", { name: "Actions for Demo EU" })).toBeNull();
+  });
+});
+
+describe("capacity notes", () => {
+  it("says what the watchlist needs against what the budget allows", async () => {
+    load();
+    mocked.listSupplyCapacity.mockResolvedValue([capacityFixture()]);
+    render(<SupplyConnectorsView user={admin} />);
+    const card = await screen.findByRole("article", { name: "Demo EU" });
+    expect(await within(card).findByText("Reading 12 listings needs about 66 calls a day of 900 usable.")).toBeTruthy();
+    expect(within(card).queryByRole("alert")).toBeNull();
+  });
+
+  it("warns before the budget runs short", async () => {
+    load();
+    mocked.listSupplyCapacity.mockResolvedValue([capacityFixture({ listings: 300, calls_per_day: 1840, usable_per_day: 900, fits: false, shortfall_pct: 51 })]);
+    render(<SupplyConnectorsView user={admin} />);
+    const card = await screen.findByRole("article", { name: "Demo EU" });
+    const warning = await within(card).findByRole("alert");
+    expect(warning.textContent).toContain("needs about 1,840 calls a day, but only 900 are usable");
+    expect(warning.textContent).toContain("About 51% of reads will run later than their tier asks");
+  });
+
+  it("mentions watched parts that have not been searched for yet", async () => {
+    load();
+    mocked.listSupplyCapacity.mockResolvedValue([capacityFixture({ listings: 0, calls_per_day: 0, searches_pending: 3 })]);
+    render(<SupplyConnectorsView user={admin} />);
+    const card = await screen.findByRole("article", { name: "Demo EU" });
+    expect(await within(card).findByText("3 watched parts have not been searched here yet.")).toBeTruthy();
+  });
+
+  it("stays quiet with nothing watched and when capacity cannot be loaded", async () => {
+    load();
+    mocked.listSupplyCapacity.mockResolvedValue([capacityFixture({ listings: 0, calls_per_day: 0 })]);
+    render(<SupplyConnectorsView user={admin} />);
+    const card = await screen.findByRole("article", { name: "Demo EU" });
+    expect(within(card).queryByText(/needs about/)).toBeNull();
+    cleanup();
+    load();
+    mocked.listSupplyCapacity.mockRejectedValue(new Error("down"));
+    render(<SupplyConnectorsView user={admin} />);
+    expect(await screen.findByRole("article", { name: "Demo EU" })).toBeTruthy();
+    expect(screen.queryByText(/needs about/)).toBeNull();
   });
 });

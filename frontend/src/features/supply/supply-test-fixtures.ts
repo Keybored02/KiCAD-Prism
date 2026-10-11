@@ -1,4 +1,4 @@
-import type { SupplyAlert, SupplyConnector, SupplyOverview, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
+import type { SupplyAlert, SupplyCapacity, SupplyConnector, SupplyOverview, SupplyPartDetail, SupplyPartRow, SupplyProvider } from "@/types/supply";
 
 export function connectorFixture(overrides: Partial<SupplyConnector> = {}): SupplyConnector {
   return {
@@ -100,6 +100,13 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
       { day: "2026-03-01", stock: 12500, listings: 1 },
     ],
     ...overrides,
+  };
+}
+
+export function capacityFixture(overrides: Partial<SupplyCapacity> = {}): SupplyCapacity {
+  return {
+    connector_id: "c1", name: "Demo EU", listings: 12, calls_per_day: 66, usable_per_day: 900,
+    shortfall_pct: 0, fits: true, searches_pending: 0, ...overrides,
   };
 }
 

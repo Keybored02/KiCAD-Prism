@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Plug, Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -14,17 +14,20 @@ import { CreateConnectorDialog } from "./create-connector-dialog";
 import { CsvUploadDialog } from "./csv-upload-dialog";
 import { EditConnectorDialog } from "./edit-connector-dialog";
 import { PauseConnectorDialog } from "./pause-connector-dialog";
-import { clearSupplyCsv, deleteSupplyConnector } from "./supply-api";
+import { clearSupplyCsv, deleteSupplyConnector, testSupplyConnector } from "./supply-api";
 import { isQuickAction, useQuickConnectorActions } from "./use-connector-actions";
 import { useConnectorSubmit } from "./use-connector-submit";
+import { useSupplyCapacity } from "./use-supply-capacity";
 import { useSupplyConnectors } from "./use-supply-connectors";
 
-type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "terms">; id: string };
+type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "terms" | "test">; id: string };
 
 /** Library Manager > Connectors: distributor accounts, budgets and state. Admins change them. */
 export function SupplyConnectorsView({ user }: { user: User | null }) {
   const isAdmin = user?.role === "admin";
-  const { status, providers, connectors, error, apply, remove, reload } = useSupplyConnectors();
+  const { status, providers, connectors, error, apply, remove, reload, refresh } = useSupplyConnectors();
+  const capacity = useSupplyCapacity();
+  const testing = useRef(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const quick = useQuickConnectorActions(apply);
   const deletion = useConnectorSubmit();
@@ -34,7 +37,29 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
   const fieldsFor = target ? providers.find((item) => item.key === target.provider)?.credential_fields ?? [] : [];
   const closeDialog = () => setDialog(null);
 
+  // One real call to the provider. A second click while it runs would spend another.
+  const runTest = async (connector: (typeof connectors)[number]) => {
+    if (testing.current) return;
+    testing.current = true;
+    const pending = toast.loading(`Testing ${connector.display_name}`);
+    try {
+      const result = await testSupplyConnector(connector.id);
+      const took = `${result.took_ms.toLocaleString()} ms`;
+      if (result.ok) toast.success(`${connector.display_name} answered`, { id: pending, description: `${result.message} (${took})` });
+      else toast.error(`${connector.display_name} failed`, { id: pending, description: result.message });
+      await refresh();
+    } catch (caught) {
+      toast.error("The test could not run", { id: pending, description: caught instanceof Error ? caught.message : undefined });
+    } finally {
+      testing.current = false;
+    }
+  };
+
   const handleAction = (action: ConnectorAction, connector: (typeof connectors)[number]) => {
+    if (action === "test") {
+      void runTest(connector);
+      return;
+    }
     if (isQuickAction(action)) {
       void quick(action, connector);
       return;
@@ -95,7 +120,13 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
         {status === "ready" && connectors.length > 0 ? (
           <div className="grid gap-3 md:grid-cols-2">
             {connectors.map((connector) => (
-              <ConnectorCard key={connector.id} connector={connector} isAdmin={isAdmin} onAction={handleAction} />
+              <ConnectorCard
+                key={connector.id}
+                connector={connector}
+                capacity={capacity.find((item) => item.connector_id === connector.id)}
+                isAdmin={isAdmin}
+                onAction={handleAction}
+              />
             ))}
           </div>
         ) : null}

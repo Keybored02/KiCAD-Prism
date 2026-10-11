@@ -15,6 +15,7 @@ type Action =
   | { type: "loaded"; providers: SupplyProvider[]; connectors: SupplyConnector[] }
   | { type: "failed"; error: string }
   | { type: "applied"; connector: SupplyConnector }
+  | { type: "refreshed"; connectors: SupplyConnector[] }
   | { type: "removed"; id: string };
 
 const INITIAL: State = { status: "loading", providers: [], connectors: [], error: "" };
@@ -34,6 +35,8 @@ function reducer(state: State, action: Action): State {
         : [...state.connectors, action.connector];
       return { ...state, connectors };
     }
+    case "refreshed":
+      return { ...state, connectors: action.connectors };
     case "removed":
       return { ...state, connectors: state.connectors.filter((item) => item.id !== action.id) };
   }
@@ -66,6 +69,14 @@ export function useSupplyConnectors() {
   const apply = useCallback((connector: SupplyConnector) => dispatch({ type: "applied", connector }), []);
   const remove = useCallback((id: string) => dispatch({ type: "removed", id }), []);
   const reload = useCallback(() => void load(), [load]);
+  // Fresh numbers without the loading state, for after something that changes them (a test spends a call).
+  const refresh = useCallback(async () => {
+    try {
+      dispatch({ type: "refreshed", connectors: await listSupplyConnectors() });
+    } catch {
+      // The list on screen is still right; the next load will say if the server is gone.
+    }
+  }, []);
 
-  return { ...state, apply, remove, reload };
+  return { ...state, apply, remove, reload, refresh };
 }

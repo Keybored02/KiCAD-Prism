@@ -10,6 +10,8 @@ import type {
   SupplyCsvResult,
   SupplyCsvRowError,
   SupplyAlert,
+  SupplyCapacity,
+  SupplyConnectorCheck,
   SupplyManufacturer,
   SupplyOverview,
   SupplyPartDetail,
@@ -65,6 +67,14 @@ export function pauseSupplyConnector(id: string, reason: string): Promise<Supply
 
 export function resumeSupplyConnector(id: string): Promise<SupplyConnector> {
   return post(connectorPath(id, "resume"), undefined, "Could not resume the connector");
+}
+
+export function testSupplyConnector(id: string): Promise<SupplyConnectorCheck> {
+  return post(connectorPath(id, "test"), undefined, "Could not test the connector");
+}
+
+export function listSupplyCapacity(signal?: AbortSignal): Promise<SupplyCapacity[]> {
+  return fetchJson<SupplyCapacity[]>(`${BASE}/capacity`, { signal }, "Could not load capacity");
 }
 
 export function confirmSupplyTermsReview(id: string): Promise<SupplyConnector> {

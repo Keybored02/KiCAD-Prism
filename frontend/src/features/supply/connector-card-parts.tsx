@@ -1,6 +1,6 @@
 import { FileSpreadsheet } from "lucide-react";
 
-import type { SupplyConnector } from "@/types/supply";
+import type { SupplyCapacity, SupplyConnector } from "@/types/supply";
 import { budgetUsedPercent, formatWhen } from "./connector-status";
 
 /** Today's calls against the daily budget. */
@@ -25,6 +25,34 @@ export function CallBudget({ connector }: { connector: SupplyConnector }) {
         <div className={used >= 90 ? "h-full bg-destructive" : "h-full bg-primary"} style={{ width: `${used}%` }} />
       </div>
       <p className="text-[11px] text-muted-foreground">{connector.interactive_reserve_pct}% held for lookups</p>
+    </div>
+  );
+}
+
+/** Whether the daily budget keeps up with what is watched, said before it bites. */
+export function CapacityNote({ capacity }: { capacity: SupplyCapacity | undefined }) {
+  if (!capacity || (capacity.listings === 0 && capacity.searches_pending === 0)) return null;
+  const calls = capacity.calls_per_day.toLocaleString();
+  const usable = capacity.usable_per_day.toLocaleString();
+  return (
+    <div className="mt-2 space-y-0.5 text-[11px]">
+      {capacity.listings > 0 ? (
+        capacity.fits ? (
+          <p className="text-muted-foreground">
+            Reading {capacity.listings.toLocaleString()} {capacity.listings === 1 ? "listing" : "listings"} needs about {calls} calls a day of {usable} usable.
+          </p>
+        ) : (
+          <p role="alert" className="text-warning">
+            Reading {capacity.listings.toLocaleString()} {capacity.listings === 1 ? "listing" : "listings"} needs about {calls} calls a day, but only {usable} are usable.
+            About {capacity.shortfall_pct}% of reads will run later than their tier asks. Raise the budget or watch fewer parts.
+          </p>
+        )
+      ) : null}
+      {capacity.searches_pending > 0 ? (
+        <p className="text-muted-foreground">
+          {capacity.searches_pending.toLocaleString()} watched {capacity.searches_pending === 1 ? "part has" : "parts have"} not been searched here yet.
+        </p>
+      ) : null}
     </div>
   );
 }
