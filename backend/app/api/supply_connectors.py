@@ -75,6 +75,12 @@ def _http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, ConnectorNotFound):
         return HTTPException(status_code=404, detail="Connector not found")
     if isinstance(exc, SecretStoreLocked):
+        # "Not set" and "invalid" need different fixes, and neither message carries key material.
+        if "disabled" in str(exc):
+            return HTTPException(
+                status_code=503,
+                detail="Credential encryption is not set up: TRACKER_CREDENTIAL_ROOT_KEY is empty on the server",
+            )
         return HTTPException(status_code=503, detail="Credential encryption is locked")
     if isinstance(exc, ConnectorError):
         status = 409 if exc.code == "duplicate" else 403 if exc.code == "provider_disabled" else 400

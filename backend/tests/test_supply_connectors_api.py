@@ -238,6 +238,16 @@ class SupplyConnectorsApiTests(unittest.TestCase):
         self.assertEqual(response.status, 503)
         self.assertEqual(response.json["detail"], "Credential encryption is locked")
 
+    def test_a_missing_root_key_is_told_apart_from_an_invalid_one(self) -> None:
+        from app.api.supply_connectors import _http_error
+        from app.services.trackers.secrets import SecretStoreLocked
+
+        missing = _http_error(SecretStoreLocked("Tracker credential encryption is disabled: TRACKER_CREDENTIAL_ROOT_KEY is not set."))
+        invalid = _http_error(SecretStoreLocked("Tracker credential encryption is locked: root key is invalid."))
+        self.assertEqual((missing.status_code, invalid.status_code), (503, 503))
+        self.assertIn("TRACKER_CREDENTIAL_ROOT_KEY is empty", missing.detail)
+        self.assertEqual(invalid.detail, "Credential encryption is locked")
+
     def test_request_models_are_strict(self) -> None:
         cid = self._create()["id"]
         for method, path, body in (
