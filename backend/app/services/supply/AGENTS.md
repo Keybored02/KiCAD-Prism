@@ -19,6 +19,10 @@ root first.
 | `discovery.py` | `DiscoveryService`: sorts a provider's answers into match states. Also `pin_listing`, `reject_listing`, `counted_listings`. |
 | `review.py` | Reads the review queue: pending spellings and listings waiting for a person. |
 | `backend/app/api/supply_review.py` | Review API. Everyone who reads supply data sees the queue; confirming a spelling and pinning or rejecting a listing need admin or qa. |
+| `watches.py` | The watchlist: one watch per part, with a stock threshold and a pin to the fastest polling (pins are capped). |
+| `tiers.py` | Pure rules: which polling tier a listing is on, and when it is next asked (`next_poll_at`) or retried (`retry_at`). |
+| `stock.py` | A part's stock across distributors, honouring each provider's pooling. Only exact and manual listings, no marketplace stock. |
+| `poller.py` | `Poller.poll_connector`: asks for due listings in batches within the call budget and records offers and samples. |
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
 | `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
 | `csv_offers.py`, `csv_import_service.py` | Storage for uploaded offers and the import and clear service. |
@@ -51,6 +55,8 @@ root first.
 - **Every outbound request goes through `http_client.py`**, which validates
   with `egress.py` on each redirect and connects to the address that was
   checked. Do not call `requests` directly from a provider.
+- **Failures retry on their own schedule** (`tiers.retry_at`), never the tier's. A
+  rate limit holds the whole connector off; rejected credentials pause it.
 - **Quota is a budget, not an error.** Running short delays polling and shows
   data age. Spend only through `ledger.try_spend`.
 - **Audit identity comes from the session**, passed in as `actor`. Never take

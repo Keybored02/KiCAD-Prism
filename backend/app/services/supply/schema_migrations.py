@@ -186,10 +186,82 @@ def _m003_parts_and_listings(conn) -> None:
     )
 
 
+def _m004_watches_offers_samples(conn) -> None:
+    """What is watched, what each listing last said, and how it changed.
+
+    ``offers`` holds the latest state per listing. ``samples`` is append-only
+    history, one row per distinct observation time. ``poll_state`` decides when a
+    listing is next asked about. ``connectors.cooldown_until`` lets a provider's
+    rate limit hold off every listing of that connector at once.
+    """
+
+    conn.execute(
+        """
+        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMPTZ;
+
+        CREATE TABLE IF NOT EXISTS watches (
+            id TEXT PRIMARY KEY,
+            part_id TEXT NOT NULL UNIQUE REFERENCES parts(id) ON DELETE CASCADE,
+            threshold INTEGER CHECK (threshold IS NULL OR threshold >= 0),
+            pinned BOOLEAN NOT NULL DEFAULT FALSE,
+            owner TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS offers (
+            listing_id TEXT PRIMARY KEY REFERENCES listings(id) ON DELETE CASCADE,
+            fetched_at TIMESTAMPTZ NOT NULL,
+            stock INTEGER NOT NULL CHECK (stock >= 0),
+            incoming JSONB NOT NULL DEFAULT '[]'::jsonb,
+            moq INTEGER NOT NULL DEFAULT 1,
+            order_multiple INTEGER NOT NULL DEFAULT 1,
+            packaging TEXT NOT NULL DEFAULT 'unknown',
+            price_breaks JSONB NOT NULL DEFAULT '[]'::jsonb,
+            currency TEXT NOT NULL DEFAULT '',
+            lead_time_days INTEGER,
+            lifecycle TEXT NOT NULL DEFAULT 'unknown',
+            discontinued BOOLEAN NOT NULL DEFAULT FALSE,
+            rohs BOOLEAN,
+            marketplace BOOLEAN NOT NULL DEFAULT FALSE,
+            product_url TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS samples (
+            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+            sampled_at TIMESTAMPTZ NOT NULL,
+            stock INTEGER NOT NULL CHECK (stock >= 0),
+            incoming_qty INTEGER NOT NULL DEFAULT 0,
+            unit_price NUMERIC(14, 6),
+            currency TEXT NOT NULL DEFAULT '',
+            lead_time_days INTEGER,
+            lifecycle TEXT NOT NULL DEFAULT 'unknown',
+            discontinued BOOLEAN NOT NULL DEFAULT FALSE,
+            PRIMARY KEY (listing_id, sampled_at)
+        );
+
+        CREATE TABLE IF NOT EXISTS poll_state (
+            listing_id TEXT PRIMARY KEY REFERENCES listings(id) ON DELETE CASCADE,
+            tier TEXT NOT NULL CHECK (tier IN ('hot', 'warm', 'normal', 'cold')),
+            next_poll_at TIMESTAMPTZ NOT NULL,
+            last_polled_at TIMESTAMPTZ,
+            last_change_at TIMESTAMPTZ,
+            error_streak INTEGER NOT NULL DEFAULT 0,
+            missing_streak INTEGER NOT NULL DEFAULT 0,
+            last_error_code TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_poll_state_due ON poll_state (next_poll_at);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
     (3, "parts_and_listings", _m003_parts_and_listings),
+    (4, "watches_offers_samples", _m004_watches_offers_samples),
 ]
 
 
