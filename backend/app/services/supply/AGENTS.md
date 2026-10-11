@@ -35,6 +35,8 @@ root first.
 | `insights.py` | Pure: what a part's daily stock history says. Observed net decrease (Theil-Sen slope since the last restock), days to zero and to the threshold, restocks and cadence, and a confidence. A change in how many listings stand behind the figure is cut, never read as a restock. Every answer lists its inputs. |
 | `connector_check.py` | Tests a connector with one real call charged to the interactive reserve. Reports in fixed, safe words (never the provider's text), records the result on the connector, and never pauses it. |
 | `capacity.py` | Whether each metered connector's budget keeps up with the watchlist: calls a day against usable calls, counting a provider's calls per batch. |
+| `bom_lookup.py` | Looks a BOM up in supply data without calling a distributor: each line resolves to a part (manufacturer and number, or number alone when unambiguous), reports stock, status, lead time and the cheapest offer that covers the need, and rolls up cost, shortages and "can build N". Also watches the parts on a BOM. |
+| `backend/app/api/supply_bom.py` | BOM lookup (readers) and watch-all-lines (admin, designer). |
 | `overview.py` | The Supply overview: counts, what needs attention, open alerts, data age, quota today. |
 | `backend/app/api/supply_alerts.py` | Overview and alerts API. Readers see both; admin and designer acknowledge and snooze. |
 | `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. |

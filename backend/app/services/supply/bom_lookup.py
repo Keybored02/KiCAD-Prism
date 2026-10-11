@@ -1,0 +1,224 @@
+"""Looking a bill of materials up in what Prism knows about parts.
+
+A BOM line is a manufacturer, a part number and how many go on one board. This resolves each
+line to a supply part (plan 6.4, steps 2 to 5; the placed-symbol identifier does not exist yet),
+then reports stock, status, lead time and the cheapest way to buy what a build needs.
+
+Reads only: it never calls a distributor. A line whose part nobody watches is reported as such;
+watching it (``watch_lines``) is what makes Prism read it. Lines without a part number are "not
+tracked" and are counted, never dropped.
+
+Resolution, first hit wins:
+
+1. manufacturer and part number, through confirmed spellings and the part number key: exact
+2. part number alone, when the manufacturer is blank or unrecognised and exactly one part has it:
+   that part, marked so the manufacturer can be fixed
+3. several parts share the number and the manufacturer cannot tell them apart: ambiguous
+4. a part number nobody has watched or matched: unknown
+5. no part number: not tracked
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+from typing import Any, Iterable, Mapping, Sequence
+
+from app.services.supply import parts, parts_view, pricing, watches
+from app.services.supply.identity import alias_key, match_key
+
+MAX_LINES = 2000
+MAX_WATCH_LINES = 200
+_NEEDS_A_LOOK = frozenset({"warning", "error", "fatal"})
+
+NO_MPN, UNKNOWN, AMBIGUOUS, TRACKED = "no_mpn", "unknown", "ambiguous", "tracked"
+
+
+@dataclass(frozen=True, slots=True)
+class BomLine:
+    key: str
+    manufacturer: str
+    mpn: str
+    quantity: int  # per board, counting only parts that are fitted
+
+
+def _manufacturer_ids(conn, alias_keys: Iterable[str]) -> dict[str, str]:
+    keys = sorted({key for key in alias_keys if key})
+    if not keys:
+        return {}
+    found: dict[str, str] = {}
+    for row in conn.execute("SELECT name_key, id FROM manufacturers WHERE name_key = ANY(%s)", (keys,)).fetchall():
+        found[row["name_key"]] = row["id"]
+    for row in conn.execute(
+        "SELECT alias_key, manufacturer_id FROM manufacturer_aliases WHERE alias_key = ANY(%s) AND status = 'confirmed'",
+        (keys,),
+    ).fetchall():
+        found[row["alias_key"]] = row["manufacturer_id"]
+    return found
+
+
+def _resolve(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | None, str | None]]:
+    """Per line key: (state, part id, how the manufacturer matched)."""
+
+    keys = {line.key: (alias_key(line.manufacturer), match_key(line.mpn)) for line in lines}
+    manufacturers = _manufacturer_ids(conn, (alias for alias, _ in keys.values()))
+    wanted = sorted({number for _, number in keys.values() if number})
+    by_number: dict[str, list[tuple[str, str]]] = {}
+    if wanted:
+        for row in conn.execute("SELECT id, manufacturer_id, match_key FROM parts WHERE match_key = ANY(%s)", (wanted,)).fetchall():
+            by_number.setdefault(row["match_key"], []).append((row["id"], row["manufacturer_id"]))
+
+    resolved: dict[str, tuple[str, str | None, str | None]] = {}
+    for line in lines:
+        alias, number = keys[line.key]
+        if not number:
+            resolved[line.key] = (NO_MPN, None, None)
+            continue
+        candidates = by_number.get(number, [])
+        manufacturer_id = manufacturers.get(alias) if alias else None
+        exact = [part_id for part_id, owner in candidates if owner == manufacturer_id] if manufacturer_id else []
+        if exact:
+            resolved[line.key] = (TRACKED, exact[0], "exact")
+        elif len(candidates) == 1:
+            resolved[line.key] = (TRACKED, candidates[0][0], "missing" if not alias else "unmatched")
+        elif len(candidates) > 1:
+            resolved[line.key] = (AMBIGUOUS, None, None)
+        else:
+            resolved[line.key] = (UNKNOWN, None, None)
+    return resolved
+
+
+def _best_purchase(offers: Sequence[Mapping[str, Any]], need: int) -> dict[str, Any] | None:
+    """The cheapest single offer for ``need`` pieces, in one currency.
+
+    Offers that hold enough stock win over cheaper ones that do not. Marketplace stock is not offered.
+    """
+
+    candidates = []
+    for offer in offers:
+        if offer["marketplace"] or not offer["currency"]:
+            continue
+        breaks = [(int(quantity), Decimal(price)) for quantity, price in offer["price_breaks"]]
+        unit = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"], wanted=need)
+        if unit is None:
+            continue
+        order = pricing.order_quantity(need, offer["moq"], offer["order_multiple"])
+        candidates.append((offer["stock"] >= order, unit * order, unit, order, offer))
+    if not candidates:
+        return None
+    if len({entry[4]["currency"] for entry in candidates}) != 1:
+        return None  # nothing here converts currencies
+    covered = [entry for entry in candidates if entry[0]]
+    covers, extended, unit, order, offer = min(covered or candidates, key=lambda entry: entry[1])
+    return {
+        "quantity": order,
+        "unit_price": format(unit.normalize(), "f"),
+        "currency": offer["currency"],
+        "extended": format(extended.quantize(Decimal("0.0001")).normalize(), "f"),
+        "covers": covers,
+        "connector_name": offer["connector_name"],
+        "sku": offer["sku"],
+        "product_url": offer["product_url"],
+    }
+
+
+def _lead_time(offers: Sequence[Mapping[str, Any]]) -> int | None:
+    """The shortest lead time among offers holding stock, else among all."""
+
+    in_stock = [o["lead_time_days"] for o in offers if o["lead_time_days"] is not None and o["stock"] > 0]
+    anywhere = [o["lead_time_days"] for o in offers if o["lead_time_days"] is not None]
+    pool = in_stock or anywhere
+    return min(pool) if pool else None
+
+
+def lookup(conn, lines: Sequence[BomLine], build_quantity: int) -> dict[str, Any]:
+    if len(lines) > MAX_LINES:
+        raise ValueError(f"At most {MAX_LINES} lines can be looked up at once.")
+    resolved = _resolve(lines, conn)
+    part_ids = sorted({part_id for _, part_id, _ in resolved.values() if part_id})
+    items, offers = parts_view.summaries_with_offers(conn, part_ids)
+    summary = {item["id"]: item for item in items}
+
+    results: dict[str, dict[str, Any]] = {}
+    for line in lines:
+        state, part_id, how = resolved[line.key]
+        entry: dict[str, Any] = {"state": state, "part_id": part_id, "manufacturer_match": how, "need": line.quantity * build_quantity}
+        if part_id:
+            item = summary[part_id]
+            offers_here = offers.get(part_id, [])
+            stock = item["stock"]
+            entry |= {
+                "watched": item["watch"] is not None,
+                "status": item["status"],
+                "problem": item["problem"],
+                "stock": stock,
+                "lifecycle": item["lifecycle"],
+                "lead_time_days": _lead_time(offers_here),
+                "fetched_at": item["fetched_at"],
+                "short": stock is not None and stock < entry["need"],
+                "buy": _best_purchase(offers_here, entry["need"]),
+            }
+        results[line.key] = entry
+    return {"build_quantity": build_quantity, "lines": results, "rollup": _rollup(lines, results, build_quantity)}
+
+
+def _rollup(lines: Sequence[BomLine], results: Mapping[str, Mapping[str, Any]], build_quantity: int) -> dict[str, Any]:
+    tracked = [(line, results[line.key]) for line in lines if results[line.key]["state"] == TRACKED]
+    priced = [entry["buy"] for _, entry in tracked if entry["buy"]]
+    currencies = {buy["currency"] for buy in priced}
+    total = sum((Decimal(buy["extended"]) for buy in priced), Decimal(0)) if len(currencies) == 1 else None
+
+    can_build = None
+    limiting = None
+    for line, entry in tracked:
+        if entry["stock"] is None or line.quantity < 1:
+            continue
+        possible = entry["stock"] // line.quantity
+        if can_build is None or possible < can_build:
+            can_build, limiting = possible, line.key
+    return {
+        "lines": len(lines),
+        "tracked": len(tracked),
+        "not_tracked": len(lines) - len(tracked),
+        "watched": sum(1 for _, entry in tracked if entry["watched"]),
+        "at_risk": sum(1 for _, entry in tracked if entry["status"] in _NEEDS_A_LOOK),
+        "short": sum(1 for _, entry in tracked if entry["short"]),
+        "priced": len(priced),
+        "currency": next(iter(currencies)) if len(currencies) == 1 else None,
+        "cost_build": format(total.quantize(Decimal("0.01")), "f") if total is not None else None,
+        "cost_per_board": format((total / build_quantity).quantize(Decimal("0.0001")), "f") if total is not None else None,
+        "can_build": can_build,
+        "limited_by": limiting,
+        "without_stock_data": sum(1 for _, entry in tracked if entry["stock"] is None),
+    }
+
+
+def watch_lines(conn, lines: Sequence[BomLine], actor: str, *, may_create_manufacturer: bool) -> dict[str, Any]:
+    """Watch every distinct part on the lines. Reports what it could not and why."""
+
+    if len(lines) > MAX_WATCH_LINES:
+        raise ValueError(f"At most {MAX_WATCH_LINES} lines can be watched at once.")
+    seen: set[tuple[str, str]] = set()
+    watched = already = 0
+    skipped: list[dict[str, str]] = []
+    for line in lines:
+        mpn, maker = line.mpn.strip(), line.manufacturer.strip()
+        if not match_key(mpn):
+            skipped.append({"key": line.key, "reason": "no_mpn"})
+            continue
+        if not alias_key(maker):
+            skipped.append({"key": line.key, "reason": "no_manufacturer"})
+            continue
+        identity = (alias_key(maker), match_key(mpn))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        try:
+            with conn.transaction():
+                _record, created = watches.add_watch(conn, maker, mpn, actor, may_create_manufacturer=may_create_manufacturer)
+        except parts.UnknownManufacturer:
+            skipped.append({"key": line.key, "reason": "unknown_manufacturer"})
+            continue
+        watched += 1 if created else 0
+        already += 0 if created else 1
+    return {"watched": watched, "already_watched": already, "skipped": skipped}

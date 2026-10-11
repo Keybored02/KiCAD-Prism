@@ -107,34 +107,43 @@ _ROW_SELECT = (
 )
 
 
-def _summaries(conn, rows) -> list[dict[str, Any]]:
+def offers_by_part(conn, part_ids: list[str]) -> dict[str, list[dict]]:
+    """Counted offers per part (exact and manual listings), with what pricing and display need."""
+
+    offers: dict[str, list[dict]] = defaultdict(list)
+    if not part_ids:
+        return offers
+    for row in conn.execute(
+        """
+        SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name,
+               o.stock, o.marketplace, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
+               o.order_multiple, o.lead_time_days, o.product_url, ps.tier
+        FROM listings l
+        JOIN offers o ON o.listing_id = l.id
+        JOIN connectors c ON c.id = l.connector_id
+        LEFT JOIN poll_state ps ON ps.listing_id = l.id
+        WHERE l.part_id = ANY(%s) AND l.match_state = ANY(%s)
+        """,
+        (part_ids, list(_COUNTED)),
+    ).fetchall():
+        offers[row["part_id"]].append(dict(row))
+    return offers
+
+
+def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[dict[str, Any]]:
     """The list-row summary of each part row: status, stock, price, lifecycle, tier."""
 
-    offers_by_part: dict[str, list[dict]] = defaultdict(list)
     ids = [r["id"] for r in rows]
-    if rows:
-        for row in conn.execute(
-            """
-            SELECT l.part_id, l.connector_id, c.provider, o.stock, o.marketplace, o.fetched_at, o.lifecycle,
-                   o.price_breaks, o.currency, o.moq, o.order_multiple, ps.tier
-            FROM listings l
-            JOIN offers o ON o.listing_id = l.id
-            JOIN connectors c ON c.id = l.connector_id
-            LEFT JOIN poll_state ps ON ps.listing_id = l.id
-            WHERE l.part_id = ANY(%s) AND l.match_state = ANY(%s)
-            """,
-            (ids, list(_COUNTED)),
-        ).fetchall():
-            offers_by_part[row["part_id"]].append(dict(row))
+    offers_by_part_id = offers if offers is not None else offers_by_part(conn, ids)
     problems = _problems(conn, ids)
 
     items = []
     for row in rows:
-        offers = offers_by_part.get(row["id"], [])
-        combined = stock.aggregate(offers) if offers else None
-        lifecycle = worst_lifecycle(Lifecycle(o["lifecycle"]) for o in offers)
-        price, currency, price_quantity = _cheapest([o for o in offers if not o["marketplace"]])
-        tiers = [o["tier"] for o in offers if o["tier"]]
+        offers_here = offers_by_part_id.get(row["id"], [])
+        combined = stock.aggregate(offers_here) if offers_here else None
+        lifecycle = worst_lifecycle(Lifecycle(o["lifecycle"]) for o in offers_here)
+        price, currency, price_quantity = _cheapest([o for o in offers_here if not o["marketplace"]])
+        tiers = [o["tier"] for o in offers_here if o["tier"]]
         problem = problems.get(row["id"]) if combined is None else None
         items.append({
             "id": row["id"],
@@ -158,10 +167,17 @@ def _summaries(conn, rows) -> list[dict[str, Any]]:
 def summaries_for(conn, part_ids: list[str]) -> list[dict[str, Any]]:
     """Summaries of the given parts, in no particular order."""
 
+    return summaries_with_offers(conn, part_ids)[0]
+
+
+def summaries_with_offers(conn, part_ids: list[str]) -> tuple[list[dict[str, Any]], dict[str, list[dict]]]:
+    """Summaries of the given parts and the counted offers behind them, for callers that price."""
+
     if not part_ids:
-        return []
+        return [], {}
     rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", (list(part_ids),)).fetchall()
-    return _summaries(conn, rows)
+    offers = offers_by_part(conn, [row["id"] for row in rows])
+    return _summaries(conn, rows, offers), offers
 
 
 def ranked_parts(conn, *, scope: Scope = "watched", query: str = "") -> tuple[list[dict[str, Any]], int]:

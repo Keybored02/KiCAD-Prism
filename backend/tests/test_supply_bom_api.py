@@ -1,0 +1,267 @@
+"""Looking a BOM up in the supply data: resolution, status, purchase, rollup, and watching its parts.
+
+Needs ``PRISM_DATABASE_URL``. Requests go through the real router into a disposable schema.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import unittest
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from supply_api_helpers import request as _request  # noqa: E402
+
+POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
+SEED = "seed@example.com"
+NOW = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+
+
+@unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for supply API tests")
+class BomLookupTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        from fastapi import FastAPI
+
+        from app.api import supply_bom, supply_connectors
+        from app.core.security import AuthenticatedUser
+        from app.services.postgres_database import database
+        from app.services.supply import parts, watches
+        from app.services.supply.connectors import ConnectorService
+        from app.services.supply.store import SupplyStore
+        from app.services.trackers.secrets import CredentialKeyring
+
+        cls.database, cls.parts, cls.watches = database, parts, watches
+        cls.users = {
+            role: AuthenticatedUser(email=f"{role}@example.com", name=role, role=role)
+            for role in ("viewer", "qa", "designer", "admin")
+        }
+        cls.store = type("TestSupplyStore", (SupplyStore,), {"schema": f"supply_bom_test_{uuid.uuid4().hex[:8]}"})()
+        cls.store.initialize()
+        ring = CredentialKeyring({"t": os.urandom(32)}, "t")
+        cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True)
+        cls.app = FastAPI()
+        cls.app.include_router(supply_bom.router)
+        supply_connectors.register_validation_redaction(cls.app)
+        cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
+        cls.patcher.start()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.patcher.stop()
+        with cls.database.connection() as conn:
+            conn.execute(f'DROP SCHEMA IF EXISTS "{cls.store.schema}" CASCADE')
+
+    def setUp(self) -> None:
+        with self.store.connection() as conn:
+            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+                conn.execute(f"DELETE FROM {table}")
+        self.cid = self.connectors.create(actor=SEED, provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
+
+    # --- helpers ----------------------------------------------------------
+
+    def call(self, path: str, body, *, role: str = "admin"):
+        return _request(self.app, "POST", path, user=self.users[role], body=body)
+
+    def lookup(self, lines, build: int = 1, role: str = "admin") -> dict:
+        response = self.call("/api/supply/bom/lookup", {"build_quantity": build, "lines": lines}, role=role)
+        self.assertEqual(response.status, 200, response.text)
+        return response.json
+
+    def part(self, maker: str, mpn: str, *, watch: bool = False) -> str:
+        with self.store.connection() as conn:
+            record = self.parts.ensure_part(conn, maker, mpn, SEED)
+            if watch:
+                self.watches.add_watch(conn, maker, mpn, SEED)
+        return record.id
+
+    def offer(self, part_id: str, sku: str, *, stock: int, price="0.50", moq: int = 1, multiple: int = 1, currency="EUR",
+              lead: int | None = None, marketplace: bool = False, lifecycle: str = "active", breaks=None) -> None:
+        listing_id = uuid.uuid4().hex
+        tiers = breaks if breaks is not None else [[1, price]]
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                "VALUES (%s, %s, %s, %s, 'x', 'x', 'exact')", (listing_id, self.cid, sku, part_id, ))
+            conn.execute(
+                "INSERT INTO offers (listing_id, fetched_at, stock, moq, order_multiple, price_breaks, currency, lead_time_days, "
+                "marketplace, lifecycle, product_url) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)",
+                (listing_id, NOW, stock, moq, multiple, json.dumps(tiers), currency, lead, marketplace, lifecycle, f"https://shop.example/{sku}"))
+
+    # --- resolution -------------------------------------------------------
+
+    def test_a_line_resolves_through_spelling_and_part_number_variants(self) -> None:
+        part_id = self.part("Texas Instruments", "LM358-D")
+        self.offer(part_id, "A", stock=100)
+        lines = [
+            {"key": "a", "manufacturer": "Texas Instruments", "mpn": "LM358-D"},
+            {"key": "b", "manufacturer": "texas instruments inc.", "mpn": "lm358d"},
+            {"key": "c", "manufacturer": "TEXAS INSTRUMENTS", "mpn": "LM358 D"},
+        ]
+        for key, entry in self.lookup(lines)["lines"].items():
+            self.assertEqual((entry["state"], entry["part_id"], entry["manufacturer_match"]), ("tracked", part_id, "exact"), key)
+
+    def test_the_other_resolutions(self) -> None:
+        only = self.part("Texas Instruments", "UNIQUE1")
+        self.part("Texas Instruments", "TWIN1")
+        self.part("Onsemi", "TWIN1")
+        lines = [
+            {"key": "missing", "manufacturer": "", "mpn": "UNIQUE1"},
+            {"key": "unmatched", "manufacturer": "T.I. Corp", "mpn": "UNIQUE1"},
+            {"key": "ambiguous", "manufacturer": "", "mpn": "TWIN1"},
+            {"key": "wrong-maker", "manufacturer": "Acme", "mpn": "TWIN1"},
+            {"key": "unknown", "manufacturer": "Acme", "mpn": "NOBODY-HAS-THIS"},
+            {"key": "none", "manufacturer": "Acme", "mpn": ""},
+            {"key": "blank", "manufacturer": "Acme", "mpn": "  -- "},
+        ]
+        result = self.lookup(lines)["lines"]
+        self.assertEqual((result["missing"]["state"], result["missing"]["part_id"], result["missing"]["manufacturer_match"]), ("tracked", only, "missing"))
+        self.assertEqual((result["unmatched"]["part_id"], result["unmatched"]["manufacturer_match"]), (only, "unmatched"))
+        self.assertEqual((result["ambiguous"]["state"], result["wrong-maker"]["state"]), ("ambiguous", "ambiguous"))
+        self.assertEqual((result["unknown"]["state"], result["none"]["state"], result["blank"]["state"]), ("unknown", "no_mpn", "no_mpn"))
+
+    # --- what a tracked line reports ---------------------------------------
+
+    def test_stock_status_need_and_shortage(self) -> None:
+        part_id = self.part("Acme", "R1", watch=True)
+        self.offer(part_id, "A", stock=500, lead=30)
+        self.offer(part_id, "B", stock=0, lead=7)
+        low = self.part("Acme", "R2")
+        self.offer(low, "C", stock=40, lifecycle="nrnd")
+        result = self.lookup([
+            {"key": "r1", "manufacturer": "Acme", "mpn": "R1", "quantity": 4},
+            {"key": "r2", "manufacturer": "Acme", "mpn": "R2", "quantity": 5},
+        ], build=10)["lines"]
+        r1, r2 = result["r1"], result["r2"]
+        self.assertEqual((r1["need"], r1["stock"], r1["short"], r1["watched"], r1["status"]), (40, 500, False, True, "ok"))
+        self.assertEqual(r1["lead_time_days"], 30, "the lead time of an offer that has stock, not of an empty one")
+        self.assertEqual((r2["need"], r2["stock"], r2["short"], r2["watched"], r2["status"], r2["lifecycle"]), (50, 40, True, False, "warning", "nrnd"))
+
+    def test_a_part_never_read_is_tracked_but_has_no_numbers(self) -> None:
+        self.part("Acme", "UNREAD", watch=True)
+        entry = self.lookup([{"key": "u", "manufacturer": "Acme", "mpn": "UNREAD"}])["lines"]["u"]
+        self.assertEqual((entry["state"], entry["stock"], entry["short"], entry["buy"], entry["status"]), ("tracked", None, False, None, "unknown"))
+
+    # --- buying -----------------------------------------------------------
+
+    def test_the_cheapest_offer_that_covers_the_need_wins_over_a_cheaper_one_that_does_not(self) -> None:
+        part_id = self.part("Acme", "R1")
+        self.offer(part_id, "CHEAP-SHORT", stock=10, price="0.10")
+        self.offer(part_id, "DEAR-ENOUGH", stock=1000, price="0.30")
+        self.offer(part_id, "MIDDLE-ENOUGH", stock=1000, price="0.20")
+        buy = self.lookup([{"key": "r", "manufacturer": "Acme", "mpn": "R1", "quantity": 10}], build=10)["lines"]["r"]["buy"]
+        self.assertEqual((buy["sku"], buy["unit_price"], buy["quantity"], buy["extended"], buy["covers"]), ("MIDDLE-ENOUGH", "0.2", 100, "20", True))
+        self.assertEqual((buy["connector_name"], buy["product_url"]), ("Sim", "https://shop.example/MIDDLE-ENOUGH"))
+
+    def test_minimum_order_and_multiples_set_what_is_bought_and_what_it_costs(self) -> None:
+        part_id = self.part("Acme", "REELED")
+        self.offer(part_id, "REEL", stock=50000, moq=3000, multiple=3000, breaks=[[3000, "0.0500"]])
+        buy = self.lookup([{"key": "r", "manufacturer": "Acme", "mpn": "REELED", "quantity": 2}], build=100)["lines"]["r"]["buy"]
+        self.assertEqual((buy["quantity"], buy["unit_price"], buy["extended"]), (3000, "0.05", "150"), "200 needed, a reel of 3,000 bought")
+
+    def test_when_nothing_covers_the_cheapest_is_still_shown_and_says_so(self) -> None:
+        part_id = self.part("Acme", "SCARCE")
+        self.offer(part_id, "A", stock=5, price="0.40")
+        buy = self.lookup([{"key": "s", "manufacturer": "Acme", "mpn": "SCARCE", "quantity": 10}], build=10)["lines"]["s"]["buy"]
+        self.assertEqual((buy["sku"], buy["covers"]), ("A", False))
+
+    def test_marketplace_offers_and_mixed_currencies_give_no_price(self) -> None:
+        part_id = self.part("Acme", "ODD")
+        self.offer(part_id, "GREY", stock=1000, price="0.01", marketplace=True)
+        self.assertIsNone(self.lookup([{"key": "o", "manufacturer": "Acme", "mpn": "ODD"}])["lines"]["o"]["buy"])
+        self.offer(part_id, "EUR", stock=1000, price="0.30")
+        self.offer(part_id, "USD", stock=1000, price="0.20", currency="USD")
+        self.assertIsNone(self.lookup([{"key": "o", "manufacturer": "Acme", "mpn": "ODD"}])["lines"]["o"]["buy"],
+                          "nothing here converts euros to dollars")
+
+    # --- the rollup -------------------------------------------------------
+
+    def test_the_rollup_costs_the_build_and_says_how_many_boards_the_stock_allows(self) -> None:
+        a, b = self.part("Acme", "A1", watch=True), self.part("Acme", "B1")
+        self.offer(a, "A", stock=1000, price="0.10")
+        self.offer(b, "B", stock=30, price="1.00", lifecycle="obsolete")
+        self.part("Acme", "UNREADPART")
+        lines = [
+            {"key": "a", "manufacturer": "Acme", "mpn": "A1", "quantity": 4},
+            {"key": "b", "manufacturer": "Acme", "mpn": "B1", "quantity": 2},
+            {"key": "u", "manufacturer": "Acme", "mpn": "UNREADPART", "quantity": 1},
+            {"key": "x", "manufacturer": "Acme", "mpn": "NOT-KNOWN", "quantity": 1},
+            {"key": "n", "manufacturer": "", "mpn": "", "quantity": 1},
+        ]
+        data = self.lookup(lines, build=10)
+        rollup = data["rollup"]
+        self.assertEqual((rollup["lines"], rollup["tracked"], rollup["not_tracked"], rollup["watched"]), (5, 3, 2, 1))
+        self.assertEqual((rollup["at_risk"], rollup["short"], rollup["priced"], rollup["without_stock_data"]), (1, 0, 2, 1))
+        self.assertEqual((rollup["currency"], rollup["cost_build"], rollup["cost_per_board"]), ("EUR", "24.00", "2.4000"))
+        self.assertEqual((rollup["can_build"], rollup["limited_by"]), (15, "b"), "30 pieces at 2 a board: 15 boards")
+
+    def test_a_shortage_is_counted_and_nothing_to_build_with_says_none(self) -> None:
+        part_id = self.part("Acme", "R1")
+        self.offer(part_id, "A", stock=20)
+        rollup = self.lookup([{"key": "r", "manufacturer": "Acme", "mpn": "R1", "quantity": 5}], build=10)["rollup"]
+        self.assertEqual((rollup["short"], rollup["can_build"]), (1, 4))
+        empty = self.lookup([{"key": "x", "manufacturer": "Acme", "mpn": "NOPE"}])["rollup"]
+        self.assertEqual((empty["can_build"], empty["limited_by"], empty["cost_build"], empty["currency"]), (None, None, None, None))
+
+    def test_requests_are_checked(self) -> None:
+        for body in ({"lines": [], "build_quantity": 0}, {"lines": [{"key": "a", "quantity": 0}]},
+                     {"lines": [{"key": "", "mpn": "x"}]}, {"lines": [{"key": "a", "owner": "mallory"}]}):
+            self.assertEqual(self.call("/api/supply/bom/lookup", body).status, 422, body)
+        too_many = [{"key": str(index), "mpn": "x"} for index in range(2001)]
+        self.assertEqual(self.call("/api/supply/bom/lookup", {"lines": too_many}).status, 422)
+        self.assertEqual(self.lookup([])["rollup"]["lines"], 0)
+
+    def test_who_may_look_up(self) -> None:
+        for role in ("admin", "designer", "qa"):
+            self.assertEqual(self.call("/api/supply/bom/lookup", {"lines": []}, role=role).status, 200, role)
+        self.assertEqual(self.call("/api/supply/bom/lookup", {"lines": []}, role="viewer").status, 403)
+
+    # --- watching the lines -----------------------------------------------
+
+    def test_watching_the_lines_adds_each_distinct_part_once_and_says_what_it_skipped(self) -> None:
+        self.part("Acme", "ALREADY", watch=True)
+        lines = [
+            {"key": "1", "manufacturer": "Acme", "mpn": "NEW-1"},
+            {"key": "2", "manufacturer": "acme", "mpn": "new1"},
+            {"key": "3", "manufacturer": "Acme", "mpn": "ALREADY"},
+            {"key": "4", "manufacturer": "", "mpn": "NO-MAKER"},
+            {"key": "5", "manufacturer": "Acme", "mpn": ""},
+        ]
+        data = self.call("/api/supply/bom/watch", {"lines": lines}).json
+        self.assertEqual((data["watched"], data["already_watched"]), (1, 1))
+        self.assertEqual(sorted(data["skipped"], key=lambda item: item["key"]),
+                         [{"key": "4", "reason": "no_manufacturer"}, {"key": "5", "reason": "no_mpn"}])
+        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM watches")[0]["n"], 2)
+        again = self.call("/api/supply/bom/watch", {"lines": lines}).json
+        self.assertEqual((again["watched"], again["already_watched"]), (0, 2))
+
+    def rows(self, sql: str, *params):
+        with self.store.connection() as conn:
+            return conn.execute(sql, params).fetchall()
+
+    def test_a_designer_cannot_introduce_a_manufacturer_but_an_admin_can(self) -> None:
+        lines = [{"key": "1", "manufacturer": "Brand New Maker", "mpn": "BN-1"}]
+        denied = self.call("/api/supply/bom/watch", {"lines": lines}, role="designer").json
+        self.assertEqual((denied["watched"], denied["skipped"]), (0, [{"key": "1", "reason": "unknown_manufacturer"}]))
+        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM manufacturers")[0]["n"], 0)
+        allowed = self.call("/api/supply/bom/watch", {"lines": lines}, role="admin").json
+        self.assertEqual((allowed["watched"], allowed["skipped"]), (1, []))
+        again = self.call("/api/supply/bom/watch", {"lines": [{"key": "1", "manufacturer": "brand new maker", "mpn": "BN-1"},
+                                                              {"key": "2", "manufacturer": "Brand New Maker", "mpn": "BN-2"}]}, role="designer").json
+        self.assertEqual((again["watched"], again["already_watched"]), (1, 1), "now it is known, a designer can use it")
+
+    def test_who_may_watch_and_how_many_at_once(self) -> None:
+        for role in ("qa", "viewer"):
+            self.assertEqual(self.call("/api/supply/bom/watch", {"lines": []}, role=role).status, 403, role)
+        self.assertEqual(self.call("/api/supply/bom/watch", {"lines": [{"key": str(i), "mpn": "x"} for i in range(201)]}).status, 422)
+
+
+if __name__ == "__main__":
+    unittest.main()
