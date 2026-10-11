@@ -8,6 +8,13 @@ import { partDetailFixture, partRowFixture } from "./supply-test-fixtures";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
+// Recharts is slow to load cold and is not what these tests are about; stock-chart.test.tsx covers the chart.
+vi.mock("./stock-chart", () => ({
+  default: ({ threshold }: { threshold: number | null }) => (
+    <div role="img" aria-label="Stock over the last 90 days" data-threshold={threshold ?? "none"} />
+  ),
+}));
+
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   listSupplyParts: vi.fn(),
@@ -178,6 +185,12 @@ describe("a part", () => {
     expect(await within(sheet).findByText("Not found")).toBeTruthy();
     fireEvent.click(within(sheet).getByRole("button", { name: "Retry" }));
     expect(await within(sheet).findByRole("article", { name: "Listing 595-LM358D" })).toBeTruthy();
+  });
+
+  it("draws the stock chart with the watch threshold", async () => {
+    renderView("designer", "/?part=p1");
+    const chart = await screen.findByRole("img", { name: "Stock over the last 90 days" });
+    expect(chart.getAttribute("data-threshold")).toBe("500");
   });
 
   it("asks for history rather than drawing a line through nothing", async () => {

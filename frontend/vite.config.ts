@@ -82,6 +82,27 @@ export default defineConfig({
           ) {
             return "editor-runtime"
           }
+          // The supply stock chart (Recharts), loaded with the open part sheet only. d3 leaf modules that
+          // the diagram canvas also uses (below) stay out of it, so neither chunk pulls in the other.
+          if (
+            id.includes("node_modules/recharts") ||
+            id.includes("node_modules/victory-vendor") ||
+            id.includes("node_modules/@reduxjs/") ||
+            id.includes("node_modules/react-redux") ||
+            id.includes("node_modules/redux") ||
+            id.includes("node_modules/reselect") ||
+            id.includes("node_modules/immer") ||
+            id.includes("node_modules/es-toolkit") ||
+            id.includes("node_modules/eventemitter3") ||
+            id.includes("node_modules/decimal.js-light") ||
+            id.includes("node_modules/internmap") ||
+            /node_modules\/d3-(array|format|path|scale|shape|time|time-format)\//.test(id)
+          ) {
+            return "charts-runtime"
+          }
+          if (/node_modules\/d3-(interpolate|color|ease|timer)\//.test(id)) {
+            return "d3-shared-runtime"
+          }
           if (id.includes("node_modules/lucide-react")) {
             return "icons-runtime"
           }

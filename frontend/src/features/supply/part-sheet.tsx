@@ -1,3 +1,5 @@
+import { lazy, Suspense } from "react";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +23,9 @@ interface PartSheetProps {
   /** Called after a watch changes, so the list behind the sheet can reload. */
   onWatchChanged: () => void;
 }
+
+// Recharts is large and only the open sheet needs it, so it loads on demand.
+const StockChart = lazy(() => import("./stock-chart"));
 
 /** One part: its stock and history, its watch, and every listing behind the numbers. */
 export function PartSheet({ partId, user, onClose, onWatchChanged }: PartSheetProps) {
@@ -98,8 +103,10 @@ function PartDetail({ detail, canEdit, onChanged }: { detail: SupplyPartDetail; 
           </p>
         ) : null}
         {values.length > 1 ? (
-          <div className="flex items-center gap-3">
-            <Sparkline values={values} label="Stock over the last 90 days" />
+          <div className="space-y-1">
+            <Suspense fallback={<Sparkline values={values} label="Stock over the last 90 days" />}>
+              <StockChart history={detail.history} threshold={detail.watch?.threshold ?? null} />
+            </Suspense>
             <p className="text-xs text-muted-foreground">
               {values.length} days. Low {low?.toLocaleString()}, high {high?.toLocaleString()}.
             </p>
