@@ -130,6 +130,8 @@ export type SupplyStatus = "ok" | "warning" | "error" | "fatal" | "unknown";
 export type SupplyLifecycle = "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
 export type SupplyTier = "hot" | "warm" | "normal" | "cold";
 export type PartsScope = "watched" | "all";
+/** Why a part with nothing counted is in trouble. */
+export type SupplyProblem = "not_found" | "gone";
 
 export interface SupplyWatchSummary {
   id: string;
@@ -154,11 +156,14 @@ export interface SupplyPartRow {
   manufacturer: string;
   watch: SupplyWatchSummary | null;
   status: SupplyStatus;
+  problem: SupplyProblem | null;
   /** Null until something that counts has been read. */
   stock: number | null;
   listings: number;
   lifecycle: SupplyLifecycle;
   unit_price: string | null;
+  /** The quantity the price is quoted at. */
+  price_quantity: number;
   currency: string;
   fetched_at: string | null;
   tier: SupplyTier | null;
@@ -209,10 +214,19 @@ export interface SupplyPartDetail {
   part: { id: string; mpn: string; manufacturer: string };
   watch: SupplyWatchSummary | null;
   status: SupplyStatus;
+  problem: SupplyProblem | null;
+  problem_text: string;
   stock: { total: number | null; by_connector: Array<{ connector_id: string; connector_name: string; stock: number }> };
   lifecycle: SupplyLifecycle;
   listings: SupplyListing[];
-  history: Array<{ day: string; stock: number }>;
+  /** `listings` is how many listings stood behind the day, so a jump from a new one is not read as a restock. */
+  history: Array<{ day: string; stock: number; listings: number }>;
+}
+
+export interface SupplyManufacturer {
+  id: string;
+  name: string;
+  part_count: number;
 }
 
 export interface AddWatchInput {

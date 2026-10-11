@@ -17,6 +17,7 @@ import type { SupplyWatch } from "@/types/supply";
 import { addSupplyWatch } from "./supply-api";
 import { parseThreshold } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
+import { useSupplyManufacturers } from "./use-supply-parts";
 
 interface WatchPartDialogProps {
   open: boolean;
@@ -50,6 +51,7 @@ export function WatchPartDialog({ open, onOpenChange, onWatched }: WatchPartDial
 function WatchForm({ onClose, onWatched }: { onClose: () => void; onWatched: (watch: SupplyWatch) => void }) {
   const [form, update] = useReducer(edit, EMPTY);
   const { busy, error, run } = useConnectorSubmit();
+  const manufacturers = useSupplyManufacturers();
   const threshold = parseThreshold(form.threshold);
   const ready = form.manufacturer.trim() !== "" && form.mpn.trim() !== "" && threshold !== undefined;
 
@@ -82,7 +84,15 @@ function WatchForm({ onClose, onWatched }: { onClose: () => void; onWatched: (wa
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="watch-manufacturer">Manufacturer</Label>
-          <Input id="watch-manufacturer" value={form.manufacturer} onChange={(event) => update({ manufacturer: event.target.value })} />
+          <Input
+            id="watch-manufacturer"
+            list="watch-manufacturer-options"
+            value={form.manufacturer}
+            onChange={(event) => update({ manufacturer: event.target.value })}
+          />
+          <datalist id="watch-manufacturer-options">
+            {manufacturers.map((item) => <option key={item.id} value={item.name} />)}
+          </datalist>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="watch-mpn">Part number</Label>

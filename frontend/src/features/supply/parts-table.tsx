@@ -3,7 +3,7 @@ import { Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SupplyPartRow } from "@/types/supply";
 import { StatusDot } from "./status-dot";
-import { formatAgo, formatPrice, formatStock, LIFECYCLE_LABEL } from "./supply-format";
+import { formatAgo, formatPrice, formatStock, LIFECYCLE_LABEL, PROBLEM_LABEL } from "./supply-format";
 
 interface PartsTableProps {
   items: SupplyPartRow[];
@@ -43,12 +43,16 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
                   {part.mpn}
                 </button>
                 <div className="text-xs text-muted-foreground">{part.manufacturer}</div>
+                {part.problem ? <div className="text-xs text-destructive">{PROBLEM_LABEL[part.problem]}</div> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
                 {part.listings > 1 ? <div className="text-xs text-muted-foreground">{part.listings} listings</div> : null}
               </td>
-              <td className="px-3 py-2 text-right tabular-nums">{formatPrice(part.unit_price, part.currency)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">
+                {formatPrice(part.unit_price, part.currency)}
+                {part.unit_price ? <div className="text-xs text-muted-foreground">at {part.price_quantity.toLocaleString()}</div> : null}
+              </td>
               <td className="px-3 py-2">{part.lifecycle === "unknown" ? "" : LIFECYCLE_LABEL[part.lifecycle]}</td>
               <td className="px-3 py-2 text-xs text-muted-foreground">{formatAgo(part.fetched_at)}</td>
               <td className="px-3 py-2">

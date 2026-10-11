@@ -1,4 +1,4 @@
-import { useReducer } from "react";
+import { useReducer, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ function draftOf(watch: SupplyWatchSummary | null): Draft {
 export function WatchSettings({ part, watch, canEdit, onChanged }: WatchSettingsProps) {
   const [draft, update] = useReducer(edit, watch, draftOf);
   const { busy, error, run } = useConnectorSubmit();
+  const [confirmingStop, setConfirmingStop] = useState(false);
 
   if (!watch) {
     return (
@@ -99,19 +100,29 @@ export function WatchSettings({ part, watch, canEdit, onChanged }: WatchSettings
       </div>
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={busy || !changed || threshold === undefined}>Save</Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={busy}
-          onClick={() => void run(async () => {
-            await removeSupplyWatch(watch.id);
-            await onChanged();
-          })}
-        >
-          Stop watching
-        </Button>
+        {confirmingStop ? (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              disabled={busy}
+              onClick={() => void run(async () => {
+                await removeSupplyWatch(watch.id);
+                await onChanged();
+              })}
+            >
+              Stop watching
+            </Button>
+            <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmingStop(false)}>Keep watching</Button>
+          </>
+        ) : (
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmingStop(true)}>Stop watching…</Button>
+        )}
       </div>
+      {confirmingStop ? (
+        <p className="text-xs text-muted-foreground">Its threshold is lost. The history stays, and the part stops being read.</p>
+      ) : null}
       <p className="text-xs text-muted-foreground">Watched by {watch.owner}.</p>
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
     </form>

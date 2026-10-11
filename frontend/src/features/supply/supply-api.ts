@@ -9,6 +9,7 @@ import type {
   SupplyConnector,
   SupplyCsvResult,
   SupplyCsvRowError,
+  SupplyManufacturer,
   SupplyPartDetail,
   SupplyPartsPage,
   SupplyProvider,
@@ -146,6 +147,10 @@ export function listSupplyParts(scope: PartsScope, query: string, signal?: Abort
   const params = new URLSearchParams({ scope });
   if (query.trim()) params.set("q", query.trim());
   return fetchJson<SupplyPartsPage>(`${BASE}/parts?${params}`, { signal }, "Could not load parts");
+}
+
+export function listSupplyManufacturers(signal?: AbortSignal): Promise<{ items: SupplyManufacturer[] }> {
+  return fetchJson<{ items: SupplyManufacturer[] }>(`${BASE}/manufacturers`, { signal }, "Could not load manufacturers");
 }
 
 export function getSupplyPart(partId: string, signal?: AbortSignal): Promise<SupplyPartDetail> {

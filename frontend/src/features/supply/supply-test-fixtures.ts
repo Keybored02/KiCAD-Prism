@@ -52,10 +52,12 @@ export function partRowFixture(overrides: Partial<SupplyPartRow> = {}): SupplyPa
     manufacturer: "Texas Instruments",
     watch: { id: "w1", threshold: null, pinned: false, owner: "ana@example.com" },
     status: "ok",
+    problem: null,
     stock: 12500,
     listings: 1,
     lifecycle: "active",
     unit_price: "0.52",
+    price_quantity: 100,
     currency: "EUR",
     fetched_at: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
     tier: "normal",
@@ -68,6 +70,8 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
     part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments" },
     watch: { id: "w1", threshold: 500, pinned: false, owner: "ana@example.com" },
     status: "ok",
+    problem: null,
+    problem_text: "",
     stock: { total: 12500, by_connector: [{ connector_id: "c1", connector_name: "Mouser EU", stock: 12500 }] },
     lifecycle: "active",
     listings: [
@@ -87,7 +91,8 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
       },
     ],
     history: [
-      { day: "2026-02-27", stock: 9000 }, { day: "2026-02-28", stock: 11000 }, { day: "2026-03-01", stock: 12500 },
+      { day: "2026-02-27", stock: 9000, listings: 1 }, { day: "2026-02-28", stock: 11000, listings: 1 },
+      { day: "2026-03-01", stock: 12500, listings: 1 },
     ],
     ...overrides,
   };

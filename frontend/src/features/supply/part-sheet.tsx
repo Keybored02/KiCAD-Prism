@@ -90,6 +90,7 @@ function PartDetail({ detail, canEdit, onChanged }: { detail: SupplyPartDetail; 
             {LIFECYCLE_LABEL[detail.lifecycle]}
           </Badge>
         </div>
+        {detail.problem_text ? <p role="alert" className="text-sm text-destructive">{detail.problem_text}</p> : null}
         {detail.stock.by_connector.length > 1 ? (
           <p className="text-xs text-muted-foreground">
             {detail.stock.by_connector.map((item) => `${item.connector_name} ${item.stock.toLocaleString()}`).join(", ")}

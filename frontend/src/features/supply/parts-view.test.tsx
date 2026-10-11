@@ -15,6 +15,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   addSupplyWatch: vi.fn(),
   updateSupplyWatch: vi.fn(),
   removeSupplyWatch: vi.fn(),
+  listSupplyManufacturers: vi.fn(),
 }));
 
 import { PartsView } from "./parts-view";
@@ -46,6 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100 });
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
+  mocked.listSupplyManufacturers.mockResolvedValue({ items: [{ id: "m1", name: "Texas Instruments", part_count: 3 }] });
 });
 afterEach(cleanup);
 
@@ -179,7 +181,7 @@ describe("a part", () => {
   });
 
   it("asks for history rather than drawing a line through nothing", async () => {
-    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ history: [{ day: "2026-03-01", stock: 5 }] }));
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ history: [{ day: "2026-03-01", stock: 5, listings: 1 }] }));
     renderView("designer", "/?part=p1");
     expect(await screen.findByText("History builds up as the part is read.")).toBeTruthy();
   });
@@ -260,11 +262,61 @@ describe("the watch settings", () => {
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("stops watching", async () => {
+  it("asks before it stops watching, and keeps watching if told to", async () => {
     mocked.removeSupplyWatch.mockResolvedValue(undefined);
     renderView("designer", "/?part=p1");
-    fireEvent.click(await screen.findByRole("button", { name: "Stop watching" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop watching…" }));
+    expect(mocked.removeSupplyWatch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Keep watching" }));
+    expect(screen.getByRole("button", { name: "Stop watching…" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stop watching…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop watching" }));
     await waitFor(() => expect(mocked.removeSupplyWatch).toHaveBeenCalledWith("w1"));
+  });
+
+  it("says why a part has no stock when it is lost, in the list and in the sheet", async () => {
+    mocked.listSupplyParts.mockResolvedValue({
+      items: [partRowFixture({ status: "error", problem: "not_found", stock: null, unit_price: null, listings: 0 })], total: 1, limit: 100,
+    });
+    mocked.getSupplyPart.mockResolvedValue(partDetailFixture({
+      status: "error", problem: "not_found", problem_text: "No distributor carries this part number",
+      stock: { total: null, by_connector: [] },
+    }));
+    renderView("designer", "/?part=p1");
+    const sheet = await screen.findByRole("dialog");
+    expect(await within(sheet).findByRole("alert")).toHaveProperty("textContent", "No distributor carries this part number");
+    expect(screen.getAllByText("No distributor carries this part number").length).toBe(2);
+  });
+
+  it("quotes the price at the quantity it applies to", async () => {
+    mocked.listSupplyParts.mockResolvedValue({
+      items: [partRowFixture({ unit_price: "0.1", price_quantity: 3000 })], total: 1, limit: 100,
+    });
+    renderView();
+    const row = (await screen.findByRole("button", { name: "LM358D" })).closest("tr")!;
+    expect(within(row).getByText(`at ${(3000).toLocaleString()}`)).toBeTruthy();
+  });
+
+  it("suggests the manufacturers Prism knows when watching a new part", async () => {
+    const { container } = render(
+      <MemoryRouter initialEntries={["/"]}>
+        <PartsView user={userWith("designer")} />
+      </MemoryRouter>,
+    );
+    fireEvent.click((await screen.findAllByRole("button", { name: "Watch a part" }))[0]);
+    await waitFor(() => expect(mocked.listSupplyManufacturers).toHaveBeenCalled());
+    await waitFor(() => expect(document.querySelector("#watch-manufacturer-options option[value='Texas Instruments']")).not.toBeNull());
+    expect(container).toBeTruthy();
+  });
+
+  it("shows the server's reason when a manufacturer is not known", async () => {
+    mocked.addSupplyWatch.mockRejectedValue(new ApiHttpError(400, "Prism does not know the manufacturer \"TI\". Pick one from the list.", "unknown_manufacturer"));
+    renderView();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Watch a part" }))[0]);
+    fireEvent.change(await screen.findByLabelText("Manufacturer"), { target: { value: "TI" } });
+    fireEvent.change(screen.getByLabelText("Part number"), { target: { value: "TPS1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Watch part" }));
+    expect(await screen.findByText(/does not know the manufacturer/)).toBeTruthy();
   });
 
   it("offers to watch a part that is not watched", async () => {

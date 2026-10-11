@@ -1,4 +1,4 @@
-import type { SupplyLifecycle, SupplyStatus, SupplyTier } from "@/types/supply";
+import type { SupplyLifecycle, SupplyProblem, SupplyStatus, SupplyTier } from "@/types/supply";
 
 export const STATUS_LABEL: Record<SupplyStatus, string> = {
   ok: "OK",
@@ -48,6 +48,12 @@ export function packagingLabel(value: string): string {
 export function formatStock(stock: number | null): string {
   return stock === null ? "None yet" : stock.toLocaleString();
 }
+
+/** Shown under a part that has nothing counted, when something is wrong rather than merely unread. */
+export const PROBLEM_LABEL: Record<SupplyProblem, string> = {
+  not_found: "No distributor carries this part number",
+  gone: "Every listing for this part has disappeared",
+};
 
 /** `0.52` and `EUR` as a price. Falls back to plain text for a currency the browser does not know. */
 export function formatPrice(price: string | null, currency: string): string {
