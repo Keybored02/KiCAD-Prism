@@ -15,6 +15,7 @@ root first.
 | `providers/registry.py` | Provider lookup. Built-ins register at import; plugins load from the `prism.supply_providers` entry point. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
 | `egress.py` | Outbound URL validation. Required before any fetch of a URL that is not hard-coded. |
+| `http_client.py` | `SafeHttpClient`: the only way a provider makes a request. Validates every hop, connects to the checked address, maps statuses to `ProviderError` subclasses, keeps query strings out of messages. |
 | `quota.py` | Pure budget policy: background allowance, interactive reserve, capacity estimate. |
 | `ledger.py` | Atomic daily spending (`try_spend` locks the day's row). |
 | `credentials.py` | The one adapter over the credential keyring. |
@@ -32,8 +33,9 @@ root first.
   return models or raise `ProviderError`. Callers decide what to store.
 - **Credentials go through `credentials.py` only.** Reads return which
   credentials are set, never their values. There is no plaintext fallback.
-- **Every outbound request is validated by `egress.py`**, including each
-  redirect, and connects to the address that was checked.
+- **Every outbound request goes through `http_client.py`**, which validates
+  with `egress.py` on each redirect and connects to the address that was
+  checked. Do not call `requests` directly from a provider.
 - **Quota is a budget, not an error.** Running short delays polling and shows
   data age. Spend only through `ledger.try_spend`.
 - **Audit identity comes from the session**, passed in as `actor`. Never take
@@ -44,7 +46,8 @@ root first.
 
 ## Tests
 
-`backend/tests/test_supply_foundation.py` needs no database or network.
+`backend/tests/test_supply_foundation.py` and
+`backend/tests/test_supply_http_client.py` need no database or network.
 `backend/tests/test_supply_connectors_postgres.py` and
 `backend/tests/test_supply_connectors_api.py` need `PRISM_DATABASE_URL` and use a
 disposable schema. Provider tests use recorded fixtures, never live

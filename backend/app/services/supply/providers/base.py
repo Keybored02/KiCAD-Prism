@@ -57,6 +57,14 @@ class Unavailable(ProviderError):
     code = "unavailable"
 
 
+class EgressBlocked(ProviderError):
+    code = "egress_denied"
+
+
+class ResponseTooLarge(ProviderError):
+    code = "response_too_large"
+
+
 @dataclass(frozen=True, slots=True)
 class CredentialField:
     name: str
