@@ -87,9 +87,11 @@ class PrismWorker:
         self._auto_sync_attempts: dict[str, datetime] = {}
         self._next_auto_sync_scan = 0.0
         self._next_tracker_scan = 0.0
+        self._next_supply_scan = 0.0
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
+        from app.services.supply.jobs import SUPPLY_RESOURCE, SUPPLY_RESOURCE_CAPACITY
         from app.services.trackers.scheduler import TRACKER_RESOURCE, TRACKER_RESOURCE_CAPACITY
 
         return {
@@ -102,6 +104,7 @@ class PrismWorker:
             "catalog_worker": settings.CATALOG_WORKER_CONCURRENCY,
             "catalog_kicad": settings.CATALOG_KICAD_CONCURRENCY,
             TRACKER_RESOURCE: TRACKER_RESOURCE_CAPACITY,
+            SUPPLY_RESOURCE: SUPPLY_RESOURCE_CAPACITY,
         }
 
     def request_stop(self, *_args: object) -> None:
@@ -535,6 +538,15 @@ class PrismWorker:
         schedule_due_tracker_jobs()
         self._next_tracker_scan = time.monotonic() + 5
 
+    def schedule_supply_jobs(self) -> None:
+        if self.worker_pool != "prism" or time.monotonic() < self._next_supply_scan:
+            return
+        from app.services.supply.jobs import SCAN_SECONDS, schedule_due_supply_jobs
+
+        # Set the next scan first: a database error below must not make the loop retry every pass.
+        self._next_supply_scan = time.monotonic() + SCAN_SECONDS
+        schedule_due_supply_jobs()
+
     def mount_tracker_composition(self) -> None:
         """The scheduling loop needs the same mounts as the API and job runner.
 
@@ -582,6 +594,10 @@ class PrismWorker:
                 self.schedule_tracker_jobs()
             except Exception:
                 self._log_database_error("schedule tracker jobs")
+            try:
+                self.schedule_supply_jobs()
+            except Exception:
+                self._log_database_error("schedule supply jobs")
             self.supervise()
             available_slots = self.concurrency - len(self.running) - len(self.pending_releases)
             while available_slots > 0:

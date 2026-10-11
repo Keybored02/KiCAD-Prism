@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Mapping
 
 from app.services.supply import quota
 
@@ -78,3 +79,13 @@ def try_spend(
         (units, units if interactive else 0, connector_id, day),
     )
     return True
+
+
+def spend_call(store, connector: Mapping, *, now: datetime, interactive: bool = False) -> bool:
+    """Spend one call for a connector, in its own transaction. Free connectors never get here."""
+
+    with store.connection() as conn:
+        return try_spend(
+            conn, connector["id"], 1, interactive=interactive,
+            daily_budget=connector["daily_budget"], reserve_pct=connector["interactive_reserve_pct"], now=now,
+        )

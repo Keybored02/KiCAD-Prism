@@ -257,11 +257,34 @@ def _m004_watches_offers_samples(conn) -> None:
     )
 
 
+def _m005_discovery_runs(conn) -> None:
+    """When each watched part was last searched for at each connector.
+
+    A watch has no listings until someone asks a distributor about it. This
+    records that it was asked, so a part the distributor does not carry is
+    searched again weekly rather than on every scan.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS discovery_runs (
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            last_run_at TIMESTAMPTZ NOT NULL,
+            found INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (part_id, connector_id)
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
     (3, "parts_and_listings", _m003_parts_and_listings),
     (4, "watches_offers_samples", _m004_watches_offers_samples),
+    (5, "discovery_runs", _m005_discovery_runs),
 ]
 
 

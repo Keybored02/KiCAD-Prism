@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import ledger, stock, tiers
+from app.services.supply import ledger, stock, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.models import Offer
 from app.services.supply.providers import registry
@@ -30,16 +30,11 @@ from app.services.supply.vocabulary import Lifecycle
 
 MAX_BATCHES_PER_RUN = 20
 MISSES_BEFORE_GONE = 3
-RATE_LIMIT_DEFAULT = timedelta(minutes=15)
-SYSTEM_ACTOR = "system:poller"
 
 STOPPED_INACTIVE = "inactive"
 STOPPED_COOLING_DOWN = "cooling_down"
 STOPPED_NOTHING_DUE = "nothing_due"
 STOPPED_BUDGET = "budget"
-STOPPED_RATE_LIMITED = "rate_limited"
-STOPPED_AUTH_FAILED = "auth_failed"
-STOPPED_ERROR = "error"
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,12 +104,9 @@ class Poller:
             return PollSummary(connector_id, stopped=STOPPED_INACTIVE)
         spec = registry.get_spec(connector["provider"])
 
+        if trouble.cooling_down(self._store, connector_id, now):
+            return PollSummary(connector_id, stopped=STOPPED_COOLING_DOWN)
         with self._store.connection() as conn:
-            cooldown = conn.execute(
-                "SELECT cooldown_until FROM connectors WHERE id = %s", (connector_id,)
-            ).fetchone()["cooldown_until"]
-            if cooldown is not None and cooldown > now:
-                return PollSummary(connector_id, stopped=STOPPED_COOLING_DOWN)
             due = due_listings(conn, connector_id, now, spec.max_batch * MAX_BATCHES_PER_RUN)
         if not due:
             return PollSummary(connector_id, stopped=STOPPED_NOTHING_DUE)
@@ -123,46 +115,24 @@ class Poller:
         calls = polled = gone = 0
         stopped: str | None = None
         for batch in _chunks(due, spec.max_batch):
-            if spec.metered and not self._spend(connector, now, interactive):
+            if spec.metered and not ledger.spend_call(self._store, connector, now=now, interactive=interactive):
                 stopped = STOPPED_BUDGET
                 break
             calls += 1
             try:
                 offers = provider.get_offers([row.sku for row in batch])
-            except RateLimited as exc:
-                self._cool_down(connector_id, now, exc.retry_after_seconds)
-                stopped = STOPPED_RATE_LIMITED
-                break
-            except AuthError as exc:
-                self._connectors.record_result(connector_id, exc.code)
-                self._connectors.pause(connector_id, actor=SYSTEM_ACTOR, reason="The provider rejected the credentials.")
-                stopped = STOPPED_AUTH_FAILED
-                break
             except ProviderError as exc:
-                self._record_failure(batch, now, exc.code)
-                self._connectors.record_result(connector_id, exc.code)
-                stopped = STOPPED_ERROR
+                if not isinstance(exc, (RateLimited, AuthError)):
+                    # Only a failure of this batch is the batch's fault; a rate limit or
+                    # bad credentials say nothing about the listings.
+                    self._record_failure(batch, now, exc.code)
+                stopped = trouble.react(self._connectors, self._store, connector_id, exc, now)
                 break
             with self._store.connection() as conn:
                 gone += self._record_answer(conn, batch, offers, now)
             polled += len(batch)
             self._connectors.record_result(connector_id)
         return PollSummary(connector_id, calls=calls, polled=polled, gone=gone, stopped=stopped)
-
-    # --- budget and cooldown ---------------------------------------------
-
-    def _spend(self, connector: dict, now: datetime, interactive: bool) -> bool:
-        with self._store.connection() as conn:
-            return ledger.try_spend(
-                conn, connector["id"], 1, interactive=interactive,
-                daily_budget=connector["daily_budget"], reserve_pct=connector["interactive_reserve_pct"], now=now,
-            )
-
-    def _cool_down(self, connector_id: str, now: datetime, retry_after_seconds: int | None) -> None:
-        wait = timedelta(seconds=retry_after_seconds) if retry_after_seconds else RATE_LIMIT_DEFAULT
-        with self._store.connection() as conn:
-            conn.execute("UPDATE connectors SET cooldown_until = %s WHERE id = %s", (now + wait, connector_id))
-        self._connectors.record_result(connector_id, RateLimited.code)
 
     # --- recording --------------------------------------------------------
 

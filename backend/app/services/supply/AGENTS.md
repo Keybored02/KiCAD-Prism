@@ -22,6 +22,9 @@ root first.
 | `watches.py` | The watchlist: one watch per part, with a stock threshold and a pin to the fastest polling (pins are capped). |
 | `tiers.py` | Pure rules: which polling tier a listing is on, and when it is next asked (`next_poll_at`) or retried (`retry_at`). |
 | `stock.py` | A part's stock across distributors, honouring each provider's pooling. Only exact and manual listings, no marketplace stock. |
+| `discoverer.py` | Searches for listings of watched parts, once per part per connector and weekly after. Costs budget like any call. |
+| `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
+| `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. |
 | `poller.py` | `Poller.poll_connector`: asks for due listings in batches within the call budget and records offers and samples. |
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
 | `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
