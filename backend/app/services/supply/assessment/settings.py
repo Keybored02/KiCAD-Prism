@@ -61,3 +61,80 @@ class AssessmentSettings:
 
 
 DEFAULTS = AssessmentSettings()
+
+
+CHECK_LABELS: Mapping[str, str] = MappingProxyType({
+    PART_NOT_FOUND: "No distributor carries the part number",
+    OBSOLETE: "Manufacturer lists it as obsolete",
+    NRND: "Not recommended for new designs",
+    LAST_TIME_BUY: "Last time buy announced",
+    DISTRIBUTOR_DISCONTINUED: "Every distributor dropped it",
+    NO_DISTRIBUTOR_STOCK: "No distributor has it in stock",
+    INSUFFICIENT_STOCK: "Stock does not cover the build",
+    LEAD_TIME_OVER_THRESHOLD: "Lead time over the limit",
+    ROHS_NONCOMPLIANT: "Not RoHS compliant",
+    DATA_STALE: "Distributor data is out of date",
+})
+
+# What a workspace may set. "ok" turns a check into a note that does not count against health.
+SEVERITY_CHOICES = (Status.OK, Status.WARNING, Status.ERROR, Status.FATAL)
+LEAD_TIME_RANGE = (1, 730)
+STALE_HOURS_RANGE = (1, 720)
+
+
+def to_dto(settings: AssessmentSettings) -> dict:
+    return {
+        "lead_time_days": settings.lead_time_days,
+        "stale_hours": settings.stale_hours,
+        "weights": {name: settings.weights[name] for name in SUB_SCORES},
+        "severity": {check: settings.severity_of(check).value for check in CHECK_LABELS},
+    }
+
+
+def from_dto(payload: Mapping) -> AssessmentSettings:
+    """Settings from a validated payload, filling anything missing from the defaults."""
+
+    base = DEFAULTS
+    return AssessmentSettings(
+        lead_time_days=int(payload.get("lead_time_days", base.lead_time_days)),
+        stale_hours=int(payload.get("stale_hours", base.stale_hours)),
+        weights=MappingProxyType({name: float(payload.get("weights", {}).get(name, base.weights[name])) for name in SUB_SCORES}),
+        severity=MappingProxyType({
+            check: Status(payload.get("severity", {}).get(check, base.severity_of(check).value)) for check in CHECK_LABELS
+        }),
+    )
+
+
+def validate(payload: Mapping) -> dict:
+    """The payload in its stored form, or a ValueError with a sentence a person can act on."""
+
+    def whole(name: str, label: str, low: int, high: int) -> int:
+        value = payload.get(name, getattr(DEFAULTS, name))
+        if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+            raise ValueError(f"{label} must be a whole number from {low} to {high}.")
+        return value
+
+    weights = payload.get("weights", {})
+    severity = payload.get("severity", {})
+    if not isinstance(weights, Mapping) or not isinstance(severity, Mapping):
+        raise ValueError("Weights and severities must be given by name.")
+    for name, value in weights.items():
+        if name not in SUB_SCORES:
+            raise ValueError(f"Unknown risk area: {name}.")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+            raise ValueError(f"The weight of {name} must be between 0 and 1.")
+    merged = {name: float(weights.get(name, DEFAULTS.weights[name])) for name in SUB_SCORES}
+    if sum(merged.values()) <= 0:
+        raise ValueError("At least one risk area needs a weight above 0.")
+    allowed = {item.value for item in SEVERITY_CHOICES}
+    for check, value in severity.items():
+        if check not in CHECK_LABELS:
+            raise ValueError(f"Unknown check: {check}.")
+        if value not in allowed:
+            raise ValueError(f"The severity of {check} must be one of {', '.join(sorted(allowed))}.")
+    return {
+        "lead_time_days": whole("lead_time_days", "The lead time limit", *LEAD_TIME_RANGE),
+        "stale_hours": whole("stale_hours", "The data age limit", *STALE_HOURS_RANGE),
+        "weights": merged,
+        "severity": {check: severity.get(check, DEFAULTS.severity_of(check).value) for check in CHECK_LABELS},
+    }

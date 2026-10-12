@@ -1,7 +1,8 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BellRing, Boxes, LayoutDashboard, ListChecks, ShieldAlert, type LucideIcon } from "lucide-react";
+import { BellRing, Boxes, LayoutDashboard, ListChecks, Settings, ShieldAlert, type LucideIcon } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
@@ -9,6 +10,7 @@ import type { User } from "@/types/auth";
 const OverviewView = lazy(() => import("./overview-view").then((module) => ({ default: module.OverviewView })));
 const InboxView = lazy(() => import("./inbox-view").then((module) => ({ default: module.InboxView })));
 const PartsView = lazy(() => import("./parts-view").then((module) => ({ default: module.PartsView })));
+const SupplySettingsDialog = lazy(() => import("./supply-settings-dialog").then((module) => ({ default: module.SupplySettingsDialog })));
 const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
 
 const VIEWS: ReadonlyArray<{ id: SupplyView; label: string; icon: LucideIcon }> = [
@@ -29,6 +31,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get("supplyView");
   const view: SupplyView = isSupplyView(requested) ? requested : "overview";
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   if (!canOpenSupply(user?.role)) {
     return (
@@ -55,10 +58,11 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center justify-between border-b bg-card pr-3">
       <Tabs
         value={view}
         onValueChange={(next) => { if (isSupplyView(next)) setView(next); }}
-        className="shrink-0 gap-0 border-b bg-card px-3"
+        className="gap-0 px-3"
       >
         <TabsList variant="line" className="h-10 gap-2" aria-label="Supply sections">
           {VIEWS.map(({ id, label, icon: Icon }) => (
@@ -69,6 +73,12 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
           ))}
         </TabsList>
       </Tabs>
+      {user?.role === "admin" ? (
+        <Button variant="ghost" size="sm" aria-label="Supply settings" onClick={() => setSettingsOpen(true)}>
+          <Settings className="h-4 w-4" />
+        </Button>
+      ) : null}
+      </div>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>}>
         <div className="min-h-0 flex-1 overflow-hidden">
           {view === "overview" && <OverviewView />}
@@ -77,6 +87,11 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
           {view === "review" && <ReviewView user={user} />}
         </div>
       </Suspense>
+      {settingsOpen ? (
+        <Suspense fallback={null}>
+          <SupplySettingsDialog open onOpenChange={setSettingsOpen} />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

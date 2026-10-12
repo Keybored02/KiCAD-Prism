@@ -493,6 +493,22 @@ def _m012_release_snapshots(conn) -> None:
     )
 
 
+def _m013_settings(conn) -> None:
+    """Workspace settings for supply, one JSON value per area. Absent means the defaults in code."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value JSONB NOT NULL,
+            updated_by TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -506,6 +522,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (10, "component_sources", _m010_component_sources),
     (11, "waivers", _m011_waivers),
     (12, "release_snapshots", _m012_release_snapshots),
+    (13, "settings", _m013_settings),
 ]
 
 

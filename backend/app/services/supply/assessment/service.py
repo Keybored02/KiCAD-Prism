@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from app.services.supply import parts_view
-from app.services.supply.assessment import checks, health, risk, waivers
+from app.services.supply.assessment import checks, health, risk, settings_store, waivers
 from app.services.supply.assessment.settings import DEFAULTS, AssessmentSettings
 from app.services.supply.vocabulary import Lifecycle
 
@@ -48,10 +48,11 @@ def assess_summaries(
     offers: Mapping[str, Sequence[Mapping[str, Any]]],
     needs: Mapping[str, int | None],
     now: datetime,
-    settings: AssessmentSettings = DEFAULTS,
+    settings: AssessmentSettings | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Assess parts whose summaries and offers a caller already loaded."""
+    """Assess parts whose summaries and offers a caller already loaded, by the workspace's settings."""
 
+    settings = settings or settings_store.load(conn)
     held = waivers.for_parts(conn, [item["id"] for item in items])
     return {
         item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings)
@@ -64,7 +65,7 @@ def assess_parts(
     part_ids: Sequence[str],
     needs: Mapping[str, int | None] | None = None,
     now: datetime | None = None,
-    settings: AssessmentSettings = DEFAULTS,
+    settings: AssessmentSettings | None = None,
 ) -> dict[str, dict[str, Any]]:
     items, offers = parts_view.summaries_with_offers(conn, list(part_ids))
     return assess_summaries(conn, items, offers, needs or {}, now or datetime.now(timezone.utc), settings)

@@ -52,6 +52,8 @@ root first.
 | `backend/app/services/supply/assessment/health.py` | Health 0 to 10, status, and the quantity-weighted BOM roll-up. |
 | `backend/app/services/supply/assessment/waivers.py` | Proposing, approving and applying waivers; a waiver holds while its condition does. |
 | `backend/app/services/supply/assessment/service.py` | Gathers a part's facts and runs the pipeline. Reads only; no distributor calls. |
+| `backend/app/services/supply/assessment/settings_store.py` | Loads, saves and resets the workspace's assessment settings (thresholds, severities, weights); absent means the defaults in code. Changes are audited. |
+| `backend/app/api/supply_settings.py` | Assessment settings endpoints: readers see them, administrators change them. |
 | `backend/app/api/supply_assessment.py` | Assessment and waiver endpoints. Readers see assessments; admin, designer and qa propose waivers; admin and qa decide. |
 | `backend/app/api/supply_access.py` | The role check shared by endpoints that writers and approvers both use. |
 | `backend/app/services/supply/panel_payload.py` | What the KiCad panel gets (remote provider 0.4.0, additive): a one-line summary on search, list and detail; detail adds distributor offers, approved alternates, insight, health, two risk lines and links. Reads only; not sent to roles that cannot read supply data. |

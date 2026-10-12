@@ -504,3 +504,20 @@ export type ReleaseCheck =
       attention: ReleaseCheckLine[];
       lines: ReleaseCheckLine[];
     };
+
+export type AssessmentSeverity = "ok" | "warning" | "error" | "fatal";
+
+export interface AssessmentSettings {
+  lead_time_days: number;
+  stale_hours: number;
+  /** Relative weight of each risk area in health, 0 to 1. */
+  weights: Record<SupplySubScore["name"], number>;
+  severity: Record<string, AssessmentSeverity>;
+}
+
+export interface AssessmentSettingsView {
+  settings: AssessmentSettings;
+  defaults: AssessmentSettings;
+  checks: Array<{ id: string; label: string }>;
+  ranges: { lead_time_days: [number, number]; stale_hours: [number, number] };
+}

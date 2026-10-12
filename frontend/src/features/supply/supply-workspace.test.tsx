@@ -8,6 +8,7 @@ vi.mock("./overview-view", () => ({ OverviewView: () => <div>Overview content</d
 vi.mock("./inbox-view", () => ({ InboxView: () => <div>Inbox content</div> }));
 vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
 vi.mock("./review-view", () => ({ ReviewView: () => <div>Review content</div> }));
+vi.mock("./supply-settings-dialog", () => ({ SupplySettingsDialog: () => <div>Settings dialog</div> }));
 
 import { SupplyWorkspace } from "./supply-workspace";
 
@@ -47,6 +48,18 @@ describe("the Supply section", () => {
     renderAt("qa", "/?section=supply&supplyView=review");
     expect(await screen.findByText("Review content")).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("gives only administrators the settings", async () => {
+    renderAt("admin");
+    fireEvent.click(await screen.findByRole("button", { name: "Supply settings" }));
+    expect(await screen.findByText("Settings dialog")).toBeTruthy();
+    for (const role of ["designer", "qa"] as const) {
+      cleanup();
+      renderAt(role);
+      await screen.findByText("Overview content");
+      expect(screen.queryByRole("button", { name: "Supply settings" })).toBeNull();
+    }
   });
 
   it("is closed to viewers and signed-out users, and says why", () => {

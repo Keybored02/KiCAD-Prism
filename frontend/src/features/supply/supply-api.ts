@@ -10,6 +10,8 @@ import type {
   SupplyConnector,
   SupplyCsvResult,
   SupplyCsvRowError,
+  AssessmentSettings,
+  AssessmentSettingsView,
   SupplyAlert,
   SupplyAssessment,
   SupplyBomLookup,
@@ -328,4 +330,20 @@ export function decideWaiver(id: string, approve: boolean): Promise<void> {
 
 export function revokeWaiver(id: string): Promise<void> {
   return send(`${BASE}/waivers/${encodeURIComponent(id)}`, "DELETE", undefined, "Could not revoke the waiver");
+}
+
+export function getAssessmentSettings(signal?: AbortSignal): Promise<AssessmentSettingsView> {
+  return fetchJson<AssessmentSettingsView>(`${BASE}/settings/assessment`, { signal }, "Could not load the settings");
+}
+
+export function saveAssessmentSettings(settings: AssessmentSettings): Promise<AssessmentSettingsView> {
+  return fetchJson<AssessmentSettingsView>(
+    `${BASE}/settings/assessment`,
+    { method: "PUT", body: JSON.stringify(settings) },
+    "Could not save the settings",
+  );
+}
+
+export function resetAssessmentSettings(): Promise<AssessmentSettingsView> {
+  return fetchJson<AssessmentSettingsView>(`${BASE}/settings/assessment`, { method: "DELETE" }, "Could not reset the settings");
 }
