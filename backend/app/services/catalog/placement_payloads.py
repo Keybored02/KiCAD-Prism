@@ -46,6 +46,11 @@ def symbol_property_block(name: str, value: str, *, indent: str = "    ", hidden
     )
 
 
+# The hidden symbol field that names the catalog component a symbol was placed from. Supply and
+# usage read it to know exactly which component a schematic line is, whatever its other fields say.
+PRISM_ID_FIELD = "Prism ID"
+
+
 def symbol_metadata_fields(component: dict[str, Any] | None) -> dict[str, str]:
     if not component:
         return {label: "" for label in SYMBOL_METADATA_FIELD_ORDER}
@@ -54,6 +59,9 @@ def symbol_metadata_fields(component: dict[str, Any] | None) -> dict[str, str]:
         normalized_key = str(key).strip()
         if normalized_key and normalized_key not in fields and normalized_key not in {"Reference", "Footprint"}:
             fields[normalized_key] = str(value or "")
+    # Last, so a custom field of the same name cannot stand in for it.
+    if component.get("id"):
+        fields[PRISM_ID_FIELD] = str(component["id"])
     return fields
 
 
@@ -213,6 +221,7 @@ __all__ = [
     "remote_library_nickname",
     "rewrite_footprint_payload",
     "rewrite_symbol_payload",
+    "PRISM_ID_FIELD",
     "symbol_metadata_fields",
     "symbol_property_block",
 ]

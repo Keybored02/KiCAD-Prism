@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings  # noqa: E402
 from app.services.catalog.dbl_export import (  # noqa: E402
+    DBL_COMMON_COLUMNS,
+    dbl_row_for_component,
     dbl_symbol_library_name,
     part_number_nocolon,
     quote_identifier,
@@ -78,6 +80,34 @@ class SymbolRewriteTests(unittest.TestCase):
     def test_missing_footprint_ref_keeps_the_existing_footprint_block(self) -> None:
         rewritten = rewrite_symbol_payload(SYMBOL.encode("utf-8"), None, None).decode("utf-8")
         self.assertIn('(property "Footprint" "Old:FP"', rewritten)
+
+
+class PrismIdTests(unittest.TestCase):
+    """The component id travels with a placed symbol, hidden, so a schematic line can be traced to its component."""
+
+    COMPONENT = {"id": "cmp-123", "value": "10k", "mpn": "PG-R-1", "extra_fields": {"Prism ID": "someone else"}}
+
+    def test_a_placed_symbol_carries_the_component_id_once_and_hidden(self) -> None:
+        rewritten = rewrite_symbol_payload(SYMBOL.encode("utf-8"), None, self.COMPONENT).decode("utf-8")
+        self.assertEqual(rewritten.count('(property "Prism ID"'), 1)
+        self.assertIn('(property "Prism ID" "cmp-123" (at 0 0 0)' + chr(10) + '      (effects (font (size 1.27 1.27)) hide)' + chr(10), rewritten)
+
+    def test_a_component_without_an_id_adds_no_field(self) -> None:
+        rewritten = rewrite_symbol_payload(SYMBOL.encode("utf-8"), None, {"value": "10k"}).decode("utf-8")
+        self.assertNotIn("Prism ID", rewritten)
+
+    def test_the_rewrite_stays_byte_stable(self) -> None:
+        payload = SYMBOL.encode("utf-8")
+        self.assertEqual(rewrite_symbol_payload(payload, None, self.COMPONENT), rewrite_symbol_payload(payload, None, self.COMPONENT))
+
+    def test_the_database_library_row_has_it_as_its_last_common_column(self) -> None:
+        component = {
+            "id": "cmp-123", "value": "10k", "name": "R", "manufacturer": "Prism", "mpn": "PG-R-1", "package_name": "0402",
+            "workflow_stage": "released", "description": "Resistor", "datasheet_url": "", "representations": [], "extra_fields": {},
+        }
+        row = dbl_row_for_component(component, "PG-R-1", [])
+        self.assertEqual(DBL_COMMON_COLUMNS[-1], "Prism ID")
+        self.assertEqual(row["Prism ID"], "cmp-123")
 
 
 class FootprintRewriteTests(unittest.TestCase):
