@@ -91,6 +91,8 @@ export interface PanelSupply {
   offers?: PanelDistributorOffer[];
   alternates?: Array<{ manufacturer: string; mpn: string; status: PanelSupplySummary["status"]; stock: number | null; rank: number }>;
   health?: { score: number; status: PanelSupplySummary["status"] };
+  /** One phrase, rule-based: "No signs of an end of life", "2 to 5 years"... */
+  outlook?: string;
   risks?: string[];
   links?: { component: string; sourcing: string; supply: string };
 }

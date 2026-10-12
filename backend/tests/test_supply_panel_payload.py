@@ -114,6 +114,7 @@ class PanelPayloadTests(unittest.TestCase):
         self.assertEqual([a["mpn"] for a in detail["alternates"]], ["ALT-1"], "only approved alternates")
         self.assertIn("confidence", detail["insight"])
         self.assertEqual(detail["health"]["status"], "ok")
+        self.assertEqual(detail["outlook"], "No signs of an end of life")
         self.assertEqual(detail["risks"], [])
         self.assertEqual(detail["links"]["sourcing"], f"{ORIGIN}/?section=library-manager&libraryView=catalog&component=cmp-1&componentTab=sourcing")
         self.assertEqual(detail["links"]["supply"], f"{ORIGIN}/?section=supply&supplyView=parts&part={self.part.id}")

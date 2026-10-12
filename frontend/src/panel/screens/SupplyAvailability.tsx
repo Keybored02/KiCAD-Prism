@@ -29,6 +29,9 @@ export function SupplyAvailability({ supply }: { supply: PanelSupply }) {
         <span role="img" aria-label="Supply status" className={`mt-1 h-2 w-2 shrink-0 rounded-full ${DOT[summary.status]}`} />
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium">{summaryText(summary)}</p>
+          {supply.outlook && supply.outlook !== "Not enough to say" ? (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Outlook: {supply.outlook} (rule-based)</p>
+          ) : null}
           {(supply.risks ?? []).map((risk) => (
             <p key={risk} className="mt-0.5 text-[11px] leading-snug text-amber-600 dark:text-amber-400">{risk}</p>
           ))}

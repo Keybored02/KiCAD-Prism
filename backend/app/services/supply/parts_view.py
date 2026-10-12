@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
-from app.services.supply import insights, parts, prices, pricing, stock, usage
+from app.services.supply import insights, outlook, parts, prices, pricing, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -364,6 +364,8 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         })
 
     days = history(conn, part_id, now)
+    price_view = prices.view(prices.daily_cheapest(conn, part_id, now, prices.CHART_DAYS), now.date())
+    sheet = conn.execute("SELECT markers FROM datasheets WHERE part_id = %s ORDER BY version DESC LIMIT 1", (part_id,)).fetchone()
     return {
         "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name},
         "watch": _watch_dto(watch_row),
@@ -380,7 +382,14 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "lifecycle": lifecycle.value,
         "listings": listings,
         "history": days,
-        "price": prices.view(prices.daily_cheapest(conn, part_id, now, prices.CHART_DAYS), now.date()),
+        "price": price_view,
+        "outlook": outlook.outlook(
+            lifecycle,
+            [item["offer"] for item in listings if item["counted"] and item["offer"]],
+            datasheet_markers=list(sheet["markers"]) if sheet else [],
+            zero_stock_days=outlook.trailing_zero_days(days),
+            price_change_percent=(price_view["trend"] or {}).get("change_percent"),
+        ),
         "used_in": usage.used_in(conn, part_id, role),
         "insight": insight_from(days, watch_row["threshold"], now),
     }

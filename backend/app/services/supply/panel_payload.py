@@ -135,13 +135,15 @@ def detail(conn, component: Mapping[str, Any], role: str | None, origin: str, no
         for item in sources.list_sources(conn, component_id)
         if item["approval"] == sources.APPROVED
     ][:MAX_ALTERNATES]
-    insight = parts_view.part_detail(conn, part_id, now=now, role=role)["insight"]
+    detail_view = parts_view.part_detail(conn, part_id, now=now, role=role)
+    insight = detail_view["insight"]
     assessed = assessment.assess_summaries(conn, items, offers, {}, now)[part_id]
     return {
         "summary": _summary(items[0], here),
         "offers": _source_rows(here),
         "alternates": alternates,
         "insight": insight,
+        "outlook": detail_view["outlook"]["label"],
         "health": {"score": assessed["health"], "status": assessed["status"]},
         "risks": _risks(assessed, insight),
         "links": _links(origin, component_id, part_id),

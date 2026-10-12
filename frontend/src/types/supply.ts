@@ -109,6 +109,13 @@ export interface SupplyCapacity {
   searches_pending: number;
 }
 
+export interface SupplyOutlook {
+  band: "ended" | "under_2_years" | "2_to_5_years" | "no_signs" | "unknown";
+  label: string;
+  method: "rule-based";
+  signals: Array<{ text: string; source: string; weight: "hard" | "watch" | "soft" }>;
+}
+
 /** The ECHA Candidate List as loaded by an administrator. */
 export interface SupplySvhcList {
   loaded: boolean;
@@ -410,6 +417,8 @@ export interface SupplyPartDetail {
     history: Array<{ day: string; price: number }>;
     trend: { currency: string; was: string; now: string; change_percent: number; days: number } | null;
   };
+  /** A rule-based band with every signal behind it. */
+  outlook: SupplyOutlook;
   insight: SupplyInsight;
   used_in: Array<{ project_id: string; project_name: string; quantity: number; references: string }>;
 }

@@ -72,6 +72,15 @@ supplier declared, as CAS numbers; an administrator loads the ECHA Candidate Lis
 and a CAS column) in Supply settings, and a declared substance on the list makes the part *affected by REACH*. A part
 nobody says anything about is *unknown*, never clear.
 
+## Outlook
+
+A part sheet's Outlook says whether the part looks headed for its end: *ended*, *under 2 years*, *2 to 5 years*, *no signs
+of an end of life*, or *not enough to say*. It is rule-based and lists every signal with its source: the lifecycle
+distributors report, distributors that stopped selling it, lifecycle phrases in the datasheet, a month or more with no
+stock anywhere, and a price rise of 20% or more. One soft signal is a note; two together, or any watch signal such as
+*not recommended for new designs*, move the band. Nothing found is not a promise of a long life, and the KiCad panel
+shows the same phrase.
+
 ## Demand
 
 A part sheet's Demand section holds what is needed and by when. A negative quantity is stock already on its way in.

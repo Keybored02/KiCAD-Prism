@@ -12,6 +12,7 @@ import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
 import { DemandSection } from "./demand-section";
 import { ListingTable } from "./listing-table";
+import { OutlookSection } from "./outlook-section";
 import { PriceTrend } from "./price-trend";
 import { Sparkline } from "./sparkline";
 import { formatStock, LIFECYCLE_LABEL } from "./supply-format";
@@ -70,6 +71,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       </section>
 
       <PriceTrend price={detail.price} />
+
+      <OutlookSection outlook={detail.outlook} />
 
       <AssessmentSection partId={detail.part.id} role={role} />
 
