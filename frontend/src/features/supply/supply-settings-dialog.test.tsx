@@ -18,6 +18,7 @@ const mocked = vi.mocked(api);
 const defaults: AssessmentSettings = {
   lead_time_days: 84,
   stale_hours: 72,
+  base_currency: "EUR",
   weights: { lifecycle: 0.25, sourcing: 0.2, inventory: 0.3, market: 0.1, compliance: 0.15 },
   severity: { nrnd: "warning", obsolete: "fatal" },
 };
@@ -47,6 +48,7 @@ describe("the supply settings dialog", () => {
     const lead = await screen.findByLabelText(/Longest lead time/);
     expect((lead as HTMLInputElement).value).toBe("84");
     fireEvent.change(lead, { target: { value: "30" } });
+    fireEvent.change(screen.getByLabelText(/Currency for comparing/), { target: { value: "usd" } });
     fireEvent.change(screen.getByLabelText("Not recommended for new designs"), { target: { value: "error" } });
     fireEvent.change(screen.getByLabelText("Inventory"), { target: { value: "0.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -54,6 +56,7 @@ describe("the supply settings dialog", () => {
     expect(mocked.saveAssessmentSettings.mock.calls[0][0]).toEqual({
       ...defaults,
       lead_time_days: 30,
+      base_currency: "USD",
       weights: { ...defaults.weights, inventory: 0.5 },
       severity: { nrnd: "error", obsolete: "fatal" },
     });

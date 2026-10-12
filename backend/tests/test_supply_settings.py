@@ -35,6 +35,7 @@ class ValidationTests(unittest.TestCase):
         cases = [
             ({"lead_time_days": 0}, "lead time limit must be a whole number from 1 to 730"),
             ({"lead_time_days": "84"}, "lead time limit must be a whole number"),
+            ({"base_currency": "euro"}, "base currency must be a three letter code"),
             ({"stale_hours": 100000}, "data age limit must be a whole number from 1 to 720"),
             ({"weights": {"lifecycle": 2}}, "weight of lifecycle must be between 0 and 1"),
             ({"weights": {"colour": 0.5}}, "Unknown risk area: colour"),

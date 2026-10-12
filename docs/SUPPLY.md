@@ -64,7 +64,7 @@ Our own stock (from the catalog inventory) is subtracted; the part is judged aga
 The Visualizer's BOM tab gets Supply, Stock, Unit price, Extended and Lead time columns. Set the build size and the
 spares percentage. Lines resolve by the `Prism ID` field on a placed symbol first, then by manufacturer and part
 number. The header shows the cost of the build, parts at risk and short, and how many boards the stock allows.
-Prices are list prices, without VAT or shipping, and only totalled in one currency. Lines without a part number are
+Prices are list prices, without VAT or shipping. Offers in different currencies are converted to the base currency (a Supply setting, EUR by default) with the European Central Bank's daily rates, and the total says which day's rates it used. Without a route to the ECB, an administrator can enter rates (`POST /api/supply/fx/rates`); without rates there is no total across currencies. Lines without a part number are
 counted as *not tracked*. "Read project BOMs" queues the BOM reading of projects nobody has opened yet, so Where Used and Parts in use are complete.
 
 ## Assessment

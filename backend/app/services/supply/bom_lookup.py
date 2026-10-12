@@ -27,7 +27,7 @@ import math
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from app.services.supply import parts, parts_view, pricing, usage, watches
+from app.services.supply import fx, parts, parts_view, pricing, usage, watches
 from app.services.supply.assessment import component_checks, line_checks, settings_store
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
@@ -102,10 +102,14 @@ def resolve_lines(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | 
     return _resolve(lines, conn)
 
 
-def _best_purchase(offers: Sequence[Mapping[str, Any]], need: int) -> dict[str, Any] | None:
-    """The cheapest single offer for ``need`` pieces, in one currency.
+def _best_purchase(
+    offers: Sequence[Mapping[str, Any]], need: int, rates: fx.Rates | None = None, base: str = "EUR"
+) -> dict[str, Any] | None:
+    """The cheapest single offer for ``need`` pieces.
 
     Offers that hold enough stock win over cheaper ones that do not. Marketplace stock is not offered.
+    Offers in different currencies are compared in ``base`` when the rates allow it, and not at all
+    when they do not. ``in_base`` is the chosen offer's extended price in ``base``, if it can be told.
     """
 
     candidates = []
@@ -120,11 +124,24 @@ def _best_purchase(offers: Sequence[Mapping[str, Any]], need: int) -> dict[str, 
         candidates.append((offer["stock"] >= order, unit * order, unit, order, offer))
     if not candidates:
         return None
-    if len({entry[4]["currency"] for entry in candidates}) != 1:
-        return None  # nothing here converts currencies
+
+    def in_base(extended: Decimal, currency: str) -> Decimal | None:
+        return rates.convert(extended, currency, base) if rates is not None else (extended if currency == base else None)
+
+    mixed = len({entry[4]["currency"] for entry in candidates}) != 1
+    if mixed:
+        priced = [(entry, in_base(entry[1], entry[4]["currency"])) for entry in candidates]
+        if any(value is None for _, value in priced):
+            return None  # a rate is missing, so the offers cannot be compared
+        candidates = [entry for entry, _ in sorted(priced, key=lambda pair: pair[1])]
+        sort_key = lambda entry: in_base(entry[1], entry[4]["currency"])  # noqa: E731
+    else:
+        sort_key = lambda entry: entry[1]  # noqa: E731
     covered = [entry for entry in candidates if entry[0]]
-    covers, extended, unit, order, offer = min(covered or candidates, key=lambda entry: entry[1])
+    covers, extended, unit, order, offer = min(covered or candidates, key=sort_key)
+    converted = in_base(extended, offer["currency"])
     return {
+        "in_base": format(converted.quantize(Decimal("0.0001")).normalize(), "f") if converted is not None else None,
         "quantity": order,
         "unit_price": format(unit.normalize(), "f"),
         "currency": offer["currency"],
@@ -204,6 +221,7 @@ def lookup(
     _line_findings(lines, resolved, summary, first_line, set(known), in_library, settings, extras)
     assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc), settings, extras)
 
+    rates = fx.latest(conn)
     results: dict[str, dict[str, Any]] = {}
     for line in lines:
         state, part_id, how = resolved[line.key]
@@ -225,7 +243,7 @@ def lookup(
                 "part_need": part_need,
                 "short": stock is not None and stock < part_need,
                 # Only the first line of a part carries the purchase; the others say where it is.
-                "buy": _best_purchase(offers_here, part_need) if line.key == leader else None,
+                "buy": _best_purchase(offers_here, part_need, rates, settings.base_currency) if line.key == leader else None,
                 "bought_with": None if line.key == leader else leader,
                 "assessment": _assessment_line(assessed[part_id]),
             }
@@ -234,7 +252,7 @@ def lookup(
         "build_quantity": build_quantity,
         "attrition_percent": attrition_percent,
         "lines": results,
-        "rollup": _rollup(lines, results, build_quantity, per_board, first_line, attrition_percent)
+        "rollup": _rollup(lines, results, build_quantity, per_board, first_line, attrition_percent, rates, settings.base_currency)
         | _health_rollup(assessed, needs),
     }
 
@@ -283,6 +301,8 @@ def _rollup(
     per_board: Mapping[str, int],
     first_line: Mapping[str, str],
     attrition_percent: float = 0,
+    rates: fx.Rates | None = None,
+    base: str = "EUR",
 ) -> dict[str, Any]:
     """Counts of lines (``lines``, ``tracked``, ``not_tracked``, ``watched``) and of distinct parts
     (``at_risk``, ``short``, ``priced``, ``without_stock_data``);
@@ -293,7 +313,15 @@ def _rollup(
     priced = [entry["buy"] for entry in leaders if entry["buy"]]
     lines_priced = sum(1 for line in lines if results[line.key]["part_id"] and results[first_line[results[line.key]["part_id"]]]["buy"])
     currencies = {buy["currency"] for buy in priced}
-    total = sum((Decimal(buy["extended"]) for buy in priced), Decimal(0)) if len(currencies) == 1 else None
+    converted = False
+    if len(currencies) == 1:
+        total = sum((Decimal(buy["extended"]) for buy in priced), Decimal(0))
+        shown_currency: str | None = next(iter(currencies))
+    elif priced and all(buy["in_base"] is not None for buy in priced):
+        total = sum((Decimal(buy["in_base"]) for buy in priced), Decimal(0))
+        shown_currency, converted = base, True
+    else:
+        total, shown_currency = None, None
 
     can_build = None
     limiting = None
@@ -314,7 +342,9 @@ def _rollup(
         "short": sum(1 for entry in leaders if entry["short"]),
         "priced": len(priced),
         "lines_priced": lines_priced,
-        "currency": next(iter(currencies)) if len(currencies) == 1 else None,
+        "currency": shown_currency,
+        "converted": converted,
+        "rates_day": rates.day.isoformat() if converted and rates is not None and rates.day else None,
         "cost_build": format(total.quantize(Decimal("0.01")), "f") if total is not None else None,
         "cost_per_board": format((total / build_quantity).quantize(Decimal("0.0001")), "f") if total is not None else None,
         "can_build": can_build,

@@ -30,11 +30,11 @@ export function rollupSentences(rollup: SupplyBomRollup, build: number, lines: r
     // A cost that leaves lines out is not the cost of the BOM, so it says how much it covers.
     const covers = rollup.lines_priced < rollup.lines ? `, covers ${rollup.lines_priced.toLocaleString()} of ${plural(rollup.lines, "line", "lines")}` : "";
     sentences.push({
-      text: `${formatPrice(rollup.cost_build, rollup.currency)} for ${plural(build, "board", "boards")}${each}${covers}`,
+      text: `${formatPrice(rollup.cost_build, rollup.currency)} for ${plural(build, "board", "boards")}${each}${covers}${rollup.converted && rollup.rates_day ? `, converted at the rates of ${rollup.rates_day}` : ""}`,
       tone: rollup.lines_priced < rollup.lines ? "warn" : "plain",
     });
   } else if (rollup.priced > 0) {
-    sentences.push({ text: "Prices are in more than one currency, so no total", tone: "warn" });
+    sentences.push({ text: "Prices are in more than one currency and the exchange rates are missing, so no total", tone: "warn" });
   }
 
   if (rollup.at_risk > 0) sentences.push({ text: `${rollup.at_risk.toLocaleString()} at risk`, tone: "bad" });

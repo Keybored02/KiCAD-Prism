@@ -162,7 +162,7 @@ describe("the rollup in words", () => {
 
   it("refuses to total prices in two currencies", () => {
     const mixed = rollupSentences({ ...rollup, cost_build: null, currency: null, at_risk: 0, short: 0, not_tracked: 0 }, 10, lines);
-    expect(text(mixed)).toContain("Prices are in more than one currency, so no total");
+    expect(text(mixed)).toContain("Prices are in more than one currency and the exchange rates are missing, so no total");
   });
 });
 

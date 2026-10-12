@@ -8,11 +8,12 @@ provider cannot pile up jobs.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
-from app.services.supply import ledger, quota, retention
+from app.services.supply import fx, ledger, quota, retention
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import REDO_AFTER, Discoverer
 from app.services.supply.poller import Poller
@@ -123,6 +124,15 @@ def schedule_due_supply_jobs(
     return queued
 
 
+def _refresh_rates(conn) -> None:
+    """Keep the exchange rates fresh. Best effort: with no route to the ECB, rates stay as they were."""
+
+    try:
+        fx.refresh_from_ecb(conn)
+    except Exception:  # noqa: BLE001 - prices are shown without conversion when rates are missing
+        logging.getLogger(__name__).info("Exchange rates not refreshed", exc_info=True)
+
+
 def run_supply_poll_job(context: Any) -> Any:
     """Job handler: search for new listings, then ask about the ones that are due."""
 
@@ -135,6 +145,7 @@ def run_supply_poll_job(context: Any) -> Any:
     context.progress(stage="supply-poll", message="Reading stock and prices", percent=50, force=True)
     polled = Poller(connectors).poll_connector(connector_id)
     with connectors.store.connection() as conn:
+        _refresh_rates(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
     details: Mapping[str, Any] = {
         "searched": found.searched, "listings_found": found.listings, "discovery_stopped": found.stopped,

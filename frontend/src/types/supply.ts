@@ -196,6 +196,9 @@ export interface SupplyBomRollup {
   lines_priced: number;
   parts: number;
   currency: string | null;
+  /** True when the total was converted to the base currency; `rates_day` says which day's rates. */
+  converted?: boolean;
+  rates_day?: string | null;
   cost_build: string | null;
   cost_per_board: string | null;
   can_build: number | null;
@@ -547,6 +550,8 @@ export type AssessmentSeverity = "ok" | "warning" | "error" | "fatal";
 export interface AssessmentSettings {
   lead_time_days: number;
   stale_hours: number;
+  /** Prices in other currencies are converted to this one. */
+  base_currency: string;
   /** Relative weight of each risk area in health, 0 to 1. */
   weights: Record<SupplySubScore["name"], number>;
   severity: Record<string, AssessmentSeverity>;

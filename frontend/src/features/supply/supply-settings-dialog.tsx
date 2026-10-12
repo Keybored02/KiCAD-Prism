@@ -83,6 +83,12 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
             onChange={(event) => setDraft({ ...draft, lead_time_days: whole(event.target.value, lowLead, highLead, draft.lead_time_days) })} />
           <p className="text-xs text-muted-foreground">{lowLead} to {highLead}. Longer is a finding.</p>
         </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label htmlFor="setting-currency">Currency for comparing and totalling prices</Label>
+          <Input id="setting-currency" className="w-28" maxLength={3} value={draft.base_currency}
+            onChange={(event) => setDraft({ ...draft, base_currency: event.target.value.toUpperCase() })} />
+          <p className="text-xs text-muted-foreground">Three letters, such as EUR. Rates come from the European Central Bank each day.</p>
+        </div>
         <div className="space-y-1.5">
           <Label htmlFor="setting-age">Oldest distributor data you accept, in hours</Label>
           <Input id="setting-age" inputMode="numeric" value={draft.stale_hours}

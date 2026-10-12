@@ -26,6 +26,7 @@ class AssessmentSettingsBody(BaseModel):
 
     lead_time_days: int
     stale_hours: int
+    base_currency: str = "EUR"
     weights: Dict[str, float]
     severity: Dict[str, str]
 

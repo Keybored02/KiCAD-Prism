@@ -56,6 +56,8 @@ class AssessmentSettings:
     lead_time_days: int = 84
     # An offer older than this is out of date.
     stale_hours: int = 72
+    # Prices in other currencies are converted to this one to be compared and totalled.
+    base_currency: str = "EUR"
     # Weights of the five sub-scores in health. They are relative; only their proportions matter.
     weights: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({
         "lifecycle": 0.25, "sourcing": 0.2, "inventory": 0.3, "market": 0.1, "compliance": 0.15,
@@ -99,6 +101,7 @@ def to_dto(settings: AssessmentSettings) -> dict:
     return {
         "lead_time_days": settings.lead_time_days,
         "stale_hours": settings.stale_hours,
+        "base_currency": settings.base_currency,
         "weights": {name: settings.weights[name] for name in SUB_SCORES},
         "severity": {check: settings.severity_of(check).value for check in CHECK_LABELS},
     }
@@ -111,6 +114,7 @@ def from_dto(payload: Mapping) -> AssessmentSettings:
     return AssessmentSettings(
         lead_time_days=int(payload.get("lead_time_days", base.lead_time_days)),
         stale_hours=int(payload.get("stale_hours", base.stale_hours)),
+        base_currency=str(payload.get("base_currency", base.base_currency)),
         weights=MappingProxyType({name: float(payload.get("weights", {}).get(name, base.weights[name])) for name in SUB_SCORES}),
         severity=MappingProxyType({
             check: Status(payload.get("severity", {}).get(check, base.severity_of(check).value)) for check in CHECK_LABELS
@@ -127,6 +131,9 @@ def validate(payload: Mapping) -> dict:
             raise ValueError(f"{label} must be a whole number from {low} to {high}.")
         return value
 
+    currency = payload.get("base_currency", DEFAULTS.base_currency)
+    if not isinstance(currency, str) or len(currency) != 3 or not currency.isalpha() or not currency.isupper():
+        raise ValueError("The base currency must be a three letter code in capitals, such as EUR.")
     weights = payload.get("weights", {})
     severity = payload.get("severity", {})
     if not isinstance(weights, Mapping) or not isinstance(severity, Mapping):
@@ -148,6 +155,7 @@ def validate(payload: Mapping) -> dict:
     return {
         "lead_time_days": whole("lead_time_days", "The lead time limit", *LEAD_TIME_RANGE),
         "stale_hours": whole("stale_hours", "The data age limit", *STALE_HOURS_RANGE),
+        "base_currency": currency,
         "weights": merged,
         "severity": {check: severity.get(check, DEFAULTS.severity_of(check).value) for check in CHECK_LABELS},
     }

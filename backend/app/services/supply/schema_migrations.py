@@ -539,6 +539,28 @@ def _m014_demands(conn) -> None:
     )
 
 
+def _m015_fx_rates(conn) -> None:
+    """Exchange rates, as the European Central Bank publishes them: units of a currency per euro.
+
+    One row per day and currency. ``source`` says where a rate came from (``ecb`` or ``manual``). The
+    latest day on or before today is the one used; a missing day is never filled by guessing.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fx_rates (
+            day DATE NOT NULL,
+            currency TEXT NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+            per_eur NUMERIC(20, 8) NOT NULL CHECK (per_eur > 0),
+            source TEXT NOT NULL CHECK (source IN ('ecb', 'manual')),
+            fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (day, currency)
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -554,6 +576,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (12, "release_snapshots", _m012_release_snapshots),
     (13, "settings", _m013_settings),
     (14, "demands", _m014_demands),
+    (15, "fx_rates", _m015_fx_rates),
 ]
 
 
