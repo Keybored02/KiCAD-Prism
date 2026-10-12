@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import parts, parts_view, review, watches
+from app.services.supply import parts, parts_view, refresh, review, watches
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -51,6 +51,8 @@ def _http_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=400, detail={"code": "unknown_manufacturer", "message": str(exc)})
     if isinstance(exc, watches.WatchError):
         return HTTPException(status_code=400, detail={"code": "watch_error", "message": str(exc)})
+    if isinstance(exc, refresh.TooSoon):
+        return HTTPException(status_code=429, detail={"code": "read_too_soon", "message": str(exc)})
     if isinstance(exc, ValueError):
         return HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)})
     raise exc
@@ -107,6 +109,13 @@ async def get_part(part_id: str, user: AuthenticatedUser = Depends(require_suppl
             return parts_view.part_detail(conn, part_id, role=user.role)
 
     return await _run(read)
+
+
+@router.post("/parts/{part_id}/refresh")
+async def read_part_now(part_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
+    """Read one part from its distributors now, from the interactive reserve. Once every 15 minutes per person and part."""
+
+    return await _run(lambda: refresh.read_now(supply_connectors.service, part_id, writer.email))
 
 
 @router.get("/manufacturers")

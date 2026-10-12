@@ -172,6 +172,54 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM parts").fetchone()["n"], 1)
         self.assertEqual(self.call("GET", "/api/supply/part-lookup", role="viewer", query="manufacturer=Acme&mpn=ABC-123").status, 403)
 
+    # --- read now ---------------------------------------------------------
+
+    def test_a_part_is_read_now_from_the_interactive_reserve_and_not_again_for_fifteen_minutes(self) -> None:
+        watch = self.watch_via_api("ABC-123")
+        connector = self.fake_connector(daily_budget=20, interactive_reserve_pct=50)
+        self.collect(connector)
+        with self.store.connection() as conn:
+            before = conn.execute("SELECT COUNT(*) AS n FROM samples").fetchone()["n"]
+            spent_before = conn.execute("SELECT COALESCE(SUM(interactive_spent), 0) AS n FROM quota_ledger").fetchone()["n"]
+        first = self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="designer")
+        self.assertEqual((first.status, first.json["read"], first.json["connectors"], first.json["problems"]), (200, 1, 1, []), first.text)
+        with self.store.connection() as conn:
+            self.assertGreater(conn.execute("SELECT COUNT(*) AS n FROM samples").fetchone()["n"], before - 1)
+            self.assertEqual(conn.execute("SELECT COALESCE(SUM(interactive_spent), 0) AS n FROM quota_ledger").fetchone()["n"], spent_before + 1)
+        again = self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="designer")
+        self.assertEqual((again.status, again.json["detail"]["code"]), (429, "read_too_soon"))
+        self.assertIn("again in", again.json["detail"]["message"])
+        other = self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="admin")
+        self.assertEqual(other.status, 200, "the wait is per person")
+
+    def test_read_now_says_when_a_distributor_cannot_be_asked(self) -> None:
+        watch = self.watch_via_api("ABC-123")
+        connector = self.fake_connector()
+        self.collect(connector)
+        response = self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="designer")
+        self.assertEqual(response.json["read"], 0)
+        self.assertEqual(response.json["problems"], [{"connector": "Sim", "reason": "Sim has used today's allowance for asking."}])
+        self.connectors.pause(connector, actor=SEED_ACTOR, reason="test")
+        paused = self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role="admin")
+        self.assertEqual(paused.json["problems"][0]["reason"], "Sim is disabled or paused.")
+
+    def test_read_now_works_on_a_part_nobody_watches_and_a_part_nothing_lists_costs_no_wait(self) -> None:
+        with self.store.connection() as conn:
+            lonely = self.parts.ensure_part(conn, "Acme", "NOBODY-1", SEED_ACTOR).id
+        for _ in range(2):
+            response = self.call("POST", f"/api/supply/parts/{lonely}/refresh", role="designer")
+            self.assertEqual((response.status, response.json["read"], response.json["connectors"]), (200, 0, 0))
+        connector = self.fake_connector(daily_budget=20, interactive_reserve_pct=50)
+        listing = self.insert_listing(lonely, connector, "FAKE-NOBODY-1-CT", stock=1)
+        self.assertTrue(listing)
+        self.assertEqual(self.call("POST", f"/api/supply/parts/{lonely}/refresh", role="designer").json["read"], 1)
+
+    def test_who_may_read_now_and_an_unknown_part_is_not_found(self) -> None:
+        watch = self.watch_via_api("ABC-123")
+        for role in ("qa", "viewer"):
+            self.assertEqual(self.call("POST", f"/api/supply/parts/{watch['part_id']}/refresh", role=role).status, 403, role)
+        self.assertEqual(self.call("POST", "/api/supply/parts/nope/refresh", role="designer").status, 404)
+
     def test_tokens(self) -> None:
         reader = self.AuthenticatedUser(email="bot@example.com", name="bot", role="admin", auth_type="agent", scopes=["api:read"])
         self.assertEqual(self.call("GET", "/api/supply/parts", user=reader).status, 200)

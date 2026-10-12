@@ -56,9 +56,28 @@ class PollSummary:
     stopped: str | None = None
 
 
-def due_listings(conn, connector_id: str, now: datetime, limit: int) -> list[DueListing]:
-    """Counted listings of watched parts that have never been polled or whose time has come."""
+def due_listings(conn, connector_id: str, now: datetime, limit: int, only_part: str | None = None) -> list[DueListing]:
+    """Counted listings of watched parts that have never been polled or whose time has come.
 
+    ``only_part`` asks for that part's counted listings whatever their schedule, watched or not:
+    it is a person asking to read one part now.
+    """
+
+    if only_part is not None:
+        rows = conn.execute(
+            """
+            SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
+                   COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at
+            FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id
+            WHERE l.connector_id = %s AND l.part_id = %s AND l.match_state IN ('exact', 'manual')
+            ORDER BY l.sku LIMIT %s
+            """,
+            (connector_id, only_part, limit),
+        ).fetchall()
+        return [
+            DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"])
+            for r in rows
+        ]
     rows = conn.execute(
         """
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
@@ -97,7 +116,7 @@ class Poller:
         self._provider_for = provider_for or connectors.load_provider
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
-    def poll_connector(self, connector_id: str, *, interactive: bool = False) -> PollSummary:
+    def poll_connector(self, connector_id: str, *, interactive: bool = False, only_part: str | None = None) -> PollSummary:
         now = self._clock()
         connector = self._connectors.get(connector_id)
         if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]:
@@ -107,7 +126,7 @@ class Poller:
         if trouble.cooling_down(self._store, connector_id, now):
             return PollSummary(connector_id, stopped=STOPPED_COOLING_DOWN)
         with self._store.connection() as conn:
-            due = due_listings(conn, connector_id, now, spec.max_batch * MAX_BATCHES_PER_RUN)
+            due = due_listings(conn, connector_id, now, spec.max_batch * MAX_BATCHES_PER_RUN, only_part)
         if not due:
             return PollSummary(connector_id, stopped=STOPPED_NOTHING_DUE)
 

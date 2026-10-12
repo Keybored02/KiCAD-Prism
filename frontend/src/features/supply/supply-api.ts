@@ -347,3 +347,14 @@ export function saveAssessmentSettings(settings: AssessmentSettings): Promise<As
 export function resetAssessmentSettings(): Promise<AssessmentSettingsView> {
   return fetchJson<AssessmentSettingsView>(`${BASE}/settings/assessment`, { method: "DELETE" }, "Could not reset the settings");
 }
+
+export interface SupplyReadNow {
+  read: number;
+  connectors: number;
+  problems: Array<{ connector: string; reason: string }>;
+}
+
+/** Read one part from its distributors now. Spends the interactive reserve; once per 15 minutes per person and part. */
+export function readSupplyPartNow(partId: string): Promise<SupplyReadNow> {
+  return post(`${BASE}/parts/${encodeURIComponent(partId)}/refresh`, undefined, "Could not read the part");
+}

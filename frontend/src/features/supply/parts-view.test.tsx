@@ -368,6 +368,15 @@ describe("the watch settings", () => {
     expect(within(used).getByText("Used in (2)")).toBeTruthy();
   });
 
+  it("offers Read now to the people who can watch parts, and to nobody else", async () => {
+    renderView("designer", "/?part=p1");
+    expect(await screen.findByRole("button", { name: /Read now/ })).toBeTruthy();
+    cleanup();
+    renderView("qa", "/?part=p1");
+    await screen.findByRole("region", { name: "Watch" });
+    expect(screen.queryByRole("button", { name: /Read now/ })).toBeNull();
+  });
+
   it("shows no Used in section for a part no BOM carries", async () => {
     renderView("designer", "/?part=p1");
     await screen.findByRole("region", { name: "Watch" });

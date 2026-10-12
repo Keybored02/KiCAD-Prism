@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import type { UserRole } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
 import { AssessmentSection } from "./assessment-section";
+import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
 import { ListingTable } from "./listing-table";
 import { Sparkline } from "./sparkline";
@@ -37,9 +38,12 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">In stock</p>
             <p className="text-2xl font-semibold tabular-nums">{formatStock(detail.stock.total)}</p>
           </div>
-          <Badge variant={detail.lifecycle === "active" || detail.lifecycle === "unknown" ? "outline" : "warning"}>
-            {LIFECYCLE_LABEL[detail.lifecycle]}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={detail.lifecycle === "active" || detail.lifecycle === "unknown" ? "outline" : "warning"}>
+              {LIFECYCLE_LABEL[detail.lifecycle]}
+            </Badge>
+            {canEdit ? <ReadNowButton partId={detail.part.id} onRead={onChanged} /> : null}
+          </div>
         </div>
         {detail.problem_text ? <p role="alert" className="text-sm text-destructive">{detail.problem_text}</p> : null}
         {detail.stock.by_connector.length > 1 ? (

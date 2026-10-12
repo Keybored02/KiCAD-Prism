@@ -56,6 +56,7 @@ root first.
 | `backend/app/api/supply_settings.py` | Assessment settings endpoints: readers see them, administrators change them. |
 | `backend/app/api/supply_assessment.py` | Assessment and waiver endpoints. Readers see assessments; admin, designer and qa propose waivers; admin and qa decide. |
 | `backend/app/api/supply_access.py` | The role check shared by endpoints that writers and approvers both use. |
+| `backend/app/services/supply/refresh.py` | Read one part now: its counted listings are polled at once from the interactive reserve, once every 15 minutes per person and part. |
 | `backend/app/services/supply/panel_payload.py` | What the KiCad panel gets (remote provider 0.4.0, additive): a one-line summary on search, list and detail; detail adds distributor offers, approved alternates, insight, health, two risk lines and links. Reads only; not sent to roles that cannot read supply data. |
 | `backend/app/services/supply/catalog_read.py` | Reads catalog components for supply through the catalog service: all components, and a manufacturer-and-number to component id map. |
 | `backend/app/services/supply/release_check.py` | The supply check on a project BOM before release (health, parts that need a look; informs, never blocks) and the snapshot frozen at publish with each matched component's approved parts. The snapshot is evidence beside the release, never part of its digest. |
