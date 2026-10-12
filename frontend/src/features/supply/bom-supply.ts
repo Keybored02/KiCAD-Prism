@@ -17,6 +17,13 @@ const MPN_FIELDS: readonly string[] = [
   "manufacturer part number", "manufacturer_part_number", "mpn", "mfr. no.", "mfr no", "mfr part number",
   "mfg part number", "manufacturer pn", "mfr pn", "mnf part number", "partnumber", "part number", "part_number",
 ];
+/** Fields that carry an LCSC number. "Supplier Part" counts when "Supplier" says LCSC, as EasyEDA writes it. */
+const LCSC_FIELDS: readonly string[] = [
+  "lcsc", "lcsc part", "lcsc part #", "lcsc part number", "lcsc part no.", "lcsc pn", "lcsc#", "lcsc #", "lcsc_part",
+  "lcsc number", "lcsc no.",
+];
+const SUPPLIER_FIELDS: ReadonlyArray<readonly [string, string]> = [["supplier", "supplier part"], ["vendor", "vendor part number"]];
+const LCSC_NUMBER = /^C\d{1,12}$/;
 
 /** The columns the supply data adds to the BOM table, in the order they appear. */
 export const BOM_SUPPLY_COLUMNS = ["Supply", "Stock", "Unit price", "Extended", "Lead time"] as const;
@@ -50,6 +57,17 @@ export function identityOf(component: SemanticComponent): PartIdentity {
   return { manufacturer: fieldText(component, MANUFACTURER_FIELDS), mpn: fieldText(component, MPN_FIELDS) };
 }
 
+/** The LCSC number a symbol carries, upper-cased, or "" when it has none that looks like one. */
+export function lcscOf(component: SemanticComponent): string {
+  let found = fieldText(component, LCSC_FIELDS);
+  if (!found) {
+    const supplier = SUPPLIER_FIELDS.find(([name]) => fieldText(component, [name]).toLowerCase() === "lcsc");
+    if (supplier) found = fieldText(component, [supplier[1]]);
+  }
+  const number = found.trim().toUpperCase();
+  return LCSC_NUMBER.test(number) ? number : "";
+}
+
 /** A key that is the same for the same manufacturer and part number, however it is cased or spaced. */
 export function lineKey(identity: PartIdentity): string {
   return `${identity.manufacturer.toLowerCase()}${SEPARATOR}${identity.mpn.toLowerCase().replace(/[\s_-]+/g, "")}`;
@@ -60,8 +78,8 @@ export interface BomLineDetail extends BomLineInput {
 }
 
 /** What a line sends to the server: its identity and count, without the references. */
-export function lineInput({ key, manufacturer, mpn, quantity, prism_id }: BomLineInput): BomLineInput {
-  return prism_id ? { key, manufacturer, mpn, quantity, prism_id } : { key, manufacturer, mpn, quantity };
+export function lineInput({ key, manufacturer, mpn, quantity, prism_id, lcsc }: BomLineInput): BomLineInput {
+  return { key, manufacturer, mpn, quantity, ...(prism_id ? { prism_id } : {}), ...(lcsc ? { lcsc } : {}) };
 }
 
 /** The distinct parts among the fitted components, with how many go on one board. */
@@ -71,12 +89,17 @@ export function buildLines(fitted: readonly SemanticComponent[]): BomLineDetail[
     const identity = identityOf(component);
     const key = lineKey(identity);
     const line = lines.get(key);
+    const lcsc = lcscOf(component);
     if (line) {
       line.quantity += 1;
       line.references.push(component.reference);
+      // The first symbol of a part that carries an LCSC number gives it.
+      if (lcsc && !line.lcsc) line.lcsc = lcsc;
     } else {
       const prismId = fieldText(component, ["prism id"]);
-      lines.set(key, { key, ...identity, quantity: 1, references: [component.reference], ...(prismId ? { prism_id: prismId } : {}) });
+      lines.set(key, {
+        key, ...identity, quantity: 1, references: [component.reference], ...(prismId ? { prism_id: prismId } : {}), ...(lcsc ? { lcsc } : {}),
+      });
     }
   }
   return [...lines.values()];

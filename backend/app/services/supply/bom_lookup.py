@@ -17,6 +17,10 @@ manufacturer and part number (``with_library_identity``); the rest is unchanged.
 3. several parts share the number and the manufacturer cannot tell them apart: ambiguous
 4. a part number nobody has watched or matched: unknown
 5. no part number: not tracked
+
+A line the steps above leave untracked, unknown or ambiguous, but whose symbol carries an LCSC number already
+linked to a part, is that part. Watching a line with an LCSC number links that number to the part at the LCSC
+connector, as a person's decision.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import math
+import uuid
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
@@ -31,6 +36,7 @@ from app.services.supply import fx, parts, parts_view, pricing, usage, watches
 from app.services.supply.assessment import component_checks, line_checks, settings_store
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
+from app.services.supply.audit import write_audit
 from app.services.supply.vocabulary import Status
 from app.services.supply.identity import alias_key, match_key
 
@@ -48,6 +54,25 @@ class BomLine:
     mpn: str
     quantity: int  # per board, counting only parts that are fitted
     prism_id: str = ""  # the catalog component placed on the symbol
+    lcsc: str = ""  # the LCSC number the symbol carries, such as C7950
+
+
+LCSC_PROVIDER = "lcsc"
+LCSC_REASON = "LCSC number on the BOM"
+
+
+def _by_lcsc(conn, numbers: Iterable[str]) -> dict[str, str]:
+    """Part id per LCSC number, for numbers already linked to a part at an LCSC connector."""
+
+    wanted = sorted({number for number in numbers if number})
+    if not wanted:
+        return {}
+    rows = conn.execute(
+        "SELECT l.sku, l.part_id FROM listings l JOIN connectors c ON c.id = l.connector_id "
+        "WHERE c.provider = %s AND l.sku = ANY(%s) AND l.match_state IN ('exact', 'manual') AND l.part_id IS NOT NULL",
+        (LCSC_PROVIDER, wanted),
+    ).fetchall()
+    return {row["sku"]: row["part_id"] for row in rows}
 
 
 def _manufacturer_ids(conn, alias_keys: Iterable[str]) -> dict[str, str]:
@@ -93,6 +118,12 @@ def _resolve(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | None,
             resolved[line.key] = (AMBIGUOUS, None, None)
         else:
             resolved[line.key] = (UNKNOWN, None, None)
+    # A line the numbers could not settle is still the part its LCSC number is linked to.
+    unsettled = [line for line in lines if resolved[line.key][0] != TRACKED and line.lcsc]
+    linked = _by_lcsc(conn, (line.lcsc for line in unsettled))
+    for line in unsettled:
+        if line.lcsc in linked:
+            resolved[line.key] = (TRACKED, linked[line.lcsc], "lcsc")
     return resolved
 
 
@@ -382,16 +413,38 @@ def standing_of(conn, lines: Sequence[BomLine]) -> dict[str, dict[str, Any]]:
     }
 
 
+def _link_lcsc(conn, connector_id: str, sku: str, part_id: str, mpn: str, manufacturer: str, actor: str) -> bool:
+    """Link an LCSC number to a part, unless the number is already linked. True when a listing was added."""
+
+    listing_id = uuid.uuid4().hex
+    created = conn.execute(
+        """
+        INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, match_reason, matched_by)
+        VALUES (%s, %s, %s, %s, %s, %s, 'manual', %s, 'bom')
+        ON CONFLICT (connector_id, sku) DO NOTHING RETURNING id
+        """,
+        (listing_id, connector_id, sku, part_id, mpn, manufacturer, LCSC_REASON),
+    ).fetchone()
+    if created:
+        write_audit(conn, actor, "listing.seed", listing_id,
+                    {"part_id": part_id, "connector_id": connector_id, "sku": sku, "source": "bom"}, subject_kind="listing")
+    return created is not None
+
+
 def watch_lines(
-    conn, lines: Sequence[BomLine], actor: str, *, may_create_manufacturer: bool, identities: usage.Identities | None = None
+    conn, lines: Sequence[BomLine], actor: str, *, may_create_manufacturer: bool, identities: usage.Identities | None = None,
+    lcsc_connector: str | None = None,
 ) -> dict[str, Any]:
-    """Watch every distinct part on the lines. Reports what it could not and why."""
+    """Watch every distinct part on the lines. Reports what it could not and why.
+
+    With ``lcsc_connector``, a line's LCSC number is linked to its part there, so it is read without a search.
+    """
 
     if len(lines) > MAX_WATCH_LINES:
         raise ValueError(f"At most {MAX_WATCH_LINES} lines can be watched at once.")
     lines = with_library_identity(lines, library_identities(lines, identities))
     seen: set[tuple[str, str]] = set()
-    watched = already = 0
+    watched = already = linked = 0
     skipped: list[dict[str, str]] = []
     for line in lines:
         mpn, maker = line.mpn.strip(), line.manufacturer.strip()
@@ -407,10 +460,12 @@ def watch_lines(
         seen.add(identity)
         try:
             with conn.transaction():
-                _record, created = watches.add_watch(conn, maker, mpn, actor, may_create_manufacturer=may_create_manufacturer)
+                record, created = watches.add_watch(conn, maker, mpn, actor, may_create_manufacturer=may_create_manufacturer)
+                if lcsc_connector and line.lcsc:
+                    linked += _link_lcsc(conn, lcsc_connector, line.lcsc, record.part_id, mpn, maker, actor)
         except parts.UnknownManufacturer:
             skipped.append({"key": line.key, "reason": "unknown_manufacturer"})
             continue
         watched += 1 if created else 0
         already += 0 if created else 1
-    return {"watched": watched, "already_watched": already, "skipped": skipped}
+    return {"watched": watched, "already_watched": already, "lcsc_linked": linked, "skipped": skipped}

@@ -108,7 +108,9 @@ function Tracked({ result }: { result: SupplyBomLineResult }) {
       {result.part_need !== undefined && result.part_need !== result.need ? (
         <p className="text-xs text-muted-foreground">This part is on more than one line; the need counts all of them.</p>
       ) : null}
-      {result.manufacturer_match && result.manufacturer_match !== "exact" ? (
+      {result.manufacturer_match === "lcsc" ? (
+        <p className="text-xs text-muted-foreground">Found by the LCSC number on the symbol.</p>
+      ) : result.manufacturer_match && result.manufacturer_match !== "exact" ? (
         <p className="text-xs text-warning">
           Found by part number alone: {result.manufacturer_match === "missing" ? "this symbol names no manufacturer." : "Prism does not know this manufacturer spelling."}
         </p>

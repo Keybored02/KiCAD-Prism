@@ -82,8 +82,7 @@ class FillService:
             exact = [m for m in matches if wanted in (match_key(m.mpn), match_key(m.sku))][:MAX_CANDIDATES_PER_CONNECTOR]
             candidates += [_candidate(connector, m, manufacturer) for m in exact]
             if not exact:
-                note = registry.get_spec(connector["provider"]).search_note
-                skipped.append({"connector": name, "reason": note or "no match"})
+                skipped.append({"connector": name, "reason": "no match"})
         # Stable: the same manufacturer first, the rest in connector order.
         candidates.sort(key=lambda item: not item["manufacturer_matches"])
         return {"candidates": candidates, "skipped": skipped}

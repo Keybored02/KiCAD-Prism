@@ -10,6 +10,7 @@ from here. A test compares the two so they cannot drift apart.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping
 
 MANUFACTURER_FIELDS: tuple[str, ...] = (
@@ -36,6 +37,28 @@ def _first(fields: Mapping[str, Any], names: tuple[str, ...]) -> str:
         if name in by_name:
             return by_name[name]
     return ""
+
+
+# Fields that carry an LCSC number (C and digits). "Supplier Part" counts when "Supplier" says LCSC, as EasyEDA writes it.
+LCSC_FIELDS: tuple[str, ...] = (
+    "lcsc", "lcsc part", "lcsc part #", "lcsc part number", "lcsc part no.", "lcsc pn", "lcsc#", "lcsc #", "lcsc_part",
+    "lcsc number", "lcsc no.",
+)
+_SUPPLIER_FIELDS: tuple[tuple[str, str], ...] = (("supplier", "supplier part"), ("vendor", "vendor part number"))
+_LCSC_NUMBER = re.compile(r"^C\d{1,12}$")
+
+
+def lcsc_of(fields: Mapping[str, Any]) -> str:
+    """The LCSC number a symbol carries, upper-cased, or empty when it has none that looks like one."""
+
+    found = _first(fields, LCSC_FIELDS)
+    if not found:
+        for supplier, part in _SUPPLIER_FIELDS:
+            if _first(fields, (supplier,)).lower() == "lcsc":
+                found = _first(fields, (part,))
+                break
+    number = found.strip().upper()
+    return number if _LCSC_NUMBER.match(number) else ""
 
 
 PRISM_ID_FIELD = "prism id"

@@ -26,10 +26,12 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
     try {
       const result = await supply.watchAll();
       const skipped = result.skipped.length;
-      toast.success(
-        `Watching ${result.watched + result.already_watched} parts`,
-        skipped > 0 ? { description: `${skipped} lines skipped. First: ${SKIPPED_WHY[result.skipped[0].reason]}.` } : undefined,
-      );
+      const linked = result.lcsc_linked ?? 0;
+      const notes = [
+        linked > 0 ? `${linked} LCSC numbers from the BOM linked.` : "",
+        skipped > 0 ? `${skipped} lines skipped. First: ${SKIPPED_WHY[result.skipped[0].reason]}.` : "",
+      ].filter(Boolean);
+      toast.success(`Watching ${result.watched + result.already_watched} parts`, notes.length ? { description: notes.join(" ") } : undefined);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not watch the parts");
     } finally {

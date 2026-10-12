@@ -24,8 +24,9 @@ export function BomFileResults({ lines, lookup }: { lines: readonly FileLine[]; 
             return (
               <tr key={line.key} className="border-t">
                 <td className="p-2">
-                  <span className="font-medium">{line.mpn}</span>
+                  <span className="font-medium">{line.mpn || line.lcsc}</span>
                   {line.manufacturer ? <span className="ml-2 text-xs text-muted-foreground">{line.manufacturer}</span> : null}
+                  {line.mpn && line.lcsc ? <span className="ml-2 text-xs text-muted-foreground">{line.lcsc}</span> : null}
                 </td>
                 <td className="p-2 text-right tabular-nums">{line.quantity.toLocaleString()}</td>
                 <td className="p-2">

@@ -4,10 +4,11 @@ LCSC publishes no API. This reads ``GET https://wmsc.lcsc.com/ftps/wm/product/de
 the call its product pages make, as Ki-nTree does. It can change without notice. It was checked live: the
 answers below are recorded from it.
 
-* Only a SKU can be asked for (an LCSC part number, ``C`` and digits). The keyword search the site uses
-  answers 403 to anything but a browser, so there is no search by manufacturer number: ``lookup_mpn`` accepts
-  an LCSC number and returns that part, and anything else finds nothing. A part is tracked once its LCSC
-  number is given, through Fill from distributor or an import.
+* An LCSC number (``C`` and digits) is read directly. A manufacturer number is searched with
+  ``GET https://easyeda.com/api/eda/product/search?keyword=LM358DR``, the part search of EasyEDA (LCSC's own
+  design tool), which answers ``productList`` items with ``number`` (the LCSC number), ``mpn`` and
+  ``manufacturer``. The search is loose: ``LM358DR`` also finds ``LM358DRG4``, which discovery marks as near.
+  LCSC's own keyword search answers 403 to anything but a browser, and ``wwwapi.lcsc.com`` no longer exists.
 * ``{"code": 200, "result": null}`` is an unknown code.
 * ``stockNumber`` is the stock. ``productPriceList`` holds ``ladder`` (the quantity) and ``usdPrice``; prices
   are US dollars whatever the visitor's region. ``minBuyNumber`` is the minimum order and ``split`` the
@@ -41,8 +42,10 @@ from app.services.supply.vocabulary import Lifecycle
 
 KEY = "lcsc"
 DETAIL_URL = "https://wmsc.lcsc.com/ftps/wm/product/detail"
+SEARCH_URL = "https://easyeda.com/api/eda/product/search"
 PAGE_URL = "https://www.lcsc.com/product-detail/{}.html"
-ALLOWED_HOSTS = ("wmsc.lcsc.com",)
+ALLOWED_HOSTS = ("wmsc.lcsc.com", "easyeda.com")
+SEARCH_PAGE_SIZE = 20
 MIN_INTERVAL_SECONDS = 1.0
 CURRENCY = "USD"
 
@@ -67,12 +70,25 @@ class LcscProvider:
         self._sleep = sleep
         self._last_call: float | None = None
 
-    def _detail(self, sku: str) -> dict[str, Any] | None:
+    def _pace(self) -> None:
         if self._last_call is not None:
             wait = MIN_INTERVAL_SECONDS - (self._monotonic() - self._last_call)
             if wait > 0:
                 self._sleep(wait)
         self._last_call = self._monotonic()
+
+    def _search(self, keyword: str) -> list[dict[str, Any]]:
+        self._pace()
+        answer = self._client.request_json(
+            "GET", SEARCH_URL, params={"keyword": keyword, "currentPage": 1, "pageSize": SEARCH_PAGE_SIZE},
+        )
+        if not isinstance(answer, dict) or answer.get("code") not in (0, 200):
+            raise ProviderError("EasyEDA did not answer the part search")
+        found = (answer.get("result") or {}).get("productList") or []
+        return [item for item in found if isinstance(item, dict) and _SKU.match(str(item.get("number") or "").upper())]
+
+    def _detail(self, sku: str) -> dict[str, Any] | None:
+        self._pace()
         answer = self._client.request_json("GET", DETAIL_URL, params={"productCode": sku})
         if not isinstance(answer, dict):
             raise ProviderError("LCSC answered with something other than an object")
@@ -85,10 +101,12 @@ class LcscProvider:
 
     def lookup_mpn(self, mpn: str, manufacturer: str | None = None) -> list[PartMatch]:
         sku = mpn.strip().upper()
-        if not _SKU.match(sku):
+        if _SKU.match(sku):
+            product = self._detail(sku)
+            return [_match(sku, product)] if product else []
+        if not mpn.strip():
             return []
-        product = self._detail(sku)
-        return [_match(sku, product)] if product else []
+        return [_search_match(item) for item in self._search(mpn.strip())]
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         offers = []
@@ -127,6 +145,18 @@ def _match(sku: str, product: Mapping[str, Any]) -> PartMatch:
             for item in product.get("paramVOList") or []
             if isinstance(item, dict) and item.get("paramNameEn")
         ),
+    )
+
+
+def _search_match(item: Mapping[str, Any]) -> PartMatch:
+    sku = str(item["number"]).upper()
+    return PartMatch(
+        provider=KEY,
+        sku=sku,
+        mpn=str(item.get("mpn") or sku),
+        manufacturer=str(item.get("manufacturer") or ""),
+        description=str(item.get("package") or ""),
+        product_url=PAGE_URL.format(sku),
     )
 
 
@@ -176,5 +206,4 @@ SPEC = ProviderSpec(
     credential_fields=(),
     factory=lambda config: LcscProvider(config),
     default_daily_budget=2000,
-    search_note="LCSC is asked by its own number, such as C7950",
 )

@@ -400,6 +400,31 @@ class BomLookupTests(unittest.TestCase):
         again = self.call("/api/supply/bom/watch", {"lines": lines}).json
         self.assertEqual((again["watched"], again["already_watched"]), (0, 2))
 
+    def test_an_lcsc_number_on_the_line_is_linked_when_watched_and_then_resolves_the_line(self) -> None:
+        lcsc = self.connectors.create(actor=SEED, provider="lcsc", currency="USD", display_name="LCSC")["id"]
+        self.part("Texas Instruments", "LM358DR")
+        data = self.call("/api/supply/bom/watch", {"lines": [
+            {"key": "1", "manufacturer": "Texas Instruments", "mpn": "LM358DR", "lcsc": "C5423"},
+        ]}).json
+        self.assertEqual((data["watched"], data["lcsc_linked"]), (1, 1))
+        (listing,) = self.rows("SELECT connector_id, sku, match_state, matched_by FROM listings")
+        self.assertEqual(dict(listing), {"connector_id": lcsc, "sku": "C5423", "match_state": "manual", "matched_by": "bom"})
+        again = self.call("/api/supply/bom/watch", {"lines": [{"key": "1", "manufacturer": "Texas Instruments", "mpn": "LM358DR", "lcsc": "C5423"}]}).json
+        self.assertEqual(again["lcsc_linked"], 0, "a number already linked is left alone")
+        # A line with only the LCSC number, or a part number nobody knows, is still that part.
+        result = self.lookup([
+            {"key": "only", "manufacturer": "", "mpn": "", "lcsc": "C5423"},
+            {"key": "odd", "manufacturer": "TI", "mpn": "LM358DR-ODD", "lcsc": "C5423"},
+            {"key": "other", "manufacturer": "", "mpn": "", "lcsc": "C1"},
+        ])["lines"]
+        self.assertEqual((result["only"]["state"], result["only"]["manufacturer_match"]), ("tracked", "lcsc"))
+        self.assertEqual(result["odd"]["state"], "tracked")
+        self.assertEqual(result["other"]["state"], "no_mpn")
+
+    def test_an_lcsc_number_must_look_like_one(self) -> None:
+        response = self.call("/api/supply/bom/lookup", {"lines": [{"key": "1", "mpn": "X", "lcsc": "7950"}]})
+        self.assertEqual(response.status, 422)
+
     def rows(self, sql: str, *params):
         with self.store.connection() as conn:
             return conn.execute(sql, params).fetchall()

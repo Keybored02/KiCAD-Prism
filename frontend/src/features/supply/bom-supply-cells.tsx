@@ -17,6 +17,7 @@ function leadTime(days: number | null | undefined): string {
 function manufacturerHint(result: SupplyBomLineResult): string {
   if (result.manufacturer_match === "missing") return "Matched on the part number alone: this line names no manufacturer.";
   if (result.manufacturer_match === "unmatched") return "Matched on the part number alone: Prism does not know this manufacturer spelling.";
+  if (result.manufacturer_match === "lcsc") return "Matched by the LCSC number on the symbol.";
   return "";
 }
 

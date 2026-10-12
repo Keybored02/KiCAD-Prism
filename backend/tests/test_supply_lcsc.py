@@ -17,6 +17,7 @@ from test_supply_distributors import FakeClient  # noqa: E402
 
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=timezone.utc)
 PATH = "/ftps/wm/product/detail"
+SEARCH_PATH = "/api/eda/product/search"
 
 
 def product(**change):
@@ -90,10 +91,27 @@ class LcscTests(unittest.TestCase):
         with self.assertRaises(ProviderError):
             provider(client).get_offers(["C2040"])
 
-    def test_only_an_lcsc_number_can_be_looked_up(self) -> None:
+    def test_a_manufacturer_number_is_searched_at_easyeda(self) -> None:
+        # Trimmed from what easyeda.com answered for LM358DR on 2026-10-12.
+        found = {"code": 200, "msg": None, "result": {"total": 3, "productList": [
+            {"number": "C5423", "mpn": "LM358DR", "manufacturer": "TI", "package": "SOIC-8", "stock": 144115},
+            {"number": "C350551", "mpn": "LM358DRG4", "manufacturer": "TI", "package": "SOIC-8", "stock": 0},
+            {"number": "", "mpn": "broken", "manufacturer": "X"},
+        ]}}
+        client = FakeClient({SEARCH_PATH: [found]})
+        matches = provider(client).lookup_mpn("LM358DR", "Texas Instruments")
+        self.assertEqual(client.calls[0]["params"], {"keyword": "LM358DR", "currentPage": 1, "pageSize": lcsc.SEARCH_PAGE_SIZE})
+        self.assertEqual([(m.sku, m.mpn, m.manufacturer) for m in matches], [("C5423", "LM358DR", "TI"), ("C350551", "LM358DRG4", "TI")])
+        self.assertEqual(matches[0].product_url, "https://www.lcsc.com/product-detail/C5423.html")
+
+    def test_a_search_that_finds_nothing_or_fails(self) -> None:
+        empty = {"code": 200, "msg": None, "result": {"total": 0, "productList": []}}
+        self.assertEqual(provider(FakeClient({SEARCH_PATH: [empty]})).lookup_mpn("NOSUCH-1"), [])
+        with self.assertRaises(ProviderError):
+            provider(FakeClient({SEARCH_PATH: [{"code": 500, "result": None}]})).lookup_mpn("LM358DR")
+
+    def test_an_lcsc_number_is_read_directly(self) -> None:
         client = FakeClient({PATH: [answer(product())]})
-        self.assertEqual(provider(client).lookup_mpn("RP2040"), [])
-        self.assertEqual(client.calls, [])
         (match,) = provider(client).lookup_mpn(" c2040 ")
         self.assertEqual((match.sku, match.mpn, match.manufacturer), ("C2040", "RP2040", "Raspberry Pi"))
         self.assertEqual(match.product_url, "https://www.lcsc.com/product-detail/C2040.html")

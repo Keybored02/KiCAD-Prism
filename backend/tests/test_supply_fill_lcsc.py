@@ -1,4 +1,4 @@
-"""Fill from distributor with LCSC: its own number finds the part, and a manufacturer number says why it cannot."""
+"""Fill from distributor with LCSC: its own number finds the part, whatever the manufacturer number is."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.supply.fill import FillService  # noqa: E402
 from app.services.supply.models import PartMatch  # noqa: E402
-from app.services.supply.providers.lcsc import SPEC  # noqa: E402
 
 
 class _Connectors:
@@ -43,13 +42,13 @@ class FillLcscTests(unittest.TestCase):
         (candidate,) = result["candidates"]
         self.assertEqual((candidate["sku"], candidate["mpn"], candidate["manufacturer"]), ("C7950", "LM358DR2G", "onsemi"))
 
-    def test_a_manufacturer_number_explains_that_lcsc_needs_its_own(self) -> None:
+    def test_a_number_nothing_carries_is_no_match(self) -> None:
         from unittest import mock
 
         with mock.patch("app.services.supply.fill.trouble.cooling_down", return_value=False):
             result = self.service().search("LM358DR")
         self.assertEqual(result["candidates"], [])
-        self.assertEqual(result["skipped"], [{"connector": "LCSC", "reason": SPEC.search_note}])
+        self.assertEqual(result["skipped"], [{"connector": "LCSC", "reason": "no match"}])
 
 
 if __name__ == "__main__":

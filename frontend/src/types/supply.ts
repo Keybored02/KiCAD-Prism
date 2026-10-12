@@ -271,6 +271,8 @@ export interface BomLineInput {
   quantity: number;
   /** The catalog component placed on the symbol; when the catalog knows it, its manufacturer and number win. */
   prism_id?: string;
+  /** The LCSC number on the symbol, such as C7950. */
+  lcsc?: string;
 }
 
 export interface SupplyBomBuy {
@@ -290,8 +292,8 @@ export interface SupplyBomLineResult {
   /** "tracked" has data; the rest say why a line has none. */
   state: "no_mpn" | "unknown" | "ambiguous" | "tracked";
   part_id: string | null;
-  /** How the manufacturer matched: "missing" and "unmatched" mean the part number alone found it. */
-  manufacturer_match: "exact" | "missing" | "unmatched" | null;
+  /** How the manufacturer matched: "missing" and "unmatched" mean the part number alone found it; "lcsc" the symbol's LCSC number. */
+  manufacturer_match: "exact" | "missing" | "unmatched" | "lcsc" | null;
   need: number;
   watched?: boolean;
   status?: SupplyStatus;
@@ -344,6 +346,8 @@ export interface SupplyBomLookup {
 export interface SupplyBomWatchResult {
   watched: number;
   already_watched: number;
+  /** LCSC numbers on the lines newly linked to their parts. */
+  lcsc_linked?: number;
   skipped: Array<{ key: string; reason: "no_mpn" | "no_manufacturer" | "unknown_manufacturer" }>;
 }
 

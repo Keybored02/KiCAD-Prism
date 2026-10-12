@@ -68,10 +68,11 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
     const results = await Promise.all(
       batches.map((batch) => watchSupplyBomLines(batch.map(lineInput))),
     );
-    const totals: SupplyBomWatchResult = { watched: 0, already_watched: 0, skipped: [] };
+    const totals: SupplyBomWatchResult = { watched: 0, already_watched: 0, lcsc_linked: 0, skipped: [] };
     for (const result of results) {
       totals.watched += result.watched;
       totals.already_watched += result.already_watched;
+      totals.lcsc_linked = (totals.lcsc_linked ?? 0) + (result.lcsc_linked ?? 0);
       totals.skipped.push(...result.skipped);
     }
     await refresh();

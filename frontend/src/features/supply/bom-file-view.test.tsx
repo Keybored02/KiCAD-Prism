@@ -32,15 +32,22 @@ describe("reading a BOM file", () => {
   });
 
   it("guesses the columns from the header and leaves the rest empty", () => {
-    expect(guessMapping(["Reference", "Qty", "Manufacturer", "MPN"])).toEqual({ manufacturer: 2, mpn: 3, quantity: 1, references: 0 });
-    expect(guessMapping(["Foo", "Bar"])).toEqual({ manufacturer: null, mpn: null, quantity: null, references: null });
+    expect(guessMapping(["Reference", "Qty", "Manufacturer", "MPN"])).toEqual({ manufacturer: 2, mpn: 3, lcsc: null, quantity: 1, references: 0 });
+    expect(guessMapping(["Foo", "LCSC Part #"])).toEqual({ manufacturer: null, mpn: null, lcsc: 1, quantity: null, references: null });
   });
 
   it("adds rows that are the same part and counts rows without a number", () => {
     const rows = parseTable(CSV).slice(1);
-    const { lines, skipped } = buildFileLines(rows, { manufacturer: 2, mpn: 3, quantity: 1, references: 0 });
+    const { lines, skipped } = buildFileLines(rows, { manufacturer: 2, mpn: 3, lcsc: null, quantity: 1, references: 0 });
     expect(skipped).toBe(1);
     expect(lines.map((line) => [line.mpn, line.quantity, line.references])).toEqual([["R-10K", 2, ["R1", "R2"]], ["LM,358", 2, ["U1"]]]);
+  });
+
+  it("keeps a row with only an LCSC number, and ignores one that does not look like one", () => {
+    const rows = parseTable("MPN,LCSC\nLM358DR,C5423\n,c7950\n,n/a\n").slice(1);
+    const { lines, skipped } = buildFileLines(rows, { manufacturer: null, mpn: 0, lcsc: 1, quantity: null, references: null });
+    expect(skipped).toBe(1);
+    expect(lines.map((line) => [line.key, line.mpn, line.lcsc])).toEqual([[" | lm358dr", "LM358DR", "C5423"], ["lcsc | c7950", "", "C7950"]]);
   });
 });
 

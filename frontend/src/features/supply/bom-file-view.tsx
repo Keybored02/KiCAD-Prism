@@ -10,12 +10,15 @@ import {
   buildFileLines, guessMapping, MAX_FILE_BYTES, MAX_FILE_ROWS, parseTable, type Mapping, type Role,
 } from "./bom-file-model";
 import { BomFileResults } from "./bom-file-results";
+import { lineInput } from "./bom-supply";
 import { lookupSupplyBom } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 
+// A row needs one of the two numbers, so neither is marked optional.
 const ROLES: ReadonlyArray<{ role: Role; label: string; required: boolean }> = [
   { role: "mpn", label: "Manufacturer part number", required: true },
   { role: "manufacturer", label: "Manufacturer", required: false },
+  { role: "lcsc", label: "LCSC number", required: true },
   { role: "quantity", label: "Quantity per board", required: false },
   { role: "references", label: "References", required: false },
 ];
@@ -25,7 +28,7 @@ export function BomFileView() {
   const [rows, setRows] = useState<string[][]>([]);
   const [fileName, setFileName] = useState("");
   const [header, setHeader] = useState(true);
-  const [mapping, setMapping] = useState<Mapping>({ manufacturer: null, mpn: null, quantity: null, references: null });
+  const [mapping, setMapping] = useState<Mapping>({ manufacturer: null, mpn: null, lcsc: null, quantity: null, references: null });
   const [build, setBuild] = useState(1);
   const [lookup, setLookup] = useState<SupplyBomLookup | null>(null);
   const { busy, error, run } = useConnectorSubmit();
@@ -48,14 +51,14 @@ export function BomFileView() {
   };
 
   const check = () => run(async () => {
-    setLookup(await lookupSupplyBom(built.lines.map(({ key, manufacturer, mpn, quantity }) => ({ key, manufacturer, mpn, quantity })), build));
+    setLookup(await lookupSupplyBom(built.lines.map(lineInput), build));
   });
 
   return (
     <div className="space-y-4 p-4">
       <p className="max-w-3xl text-sm text-muted-foreground">
-        Check a BOM that is not a project here: a CSV with a part number column. Nothing is saved. Parts Prism does not watch
-        show as unknown; watch them from their project or from the Parts tab.
+        Check a BOM that is not a project here: a CSV with a part number or LCSC number column. Nothing is saved. Parts
+        Prism does not watch show as unknown; watch them from their project or from the Parts tab.
       </p>
       <div className="space-y-1">
         <Label htmlFor="bom-file">BOM file (CSV, semicolon or tab separated)</Label>
@@ -93,12 +96,12 @@ export function BomFileView() {
             <button
               type="button"
               className="h-9 border bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50"
-              disabled={busy || mapping.mpn === null || built.lines.length === 0}
+              disabled={busy || (mapping.mpn === null && mapping.lcsc === null) || built.lines.length === 0}
               onClick={() => void check()}
             >
               Check {built.lines.length.toLocaleString()} distinct parts
             </button>
-            {built.skipped > 0 ? <span className="text-xs text-muted-foreground">{built.skipped} rows without a part number are left out.</span> : null}
+            {built.skipped > 0 ? <span className="text-xs text-muted-foreground">{built.skipped} rows without a part number or LCSC number are left out.</span> : null}
           </div>
         </div>
       ) : null}

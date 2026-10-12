@@ -35,6 +35,8 @@ class LineIn(BaseModel):
     quantity: int = Field(default=1, ge=1, le=100_000)
     # The catalog component placed on the symbol. When the catalog knows it, its manufacturer and part number win.
     prism_id: str = Field(default="", max_length=100)
+    # The LCSC number on the symbol, such as C7950.
+    lcsc: str = Field(default="", max_length=14, pattern=r"^(C\d{1,12})?$")
 
 
 class LookupRequest(BaseModel):
@@ -68,7 +70,17 @@ async def _run(call: Callable[[], T]) -> T:
 
 
 def _lines(items: list[LineIn]) -> list[bom_lookup.BomLine]:
-    return [bom_lookup.BomLine(item.key, item.manufacturer, item.mpn, item.quantity, item.prism_id) for item in items]
+    return [bom_lookup.BomLine(item.key, item.manufacturer, item.mpn, item.quantity, item.prism_id, item.lcsc) for item in items]
+
+
+def _lcsc_connector() -> str | None:
+    """The one usable LCSC connector, or None when there is none or there are several."""
+
+    found = [
+        connector["id"] for connector in supply_connectors.service.list()
+        if connector["provider"] == bom_lookup.LCSC_PROVIDER and connector["enabled"] and not connector["paused_reason"]
+    ]
+    return found[0] if len(found) == 1 else None
 
 
 @router.post("/usage/refresh")
@@ -186,10 +198,11 @@ async def lookup(body: LookupRequest, _user: AuthenticatedUser = Depends(require
 @router.post("/watch")
 async def watch(body: WatchRequest, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
+        lcsc = _lcsc_connector() if any(line.lcsc for line in body.lines) else None
         with _store().connection() as conn:
             return bom_lookup.watch_lines(
                 conn, _lines(body.lines), writer.email, may_create_manufacturer=writer.role in SUPPLY_APPROVE_ROLES,
-                identities=catalog_read.identities,
+                identities=catalog_read.identities, lcsc_connector=lcsc,
             )
 
     return await _run(run)

@@ -18,7 +18,7 @@ Library Manager > Connectors. One connector per provider and storefront.
 | Mouser | API key | Answers in the account's language. About 1,000 calls a day. |
 | DigiKey | Client id and secret | One part per call, so it is slow for large watchlists. |
 | Farnell, Newark, element14 | API key, store, currency | Choose the store and the currency yourself. Not yet checked against the live service. |
-| LCSC | Nothing | Looks up an LCSC number only (`C2040`). Prices are in US dollars. Not a published API; it can change. |
+| LCSC | Nothing | Searches by manufacturer part number through EasyEDA's part search, or reads an LCSC number (`C2040`) directly. Prices are in US dollars. Not a published API; it can change. |
 | CSV | A file you upload | For air-gapped installs. The file replaces the previous one. |
 
 Credentials are encrypted and never shown again. `TRACKER_CREDENTIAL_ROOT_KEY` must be set (see
@@ -127,6 +127,11 @@ number. The header shows the cost of the build, parts at risk and short, and how
 Prices are list prices, without VAT or shipping. Offers in different currencies are converted to the base currency (a Supply setting, EUR by default) with the European Central Bank's daily rates, and the total says which day's rates it used. Without a route to the ECB, an administrator can enter rates (`POST /api/supply/fx/rates`); without rates there is no total across currencies. Lines without a part number are
 counted as *not tracked*. "Read project BOMs" queues the BOM reading of projects nobody has opened yet, so Where Used and Parts in use are complete.
 
+A symbol can carry its LCSC number in a field named `LCSC`, `LCSC Part #`, `LCSC Part Number` or similar, or in
+`Supplier Part` when `Supplier` is `LCSC` (as EasyEDA exports it). Watching the BOM's parts links that number to the
+part at the LCSC connector, so LCSC is read without a search. After that, a line whose part number Prism does not know
+is still found by its LCSC number.
+
 ## Assessment
 
 Each part gets findings, five risk scores (lifecycle, sourcing, inventory, market, compliance), a health figure from
@@ -154,10 +159,10 @@ section.
 ## BOM file
 
 Supply > BOM file checks a BOM that is not a project. Choose a CSV (comma, semicolon or tab separated; up to 2 MB and 5,000
-rows), confirm which column is the part number, manufacturer, quantity and references (they are guessed from the header),
-set the number of boards, and Prism shows what the parts would cost and whether they can be built, with the same rollup as
-a project BOM. Rows of the same part are added together. Nothing is saved, and parts Prism does not watch show as
-unknown.
+rows), confirm which column is the part number, manufacturer, LCSC number, quantity and references (they are guessed from
+the header), set the number of boards, and Prism shows what the parts would cost and whether they can be built, with the
+same rollup as a project BOM. A row needs a part number or an LCSC number. Rows of the same part are added together.
+Nothing is saved, and parts Prism does not watch show as unknown.
 
 ## Compliance draft
 

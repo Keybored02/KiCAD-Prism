@@ -44,6 +44,15 @@ class FieldNameTests(unittest.TestCase):
 
         self.assertEqual(names("MANUFACTURER_FIELDS"), bom_fields.MANUFACTURER_FIELDS)
         self.assertEqual(names("MPN_FIELDS"), bom_fields.MPN_FIELDS)
+        self.assertEqual(names("LCSC_FIELDS"), bom_fields.LCSC_FIELDS)
+
+    def test_an_lcsc_number_is_read_from_its_field_or_from_a_supplier_that_says_lcsc(self) -> None:
+        self.assertEqual(bom_fields.lcsc_of({"LCSC Part #": " c7950 "}), "C7950")
+        self.assertEqual(bom_fields.lcsc_of({"LCSC": "C25804", "Supplier": "LCSC", "Supplier Part": "C1"}), "C25804")
+        self.assertEqual(bom_fields.lcsc_of({"Supplier": "LCSC", "Supplier Part": "C2040"}), "C2040")
+        self.assertEqual(bom_fields.lcsc_of({"Supplier": "Mouser", "Supplier Part": "C2040"}), "")
+        self.assertEqual(bom_fields.lcsc_of({"LCSC": "not a number"}), "")
+        self.assertEqual(bom_fields.lcsc_of({}), "")
 
     def test_identity_prefers_the_explicit_name_and_never_reads_the_distributors_number(self) -> None:
         self.assertEqual(bom_fields.identity_of({"Mnf.": "TRACO", "PartNumber": "TSR 1-2450"}), ("TRACO", "TSR 1-2450"))

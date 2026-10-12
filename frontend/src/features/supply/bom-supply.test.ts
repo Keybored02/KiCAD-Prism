@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SemanticComponent } from "@/types/prism-selection";
 import type { SupplyBomLineResult, SupplyBomRollup } from "@/types/supply";
-import { buildLines, identityOf, isSupplyColumn, lineInput, lineKey, rowSupply, unwatchedCount, untrackedLabel } from "./bom-supply";
+import { buildLines, identityOf, isSupplyColumn, lcscOf, lineInput, lineKey, rowSupply, unwatchedCount, untrackedLabel } from "./bom-supply";
 import { rollupSentences } from "./bom-rollup-text";
 
 function part(reference: string, fields: Record<string, string | number | boolean | null> = {}): SemanticComponent {
@@ -61,6 +61,18 @@ describe("part identity from field names", () => {
     ]);
     expect(lineInput(placed)).toEqual({ key: placed.key, manufacturer: "TI", mpn: "LM358", quantity: 1, prism_id: "c1" });
     expect(lineInput(plain)).toEqual({ key: plain.key, manufacturer: "Acme", mpn: "Z-9", quantity: 1 });
+  });
+
+  it("reads an LCSC number from its field or from a supplier that says LCSC, and sends it", () => {
+    expect(lcscOf(part("U1", { "LCSC Part #": " c7950 " }))).toBe("C7950");
+    expect(lcscOf(part("U1", { Supplier: "LCSC", "Supplier Part": "C2040" }))).toBe("C2040");
+    expect(lcscOf(part("U1", { Supplier: "Mouser", "Supplier Part": "C2040" }))).toBe("");
+    expect(lcscOf(part("U1", { LCSC: "n/a" }))).toBe("");
+    const [line] = buildLines([
+      part("U1", { Manufacturer: "TI", "Manufacturer Part Number": "LM358DR" }),
+      part("U2", { Manufacturer: "TI", "Manufacturer Part Number": "LM358DR", LCSC: "C5423" }),
+    ]);
+    expect(lineInput(line)).toEqual({ key: line.key, manufacturer: "TI", mpn: "LM358DR", quantity: 2, lcsc: "C5423" });
   });
 });
 
