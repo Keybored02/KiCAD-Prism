@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
-from app.services.supply import datasheets, fx, ledger, quota, retention
+from app.services.supply import datasheets, fx, ledger, market, quota, retention
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import REDO_AFTER, Discoverer
 from app.services.supply.poller import Poller
@@ -133,6 +133,16 @@ def _check_datasheets(store: SupplyStore) -> None:
         logging.getLogger(__name__).info("Datasheets not checked", exc_info=True)
 
 
+def _snapshot_market(conn) -> None:
+    """Store today's market indices once. Best effort."""
+
+    try:
+        with conn.transaction():
+            market.snapshot(conn)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).info("Market indices not stored", exc_info=True)
+
+
 def _refresh_rates(conn) -> None:
     """Keep the exchange rates fresh. Best effort: with no route to the ECB, rates stay as they were."""
 
@@ -155,6 +165,7 @@ def run_supply_poll_job(context: Any) -> Any:
     polled = Poller(connectors).poll_connector(connector_id)
     with connectors.store.connection() as conn:
         _refresh_rates(conn)
+        _snapshot_market(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
     # Outside the connection above: fetching a file can take a while.
     _check_datasheets(connectors.store)

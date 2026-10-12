@@ -28,6 +28,7 @@ import type {
   SupplyCompliance,
   SupplyComponentFinding,
   SupplyDatasheets,
+  SupplyMarket,
   SupplySvhcList,
   SupplyDemand,
   SupplyDemandSummary,
@@ -421,6 +422,10 @@ export function getSvhcList(signal?: AbortSignal): Promise<SupplySvhcList> {
 
 export function loadSvhcList(csv: string, sourceName: string): Promise<SupplySvhcList> {
   return post(`${BASE}/compliance/svhc`, { csv, source_name: sourceName }, "Could not load the Candidate List");
+}
+
+export function getSupplyMarket(signal?: AbortSignal): Promise<SupplyMarket> {
+  return fetchJson(`${BASE}/market`, { signal }, "Could not load the market figures");
 }
 
 export interface SupplyReadNow {

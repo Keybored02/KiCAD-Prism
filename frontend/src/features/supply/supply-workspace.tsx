@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BellRing, Boxes, LayoutDashboard, ListChecks, Settings, ShieldAlert, type LucideIcon } from "lucide-react";
+import { BellRing, Boxes, LayoutDashboard, LineChart, ListChecks, Settings, ShieldAlert, type LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,6 +11,7 @@ const OverviewView = lazy(() => import("./overview-view").then((module) => ({ de
 const InboxView = lazy(() => import("./inbox-view").then((module) => ({ default: module.InboxView })));
 const PartsView = lazy(() => import("./parts-view").then((module) => ({ default: module.PartsView })));
 const SupplySettingsDialog = lazy(() => import("./supply-settings-dialog").then((module) => ({ default: module.SupplySettingsDialog })));
+const MarketView = lazy(() => import("./market-view").then((module) => ({ default: module.MarketView })));
 const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
 
 const VIEWS: ReadonlyArray<{ id: SupplyView; label: string; icon: LucideIcon }> = [
@@ -18,9 +19,10 @@ const VIEWS: ReadonlyArray<{ id: SupplyView; label: string; icon: LucideIcon }> 
   { id: "parts", label: "Parts", icon: Boxes },
   { id: "inbox", label: "Inbox", icon: BellRing },
   { id: "review", label: "Review", icon: ListChecks },
+  { id: "market", label: "Market", icon: LineChart },
 ];
 
-type SupplyView = "overview" | "parts" | "inbox" | "review";
+type SupplyView = "overview" | "parts" | "inbox" | "review" | "market";
 
 function isSupplyView(value: string | null): value is SupplyView {
   return VIEWS.some((view) => view.id === value);
@@ -85,6 +87,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
           {view === "parts" && <PartsView user={user} />}
           {view === "inbox" && <InboxView user={user} />}
           {view === "review" && <ReviewView user={user} />}
+          {view === "market" && <MarketView />}
         </div>
       </Suspense>
       {settingsOpen ? (

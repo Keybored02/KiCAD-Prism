@@ -36,6 +36,7 @@ from app.api.supply_health import router as supply_health_router
 from app.api.supply_fx import router as supply_fx_router
 from app.api.supply_datasheets import router as supply_datasheets_router
 from app.api.supply_compliance import router as supply_compliance_router
+from app.api.supply_market import router as supply_market_router
 from app.api.supply_seed import router as supply_seed_router
 from app.api.supply_assessment import router as supply_assessment_router
 from app.api.supply_release import router as supply_release_router
@@ -322,6 +323,7 @@ app.include_router(supply_health_router)
 app.include_router(supply_fx_router)
 app.include_router(supply_datasheets_router)
 app.include_router(supply_compliance_router)
+app.include_router(supply_market_router)
 app.include_router(supply_seed_router)
 app.include_router(supply_assessment_router)
 app.include_router(supply_release_router)

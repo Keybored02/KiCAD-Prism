@@ -9,6 +9,7 @@ const SUPPLY_VIEWS = [
   { view: "parts", label: "Parts" },
   { view: "inbox", label: "Inbox" },
   { view: "review", label: "Review" },
+  { view: "market", label: "Market" },
 ] as const;
 
 /** Go-to entries for the Supply section, for roles that may open it. */

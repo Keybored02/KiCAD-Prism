@@ -638,6 +638,25 @@ def _m017_reach(conn) -> None:
     )
 
 
+def _m018_market_indices(conn) -> None:
+    """One value a day per scope and metric, over the parts a workspace follows (see ``market.py``)."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS market_indices (
+            day DATE NOT NULL,
+            scope_kind TEXT NOT NULL CHECK (scope_kind IN ('all', 'manufacturer')),
+            scope_value TEXT NOT NULL DEFAULT '',
+            metric TEXT NOT NULL,
+            value NUMERIC(14, 4) NOT NULL,
+            sample_size INTEGER NOT NULL CHECK (sample_size >= 1),
+            PRIMARY KEY (day, scope_kind, scope_value, metric)
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -656,6 +675,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (15, "fx_rates", _m015_fx_rates),
     (16, "datasheets", _m016_datasheets),
     (17, "reach", _m017_reach),
+    (18, "market_indices", _m018_market_indices),
 ]
 
 

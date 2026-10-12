@@ -109,6 +109,24 @@ export interface SupplyCapacity {
   searches_pending: number;
 }
 
+export interface SupplyMarketMetric {
+  value: number;
+  /** The same figure at the earlier snapshot, or null when none was stored. */
+  before: number | null;
+}
+
+export interface SupplyMarket {
+  day: string | null;
+  compared_with?: string | null;
+  min_sample?: number;
+  scopes: Array<{
+    scope: string;
+    kind: "all" | "manufacturer";
+    sample: number;
+    metrics: Partial<Record<"out_of_stock" | "lifecycle_risk" | "dropped" | "median_lead_time_days", SupplyMarketMetric>>;
+  }>;
+}
+
 export interface SupplyOutlook {
   band: "ended" | "under_2_years" | "2_to_5_years" | "no_signs" | "unknown";
   label: string;

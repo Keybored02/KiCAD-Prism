@@ -1,0 +1,126 @@
+"""Market indices: how the parts Prism follows are doing as a group, by manufacturer.
+
+Only parts that are watched or on a project BOM are counted, so these describe what this workspace uses and the
+distributors it connects. They are not the market. A figure is shown only for a group of at least
+``MIN_SAMPLE`` parts, and its sample size is always given. One snapshot is stored a day, so a figure can be
+set against a month earlier.
+
+Metrics (shares are 0 to 1): ``out_of_stock`` (no distributor has it), ``lifecycle_risk`` (not recommended for
+new designs, last time buy or obsolete), ``dropped`` (every distributor stopped selling it) and
+``median_lead_time_days`` (parts with a lead time given).
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta, timezone
+from statistics import median
+from typing import Any, Mapping, Sequence
+
+from app.services.supply import parts_view
+from app.services.supply.vocabulary import Lifecycle
+
+MIN_SAMPLE = 3
+ALL = "all"
+METRICS = ("out_of_stock", "lifecycle_risk", "dropped", "median_lead_time_days")
+_LIFECYCLE_RISK = {Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value}
+COMPARE_DAYS = 30
+
+
+def _tracked_part_ids(conn) -> list[str]:
+    return [
+        row["id"]
+        for row in conn.execute(
+            """
+            SELECT p.id FROM parts p
+            WHERE EXISTS (SELECT 1 FROM watches w WHERE w.part_id = p.id)
+               OR EXISTS (SELECT 1 FROM bom_usage u WHERE u.match_key = p.match_key)
+            """
+        ).fetchall()
+    ]
+
+
+def metrics_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
+    """The metrics of one group of parts. Each row has ``stock``, ``lifecycle``, ``offers`` (counted)."""
+
+    with_data = [row for row in rows if row["stock"] is not None]
+    result: dict[str, float] = {}
+    if with_data:
+        result["out_of_stock"] = sum(1 for row in with_data if row["stock"] == 0) / len(with_data)
+        result["dropped"] = sum(
+            1 for row in with_data if row["offers"] and all(offer["discontinued"] for offer in row["offers"])
+        ) / len(with_data)
+    result["lifecycle_risk"] = sum(1 for row in rows if row["lifecycle"] in _LIFECYCLE_RISK) / len(rows)
+    leads = [
+        min(offer["lead_time_days"] for offer in row["offers"] if offer["lead_time_days"] is not None)
+        for row in rows
+        if any(offer["lead_time_days"] is not None for offer in row["offers"])
+    ]
+    if leads:
+        result["median_lead_time_days"] = float(median(leads))
+    return result
+
+
+def compute(conn) -> dict[str, dict[str, Any]]:
+    """Metrics per scope: ``all`` and every manufacturer with enough tracked parts."""
+
+    ids = _tracked_part_ids(conn)
+    items, offers = parts_view.summaries_with_offers(conn, ids)
+    rows = [
+        {"manufacturer": item["manufacturer"], "stock": item["stock"], "lifecycle": item["lifecycle"], "offers": offers.get(item["id"], [])}
+        for item in items
+    ]
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        groups.setdefault(row["manufacturer"], []).append(row)
+    scopes: dict[str, dict[str, Any]] = {}
+    if len(rows) >= MIN_SAMPLE:
+        scopes[ALL] = {"sample": len(rows), "metrics": metrics_of(rows)}
+    for name, group in groups.items():
+        if len(group) >= MIN_SAMPLE:
+            scopes[name] = {"sample": len(group), "metrics": metrics_of(group)}
+    return scopes
+
+
+def snapshot(conn, today: date | None = None) -> int:
+    """Store today's indices unless they were stored already. Returns how many values were written."""
+
+    today = today or datetime.now(timezone.utc).date()
+    if conn.execute("SELECT 1 FROM market_indices WHERE day = %s LIMIT 1", (today,)).fetchone():
+        return 0
+    written = 0
+    for scope, data in compute(conn).items():
+        kind = "all" if scope == ALL else "manufacturer"
+        for metric, value in data["metrics"].items():
+            conn.execute(
+                "INSERT INTO market_indices (day, scope_kind, scope_value, metric, value, sample_size) VALUES (%s, %s, %s, %s, %s, %s)",
+                (today, kind, "" if scope == ALL else scope, metric, value, data["sample"]),
+            )
+            written += 1
+    return written
+
+
+def overview(conn, today: date | None = None) -> dict[str, Any]:
+    """The latest snapshot per scope, each metric with its value a month earlier when that was stored."""
+
+    today = today or datetime.now(timezone.utc).date()
+    latest_day = conn.execute("SELECT MAX(day) AS day FROM market_indices").fetchone()["day"]
+    if latest_day is None:
+        return {"day": None, "scopes": []}
+    before_day = conn.execute(
+        "SELECT MAX(day) AS day FROM market_indices WHERE day <= %s", (latest_day - timedelta(days=COMPARE_DAYS),)
+    ).fetchone()["day"]
+    scopes: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in conn.execute(
+        "SELECT scope_kind, scope_value, metric, value, sample_size FROM market_indices WHERE day = %s", (latest_day,)
+    ).fetchall():
+        scope = scopes.setdefault((row["scope_kind"], row["scope_value"]), {"scope": row["scope_value"] or "All followed parts", "kind": row["scope_kind"], "sample": row["sample_size"], "metrics": {}})
+        scope["metrics"][row["metric"]] = {"value": float(row["value"]), "before": None}
+    if before_day is not None:
+        for row in conn.execute(
+            "SELECT scope_kind, scope_value, metric, value FROM market_indices WHERE day = %s", (before_day,)
+        ).fetchall():
+            target = scopes.get((row["scope_kind"], row["scope_value"]))
+            if target and row["metric"] in target["metrics"]:
+                target["metrics"][row["metric"]]["before"] = float(row["value"])
+    ordered = sorted(scopes.values(), key=lambda item: (item["kind"] != "all", -item["sample"], item["scope"].lower()))
+    return {"day": latest_day.isoformat(), "compared_with": before_day.isoformat() if before_day else None, "min_sample": MIN_SAMPLE, "scopes": ordered}

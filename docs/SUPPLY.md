@@ -72,6 +72,13 @@ supplier declared, as CAS numbers; an administrator loads the ECHA Candidate Lis
 and a CAS column) in Supply settings, and a declared substance on the list makes the part *affected by REACH*. A part
 nobody says anything about is *unknown*, never clear.
 
+## Market
+
+Supply > Market shows how the parts you follow do as a group, by manufacturer: the share out of stock, the share with a
+lifecycle risk, the share every distributor dropped, and the median lead time, each with its change since a month ago once
+a month of snapshots exists. It covers watched parts and parts on project BOMs only, a manufacturer needs at least three
+of them, and the number of parts is always shown. It is not the market as a whole.
+
 ## Outlook
 
 A part sheet's Outlook says whether the part looks headed for its end: *ended*, *under 2 years*, *2 to 5 years*, *no signs
