@@ -161,7 +161,7 @@ export interface SupplyBomLineResult {
   /** Set on the later lines of a part: the key of the line that carries the purchase. */
   bought_with?: string | null;
   /** How the part stands: its health, status and how many findings still count. */
-  assessment?: { health: number; status: SupplyStatus; open: number };
+  assessment?: { health: number; status: SupplyStatus; open: number; checks?: string[] };
 }
 
 export interface SupplyBomRollup {
