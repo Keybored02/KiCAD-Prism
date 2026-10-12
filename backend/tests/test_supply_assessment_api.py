@@ -156,11 +156,14 @@ class AssessmentApiTests(unittest.TestCase):
         self.assertEqual(self.call("GET", f"/api/supply/parts/{self.part_id}/assessment", role="viewer").status, 403)
 
     def test_the_bom_lookup_carries_each_line_s_health_and_the_bom_s(self) -> None:
+        from app.services.supply import catalog_read
+
         self.offer(lifecycle="nrnd")
-        response = self.call("POST", "/api/supply/bom/lookup", body={"build_quantity": 10, "lines": [
-            {"key": "L1", "manufacturer": "Acme", "mpn": "ABC123", "quantity": 2},
-            {"key": "L2", "manufacturer": "Acme", "mpn": "UNKNOWN-9", "quantity": 1},
-        ]})
+        with mock.patch.object(catalog_read, "in_library", lambda pairs: {("acme", "abc123")}):
+            response = self.call("POST", "/api/supply/bom/lookup", body={"build_quantity": 10, "lines": [
+                {"key": "L1", "manufacturer": "Acme", "mpn": "ABC123", "quantity": 2},
+                {"key": "L2", "manufacturer": "Acme", "mpn": "UNKNOWN-9", "quantity": 1},
+            ]})
         self.assertEqual(response.status, 200, response.text)
         line = response.json["lines"]["L1"]["assessment"]
         self.assertEqual((line["status"], line["open"]), ("warning", 1))

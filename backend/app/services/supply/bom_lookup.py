@@ -25,10 +25,10 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import math
 from decimal import Decimal
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from app.services.supply import parts, parts_view, pricing, usage, watches
-from app.services.supply.assessment import component_checks, settings_store
+from app.services.supply.assessment import component_checks, line_checks, settings_store
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
 from app.services.supply.vocabulary import Status
@@ -167,7 +167,12 @@ def with_library_identity(lines: Sequence[BomLine], library: Mapping[str, tuple[
 
 
 def lookup(
-    conn, lines: Sequence[BomLine], build_quantity: int, attrition_percent: float = 0, identities: usage.Identities | None = None
+    conn,
+    lines: Sequence[BomLine],
+    build_quantity: int,
+    attrition_percent: float = 0,
+    identities: usage.Identities | None = None,
+    in_library: Callable[[Iterable[tuple[str, str]]], set[tuple[str, str]]] | None = None,
 ) -> dict[str, Any]:
     if len(lines) > MAX_LINES:
         raise ValueError(f"At most {MAX_LINES} lines can be looked up at once.")
@@ -196,6 +201,7 @@ def lookup(
         leader = next(resolved[line.key][1] for line in lines if line.prism_id == component_id)
         if leader:
             extras.setdefault(leader, []).extend(component_checks.for_component(conn, component_id, leader, settings))
+    _line_findings(lines, resolved, summary, first_line, set(known), in_library, settings, extras)
     assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc), settings, extras)
 
     results: dict[str, dict[str, Any]] = {}
@@ -233,11 +239,34 @@ def lookup(
     }
 
 
+def _line_findings(lines, resolved, summary, first_line, placed, in_library, settings, extras) -> None:
+    """Add what the way a line names its part says: a missing manufacturer, a part the library does not have."""
+
+    by_key = {line.key: line for line in lines}
+    leaders = {part_id: by_key[key] for part_id, key in first_line.items()}
+    for part_id, line in leaders.items():
+        if resolved[line.key][2] == "missing":
+            extras.setdefault(part_id, []).append(line_checks.manufacturer_missing(settings))
+    if in_library is None:
+        return
+    unplaced = {part_id: line for part_id, line in leaders.items() if line.prism_id not in placed}
+    have = in_library((summary[part_id]["manufacturer"], summary[part_id]["mpn"]) for part_id in unplaced)
+    for part_id in unplaced:
+        pair = (str(summary[part_id]["manufacturer"]).strip().casefold(), str(summary[part_id]["mpn"]).strip().casefold())
+        if pair not in have:
+            extras.setdefault(part_id, []).append(line_checks.not_in_library(settings))
+
+
 def _assessment_line(assessment_dto: Mapping[str, Any]) -> dict[str, Any]:
-    """What a BOM row needs of an assessment: the number, the status and how many findings still stand."""
+    """What a BOM row needs of an assessment: the number, the status, and which findings still stand."""
 
     open_findings = [f for f in assessment_dto["findings"] if not (f["waiver"] and f["waiver"]["holds"])]
-    return {"health": assessment_dto["health"], "status": assessment_dto["status"], "open": len(open_findings)}
+    return {
+        "health": assessment_dto["health"],
+        "status": assessment_dto["status"],
+        "open": len(open_findings),
+        "checks": [f["check"] for f in open_findings],
+    }
 
 
 def _health_rollup(assessed: Mapping[str, Mapping[str, Any]], needs: Mapping[str, int]) -> dict[str, Any]:

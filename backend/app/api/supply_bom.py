@@ -128,6 +128,7 @@ async def lookup(body: LookupRequest, _user: AuthenticatedUser = Depends(require
         with _store().connection() as conn:
             return bom_lookup.lookup(
                 conn, _lines(body.lines), body.build_quantity, body.attrition_percent, identities=catalog_read.identities,
+                in_library=catalog_read.in_library,
             )
 
     return await _run(read)

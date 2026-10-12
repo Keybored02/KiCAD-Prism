@@ -36,6 +36,18 @@ def identities(component_ids: Iterable[str]) -> dict[str, tuple[str, str]]:
     return catalog_service.component_identities(wanted) if wanted else {}
 
 
+def in_library(pairs: Iterable[tuple[str, str]]) -> set[tuple[str, str]]:
+    """The (manufacturer, part number) pairs some active catalog component has, compared ignoring case."""
+
+    from app.services.component_catalog_service import catalog_service
+
+    wanted = [{"manufacturer": maker, "mpn": mpn} for maker, mpn in pairs]
+    if not wanted:
+        return set()
+    found = catalog_service.match_component_identities(wanted)
+    return {tuple(key.split(chr(0), 1)) for key in found}  # type: ignore[misc]
+
+
 def component_ids_by_part(components: Iterator[dict[str, Any]] | None = None) -> dict[tuple[str, str], str]:
     """(manufacturer key, part number key) to catalog component id."""
 

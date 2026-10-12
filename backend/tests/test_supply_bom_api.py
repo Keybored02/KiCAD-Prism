@@ -143,6 +143,20 @@ class BomLookupTests(unittest.TestCase):
             better = self.lookup([placed])["lines"]["u1"]["assessment"]["open"]
         self.assertEqual(checks_open - better, 1, "the finding goes once an alternate has stock")
 
+    def test_lines_that_name_their_part_badly_say_so(self) -> None:
+        from app.services.supply import bom_lookup
+
+        self.part("Acme", "R-1")
+        self.part("Acme", "R-2")
+        lines = [bom_lookup.BomLine("blank", "", "R-1", 1), bom_lookup.BomLine("named", "Acme", "R-2", 1)]
+        with self.store.connection() as conn:
+            plain = bom_lookup.lookup(conn, lines, 1)["lines"]
+            checked = bom_lookup.lookup(conn, lines, 1, in_library=lambda pairs: {("acme", "r-2")})["lines"]
+        self.assertEqual(plain["blank"]["assessment"]["checks"], ["manufacturer_missing"])
+        self.assertEqual(plain["named"]["assessment"]["checks"], [], "the library is only asked when a check is given")
+        self.assertEqual(sorted(checked["blank"]["assessment"]["checks"]), ["manufacturer_missing", "not_in_library"])
+        self.assertEqual(checked["named"]["assessment"]["checks"], [], "the library has Acme R-2")
+
     def test_the_library_is_asked_once_and_a_component_without_a_number_changes_nothing(self) -> None:
         part_id = self.part("Texas Instruments", "LM358DR")
         asked = []
