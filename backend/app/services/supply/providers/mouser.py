@@ -43,6 +43,7 @@ from app.services.supply.providers.base import (
     ProviderSpec,
 )
 from app.services.supply.providers.text_values import parse_count, parse_decimal, parse_lead_time_days
+from app.services.supply.providers.unrecognised import note
 from app.services.supply.vocabulary import Lifecycle, Packaging
 
 KEY = "mouser"
@@ -58,6 +59,7 @@ _LIFECYCLE = {
     "active": Lifecycle.ACTIVE,
     "not recommended for new designs": Lifecycle.NRND,
     "nrnd": Lifecycle.NRND,
+    # Mouser has no separate stage between an end of life notice and the last buy; both warn.
     "end of life": Lifecycle.LAST_TIME_BUY,
     "last time buy": Lifecycle.LAST_TIME_BUY,
     "obsolete": Lifecycle.OBSOLETE,
@@ -134,8 +136,11 @@ class MouserProvider:
         for start in range(0, len(skus), MAX_BATCH):
             for part in self._search(skus[start:start + MAX_BATCH]):
                 sku = wanted.get(str(part.get("MouserPartNumber") or "").upper())
-                if sku is not None:
-                    offers.append(_offer(sku, part, self._clock()))
+                if sku is None:
+                    continue
+                offer = _offer(sku, part, self._clock())
+                if offer is not None:
+                    offers.append(offer)
         return offers
 
     def get_part_data(self, match: PartMatch) -> PartData:
@@ -166,12 +171,18 @@ def _raise_for_errors(errors: Sequence[Any]) -> None:
         raise ProviderError(f"Mouser reported an error ({str(error.get('Code') or 'unknown')[:40]})")
 
 
-def _stock(part: Mapping[str, Any]) -> int:
-    for field in ("AvailabilityInStock", "Availability"):
-        value = parse_count(part.get(field))
-        if value is not None:
-            return value
-    return 0
+def _stock(part: Mapping[str, Any]) -> int | None:
+    """Units on hand, or None when the answer does not say.
+
+    ``Availability`` is display text that can describe units on order, so its number is never
+    used as stock. Mouser sends a null ``AvailabilityInStock`` with "None" for no stock; a null
+    next to text that holds a number is not understood, and is left unread.
+    """
+
+    on_hand = parse_count(part.get("AvailabilityInStock"))
+    if on_hand is not None:
+        return on_hand
+    return 0 if parse_count(part.get("Availability")) is None else None
 
 
 def _price_breaks(part: Mapping[str, Any]) -> tuple[tuple[PriceBreak, ...], str]:
@@ -231,25 +242,36 @@ def _rohs(text: object) -> bool | None:
     return True if "compliant" in value else None
 
 
-def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer:
+def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
+    """The offer, or None when the answer does not say how many are on hand (left out, as the contract says)."""
+
+    on_hand = _stock(part)
+    if on_hand is None:
+        note(KEY, "answer without AvailabilityInStock", sku)
+        return None
     breaks, currency = _price_breaks(part)
+    lifecycle_text = str(part.get("LifecycleStatus") or "").strip().lower()
+    if lifecycle_text and lifecycle_text not in _LIFECYCLE:
+        note(KEY, "lifecycle", lifecycle_text)
     # A restriction message means Mouser does not sell this number to this account's region.
     restricted = bool(str(part.get("RestrictionMessage") or "").strip())
+    stock = 0 if restricted else on_hand
+    moq = max(parse_count(part.get("Min")) or 1, 1)
     return Offer(
         provider=KEY,
         sku=sku,
         mpn=str(part.get("ManufacturerPartNumber") or sku),
         manufacturer=str(part.get("Manufacturer") or ""),
-        stock=0 if restricted else _stock(part),
+        stock=stock,
         fetched_at=now,
         incoming=_incoming(part),
-        moq=max(parse_count(part.get("Min")) or 1, 1),
+        moq=moq,
         order_multiple=max(parse_count(part.get("Mult")) or 1, 1),
         packaging=_packaging(part),
         price_breaks=breaks,
         currency=currency,
-        lead_time_days=parse_lead_time_days(part.get("LeadTime")),
-        lifecycle=_LIFECYCLE.get(str(part.get("LifecycleStatus") or "").strip().lower(), Lifecycle.UNKNOWN),
+        lead_time_days=None if stock >= moq else parse_lead_time_days(part.get("LeadTime")),
+        lifecycle=_LIFECYCLE.get(lifecycle_text, Lifecycle.UNKNOWN),
         discontinued=str(part.get("IsDiscontinued") or "").strip().lower() == "true",
         rohs=_rohs(part.get("ROHSStatus")),
         product_url=str(part.get("ProductDetailUrl") or ""),

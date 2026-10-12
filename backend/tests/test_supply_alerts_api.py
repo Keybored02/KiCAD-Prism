@@ -93,8 +93,10 @@ class SupplyAlertsTests(unittest.TestCase):
                 (listing_id, self.now, stock, lifecycle))
         return listing_id
 
-    def set_offer(self, listing_id: str, *, stock: int | None = None, lifecycle: str | None = None) -> None:
+    def set_offer(self, listing_id: str, *, stock: int | None = None, lifecycle: str | None = None, discontinued: bool | None = None) -> None:
         with self.store.connection() as conn:
+            if discontinued is not None:
+                conn.execute("UPDATE offers SET discontinued = %s WHERE listing_id = %s", (discontinued, listing_id))
             if stock is not None:
                 conn.execute("UPDATE offers SET stock = %s WHERE listing_id = %s", (stock, listing_id))
             if lifecycle is not None:
@@ -171,6 +173,20 @@ class SupplyAlertsTests(unittest.TestCase):
         self.evaluate(watch["part_id"], after=timedelta(hours=3))
         (woken,) = self.listed()
         self.assertEqual((woken["severity"], woken["state"], woken["acknowledged_by"]), ("fatal", "open", ""))
+
+    def test_a_part_every_distributor_dropped_raises_a_lifecycle_alert_but_one_dropping_it_does_not(self) -> None:
+        watch = self.watch()
+        first = self.listing(watch["part_id"], "A", stock=5000)
+        second = self.listing(watch["part_id"], "B", stock=5000)
+        self.set_offer(first, discontinued=True)
+        self.evaluate(watch["part_id"])
+        self.evaluate(watch["part_id"], after=timedelta(hours=1))
+        self.assertEqual(self.listed(), [], "another distributor still sells it")
+        self.set_offer(second, discontinued=True)
+        self.evaluate(watch["part_id"], after=timedelta(hours=2))
+        self.evaluate(watch["part_id"], after=timedelta(hours=3))
+        (alert,) = self.listed()
+        self.assertEqual((alert["kind"], alert["severity"], alert["detail"]["dropped"]), ("lifecycle", "warning", True))
 
     def test_a_part_that_is_lost_opens_at_once(self) -> None:
         watch = self.watch()

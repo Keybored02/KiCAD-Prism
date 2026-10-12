@@ -10,6 +10,7 @@ export function alertTitle(alert: SupplyAlert): string {
     case "below_threshold":
       return `${(detail.stock ?? 0).toLocaleString()} in stock, at or below the ${(detail.threshold ?? 0).toLocaleString()} you set`;
     case "lifecycle":
+      if (detail.dropped) return "Dropped by every distributor that lists it";
       return detail.lifecycle === "obsolete"
         ? "Marked obsolete"
         : `Now ${LIFECYCLE_LABEL[(detail.lifecycle ?? "unknown") as SupplyLifecycle].toLowerCase()}`;

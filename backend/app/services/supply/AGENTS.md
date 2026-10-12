@@ -16,6 +16,7 @@ root first.
 | `providers/tme.py` | TME API v2: OAuth client-credentials token (kept until shortly before it expires), `/products?mpns[]` to find listings, `/products` plus `/products/data` for offers (two calls a batch of 50). The storefront is the country. Gross prices are turned net. |
 | `providers/mouser.py` | Mouser Search API V1: `search/partnumber` with up to 10 numbers per call, `Exact` matching, calls spaced 2 seconds apart. Errors arrive in a 200 answer. |
 | `providers/text_values.py` | Reads numbers sent as display text: "1,234 In Stock", "0,52 EUR", "42 Days". |
+| `providers/unrecognised.py` | Logs once a status or wording an adapter does not know, so a new one that matters gets noticed. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
 | `identity.py` | `match_key`: the lookup key for part numbers. Conservative on purpose: dots and slashes stay. |
 | `parts.py` | Manufacturers, spellings (`pending` until a person maps them) and parts. Functions on a connection; none commit. |

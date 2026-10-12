@@ -243,6 +243,25 @@ class TmeTests(unittest.TestCase):
         with self.assertRaises(ProviderError):
             tme_provider(client).lookup_mpn("MPN-1")
 
+    def test_stock_is_never_read_from_the_availability_text(self) -> None:
+        answer = copy.deepcopy(MOUSER)
+        part = answer["SearchResults"]["Parts"][0]
+        part["AvailabilityInStock"], part["Availability"] = None, "500 On Order"
+        offers = mouser_provider(FakeClient({SEARCH: [answer]})).get_offers(["595-LM358DR", "595-TPS62840DLCR"])
+        self.assertEqual([o.sku for o in offers], ["595-TPS62840DLCR"], "a stock the answer does not state is left out")
+
+    def test_an_unknown_lifecycle_is_logged_once(self) -> None:
+        from app.services.supply.providers import unrecognised
+
+        unrecognised._seen.clear()
+        answer = copy.deepcopy(MOUSER)
+        answer["SearchResults"]["Parts"][0]["LifecycleStatus"] = "Factory Special Order"
+        with self.assertLogs(unrecognised.logger, "WARNING") as logged:
+            for _ in range(2):
+                (offer, *_) = mouser_provider(FakeClient({SEARCH: [answer]})).get_offers(["595-LM358DR"])
+        self.assertEqual(offer.lifecycle, Lifecycle.UNKNOWN)
+        self.assertEqual(len(logged.records), 1)
+
     def test_part_data(self) -> None:
         from app.services.supply.models import PartMatch
 
@@ -292,7 +311,8 @@ class MouserTests(unittest.TestCase):
         offers = {o.sku: o for o in mouser_provider(client).get_offers(["595-LM358DR", "595-TPS62840DLCR", "595-UNKNOWN"])}
         self.assertEqual(sorted(offers), ["595-LM358DR", "595-TPS62840DLCR"])
         lm = offers["595-LM358DR"]
-        self.assertEqual((lm.stock, lm.mpn, lm.manufacturer, lm.currency, lm.lead_time_days), (12480, "LM358DR", "Texas Instruments", "EUR", 42))
+        self.assertEqual((lm.stock, lm.mpn, lm.manufacturer, lm.currency, lm.lead_time_days), (12480, "LM358DR", "Texas Instruments", "EUR", None))
+        self.assertEqual(lm.lead_time_days, None, "the factory lead time is not shown when stock covers the minimum order")
         self.assertEqual([(b.quantity, b.unit_price) for b in lm.price_breaks],
                          [(1, Decimal("0.52")), (10, Decimal("0.331")), (100, Decimal("0.213")), (2500, Decimal("0.113"))])
         self.assertEqual(lm.incoming[0].quantity, 5000)
@@ -388,6 +408,20 @@ class RecordedAnswerTests(unittest.TestCase):
         self.assertFalse(offer.marketplace)
         self.assertEqual(offer.product_url, "https://www.tme.eu/at/details/lm358dr/")
 
+    def test_tme_batches_on_the_way_are_incoming_stock_with_their_date(self) -> None:
+        from datetime import date
+
+        row = figures("A", stock=647)
+        row["deliveries"] = {"elements": [
+            {"status": "DS_AVAILABLE_IN_STOCK", "amount": 647, "data": None},
+            {"status": "DS_DELIVERY_NEEDS_CONFIRMATION", "amount": 353, "data": {"waiting_period": "P5W", "supply_date": "2026-06-17"}},
+            {"status": "DS_DELIVERY_NEEDS_CONFIRMATION", "amount": 100, "data": None},
+        ]}
+        client = FakeClient({"/auth/token": [TOKEN], "/products": [ok([product("A")])], "/products/data": [ok([row])]})
+        (offer,) = tme_provider(client).get_offers(["A"])
+        self.assertEqual(offer.stock, 647, "stock on hand is not counted twice")
+        self.assertEqual([(i.quantity, i.expected) for i in offer.incoming], [(353, date(2026, 6, 17)), (100, None)])
+
     def test_mouser_as_it_really_answers_in_italian(self) -> None:
         provider = mouser_provider(FakeClient({SEARCH: [LIVE_MOUSER, LIVE_MOUSER, LIVE_MOUSER]}))
         matches = provider.lookup_mpn("LM358DR")
@@ -396,7 +430,7 @@ class RecordedAnswerTests(unittest.TestCase):
         offers = {o.sku: o for o in provider.get_offers(["595-LM358DR", "755-LM358DR"])}
 
         sold = offers["595-LM358DR"]
-        self.assertEqual((sold.stock, sold.lead_time_days, sold.moq, sold.currency, sold.rohs), (69338, 140, 1, "EUR", True))
+        self.assertEqual((sold.stock, sold.lead_time_days, sold.moq, sold.currency, sold.rohs), (69338, None, 1, "EUR", True))
         self.assertEqual(sold.price_breaks[0].unit_price, Decimal("0.224"))
         self.assertEqual(len(sold.price_breaks), 9)
         self.assertEqual(sold.packaging, Packaging.UNKNOWN, "reel, cut tape and MouseReel share one number")

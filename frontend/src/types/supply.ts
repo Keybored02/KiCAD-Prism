@@ -259,6 +259,8 @@ export interface SupplyPartRow {
   stock: number | null;
   listings: number;
   lifecycle: SupplyLifecycle;
+  /** Every distributor that lists it has stopped selling it. */
+  dropped: boolean;
   unit_price: string | null;
   /** The quantity the price is quoted at. */
   price_quantity: number;
@@ -358,7 +360,7 @@ export interface SupplyAlert {
   state: SupplyAlertState;
   /** Facts behind the alert: stock, threshold, lifecycle or problem. */
   detail: {
-    stock?: number; threshold?: number; lifecycle?: string; problem?: string;
+    stock?: number; threshold?: number; lifecycle?: string; problem?: string; dropped?: boolean;
     days_to_zero?: number; decrease_per_day?: number; confidence?: string;
   };
   opened_at: string | null;

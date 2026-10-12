@@ -56,6 +56,7 @@ export function partRowFixture(overrides: Partial<SupplyPartRow> = {}): SupplyPa
     stock: 12500,
     listings: 1,
     lifecycle: "active",
+    dropped: false,
     unit_price: "0.52",
     price_quantity: 100,
     currency: "EUR",

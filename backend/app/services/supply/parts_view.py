@@ -120,7 +120,7 @@ def offers_by_part(conn, part_ids: list[str]) -> dict[str, list[dict]]:
     for row in conn.execute(
         """
         SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name,
-               o.stock, o.marketplace, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
+               o.stock, o.marketplace, o.discontinued, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
                o.order_multiple, o.lead_time_days, o.product_url, ps.tier
         FROM listings l
         JOIN offers o ON o.listing_id = l.id
@@ -159,6 +159,8 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
             "stock": combined.total if combined else None,
             "listings": combined.listings if combined else 0,
             "lifecycle": lifecycle.value,
+            # Every distributor that lists it has stopped selling it.
+            "dropped": bool(offers_here) and all(o["discontinued"] for o in offers_here),
             "unit_price": price,
             "price_quantity": price_quantity,
             "currency": currency,

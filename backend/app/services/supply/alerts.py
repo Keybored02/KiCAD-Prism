@@ -79,6 +79,8 @@ def conditions_for(item: Mapping[str, Any], insight: Mapping[str, Any] | None = 
         found[LIFECYCLE] = Condition(Status.FATAL.value, {"lifecycle": lifecycle})
     elif lifecycle in (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value):
         found[LIFECYCLE] = Condition(Status.WARNING.value, {"lifecycle": lifecycle})
+    elif item.get("dropped"):
+        found[LIFECYCLE] = Condition(Status.WARNING.value, {"lifecycle": lifecycle, "dropped": True})
     return found
 
 

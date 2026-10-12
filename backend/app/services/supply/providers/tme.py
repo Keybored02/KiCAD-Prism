@@ -23,7 +23,8 @@ Product statuses map as follows. ``NOT_IN_OFFER`` and
 discontinued at this distributor, which is not the manufacturer's lifecycle.
 ``EXTERNAL_WAREHOUSE`` is third-party stock, kept apart like marketplace stock.
 ``CANNOT_BE_ORDERED``, ``PRODUCT_BLOCKED`` and ``INVALID`` cannot be bought here,
-so their stock counts as zero. TME reports no manufacturer lifecycle, and no
+so their stock counts as zero. Batches on the way (``deliveries``) are incoming stock
+with their supply date. TME reports no manufacturer lifecycle, and no
 retirement flag for every retired part; some come back with zero stock and a
 backorder block only. v2 has no product page link, so it is built from the
 symbol and the storefront (``tme.eu/<country>/details/<symbol>/``).
@@ -36,14 +37,14 @@ from __future__ import annotations
 
 import base64
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import quote
 
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import match_key
-from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_BATCH,
     CAP_OFFERS,
@@ -55,6 +56,7 @@ from app.services.supply.providers.base import (
     ProviderSpec,
 )
 from app.services.supply.providers.text_values import parse_count, parse_decimal
+from app.services.supply.providers.unrecognised import note
 
 KEY = "tme"
 BASE_URL = "https://api.tme.eu"
@@ -72,6 +74,11 @@ STOREFRONTS = (
 _STOPPING = frozenset({"NOT_IN_OFFER", "AVAILABLE_WHILE_STOCKS_LAST"})
 _NOT_ORDERABLE = frozenset({"CANNOT_BE_ORDERED", "PRODUCT_BLOCKED", "INVALID"})
 _THIRD_PARTY = frozenset({"EXTERNAL_WAREHOUSE"})
+# Seen from the live API, not in its documentation, and with no meaning for stock here.
+_HARMLESS = frozenset({"BLOCKED_FOR_ZBL_BACKORDERS", "BLOCKED_FOR_ZBL_MP", "HARDLY_AVAILABLE"})
+# Delivery statuses: stock on hand is ``stock_quantity``; a batch that still has to arrive is incoming.
+_ON_HAND = "DS_AVAILABLE_IN_STOCK"
+_ARRIVING = "DS_DELIVERY_NEEDS_CONFIRMATION"
 
 
 class TmeProvider:
@@ -221,6 +228,29 @@ def _net_prices(prices: Mapping[str, Any]) -> tuple[tuple[PriceBreak, ...], str]
     return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers)), currency
 
 
+def _incoming(figures: Mapping[str, Any]) -> tuple[Incoming, ...]:
+    """Batches TME has on the way, with the date it expects them when it gives one."""
+
+    found = []
+    for item in (figures.get("deliveries") or {}).get("elements") or []:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "")
+        if status == _ARRIVING:
+            quantity = parse_count(item.get("amount"))
+            if not quantity:
+                continue
+            expected = None
+            try:
+                expected = date.fromisoformat(str((item.get("data") or {}).get("supply_date") or "")[:10])
+            except ValueError:
+                pass
+            found.append(Incoming(quantity, expected))
+        elif status != _ON_HAND:
+            note(KEY, "delivery status", status)
+    return tuple(found)
+
+
 def _page_url(sku: str, country: str) -> str:
     """The product page; TME redirects the short form to the full one."""
 
@@ -232,6 +262,8 @@ def _page_url(sku: str, country: str) -> str:
 
 def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now: datetime, country: str = "") -> Offer:
     statuses = {str(item).upper() for item in product.get("product_status") or []}
+    for status in sorted(statuses - _STOPPING - _NOT_ORDERABLE - _THIRD_PARTY - _HARMLESS):
+        note(KEY, "product status", status)
     stock = parse_count(figures.get("stock_quantity")) or 0
     if statuses & _NOT_ORDERABLE:
         stock = 0
@@ -244,6 +276,7 @@ def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now
         manufacturer=str((product.get("manufacturer") or {}).get("name") or ""),
         stock=stock,
         fetched_at=now,
+        incoming=_incoming(figures),
         moq=max(parse_count(product.get("minimal_amount")) or 1, 1),
         order_multiple=max(parse_count(product.get("multiples")) or 1, 1),
         price_breaks=breaks,
