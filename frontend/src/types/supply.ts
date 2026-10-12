@@ -109,6 +109,14 @@ export interface SupplyCapacity {
   searches_pending: number;
 }
 
+/** A finding about a component as a whole, such as no approved part being in stock. */
+export interface SupplyComponentFinding {
+  check: string;
+  severity: "ok" | "warning" | "error" | "fatal";
+  text: string;
+  scope: string;
+}
+
 /** One distinct part on a BOM: what goes into a lookup. `quantity` is fitted parts per board. */
 export interface BomLineInput {
   key: string;

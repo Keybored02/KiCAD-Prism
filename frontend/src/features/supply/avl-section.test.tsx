@@ -7,6 +7,7 @@ import type { SupplySource } from "@/types/supply";
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   listComponentSources: vi.fn(),
+  getComponentFindings: vi.fn(),
   addComponentSource: vi.fn(),
   decideSource: vi.fn(),
   rankSource: vi.fn(),
@@ -35,6 +36,7 @@ function renderSection(role: UserRole) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.listSupplyManufacturers.mockResolvedValue({ items: [] });
+  mocked.getComponentFindings.mockResolvedValue([]);
   mocked.decideSource.mockResolvedValue();
   mocked.rankSource.mockResolvedValue();
   mocked.removeSource.mockResolvedValue();
@@ -42,6 +44,15 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("the approved parts list", () => {
+  it("says so when nothing approved is in stock", async () => {
+    mocked.listComponentSources.mockResolvedValue([source({ stock: 0, status: "error" })]);
+    mocked.getComponentFindings.mockResolvedValue([
+      { check: "no_approved_source", severity: "error", text: "The part and its approved alternate are out of stock.", scope: "no_approved_source" },
+    ]);
+    renderSection("designer");
+    expect(await screen.findByText("The part and its approved alternate are out of stock.")).toBeTruthy();
+  });
+
   it("shows the component's own part as primary, then its alternates with how they stand", async () => {
     mocked.listComponentSources.mockResolvedValue([source({}), source({ id: "s2", mpn: "ALT-2", approval: "pending", rank: 2, stock: 0, status: "error" })]);
     renderSection("designer");

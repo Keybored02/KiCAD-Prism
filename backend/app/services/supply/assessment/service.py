@@ -23,12 +23,13 @@ def assess_one(
     need: int | None = None,
     settings: AssessmentSettings = DEFAULTS,
     distributors: int | None = None,
+    extras: Sequence[checks.Finding] = (),
 ) -> dict[str, Any]:
     facts = checks.Facts(
         lifecycle=Lifecycle(item["lifecycle"]), offers=offers, now=now, problem=item["problem"], need=need,
         distributors=distributors,
     )
-    findings = waivers.apply(checks.evaluate(facts, settings), part_waivers)
+    findings = [*waivers.apply(checks.evaluate(facts, settings), part_waivers), *extras]
     scores = risk.sub_scores(facts)
     result = health.health(findings, scores, settings, has_data=bool(offers))
     return {
@@ -51,14 +52,18 @@ def assess_summaries(
     needs: Mapping[str, int | None],
     now: datetime,
     settings: AssessmentSettings | None = None,
+    extras: Mapping[str, Sequence[checks.Finding]] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Assess parts whose summaries and offers a caller already loaded, by the workspace's settings."""
+    """Assess parts whose summaries and offers a caller already loaded, by the workspace's settings.
+
+    ``extras`` are findings from outside the part (a component's, say); they are not waivable here.
+    """
 
     settings = settings or settings_store.load(conn)
     held = waivers.for_parts(conn, [item["id"] for item in items])
     distributors = conn.execute("SELECT COUNT(*) AS n FROM connectors WHERE enabled").fetchone()["n"]
     return {
-        item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors)
+        item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors, (extras or {}).get(item["id"], ()))
         for item in items
     }
 

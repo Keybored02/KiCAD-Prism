@@ -57,7 +57,7 @@ class SupplySourcesTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("component_sources", "parts", "manufacturer_aliases", "manufacturers", "audit_events"):
+            for table in ("component_sources", "offers", "listings", "connectors", "parts", "manufacturer_aliases", "manufacturers", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme'), ('m2', 'Globex', 'globex')")
 
@@ -127,6 +127,34 @@ class SupplySourcesTests(unittest.TestCase):
 
     def test_an_unknown_source_is_not_found(self) -> None:
         self.assertEqual(self.call("POST", "/api/supply/sources/nope/approve", role="qa").status, 404)
+
+    def test_a_component_with_nothing_approved_in_stock_is_flagged(self) -> None:
+        from app.services.supply import catalog_read, parts
+
+        with self.store.connection() as conn:
+            primary = parts.ensure_part(conn, "Acme", "PRIM-1", "seed@example.com").id
+            conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
+        self.add(mpn="ALT-1", role="qa")
+        alternate = self.listed()[0]["part_id"]
+        stamp = "2026-03-01T12:00:00+00:00"
+        with self.store.connection() as conn:
+            for part_id, sku in ((primary, "P"), (alternate, "A")):
+                conn.execute(
+                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "VALUES (%s, 'c1', %s, %s, 'x', 'x', 'exact')", (f"l-{sku}", sku, part_id))
+                conn.execute("INSERT INTO offers (listing_id, fetched_at, stock) VALUES (%s, %s, 0)", (f"l-{sku}", stamp))
+
+        def findings() -> list[str]:
+            with mock.patch.object(catalog_read, "identities", lambda ids: {COMPONENT: ("Acme", "PRIM-1")}):
+                response = self.call("GET", f"/api/supply/components/{COMPONENT}/assessment", role="qa")
+            self.assertEqual(response.status, 200, response.text)
+            return [f["check"] for f in response.json["findings"]]
+
+        self.assertEqual(findings(), ["no_approved_source"])
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET stock = 5 WHERE listing_id = 'l-A'")
+        self.assertEqual(findings(), [])
+        self.assertEqual(self.call("GET", f"/api/supply/components/{COMPONENT}/assessment", role="viewer").status, 403)
 
     def test_lists_are_per_component(self) -> None:
         self.add()

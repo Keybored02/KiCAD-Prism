@@ -16,7 +16,8 @@ from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.api.supply_access import require_supply_editor
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader
-from app.services.supply import parts, sources
+from app.services.supply import catalog_read, parts, sources
+from app.services.supply.assessment import component_checks, settings_store
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -63,6 +64,20 @@ async def list_sources(component_id: str, _user: AuthenticatedUser = Depends(req
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             return {"items": sources.list_sources(conn, component_id)}
+
+    return await _run(read)
+
+
+@router.get("/components/{component_id}/assessment")
+async def component_assessment(component_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """What is wrong with a component taken with its approved alternates. Empty when nothing is."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            maker, mpn = catalog_read.identities([component_id]).get(component_id, ("", ""))
+            primary = parts.find_part(conn, maker, mpn) if maker and mpn else None
+            found = component_checks.for_component(conn, component_id, primary.id if primary else None, settings_store.load(conn))
+            return {"findings": [{"check": f.check, "severity": f.severity.value, "text": f.text, "scope": f.scope} for f in found]}
 
     return await _run(read)
 

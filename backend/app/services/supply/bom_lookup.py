@@ -28,6 +28,7 @@ from decimal import Decimal
 from typing import Any, Iterable, Mapping, Sequence
 
 from app.services.supply import parts, parts_view, pricing, usage, watches
+from app.services.supply.assessment import component_checks, settings_store
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
 from app.services.supply.vocabulary import Status
@@ -163,6 +164,7 @@ def lookup(
 ) -> dict[str, Any]:
     if len(lines) > MAX_LINES:
         raise ValueError(f"At most {MAX_LINES} lines can be looked up at once.")
+    known = identities({line.prism_id for line in lines if line.prism_id}) if identities else {}
     lines = with_library_identity(lines, identities)
     resolved = _resolve(lines, conn)
     part_ids = sorted({part_id for _, part_id, _ in resolved.values() if part_id})
@@ -180,7 +182,14 @@ def lookup(
             first_line.setdefault(part_id, line.key)
 
     needs = {part_id: needed(count, build_quantity, attrition_percent) for part_id, count in per_board.items()}
-    assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc))
+    settings = settings_store.load(conn)
+    extras: dict[str, list] = {}
+    for component_id in sorted({line.prism_id for line in lines if line.prism_id in known}):
+        # The part on the line is the component's own part; alternates and the rest are judged with it.
+        leader = next(resolved[line.key][1] for line in lines if line.prism_id == component_id)
+        if leader:
+            extras.setdefault(leader, []).extend(component_checks.for_component(conn, component_id, leader, settings))
+    assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc), settings, extras)
 
     results: dict[str, dict[str, Any]] = {}
     for line in lines:

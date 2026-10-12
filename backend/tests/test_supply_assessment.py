@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services.supply.assessment import checks, health, risk, waivers  # noqa: E402
+from app.services.supply.assessment import checks, component_checks, health, risk, waivers  # noqa: E402
 from app.services.supply.assessment.settings import DEFAULTS, AssessmentSettings  # noqa: E402
 from app.services.supply.vocabulary import Lifecycle, Status  # noqa: E402
 
@@ -30,6 +30,18 @@ def facts(offers=None, lifecycle=Lifecycle.ACTIVE, **over):
 
 def ids(found):
     return [f.check for f in found]
+
+
+class ComponentCheckTests(unittest.TestCase):
+    def test_it_is_raised_only_when_the_part_and_every_approved_alternate_are_known_to_be_out(self) -> None:
+        found = component_checks.no_approved_source(0, [0, 0])
+        self.assertEqual((found.check, found.severity, found.text), ("no_approved_source", Status.ERROR, "The part and all 2 approved alternates are out of stock."))
+        self.assertIn("its approved alternate", component_checks.no_approved_source(0, [0]).text)
+        self.assertIsNone(component_checks.no_approved_source(0, [0, 5]), "one alternate has stock")
+        self.assertIsNone(component_checks.no_approved_source(7, [0]), "the part itself has stock")
+        self.assertIsNone(component_checks.no_approved_source(0, [None]), "an alternate nobody has read")
+        self.assertIsNone(component_checks.no_approved_source(None, [0]), "a part nobody has read")
+        self.assertIsNone(component_checks.no_approved_source(0, []), "no alternates: the part's own finding says it")
 
 
 class CheckTests(unittest.TestCase):

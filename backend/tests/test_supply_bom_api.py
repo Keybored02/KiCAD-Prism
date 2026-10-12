@@ -61,7 +61,7 @@ class BomLookupTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("component_sources", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor=SEED, provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
 
@@ -123,6 +123,25 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual((result["placed"]["state"], result["placed"]["part_id"], result["placed"]["manufacturer_match"]), ("tracked", part_id, "exact"))
         self.assertEqual(result["unknown-id"]["state"], "unknown", "an id the library does not know falls back to the symbol's text")
         self.assertEqual(result["plain"]["part_id"], part_id)
+
+    def test_a_placed_component_with_nothing_approved_in_stock_counts_against_its_line(self) -> None:
+        from app.services.supply import catalog_read
+
+        primary, alternate = self.part("Acme", "PRIM-1"), self.part("Globex", "ALT-1")
+        self.offer(primary, "P", stock=0)
+        self.offer(alternate, "A", stock=0)
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO component_sources (id, component_id, part_id, approval, rank, created_by) "
+                "VALUES ('s1', 'cmp-1', %s, 'approved', 1, 'seed')", (alternate,))
+        placed = {"key": "u1", "manufacturer": "", "mpn": "", "prism_id": "cmp-1"}
+        with mock.patch.object(catalog_read, "identities", lambda ids: {"cmp-1": ("Acme", "PRIM-1")}):
+            line = self.lookup([placed])["lines"]["u1"]
+            self.assertEqual(line["part_id"], primary)
+            checks_open = line["assessment"]["open"]
+            self.offer(alternate, "A2", stock=9)
+            better = self.lookup([placed])["lines"]["u1"]["assessment"]["open"]
+        self.assertEqual(checks_open - better, 1, "the finding goes once an alternate has stock")
 
     def test_the_other_resolutions(self) -> None:
         only = self.part("Texas Instruments", "UNIQUE1")

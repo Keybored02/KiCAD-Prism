@@ -24,6 +24,7 @@ import type {
   SupplyPartsPage,
   SupplyProvider,
   SupplyReviewQueue,
+  SupplyComponentFinding,
   SupplySource,
   SupplyWatch,
   UpdateSupplyConnectorInput,
@@ -284,6 +285,12 @@ async function send(url: string, method: string, body: unknown, fallback: string
 export async function listComponentSources(componentId: string, signal?: AbortSignal): Promise<SupplySource[]> {
   const url = `${BASE}/components/${encodeURIComponent(componentId)}/sources`;
   return (await fetchJson<{ items: SupplySource[] }>(url, { signal }, "Could not load the approved parts")).items;
+}
+
+/** What is wrong with a component taken with its approved alternates; empty when nothing is. */
+export async function getComponentFindings(componentId: string, signal?: AbortSignal): Promise<SupplyComponentFinding[]> {
+  const url = `${BASE}/components/${encodeURIComponent(componentId)}/assessment`;
+  return (await fetchJson<{ findings: SupplyComponentFinding[] }>(url, { signal }, "Could not load the component check")).findings;
 }
 
 export function addComponentSource(componentId: string, manufacturer: string, mpn: string): Promise<{ id: string; approval: string }> {
