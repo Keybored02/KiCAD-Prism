@@ -88,6 +88,36 @@ async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader
     return await _run(run)
 
 
+# One request queues at most this many projects, so a large workspace is read over a few clicks, not all at once.
+MAX_BUILDS_PER_REQUEST = 25
+
+
+@router.post("/usage/build")
+async def build_usage(writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, int]:
+    """Queue the semantic index of projects that have none, so their BOMs can be read.
+
+    Each is an ordinary index job: the worker does them one at a time, and one already queued or
+    running is not queued again. Reading usage afterwards picks the finished ones up.
+    """
+
+    def run() -> dict[str, int]:
+        from app.services import project_service, semantic_index_service
+        from app.services.workspace_service import workspace
+
+        rows = workspace.get_all_projects(None)
+        missing = []
+        for row in rows:
+            if semantic_index_service.get_existing(project_service._workspace_row_to_project(row)) is None:
+                missing.append(str(row["id"]))
+        queued = 0
+        for project_id in missing[:MAX_BUILDS_PER_REQUEST]:
+            project_service.start_semantic_index_job(project_id, requested_by=writer.email)
+            queued += 1
+        return {"projects": len(rows), "missing": len(missing), "queued": queued}
+
+    return await _run(run)
+
+
 @router.post("/lookup")
 async def lookup(body: LookupRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:

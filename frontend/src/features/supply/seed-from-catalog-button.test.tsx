@@ -5,7 +5,8 @@ const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toasts }));
 vi.mock("./supply-api", () => ({ seedSupplyFromCatalog: vi.fn() }));
 
-import { SeedFromCatalogButton, seedSummary } from "./seed-from-catalog-button";
+import { SeedFromCatalogButton } from "./seed-from-catalog-button";
+import { seedSummary } from "./seed-summary";
 import * as api from "./supply-api";
 
 const mocked = vi.mocked(api);

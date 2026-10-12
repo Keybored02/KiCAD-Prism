@@ -86,6 +86,17 @@ export function refreshSupplyUsage(): Promise<SupplyUsageRefresh> {
   return post(`${BASE}/bom/usage/refresh`, undefined, "Could not read where parts are used");
 }
 
+export interface SupplyIndexBuild {
+  projects: number;
+  missing: number;
+  queued: number;
+}
+
+/** Queue the BOM reading of projects that have none yet. The worker does them in the background. */
+export function buildSupplyUsageIndexes(): Promise<SupplyIndexBuild> {
+  return post(`${BASE}/bom/usage/build`, undefined, "Could not queue the project BOMs");
+}
+
 export function lookupSupplyBom(
   lines: BomLineInput[],
   buildQuantity: number,

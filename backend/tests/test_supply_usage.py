@@ -210,6 +210,26 @@ class UsageDatabaseTests(unittest.TestCase):
                 mock.patch("app.services.semantic_index_service.get_existing", return_value=index):
             return self.call("POST", "/api/supply/bom/usage/refresh", role=role)
 
+    def test_building_queues_an_index_job_only_for_projects_without_one(self) -> None:
+        from app.services.workspace_service import workspace
+
+        rows = [{"id": "built"}, {"id": "bare_1"}, {"id": "bare_2"}]
+        built = SimpleNamespace(id="built", name="built")
+
+        def convert(row):
+            return built if row["id"] == "built" else SimpleNamespace(id=row["id"], name=row["id"])
+
+        def existing(project, commit=None):
+            return {"sourceRevisionKey": "r1", "components": []} if project is built else None
+
+        with mock.patch.object(workspace, "get_all_projects", return_value=rows),                 mock.patch("app.services.project_service._workspace_row_to_project", side_effect=convert),                 mock.patch("app.services.semantic_index_service.get_existing", side_effect=existing),                 mock.patch("app.services.project_service.start_semantic_index_job", return_value="job") as start:
+            response = self.call("POST", "/api/supply/bom/usage/build", role="designer")
+            denied = self.call("POST", "/api/supply/bom/usage/build", role="qa")
+        self.assertEqual((response.status, response.json), (200, {"projects": 3, "missing": 2, "queued": 2}))
+        self.assertEqual([call.args[0] for call in start.call_args_list], ["bare_1", "bare_2"])
+        self.assertEqual(start.call_args.kwargs, {"requested_by": "designer@example.com"})
+        self.assertEqual(denied.status, 403)
+
     def test_the_refresh_endpoint_reads_every_project_with_its_folders_visibility(self) -> None:
         index = {"sourceRevisionKey": "r1", "components": [component("R1", "Acme", "R-1")]}
         rows = [

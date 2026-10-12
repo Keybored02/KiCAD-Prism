@@ -15,6 +15,7 @@ import { PartSheet } from "./part-sheet";
 import { PartsTable } from "./parts-table";
 import { refreshSupplyUsage } from "./supply-api";
 import { useSupplyPartsList } from "./use-supply-parts";
+import { ReadProjectBomsButton } from "./read-project-boms-button";
 import { SeedFromCatalogButton } from "./seed-from-catalog-button";
 import { WatchPartDialog } from "./watch-part-dialog";
 
@@ -166,6 +167,7 @@ function EmptyState({ scope, searching, canEdit, onWatch }: { scope: PartsScope;
               : "Parts appear here once they are watched or matched."}
       </p>
       {!searching && scope === "watched" && canEdit ? <Button size="sm" onClick={onWatch}>Watch a part</Button> : null}
+      {!searching && scope === "in_use" && canEdit ? <ReadProjectBomsButton /> : null}
     </div>
   );
 }
