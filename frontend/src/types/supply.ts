@@ -109,6 +109,26 @@ export interface SupplyCapacity {
   searches_pending: number;
 }
 
+/** How many of a part are needed. A negative quantity is stock already on its way in. */
+export interface SupplyDemand {
+  id: string;
+  part_id: string;
+  source: "manual" | "bom_watch" | "manufacturing_run";
+  quantity: number;
+  need_by: string | null;
+  state: "planned" | "committed" | "closed";
+  note: string;
+  created_by: string;
+}
+
+/** Open demand, our own stock, and what distributors must still cover. */
+export interface SupplyDemandSummary {
+  open: number;
+  own_stock: number | null;
+  net: number;
+  next_need_by: string | null;
+}
+
 /** A finding about a component as a whole, such as no approved part being in stock. */
 export interface SupplyComponentFinding {
   check: string;

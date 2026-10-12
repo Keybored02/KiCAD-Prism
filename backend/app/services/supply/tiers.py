@@ -32,6 +32,9 @@ RECENT_CHANGE = timedelta(hours=24)
 STABLE_FOR = timedelta(days=30)
 # How close to the threshold counts as "approaching it", as a multiple.
 APPROACH_FACTOR = 3
+# Distributor stock under this many times the open demand: hot. Under the second: warm.
+DEMAND_HOT_COVERAGE = 1.5
+DEMAND_WARM_COVERAGE = 3
 JITTER_SHARE = 0.10
 BACKOFF_BASE = timedelta(minutes=5)
 BACKOFF_CAP = timedelta(hours=24)
@@ -46,6 +49,8 @@ class TierInputs:
     total_stock: int | None = None
     threshold: int | None = None
     last_change_at: datetime | None = None
+    # Open demand in units, own incoming stock netted off. None or 0 means nothing is asked of the part.
+    demand: int | None = None
 
 
 def interval(tier: Tier) -> timedelta:
@@ -66,6 +71,12 @@ def choose_tier(inputs: TierInputs) -> Tier:
                 asked.append(Tier.HOT)
             elif inputs.total_stock < inputs.threshold * APPROACH_FACTOR:
                 asked.append(Tier.WARM)
+    if inputs.demand and inputs.demand > 0 and inputs.total_stock is not None:
+        cover = inputs.total_stock / inputs.demand
+        if cover < DEMAND_HOT_COVERAGE:
+            asked.append(Tier.HOT)
+        elif cover < DEMAND_WARM_COVERAGE:
+            asked.append(Tier.WARM)
     if inputs.lifecycle in _AT_RISK_LIFECYCLES:
         asked.append(Tier.WARM)
     if inputs.last_change_at is not None and inputs.now - inputs.last_change_at < RECENT_CHANGE:

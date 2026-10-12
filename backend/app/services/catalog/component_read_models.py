@@ -292,6 +292,16 @@ class CatalogComponentReadModels:
         )
         return local
 
+    def local_inventory_for(self, conn: Any, component_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """The preferred inventory aggregate of each component that has stock rows, in one query."""
+
+        found: dict[str, dict[str, Any]] = {}
+        for component_id, rows in self.load_inventory_for_components(conn, list(component_ids)).items():
+            local, _ = inventory_payloads_from_source_rows(rows)
+            if local is not None:
+                found[component_id] = local
+        return found
+
     def supply_sources(self, conn: Any, component_id: str) -> list[dict[str, Any]]:
         _, sources = inventory_payloads_from_source_rows(
             self._load_inventory_locations(conn, component_id)

@@ -25,6 +25,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   listSupplyManufacturers: vi.fn(),
   refreshSupplyUsage: vi.fn(),
   getSupplyAssessment: vi.fn(),
+  listPartDemands: vi.fn(),
 }));
 
 import { PartsView } from "./parts-view";
@@ -54,6 +55,7 @@ const search = () => screen.getByLabelText("location").textContent ?? "";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocked.listPartDemands.mockResolvedValue({ items: [], summary: { open: 0, own_stock: null, net: 0, next_need_by: null } });
   mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture()], total: 1, limit: 100 });
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
   mocked.refreshSupplyUsage.mockResolvedValue({ updated: 0, unchanged: 0, without_index: 0, removed: 0 });

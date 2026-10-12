@@ -25,6 +25,8 @@ import type {
   SupplyProvider,
   SupplyReviewQueue,
   SupplyComponentFinding,
+  SupplyDemand,
+  SupplyDemandSummary,
   SupplySource,
   SupplyWatch,
   UpdateSupplyConnectorInput,
@@ -353,6 +355,24 @@ export function saveAssessmentSettings(settings: AssessmentSettings): Promise<As
 
 export function resetAssessmentSettings(): Promise<AssessmentSettingsView> {
   return fetchJson<AssessmentSettingsView>(`${BASE}/settings/assessment`, { method: "DELETE" }, "Could not reset the settings");
+}
+
+export function listPartDemands(partId: string, signal?: AbortSignal): Promise<{ items: SupplyDemand[]; summary: SupplyDemandSummary }> {
+  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/demands`, { signal }, "Could not load the demand");
+}
+
+export function addPartDemand(
+  partId: string,
+  demand: { quantity: number; need_by: string | null; committed: boolean; note: string },
+): Promise<SupplyDemand> {
+  return post(`${BASE}/parts/${encodeURIComponent(partId)}/demands`, demand, "Could not add the demand");
+}
+
+export async function closePartDemand(demandId: string): Promise<void> {
+  const response = await fetchApi(`${BASE}/demands/${encodeURIComponent(demandId)}/close`, { method: "POST" });
+  if (!response.ok) {
+    throw new ApiHttpError(response.status, await readApiError(response, "Could not close the demand"));
+  }
 }
 
 export interface SupplyReadNow {

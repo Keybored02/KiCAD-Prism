@@ -12,11 +12,11 @@ from typing import Any, Callable, Optional, TypeVar
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.api import supply_connectors
+from app.api import supply_connectors, supply_demands
 from app.api.supply_access import require_supply_editor
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader
-from app.services.supply import parts
+from app.services.supply import demand, parts
 from app.services.supply.assessment import service, waivers
 from app.services.supply.assessment.checks import Finding
 from app.services.supply.vocabulary import Status
@@ -54,6 +54,15 @@ async def _run(call: Callable[[], T]) -> T:
         raise _http_error(exc) from exc
 
 
+def _open_need(conn, part: parts.PartRecord) -> Optional[int]:
+    """With no build quantity asked for, the part is judged against what is still needed: open demand less our stock."""
+
+    open_total = demand.open_totals(conn, [part.id]).get(part.id)
+    if not open_total:
+        return None
+    return demand.net_requirement(open_total, supply_demands.own_stock_of(part))
+
+
 @router.get("/parts/{part_id}/assessment")
 async def get_assessment(
     part_id: str,
@@ -64,8 +73,9 @@ async def get_assessment(
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            parts.get_part(conn, part_id)
-            return service.assess_parts(conn, [part_id], {part_id: quantity})[part_id]
+            part = parts.get_part(conn, part_id)
+            need = quantity if quantity is not None else _open_need(conn, part)
+            return service.assess_parts(conn, [part_id], {part_id: need})[part_id]
 
     return await _run(read)
 

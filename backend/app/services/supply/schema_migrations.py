@@ -509,6 +509,36 @@ def _m013_settings(conn) -> None:
     )
 
 
+def _m014_demands(conn) -> None:
+    """What is needed, and when: a quantity of a part from a source.
+
+    ``quantity`` may be negative: an entry for stock that is already on its way in. ``source_ref``
+    names the run or list a demand came from, so the source can replace it later. Open demand is
+    ``planned`` or ``committed``; ``closed`` demand is kept for history.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS demands (
+            id TEXT PRIMARY KEY,
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            source TEXT NOT NULL CHECK (source IN ('manual', 'bom_watch', 'manufacturing_run')),
+            source_ref TEXT NOT NULL DEFAULT '',
+            quantity INTEGER NOT NULL CHECK (quantity <> 0),
+            need_by DATE,
+            state TEXT NOT NULL CHECK (state IN ('planned', 'committed', 'closed')),
+            note TEXT NOT NULL DEFAULT '',
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            closed_by TEXT NOT NULL DEFAULT '',
+            closed_at TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS idx_supply_demands_part ON demands (part_id, state, need_by);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -523,6 +553,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (11, "waivers", _m011_waivers),
     (12, "release_snapshots", _m012_release_snapshots),
     (13, "settings", _m013_settings),
+    (14, "demands", _m014_demands),
 ]
 
 

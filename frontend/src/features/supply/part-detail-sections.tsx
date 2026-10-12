@@ -8,6 +8,7 @@ import type { SupplyPartDetail } from "@/types/supply";
 import { AssessmentSection } from "./assessment-section";
 import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
+import { DemandSection } from "./demand-section";
 import { ListingTable } from "./listing-table";
 import { PriceTrend } from "./price-trend";
 import { Sparkline } from "./sparkline";
@@ -71,6 +72,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       <AssessmentSection partId={detail.part.id} role={role} />
 
       <InsightPanel insight={detail.insight} />
+
+      <DemandSection partId={detail.part.id} canEdit={canEdit} />
 
       <section aria-label="Watch" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Watch</h3>

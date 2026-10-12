@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import alerts, ledger, pricing, stock, tiers, trouble
+from app.services.supply import alerts, demand, ledger, pricing, stock, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.models import Offer
 from app.services.supply.providers import registry
@@ -268,6 +268,7 @@ class Poller:
             total_stock=stock.part_stock(conn, row.part_id).total,
             threshold=watch["threshold"] if watch else None,
             last_change_at=last_change,
+            demand=demand.open_totals(conn, [row.part_id]).get(row.part_id),
         ))
 
     @staticmethod
