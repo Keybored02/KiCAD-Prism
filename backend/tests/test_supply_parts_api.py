@@ -159,6 +159,19 @@ class SupplyPartsApiTests(unittest.TestCase):
             self.assertEqual(self.call("DELETE", f"/api/supply/watches/{watch['id']}", role=role).status, 403, role)
         self.assertFalse(self.call("GET", f"/api/supply/parts/{watch['part_id']}").json["watch"]["pinned"])
 
+    def test_a_part_is_found_by_manufacturer_and_number_without_creating_anything(self) -> None:
+        watch = self.watch_via_api("ABC-123")
+        found = self.call("GET", "/api/supply/part-lookup", role="qa", query="manufacturer=ACME&mpn=abc123")
+        self.assertEqual((found.status, found.json), (200, {"part_id": watch["part_id"]}))
+        missing = self.call("GET", "/api/supply/part-lookup", query="manufacturer=Acme&mpn=NOPE-1")
+        self.assertEqual(missing.json, {"part_id": None})
+        unknown = self.call("GET", "/api/supply/part-lookup", query="manufacturer=Nobody+Inc&mpn=ABC-123")
+        self.assertEqual(unknown.json, {"part_id": None})
+        with self.store.connection() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM manufacturer_aliases WHERE status = 'pending'").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM parts").fetchone()["n"], 1)
+        self.assertEqual(self.call("GET", "/api/supply/part-lookup", role="viewer", query="manufacturer=Acme&mpn=ABC-123").status, 403)
+
     def test_tokens(self) -> None:
         reader = self.AuthenticatedUser(email="bot@example.com", name="bot", role="admin", auth_type="agent", scopes=["api:read"])
         self.assertEqual(self.call("GET", "/api/supply/parts", user=reader).status, 200)

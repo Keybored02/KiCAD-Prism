@@ -46,7 +46,7 @@ root first.
 | `backend/app/api/supply_alerts.py` | Overview and alerts API. Readers see both; admin and designer acknowledge and snooze. |
 | `pricing.py` | Unit price at a reference quantity (100), honouring minimum order and multiples. Prices are only compared at one quantity. |
 | `retention.py` | Rolls raw samples older than 60 days into `samples_daily`, in slices of 30 days. Run at the end of each poll job. |
-| `backend/app/api/supply_parts.py` | Parts and watches API. Readers see parts, stock and history; admin and designer watch parts and change watch rules. |
+| `backend/app/api/supply_parts.py` | Parts and watches API, and the read-only part lookup the component Sourcing tab uses. Readers see parts, stock and history; admin and designer watch parts and change watch rules. |
 | `audit.py` | `write_audit` and `actor_text`. The only way supply writes the audit trail. |
 | `csv_format.py` | The offers file: columns, parsing, validation. Pure. A file is all or nothing. |
 | `csv_offers.py`, `csv_import_service.py` | Storage for uploaded offers and the import and clear service. |

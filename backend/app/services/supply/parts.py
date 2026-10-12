@@ -136,6 +136,26 @@ def ensure_part(conn, manufacturer_name: str, mpn: str, actor: str, *, may_creat
     return get_part(conn, row["id"])
 
 
+def find_part(conn, manufacturer_name: str, mpn: str) -> PartRecord | None:
+    """The part for a manufacturer and part number, or None. Reads only: nothing is created or remembered."""
+
+    key, name_key = match_key(mpn), alias_key(manufacturer_name)
+    if not key or not name_key:
+        return None
+    row = conn.execute(
+        """
+        SELECT p.id FROM parts p
+        WHERE p.match_key = %s AND p.manufacturer_id IN (
+            SELECT manufacturer_id FROM manufacturer_aliases WHERE alias_key = %s AND status = 'confirmed'
+            UNION
+            SELECT id FROM manufacturers WHERE name_key = %s
+        )
+        """,
+        (key, name_key, name_key),
+    ).fetchone()
+    return get_part(conn, row["id"]) if row else None
+
+
 def get_part(conn, part_id: str) -> PartRecord:
     row = conn.execute(
         "SELECT p.id, p.manufacturer_id, m.name AS manufacturer_name, p.mpn, p.match_key "

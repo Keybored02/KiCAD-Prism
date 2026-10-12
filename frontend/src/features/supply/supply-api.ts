@@ -223,6 +223,13 @@ export function getSupplyPart(partId: string, signal?: AbortSignal): Promise<Sup
   return fetchJson<SupplyPartDetail>(`${BASE}/parts/${encodeURIComponent(partId)}`, { signal }, "Could not load the part");
 }
 
+/** The part Prism tracks for a manufacturer and number, or null. Creates nothing. */
+export async function findSupplyPart(manufacturer: string, mpn: string, signal?: AbortSignal): Promise<string | null> {
+  const query = new URLSearchParams({ manufacturer, mpn });
+  const found = await fetchJson<{ part_id: string | null }>(`${BASE}/part-lookup?${query}`, { signal }, "Could not look the part up");
+  return found.part_id;
+}
+
 export function addSupplyWatch(input: AddWatchInput): Promise<SupplyWatch> {
   return post(`${BASE}/watches`, input, "Could not watch the part");
 }

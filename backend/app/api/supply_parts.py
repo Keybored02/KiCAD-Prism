@@ -84,6 +84,22 @@ async def list_parts(
     return await _run(read)
 
 
+@router.get("/part-lookup")
+async def find_part(
+    manufacturer: str = Query(min_length=1, max_length=120),
+    mpn: str = Query(min_length=1, max_length=100),
+    _user: AuthenticatedUser = Depends(require_supply_reader),
+) -> dict[str, Any]:
+    """The part Prism tracks for a manufacturer and number, if it knows one. Creates nothing."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            record = parts.find_part(conn, manufacturer, mpn)
+            return {"part_id": record.id if record else None}
+
+    return await _run(read)
+
+
 @router.get("/parts/{part_id}")
 async def get_part(part_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:

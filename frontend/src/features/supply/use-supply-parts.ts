@@ -10,6 +10,7 @@ import type {
 } from "@/types/supply";
 import {
   getSupplyOverview,
+  findSupplyPart,
   getSupplyPart,
   listSupplyAlerts,
   listSupplyManufacturers,
@@ -45,4 +46,10 @@ export function useSupplyAlerts(includeResolved: boolean) {
     [includeResolved],
   );
   return useLoaded<SupplyAlert[]>(includeResolved ? "resolved" : "active", fetcher, "Could not load alerts");
+}
+
+/** The part Prism tracks for a catalog component's manufacturer and number; null data when none. */
+export function useSupplyPartFor(manufacturer: string, mpn: string) {
+  const fetcher = useCallback((signal: AbortSignal) => findSupplyPart(manufacturer, mpn, signal), [manufacturer, mpn]);
+  return useLoaded<string | null>(`${manufacturer}|${mpn}`, fetcher, "Could not look the part up");
 }
