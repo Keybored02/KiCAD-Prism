@@ -1,0 +1,320 @@
+"""DigiKey Product Information API, version 4.
+
+Written against the Swagger 2.0 description DigiKey publishes for "ProductSearch Api"
+(developer.digikey.com, the "Download Swagger File" link on the ProductSearch pages): host
+``api.digikey.com``, base path ``/products/v4``, token URL ``https://api.digikey.com/v1/oauth2/token``.
+It has not been run against the live service yet; a recorded answer should replace the schema-shaped
+fixtures in the tests as soon as a key is available.
+
+* Authentication: OAuth 2.0 client credentials. ``POST /v1/oauth2/token`` with ``client_id``,
+  ``client_secret`` and ``grant_type=client_credentials``; the answer is a bearer token with
+  ``expires_in`` seconds. Every call also sends ``X-DIGIKEY-Client-Id``.
+* Locale: ``X-DIGIKEY-Locale-Site`` (the storefront), ``-Language`` and ``-Currency``. The answer
+  says which locale it used (``SearchLocaleUsed``), and that currency is the one prices are in.
+* Discovery: ``POST /search/keyword`` with ``Keywords``. ``ExactMatches`` are used; if there are none,
+  only products whose manufacturer part number is the one asked for.
+* Offers: ``GET /search/{productNumber}/productdetails``. One call per SKU: DigiKey has no batch.
+  A SKU is a DigiKey product number, which is one packaging of a part (cut tape, tape and reel,
+  Digi-Reel each have their own), so a part has one listing per packaging.
+
+Stock. ``QuantityAvailableforPackageType`` is the stock of one packaging. DigiKey shares one pool of
+stock between some packagings, so the provider is declared pooled: a part's stock here is the largest
+of its listings, never their sum, which could count the same reel twice.
+
+Lifecycle. ``ProductStatus.Status`` is text the description does not list; the wording below is mapped
+and anything else is logged once and read as unknown. ``Discontinued`` ("no longer sold at Digi-Key")
+is the distributor flag and is never the manufacturer's lifecycle. ``EndOfLife`` ("no longer manufactured")
+is obsolete.
+
+Limits. The description gives none. DigiKey's published defaults for this API (120 calls a minute,
+1,000 a day) are used for the pacing and the default budget; both can be changed.
+"""
+
+from __future__ import annotations
+
+import time
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any, Callable, Mapping, Sequence
+from urllib.parse import quote
+
+from app.services.supply.http_client import SafeHttpClient
+from app.services.supply.identity import match_key
+from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.providers.base import (
+    CAP_LIFECYCLE,
+    CAP_OFFERS,
+    CAP_SEARCH,
+    AuthError,
+    CredentialField,
+    ProviderConfig,
+    ProviderError,
+    ProviderSpec,
+    RateLimited,
+    Unavailable,
+)
+from app.services.supply.providers.text_values import parse_count, parse_decimal
+from app.services.supply.providers.unrecognised import note
+from app.services.supply.vocabulary import Lifecycle, Packaging
+
+KEY = "digikey"
+API_URL = "https://api.digikey.com/products/v4"
+TOKEN_URL = "https://api.digikey.com/v1/oauth2/token"
+ALLOWED_HOSTS = ("api.digikey.com",)
+TOKEN_MARGIN_SECONDS = 30
+MIN_INTERVAL_SECONDS = 0.5
+MAX_MATCHES = 10
+
+# DigiKey sites that sell in a currency of their own. A wrong one is corrected by the server, which
+# reports the locale it used.
+STOREFRONTS = (
+    "US", "CA", "UK", "DE", "FR", "IT", "ES", "NL", "BE", "AT", "CH", "DK", "FI", "IE", "NO", "SE", "PL", "PT",
+    "CZ", "HU", "RO", "BG", "GR", "HR", "SI", "SK", "EE", "LV", "LT", "LU", "AU", "NZ", "JP", "KR", "SG", "IN", "MX", "CN",
+)
+
+_LIFECYCLE = {
+    "active": Lifecycle.ACTIVE,
+    "not for new designs": Lifecycle.NRND,
+    "last time buy": Lifecycle.LAST_TIME_BUY,
+    "obsolete": Lifecycle.OBSOLETE,
+}
+# Wording that says DigiKey stopped selling it, which is not a manufacturer lifecycle.
+_DISTRIBUTOR_WORDING = frozenset({"discontinued at digi-key", "discontinued"})
+_HARMLESS_STATUS = frozenset({"preliminary", "new product"})
+
+_PACKAGING = {
+    "cut tape (ct)": Packaging.CUT_TAPE,
+    "digi-reel": Packaging.TAPE_REEL,
+    "digi-reel®": Packaging.TAPE_REEL,
+    "tape & reel (tr)": Packaging.TAPE_REEL,
+    "tray": Packaging.TRAY,
+    "tube": Packaging.TUBE,
+    "bulk": Packaging.BULK,
+}
+
+
+class DigiKeyProvider:
+    def __init__(
+        self,
+        config: ProviderConfig,
+        *,
+        client: SafeHttpClient | None = None,
+        clock: Callable[[], datetime] | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._client_id = config.credentials.get("client_id", "")
+        self._client_secret = config.credentials.get("client_secret", "")
+        self._site = config.storefront
+        self._currency = config.currency
+        self._client = client or SafeHttpClient(ALLOWED_HOSTS)
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._monotonic = monotonic
+        self._sleep = sleep
+        self._access_token = ""
+        self._expires_at = 0.0
+        self._last_call: float | None = None
+
+    # --- calls --------------------------------------------------------------
+
+    def _token(self, *, renew: bool = False) -> str:
+        if not self._client_id or not self._client_secret:
+            raise AuthError("DigiKey needs a client ID and a client secret")
+        if renew or not self._access_token or self._monotonic() >= self._expires_at:
+            answer = self._client.request_json(
+                "POST", TOKEN_URL,
+                form={"client_id": self._client_id, "client_secret": self._client_secret, "grant_type": "client_credentials"},
+            )
+            token = answer.get("access_token") if isinstance(answer, dict) else None
+            if not token:
+                raise AuthError("DigiKey did not issue an access token")
+            self._access_token = str(token)
+            self._expires_at = self._monotonic() + max(float(answer.get("expires_in") or 600) - TOKEN_MARGIN_SECONDS, 1)
+        return self._access_token
+
+    def _headers(self, token: str) -> dict[str, str]:
+        headers = {"Authorization": f"Bearer {token}", "X-DIGIKEY-Client-Id": self._client_id}
+        if self._site:
+            headers["X-DIGIKEY-Locale-Site"] = self._site
+        if self._currency:
+            headers["X-DIGIKEY-Locale-Currency"] = self._currency
+        return headers
+
+    def _call(self, method: str, path: str, **kwargs: Any) -> Any:
+        if self._last_call is not None:
+            wait = MIN_INTERVAL_SECONDS - (self._monotonic() - self._last_call)
+            if wait > 0:
+                self._sleep(wait)
+        self._last_call = self._monotonic()
+        url = f"{API_URL}{path}"
+        try:
+            answer = self._client.request_json(method, url, headers=self._headers(self._token()), **kwargs)
+        except AuthError:
+            # The token may have lapsed between the check and the call: renew once.
+            answer = self._client.request_json(method, url, headers=self._headers(self._token(renew=True)), **kwargs)
+        if not isinstance(answer, dict):
+            raise ProviderError("DigiKey answered with something other than an object")
+        return answer
+
+    # --- the contract ------------------------------------------------------
+
+    def lookup_mpn(self, mpn: str, manufacturer: str | None = None) -> list[PartMatch]:
+        wanted = match_key(mpn)
+        if not wanted:
+            return []
+        answer = self._call("POST", "/search/keyword", json={"Keywords": mpn.strip()[:250], "Limit": MAX_MATCHES, "Offset": 0})
+        exact = [p for p in answer.get("ExactMatches") or [] if isinstance(p, dict)]
+        products = exact or [
+            p for p in answer.get("Products") or []
+            if isinstance(p, dict) and match_key(str(p.get("ManufacturerProductNumber") or "")) == wanted
+        ]
+        matches: list[PartMatch] = []
+        seen: set[str] = set()
+        for product in products:
+            for variation in product.get("ProductVariations") or []:
+                sku = str((variation or {}).get("DigiKeyProductNumber") or "")
+                if not sku or sku in seen:
+                    continue
+                seen.add(sku)
+                matches.append(_match(product, sku))
+        return matches
+
+    def get_offers(self, skus: Sequence[str]) -> list[Offer]:
+        offers: list[Offer] = []
+        for sku in skus:
+            try:
+                answer = self._call("GET", f"/search/{_quote(sku)}/productdetails")
+            except (AuthError, RateLimited, Unavailable):
+                raise
+            except ProviderError:
+                continue  # a number DigiKey no longer knows: left out, as the contract says
+            offer = _offer(sku, answer, self._clock())
+            if offer is not None:
+                offers.append(offer)
+        return offers
+
+    def get_part_data(self, match: PartMatch) -> PartData:
+        try:
+            product = (self._call("GET", f"/search/{_quote(match.sku)}/productdetails").get("Product")) or {}
+        except (AuthError, RateLimited, Unavailable):
+            raise
+        except ProviderError:
+            return PartData(match=match)
+        variation = next(
+            (v for v in product.get("ProductVariations") or [] if str((v or {}).get("DigiKeyProductNumber")) == match.sku), {}
+        )
+        parameters = tuple(
+            (str(item.get("ParameterText") or ""), str(item.get("ValueText") or ""))
+            for item in product.get("Parameters") or []
+            if isinstance(item, dict) and item.get("ParameterText")
+        )
+        return PartData(
+            match=match,
+            description=str((product.get("Description") or {}).get("ProductDescription") or ""),
+            datasheet_url=str(product.get("DatasheetUrl") or ""),
+            category=str((product.get("Category") or {}).get("Name") or ""),
+            package_name=str((variation.get("PackageType") or {}).get("Name") or ""),
+            parameters=parameters,
+        )
+
+
+def _quote(sku: str) -> str:
+    return quote(sku, safe="")
+
+
+def _match(product: Mapping[str, Any], sku: str) -> PartMatch:
+    return PartMatch(
+        provider=KEY,
+        sku=sku,
+        mpn=str(product.get("ManufacturerProductNumber") or ""),
+        manufacturer=str((product.get("Manufacturer") or {}).get("Name") or ""),
+        description=str((product.get("Description") or {}).get("ProductDescription") or ""),
+        product_url=str(product.get("ProductUrl") or ""),
+    )
+
+
+def _lifecycle(product: Mapping[str, Any]) -> tuple[Lifecycle, bool]:
+    """(manufacturer lifecycle, whether DigiKey itself stopped selling it)."""
+
+    status = str((product.get("ProductStatus") or {}).get("Status") or "").strip().lower()
+    dropped = bool(product.get("Discontinued")) or status in _DISTRIBUTOR_WORDING
+    if status in _LIFECYCLE:
+        return _LIFECYCLE[status], dropped
+    if status and status not in _DISTRIBUTOR_WORDING and status not in _HARMLESS_STATUS:
+        note(KEY, "product status", status)
+    if product.get("EndOfLife"):
+        return Lifecycle.OBSOLETE, dropped
+    return Lifecycle.UNKNOWN, dropped
+
+
+def _rohs(text: object) -> bool | None:
+    value = str(text or "").lower()
+    if not value:
+        return None
+    if "non" in value or "not compliant" in value:
+        return False
+    return True if "compliant" in value else None
+
+
+def _price_breaks(variation: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
+    tiers: dict[int, Decimal] = {}
+    for tier in variation.get("StandardPricing") or []:
+        if not isinstance(tier, dict):
+            continue
+        quantity, price = parse_count(tier.get("BreakQuantity")), parse_decimal(tier.get("UnitPrice"))
+        if quantity and price is not None and price >= 0:
+            tiers.setdefault(quantity, price)
+    return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers))
+
+
+def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
+    product = answer.get("Product") or {}
+    variation = next((v for v in product.get("ProductVariations") or [] if isinstance(v, dict) and str(v.get("DigiKeyProductNumber")) == sku), None)
+    if variation is None:
+        return None  # DigiKey answered, but not with this packaging: left out
+    stock = parse_count(variation.get("QuantityAvailableforPackageType"))
+    if stock is None:
+        note(KEY, "answer without QuantityAvailableforPackageType", sku)
+        return None
+    breaks = _price_breaks(variation)
+    currency = str((answer.get("SearchLocaleUsed") or {}).get("Currency") or "").upper()
+    if len(currency) != 3:
+        breaks, currency = (), ""
+    moq = max(parse_count(variation.get("MinimumOrderQuantity")) or 1, 1)
+    lifecycle, dropped = _lifecycle(product)
+    weeks = parse_count(product.get("ManufacturerLeadWeeks"))
+    return Offer(
+        provider=KEY,
+        sku=sku,
+        mpn=str(product.get("ManufacturerProductNumber") or sku),
+        manufacturer=str((product.get("Manufacturer") or {}).get("Name") or ""),
+        stock=stock,
+        fetched_at=now,
+        moq=moq,
+        packaging=_PACKAGING.get(str((variation.get("PackageType") or {}).get("Name") or "").strip().lower(), Packaging.UNKNOWN),
+        price_breaks=breaks,
+        currency=currency,
+        # The factory lead time only matters when stock does not cover the smallest order.
+        lead_time_days=weeks * 7 if weeks is not None and stock < moq else None,
+        lifecycle=lifecycle,
+        discontinued=dropped,
+        rohs=_rohs((product.get("Classifications") or {}).get("RohsStatus")),
+        marketplace=bool(variation.get("MarketPlace")),
+        product_url=str(product.get("ProductUrl") or ""),
+    )
+
+
+SPEC = ProviderSpec(
+    key=KEY,
+    label="DigiKey",
+    capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE}),
+    max_batch=1,
+    stock_pooling="pooled",
+    credential_fields=(
+        CredentialField("client_id", "Client ID"),
+        CredentialField("client_secret", "Client secret"),
+    ),
+    factory=lambda config: DigiKeyProvider(config),
+    storefronts=STOREFRONTS,
+    default_daily_budget=1000,
+)

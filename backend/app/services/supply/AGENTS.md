@@ -15,6 +15,8 @@ root first.
 | `providers/registry.py` | Provider lookup. Built-ins register at import; plugins load from the `prism.supply_providers` entry point. |
 | `providers/tme.py` | TME API v2: OAuth client-credentials token (kept until shortly before it expires), `/products?mpns[]` to find listings, `/products` plus `/products/data` for offers (two calls a batch of 50). The storefront is the country. Gross prices are turned net. |
 | `providers/mouser.py` | Mouser Search API V1: `search/partnumber` with up to 10 numbers per call, `Exact` matching, calls spaced 2 seconds apart. Errors arrive in a 200 answer. |
+| `providers/digikey.py` | DigiKey Product Information V4, from its Swagger file: OAuth client credentials, keyword search, one product-details call per SKU (one SKU is one packaging), stock pooled. Not yet run against the live service. |
+| `providers/farnell.py` | Farnell, Newark and element14 Product Search REST: manufacturer-number search, one SKU per call, the connector names the store and the currency. Not yet run against the live service. |
 | `providers/text_values.py` | Reads numbers sent as display text: "1,234 In Stock", "0,52 EUR", "42 Days". |
 | `providers/unrecognised.py` | Logs once a status or wording an adapter does not know, so a new one that matters gets noticed. |
 | `providers/fake.py` | Deterministic simulated market for tests, development and demos. Off unless `SUPPLY_ENABLE_SIMULATED_PROVIDER` is set. |
