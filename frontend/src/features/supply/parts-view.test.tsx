@@ -28,6 +28,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   listPartDemands: vi.fn(),
   getPartDatasheets: vi.fn(),
   getPartCompliance: vi.fn(),
+  listPartNotices: vi.fn(),
 }));
 
 import { PartsView } from "./parts-view";
@@ -57,6 +58,7 @@ const search = () => screen.getByLabelText("location").textContent ?? "";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocked.listPartNotices.mockResolvedValue([]);
   mocked.getPartCompliance.mockResolvedValue({ rohs: { state: "unknown", reason: "" }, reach: { state: "unknown", reason: "" }, substances: [], list: { loaded: false, substances: 0, loaded_at: null, loaded_by: "", source_name: "" } });
   mocked.getPartDatasheets.mockResolvedValue({ url: "", checked_at: null, status: null, items: [] });
   mocked.listPartDemands.mockResolvedValue({ items: [], summary: { open: 0, own_stock: null, net: 0, next_need_by: null } });

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Mapping
 
-from app.services.supply import insights, parts_view, prices
+from app.services.supply import insights, parts_view, pcn, prices
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.vocabulary import Lifecycle, Status
 
@@ -33,7 +33,8 @@ PART_LOST = "part_lost"
 RUPTURE_SOON = "rupture_soon"
 PRICE_UP = "price_up"
 DATASHEET_CHANGED = "datasheet_changed"
-KINDS = (OUT_OF_STOCK, BELOW_THRESHOLD, LIFECYCLE, PART_LOST, RUPTURE_SOON, PRICE_UP, DATASHEET_CHANGED)
+PCN = "pcn"
+KINDS = (OUT_OF_STOCK, BELOW_THRESHOLD, LIFECYCLE, PART_LOST, RUPTURE_SOON, PRICE_UP, DATASHEET_CHANGED, PCN)
 
 # A new datasheet version is worth a look for this long.
 DATASHEET_ALERT_DAYS = 14
@@ -66,6 +67,7 @@ def conditions_for(
     insight: Mapping[str, Any] | None = None,
     price: Mapping[str, Any] | None = None,
     datasheet: Mapping[str, Any] | None = None,
+    notice: Mapping[str, Any] | None = None,
 ) -> dict[str, Condition]:
     """The lines a watched part has crossed, from its summary row and, when there are any, its insight and price trend."""
 
@@ -89,6 +91,8 @@ def conditions_for(
             })
     if price is not None and price["change_percent"] >= PRICE_RISE_PERCENT:
         found[PRICE_UP] = Condition(Status.WARNING.value, dict(price))
+    if notice is not None:
+        found[PCN] = Condition(Status.ERROR.value if notice["soon"] else Status.WARNING.value, dict(notice))
     if datasheet is not None:
         found[DATASHEET_CHANGED] = Condition(Status.WARNING.value, dict(datasheet))
     lifecycle = item["lifecycle"]
@@ -127,7 +131,8 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
             insight = parts_view.insight_from(parts_view.history(conn, item["id"], now), watch["threshold"], now)
         price = prices.trend(prices.daily_cheapest(conn, item["id"], now), now.date()) if watch is not None else None
         sheet = _recent_datasheet_change(conn, item["id"], now) if watch is not None else None
-        current[item["id"]] = conditions_for(item, insight, price, sheet)
+        notice = pcn.alert_detail(pcn.for_part(conn, item["id"]), now.date()) if watch is not None else None
+        current[item["id"]] = conditions_for(item, insight, price, sheet, notice)
     existing: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in conn.execute(
         "SELECT * FROM alerts WHERE part_id = ANY(%s) AND state <> 'resolved' FOR UPDATE", (ids,)

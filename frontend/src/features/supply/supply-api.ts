@@ -29,6 +29,8 @@ import type {
   SupplyComponentFinding,
   SupplyDatasheets,
   SupplyMarket,
+  SupplyNotice,
+  SupplyNoticeKind,
   SupplySvhcList,
   SupplyDemand,
   SupplyDemandSummary,
@@ -426,6 +428,27 @@ export function loadSvhcList(csv: string, sourceName: string): Promise<SupplySvh
 
 export function getSupplyMarket(signal?: AbortSignal): Promise<SupplyMarket> {
   return fetchJson(`${BASE}/market`, { signal }, "Could not load the market figures");
+}
+
+export async function listPartNotices(partId: string, signal?: AbortSignal): Promise<SupplyNotice[]> {
+  const url = `${BASE}/parts/${encodeURIComponent(partId)}/notices`;
+  return (await fetchJson<{ items: SupplyNotice[] }>(url, { signal }, "Could not load the notices")).items;
+}
+
+export function addNotice(notice: {
+  title: string;
+  kind: SupplyNoticeKind;
+  parts: Array<{ manufacturer: string; mpn: string }>;
+  notice_url: string;
+  last_time_buy: string | null;
+  last_time_ship: string | null;
+  notes: string;
+}): Promise<{ id: string }> {
+  return post(`${BASE}/notices`, notice, "Could not add the notice");
+}
+
+export function closeNotice(noticeId: string): Promise<void> {
+  return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/close`, "POST", undefined, "Could not close the notice");
 }
 
 export interface SupplyReadNow {

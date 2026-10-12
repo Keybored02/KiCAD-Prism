@@ -52,6 +52,7 @@ def signals(
     datasheet_markers: Sequence[str] = (),
     zero_stock_days: int = 0,
     price_change_percent: float | None = None,
+    notices: Sequence[Mapping[str, Any]] = (),
 ) -> list[Signal]:
     found: list[Signal] = []
     if lifecycle is Lifecycle.OBSOLETE:
@@ -69,6 +70,14 @@ def signals(
             found.append(Signal(f"The datasheet mentions \"{marker}\".", "datasheet", "hard"))
         elif marker in _WATCH_MARKERS:
             found.append(Signal(f"The datasheet mentions \"{marker}\".", "datasheet", "watch"))
+    for notice in notices:
+        if notice["state"] != "open":
+            continue
+        when = f", last time buy {notice['last_time_buy']}" if notice.get("last_time_buy") else ""
+        if notice["kind"] in ("end_of_life", "last_time_buy"):
+            found.append(Signal(f"A notice announces {notice['kind_label'].lower()}{when}: {notice['title']}.", "product change notice", "hard"))
+        elif notice["kind"] == "nrnd":
+            found.append(Signal(f"A notice marks it not recommended for new designs: {notice['title']}.", "product change notice", "watch"))
     if zero_stock_days >= ZERO_STOCK_DAYS:
         found.append(Signal(f"No distributor has had it in stock for {zero_stock_days} days.", "stock history", "soft"))
     if price_change_percent is not None and price_change_percent >= PRICE_RISE_PERCENT:
@@ -95,6 +104,7 @@ def outlook(
     datasheet_markers: Sequence[str] = (),
     zero_stock_days: int = 0,
     price_change_percent: float | None = None,
+    notices: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """The band, its label and the signals behind it, for a part with these counted offers."""
 
@@ -106,8 +116,9 @@ def outlook(
         datasheet_markers=datasheet_markers,
         zero_stock_days=zero_stock_days,
         price_change_percent=price_change_percent,
+        notices=notices,
     )
-    chosen = band(lifecycle, found, has_data=bool(offers) or bool(datasheet_markers))
+    chosen = band(lifecycle, found, has_data=bool(offers) or bool(datasheet_markers) or bool(notices))
     return {
         "band": chosen,
         "label": LABELS[chosen],

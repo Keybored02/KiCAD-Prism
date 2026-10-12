@@ -72,6 +72,14 @@ supplier declared, as CAS numbers; an administrator loads the ECHA Candidate Lis
 and a CAS column) in Supply settings, and a declared substance on the list makes the part *affected by REACH*. A part
 nobody says anything about is *unknown*, never clear.
 
+## Product change notices
+
+A manufacturer's notice (end of life, last time buy, not recommended for new designs, or another change) is entered by
+a designer or administrator on a part sheet: a title, what it announces, its dates, an address, and the parts it covers.
+Prism does not read the PDF, so every date shown is one a person typed. An open notice that announces an ending feeds the
+outlook and raises an alert on watched parts, an error when the last time buy is within 90 days. Closing a notice keeps
+it.
+
 ## Market
 
 Supply > Market shows how the parts you follow do as a group, by manufacturer: the share out of stock, the share with a
@@ -128,7 +136,7 @@ section.
 ## Alerts
 
 Supply > Inbox. A watched part raises an alert when it runs out, falls to its threshold, may run out within eight
-weeks at the recent rate, rises 20% or more in price over 30 days, changes lifecycle, gets a new datasheet, is dropped by every distributor,
+weeks at the recent rate, rises 20% or more in price over 30 days, changes lifecycle, gets a new datasheet, has a product change notice that announces an ending, is dropped by every distributor,
 or is lost. A condition must hold on two looks at least 30 minutes apart. Acknowledge or snooze an alert; it clears by
 itself. Nothing is sent by email or chat.
 

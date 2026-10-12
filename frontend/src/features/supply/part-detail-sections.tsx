@@ -12,6 +12,7 @@ import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
 import { DemandSection } from "./demand-section";
 import { ListingTable } from "./listing-table";
+import { NoticesSection } from "./notices-section";
 import { OutlookSection } from "./outlook-section";
 import { PriceTrend } from "./price-trend";
 import { Sparkline } from "./sparkline";
@@ -100,6 +101,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       ) : null}
 
       <ComplianceSection partId={detail.part.id} canEdit={canEdit} />
+
+      <NoticesSection part={{ id: detail.part.id, manufacturer: detail.part.manufacturer, mpn: detail.part.mpn }} canEdit={canEdit} />
 
       <DatasheetSection partId={detail.part.id} canEdit={canEdit} />
 

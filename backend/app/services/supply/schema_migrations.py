@@ -657,6 +657,36 @@ def _m018_market_indices(conn) -> None:
     )
 
 
+def _m019_pcns(conn) -> None:
+    """Product change notices entered by people, and the parts each covers (see ``pcn.py``)."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pcns (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('end_of_life', 'nrnd', 'last_time_buy', 'change')),
+            notice_url TEXT NOT NULL DEFAULT '',
+            last_time_buy DATE,
+            last_time_ship DATE,
+            notes TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL CHECK (state IN ('open', 'closed')),
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            closed_by TEXT NOT NULL DEFAULT '',
+            closed_at TIMESTAMPTZ
+        );
+        CREATE TABLE IF NOT EXISTS pcn_parts (
+            pcn_id TEXT NOT NULL REFERENCES pcns(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            PRIMARY KEY (pcn_id, part_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pcn_parts_part ON pcn_parts (part_id);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -676,6 +706,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (16, "datasheets", _m016_datasheets),
     (17, "reach", _m017_reach),
     (18, "market_indices", _m018_market_indices),
+    (19, "pcns", _m019_pcns),
 ]
 
 

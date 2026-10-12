@@ -109,6 +109,23 @@ export interface SupplyCapacity {
   searches_pending: number;
 }
 
+export type SupplyNoticeKind = "end_of_life" | "nrnd" | "last_time_buy" | "change";
+
+/** A manufacturer's product change notice, as a person entered it. */
+export interface SupplyNotice {
+  id: string;
+  title: string;
+  kind: SupplyNoticeKind;
+  kind_label: string;
+  notice_url: string;
+  last_time_buy: string | null;
+  last_time_ship: string | null;
+  notes: string;
+  state: "open" | "closed";
+  created_by: string;
+  parts: number;
+}
+
 export interface SupplyMarketMetric {
   value: number;
   /** The same figure at the earlier snapshot, or null when none was stored. */
@@ -461,7 +478,7 @@ export interface SupplyInsight {
   inputs: { points: number; span_days: number; points_in_run: number; current: number | null };
 }
 
-export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "datasheet_changed";
+export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "datasheet_changed" | "pcn";
 export type SupplyAlertState = "open" | "acknowledged" | "snoozed" | "resolved";
 
 export interface SupplyAlert {
@@ -478,6 +495,7 @@ export interface SupplyAlert {
     days_to_zero?: number; decrease_per_day?: number; confidence?: string;
     change_percent?: number; was?: string; now?: string; currency?: string; days?: number;
     version?: number; change_summary?: string;
+    title?: string; kind?: string; kind_label?: string; last_time_buy?: string | null; last_time_ship?: string | null; soon?: boolean;
   };
   opened_at: string | null;
   last_event_at: string | null;
