@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AssessmentSettings, AssessmentSettingsView, AssessmentSeverity, SupplySubScore } from "@/types/supply";
 import { getAssessmentSettings, resetAssessmentSettings, saveAssessmentSettings } from "./supply-api";
+import { SvhcListUpload } from "./svhc-list-upload";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
 
@@ -136,6 +137,8 @@ function Form({ view, onClose }: { view: AssessmentSettingsView; onClose: () => 
         </div>
         <p className="text-xs text-muted-foreground">Only the proportions matter. Set an area to 0 to leave it out.</p>
       </fieldset>
+
+      <SvhcListUpload />
 
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
       <DialogFooter className="gap-2 sm:justify-between">

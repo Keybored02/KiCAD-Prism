@@ -64,6 +64,14 @@ lifecycle phrases the text mentions ("not recommended for new designs", "last ti
 Designers and administrators can set the address by hand. Files come from the public internet and are never opened by
 Prism itself: text is read in a separate process with a time limit, and downloads are served as sandboxed attachments.
 
+## Compliance
+
+A part sheet's Compliance section shows RoHS and REACH with where each answer comes from. RoHS follows what distributors
+say. For REACH, a distributor may flag a part as affected (DigiKey does). A designer can also enter the substances a
+supplier declared, as CAS numbers; an administrator loads the ECHA Candidate List (a CSV export with a substance name
+and a CAS column) in Supply settings, and a declared substance on the list makes the part *affected by REACH*. A part
+nobody says anything about is *unknown*, never clear.
+
 ## Demand
 
 A part sheet's Demand section holds what is needed and by when. A negative quantity is stock already on its way in.
@@ -91,6 +99,7 @@ Each part gets findings, five risk scores (lifecycle, sourcing, inventory, marke
 | Single source | Only one distributor has stock, while two or more are connected |
 | Lead time over the limit | Over the limit in Supply settings |
 | Not RoHS compliant | Distributors list it so |
+| Affected by REACH | A distributor flags it, or a declared substance is on the Candidate List |
 | Data out of date | Older than the limit in Supply settings |
 | No approved source | The part and all approved alternates are out of stock |
 | Manufacturer missing | The BOM line has a part number but no manufacturer |

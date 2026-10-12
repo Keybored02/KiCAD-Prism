@@ -218,15 +218,15 @@ class Poller:
         conn.execute(
             """
             INSERT INTO offers (listing_id, fetched_at, stock, incoming, moq, order_multiple, packaging, price_breaks,
-                                currency, lead_time_days, lifecycle, discontinued, rohs, marketplace, product_url)
-            VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)
+                                currency, lead_time_days, lifecycle, discontinued, rohs, marketplace, product_url, reach_affected)
+            VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (listing_id) DO UPDATE SET
                 fetched_at = EXCLUDED.fetched_at, stock = EXCLUDED.stock, incoming = EXCLUDED.incoming,
                 moq = EXCLUDED.moq, order_multiple = EXCLUDED.order_multiple, packaging = EXCLUDED.packaging,
                 price_breaks = EXCLUDED.price_breaks, currency = EXCLUDED.currency,
                 lead_time_days = EXCLUDED.lead_time_days, lifecycle = EXCLUDED.lifecycle,
                 discontinued = EXCLUDED.discontinued, rohs = EXCLUDED.rohs, marketplace = EXCLUDED.marketplace,
-                product_url = EXCLUDED.product_url
+                product_url = EXCLUDED.product_url, reach_affected = EXCLUDED.reach_affected
             """,
             (
                 row.id, offer.fetched_at, offer.stock,
@@ -234,7 +234,7 @@ class Poller:
                 offer.moq, offer.order_multiple, offer.packaging.value,
                 json.dumps([[item.quantity, str(item.unit_price)] for item in offer.price_breaks]),
                 offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.rohs,
-                offer.marketplace, offer.product_url,
+                offer.marketplace, offer.product_url, offer.reach_affected,
             ),
         )
         conn.execute(

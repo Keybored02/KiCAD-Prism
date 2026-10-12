@@ -63,6 +63,8 @@ class Offer:
     lifecycle: Lifecycle = Lifecycle.UNKNOWN
     discontinued: bool = False
     rohs: bool | None = None
+    # True when the distributor says the part is affected by REACH (it may hold a substance of very high concern).
+    reach_affected: bool | None = None
     marketplace: bool = False
     product_url: str = ""
 

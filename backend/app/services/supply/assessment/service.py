@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import parts_view
+from app.services.supply import compliance, parts_view
 from app.services.supply.assessment import checks, health, risk, settings_store, waivers
 from app.services.supply.assessment.settings import DEFAULTS, AssessmentSettings
 from app.services.supply.vocabulary import Lifecycle
@@ -32,10 +32,12 @@ def assess_one(
     settings: AssessmentSettings = DEFAULTS,
     distributors: int | None = None,
     extras: Sequence[checks.Finding] = (),
+    svhc_listed: Sequence[str] = (),
 ) -> dict[str, Any]:
     facts = checks.Facts(
         lifecycle=Lifecycle(item["lifecycle"]), offers=offers, now=now, problem=item["problem"], need=need,
         distributors=distributors,
+        svhc_listed=svhc_listed,
     )
     findings = [*waivers.apply(checks.evaluate(facts, settings), part_waivers), *extras]
     scores = risk.sub_scores(facts)
@@ -70,8 +72,9 @@ def assess_summaries(
     settings = settings or settings_store.load(conn)
     held = waivers.for_parts(conn, [item["id"] for item in items])
     distributors = distributor_count(conn)
+    listed = compliance.listed_substances(conn, [item["id"] for item in items])
     return {
-        item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors, (extras or {}).get(item["id"], ()))
+        item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors, (extras or {}).get(item["id"], ()), listed.get(item["id"], ()))
         for item in items
     }
 

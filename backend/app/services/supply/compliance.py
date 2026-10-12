@@ -1,0 +1,198 @@
+"""REACH: the ECHA Candidate List of substances of very high concern, and what is declared for a part.
+
+Distributors seldom say which substances a part contains. Two things feed the ``reach_svhc`` finding: a
+distributor flagging a part as affected (read with the offer), and a supplier's declaration entered here
+as CAS numbers and matched against the Candidate List. The list is loaded by an administrator from the
+export ECHA publishes (it changes about twice a year); nothing is fetched. A part with no declaration and
+no flag is *unknown* for REACH, not clean.
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+import re
+from datetime import date, datetime
+from typing import Any, Iterable, Mapping, Sequence
+
+from app.services.supply import parts
+from app.services.supply.audit import actor_text, write_audit
+
+MAX_LIST_BYTES = 5 * 1024 * 1024
+MAX_PER_PART = 100
+_CAS = re.compile(r"^\d{2,7}-\d{2}-\d$")
+# Header names ECHA and spreadsheets use, lower case, for each column we read.
+_COLUMNS = {
+    "name": ("substance name", "name", "substance"),
+    "ec": ("ec no.", "ec no", "ec number", "ec"),
+    "cas": ("cas no.", "cas no", "cas number", "cas"),
+    "added": ("date of inclusion", "inclusion date", "date added", "added"),
+}
+
+
+class ComplianceError(ValueError):
+    """The input does not apply. The message is safe to show."""
+
+
+def valid_cas(number: str) -> bool:
+    """A CAS number: digits in the 2-2-1 pattern, with its check digit correct."""
+
+    number = number.strip()
+    if not _CAS.match(number):
+        return False
+    digits = number.replace("-", "")
+    body, check = digits[:-1], int(digits[-1])
+    return sum(int(d) * i for i, d in enumerate(reversed(body), 1)) % 10 == check
+
+
+def _delimiter(sample: str) -> str:
+    return max((",", ";", "\t"), key=sample.count)
+
+
+def parse_list(text: str) -> list[dict[str, Any]]:
+    """Substances of an ECHA Candidate List export. A row without a valid CAS number is skipped and counted by the caller."""
+
+    text = text.lstrip("﻿")
+    if not text.strip():
+        raise ComplianceError("The file is empty.")
+    header, _, _ = text.partition("\n")
+    reader = csv.DictReader(io.StringIO(text), delimiter=_delimiter(header))
+    names = {str(field).strip().lower(): field for field in (reader.fieldnames or [])}
+
+    def column(key: str) -> str | None:
+        return next((names[candidate] for candidate in _COLUMNS[key] if candidate in names), None)
+
+    cas_col, name_col = column("cas"), column("name")
+    if cas_col is None or name_col is None:
+        raise ComplianceError("The file needs a substance name column and a CAS number column.")
+    ec_col, added_col = column("ec"), column("added")
+    found: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in reader:
+        # One cell can hold several CAS numbers, separated by slashes, commas or line breaks.
+        for number in re.split(r"[\s,;/]+", str(row.get(cas_col) or "")):
+            if not valid_cas(number):
+                continue
+            added: date | None = None
+            raw = str(row.get(added_col) or "").strip() if added_col else ""
+            for pattern in ("%Y-%m-%d", "%d/%m/%Y", "%d.%m.%Y"):
+                try:
+                    added = datetime.strptime(raw, pattern).date()
+                    break
+                except ValueError:
+                    continue
+            name = str(row.get(name_col) or "").strip()[:300]
+            if name:
+                found[(number, name)] = {"cas": number, "name": name, "ec": str(row.get(ec_col) or "").strip()[:30] if ec_col else "", "added_on": added}
+    if not found:
+        raise ComplianceError("No substance with a valid CAS number was found in the file.")
+    return list(found.values())
+
+
+def load_list(conn, text: str, source_name: str, actor: str) -> dict[str, Any]:
+    """Replace the Candidate List with the one in ``text``."""
+
+    actor = actor_text(actor)
+    if len(text.encode("utf-8")) > MAX_LIST_BYTES:
+        raise ComplianceError("The file is larger than 5 MB.")
+    substances = parse_list(text)
+    conn.execute("DELETE FROM svhc_substances")
+    for item in substances:
+        conn.execute(
+            "INSERT INTO svhc_substances (cas, name, ec, added_on) VALUES (%s, %s, %s, %s)",
+            (item["cas"], item["name"], item["ec"], item["added_on"]),
+        )
+    conn.execute(
+        """
+        INSERT INTO svhc_list (id, loaded_at, loaded_by, source_name, substances) VALUES (1, NOW(), %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET loaded_at = NOW(), loaded_by = EXCLUDED.loaded_by,
+            source_name = EXCLUDED.source_name, substances = EXCLUDED.substances
+        """,
+        (actor, source_name[:200], len(substances)),
+    )
+    write_audit(conn, actor, "svhc.load", "1", {"source": source_name[:200], "substances": len(substances)}, subject_kind="compliance")
+    return list_info(conn)
+
+
+def list_info(conn) -> dict[str, Any]:
+    row = conn.execute("SELECT loaded_at, loaded_by, source_name, substances FROM svhc_list WHERE id = 1").fetchone()
+    if row is None:
+        return {"loaded": False, "substances": 0, "loaded_at": None, "loaded_by": "", "source_name": ""}
+    return {"loaded": True, "substances": int(row["substances"]), "loaded_at": row["loaded_at"].isoformat(),
+            "loaded_by": row["loaded_by"], "source_name": row["source_name"]}
+
+
+def declare(conn, part_id: str, cas: str, note: str, actor: str) -> None:
+    """Record that a supplier declared this substance in the part."""
+
+    actor = actor_text(actor)
+    parts.get_part(conn, part_id)
+    cas = cas.strip()
+    if not valid_cas(cas):
+        raise ComplianceError(f"{cas or 'That'} is not a valid CAS number.")
+    count = conn.execute("SELECT COUNT(*) AS n FROM part_substances WHERE part_id = %s", (part_id,)).fetchone()["n"]
+    if count >= MAX_PER_PART:
+        raise ComplianceError(f"A part can have at most {MAX_PER_PART} declared substances.")
+    conn.execute(
+        """
+        INSERT INTO part_substances (part_id, cas, note, declared_by) VALUES (%s, %s, %s, %s)
+        ON CONFLICT (part_id, cas) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = NOW()
+        """,
+        (part_id, cas, note.strip()[:200], actor),
+    )
+    write_audit(conn, actor, "svhc.declare", part_id, {"cas": cas}, subject_kind="part")
+
+
+def remove_declaration(conn, part_id: str, cas: str, actor: str) -> None:
+    actor = actor_text(actor)
+    conn.execute("DELETE FROM part_substances WHERE part_id = %s AND cas = %s", (part_id, cas.strip()))
+    write_audit(conn, actor, "svhc.undeclare", part_id, {"cas": cas.strip()}, subject_kind="part")
+
+
+def declared(conn, part_id: str) -> list[dict[str, Any]]:
+    """Substances declared for a part, each with the Candidate List entry it matches, if any."""
+
+    rows = conn.execute(
+        """
+        SELECT d.cas, d.note, d.declared_by, d.declared_at, s.name AS listed_as
+        FROM part_substances d LEFT JOIN LATERAL (
+            SELECT name FROM svhc_substances WHERE cas = d.cas ORDER BY name LIMIT 1
+        ) s ON TRUE
+        WHERE d.part_id = %s ORDER BY d.cas
+        """,
+        (part_id,),
+    ).fetchall()
+    return [
+        {"cas": r["cas"], "note": r["note"], "declared_by": r["declared_by"], "declared_at": r["declared_at"].isoformat(), "listed_as": r["listed_as"]}
+        for r in rows
+    ]
+
+
+def listed_substances(conn, part_ids: Sequence[str]) -> dict[str, list[str]]:
+    """Per part, the names of declared substances that are on the Candidate List."""
+
+    if not part_ids:
+        return {}
+    found: dict[str, list[str]] = {}
+    for row in conn.execute(
+        """
+        SELECT d.part_id, (SELECT name FROM svhc_substances WHERE cas = d.cas ORDER BY name LIMIT 1) AS name
+        FROM part_substances d WHERE d.part_id = ANY(%s) AND EXISTS (SELECT 1 FROM svhc_substances s WHERE s.cas = d.cas)
+        ORDER BY d.part_id, d.cas
+        """,
+        (list(part_ids),),
+    ).fetchall():
+        found.setdefault(row["part_id"], []).append(row["name"])
+    return found
+
+
+def standing(offers: Iterable[Mapping[str, Any]], listed: Sequence[str]) -> dict[str, Any]:
+    """What is known about REACH for a part: ``affected``, ``clear`` or ``unknown``, and why."""
+
+    flags = [offer.get("reach_affected") for offer in offers if offer.get("reach_affected") is not None]
+    if listed:
+        return {"state": "affected", "reason": f"A declared substance is on the Candidate List: {', '.join(listed)}."}
+    if any(flags):
+        return {"state": "affected", "reason": "A distributor lists the part as affected by REACH."}
+    if flags:
+        return {"state": "clear", "reason": "Distributors list the part as not affected. No substance declaration is on file."}
+    return {"state": "unknown", "reason": "No distributor or declaration says either way."}

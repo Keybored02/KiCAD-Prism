@@ -117,6 +117,14 @@ class DigiKeyTests(unittest.TestCase):
         self.assertIsNone(offer.lead_time_days, "the factory lead time is hidden while stock covers the minimum order")
         self.assertIn("digikey.it", offer.product_url)
 
+    def test_digikeys_reach_status_is_read_as_affected_unaffected_or_nothing(self) -> None:
+        for wording, expected in (("REACH Unaffected", False), ("REACH Affected", True), ("Vendor undefined", None), ("Not applicable", None)):
+            product = dk_product()
+            product["Classifications"]["ReachStatus"] = wording
+            client = FakeClient({"/v1/oauth2/token": [TOKEN], DETAILS.format("296-1395-1-ND"): [dk_details(product)]})
+            (offer,) = dk_provider(client).get_offers(["296-1395-1-ND"])
+            self.assertEqual(offer.reach_affected, expected, wording)
+
     def test_the_variation_asked_for_is_the_one_read(self) -> None:
         product = dk_product([variation("A-ND", stock=10), variation("B-ND", "Tape & Reel (TR)", stock=9000, moq=2500)])
         client = FakeClient({"/v1/oauth2/token": [TOKEN], DETAILS.format("B-ND"): [dk_details(product)]})

@@ -8,6 +8,7 @@ import type { SupplyPartDetail } from "@/types/supply";
 import { AssessmentSection } from "./assessment-section";
 import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
+import { ComplianceSection } from "./compliance-section";
 import { DatasheetSection } from "./datasheet-section";
 import { DemandSection } from "./demand-section";
 import { ListingTable } from "./listing-table";
@@ -94,6 +95,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
           </ul>
         </section>
       ) : null}
+
+      <ComplianceSection partId={detail.part.id} canEdit={canEdit} />
 
       <DatasheetSection partId={detail.part.id} canEdit={canEdit} />
 

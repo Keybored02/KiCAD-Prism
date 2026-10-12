@@ -120,7 +120,7 @@ def offers_by_part(conn, part_ids: list[str]) -> dict[str, list[dict]]:
     for row in conn.execute(
         """
         SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name,
-               o.stock, o.marketplace, o.discontinued, o.rohs, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
+               o.stock, o.marketplace, o.discontinued, o.rohs, o.reach_affected, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
                o.order_multiple, o.lead_time_days, o.product_url, ps.tier
         FROM listings l
         JOIN offers o ON o.listing_id = l.id
@@ -306,7 +306,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         """
         SELECT l.id, l.connector_id, c.display_name AS connector_name, c.provider, l.sku, l.packaging, l.match_state,
                l.match_reason, o.fetched_at, o.stock, o.incoming, o.moq, o.order_multiple, o.price_breaks, o.currency,
-               o.lead_time_days, o.lifecycle, o.discontinued, o.rohs, o.marketplace, o.product_url,
+               o.lead_time_days, o.lifecycle, o.discontinued, o.rohs, o.reach_affected, o.marketplace, o.product_url,
                ps.tier, ps.next_poll_at, ps.last_polled_at, ps.error_streak, ps.last_error_code
         FROM listings l
         JOIN connectors c ON c.id = l.connector_id
@@ -350,6 +350,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
                 "lifecycle": r["lifecycle"],
                 "discontinued": bool(r["discontinued"]),
                 "rohs": r["rohs"],
+                "reach_affected": r["reach_affected"],
                 "marketplace": bool(r["marketplace"]),
                 "product_url": r["product_url"],
             } if has_offer else None,

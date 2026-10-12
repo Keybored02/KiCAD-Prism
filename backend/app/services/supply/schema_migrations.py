@@ -600,6 +600,44 @@ def _m016_datasheets(conn) -> None:
     )
 
 
+def _m017_reach(conn) -> None:
+    """REACH: whether a distributor flags an offer as affected, the Candidate List, and declared substances.
+
+    ``offers.reach_affected`` is true when a distributor says the part is affected, false when it says it is
+    not, and null when it says nothing. The Candidate List is loaded whole by an administrator.
+    ``part_substances`` holds what a supplier declared for a part, as CAS numbers.
+    """
+
+    conn.execute(
+        """
+        ALTER TABLE offers ADD COLUMN IF NOT EXISTS reach_affected BOOLEAN;
+        CREATE TABLE IF NOT EXISTS svhc_substances (
+            cas TEXT NOT NULL,
+            name TEXT NOT NULL,
+            ec TEXT NOT NULL DEFAULT '',
+            added_on DATE,
+            PRIMARY KEY (cas, name)
+        );
+        CREATE TABLE IF NOT EXISTS svhc_list (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            loaded_at TIMESTAMPTZ NOT NULL,
+            loaded_by TEXT NOT NULL,
+            source_name TEXT NOT NULL DEFAULT '',
+            substances INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS part_substances (
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            cas TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            declared_by TEXT NOT NULL,
+            declared_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (part_id, cas)
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -617,6 +655,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (14, "demands", _m014_demands),
     (15, "fx_rates", _m015_fx_rates),
     (16, "datasheets", _m016_datasheets),
+    (17, "reach", _m017_reach),
 ]
 
 

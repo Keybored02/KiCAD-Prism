@@ -8,6 +8,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   getAssessmentSettings: vi.fn(),
   saveAssessmentSettings: vi.fn(),
   resetAssessmentSettings: vi.fn(),
+  getSvhcList: vi.fn(),
 }));
 
 import * as api from "./supply-api";
@@ -37,6 +38,7 @@ function open(onOpenChange = vi.fn()) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.getAssessmentSettings.mockResolvedValue(view);
+  mocked.getSvhcList.mockResolvedValue({ loaded: false, substances: 0, loaded_at: null, loaded_by: "", source_name: "" });
   mocked.saveAssessmentSettings.mockResolvedValue(view);
   mocked.resetAssessmentSettings.mockResolvedValue(view);
 });

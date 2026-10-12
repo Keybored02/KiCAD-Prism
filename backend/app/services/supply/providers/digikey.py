@@ -257,6 +257,19 @@ def _rohs(text: object) -> bool | None:
     return True if "compliant" in value else None
 
 
+def _reach(text: object) -> bool | None:
+    """DigiKey's REACH status: affected is true, unaffected is false, anything else says nothing."""
+
+    value = str(text or "").strip().lower()
+    if value == "reach affected":
+        return True
+    if value == "reach unaffected":
+        return False
+    if value and value not in ("vendor undefined", "not applicable"):
+        note(KEY, "REACH status", value)
+    return None
+
+
 def _price_breaks(variation: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
     tiers: dict[int, Decimal] = {}
     for tier in variation.get("StandardPricing") or []:
@@ -300,6 +313,7 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
         lifecycle=lifecycle,
         discontinued=dropped,
         rohs=_rohs((product.get("Classifications") or {}).get("RohsStatus")),
+        reach_affected=_reach((product.get("Classifications") or {}).get("ReachStatus")),
         marketplace=bool(variation.get("MarketPlace")),
         product_url=str(product.get("ProductUrl") or ""),
     )

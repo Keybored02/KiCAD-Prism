@@ -25,8 +25,10 @@ import type {
   SupplyProvider,
   SupplyReviewQueue,
   SupplyBomRollup,
+  SupplyCompliance,
   SupplyComponentFinding,
   SupplyDatasheets,
+  SupplySvhcList,
   SupplyDemand,
   SupplyDemandSummary,
   SupplySource,
@@ -399,6 +401,26 @@ export async function setDatasheetUrl(partId: string, url: string): Promise<void
 /** Where a kept datasheet is downloaded from. */
 export function datasheetFileUrl(datasheetId: string): string {
   return `${BASE}/datasheets/${encodeURIComponent(datasheetId)}/file`;
+}
+
+export function getPartCompliance(partId: string, signal?: AbortSignal): Promise<SupplyCompliance> {
+  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/compliance`, { signal }, "Could not load the compliance");
+}
+
+export function declareSubstance(partId: string, cas: string, note: string): Promise<void> {
+  return send(`${BASE}/parts/${encodeURIComponent(partId)}/substances`, "POST", { cas, note }, "Could not declare the substance");
+}
+
+export function undeclareSubstance(partId: string, cas: string): Promise<void> {
+  return send(`${BASE}/parts/${encodeURIComponent(partId)}/substances/${encodeURIComponent(cas)}`, "DELETE", undefined, "Could not remove the substance");
+}
+
+export function getSvhcList(signal?: AbortSignal): Promise<SupplySvhcList> {
+  return fetchJson(`${BASE}/compliance/svhc`, { signal }, "Could not load the Candidate List");
+}
+
+export function loadSvhcList(csv: string, sourceName: string): Promise<SupplySvhcList> {
+  return post(`${BASE}/compliance/svhc`, { csv, source_name: sourceName }, "Could not load the Candidate List");
 }
 
 export interface SupplyReadNow {

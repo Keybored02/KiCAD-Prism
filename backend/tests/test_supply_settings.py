@@ -101,7 +101,7 @@ class SettingsApiTests(unittest.TestCase):
         response = self.call("GET", role="qa")
         self.assertEqual(response.status, 200)
         self.assertEqual(response.json["settings"], response.json["defaults"])
-        self.assertEqual(len(response.json["checks"]), 14)
+        self.assertEqual(len(response.json["checks"]), 15)
         self.assertEqual(self.call("GET", role="viewer").status, 403)
 
     def test_an_administrator_changes_them_and_it_is_audited(self) -> None:

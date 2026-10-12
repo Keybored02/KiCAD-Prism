@@ -109,6 +109,28 @@ export interface SupplyCapacity {
   searches_pending: number;
 }
 
+/** The ECHA Candidate List as loaded by an administrator. */
+export interface SupplySvhcList {
+  loaded: boolean;
+  substances: number;
+  loaded_at: string | null;
+  loaded_by: string;
+  source_name: string;
+}
+
+export interface SupplyComplianceState {
+  state: string;
+  reason: string;
+}
+
+/** RoHS and REACH of a part, and the substances a supplier declared for it. */
+export interface SupplyCompliance {
+  rohs: SupplyComplianceState;
+  reach: SupplyComplianceState;
+  substances: Array<{ cas: string; note: string; declared_by: string; declared_at: string; listed_as: string | null }>;
+  list: SupplySvhcList;
+}
+
 /** One kept version of a manufacturer's datasheet. */
 export interface SupplyDatasheetVersion {
   id: string;

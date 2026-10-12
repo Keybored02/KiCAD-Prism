@@ -31,6 +31,8 @@ class Facts:
     need: int | None = None
     # Distributors Prism reads. A part held by one of several is a single source; with only one there is no choice.
     distributors: int | None = None
+    # Names of substances declared for the part that are on the ECHA Candidate List.
+    svhc_listed: Sequence[str] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +95,10 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
     known = [o["rohs"] for o in offers if o.get("rohs") is not None]
     if known and not any(known):
         add(ids.ROHS_NONCOMPLIANT, "Distributors list this part as not RoHS compliant.", "rohs_false")
+    if facts.svhc_listed:
+        add(ids.REACH_SVHC, f"A declared substance is on the REACH Candidate List: {', '.join(facts.svhc_listed)}.", "svhc_declared")
+    elif any(o.get("reach_affected") for o in offers):
+        add(ids.REACH_SVHC, "A distributor lists this part as affected by REACH.", "reach_flag")
     newest = max((o["fetched_at"] for o in offers if o["fetched_at"] is not None), default=None)
     if newest is not None and facts.now - newest > timedelta(hours=settings.stale_hours):
         add(ids.DATA_STALE, "Distributor data for this part is out of date.", "stale")

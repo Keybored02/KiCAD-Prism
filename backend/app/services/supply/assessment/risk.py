@@ -83,10 +83,10 @@ def market(facts: Facts) -> SubScore:
 
 def compliance(facts: Facts) -> SubScore:
     known = [o["rohs"] for o in facts.offers if o.get("rohs") is not None]
-    if not known:
-        return SubScore("compliance", 1)
-    if not any(known):
+    if known and not any(known):
         return SubScore("compliance", 5, ("Listed as not RoHS compliant.",))
+    if facts.svhc_listed or any(o.get("reach_affected") for o in facts.offers):
+        return SubScore("compliance", 3, ("Affected by REACH.",))
     return SubScore("compliance", 1)
 
 
