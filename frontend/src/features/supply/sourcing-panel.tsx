@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
+import { AvlSection } from "./avl-section";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
 import { STATUS_LABEL } from "./supply-format";
@@ -13,6 +14,7 @@ import { addSupplyWatch } from "./supply-api";
 import { useSupplyPart, useSupplyPartFor } from "./use-supply-parts";
 
 interface SourcingPanelProps {
+  componentId: string;
   manufacturer: string;
   mpn: string;
   user: User | null;
@@ -22,7 +24,7 @@ interface SourcingPanelProps {
  * The Sourcing tab of a catalog component: what the distributors hold for its manufacturer part.
  * A component without a manufacturer part number has nothing to look up.
  */
-export default function SourcingPanel({ manufacturer, mpn, user }: SourcingPanelProps) {
+export default function SourcingPanel({ componentId, manufacturer, mpn, user }: SourcingPanelProps) {
   if (!manufacturer.trim() || !mpn.trim()) {
     return (
       <Alert>
@@ -30,10 +32,15 @@ export default function SourcingPanel({ manufacturer, mpn, user }: SourcingPanel
       </Alert>
     );
   }
-  return <Lookup manufacturer={manufacturer.trim()} mpn={mpn.trim()} user={user} />;
+  return (
+    <div className="space-y-6">
+      <AvlSection componentId={componentId} manufacturer={manufacturer.trim()} mpn={mpn.trim()} user={user} />
+      <Lookup manufacturer={manufacturer.trim()} mpn={mpn.trim()} user={user} />
+    </div>
+  );
 }
 
-function Lookup({ manufacturer, mpn, user }: SourcingPanelProps) {
+function Lookup({ manufacturer, mpn, user }: Omit<SourcingPanelProps, "componentId">) {
   const lookup = useSupplyPartFor(manufacturer, mpn);
   if (lookup.status === "loading") return <Skeleton className="h-40 w-full" aria-label="Looking the part up" />;
   if (lookup.status === "error") return <Failure message={lookup.error} onRetry={lookup.retry} />;

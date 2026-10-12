@@ -415,3 +415,22 @@ export interface FillDetails {
   package_name: string;
   category: string;
 }
+
+export type SourceApproval = "pending" | "approved" | "rejected";
+
+/** An alternate on a component's approved parts list. The component's own part is its primary source. */
+export interface SupplySource {
+  id: string;
+  part_id: string;
+  manufacturer: string;
+  mpn: string;
+  approval: SourceApproval;
+  rank: number;
+  created_by: string;
+  decided_by: string;
+  created_at: string | null;
+  decided_at: string | null;
+  status: SupplyStatus;
+  stock: number | null;
+  lifecycle: SupplyLifecycle;
+}

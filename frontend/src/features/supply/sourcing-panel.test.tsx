@@ -12,6 +12,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   findSupplyPart: vi.fn(),
   getSupplyPart: vi.fn(),
   addSupplyWatch: vi.fn(),
+  listComponentSources: vi.fn(),
 }));
 
 import SourcingPanel from "./sourcing-panel";
@@ -26,7 +27,7 @@ function userWith(role: UserRole): User {
 function renderPanel(role: UserRole = "designer", manufacturer = "Texas Instruments", mpn = "LM358D") {
   render(
     <MemoryRouter>
-      <SourcingPanel manufacturer={manufacturer} mpn={mpn} user={userWith(role)} />
+      <SourcingPanel componentId="cmp_1" manufacturer={manufacturer} mpn={mpn} user={userWith(role)} />
     </MemoryRouter>,
   );
 }
@@ -35,6 +36,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.findSupplyPart.mockResolvedValue("p1");
   mocked.getSupplyPart.mockResolvedValue(partDetailFixture());
+  mocked.listComponentSources.mockResolvedValue([]);
 });
 afterEach(cleanup);
 

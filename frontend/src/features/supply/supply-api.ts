@@ -21,6 +21,7 @@ import type {
   SupplyPartsPage,
   SupplyProvider,
   SupplyReviewQueue,
+  SupplySource,
   SupplyWatch,
   UpdateSupplyConnectorInput,
   UpdateWatchInput,
@@ -247,4 +248,34 @@ export async function removeSupplyWatch(watchId: string): Promise<void> {
   if (!response.ok) {
     throw new ApiHttpError(response.status, await readApiError(response, "Could not stop watching the part"));
   }
+}
+
+function sourcePath(id: string): string {
+  return `${BASE}/sources/${encodeURIComponent(id)}`;
+}
+
+async function send(url: string, method: string, body: unknown, fallback: string): Promise<void> {
+  const response = await fetchApi(url, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!response.ok) throw new ApiHttpError(response.status, await readApiError(response, fallback));
+}
+
+export async function listComponentSources(componentId: string, signal?: AbortSignal): Promise<SupplySource[]> {
+  const url = `${BASE}/components/${encodeURIComponent(componentId)}/sources`;
+  return (await fetchJson<{ items: SupplySource[] }>(url, { signal }, "Could not load the approved parts")).items;
+}
+
+export function addComponentSource(componentId: string, manufacturer: string, mpn: string): Promise<{ id: string; approval: string }> {
+  return post(`${BASE}/components/${encodeURIComponent(componentId)}/sources`, { manufacturer, mpn }, "Could not add the part");
+}
+
+export function decideSource(id: string, approve: boolean): Promise<void> {
+  return send(`${sourcePath(id)}/${approve ? "approve" : "reject"}`, "POST", undefined, "Could not save the decision");
+}
+
+export function rankSource(id: string, rank: number): Promise<void> {
+  return send(sourcePath(id), "PATCH", { rank }, "Could not change the rank");
+}
+
+export function removeSource(id: string): Promise<void> {
+  return send(sourcePath(id), "DELETE", undefined, "Could not remove the part");
 }

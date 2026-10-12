@@ -1104,7 +1104,7 @@ export function LibraryComponentWorkspace({
           ) : null}
           {activeTab === "sourcing" ? (
             <Suspense fallback={<Skeleton className="h-40 w-full" aria-label="Loading sourcing" />}>
-              <SourcingPanel manufacturer={activeComponent.manufacturer} mpn={activeComponent.mpn} user={user} />
+              <SourcingPanel componentId={activeComponent.id} manufacturer={activeComponent.manufacturer} mpn={activeComponent.mpn} user={user} />
             </Suspense>
           ) : null}
           {activeTab === "audit" ? (

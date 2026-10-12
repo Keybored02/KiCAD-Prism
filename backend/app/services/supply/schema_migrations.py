@@ -400,6 +400,35 @@ def _m009_usage_visibility(conn) -> None:
     )
 
 
+def _m010_component_sources(conn) -> None:
+    """The approved parts list (AVL): which manufacturer parts may stand in for a catalog component.
+
+    The component's own manufacturer part is its primary source and is read from the catalog, so
+    only alternates are stored. The list is not part of any revision hash, so editing it makes no
+    revision; every change is audited. ``component_id`` is a catalog id, which lives in another
+    schema, so it has no foreign key.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS component_sources (
+            id TEXT PRIMARY KEY,
+            component_id TEXT NOT NULL,
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            approval TEXT NOT NULL CHECK (approval IN ('pending', 'approved', 'rejected')),
+            rank INTEGER NOT NULL CHECK (rank >= 1),
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            decided_by TEXT NOT NULL DEFAULT '',
+            decided_at TIMESTAMPTZ,
+            UNIQUE (component_id, part_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_component_sources_part ON component_sources (part_id);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -410,6 +439,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (7, "alerts", _m007_alerts),
     (8, "bom_usage", _m008_bom_usage),
     (9, "usage_visibility", _m009_usage_visibility),
+    (10, "component_sources", _m010_component_sources),
 ]
 
 
