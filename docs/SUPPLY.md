@@ -151,6 +151,14 @@ A finding can be waived with a reason; QA approves. A waiver holds only while th
 Administrators set the limits, the severity of each check and the weight of each risk area in the gear on the Supply
 section.
 
+## BOM file
+
+Supply > BOM file checks a BOM that is not a project. Choose a CSV (comma, semicolon or tab separated; up to 2 MB and 5,000
+rows), confirm which column is the part number, manufacturer, quantity and references (they are guessed from the header),
+set the number of boards, and Prism shows what the parts would cost and whether they can be built, with the same rollup as
+a project BOM. Rows of the same part are added together. Nothing is saved, and parts Prism does not watch show as
+unknown.
+
 ## Compliance draft
 
 The project overview's Supply card links a draft RoHS and REACH declaration (CSV): every distinct part on the BOM with its
