@@ -66,6 +66,29 @@ class PanelPayloadTests(unittest.TestCase):
                 "INSERT INTO offers (listing_id, fetched_at, stock, lifecycle, currency, price_breaks, moq) VALUES (%s, %s, %s, %s, 'EUR', %s::jsonb, 1)",
                 (listing_id, datetime(2026, 3, 1, tzinfo=timezone.utc), stock, offer.get("lifecycle", "active"), offer.get("breaks", '[[1, "0.50"], [100, "0.30"]]')))
 
+    def refresh(self, part_id: str, role: str = "qa"):
+        from fastapi import FastAPI
+
+        from app.api import supply_connectors
+        from supply_api_helpers import request
+
+        app = FastAPI()
+        app.include_router(self.remote_provider.router)
+        with mock.patch.object(supply_connectors, "service", self.connectors):
+            return request(app, "POST", f"/api/remote-provider/supply/parts/{part_id}/refresh", user=self.users[role])
+
+    def test_the_panel_can_read_a_part_now_once_in_a_while(self) -> None:
+        self.listing(stock=50)
+        first = self.refresh(self.part.id)
+        self.assertEqual((first.status, first.json["connectors"]), (200, 1), first.text)
+        second = self.refresh(self.part.id)
+        self.assertEqual(second.status, 429)
+        self.assertIn("You can read it again in", second.json["detail"])
+
+    def test_the_panel_refresh_needs_supply_access_and_a_known_part(self) -> None:
+        self.assertEqual(self.refresh(self.part.id, role="viewer").status, 403)
+        self.assertEqual(self.refresh("no-such-part").status, 404)
+
     @staticmethod
     def component(**over):
         return {"id": "cmp-1", "manufacturer": "ACME", "mpn": "abc123", "supply": {"sources": []}} | over

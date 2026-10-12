@@ -8,6 +8,13 @@ const LIFECYCLE: Record<PanelSupplySummary["lifecycle"], string> = {
   unknown: "",
 };
 
+/** What a refresh did, in a sentence for the log. */
+export function refreshText(result: { read: number; connectors: number; problems: Array<{ reason: string }> }): string {
+  if (result.connectors === 0) return "No distributor lists this part yet.";
+  const read = result.read === 1 ? "Read 1 listing." : `Read ${result.read} listings.`;
+  return [read, ...result.problems.map((problem) => problem.reason)].join(" ");
+}
+
 /** 38200 becomes "38.2k". Exact counts below a thousand. */
 export function compactCount(value: number): string {
   if (value < 1000) return String(value);

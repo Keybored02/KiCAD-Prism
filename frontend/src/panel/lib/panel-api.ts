@@ -169,14 +169,14 @@ export function loadPanelAssetText(url: string): Promise<string> {
   return loadAssetText(url, panelAssetTextRequest(url));
 }
 
-async function panelFetch<T>(url: string, signal?: AbortSignal): Promise<T> {
+async function panelFetch<T>(url: string, signal?: AbortSignal, method = "GET"): Promise<T> {
   const headers: Record<string, string> = {};
   if (apiToken) {
     headers["Authorization"] = `Bearer ${apiToken}`;
   }
   let response: Response;
   try {
-    response = await fetch(url, { credentials: "include", headers, signal });
+    response = await fetch(url, { credentials: "include", headers, signal, method });
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     throw new PanelApiError(0, `Network error: ${(err as Error).message}`);
@@ -287,6 +287,17 @@ export async function getComponent(
     `/api/remote-provider/components/${componentId}${query ? `?${query}` : ""}`,
     signal
   );
+}
+
+export interface PanelSupplyRefresh {
+  read: number;
+  connectors: number;
+  problems: Array<{ connector: string; reason: string }>;
+}
+
+/** Ask the distributors for a tracked part's stock and price now. Throws a PanelApiError with the reason when it is too soon. */
+export function refreshSupplyPart(partId: string): Promise<PanelSupplyRefresh> {
+  return panelFetch<PanelSupplyRefresh>(`/api/remote-provider/supply/parts/${encodeURIComponent(partId)}/refresh`, undefined, "POST");
 }
 
 export async function getPartManifest(

@@ -411,6 +411,27 @@ async def get_component(
     return payload
 
 
+@router.post("/api/remote-provider/supply/parts/{part_id}/refresh")
+async def refresh_supply_part(part_id: str, user: AuthenticatedUser = Depends(require_remote_symbol_reader)) -> dict:
+    """Read one tracked part from its distributors now. Allowed under the read scope: it changes nothing a person sees."""
+
+    if not _supply_visible(user):
+        raise HTTPException(status_code=403, detail="Supply data is not available to this account")
+
+    def run() -> dict:
+        from app.api import supply_connectors
+        from app.services.supply import parts, refresh
+
+        try:
+            return refresh.read_now(supply_connectors.service, part_id, user.email)
+        except refresh.TooSoon as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except parts.PartNotFound as exc:
+            raise HTTPException(status_code=404, detail="Part not found") from exc
+
+    return await asyncio.to_thread(run)
+
+
 @router.get("/api/remote-provider/parts/{part_id}")
 async def get_part_manifest(
     part_id: str,

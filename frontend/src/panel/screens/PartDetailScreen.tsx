@@ -35,7 +35,9 @@ import {
   getComponent,
   getInlineBundle,
   getPartManifest,
+  refreshSupplyPart,
 } from "@/panel/lib/panel-api";
+import { refreshText } from "@/panel/lib/supply-summary";
 import { usePanelAssetLoader } from "@/panel/lib/use-panel-asset-loader";
 import { getSessionId, KiCadRpcError, sendRpcCommand } from "@/panel/lib/kicad-bridge";
 import { formatPlacementError, PLACEMENT_RESPONSE_TIMEOUT_MS } from "@/panel/lib/panel-placement";
@@ -120,6 +122,19 @@ export function PartDetailScreen({
     preview: previewFor(componentId, prefetched),
   }));
   const [retryNonce, setRetryNonce] = useState(0);
+  const refreshAvailability = async () => {
+    const partId = load.phase === "ready" ? load.component.supply?.summary?.part_id : undefined;
+    if (!partId) {
+      appendLog("Prism does not track this part's availability yet.");
+      return;
+    }
+    try {
+      appendLog(refreshText(await refreshSupplyPart(partId)));
+      setRetryNonce((value) => value + 1);
+    } catch (err) {
+      appendLog((err as Error).message);
+    }
+  };
   const [showAllParams, setShowAllParams] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [placementError, setPlacementError] = useState<string | null>(null);
@@ -427,12 +442,12 @@ export function PartDetailScreen({
       <Section
         label="Availability"
         action={
-          vendorSources.length > 0 ? (
+          vendorSources.length > 0 || component.supply?.summary ? (
             <button
               aria-label="Refresh availability"
               title="Refresh availability"
               className="text-muted-foreground transition-colors hover:text-primary"
-              onClick={() => appendLog("Vendor refresh is not configured yet.")}
+              onClick={() => void refreshAvailability()}
             >
               <RefreshCw className="h-3 w-3" />
             </button>
