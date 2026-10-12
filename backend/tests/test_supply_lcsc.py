@@ -101,7 +101,7 @@ class LcscTests(unittest.TestCase):
         client = FakeClient({SEARCH_PATH: [found]})
         matches = provider(client).lookup_mpn("LM358DR", "Texas Instruments")
         self.assertEqual(client.calls[0]["params"], {"keyword": "LM358DR", "currentPage": 1, "pageSize": lcsc.SEARCH_PAGE_SIZE})
-        self.assertEqual([(m.sku, m.mpn, m.manufacturer) for m in matches], [("C5423", "LM358DR", "TI"), ("C350551", "LM358DRG4", "TI")])
+        self.assertEqual([(m.sku, m.mpn, m.manufacturer) for m in matches], [("C5423", "LM358DR", "TI")], "a lookalike number is left out")
         self.assertEqual(matches[0].product_url, "https://www.lcsc.com/product-detail/C5423.html")
 
     def test_a_search_that_finds_nothing_or_fails(self) -> None:

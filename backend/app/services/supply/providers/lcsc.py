@@ -7,7 +7,8 @@ answers below are recorded from it.
 * An LCSC number (``C`` and digits) is read directly. A manufacturer number is searched with
   ``GET https://easyeda.com/api/eda/product/search?keyword=LM358DR``, the part search of EasyEDA (LCSC's own
   design tool), which answers ``productList`` items with ``number`` (the LCSC number), ``mpn`` and
-  ``manufacturer``. The search is loose: ``LM358DR`` also finds ``LM358DRG4``, which discovery marks as near.
+  ``manufacturer``. The search is loose (``TSR 1-2450`` brings back 17 other parts), so only answers with the same
+  part number, compared as ``match_key`` does, are returned.
   LCSC's own keyword search answers 403 to anything but a browser, and ``wwwapi.lcsc.com`` no longer exists.
 * ``{"code": 200, "result": null}`` is an unknown code.
 * ``stockNumber`` is the stock. ``productPriceList`` holds ``ladder`` (the quantity) and ``usdPrice``; prices
@@ -28,6 +29,7 @@ from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 
 from app.services.supply.http_client import SafeHttpClient
+from app.services.supply.identity import match_key
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_OFFERS,
@@ -104,9 +106,11 @@ class LcscProvider:
         if _SKU.match(sku):
             product = self._detail(sku)
             return [_match(sku, product)] if product else []
-        if not mpn.strip():
+        wanted = match_key(mpn)
+        if not wanted:
             return []
-        return [_search_match(item) for item in self._search(mpn.strip())]
+        # The search is loose ("TSR 1-2450" brings TSRN, TSN and M39003 parts), so only the same number is kept.
+        return [_search_match(item) for item in self._search(mpn.strip()) if match_key(str(item.get("mpn") or "")) == wanted]
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         offers = []
