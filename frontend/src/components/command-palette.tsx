@@ -22,6 +22,7 @@ import {
   Table2,
 } from "lucide-react";
 
+import { supplyCommands } from "@/components/command-palette-supply";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { fetchJson } from "@/lib/api";
 import {
@@ -218,6 +219,8 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
         });
       }
     }
+
+    items.push(...supplyCommands(user?.role, goToWorkspace));
 
     for (const project of projects) {
       items.push({

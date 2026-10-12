@@ -24,6 +24,7 @@ import type {
   SupplyPartsPage,
   SupplyProvider,
   SupplyReviewQueue,
+  SupplyBomRollup,
   SupplyComponentFinding,
   SupplyDemand,
   SupplyDemandSummary,
@@ -373,6 +374,11 @@ export async function closePartDemand(demandId: string): Promise<void> {
   if (!response.ok) {
     throw new ApiHttpError(response.status, await readApiError(response, "Could not close the demand"));
   }
+}
+
+/** A project's BOM rolled up from the lines stored when it was read. `available` is false until it has been. */
+export function getProjectBomHealth(projectId: string, signal?: AbortSignal): Promise<{ available: boolean; rollup?: SupplyBomRollup }> {
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/bom-health`, { signal }, "Could not load the supply health");
 }
 
 export interface SupplyReadNow {

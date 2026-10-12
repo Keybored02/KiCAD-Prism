@@ -145,6 +145,23 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual((response.json["available"], response.json["status"]), (True, "ok"))
         index.assert_called_once_with(project, "abc")
 
+    def test_the_project_health_rolls_up_the_stored_bom_lines(self) -> None:
+        from app.services.supply import usage
+
+        self.part("GOOD-1", stock=5000)
+        project = SimpleNamespace(id="prj_9")
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            self.assertEqual(self.request("prj_9/bom-health").json, {"available": False})
+            with self.store.connection() as conn:
+                usage.store_project(conn, "prj_9", "Nine", "rev1", usage.lines_from_components([
+                    component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("C1", "Acme", "UNKNOWN-9"),
+                ]), NOW)
+            response = self.request("prj_9/bom-health", query="build_quantity=10")
+        self.assertEqual(response.status, 200, response.text)
+        rollup = response.json["rollup"]
+        self.assertEqual((response.json["available"], rollup["lines"], rollup["tracked"], rollup["not_tracked"], rollup["can_build"]), (True, 2, 1, 1, 2500))
+        self.assertEqual(rollup["health_status"], "ok")
+
     def test_a_revision_without_a_read_bom_says_so(self) -> None:
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="p")), \
                 mock.patch("app.api.supply_release.semantic_index_service.get_existing", return_value=None):

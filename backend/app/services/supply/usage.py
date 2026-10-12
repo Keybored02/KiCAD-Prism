@@ -160,6 +160,15 @@ def refresh(
     return {"updated": updated, "unchanged": skipped, "without_index": missing, "removed": len(gone)}
 
 
+def project_rows(conn, project_id: str) -> list[dict[str, Any]]:
+    """The stored BOM lines of a project (manufacturer, number, quantity per board); empty when it was never read."""
+
+    rows = conn.execute(
+        "SELECT line_key, manufacturer, mpn, quantity FROM bom_usage WHERE project_id = %s ORDER BY line_key", (project_id,)
+    ).fetchall()
+    return [{"key": row["line_key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": int(row["quantity"])} for row in rows]
+
+
 def used_in(conn, part_id: str, role: str | None = None) -> list[dict[str, Any]]:
     """The projects whose BOM carries this part and that ``role`` may see, most parts first."""
 

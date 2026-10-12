@@ -23,6 +23,7 @@ import { VISUALIZER_DESIGN_SEARCH_SLOT_ID } from "@/lib/design-search";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { projectLastUpdated } from "@/lib/project-dates";
 import { UsedInPanel } from "@/features/system-builder/used-in-panel";
+import { ProjectSupplyCard } from "@/features/supply/project-supply-card";
 
 const AssetsPortal = lazy(() =>
     import("@/components/assets-portal").then((module) => ({ default: module.AssetsPortal }))
@@ -734,6 +735,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                         <span>Last updated: {projectLastUpdated(project)}</span>
                                     </div>
                                     {projectId && <UsedInPanel projectId={projectId} />}
+                                    {projectId && <ProjectSupplyCard projectId={projectId} role={user?.role} />}
                                     {readme ? (
                                         <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
                                             <MarkdownContent

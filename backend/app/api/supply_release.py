@@ -15,7 +15,7 @@ from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader
 from app.services import semantic_index_service
-from app.services.supply import catalog_read, release_check
+from app.services.supply import bom_lookup, catalog_read, release_check, usage
 
 router = APIRouter(prefix="/api/supply/projects", tags=["supply"])
 
@@ -32,6 +32,27 @@ async def _run(call: Callable[[], T]) -> T:
         return await asyncio.to_thread(call)
     except release_check.SnapshotNotFound as exc:
         raise HTTPException(status_code=404, detail="No supply snapshot for this build") from exc
+
+
+@router.get("/{project_id}/bom-health")
+async def bom_health(
+    project_id: str,
+    build_quantity: int = Query(default=1, ge=1, le=1_000_000),
+    user: AuthenticatedUser = Depends(require_supply_reader),
+) -> dict[str, Any]:
+    """The project's BOM rolled up from the lines stored when its BOM was read. Never calls a distributor."""
+
+    get_project_for_role_or_404(project_id, user.role)
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            rows = usage.project_rows(conn, project_id)
+            if not rows:
+                return {"available": False}
+            lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"]) for row in rows]
+            return {"available": True, "build_quantity": build_quantity, "rollup": bom_lookup.lookup(conn, lines, build_quantity)["rollup"]}
+
+    return await _run(read)
 
 
 @router.get("/{project_id}/release-check")
