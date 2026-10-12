@@ -477,3 +477,30 @@ export interface SupplyAssessment {
   findings: SupplyFinding[];
   sub_scores: SupplySubScore[];
 }
+
+export interface ReleaseCheckLine {
+  manufacturer: string;
+  mpn: string;
+  quantity: number;
+  state: "no_mpn" | "unknown" | "ambiguous" | "tracked";
+  part_id: string | null;
+  health: number | null;
+  status: SupplyStatus | null;
+  findings: Array<{ check: string; severity: FindingSeverity; text: string }>;
+  waived: number;
+}
+
+/** The supply check on a BOM before release. `available` is false when that revision's BOM has not been read. */
+export type ReleaseCheck =
+  | { available: false; reason: string }
+  | {
+      available: true;
+      health: number | null;
+      status: SupplyStatus;
+      parts: number;
+      tracked: number;
+      not_tracked: number;
+      needing_a_look: number;
+      attention: ReleaseCheckLine[];
+      lines: ReleaseCheckLine[];
+    };

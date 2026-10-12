@@ -83,7 +83,7 @@ class SeedingTests(unittest.TestCase):
         self.cid = self.connectors.create(actor="seed@example.com", provider="fake", currency="EUR", display_name="Fake shop")["id"]
 
     def seed(self, items, role="designer"):
-        with mock.patch.object(self.supply_seed, "_catalog_components", return_value=iter(items)):
+        with mock.patch("app.services.supply.catalog_read.catalog_components", return_value=iter(items)):
             return _request(self.app, "POST", "/api/supply/seed/catalog", user=self.users[role], body=None)
 
     def listings(self):

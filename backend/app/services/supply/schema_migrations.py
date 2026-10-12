@@ -457,6 +457,42 @@ def _m011_waivers(conn) -> None:
     )
 
 
+def _m012_release_snapshots(conn) -> None:
+    """What supply data said when a release was published: its BOM assessment and approved parts.
+
+    Written once, at publish, and never changed. It is evidence beside the release, not part of
+    its digest: stock moves every hour, so hashing it would make equal builds differ.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS release_snapshots (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            build_id TEXT NOT NULL UNIQUE,
+            tag TEXT NOT NULL,
+            commit_sha TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            health NUMERIC(3, 1),
+            status TEXT NOT NULL,
+            assessment JSONB NOT NULL,
+            avl JSONB NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_release_snapshots_project ON release_snapshots (project_id, created_at DESC);
+        CREATE OR REPLACE FUNCTION release_snapshots_frozen() RETURNS trigger AS $$
+        BEGIN
+            RAISE EXCEPTION 'A release snapshot cannot be changed or removed';
+        END;
+        $$ LANGUAGE plpgsql;
+        DROP TRIGGER IF EXISTS trg_release_snapshots_frozen ON release_snapshots;
+        CREATE TRIGGER trg_release_snapshots_frozen BEFORE UPDATE OR DELETE ON release_snapshots
+            FOR EACH ROW EXECUTE FUNCTION release_snapshots_frozen();
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -469,6 +505,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (9, "usage_visibility", _m009_usage_visibility),
     (10, "component_sources", _m010_component_sources),
     (11, "waivers", _m011_waivers),
+    (12, "release_snapshots", _m012_release_snapshots),
 ]
 
 

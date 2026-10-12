@@ -7,6 +7,7 @@ serves Git tags and must keep doing so.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json
@@ -31,6 +32,7 @@ from app.services import forge_publish_service as forge_publish
 from app.services import release_studio_build_service as build_service
 from app.services import release_studio_service as store
 from app.services.job_service import jobs
+from app.services.supply.publish_hook import freeze_after_publish
 from app.services.workspace_service import workspace
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
@@ -638,6 +640,8 @@ async def publish_build(
         )
     except store.ReviewDecisionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    # What supply data said at publish, kept beside the record. Evidence only; never part of a digest.
+    await asyncio.to_thread(freeze_after_publish, project_id, build_id, tag, commit_sha, user.email)
     return {"release": published, "filename": filename, "publish": record}
 
 

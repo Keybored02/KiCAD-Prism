@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ExternalLink, Loader2, Upload } from "lucide-react";
 
 import { HoldToConfirmButton } from "@/components/ui/hold-to-confirm-button";
+import { ReleaseSupplyCheck } from "@/features/supply/release-supply-check";
 
 import * as api from "../api";
 import type { BuildDetail } from "../types";
@@ -79,6 +80,7 @@ export function PublishStep({
             </div>
             {tokenHint && <p className="text-sm text-destructive">{tokenHint}</p>}
             {blocked && <p className="text-sm text-destructive">{blocked}</p>}
+            {detail.candidate?.commit_sha ? <ReleaseSupplyCheck projectId={projectId} commit={detail.candidate.commit_sha} /> : null}
             <dl className="grid gap-3 border p-3 text-sm sm:grid-cols-2">
                 <div>
                     <dt className="text-xs uppercase text-muted-foreground">Tag</dt>

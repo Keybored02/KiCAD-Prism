@@ -53,6 +53,10 @@ root first.
 | `backend/app/api/supply_assessment.py` | Assessment and waiver endpoints. Readers see assessments; admin, designer and qa propose waivers; admin and qa decide. |
 | `backend/app/api/supply_access.py` | The role check shared by endpoints that writers and approvers both use. |
 | `backend/app/services/supply/panel_payload.py` | What the KiCad panel gets (remote provider 0.4.0, additive): a one-line summary on search, list and detail; detail adds distributor offers, approved alternates, insight, health, two risk lines and links. Reads only; not sent to roles that cannot read supply data. |
+| `backend/app/services/supply/catalog_read.py` | Reads catalog components for supply through the catalog service: all components, and a manufacturer-and-number to component id map. |
+| `backend/app/services/supply/release_check.py` | The supply check on a project BOM before release (health, parts that need a look; informs, never blocks) and the snapshot frozen at publish with each matched component's approved parts. The snapshot is evidence beside the release, never part of its digest. |
+| `backend/app/services/supply/publish_hook.py` | Called by Release Studio after a publish; takes the snapshot; any failure is logged and dropped. |
+| `backend/app/api/supply_release.py` | Release check and release snapshot endpoints (readers; projects follow the caller's role). |
 | `bom_fields.py` | Which symbol fields are the manufacturer and the manufacturer part number (best name first; never the distributor's number), and what counts as fitted. The frontend's `frontend/src/features/supply/bom-supply.ts` keeps the same lists; a test compares them. |
 | `usage.py` | Where parts are used: one row per distinct part on each project's BOM, read from semantic indexes that already exist (it builds none). Each project carries the roles its folder lets see it, and every read filters by the caller's role. |
 | `overview.py` | The Supply overview: counts, what needs attention, open alerts, data age, quota today. |

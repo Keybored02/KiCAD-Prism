@@ -33,6 +33,7 @@ from app.api.supply_fill import router as supply_fill_router
 from app.api.supply_sources import router as supply_sources_router
 from app.api.supply_seed import router as supply_seed_router
 from app.api.supply_assessment import router as supply_assessment_router
+from app.api.supply_release import router as supply_release_router
 from app.api.project_trackers import router as project_trackers_router
 from app.api.tracker_sync import router as tracker_sync_router
 from app.api.tracker_webhooks import router as tracker_webhooks_router
@@ -312,6 +313,7 @@ app.include_router(supply_fill_router)
 app.include_router(supply_sources_router)
 app.include_router(supply_seed_router)
 app.include_router(supply_assessment_router)
+app.include_router(supply_release_router)
 register_supply_validation_redaction(app)
 app.include_router(tracker_identity_router)
 app.include_router(tracker_identity_admin_router)
