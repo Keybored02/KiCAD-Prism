@@ -30,6 +30,7 @@ import type {
   SupplyDatasheets,
   SupplyMarket,
   SupplyNotice,
+  SupplyPlan,
   SupplyNoticeKind,
   SupplySvhcList,
   SupplyDemand,
@@ -107,6 +108,21 @@ export interface SupplyIndexBuild {
 /** Queue the BOM reading of projects that have none yet. The worker does them in the background. */
 export function buildSupplyUsageIndexes(): Promise<SupplyIndexBuild> {
   return post(`${BASE}/bom/usage/build`, undefined, "Could not queue the project BOMs");
+}
+
+/** Ask for a build's parts as demand under a name; the same name replaces what it asked for before. */
+export function planSupplyBuild(plan: {
+  name: string;
+  lines: BomLineInput[];
+  buildQuantity: number;
+  attritionPercent: number;
+  needBy: string | null;
+}): Promise<{ parts: number; replaced: number }> {
+  return post(
+    `${BASE}/bom/plan`,
+    { name: plan.name, lines: plan.lines, build_quantity: plan.buildQuantity, attrition_percent: plan.attritionPercent, need_by: plan.needBy },
+    "Could not add the build to the plan",
+  );
 }
 
 export function lookupSupplyBom(
@@ -449,6 +465,10 @@ export function addNotice(notice: {
 
 export function closeNotice(noticeId: string): Promise<void> {
   return send(`${BASE}/notices/${encodeURIComponent(noticeId)}/close`, "POST", undefined, "Could not close the notice");
+}
+
+export function getSupplyPlan(signal?: AbortSignal): Promise<SupplyPlan> {
+  return fetchJson(`${BASE}/planning`, { signal }, "Could not load the plan");
 }
 
 export interface SupplyReadNow {

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { unwatchedCount } from "./bom-supply";
+import { BomPlanButton } from "./bom-plan-button";
 import { rollupSentences } from "./bom-rollup-text";
 import type { BomSupply } from "./use-bom-supply";
 
@@ -88,6 +89,7 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
       ))}
       {supply.truncated ? <span className="text-warning">Only the first 2,000 distinct parts are looked up.</span> : null}
       <span className="ml-auto flex items-center gap-1.5">
+        {supply.canWatch && lookup && lookup.rollup.tracked > 0 ? <BomPlanButton supply={supply} /> : null}
         {supply.canWatch && lookup && unwatched > 0 ? (
           <Button type="button" size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => void watchAll()}>
             <Eye className="h-3.5 w-3.5" />Watch all lines

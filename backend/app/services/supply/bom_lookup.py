@@ -354,6 +354,21 @@ def _rollup(
     }
 
 
+def build_needs(
+    conn, lines: Sequence[BomLine], build_quantity: int, attrition_percent: float = 0, identities: usage.Identities | None = None
+) -> dict[str, int]:
+    """Units of each tracked part a build needs (spares included), by part id. Lines that resolve to no part are left out."""
+
+    lines = with_library_identity(lines, library_identities(lines, identities))
+    resolved = _resolve(lines, conn)
+    per_board: dict[str, int] = {}
+    for line in lines:
+        state, part_id, _how = resolved[line.key]
+        if state == TRACKED and part_id:
+            per_board[part_id] = per_board.get(part_id, 0) + line.quantity
+    return {part_id: needed(count, build_quantity, attrition_percent) for part_id, count in per_board.items()}
+
+
 def standing_of(conn, lines: Sequence[BomLine]) -> dict[str, dict[str, Any]]:
     """Status, stock and whether it is watched, per line key, for the lines that resolve to a tracked part. Reads only."""
 

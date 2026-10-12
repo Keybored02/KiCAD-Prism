@@ -22,6 +22,7 @@ OPEN_STATES = ("planned", "committed")
 STATES = ("planned", "committed", "closed")
 MAX_QUANTITY = 100_000_000
 MAX_NOTE = 200
+MAX_REF = 100
 MAX_OPEN_PER_PART = 200
 
 
@@ -85,6 +86,42 @@ def add_manual(
                 {"part_id": part_id, "quantity": quantity, "need_by": need_by.isoformat() if need_by else None, "state": state},
                 subject_kind="demand")
     return _dto(conn.execute("SELECT * FROM demands WHERE id = %s", (demand_id,)).fetchone())
+
+
+def replace_from_source(
+    conn, source: str, source_ref: str, quantities: Mapping[str, int], actor: str, *, need_by: date | None = None, note: str = ""
+) -> dict[str, int]:
+    """Make ``source_ref`` ask for exactly ``quantities`` (part id to units): its open demand is closed and written again.
+
+    This is how a watched BOM or a run keeps its demand current: the same name replaces its earlier one.
+    Returns how many parts it asks for and how many it stopped asking for.
+    """
+
+    actor = actor_text(actor)
+    if source not in ("bom_watch", "manufacturing_run"):
+        raise DemandError("Only a BOM or a run can replace its own demand.")
+    source_ref = source_ref.strip()
+    if not source_ref or len(source_ref) > MAX_REF:
+        raise DemandError(f"Give the plan a name of up to {MAX_REF} characters.")
+    if any(quantity < 1 or quantity > MAX_QUANTITY for quantity in quantities.values()):
+        raise DemandError(f"Quantities must be from 1 to {MAX_QUANTITY:,}.")
+    for part_id in quantities:
+        parts.get_part(conn, part_id)
+    closed = conn.execute(
+        "UPDATE demands SET state = 'closed', closed_by = %s, closed_at = NOW() "
+        "WHERE source = %s AND source_ref = %s AND state <> 'closed'",
+        (actor, source, source_ref),
+    ).rowcount
+    for part_id, quantity in quantities.items():
+        conn.execute(
+            "INSERT INTO demands (id, part_id, source, source_ref, quantity, need_by, state, note, created_by) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 'planned', %s, %s)",
+            (uuid.uuid4().hex, part_id, source, source_ref, quantity, need_by, note.strip()[:MAX_NOTE], actor),
+        )
+    write_audit(conn, actor, "demand.replace", source_ref,
+                {"source": source, "parts": len(quantities), "replaced": closed, "need_by": need_by.isoformat() if need_by else None},
+                subject_kind="demand")
+    return {"parts": len(quantities), "replaced": closed}
 
 
 def close(conn, demand_id: str, actor: str) -> None:

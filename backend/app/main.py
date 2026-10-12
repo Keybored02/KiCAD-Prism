@@ -38,6 +38,7 @@ from app.api.supply_datasheets import router as supply_datasheets_router
 from app.api.supply_compliance import router as supply_compliance_router
 from app.api.supply_market import router as supply_market_router
 from app.api.supply_pcn import router as supply_pcn_router
+from app.api.supply_planning import router as supply_planning_router
 from app.api.supply_seed import router as supply_seed_router
 from app.api.supply_assessment import router as supply_assessment_router
 from app.api.supply_release import router as supply_release_router
@@ -326,6 +327,7 @@ app.include_router(supply_datasheets_router)
 app.include_router(supply_compliance_router)
 app.include_router(supply_market_router)
 app.include_router(supply_pcn_router)
+app.include_router(supply_planning_router)
 app.include_router(supply_seed_router)
 app.include_router(supply_assessment_router)
 app.include_router(supply_release_router)

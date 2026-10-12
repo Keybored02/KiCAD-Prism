@@ -161,6 +161,30 @@ export interface SupplyComponentStanding {
   watched: boolean;
 }
 
+/** One part with open demand, set against what is held. */
+export interface SupplyPlanRow {
+  part_id: string;
+  manufacturer: string;
+  mpn: string;
+  status: SupplyStatus;
+  needed: number;
+  incoming: number;
+  committed: number;
+  own_stock: number | null;
+  distributor_stock: number | null;
+  stock_known: boolean;
+  next_need_by: string | null;
+  short: boolean;
+  first_short_on: string | null;
+  short_by: number;
+  total_short_by: number;
+}
+
+export interface SupplyPlan {
+  parts: SupplyPlanRow[];
+  short: number;
+}
+
 export interface SupplyOutlook {
   band: "ended" | "under_2_years" | "2_to_5_years" | "no_signs" | "unknown";
   label: string;

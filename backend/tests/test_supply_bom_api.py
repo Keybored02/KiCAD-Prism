@@ -61,7 +61,7 @@ class BomLookupTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("component_sources", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
+            for table in ("demands", "component_sources", "listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
         self.cid = self.connectors.create(actor=SEED, provider="fake", currency="EUR", display_name="Sim", interactive_reserve_pct=0)["id"]
 
@@ -200,6 +200,28 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual(response.json["items"], {"cmp-1": {"status": "error", "stock": 0, "watched": True}})
         self.assertEqual(self.call("/api/supply/bom/components-status", body, role="viewer").status, 403)
         self.assertEqual(self.call("/api/supply/bom/components-status", {"components": []}).json, {"items": {}})
+
+    def test_a_build_becomes_demand_and_the_same_name_replaces_it(self) -> None:
+        one, two = self.part("Acme", "R-1"), self.part("Acme", "R-2")
+        lines = [
+            {"key": "a", "manufacturer": "Acme", "mpn": "R-1", "quantity": 2},
+            {"key": "b", "manufacturer": "Acme", "mpn": "R-2", "quantity": 1},
+            {"key": "c", "manufacturer": "Acme", "mpn": "NOBODY-HAS-THIS", "quantity": 4},
+        ]
+        first = self.call("/api/supply/bom/plan", {"name": "Spring run", "build_quantity": 100, "attrition_percent": 2, "need_by": "2026-05-01", "lines": lines})
+        self.assertEqual((first.status, first.json), (200, {"parts": 2, "replaced": 0}))
+
+        def open_demand():
+            with self.store.connection() as conn:
+                return {r["part_id"]: (r["quantity"], r["need_by"].isoformat() if r["need_by"] else None, r["source"]) for r in conn.execute(
+                    "SELECT part_id, quantity, need_by, source FROM demands WHERE state <> 'closed'").fetchall()}
+
+        self.assertEqual(open_demand(), {one: (204, "2026-05-01", "bom_watch"), two: (102, "2026-05-01", "bom_watch")})
+        again = self.call("/api/supply/bom/plan", {"name": "Spring run", "build_quantity": 50, "lines": lines[:1]})
+        self.assertEqual(again.json, {"parts": 1, "replaced": 2})
+        self.assertEqual(open_demand(), {one: (100, None, "bom_watch")})
+        self.assertEqual(self.call("/api/supply/bom/plan", {"name": "x", "lines": lines}, role="qa").status, 403)
+        self.assertEqual(self.call("/api/supply/bom/plan", {"name": "", "lines": lines}).status, 422)
 
     def test_the_other_resolutions(self) -> None:
         only = self.part("Texas Instruments", "UNIQUE1")

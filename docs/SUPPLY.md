@@ -106,6 +106,14 @@ stock anywhere, and a price rise of 20% or more. One soft signal is a note; two 
 *not recommended for new designs*, move the band. Nothing found is not a promise of a long life, and the KiCad panel
 shows the same phrase.
 
+## Planning
+
+Supply > Planning lists every part with open demand against our own stock and what the distributors hold now, shortages
+first. A part is short on the first date the demand so far is more than the supply so far; stock already on its way in
+counts from its own date, and demand with no date is counted last. Demand comes from a part sheet's Demand section or from
+the BOM: **Add to plan** on a project BOM asks for the build's parts (spares included) under a name and a needed-by date,
+and adding the same name again replaces what it asked for before. It plans; it never buys.
+
 ## Demand
 
 A part sheet's Demand section holds what is needed and by when. A negative quantity is stock already on its way in.
