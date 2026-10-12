@@ -176,4 +176,5 @@ SPEC = ProviderSpec(
     credential_fields=(),
     factory=lambda config: LcscProvider(config),
     default_daily_budget=2000,
+    search_note="LCSC is asked by its own number, such as C7950",
 )

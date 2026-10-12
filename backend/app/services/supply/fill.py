@@ -78,10 +78,12 @@ class FillService:
                 trouble.react(self._connectors, self._connectors.store, connector["id"], exc, now)
                 skipped.append({"connector": name, "reason": "the distributor did not answer"})
                 continue
-            exact = [m for m in matches if match_key(m.mpn) == wanted][:MAX_CANDIDATES_PER_CONNECTOR]
+            # A distributor's own number (an LCSC "C7950") finds the part too, whatever its manufacturer number is.
+            exact = [m for m in matches if wanted in (match_key(m.mpn), match_key(m.sku))][:MAX_CANDIDATES_PER_CONNECTOR]
             candidates += [_candidate(connector, m, manufacturer) for m in exact]
             if not exact:
-                skipped.append({"connector": name, "reason": "no match"})
+                note = registry.get_spec(connector["provider"]).search_note
+                skipped.append({"connector": name, "reason": note or "no match"})
         # Stable: the same manufacturer first, the rest in connector order.
         candidates.sort(key=lambda item: not item["manufacturer_matches"])
         return {"candidates": candidates, "skipped": skipped}

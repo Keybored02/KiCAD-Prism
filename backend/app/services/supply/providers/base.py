@@ -114,6 +114,8 @@ class ProviderSpec:
     metered: bool = True
     # Calls one get_offers batch makes, so the budget is charged what is really spent.
     calls_per_offers_batch: int = 1
+    # Said instead of "no match" when a search finds nothing, for a provider that cannot search by manufacturer number.
+    search_note: str = ""
 
     def __post_init__(self) -> None:
         if not _KEY.match(self.key):
