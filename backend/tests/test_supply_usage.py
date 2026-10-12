@@ -68,6 +68,21 @@ class LinesTests(unittest.TestCase):
         self.assertEqual([(line.mpn, line.quantity, line.references) for line in lines], [("R-10K", 2, "R1 R2"), ("C-1", 1, "C1")])
         self.assertEqual({line.match_key for line in lines}, {"R10K", "C1"})
 
+    def test_a_prism_id_the_library_knows_replaces_what_the_symbol_says(self) -> None:
+        asked = []
+
+        def library(ids):
+            asked.append(set(ids))
+            return {"c1": ("Texas Instruments", "LM358DR")}
+
+        lines = usage.lines_from_components([
+            component("U1", "TI", "old-text", **{"Prism ID": "c1"}),
+            component("U2", "Texas Instruments", "LM358DR"),
+            component("U3", "Acme", "X-1", **{"Prism ID": "gone"}),
+        ], library)
+        self.assertEqual(asked, [{"c1", "gone"}])
+        self.assertEqual([(line.manufacturer, line.mpn, line.quantity) for line in lines], [("Texas Instruments", "LM358DR", 2), ("Acme", "X-1", 1)])
+
     def test_a_missing_manufacturer_gives_a_blank_alias_key(self) -> None:
         (line,) = usage.lines_from_components([component("U1", "", "LM358")])
         self.assertEqual((line.alias_key, line.match_key), ("", "LM358"))

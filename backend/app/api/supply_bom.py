@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import bom_lookup, usage
+from app.services.supply import bom_lookup, catalog_read, usage
 
 router = APIRouter(prefix="/api/supply/bom", tags=["supply"])
 
@@ -33,6 +33,8 @@ class LineIn(BaseModel):
     mpn: str = Field(default="", max_length=200)
     # Fitted parts per board. A line with none fitted is not sent.
     quantity: int = Field(default=1, ge=1, le=100_000)
+    # The catalog component placed on the symbol. When the catalog knows it, its manufacturer and part number win.
+    prism_id: str = Field(default="", max_length=100)
 
 
 class LookupRequest(BaseModel):
@@ -63,7 +65,7 @@ async def _run(call: Callable[[], T]) -> T:
 
 
 def _lines(items: list[LineIn]) -> list[bom_lookup.BomLine]:
-    return [bom_lookup.BomLine(item.key, item.manufacturer, item.mpn, item.quantity) for item in items]
+    return [bom_lookup.BomLine(item.key, item.manufacturer, item.mpn, item.quantity, item.prism_id) for item in items]
 
 
 @router.post("/usage/refresh")
@@ -83,7 +85,9 @@ async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader
             for row in rows
         }
         with _store().connection() as conn:
-            return usage.refresh(conn, projects, semantic_index_service.get_existing, datetime.now(timezone.utc), visible)
+            return usage.refresh(
+                conn, projects, semantic_index_service.get_existing, datetime.now(timezone.utc), visible, catalog_read.identities,
+            )
 
     return await _run(run)
 
@@ -122,7 +126,9 @@ async def build_usage(writer: AuthenticatedUser = Depends(require_supply_writer)
 async def lookup(body: LookupRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return bom_lookup.lookup(conn, _lines(body.lines), body.build_quantity, body.attrition_percent)
+            return bom_lookup.lookup(
+                conn, _lines(body.lines), body.build_quantity, body.attrition_percent, identities=catalog_read.identities,
+            )
 
     return await _run(read)
 
@@ -132,7 +138,8 @@ async def watch(body: WatchRequest, writer: AuthenticatedUser = Depends(require_
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
             return bom_lookup.watch_lines(
-                conn, _lines(body.lines), writer.email, may_create_manufacturer=writer.role in SUPPLY_APPROVE_ROLES
+                conn, _lines(body.lines), writer.email, may_create_manufacturer=writer.role in SUPPLY_APPROVE_ROLES,
+                identities=catalog_read.identities,
             )
 
     return await _run(run)

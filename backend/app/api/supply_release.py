@@ -15,7 +15,7 @@ from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader
 from app.services import semantic_index_service
-from app.services.supply import release_check
+from app.services.supply import catalog_read, release_check
 
 router = APIRouter(prefix="/api/supply/projects", tags=["supply"])
 
@@ -47,7 +47,7 @@ async def release_check_for(
         if not index:
             return {"available": False, "reason": "This revision's BOM has not been read yet. Open its BOM once to read it."}
         with _store().connection() as conn:
-            return {"available": True, **release_check.check(conn, index.get("components") or [])}
+            return {"available": True, **release_check.check(conn, index.get("components") or [], identities=catalog_read.identities)}
 
     return await _run(read)
 

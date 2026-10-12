@@ -6,7 +6,7 @@ only place that knows how.
 
 from __future__ import annotations
 
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 from app.services.supply.identity import alias_key, match_key
 
@@ -25,6 +25,19 @@ def catalog_components() -> Iterator[dict[str, Any]]:
         if page >= int(result.get("pages") or 1):
             return
         page += 1
+
+
+def identities(component_ids: Iterable[str]) -> dict[str, tuple[str, str]]:
+    """Catalog component id to (manufacturer, part number), for the ids the catalog knows. Others are left out."""
+
+    from app.services.component_catalog_service import catalog_service
+
+    found: dict[str, tuple[str, str]] = {}
+    for component_id in sorted({str(item) for item in component_ids if item}):
+        component = catalog_service.get_component(component_id)
+        if component:
+            found[component_id] = (str(component.get("manufacturer") or ""), str(component.get("mpn") or ""))
+    return found
 
 
 def component_ids_by_part(components: Iterator[dict[str, Any]] | None = None) -> dict[tuple[str, str], str]:

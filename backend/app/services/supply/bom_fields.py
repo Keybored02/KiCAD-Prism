@@ -38,6 +38,15 @@ def _first(fields: Mapping[str, Any], names: tuple[str, ...]) -> str:
     return ""
 
 
+PRISM_ID_FIELD = "prism id"
+
+
+def prism_id_of(fields: Mapping[str, Any]) -> str:
+    """The catalog component id placed on the symbol, empty when it has none."""
+
+    return _first(fields, (PRISM_ID_FIELD,))
+
+
 def identity_of(fields: Mapping[str, Any]) -> tuple[str, str]:
     """(manufacturer, part number) of a symbol, each empty when it has none."""
 

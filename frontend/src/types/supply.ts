@@ -115,6 +115,8 @@ export interface BomLineInput {
   manufacturer: string;
   mpn: string;
   quantity: number;
+  /** The catalog component placed on the symbol; when the catalog knows it, its manufacturer and number win. */
+  prism_id?: string;
 }
 
 export interface SupplyBomBuy {

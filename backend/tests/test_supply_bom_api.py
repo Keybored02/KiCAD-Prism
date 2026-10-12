@@ -109,6 +109,21 @@ class BomLookupTests(unittest.TestCase):
         for key, entry in self.lookup(lines)["lines"].items():
             self.assertEqual((entry["state"], entry["part_id"], entry["manufacturer_match"]), ("tracked", part_id, "exact"), key)
 
+    def test_a_prism_id_the_library_knows_decides_the_line(self) -> None:
+        from app.services.supply import catalog_read
+
+        part_id = self.part("Texas Instruments", "LM358DR")
+        lines = [
+            {"key": "placed", "manufacturer": "Wrong Co", "mpn": "stale-text", "prism_id": "c1"},
+            {"key": "unknown-id", "manufacturer": "Wrong Co", "mpn": "stale-text", "prism_id": "gone"},
+            {"key": "plain", "manufacturer": "Texas Instruments", "mpn": "LM358DR"},
+        ]
+        with mock.patch.object(catalog_read, "identities", lambda ids: {"c1": ("Texas Instruments", "LM358DR")}):
+            result = self.lookup(lines)["lines"]
+        self.assertEqual((result["placed"]["state"], result["placed"]["part_id"], result["placed"]["manufacturer_match"]), ("tracked", part_id, "exact"))
+        self.assertEqual(result["unknown-id"]["state"], "unknown", "an id the library does not know falls back to the symbol's text")
+        self.assertEqual(result["plain"]["part_id"], part_id)
+
     def test_the_other_resolutions(self) -> None:
         only = self.part("Texas Instruments", "UNIQUE1")
         self.part("Texas Instruments", "TWIN1")

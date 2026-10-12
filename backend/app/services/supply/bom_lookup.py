@@ -1,14 +1,15 @@
 """Looking a bill of materials up in what Prism knows about parts.
 
 A BOM line is a manufacturer, a part number and how many go on one board. This resolves each
-line to a supply part (plan 6.4, steps 2 to 5; the placed-symbol identifier does not exist yet),
+line to a supply part (plan 6.4),
 then reports stock, status, lead time and the cheapest way to buy what a build needs.
 
 Reads only: it never calls a distributor. A line whose part nobody watches is reported as such;
 watching it (``watch_lines``) is what makes Prism read it. Lines without a part number are "not
 tracked" and are counted, never dropped.
 
-Resolution, first hit wins:
+Resolution, first hit wins. A line with a ``Prism ID`` the catalog knows is first given that component's
+manufacturer and part number (``with_library_identity``); the rest is unchanged.
 
 1. manufacturer and part number, through confirmed spellings and the part number key: exact
 2. part number alone, when the manufacturer is blank or unrecognised and exactly one part has it:
@@ -20,13 +21,13 @@ Resolution, first hit wins:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import math
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Sequence
 
-from app.services.supply import parts, parts_view, pricing, watches
+from app.services.supply import parts, parts_view, pricing, usage, watches
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
 from app.services.supply.vocabulary import Status
@@ -45,6 +46,7 @@ class BomLine:
     manufacturer: str
     mpn: str
     quantity: int  # per board, counting only parts that are fitted
+    prism_id: str = ""  # the catalog component placed on the symbol
 
 
 def _manufacturer_ids(conn, alias_keys: Iterable[str]) -> dict[str, str]:
@@ -149,9 +151,19 @@ def needed(per_board: int, build_quantity: int, attrition_percent: float = 0) ->
     return math.ceil(exact)
 
 
-def lookup(conn, lines: Sequence[BomLine], build_quantity: int, attrition_percent: float = 0) -> dict[str, Any]:
+def with_library_identity(lines: Sequence[BomLine], identities: usage.Identities | None) -> list[BomLine]:
+    """Lines whose ``prism_id`` the catalog knows take the library component's manufacturer and part number (6.4, step 1)."""
+
+    library = identities({line.prism_id for line in lines if line.prism_id}) if identities else {}
+    return [replace(line, manufacturer=library[line.prism_id][0], mpn=library[line.prism_id][1]) if line.prism_id in library else line for line in lines]
+
+
+def lookup(
+    conn, lines: Sequence[BomLine], build_quantity: int, attrition_percent: float = 0, identities: usage.Identities | None = None
+) -> dict[str, Any]:
     if len(lines) > MAX_LINES:
         raise ValueError(f"At most {MAX_LINES} lines can be looked up at once.")
+    lines = with_library_identity(lines, identities)
     resolved = _resolve(lines, conn)
     part_ids = sorted({part_id for _, part_id, _ in resolved.values() if part_id})
     items, offers = parts_view.summaries_with_offers(conn, part_ids)
@@ -267,11 +279,14 @@ def _rollup(
     }
 
 
-def watch_lines(conn, lines: Sequence[BomLine], actor: str, *, may_create_manufacturer: bool) -> dict[str, Any]:
+def watch_lines(
+    conn, lines: Sequence[BomLine], actor: str, *, may_create_manufacturer: bool, identities: usage.Identities | None = None
+) -> dict[str, Any]:
     """Watch every distinct part on the lines. Reports what it could not and why."""
 
     if len(lines) > MAX_WATCH_LINES:
         raise ValueError(f"At most {MAX_WATCH_LINES} lines can be watched at once.")
+    lines = with_library_identity(lines, identities)
     seen: set[tuple[str, str]] = set()
     watched = already = 0
     skipped: list[dict[str, str]] = []

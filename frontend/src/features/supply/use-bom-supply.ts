@@ -4,7 +4,7 @@ import { canEditSupply, canOpenSupply } from "@/lib/roles";
 import type { SemanticComponent } from "@/types/prism-selection";
 import type { User } from "@/types/auth";
 import type { SupplyBomLookup, SupplyBomWatchResult } from "@/types/supply";
-import { buildLines, type BomLineDetail } from "./bom-supply";
+import { buildLines, lineInput, type BomLineDetail } from "./bom-supply";
 import { lookupSupplyBom, watchSupplyBomLines } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 
@@ -54,7 +54,7 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
   );
   const fetcher = useCallback(
     (signal: AbortSignal) =>
-      lookupSupplyBom(lines.map(({ key, manufacturer, mpn, quantity }) => ({ key, manufacturer, mpn, quantity })), buildQuantity, { signal, attritionPercent }),
+      lookupSupplyBom(lines.map(lineInput), buildQuantity, { signal, attritionPercent }),
     [lines, buildQuantity, attritionPercent],
   );
   const { status: loadStatus, data, error, retry, refresh } = useLoaded<SupplyBomLookup>(requestKey, fetcher, "Could not look the BOM up");
@@ -64,7 +64,7 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
     for (let start = 0; start < subset.length; start += WATCH_BATCH) batches.push(subset.slice(start, start + WATCH_BATCH));
     // Each part is on exactly one line, so the batches do not overlap and can run together.
     const results = await Promise.all(
-      batches.map((batch) => watchSupplyBomLines(batch.map(({ key, manufacturer, mpn, quantity }) => ({ key, manufacturer, mpn, quantity })))),
+      batches.map((batch) => watchSupplyBomLines(batch.map(lineInput))),
     );
     const totals: SupplyBomWatchResult = { watched: 0, already_watched: 0, skipped: [] };
     for (const result of results) {

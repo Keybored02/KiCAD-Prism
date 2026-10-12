@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 
 import { costDelta, sideLines, type ComparedRow, type CostSide } from "./bom-cost-model";
+import { lineInput } from "./bom-supply";
 import { lookupSupplyBom } from "./supply-api";
 import { formatPrice } from "./supply-format";
 import { useLoaded } from "./use-loaded";
@@ -25,7 +26,7 @@ export function BomCostDelta({ rows, complete }: { rows: readonly ComparedRow[];
     [base, compare],
   );
   const fetcher = useCallback(async (signal: AbortSignal) => {
-    const input = (lines: typeof base) => lines.map(({ key: lineKey, manufacturer, mpn, quantity }) => ({ key: lineKey, manufacturer, mpn, quantity }));
+    const input = (lines: typeof base) => lines.map(lineInput);
     const [before, after] = await Promise.all([
       lookupSupplyBom(input(base), 1, { signal }),
       lookupSupplyBom(input(compare), 1, { signal }),

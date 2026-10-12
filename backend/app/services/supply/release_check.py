@@ -35,11 +35,16 @@ def _open(findings: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     return [f for f in findings if not (f["waiver"] and f["waiver"]["holds"])]
 
 
-def check(conn, components: Iterable[Mapping[str, Any]], now: datetime | None = None) -> dict[str, Any]:
+def check(
+    conn,
+    components: Iterable[Mapping[str, Any]],
+    now: datetime | None = None,
+    identities: usage.Identities | None = None,
+) -> dict[str, Any]:
     """Assess the distinct parts on a BOM. ``components`` are a semantic index's components."""
 
     now = now or datetime.now(timezone.utc)
-    lines = usage.lines_from_components(components)
+    lines = usage.lines_from_components(components, identities)
     bom = [BomLine(line.key, line.manufacturer, line.mpn, line.quantity) for line in lines]
     resolved = bom_lookup.resolve_lines(bom, conn)
     needs: dict[str, int] = {}
@@ -111,10 +116,11 @@ def freeze(
     components: Iterable[Mapping[str, Any]],
     component_ids: Mapping[tuple[str, str], str],
     now: datetime | None = None,
+    identities: usage.Identities | None = None,
 ) -> str | None:
     """Record the BOM check and the approved parts as they stand now. Returns the id, or None if already recorded."""
 
-    result = check(conn, components, now)
+    result = check(conn, components, now, identities)
     snapshot_id = uuid.uuid4().hex
     created = conn.execute(
         """

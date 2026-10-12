@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SemanticComponent } from "@/types/prism-selection";
 import type { SupplyBomLineResult, SupplyBomRollup } from "@/types/supply";
-import { buildLines, identityOf, isSupplyColumn, lineKey, rowSupply, unwatchedCount, untrackedLabel } from "./bom-supply";
+import { buildLines, identityOf, isSupplyColumn, lineInput, lineKey, rowSupply, unwatchedCount, untrackedLabel } from "./bom-supply";
 import { rollupSentences } from "./bom-rollup-text";
 
 function part(reference: string, fields: Record<string, string | number | boolean | null> = {}): SemanticComponent {
@@ -52,6 +52,15 @@ describe("part identity from field names", () => {
       ["Y-2", 1, ["C1"]],
       ["", 1, ["TP1"]],
     ]);
+  });
+
+  it("carries the Prism ID of the placed symbol to the server, and nothing else extra", () => {
+    const [placed, plain] = buildLines([
+      part("U1", { Manufacturer: "TI", "Manufacturer Part Number": "LM358", "Prism ID": " c1 " }),
+      part("U2", { Manufacturer: "Acme", "Manufacturer Part Number": "Z-9" }),
+    ]);
+    expect(lineInput(placed)).toEqual({ key: placed.key, manufacturer: "TI", mpn: "LM358", quantity: 1, prism_id: "c1" });
+    expect(lineInput(plain)).toEqual({ key: plain.key, manufacturer: "Acme", mpn: "Z-9", quantity: 1 });
   });
 });
 

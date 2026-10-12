@@ -59,6 +59,11 @@ export interface BomLineDetail extends BomLineInput {
   references: string[];
 }
 
+/** What a line sends to the server: its identity and count, without the references. */
+export function lineInput({ key, manufacturer, mpn, quantity, prism_id }: BomLineInput): BomLineInput {
+  return prism_id ? { key, manufacturer, mpn, quantity, prism_id } : { key, manufacturer, mpn, quantity };
+}
+
 /** The distinct parts among the fitted components, with how many go on one board. */
 export function buildLines(fitted: readonly SemanticComponent[]): BomLineDetail[] {
   const lines = new Map<string, BomLineDetail>();
@@ -70,7 +75,8 @@ export function buildLines(fitted: readonly SemanticComponent[]): BomLineDetail[
       line.quantity += 1;
       line.references.push(component.reference);
     } else {
-      lines.set(key, { key, ...identity, quantity: 1, references: [component.reference] });
+      const prismId = fieldText(component, ["prism id"]);
+      lines.set(key, { key, ...identity, quantity: 1, references: [component.reference], ...(prismId ? { prism_id: prismId } : {}) });
     }
   }
   return [...lines.values()];

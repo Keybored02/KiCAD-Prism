@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from app.services.supply.bom_fields import identity_of, is_fitted
+from app.services.supply.bom_fields import identity_of, is_fitted, prism_id_of
 from app.services.supply.identity import alias_key, match_key
 
 MAX_REFERENCES_TEXT = 500
@@ -51,15 +51,24 @@ class UsageLine:
     references: str
 
 
-def lines_from_components(components: Iterable[Mapping[str, Any]]) -> list[UsageLine]:
-    """The distinct parts among the fitted components, with how many go on one board. No number, no line."""
+Identities = Callable[[Iterable[str]], Mapping[str, tuple[str, str]]]
 
+
+def lines_from_components(components: Iterable[Mapping[str, Any]], identities: Identities | None = None) -> list[UsageLine]:
+    """The distinct parts among the fitted components, with how many go on one board. No number, no line.
+
+    A symbol carrying a ``Prism ID`` that ``identities`` knows takes the library component's manufacturer
+    and part number, whatever its own fields say (plan 6.4, step 1).
+    """
+
+    fitted = [component for component in components if is_fitted(component.get("fields") or {})]
+    library: Mapping[str, tuple[str, str]] = {}
+    if identities is not None:
+        library = identities({prism_id_of(component.get("fields") or {}) for component in fitted} - {""})
     found: dict[str, dict[str, Any]] = {}
-    for component in components:
+    for component in fitted:
         fields = component.get("fields") or {}
-        if not is_fitted(fields):
-            continue
-        manufacturer, mpn = identity_of(fields)
+        manufacturer, mpn = library.get(prism_id_of(fields)) or identity_of(fields)
         number = match_key(mpn)
         if not number:
             continue
@@ -116,6 +125,7 @@ def refresh(
     existing_index: Callable[[Any], Mapping[str, Any] | None],
     now: datetime,
     visible_roles: Mapping[str, Sequence[str]] | None = None,
+    identities: Identities | None = None,
 ) -> dict[str, int]:
     """Bring usage up to date with the semantic indexes that exist.
 
@@ -135,7 +145,7 @@ def refresh(
         if not payload:
             missing += 1
             continue
-        lines = lines_from_components(payload.get("components") or [])
+        lines = lines_from_components(payload.get("components") or [], identities)
         revision = str(payload.get("sourceRevisionKey") or "")
         roles = (visible_roles or {}).get(str(project.id), ALL_ROLES)
         if store_project(conn, str(project.id), str(project.name), revision, lines, now, roles):
