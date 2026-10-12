@@ -151,6 +151,12 @@ A finding can be waived with a reason; QA approves. A waiver holds only while th
 Administrators set the limits, the severity of each check and the weight of each risk area in the gear on the Supply
 section.
 
+## Compliance draft
+
+The project overview's Supply card links a draft RoHS and REACH declaration (CSV): every distinct part on the BOM with its
+RoHS and REACH standing and a list of gaps (no statement, not tracked, affected, Candidate List not loaded). It is a working
+document for a person to complete; Prism cannot know what a manufacturer has not said, and unknown is never shown as compliant.
+
 ## Alerts
 
 Supply > Inbox. A watched part raises an alert when it runs out, falls to its threshold, may run out within eight

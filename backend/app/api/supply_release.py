@@ -9,13 +9,13 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader
 from app.services import semantic_index_service
-from app.services.supply import bom_lookup, catalog_read, release_check, usage
+from app.services.supply import bom_lookup, catalog_read, compliance_draft, release_check, usage
 
 router = APIRouter(prefix="/api/supply/projects", tags=["supply"])
 
@@ -53,6 +53,34 @@ async def bom_health(
             return {"available": True, "build_quantity": build_quantity, "rollup": bom_lookup.lookup(conn, lines, build_quantity)["rollup"]}
 
     return await _run(read)
+
+
+@router.get("/{project_id}/compliance-draft")
+async def compliance_draft_for(
+    project_id: str,
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+    user: AuthenticatedUser = Depends(require_supply_reader),
+) -> Any:
+    """A draft RoHS and REACH declaration for the project's stored BOM, with the gaps listed. A working document, not a declaration."""
+
+    project = get_project_for_role_or_404(project_id, user.role)
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            rows = usage.project_rows(conn, project_id)
+            return {"available": bool(rows), "draft": compliance_draft.build(conn, rows) if rows else None}
+
+    result = await _run(read)
+    if format == "csv":
+        if not result["available"]:
+            raise HTTPException(status_code=404, detail="This project's BOM has not been read yet")
+        name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in (project.name or project_id))[:60]
+        return Response(
+            content=compliance_draft.to_csv(result["draft"]),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{name}-compliance-draft.csv"'},
+        )
+    return result
 
 
 @router.get("/{project_id}/release-check")

@@ -31,7 +31,13 @@ export function ProjectSupplyCard({ projectId, role }: { projectId: string; role
       <ul className="text-sm text-muted-foreground">
         {sentences.map((sentence) => <li key={sentence.text}>{sentence.text}</li>)}
       </ul>
-      <p className="text-xs text-muted-foreground">One board, today's data. The BOM tab has the detail and your build size.</p>
+      <p className="text-xs text-muted-foreground">
+        One board, today's data. The BOM tab has the detail and your build size.{" "}
+        <a href={`/api/supply/projects/${encodeURIComponent(projectId)}/compliance-draft?format=csv`} className="text-primary hover:underline">
+          Download a draft RoHS and REACH declaration
+        </a>{" "}
+        (a working document with the gaps listed, not a declaration).
+      </p>
     </section>
   );
 }

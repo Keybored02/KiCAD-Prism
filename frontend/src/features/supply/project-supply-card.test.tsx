@@ -33,6 +33,12 @@ describe("the project supply card", () => {
     expect(screen.getByText("1 at risk")).toBeTruthy();
   });
 
+  it("links the compliance draft for the project", async () => {
+    render(<ProjectSupplyCard projectId="p 1" role="qa" />);
+    const link = await screen.findByRole("link", { name: "Download a draft RoHS and REACH declaration" });
+    expect(link.getAttribute("href")).toBe("/api/supply/projects/p%201/compliance-draft?format=csv");
+  });
+
   it("shows nothing to a viewer, and never asks", () => {
     const { container } = render(<ProjectSupplyCard projectId="p1" role="viewer" />);
     expect(container.textContent).toBe("");

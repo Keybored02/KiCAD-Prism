@@ -162,6 +162,36 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual((response.json["available"], rollup["lines"], rollup["tracked"], rollup["not_tracked"], rollup["can_build"]), (True, 2, 1, 1, 2500))
         self.assertEqual(rollup["health_status"], "ok")
 
+    def test_the_compliance_draft_lists_each_part_with_what_is_known_and_what_is_missing(self) -> None:
+        from app.services.supply import compliance_draft, usage
+
+        known = self.part("GOOD-1", stock=10)
+        self.part("PLAIN-1", stock=10)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET rohs = TRUE, reach_affected = FALSE WHERE listing_id IN (SELECT id FROM listings WHERE part_id = %s)", (known,))
+            usage.store_project(conn, "prj_7", "Seven", "rev1", usage.lines_from_components([
+                component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("U1", "Acme", "PLAIN-1"),
+                component("C1", "Acme", "=EVIL()"), component("J1", "Acme", ""),
+            ]), NOW)
+        project = SimpleNamespace(id="prj_7", name="Seven")
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            response = self.request("prj_7/compliance-draft")
+            csv_response = self.request("prj_7/compliance-draft", query="format=csv")
+            empty = mock.patch("app.api.supply_release.usage.project_rows", return_value=[])
+            with empty:
+                self.assertEqual(self.request("prj_7/compliance-draft").json, {"available": False, "draft": None})
+                self.assertEqual(self.request("prj_7/compliance-draft", query="format=csv").status, 404)
+        by_mpn = {item["mpn"]: item for item in response.json["draft"]["parts"]}
+        self.assertEqual((by_mpn["GOOD-1"]["rohs"], by_mpn["GOOD-1"]["reach"], by_mpn["GOOD-1"]["quantity"], by_mpn["GOOD-1"]["references"]), ("compliant", "not affected", 2, "R1 R2"))
+        self.assertIn("No RoHS statement from any distributor.", by_mpn["PLAIN-1"]["gaps"])
+        self.assertIn("Prism does not track this part, so nothing is known about it.", by_mpn["=EVIL()"]["gaps"])
+        self.assertEqual(response.json["draft"]["summary"]["parts"], 3, "the line without a part number is not a distinct part")
+        self.assertEqual(csv_response.status, 200)
+        self.assertTrue(csv_response.headers["content-type"].startswith("text/csv"))
+        self.assertIn("'=EVIL()", csv_response.text)
+        self.assertNotIn(",=EVIL()", csv_response.text)
+        self.assertEqual(compliance_draft.to_csv({"parts": []}).strip(), ",".join(compliance_draft.HEADER))
+
     def test_a_revision_without_a_read_bom_says_so(self) -> None:
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="p")), \
                 mock.patch("app.api.supply_release.semantic_index_service.get_existing", return_value=None):
