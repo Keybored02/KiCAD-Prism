@@ -126,6 +126,7 @@ type ComponentTab = "overview" | "assets" | "revisions" | "review" | "usage" | "
 
 // Supply data is read-only for everyone who can read it, so the tab follows the Supply read role.
 const SourcingPanel = lazy(() => import("@/features/supply/sourcing-panel"));
+const BomWhereUsed = lazy(() => import("@/features/supply/bom-where-used"));
 
 const COMPONENT_TABS: Array<{ id: ComponentTab; label: string; icon: typeof Boxes }> = [
   { id: "overview", label: "Overview", icon: Boxes },
@@ -1099,7 +1100,18 @@ export function LibraryComponentWorkspace({
           ) : null}
           {activeTab === "usage" ? (
             <EvidenceBoundary state={usageTabState} loadingLabel="Loading project usage evidence…" onRetry={retryActiveEvidence}>
-              <WhereUsedPanel usage={usage} projects={projects} />
+              <div className="space-y-4">
+                <WhereUsedPanel usage={usage} projects={projects} />
+                {canOpenSupply(user?.role) ? (
+                  <Suspense fallback={null}>
+                    <BomWhereUsed
+                      manufacturer={activeComponent.manufacturer}
+                      mpn={activeComponent.mpn}
+                      knownProjectIds={new Set(usage.map((entry) => entry.project_id))}
+                    />
+                  </Suspense>
+                ) : null}
+              </div>
             </EvidenceBoundary>
           ) : null}
           {activeTab === "sourcing" ? (
