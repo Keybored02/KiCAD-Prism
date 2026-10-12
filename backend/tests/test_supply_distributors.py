@@ -386,6 +386,7 @@ class RecordedAnswerTests(unittest.TestCase):
         self.assertEqual([b.quantity for b in offer.price_breaks], sorted(b.quantity for b in offer.price_breaks))
         self.assertFalse(offer.discontinued, "a status TME does not document is not read as a reason")
         self.assertFalse(offer.marketplace)
+        self.assertEqual(offer.product_url, "https://www.tme.eu/at/details/lm358dr/")
 
     def test_mouser_as_it_really_answers_in_italian(self) -> None:
         provider = mouser_provider(FakeClient({SEARCH: [LIVE_MOUSER, LIVE_MOUSER, LIVE_MOUSER]}))

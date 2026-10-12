@@ -23,8 +23,10 @@ Product statuses map as follows. ``NOT_IN_OFFER`` and
 discontinued at this distributor, which is not the manufacturer's lifecycle.
 ``EXTERNAL_WAREHOUSE`` is third-party stock, kept apart like marketplace stock.
 ``CANNOT_BE_ORDERED``, ``PRODUCT_BLOCKED`` and ``INVALID`` cannot be bought here,
-so their stock counts as zero. TME reports no manufacturer lifecycle and no
-product page link in v2.
+so their stock counts as zero. TME reports no manufacturer lifecycle, and no
+retirement flag for every retired part; some come back with zero stock and a
+backorder block only. v2 has no product page link, so it is built from the
+symbol and the storefront (``tme.eu/<country>/details/<symbol>/``).
 
 Prices of type ``GROSS`` include tax; they are turned into net prices with the
 tax rate in the same answer, so every offer compares excluding VAT.
@@ -37,6 +39,7 @@ import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
+from urllib.parse import quote
 
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import match_key
@@ -196,7 +199,7 @@ class TmeProvider:
             product, figures = products.get(sku), data.get(sku)
             if product is None or figures is None:
                 continue  # unknown to TME now: left out, as the contract says
-            offers.append(_offer(sku, product, figures, now))
+            offers.append(_offer(sku, product, figures, now, self._country or ""))
         return offers
 
 
@@ -218,7 +221,16 @@ def _net_prices(prices: Mapping[str, Any]) -> tuple[tuple[PriceBreak, ...], str]
     return tuple(PriceBreak(quantity, tiers[quantity]) for quantity in sorted(tiers)), currency
 
 
-def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now: datetime) -> Offer:
+def _page_url(sku: str, country: str) -> str:
+    """The product page; TME redirects the short form to the full one."""
+
+    if not sku or "/" in sku:
+        return ""
+    site = {"": "en", "GB": "en"}.get(country.upper(), country.lower())
+    return f"https://www.tme.eu/{quote(site)}/details/{quote(sku.lower(), safe='')}/"
+
+
+def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now: datetime, country: str = "") -> Offer:
     statuses = {str(item).upper() for item in product.get("product_status") or []}
     stock = parse_count(figures.get("stock_quantity")) or 0
     if statuses & _NOT_ORDERABLE:
@@ -238,6 +250,7 @@ def _offer(sku: str, product: Mapping[str, Any], figures: Mapping[str, Any], now
         currency=currency,
         discontinued=bool(statuses & _STOPPING),
         marketplace=bool(statuses & _THIRD_PARTY),
+        product_url=_page_url(sku, country),
     )
 
 

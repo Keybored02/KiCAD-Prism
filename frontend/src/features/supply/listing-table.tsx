@@ -27,6 +27,7 @@ export function ListingTable({ listings }: { listings: SupplyListing[] }) {
                 {packagingLabel(listing.packaging) ? <Badge variant="outline">{packagingLabel(listing.packaging)}</Badge> : null}
                 {!listing.counted ? <Badge variant="warning">{matchLabel(listing.match_state)}, not counted</Badge> : null}
                 {offer?.marketplace ? <Badge variant="outline">Marketplace</Badge> : null}
+                {offer?.discontinued ? <Badge variant="warning">Discontinued here</Badge> : null}
               </div>
               {offer?.product_url ? (
                 <a href={offer.product_url} target="_blank" rel="noreferrer" aria-label={`Open ${listing.connector_name} product page`}
@@ -40,7 +41,7 @@ export function ListingTable({ listings }: { listings: SupplyListing[] }) {
                 <Fact label="Stock" value={formatStock(offer.stock)} />
                 <Fact label={`Price at ${firstBreak?.[0] ?? 1}`} value={firstBreak ? formatPrice(firstBreak[1], offer.currency) : "None"} />
                 <Fact label="Order" value={`Min ${offer.moq.toLocaleString()}${offer.order_multiple > 1 ? `, multiples of ${offer.order_multiple.toLocaleString()}` : ""}`} />
-                <Fact label="Lead time" value={offer.lead_time_days === null ? "In stock" : `${offer.lead_time_days} days`} />
+                <Fact label="Lead time" value={offer.lead_time_days === null ? (offer.stock > 0 ? "In stock" : "Not given") : `${offer.lead_time_days} days`} />
                 {offer.incoming.length > 0 ? (
                   <Fact label="On order" value={offer.incoming.map(([quantity, date]) => `${quantity.toLocaleString()}${date ? ` due ${date}` : ""}`).join(", ")} />
                 ) : null}
