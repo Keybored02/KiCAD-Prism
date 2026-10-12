@@ -28,6 +28,8 @@ Record that you reviewed the provider's terms; some limit how long their data ma
 
 ## Watch parts
 
+In the Component Catalog a coloured dot beside a component's name shows where its manufacturer part stands (hover for stock and whether it is watched). A component Prism does not track has no dot.
+
 A part is a manufacturer and a part number. Watched parts are read regularly; unwatched ones only when someone asks.
 
 - **Supply > Parts**: *Watched*, *In use* (parts on project BOMs) or *All known*. Open a part for its stock history,

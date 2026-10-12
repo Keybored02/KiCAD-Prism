@@ -187,6 +187,20 @@ class BomLookupTests(unittest.TestCase):
                 conn.execute("INSERT INTO connectors (id, provider, storefront, enabled) VALUES (%s, %s, %s, %s)", (f"x{index}", provider, store, enabled))
             self.assertEqual(service.distributor_count(conn), 2)
 
+    def test_the_catalog_table_asks_where_components_stand_and_untracked_ones_are_left_out(self) -> None:
+        part_id = self.part("Texas Instruments", "LM358DR", watch=True)
+        self.offer(part_id, "A", stock=0)
+        body = {"components": [
+            {"key": "cmp-1", "manufacturer": "Texas Instruments", "mpn": "LM358DR"},
+            {"key": "cmp-2", "manufacturer": "Acme", "mpn": "NOBODY"},
+            {"key": "cmp-3", "manufacturer": "", "mpn": ""},
+        ]}
+        response = self.call("/api/supply/bom/components-status", body)
+        self.assertEqual(response.status, 200, response.text)
+        self.assertEqual(response.json["items"], {"cmp-1": {"status": "error", "stock": 0, "watched": True}})
+        self.assertEqual(self.call("/api/supply/bom/components-status", body, role="viewer").status, 403)
+        self.assertEqual(self.call("/api/supply/bom/components-status", {"components": []}).json, {"items": {}})
+
     def test_the_other_resolutions(self) -> None:
         only = self.part("Texas Instruments", "UNIQUE1")
         self.part("Texas Instruments", "TWIN1")

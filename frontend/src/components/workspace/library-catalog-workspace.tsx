@@ -42,6 +42,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { CatalogSupplyDot } from "@/features/supply/catalog-supply-dot";
+import { useCatalogSupply } from "@/features/supply/use-catalog-supply";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { fetchJson } from "@/lib/api";
 import {
@@ -442,6 +444,7 @@ export function LibraryCatalogWorkspace({
   const firstVisibleRow = Math.max(0, Math.floor(catalogViewport.scrollTop / CATALOG_ROW_HEIGHT) - CATALOG_OVERSCAN);
   const lastVisibleRow = Math.min(items.length, Math.ceil((catalogViewport.scrollTop + catalogViewport.height) / CATALOG_ROW_HEIGHT) + CATALOG_OVERSCAN);
   const visibleItems = items.slice(firstVisibleRow, lastVisibleRow);
+  const supplyStanding = useCatalogSupply(items.map((item) => ({ id: item.id, manufacturer: item.manufacturer, mpn: item.mpn })), user?.role);
 
   const clearFilters = () => {
     setQuery("");
@@ -537,7 +540,7 @@ export function LibraryCatalogWorkspace({
                   onClick={() => selectComponent(component)}
                   aria-pressed={selectedComponentId === component.id}
                 >
-                  <div className="min-w-0"><p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium"><span className="truncate">{component.name}</span>{component.kind && component.kind !== "part" ? <Badge variant="outline" className="shrink-0 capitalize">{component.kind}</Badge> : null}</p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
+                  <div className="min-w-0"><p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium"><CatalogSupplyDot standing={supplyStanding[component.id]} /><span className="truncate">{component.name}</span>{component.kind && component.kind !== "part" ? <Badge variant="outline" className="shrink-0 capitalize">{component.kind}</Badge> : null}</p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
                   <div className="min-w-0"><p className="truncate text-xs">{component.manufacturer || "—"}</p><p className="truncate text-xs text-muted-foreground">{component.vendor || component.source}</p></div>
                   <div className="min-w-0"><p className="truncate text-xs">{component.category || "Uncategorized"}</p><p className="truncate text-xs text-muted-foreground">{component.package_name || "No package"}</p></div>
                   <div className="flex min-w-0"><AvailabilityBadge state={component.availability_state} /></div>

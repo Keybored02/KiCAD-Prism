@@ -354,6 +354,19 @@ def _rollup(
     }
 
 
+def standing_of(conn, lines: Sequence[BomLine]) -> dict[str, dict[str, Any]]:
+    """Status, stock and whether it is watched, per line key, for the lines that resolve to a tracked part. Reads only."""
+
+    resolved = _resolve(lines, conn)
+    part_ids = sorted({part_id for state, part_id, _ in resolved.values() if state == TRACKED and part_id})
+    summary = {item["id"]: item for item in parts_view.summaries_for(conn, part_ids)} if part_ids else {}
+    return {
+        key: {"status": summary[part_id]["status"], "stock": summary[part_id]["stock"], "watched": summary[part_id]["watch"] is not None}
+        for key, (state, part_id, _how) in resolved.items()
+        if state == TRACKED and part_id in summary
+    }
+
+
 def watch_lines(
     conn, lines: Sequence[BomLine], actor: str, *, may_create_manufacturer: bool, identities: usage.Identities | None = None
 ) -> dict[str, Any]:

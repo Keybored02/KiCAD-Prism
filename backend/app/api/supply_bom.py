@@ -46,6 +46,9 @@ class LookupRequest(BaseModel):
     lines: list[LineIn] = Field(max_length=bom_lookup.MAX_LINES)
 
 
+MAX_STATUS_COMPONENTS = 200
+
+
 class WatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -120,6 +123,24 @@ async def build_usage(writer: AuthenticatedUser = Depends(require_supply_writer)
         return {"projects": len(rows), "missing": len(missing), "queued": queued}
 
     return await _run(run)
+
+
+class StatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Catalog components by id; the key of each line is the component id.
+    components: list[LineIn] = Field(max_length=MAX_STATUS_COMPONENTS)
+
+
+@router.post("/components-status")
+async def components_status(body: StatusRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """Where each catalog component stands, for the catalog table. Components Prism does not track are left out."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return {"items": bom_lookup.standing_of(conn, _lines(body.components))}
+
+    return await _run(read)
 
 
 @router.post("/lookup")

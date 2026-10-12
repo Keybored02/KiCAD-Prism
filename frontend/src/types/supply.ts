@@ -154,6 +154,13 @@ export interface SupplyParameter {
   sources: string[];
 }
 
+/** Where a catalog component stands, for the catalog table. */
+export interface SupplyComponentStanding {
+  status: SupplyStatus;
+  stock: number | null;
+  watched: boolean;
+}
+
 export interface SupplyOutlook {
   band: "ended" | "under_2_years" | "2_to_5_years" | "no_signs" | "unknown";
   label: string;
