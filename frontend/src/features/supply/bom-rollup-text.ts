@@ -38,6 +38,10 @@ export function rollupSentences(rollup: SupplyBomRollup, build: number, lines: r
   }
 
   if (rollup.at_risk > 0) sentences.push({ text: `${rollup.at_risk.toLocaleString()} at risk`, tone: "bad" });
+  if (rollup.health !== null) {
+    const tone = rollup.health_status === "ok" ? "plain" : rollup.health_status === "warning" ? "warn" : "bad";
+    sentences.push({ text: `Health ${rollup.health.toFixed(1)} of 10`, tone });
+  }
   if (rollup.short > 0) sentences.push({ text: `${rollup.short.toLocaleString()} short for this build`, tone: "bad" });
   if (rollup.not_tracked > 0) sentences.push({ text: `${rollup.not_tracked.toLocaleString()} not tracked`, tone: "warn" });
   return sentences;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { SemanticComponent } from "@/types/prism-selection";
-import type { SupplyBomLineResult } from "@/types/supply";
+import type { SupplyBomLineResult, SupplyBomRollup } from "@/types/supply";
 import { buildLines, identityOf, isSupplyColumn, lineKey, rowSupply, unwatchedCount, untrackedLabel } from "./bom-supply";
 import { buildOrderCsv } from "./bom-order-csv";
 import { rollupSentences } from "./bom-rollup-text";
@@ -112,9 +112,9 @@ describe("what could still be watched", () => {
 });
 
 describe("the rollup in words", () => {
-  const rollup = {
+  const rollup: SupplyBomRollup = {
     lines: 10, tracked: 8, not_tracked: 2, watched: 6, at_risk: 1, short: 2, priced: 7, lines_priced: 7, parts: 8, currency: "EUR",
-    cost_build: "24.00", cost_per_board: "2.4000", can_build: 15, limited_by: "k", without_stock_data: 0,
+    cost_build: "24.00", cost_per_board: "2.4000", can_build: 15, limited_by: "k", without_stock_data: 0, health: 7.5, health_status: "ok",
   };
   const lines = [{ key: "k", manufacturer: "Acme", mpn: "B-1", quantity: 2, references: ["U1"] }];
   const text = (sentences: ReturnType<typeof rollupSentences>) => sentences.map((sentence) => sentence.text);
@@ -125,10 +125,11 @@ describe("the rollup in words", () => {
       "Stock covers 10 boards",
       expect.stringMatching(/24\.00.* for 10 boards \(.*2\.40.* each\), covers 7 of 10 lines/),
       "1 at risk",
+      "Health 7.5 of 10",
       "2 short for this build",
       "2 not tracked",
     ]);
-    expect(sentences.map((sentence) => sentence.tone)).toEqual(["plain", "warn", "bad", "bad", "warn"]);
+    expect(sentences.map((sentence) => sentence.tone)).toEqual(["plain", "warn", "bad", "plain", "bad", "warn"]);
     const complete = rollupSentences({ ...rollup, lines_priced: 10, not_tracked: 0 }, 10, lines);
     expect(complete[1].text).not.toContain("covers");
     expect(complete[1].tone).toBe("plain");
@@ -139,8 +140,14 @@ describe("the rollup in words", () => {
     expect(rollupSentences({ ...rollup, can_build: 4 }, 10, lines)[0].tone).toBe("bad");
   });
 
+  it("leaves health out when nothing has data, and calls a weak one bad", () => {
+    expect(text(rollupSentences({ ...rollup, health: null }, 10, lines))).not.toContain("Health");
+    const weak = rollupSentences({ ...rollup, health: 3.2, health_status: "error" }, 10, lines).find((sentence) => sentence.text.startsWith("Health"));
+    expect(weak).toEqual({ text: "Health 3.2 of 10", tone: "bad" });
+  });
+
   it("says when there is nothing to go on", () => {
-    expect(text(rollupSentences({ ...rollup, can_build: null, tracked: 0, priced: 0, cost_build: null, currency: null, at_risk: 0, short: 0, not_tracked: 0 }, 1, lines)))
+    expect(text(rollupSentences({ ...rollup, can_build: null, tracked: 0, priced: 0, cost_build: null, currency: null, at_risk: 0, short: 0, not_tracked: 0, health: null }, 1, lines)))
       .toEqual(["No parts tracked yet"]);
     expect(text(rollupSentences({ ...rollup, can_build: null, at_risk: 0, short: 0, not_tracked: 0 }, 1, lines))[0]).toBe("No stock data yet");
   });

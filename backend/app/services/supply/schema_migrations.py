@@ -429,6 +429,34 @@ def _m010_component_sources(conn) -> None:
     )
 
 
+def _m011_waivers(conn) -> None:
+    """Waivers: a person's decision to accept a finding on a part.
+
+    A waiver holds while the condition it was raised against (``scope``) stays the same; when the
+    part changes so the finding means something else, the waiver is shown for another look. Only
+    one waiver per part and check is open or approved at a time.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS waivers (
+            id TEXT PRIMARY KEY,
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            check_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('proposed', 'approved', 'rejected')),
+            proposed_by TEXT NOT NULL,
+            proposed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            decided_by TEXT NOT NULL DEFAULT '',
+            decided_at TIMESTAMPTZ
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_waivers_open ON waivers (part_id, check_id) WHERE state <> 'rejected';
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -440,6 +468,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (8, "bom_usage", _m008_bom_usage),
     (9, "usage_visibility", _m009_usage_visibility),
     (10, "component_sources", _m010_component_sources),
+    (11, "waivers", _m011_waivers),
 ]
 
 

@@ -11,6 +11,7 @@ import type {
   SupplyCsvResult,
   SupplyCsvRowError,
   SupplyAlert,
+  SupplyAssessment,
   SupplyBomLookup,
   SupplyBomWatchResult,
   SupplyCapacity,
@@ -291,4 +292,21 @@ export interface SupplySeedResult {
 /** Add listings for catalog components that name a connected vendor and its part number. */
 export function seedSupplyFromCatalog(): Promise<SupplySeedResult> {
   return post(`${BASE}/seed/catalog`, undefined, "Could not read the catalog vendors");
+}
+
+export function getSupplyAssessment(partId: string, quantity?: number, signal?: AbortSignal): Promise<SupplyAssessment> {
+  const query = quantity ? `?quantity=${quantity}` : "";
+  return fetchJson<SupplyAssessment>(`${BASE}/parts/${encodeURIComponent(partId)}/assessment${query}`, { signal }, "Could not load the assessment");
+}
+
+export function proposeWaiver(partId: string, check: string, reason: string): Promise<{ id: string; state: string }> {
+  return post(`${BASE}/parts/${encodeURIComponent(partId)}/waivers`, { check, reason }, "Could not propose the waiver");
+}
+
+export function decideWaiver(id: string, approve: boolean): Promise<void> {
+  return send(`${BASE}/waivers/${encodeURIComponent(id)}/${approve ? "approve" : "reject"}`, "POST", undefined, "Could not save the decision");
+}
+
+export function revokeWaiver(id: string): Promise<void> {
+  return send(`${BASE}/waivers/${encodeURIComponent(id)}`, "DELETE", undefined, "Could not revoke the waiver");
 }

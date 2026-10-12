@@ -24,6 +24,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   removeSupplyWatch: vi.fn(),
   listSupplyManufacturers: vi.fn(),
   refreshSupplyUsage: vi.fn(),
+  getSupplyAssessment: vi.fn(),
 }));
 
 import { PartsView } from "./parts-view";

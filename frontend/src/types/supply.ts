@@ -150,6 +150,8 @@ export interface SupplyBomLineResult {
   buy?: SupplyBomBuy | null;
   /** Set on the later lines of a part: the key of the line that carries the purchase. */
   bought_with?: string | null;
+  /** How the part stands: its health, status and how many findings still count. */
+  assessment?: { health: number; status: SupplyStatus; open: number };
 }
 
 export interface SupplyBomRollup {
@@ -169,6 +171,9 @@ export interface SupplyBomRollup {
   can_build: number | null;
   limited_by: string | null;
   without_stock_data: number;
+  /** 0 to 10, weighted by units needed; null when nothing has data. */
+  health: number | null;
+  health_status: SupplyStatus;
 }
 
 export interface SupplyBomLookup {
@@ -433,4 +438,42 @@ export interface SupplySource {
   status: SupplyStatus;
   stock: number | null;
   lifecycle: SupplyLifecycle;
+}
+
+export type FindingSeverity = "warning" | "error" | "fatal" | "ok";
+
+export interface SupplyWaiver {
+  id: string;
+  state: "proposed" | "approved";
+  reason: string;
+  proposed_by: string;
+  decided_by: string;
+  /** Approved for the condition the part has now. */
+  holds: boolean;
+  /** Approved for a condition the part no longer has. */
+  outdated: boolean;
+}
+
+export interface SupplyFinding {
+  check: string;
+  severity: FindingSeverity;
+  text: string;
+  scope: string;
+  waiver: SupplyWaiver | null;
+}
+
+export interface SupplySubScore {
+  name: "lifecycle" | "sourcing" | "inventory" | "market" | "compliance";
+  /** 1 is good, 5 is bad. */
+  score: number;
+  reasons: string[];
+}
+
+export interface SupplyAssessment {
+  part_id: string;
+  health: number;
+  status: SupplyStatus;
+  need: number | null;
+  findings: SupplyFinding[];
+  sub_scores: SupplySubScore[];
 }

@@ -57,10 +57,10 @@ function PartBody({ partId, user, onWatchChanged }: { partId: string; user: User
       </>
     );
   }
-  return <PartDetail detail={data} canEdit={canEditSupply(user?.role)} onChanged={changed} />;
+  return <PartDetail detail={data} canEdit={canEditSupply(user?.role)} role={user?.role} onChanged={changed} />;
 }
 
-function PartDetail({ detail, canEdit, onChanged }: { detail: SupplyPartDetail; canEdit: boolean; onChanged: () => Promise<void> }) {
+function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDetail; canEdit: boolean; role: User["role"] | undefined; onChanged: () => Promise<void> }) {
   return (
     <div className="space-y-6">
       <SheetHeader>
@@ -73,7 +73,7 @@ function PartDetail({ detail, canEdit, onChanged }: { detail: SupplyPartDetail; 
         </SheetDescription>
       </SheetHeader>
 
-      <PartDetailSections detail={detail} canEdit={canEdit} onChanged={onChanged} />
+      <PartDetailSections detail={detail} canEdit={canEdit} role={role} onChanged={onChanged} />
     </div>
   );
 }

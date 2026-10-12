@@ -13,6 +13,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   getSupplyPart: vi.fn(),
   addSupplyWatch: vi.fn(),
   listComponentSources: vi.fn(),
+  getSupplyAssessment: vi.fn(),
 }));
 
 import SourcingPanel from "./sourcing-panel";

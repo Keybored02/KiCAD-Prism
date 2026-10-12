@@ -108,7 +108,7 @@ function Tracked({ partId, user }: { partId: string; user: User | null }) {
           Open in Supply
         </Link>
       </div>
-      <PartDetailSections detail={detail} canEdit={canEditSupply(user?.role)} onChanged={part.refresh} />
+      <PartDetailSections detail={detail} canEdit={canEditSupply(user?.role)} role={user?.role} onChanged={part.refresh} />
     </div>
   );
 }

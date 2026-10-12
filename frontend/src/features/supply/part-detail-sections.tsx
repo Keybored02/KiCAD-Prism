@@ -3,7 +3,9 @@ import { lazy, Suspense } from "react";
 import { Link } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
+import type { UserRole } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
+import { AssessmentSection } from "./assessment-section";
 import { InsightPanel } from "./insight-panel";
 import { ListingTable } from "./listing-table";
 import { Sparkline } from "./sparkline";
@@ -14,7 +16,14 @@ import { WatchSettings } from "./watch-settings";
 const StockChart = lazy(() => import("./stock-chart"));
 
 /** What is known about one part: stock and history, its watch, where it is used and every listing. */
-export function PartDetailSections({ detail, canEdit, onChanged }: { detail: SupplyPartDetail; canEdit: boolean; onChanged: () => Promise<void> }) {
+interface PartDetailSectionsProps {
+  detail: SupplyPartDetail;
+  canEdit: boolean;
+  role: UserRole | null | undefined;
+  onChanged: () => Promise<void>;
+}
+
+export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDetailSectionsProps) {
   const values = detail.history.map((point) => point.stock);
   const low = values.length ? Math.min(...values) : null;
   const high = values.length ? Math.max(...values) : null;
@@ -51,6 +60,8 @@ export function PartDetailSections({ detail, canEdit, onChanged }: { detail: Sup
           <p className="text-xs text-muted-foreground">History builds up as the part is read.</p>
         )}
       </section>
+
+      <AssessmentSection partId={detail.part.id} role={role} />
 
       <InsightPanel insight={detail.insight} />
 

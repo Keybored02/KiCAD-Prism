@@ -13,7 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
-from app.core.roles import SUPPLY_APPROVE_ROLES, SUPPLY_WRITE_ROLES
+from app.core.roles import SUPPLY_APPROVE_ROLES
+from app.api.supply_access import require_supply_editor
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader
 from app.services.supply import parts, sources
 
@@ -33,14 +34,6 @@ class RankRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     rank: int = Field(ge=1, le=sources.MAX_PER_COMPONENT)
-
-
-async def require_list_editor(user: AuthenticatedUser = Depends(require_supply_reader)) -> AuthenticatedUser:
-    """Whoever may propose or approve parts: the people who write supply data and the people who approve it."""
-
-    if user.role not in SUPPLY_WRITE_ROLES | SUPPLY_APPROVE_ROLES:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-    return user
 
 
 def _store():
@@ -76,7 +69,7 @@ async def list_sources(component_id: str, _user: AuthenticatedUser = Depends(req
 
 @router.post("/components/{component_id}/sources", status_code=201)
 async def add_source(
-    component_id: str, body: AddSourceRequest, writer: AuthenticatedUser = Depends(require_list_editor)
+    component_id: str, body: AddSourceRequest, writer: AuthenticatedUser = Depends(require_supply_editor)
 ) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
@@ -121,7 +114,7 @@ async def rank_source(
 
 
 @router.delete("/sources/{source_id}", status_code=204)
-async def remove_source(source_id: str, writer: AuthenticatedUser = Depends(require_list_editor)) -> Response:
+async def remove_source(source_id: str, writer: AuthenticatedUser = Depends(require_supply_editor)) -> Response:
     def run() -> None:
         with _store().connection() as conn:
             sources.remove(conn, source_id, writer.email, approver=writer.role in SUPPLY_APPROVE_ROLES)

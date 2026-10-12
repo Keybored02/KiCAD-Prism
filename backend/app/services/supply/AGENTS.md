@@ -44,6 +44,14 @@ root first.
 | `backend/app/api/supply_sources.py` | AVL API: readers list; admin, designer and qa propose; admin and qa approve, reject and rank. |
 | `seeding.py` | Seeds listings from the catalog: a component naming a connected vendor and its part number gets a manual listing. Adds nothing else; safe to run again. |
 | `backend/app/api/supply_seed.py` | Seeding endpoint (admin, designer). |
+| `backend/app/services/supply/assessment/settings.py` | Check ids, default severities, weights and thresholds for the assessment. |
+| `backend/app/services/supply/assessment/checks.py` | Findings from a part's facts: lifecycle, stock, lead time, RoHS, age. Pure rules. |
+| `backend/app/services/supply/assessment/risk.py` | Five risk sub-scores, 1 good to 5 bad, each with its reasons. |
+| `backend/app/services/supply/assessment/health.py` | Health 0 to 10, status, and the quantity-weighted BOM roll-up. |
+| `backend/app/services/supply/assessment/waivers.py` | Proposing, approving and applying waivers; a waiver holds while its condition does. |
+| `backend/app/services/supply/assessment/service.py` | Gathers a part's facts and runs the pipeline. Reads only; no distributor calls. |
+| `backend/app/api/supply_assessment.py` | Assessment and waiver endpoints. Readers see assessments; admin, designer and qa propose waivers; admin and qa decide. |
+| `backend/app/api/supply_access.py` | The role check shared by endpoints that writers and approvers both use. |
 | `bom_fields.py` | Which symbol fields are the manufacturer and the manufacturer part number (best name first; never the distributor's number), and what counts as fitted. The frontend's `frontend/src/features/supply/bom-supply.ts` keeps the same lists; a test compares them. |
 | `usage.py` | Where parts are used: one row per distinct part on each project's BOM, read from semantic indexes that already exist (it builds none). Each project carries the roles its folder lets see it, and every read filters by the caller's role. |
 | `overview.py` | The Supply overview: counts, what needs attention, open alerts, data age, quota today. |

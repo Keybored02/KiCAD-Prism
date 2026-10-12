@@ -21,10 +21,14 @@ Resolution, first hit wins:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Sequence
 
 from app.services.supply import parts, parts_view, pricing, watches
+from app.services.supply.assessment import health as health_rules
+from app.services.supply.assessment import service as assessment
+from app.services.supply.vocabulary import Status
 from app.services.supply.identity import alias_key, match_key
 
 MAX_LINES = 2000
@@ -149,6 +153,9 @@ def lookup(conn, lines: Sequence[BomLine], build_quantity: int) -> dict[str, Any
             per_board[part_id] = per_board.get(part_id, 0) + line.quantity
             first_line.setdefault(part_id, line.key)
 
+    needs = {part_id: count * build_quantity for part_id, count in per_board.items()}
+    assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc))
+
     results: dict[str, dict[str, Any]] = {}
     for line in lines:
         state, part_id, how = resolved[line.key]
@@ -172,13 +179,29 @@ def lookup(conn, lines: Sequence[BomLine], build_quantity: int) -> dict[str, Any
                 # Only the first line of a part carries the purchase; the others say where it is.
                 "buy": _best_purchase(offers_here, part_need) if line.key == leader else None,
                 "bought_with": None if line.key == leader else leader,
+                "assessment": _assessment_line(assessed[part_id]),
             }
         results[line.key] = entry
     return {
         "build_quantity": build_quantity,
         "lines": results,
-        "rollup": _rollup(lines, results, build_quantity, per_board, first_line),
+        "rollup": _rollup(lines, results, build_quantity, per_board, first_line)
+        | _health_rollup(assessed, needs),
     }
+
+
+def _assessment_line(assessment_dto: Mapping[str, Any]) -> dict[str, Any]:
+    """What a BOM row needs of an assessment: the number, the status and how many findings still stand."""
+
+    open_findings = [f for f in assessment_dto["findings"] if not (f["waiver"] and f["waiver"]["holds"])]
+    return {"health": assessment_dto["health"], "status": assessment_dto["status"], "open": len(open_findings)}
+
+
+def _health_rollup(assessed: Mapping[str, Mapping[str, Any]], needs: Mapping[str, int]) -> dict[str, Any]:
+    """BOM health: the mean of its parts weighted by units needed, capped when any part is fatal."""
+
+    rolled = health_rules.rollup([(a["health"], needs.get(part_id, 1), Status(a["status"])) for part_id, a in assessed.items()])
+    return {"health": rolled.score if rolled.status is not Status.UNKNOWN else None, "health_status": rolled.status.value}
 
 
 def _rollup(
