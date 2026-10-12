@@ -1,13 +1,18 @@
-"""Product change notices: what a manufacturer announced about parts, entered by a person.
+"""Product change notices: what a manufacturer announced about parts, entered by a person or read from a distributor.
 
 A notice names the parts it covers, what kind of change it is (end of life, not recommended for new designs, last
-time buy, other change), and its dates. Prism does not read the PDF for you: people enter what the notice says, so
-every date shown is one a person put there. Open notices feed the lifecycle outlook and raise an alert on watched
-parts. Closing a notice keeps it.
+time buy, other change), and its dates. People enter what a notice says; DigiKey's change notice API also lists
+notices per product (``details.py``), stored with ``source`` and an ``external_key`` so the same notice is kept
+once however many parts it covers. Prism does not read the notice PDF: a notice read from DigiKey has its type,
+description, release date and link, and no last-time-buy date unless a person adds one. Open notices feed the
+lifecycle outlook and raise an alert on watched parts. Closing a notice keeps it, and a closed one is not reopened
+when the distributor lists it again.
 """
 
 from __future__ import annotations
 
+import hashlib
+import re
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Mapping, Sequence
@@ -28,6 +33,15 @@ MAX_PARTS = 100
 MAX_TITLE = 200
 MAX_NOTES = 1000
 SOON_DAYS = 90
+SOURCES = ("manual", "digikey")
+SOURCE_LABEL = {"manual": "Entered by hand", "digikey": "DigiKey"}
+
+# Words in a distributor's notice type, lower case, to a kind. The first that matches wins; anything else is a change.
+_KIND_WORDS = (
+    ("last_time_buy", (r"last[ -]time[ -]buy", r"\bltb\b", r"last buy")),
+    ("nrnd", (r"not recommended", r"\bnrnd\b")),
+    ("end_of_life", (r"\beol\b", r"end[ -]of[ -]life", r"obsole", r"discontinu")),
+)
 
 
 class NoticeNotFound(KeyError):
@@ -81,6 +95,58 @@ def add(
     return {"id": notice_id}
 
 
+def kind_from_text(text: str) -> str:
+    """The kind a distributor's notice type stands for; ``change`` when it names none of the ending kinds."""
+
+    value = text.lower()
+    for kind, patterns in _KIND_WORDS:
+        if any(re.search(pattern, value) for pattern in patterns):
+            return kind
+    return "change"
+
+
+def external_key(url: str, kind_text: str, description: str, published_on: date | None) -> str:
+    """The same notice gives the same key: its link when it has one, else what it says and when."""
+
+    basis = url.strip().lower() or f"{kind_text.strip().lower()}|{description.strip().lower()}|{published_on}"
+    return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:40]
+
+
+def record_external(
+    conn,
+    source: str,
+    key: str,
+    part_id: str,
+    *,
+    kind_text: str,
+    description: str,
+    notice_url: str = "",
+    published_on: date | None = None,
+) -> bool:
+    """Keep a notice a distributor lists and tie it to ``part_id``. True when the notice or the tie is new."""
+
+    if source not in SOURCES or source == "manual":
+        raise NoticeError("Unknown notice source.")
+    title = (kind_text or "Product change").strip()[:MAX_TITLE]
+    url = notice_url.strip() if notice_url.strip().lower().startswith("https://") else ""
+    created = conn.execute(
+        """
+        INSERT INTO pcns (id, title, kind, notice_url, notes, state, created_by, source, external_key, published_on)
+        VALUES (%s, %s, %s, %s, %s, 'open', %s, %s, %s, %s)
+        ON CONFLICT (source, external_key) WHERE external_key <> '' DO NOTHING
+        RETURNING id
+        """,
+        (uuid.uuid4().hex, title, kind_from_text(kind_text), url, description.strip()[:MAX_NOTES], source, source, key, published_on),
+    ).fetchone()
+    notice_id = created["id"] if created else conn.execute(
+        "SELECT id FROM pcns WHERE source = %s AND external_key = %s", (source, key)
+    ).fetchone()["id"]
+    tied = conn.execute(
+        "INSERT INTO pcn_parts (pcn_id, part_id) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING pcn_id", (notice_id, part_id)
+    ).fetchone()
+    return created is not None or tied is not None
+
+
 def close(conn, notice_id: str, actor: str) -> None:
     actor = actor_text(actor)
     row = conn.execute("SELECT state FROM pcns WHERE id = %s FOR UPDATE", (notice_id,)).fetchone()
@@ -98,10 +164,11 @@ def for_part(conn, part_id: str, *, include_closed: bool = False) -> list[dict[s
     rows = conn.execute(
         """
         SELECT n.id, n.title, n.kind, n.notice_url, n.last_time_buy, n.last_time_ship, n.notes, n.state, n.created_by, n.created_at,
+               n.source, n.published_on,
                (SELECT COUNT(*) FROM pcn_parts x WHERE x.pcn_id = n.id) AS parts
         FROM pcns n JOIN pcn_parts pp ON pp.pcn_id = n.id
         WHERE pp.part_id = %s AND (n.state = 'open' OR %s)
-        ORDER BY n.last_time_buy NULLS LAST, n.created_at DESC
+        ORDER BY n.last_time_buy NULLS LAST, n.published_on DESC NULLS LAST, n.created_at DESC
         """,
         (part_id, include_closed),
     ).fetchall()
@@ -114,6 +181,7 @@ def for_part(conn, part_id: str, *, include_closed: bool = False) -> list[dict[s
             "id": r["id"], "title": r["title"], "kind": r["kind"], "kind_label": KIND_LABEL[r["kind"]], "notice_url": r["notice_url"],
             "last_time_buy": day(r["last_time_buy"]), "last_time_ship": day(r["last_time_ship"]), "notes": r["notes"],
             "state": r["state"], "created_by": r["created_by"], "created_at": r["created_at"].isoformat(), "parts": int(r["parts"]),
+            "source": r["source"], "source_label": SOURCE_LABEL.get(r["source"], r["source"]), "published_on": day(r["published_on"]),
         }
         for r in rows
     ]

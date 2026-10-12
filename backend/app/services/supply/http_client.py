@@ -30,6 +30,7 @@ from app.services.supply.egress import EgressDenied, Resolver, ValidatedTarget, 
 from app.services.supply.providers.base import (
     AuthError,
     EgressBlocked,
+    NotFound,
     ProviderError,
     RateLimited,
     ResponseTooLarge,
@@ -276,6 +277,8 @@ class SafeHttpClient:
             raise RateLimited(f"{_label(url)} is rate limiting (HTTP 429)", retry_after_seconds=_retry_after(response.headers))
         if status == 408 or status >= 500:
             raise Unavailable(f"{_label(url)} is unavailable (HTTP {status})")
+        if status == 404:
+            raise NotFound(f"{_label(url)} has nothing there (HTTP 404)")
         if status >= 400:
             raise ProviderError(f"{_label(url)} rejected the request (HTTP {status})")
         return response

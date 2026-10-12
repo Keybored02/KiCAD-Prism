@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CSV_PROVIDER, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
 import { CallBudget, CapacityNote, OffersFile } from "./connector-card-parts";
+import { ConnectorSignin } from "./connector-signin";
 import { connectorState, errorCodeLabel, formatWhen, lastCallFailed } from "./connector-status";
 
 export type ConnectorAction =
@@ -85,6 +86,7 @@ export function ConnectorCard({ connector, capacity, isAdmin, onAction }: Connec
           </div>
         ) : null}
       </dl>
+      {isAdmin && connector.provider === "digikey" ? <ConnectorSignin connectorId={connector.id} /> : null}
     </article>
   );
 }

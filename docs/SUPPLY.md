@@ -16,7 +16,7 @@ Library Manager > Connectors. One connector per provider and storefront.
 | --- | --- | --- |
 | TME | API token and secret | Prices follow the account's country. |
 | Mouser | API key | Answers in the account's language. About 1,000 calls a day. |
-| DigiKey | Client id and secret | One part per call, so it is slow for large watchlists. |
+| DigiKey | Client id and secret | One part per call, so it is slow for large watchlists. Change notices also need an administrator's sign-in at DigiKey (below). |
 | Farnell, Newark, element14 | API key, store, currency | Choose the store and the currency yourself. Not yet checked against the live service. |
 | LCSC | Nothing | Searches by manufacturer part number through EasyEDA's part search, or reads an LCSC number (`C2040`) directly. Prices are in US dollars. Not a published API; it can change. |
 | CSV | A file you upload | For air-gapped installs. The file replaces the previous one. |
@@ -25,6 +25,12 @@ Credentials are encrypted and never shown again. `TRACKER_CREDENTIAL_ROOT_KEY` m
 [Configuration](CONFIGURATION.md)). Use **Test connection** after saving: it makes one real call. The card shows how
 many calls the watchlist needs against the daily budget, and warns when reads will run later than they should.
 Record that you reviewed the provider's terms; some limit how long their data may be kept.
+
+**DigiKey change notices.** DigiKey gives change notices only to a signed-in person, not to the client id alone. On the
+DigiKey connector card an administrator chooses **Sign in at DigiKey**, signs in there, and is sent back to the
+Connectors tab. The DigiKey app must list the callback address the card shows (`PUBLIC_BASE_URL` followed by
+`/api/supply/oauth/digikey/callback`, HTTPS only). The sign-in lasts about 90 days; the card says who signed in and until
+when, and asks for a new sign-in when it runs out or DigiKey refuses it. Stock and prices do not depend on it.
 
 ## Watch parts
 
@@ -74,6 +80,14 @@ supplier declared, as CAS numbers; an administrator loads the ECHA Candidate Lis
 and a CAS column) in Supply settings, and a declared substance on the list makes the part *affected by REACH*. A part
 nobody says anything about is *unknown*, never clear.
 
+Below that, the section lists what each distributor states, in its own words and with its name: RoHS (for example
+"ROHS3 Compliant" or "Compliant by exemption") and REACH wording, moisture sensitivity level, export control class
+(ECCN), tariff codes (United States HTS, EU TARIC, China and others), DigiKey's last date to buy, and Mouser's suggested
+replacement. These come with every stock and price read, at no extra cost. When two distributors disagree, both are
+shown and marked. Once a week Mouser is also asked which substances of very high concern a part contains; substances it
+names that are on the Candidate List count like a declaration, marked *listed by Mouser*, and go away when Mouser stops
+listing them. People's own declarations are never changed.
+
 ## Parameters
 
 A part sheet's Parameters section lists the attributes distributors give for the part (Mouser, DigiKey and LCSC give them
@@ -86,7 +100,10 @@ raw and never guessed.
 
 A manufacturer's notice (end of life, last time buy, not recommended for new designs, or another change) is entered by
 a designer or administrator on a part sheet: a title, what it announces, its dates, an address, and the parts it covers.
-Prism does not read the PDF, so every date shown is one a person typed. An open notice that announces an ending feeds the
+With a DigiKey sign-in, Prism also reads DigiKey's notices for each DigiKey listing of watched parts and parts on project
+BOMs once a week: its type, description, release date and a link to the notice. The same notice is kept once however many
+parts it covers, and one that is closed stays closed. Prism does not read the PDF, so a last time buy date is one a person
+typed (DigiKey's last date to buy shows under Compliance and in the Outlook). An open notice that announces an ending feeds the
 outlook and raises an alert on watched parts, an error when the last time buy is within 90 days. Closing a notice keeps
 it.
 
@@ -102,7 +119,7 @@ of them, and the number of parts is always shown. It is not the market as a whol
 A part sheet's Outlook says whether the part looks headed for its end: *ended*, *under 2 years*, *2 to 5 years*, *no signs
 of an end of life*, or *not enough to say*. It is rule-based and lists every signal with its source: the lifecycle
 distributors report, distributors that stopped selling it, lifecycle phrases in the datasheet, a month or more with no
-stock anywhere, and a price rise of 20% or more. One soft signal is a note; two together, or any watch signal such as
+stock anywhere, a price rise of 20% or more, open notices, and a distributor's last date to buy. One soft signal is a note; two together, or any watch signal such as
 *not recommended for new designs*, move the band. Nothing found is not a promise of a long life, and the KiCad panel
 shows the same phrase.
 
@@ -167,7 +184,8 @@ Nothing is saved, and parts Prism does not watch show as unknown.
 ## Compliance draft
 
 The project overview's Supply card links a draft RoHS and REACH declaration (CSV): every distinct part on the BOM with its
-RoHS and REACH standing and a list of gaps (no statement, not tracked, affected, Candidate List not loaded). It is a working
+RoHS and REACH standing, what each distributor states about RoHS, REACH and substances (with its name), and a list of gaps
+(no statement, not tracked, affected, compliant only by exemption, Candidate List not loaded). It is a working
 document for a person to complete; Prism cannot know what a manufacturer has not said, and unknown is never shown as compliant.
 
 ## Alerts

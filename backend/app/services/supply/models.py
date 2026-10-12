@@ -67,6 +67,9 @@ class Offer:
     reach_affected: bool | None = None
     marketplace: bool = False
     product_url: str = ""
+    # What the distributor states about the part, as (name, text) pairs: compliance and trade facts such as
+    # ``rohs_status`` or ``hts_us``. ``facts.py`` names them and reads them.
+    facts: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.provider or not self.sku:
@@ -117,3 +120,32 @@ class PartData:
     package_name: str = ""
     category: str = ""
     parameters: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeNotice:
+    """A product change notice a distributor lists for one of its listings, as it wrote it."""
+
+    provider: str
+    sku: str
+    kind_text: str
+    description: str
+    url: str = ""
+    published_on: date | None = None
+
+    def __post_init__(self) -> None:
+        if not self.provider or not self.sku:
+            raise ValueError("provider and sku are required")
+
+
+@dataclass(frozen=True, slots=True)
+class Substances:
+    """What a distributor says about substances of very high concern in a listing.
+
+    ``entries`` is the list as written (a name, a CAS number, or both). ``stated`` is False when the answer says
+    nothing at all, which is not the same as an empty list.
+    """
+
+    entries: tuple[str, ...] = ()
+    stated: bool = False
+    facts: tuple[tuple[str, str], ...] = field(default_factory=tuple)

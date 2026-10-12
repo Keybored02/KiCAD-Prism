@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
-from app.services.supply import datasheets, fx, ledger, market, quota, retention
+from app.services.supply import datasheets, details, fx, ledger, market, quota, retention
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import REDO_AFTER, Discoverer
 from app.services.supply.poller import Poller
@@ -46,6 +46,17 @@ def _has_budget(conn, row, now: datetime) -> bool:
         conn, row["id"], daily_budget=row["daily_budget"], reserve_pct=row["interactive_reserve_pct"], now=now
     )
     return quota.background_allowance(state, now) > 0
+
+
+_warned_providers: set[str] = set()
+
+
+def _warn_unknown_provider(provider: str) -> None:
+    if provider not in _warned_providers:
+        _warned_providers.add(provider)
+        logging.getLogger(__name__).warning(
+            "Supply connector provider %r is unknown to this worker; its connectors are not polled. Restart the worker.", provider
+        )
 
 
 def connectors_with_work(conn, now: datetime) -> list[str]:
@@ -84,6 +95,8 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         try:
             searchable = CAP_SEARCH in registry.get_spec(row["provider"]).capabilities
         except registry.UnknownProvider:
+            # The worker runs code that does not know this provider (usually: started before it was added).
+            _warn_unknown_provider(row["provider"])
             searchable = False
         if searchable and row["id"] not in ids:
             ids.append(row["id"])
@@ -133,6 +146,16 @@ def _check_datasheets(store: SupplyStore) -> None:
         logging.getLogger(__name__).info("Datasheets not checked", exc_info=True)
 
 
+def _read_details(connectors: ConnectorService, connector_id: str) -> str | None:
+    """Read a few due change notices or substance lists. Best effort: a failure is recorded per listing, never the job."""
+
+    try:
+        return details.run(connectors, connector_id).stopped
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).info("Distributor details not read", exc_info=True)
+        return "error"
+
+
 def _snapshot_market(conn) -> None:
     """Store today's market indices once. Best effort."""
 
@@ -169,10 +192,11 @@ def run_supply_poll_job(context: Any) -> Any:
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
     # Outside the connection above: fetching a file can take a while.
     _check_datasheets(connectors.store)
+    details_stopped = _read_details(connectors, connector_id)
     details: Mapping[str, Any] = {
         "searched": found.searched, "listings_found": found.listings, "discovery_stopped": found.stopped,
         "calls": polled.calls, "polled": polled.polled, "gone": polled.gone, "poll_stopped": polled.stopped,
-        "samples_compacted": compacted,
+        "samples_compacted": compacted, "details_stopped": details_stopped,
     }
     return JobResult(
         message=f"Searched {found.searched} part(s), polled {polled.polled} listing(s)",

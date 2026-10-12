@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import alerts, demand, ledger, pricing, quota, stock, tiers, trouble
+from app.services.supply import alerts, demand, facts, ledger, pricing, quota, stock, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.models import Offer
 from app.services.supply.providers import registry
@@ -247,6 +247,8 @@ class Poller:
              offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.marketplace),
         )
         conn.execute("UPDATE listings SET packaging = %s, last_seen_at = %s WHERE id = %s", (offer.packaging.value, now, row.id))
+        # Compliance and trade facts come with the answer; keeping them costs no call.
+        facts.replace(conn, row.part_id, offer.provider, offer.facts, now)
 
         last_change = now if changed else row.last_change_at
         tier = self._tier_for(conn, row, offer.lifecycle, last_change, now)

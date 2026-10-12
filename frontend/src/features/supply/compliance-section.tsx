@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SupplyCompliance } from "@/types/supply";
+import { ComplianceFacts } from "./compliance-facts";
 import { complianceBadge } from "./compliance-model";
 import { declareSubstance, getPartCompliance, undeclareSubstance } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -16,7 +17,7 @@ interface ComplianceSectionProps {
   canEdit: boolean;
 }
 
-/** RoHS and REACH, with where each answer comes from, and the substances a supplier declared. */
+/** RoHS and REACH, with where each answer comes from, what distributors state, and the substances declared for the part. */
 export function ComplianceSection({ partId, canEdit }: ComplianceSectionProps) {
   const fetcher = useCallback((signal: AbortSignal) => getPartCompliance(partId, signal), [partId]);
   const loaded = useLoaded<SupplyCompliance>(`${partId}:compliance`, fetcher, "Could not load the compliance");
@@ -45,6 +46,7 @@ export function ComplianceSection({ partId, canEdit }: ComplianceSectionProps) {
           );
         })}
       </ul>
+      <ComplianceFacts facts={data.facts ?? []} />
       {data.substances.length > 0 ? (
         <ul className="divide-y border text-sm">
           {data.substances.map((item) => (
@@ -52,9 +54,10 @@ export function ComplianceSection({ partId, canEdit }: ComplianceSectionProps) {
               <span className="min-w-0">
                 <span className="font-medium tabular-nums">{item.cas}</span>
                 {item.note ? <span className="text-muted-foreground">, {item.note}</span> : null}
+                {item.from_distributor ? <span className="ml-2 text-xs text-muted-foreground">listed by {item.declared_by}</span> : null}
                 {item.listed_as ? <Badge variant="warning" className="ml-2">On the Candidate List: {item.listed_as}</Badge> : null}
               </span>
-              {canEdit ? (
+              {canEdit && !item.from_distributor ? (
                 <Button
                   size="icon"
                   variant="ghost"

@@ -116,8 +116,13 @@ class ErrorMappingTests(unittest.TestCase):
             self.assertIsInstance(self._error(_response(status)), Unavailable, status)
 
     def test_other_client_errors_are_plain_provider_errors(self) -> None:
-        for status in (400, 404, 422):
+        for status in (400, 422):
             self.assertIs(type(self._error(_response(status))), ProviderError, status)
+
+    def test_not_found_is_its_own_provider_error(self) -> None:
+        error = self._error(_response(404))
+        self.assertIsInstance(error, ProviderError)
+        self.assertEqual(error.code, "not_found")
 
     def test_transport_failures(self) -> None:
         self.assertIsInstance(self._error(ConnectFailed("api.example.com")), Unavailable)

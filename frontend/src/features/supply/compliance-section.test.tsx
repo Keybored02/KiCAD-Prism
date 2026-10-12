@@ -55,6 +55,29 @@ describe("the compliance section", () => {
     await waitFor(() => expect(mocked.undeclareSubstance).toHaveBeenCalledWith("p1", "7439-92-1"));
   });
 
+  it("shows what each distributor states, flags disagreement, and keeps a distributor's substance out of a writer's hands", async () => {
+    mocked.getPartCompliance.mockResolvedValue({
+      ...data,
+      substances: [{ ...data.substances[0], declared_by: "Mouser", from_distributor: true }],
+      facts: [
+        { name: "rohs_status", label: "RoHS", disagree: true, sources: [
+          { provider: "digikey", source: "DigiKey", value: "ROHS3 Compliant", observed_at: "2026-10-12T10:00:00+00:00" },
+          { provider: "mouser", source: "Mouser", value: "RoHS non-compliant", observed_at: "2026-10-12T10:00:00+00:00" },
+        ] },
+        { name: "hts_eu", label: "Tariff code, European Union (TARIC)", disagree: false, sources: [
+          { provider: "mouser", source: "Mouser", value: "8542339000", observed_at: "2026-10-12T10:00:00+00:00" },
+        ] },
+      ],
+    });
+    render(<ComplianceSection partId="p1" canEdit />);
+    expect(await screen.findByText("ROHS3 Compliant")).toBeTruthy();
+    expect(screen.getByText("RoHS non-compliant")).toBeTruthy();
+    expect(screen.getByText("Sources disagree")).toBeTruthy();
+    expect(screen.getByText("8542339000")).toBeTruthy();
+    expect(screen.getByText("listed by Mouser")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Remove 7439-92-1" })).toBeNull();
+  });
+
   it("says when the Candidate List is not loaded", async () => {
     mocked.getPartCompliance.mockResolvedValue({ ...data, list: { ...data.list, loaded: false } });
     render(<ComplianceSection partId="p1" canEdit={false} />);

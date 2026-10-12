@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_writer
-from app.services.supply import compliance, parts
+from app.services.supply import compliance, facts, parts
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -94,6 +94,7 @@ async def part_compliance(part_id: str, _user: AuthenticatedUser = Depends(requi
                 "reach": compliance.standing([dict(row) for row in offers], listed),
                 "substances": substances,
                 "list": compliance.list_info(conn),
+                "facts": facts.for_part(conn, part.id),
             }
 
     return await _run(read)

@@ -32,6 +32,7 @@ import type {
   SupplyNotice,
   SupplyPlan,
   SupplyNoticeKind,
+  SupplySignin,
   SupplySvhcList,
   SupplyDemand,
   SupplyDemandSummary,
@@ -161,6 +162,22 @@ export async function deleteSupplyConnector(id: string): Promise<void> {
   const response = await fetchApi(connectorPath(id), { method: "DELETE" });
   if (!response.ok) {
     throw new ApiHttpError(response.status, await readApiError(response, "Could not delete the connector"));
+  }
+}
+
+export function getSupplySignin(id: string, signal?: AbortSignal): Promise<SupplySignin> {
+  return fetchJson<SupplySignin>(connectorPath(id, "signin"), { signal }, "Could not load the sign-in");
+}
+
+/** Where to send the browser to sign in at DigiKey. */
+export async function startSupplySignin(id: string): Promise<string> {
+  return (await post<{ url: string }>(connectorPath(id, "signin"), undefined, "Could not start the sign-in")).url;
+}
+
+export async function forgetSupplySignin(id: string): Promise<void> {
+  const response = await fetchApi(connectorPath(id, "signin"), { method: "DELETE" });
+  if (!response.ok) {
+    throw new ApiHttpError(response.status, await readApiError(response, "Could not sign out"));
   }
 }
 

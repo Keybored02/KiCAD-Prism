@@ -142,6 +142,53 @@ def declare(conn, part_id: str, cas: str, note: str, actor: str) -> None:
     write_audit(conn, actor, "svhc.declare", part_id, {"cas": cas}, subject_kind="part")
 
 
+DISTRIBUTOR_PREFIX = "distributor:"
+_CAS_IN_TEXT = re.compile(r"\b\d{2,7}-\d{2}-\d\b")
+
+
+def sync_distributor(conn, part_id: str, provider: str, entries: Sequence[str]) -> int:
+    """Make the substances a distributor names for a part its declarations from that distributor. Returns how many changed.
+
+    An entry counts when it holds a valid CAS number, or when its text is a Candidate List name. People's own
+    declarations are never touched.
+    """
+
+    found: dict[str, str] = {}
+    for entry in entries:
+        numbers = [number for number in _CAS_IN_TEXT.findall(entry) if valid_cas(number)]
+        if not numbers:
+            row = conn.execute(
+                "SELECT cas FROM svhc_substances WHERE lower(name) = lower(%s) ORDER BY cas LIMIT 1", (entry.strip(),)
+            ).fetchone()
+            numbers = [row["cas"]] if row else []
+        for number in numbers:
+            found.setdefault(number, entry[:200])
+    source = DISTRIBUTOR_PREFIX + provider
+    removed = conn.execute(
+        "DELETE FROM part_substances WHERE part_id = %s AND declared_by = %s AND NOT (cas = ANY(%s))",
+        (part_id, source, list(found)),
+    ).rowcount
+    added = 0
+    for number, text in list(found.items())[:MAX_PER_PART]:
+        added += conn.execute(
+            """
+            INSERT INTO part_substances (part_id, cas, note, declared_by) VALUES (%s, %s, %s, %s)
+            ON CONFLICT (part_id, cas) DO NOTHING RETURNING cas
+            """,
+            (part_id, number, text, source),
+        ).fetchone() is not None
+    return removed + added
+
+
+def source_label(declared_by: str) -> str:
+    """Who declared a substance, in words: a person's address, or the distributor."""
+
+    if declared_by.startswith(DISTRIBUTOR_PREFIX):
+        provider = declared_by[len(DISTRIBUTOR_PREFIX):]
+        return {"mouser": "Mouser", "digikey": "DigiKey"}.get(provider, provider)
+    return declared_by
+
+
 def remove_declaration(conn, part_id: str, cas: str, actor: str) -> None:
     actor = actor_text(actor)
     conn.execute("DELETE FROM part_substances WHERE part_id = %s AND cas = %s", (part_id, cas.strip()))
@@ -162,7 +209,8 @@ def declared(conn, part_id: str) -> list[dict[str, Any]]:
         (part_id,),
     ).fetchall()
     return [
-        {"cas": r["cas"], "note": r["note"], "declared_by": r["declared_by"], "declared_at": r["declared_at"].isoformat(), "listed_as": r["listed_as"]}
+        {"cas": r["cas"], "note": r["note"], "declared_by": source_label(r["declared_by"]), "declared_at": r["declared_at"].isoformat(),
+         "listed_as": r["listed_as"], "from_distributor": r["declared_by"].startswith(DISTRIBUTOR_PREFIX)}
         for r in rows
     ]
 

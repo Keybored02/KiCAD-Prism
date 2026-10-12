@@ -24,10 +24,12 @@ CAP_LIFECYCLE = "lifecycle"
 CAP_BATCH = "batch"
 CAP_INCOMING = "incoming"
 CAP_PCN = "pcn"
+# Reads the substances of very high concern a distributor names for a listing (one call per listing).
+CAP_SUBSTANCES = "substances"
 
 CAPABILITIES = frozenset({
     CAP_SEARCH, CAP_OFFERS, CAP_PARAMETRICS, CAP_MEDIA,
-    CAP_LIFECYCLE, CAP_BATCH, CAP_INCOMING, CAP_PCN,
+    CAP_LIFECYCLE, CAP_BATCH, CAP_INCOMING, CAP_PCN, CAP_SUBSTANCES,
 })
 
 _KEY = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
@@ -55,6 +57,12 @@ class RateLimited(ProviderError):
 
 class Unavailable(ProviderError):
     code = "unavailable"
+
+
+class NotFound(ProviderError):
+    """The service answered 404: it has nothing at that address."""
+
+    code = "not_found"
 
 
 class EgressBlocked(ProviderError):

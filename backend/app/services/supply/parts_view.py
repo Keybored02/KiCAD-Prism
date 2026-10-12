@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
-from app.services.supply import insights, outlook, params, parts, pcn, prices, pricing, stock, usage
+from app.services.supply import facts, insights, outlook, params, parts, pcn, prices, pricing, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -411,6 +411,10 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
             zero_stock_days=outlook.trailing_zero_days(days),
             price_change_percent=(price_view["trend"] or {}).get("change_percent"),
             notices=pcn.for_part(conn, part_id),
+            last_buy_dates=[
+                (source["source"], source["value"])
+                for item in facts.for_part(conn, part_id) if item["name"] == "last_buy_date" for source in item["sources"]
+            ],
         ),
         "used_in": usage.used_in(conn, part_id, role),
         "insight": insight_from(days, watch_row["threshold"], now),

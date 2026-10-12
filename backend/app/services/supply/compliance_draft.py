@@ -11,9 +11,12 @@ import csv
 import io
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import bom_lookup, compliance
+from app.services.supply import bom_lookup, compliance, facts
 
-HEADER = ("Manufacturer", "Part number", "Per board", "References", "RoHS", "REACH", "Declared substances on the Candidate List", "Gaps")
+HEADER = (
+    "Manufacturer", "Part number", "Per board", "References", "RoHS", "REACH", "Declared substances on the Candidate List",
+    "RoHS as stated", "REACH as stated", "Substances of very high concern as stated", "Gaps",
+)
 _RISKY_START = ("=", "+", "-", "@", "\t", "\r")
 
 
@@ -44,11 +47,13 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         ).fetchall():
             flags[offer["part_id"]].append((offer["rohs"], offer["reach_affected"]))
     listed = compliance.listed_substances(conn, part_ids)
+    stated = facts.summary(conn, part_ids)
     list_loaded = compliance.list_info(conn)["loaded"]
     out: list[dict[str, Any]] = []
     for row in rows:
         state, part_id, _how = resolved[row["key"]]
         gaps: list[str] = []
+        said: dict[str, str] = stated.get(part_id or "", {}) if state == bom_lookup.TRACKED else {}
         if not row["mpn"].strip():
             gaps.append("No part number on the BOM line.")
             rohs, reach, on_list = "unknown", "unknown", []
@@ -68,11 +73,14 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 gaps.append("No REACH statement or substance declaration.")
             if reach == "affected":
                 gaps.append("Affected by REACH: get the manufacturer's substance declaration.")
+            if "exempt" in said.get("rohs", "").lower():
+                gaps.append("RoHS compliant by exemption: name the exemption in the declaration.")
         if not list_loaded and not gaps:
             gaps.append("The REACH Candidate List is not loaded, so declared substances were not checked.")
         out.append({
             "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": row["quantity"], "references": row.get("references", ""),
             "rohs": rohs, "reach": reach, "on_candidate_list": on_list, "gaps": gaps,
+            "rohs_stated": said.get("rohs", ""), "reach_stated": said.get("reach", ""), "svhc_stated": said.get("svhc", ""),
         })
     gap_count = sum(1 for item in out if item["gaps"])
     return {
@@ -96,6 +104,7 @@ def to_csv(draft: Mapping[str, Any]) -> str:
     for item in draft["parts"]:
         writer.writerow([
             _safe(item["manufacturer"]), _safe(item["mpn"]), item["quantity"], _safe(item["references"]), item["rohs"], item["reach"],
-            _safe("; ".join(item["on_candidate_list"])), _safe(" ".join(item["gaps"])),
+            _safe("; ".join(item["on_candidate_list"])), _safe(item["rohs_stated"]), _safe(item["reach_stated"]),
+            _safe(item["svhc_stated"]), _safe(" ".join(item["gaps"])),
         ])
     return out.getvalue()

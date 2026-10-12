@@ -5,6 +5,7 @@ import { Database, DownloadCloud, PackageCheck, Plug, Table2, type LucideIcon } 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { User } from "@/types/auth";
 import type { Project } from "@/types/project";
+import { useSigninResult } from "@/features/supply/use-signin-result";
 import { LibraryCatalogWorkspace } from "./library-catalog-workspace";
 
 const LibraryBulkEditWorkspace = lazy(() => import("./library-bulk-edit-workspace").then((module) => ({ default: module.LibraryBulkEditWorkspace })));
@@ -36,6 +37,8 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
   const componentId = searchParams.get("component") || "";
   const requestedView = searchParams.get("libraryView") as LibraryView | null;
   const view: LibraryView = requestedView && ["catalog", "bulk-edit", "imports", "releases", "connectors"].includes(requestedView) ? requestedView : "catalog";
+  // A DigiKey sign-in returns here, on the Connectors tab, with its result in the address.
+  useSigninResult();
 
   const setView = (next: LibraryView) => {
     setSearchParams((current) => {

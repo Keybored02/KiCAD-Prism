@@ -50,6 +50,11 @@ class OutlookTests(unittest.TestCase):
         result = read(Lifecycle.NRND, datasheet_markers=["obsolete"], zero_stock_days=40)
         self.assertEqual({item["source"] for item in result["signals"]}, {"distributor lifecycle", "datasheet", "stock history"})
 
+    def test_a_distributors_last_date_to_buy_is_under_two_years_and_counts_as_data(self) -> None:
+        found = outlook.outlook(Lifecycle.UNKNOWN, [], last_buy_dates=[("DigiKey", "2027-03-31")])
+        self.assertEqual(found["band"], outlook.UNDER_TWO)
+        self.assertEqual(found["signals"], [{"text": "DigiKey gives a last date to buy: 2027-03-31.", "source": "distributor", "weight": "hard"}])
+
     def test_trailing_zero_days_count_only_the_latest_run(self) -> None:
         history = [{"stock": 5}, {"stock": 0}, {"stock": 3}, {"stock": 0}, {"stock": 0}]
         self.assertEqual(outlook.trailing_zero_days(history), 2)

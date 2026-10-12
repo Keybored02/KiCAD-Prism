@@ -124,6 +124,11 @@ export interface SupplyNotice {
   state: "open" | "closed";
   created_by: string;
   parts: number;
+  /** "manual" when a person entered it, else the distributor it was read from. */
+  source: string;
+  source_label: string;
+  /** The date the distributor gives for the notice. */
+  published_on: string | null;
 }
 
 export interface SupplyMarketMetric {
@@ -207,11 +212,33 @@ export interface SupplyComplianceState {
 }
 
 /** RoHS and REACH of a part, and the substances a supplier declared for it. */
+/** One thing distributors state about a part (RoHS wording, tariff code, last date to buy...), per source. */
+export interface SupplyFact {
+  name: string;
+  label: string;
+  sources: Array<{ provider: string; source: string; value: string; observed_at: string }>;
+  /** True when two sources say different things. */
+  disagree: boolean;
+}
+
 export interface SupplyCompliance {
   rohs: SupplyComplianceState;
   reach: SupplyComplianceState;
-  substances: Array<{ cas: string; note: string; declared_by: string; declared_at: string; listed_as: string | null }>;
+  /** ``declared_by`` is a person's address, or a distributor when ``from_distributor``. */
+  substances: Array<{ cas: string; note: string; declared_by: string; declared_at: string; listed_as: string | null; from_distributor?: boolean }>;
   list: SupplySvhcList;
+  facts?: SupplyFact[];
+}
+
+/** Whether someone is signed in at DigiKey for change notices. Never the tokens. */
+export interface SupplySignin {
+  signed_in: boolean;
+  state: "none" | "ok" | "expired" | "refused";
+  granted_by: string;
+  granted_at: string | null;
+  expires_at: string | null;
+  /** The address the DigiKey app must list as its callback. */
+  redirect_uri: string;
 }
 
 /** One kept version of a manufacturer's datasheet. */

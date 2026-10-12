@@ -53,6 +53,7 @@ def signals(
     zero_stock_days: int = 0,
     price_change_percent: float | None = None,
     notices: Sequence[Mapping[str, Any]] = (),
+    last_buy_dates: Sequence[tuple[str, str]] = (),
 ) -> list[Signal]:
     found: list[Signal] = []
     if lifecycle is Lifecycle.OBSOLETE:
@@ -78,6 +79,8 @@ def signals(
             found.append(Signal(f"A notice announces {notice['kind_label'].lower()}{when}: {notice['title']}.", "product change notice", "hard"))
         elif notice["kind"] == "nrnd":
             found.append(Signal(f"A notice marks it not recommended for new designs: {notice['title']}.", "product change notice", "watch"))
+    for source, day in last_buy_dates:
+        found.append(Signal(f"{source} gives a last date to buy: {day}.", "distributor", "hard"))
     if zero_stock_days >= ZERO_STOCK_DAYS:
         found.append(Signal(f"No distributor has had it in stock for {zero_stock_days} days.", "stock history", "soft"))
     if price_change_percent is not None and price_change_percent >= PRICE_RISE_PERCENT:
@@ -105,6 +108,7 @@ def outlook(
     zero_stock_days: int = 0,
     price_change_percent: float | None = None,
     notices: Sequence[Mapping[str, Any]] = (),
+    last_buy_dates: Sequence[tuple[str, str]] = (),
 ) -> dict[str, Any]:
     """The band, its label and the signals behind it, for a part with these counted offers."""
 
@@ -117,8 +121,9 @@ def outlook(
         zero_stock_days=zero_stock_days,
         price_change_percent=price_change_percent,
         notices=notices,
+        last_buy_dates=last_buy_dates,
     )
-    chosen = band(lifecycle, found, has_data=bool(offers) or bool(datasheet_markers) or bool(notices))
+    chosen = band(lifecycle, found, has_data=bool(offers) or bool(datasheet_markers) or bool(notices) or bool(last_buy_dates))
     return {
         "band": chosen,
         "label": LABELS[chosen],

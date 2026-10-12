@@ -709,6 +709,57 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m021_distributor_details(conn) -> None:
+    """Compliance and trade facts, a person's sign-in at a distributor, and notices read from distributors.
+
+    ``part_facts`` holds what each provider states about a part (see ``facts.py``). ``connector_grants`` holds a
+    sealed user grant (DigiKey change notices need one); ``oauth_states`` the one-time codes of a sign-in in progress.
+    ``detail_checks`` says when a listing's notices or substances were last read. A notice read from a distributor
+    is ``pcns`` with ``source`` and ``external_key``, the same notice once however many parts it covers.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS part_facts (
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL,
+            name TEXT NOT NULL,
+            value TEXT NOT NULL,
+            observed_at TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (part_id, provider, name)
+        );
+        CREATE TABLE IF NOT EXISTS connector_grants (
+            connector_id TEXT PRIMARY KEY REFERENCES connectors(id) ON DELETE CASCADE,
+            envelope TEXT NOT NULL,
+            access_expires_at TIMESTAMPTZ,
+            refresh_expires_at TIMESTAMPTZ,
+            granted_by TEXT NOT NULL,
+            granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_error TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS oauth_states (
+            state TEXT PRIMARY KEY,
+            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            actor TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS detail_checks (
+            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK (kind IN ('notices', 'substances')),
+            checked_at TIMESTAMPTZ NOT NULL,
+            status TEXT NOT NULL,
+            failures INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (listing_id, kind)
+        );
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS external_key TEXT NOT NULL DEFAULT '';
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS published_on DATE;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pcns_external ON pcns (source, external_key) WHERE external_key <> '';
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -730,6 +781,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (18, "market_indices", _m018_market_indices),
     (19, "pcns", _m019_pcns),
     (20, "part_params", _m020_part_params),
+    (21, "distributor_details", _m021_distributor_details),
 ]
 
 

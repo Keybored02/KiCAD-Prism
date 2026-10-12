@@ -26,6 +26,15 @@ and anything else is logged once and read as unknown. ``Discontinued`` ("no long
 is the distributor flag and is never the manufacturer's lifecycle. ``EndOfLife`` ("no longer manufactured")
 is obsolete.
 
+Compliance and trade. ``Product.Classifications`` carries ``RohsStatus``, ``ReachStatus``,
+``MoistureSensitivityLevel``, ``ExportControlClassNumber`` and ``HtsusCode`` as text; they are kept as facts
+with each offer (``facts.py``), next to ``DateLastBuyChance``. No extra call.
+
+Change notices. ``GET https://api.digikey.com/ChangeNotifications/v3/Products/{DigiKeyPartNumber}`` (the
+"Product Change Notifications Api" Swagger file). Its only security scheme is the authorization-code flow, so it
+needs a person's sign-in (``oauth.py``); the client-credentials token is not accepted. A 404 means the product
+has no notices. Each notice has ``PcnChangeDate``, ``PcnType``, ``PcnDescription`` and ``PcnLink``.
+
 Limits. The description gives none. DigiKey's published defaults for this API (120 calls a minute,
 1,000 a day) are used for the pacing and the default budget; both can be changed.
 """
@@ -33,17 +42,18 @@ Limits. The description gives none. DigiKey's published defaults for this API (1
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import quote
 
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import match_key
-from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.models import ChangeNotice, Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
     CAP_LIFECYCLE,
     CAP_OFFERS,
+    CAP_PCN,
     CAP_SEARCH,
     AuthError,
     CredentialField,
@@ -59,6 +69,8 @@ from app.services.supply.vocabulary import Lifecycle, Packaging
 
 KEY = "digikey"
 API_URL = "https://api.digikey.com/products/v4"
+PCN_URL = "https://api.digikey.com/ChangeNotifications/v3/Products/{}"
+AUTHORIZE_URL = "https://api.digikey.com/v1/oauth2/authorize"
 TOKEN_URL = "https://api.digikey.com/v1/oauth2/token"
 ALLOWED_HOSTS = ("api.digikey.com",)
 TOKEN_MARGIN_SECONDS = 30
@@ -193,6 +205,26 @@ class DigiKeyProvider:
                 offers.append(offer)
         return offers
 
+    def change_notices(self, sku: str, user_token: str) -> list[ChangeNotice]:
+        """The notices DigiKey lists for one of its product numbers. ``user_token`` is a signed-in person's access token."""
+
+        if not user_token:
+            raise AuthError("DigiKey change notices need a person's sign-in")
+        if self._last_call is not None:
+            wait = MIN_INTERVAL_SECONDS - (self._monotonic() - self._last_call)
+            if wait > 0:
+                self._sleep(wait)
+        self._last_call = self._monotonic()
+        try:
+            answer = self._client.request_json("GET", PCN_URL.format(_quote(sku)), headers=self._headers(user_token))
+        except ProviderError as exc:
+            if exc.code == "not_found":
+                return []  # DigiKey answers 404 for a product without notices
+            raise
+        if not isinstance(answer, dict):
+            raise ProviderError("DigiKey answered with something other than an object")
+        return [_notice(sku, item) for item in answer.get("ProductChangeNotifications") or [] if isinstance(item, dict)]
+
     def get_part_data(self, match: PartMatch) -> PartData:
         try:
             product = (self._call("GET", f"/search/{_quote(match.sku)}/productdetails").get("Product")) or {}
@@ -275,6 +307,40 @@ def _reach(text: object) -> bool | None:
     return None
 
 
+def _day(text: object) -> date | None:
+    try:
+        return date.fromisoformat(str(text or "")[:10])
+    except ValueError:
+        return None
+
+
+def _notice(sku: str, item: Mapping[str, Any]) -> ChangeNotice:
+    link = str(item.get("PcnLink") or "").strip()
+    return ChangeNotice(
+        provider=KEY,
+        sku=sku,
+        kind_text=str(item.get("PcnType") or "").strip(),
+        description=str(item.get("PcnDescription") or "").strip(),
+        url=link if link.lower().startswith("https://") else "",
+        published_on=_day(item.get("PcnChangeDate")),
+    )
+
+
+def _facts(product: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    classes = product.get("Classifications") or {}
+    pairs = [
+        ("rohs_status", classes.get("RohsStatus")),
+        ("reach_status", classes.get("ReachStatus")),
+        ("msl", classes.get("MoistureSensitivityLevel")),
+        ("eccn", classes.get("ExportControlClassNumber")),
+        ("hts_us", classes.get("HtsusCode")),
+    ]
+    last_buy = _day(product.get("DateLastBuyChance"))
+    if last_buy is not None and last_buy.year > 1900:
+        pairs.append(("last_buy_date", last_buy.isoformat()))
+    return tuple((name, str(value).strip()) for name, value in pairs if value is not None and str(value).strip())
+
+
 def _price_breaks(variation: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
     tiers: dict[int, Decimal] = {}
     for tier in variation.get("StandardPricing") or []:
@@ -321,13 +387,14 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
         reach_affected=_reach((product.get("Classifications") or {}).get("ReachStatus")),
         marketplace=bool(variation.get("MarketPlace")),
         product_url=str(product.get("ProductUrl") or ""),
+        facts=_facts(product),
     )
 
 
 SPEC = ProviderSpec(
     key=KEY,
     label="DigiKey",
-    capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE}),
+    capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE, CAP_PCN}),
     max_batch=1,
     stock_pooling="pooled",
     credential_fields=(

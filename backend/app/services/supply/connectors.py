@@ -274,6 +274,18 @@ class ConnectorService:
                     (error_code[:64], connector_id),
                 )
 
+    def keyring(self):
+        """The credential keyring, for sealing what belongs to a connector (``oauth.py``)."""
+
+        return self._keyring()
+
+    def unsealed_credentials(self, connector_id: str) -> dict[str, str]:
+        """A connector's credentials in the clear. Backend use only: never returned by an API."""
+
+        with self._store.connection() as conn:
+            row = _fetch(conn, connector_id)
+        return sealed.unseal(self._keyring(), connector_id, row["credential_envelope"]) if row["credential_envelope"] else {}
+
     def load_provider(self, connector_id: str) -> SupplyProvider:
         """Build the adapter for an active connector, with its credentials."""
 

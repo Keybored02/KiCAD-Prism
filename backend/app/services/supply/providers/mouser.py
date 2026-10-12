@@ -16,6 +16,16 @@ The answer is display text: stock as "1,234 In Stock", prices as currency
 strings, lead time as "84 Days". ``text_values`` reads them. Prices are in the
 currency of the account behind the key; there is no storefront to choose.
 
+Compliance and trade. ``ROHSStatus`` and the ``ProductCompliance`` list (``USHTS``, ``TARIC``, ``CNHTS``,
+``ECCN`` and other codes, seen live) are kept as facts with each offer (``facts.py``); ``SuggestedReplacement``
+too. No extra call.
+
+Substances. Only version 2 of the API (``api.mouser.com/api/docs/V2``) has ``REACH-SVHC``, a list of strings, on
+each part. ``POST /api/v2/search/partnumberandmanufacturer`` takes the Mouser number and requires
+``manufacturerName`` in Mouser's own spelling (checked live: without it the answer is an error "Required:
+Manufacturer Name"), so it cannot batch parts of different makers and is not used for polling. It is read once a
+week per listing (``substances``), with the spelling discovery recorded. Its answers have not been recorded yet.
+
 Mouser's published limits (30 calls a minute, 1,000 a day) are not in the
 description; the default daily budget follows them, and calls from one adapter
 are spaced ``MIN_INTERVAL_SECONDS`` apart so a run cannot burst past the minute.
@@ -29,13 +39,14 @@ from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 
 from app.services.supply.http_client import SafeHttpClient
-from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak
+from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak, Substances
 from app.services.supply.providers.base import (
     CAP_BATCH,
     CAP_INCOMING,
     CAP_LIFECYCLE,
     CAP_OFFERS,
     CAP_SEARCH,
+    CAP_SUBSTANCES,
     AuthError,
     CredentialField,
     ProviderConfig,
@@ -48,6 +59,7 @@ from app.services.supply.vocabulary import Lifecycle, Packaging
 
 KEY = "mouser"
 SEARCH_URL = "https://api.mouser.com/api/v1/search/partnumber"
+SEARCH_V2_URL = "https://api.mouser.com/api/v2/search/partnumberandmanufacturer"
 ALLOWED_HOSTS = ("api.mouser.com",)
 MAX_BATCH = 10
 MIN_INTERVAL_SECONDS = 2.0
@@ -93,7 +105,7 @@ class MouserProvider:
         self._sleep = sleep
         self._last_call: float | None = None
 
-    def _search(self, numbers: Sequence[str]) -> list[dict[str, Any]]:
+    def _post(self, url: str, body: Mapping[str, Any]) -> Any:
         if not self._api_key:
             raise AuthError("Mouser needs an API key")
         if self._last_call is not None:
@@ -101,10 +113,10 @@ class MouserProvider:
             if wait > 0:
                 self._sleep(wait)
         self._last_call = self._monotonic()
-        answer = self._client.request_json(
-            "POST", SEARCH_URL, params={"apiKey": self._api_key},
-            json={"SearchByPartRequest": {"mouserPartNumber": "|".join(numbers), "partSearchOptions": "Exact"}},
-        )
+        return self._client.request_json("POST", url, params={"apiKey": self._api_key}, json=body)
+
+    def _search(self, numbers: Sequence[str]) -> list[dict[str, Any]]:
+        answer = self._post(SEARCH_URL, {"SearchByPartRequest": {"mouserPartNumber": "|".join(numbers), "partSearchOptions": "Exact"}})
         if not isinstance(answer, dict):
             raise ProviderError("Mouser answered with something other than an object")
         _raise_for_errors(answer.get("Errors") or [])
@@ -148,6 +160,25 @@ class MouserProvider:
                 if offer is not None:
                     offers.append(offer)
         return offers
+
+    def substances(self, sku: str, manufacturer: str) -> Substances:
+        """What Mouser's version 2 answer says about substances of very high concern for one Mouser number."""
+
+        if not manufacturer.strip():
+            return Substances()
+        answer = self._post(SEARCH_V2_URL, {"SearchByPartMfrNameRequest": {
+            "mouserPartNumber": sku, "manufacturerName": manufacturer.strip(), "partSearchOptions": "Exact",
+        }})
+        if not isinstance(answer, dict):
+            raise ProviderError("Mouser answered with something other than an object")
+        _raise_for_errors(answer.get("Errors") or [])
+        parts = [p for p in (answer.get("SearchResults") or {}).get("Parts") or [] if isinstance(p, dict)]
+        part = next((p for p in parts if str(p.get("MouserPartNumber") or "").upper() == sku.upper()), None)
+        if part is None or "REACH-SVHC" not in part:
+            return Substances()
+        raw = part.get("REACH-SVHC")
+        entries = tuple(" ".join(str(item).split())[:300] for item in (raw if isinstance(raw, list) else []) if str(item).strip())
+        return Substances(entries=entries, stated=isinstance(raw, list), facts=_trade_facts(part.get("TradeCompliance")))
 
     def get_part_data(self, match: PartMatch) -> PartData:
         part = next((item for item in self._search([match.sku]) if item.get("MouserPartNumber") == match.sku), None)
@@ -248,6 +279,37 @@ def _rohs(text: object) -> bool | None:
     return True if "compliant" in value else None
 
 
+# Mouser's compliance names (seen live) to Prism's fact names. Others are kept under their own name, lower case.
+_COMPLIANCE_NAMES = {
+    "USHTS": "hts_us", "TARIC": "hts_eu", "CNHTS": "hts_cn", "CAHTS": "hts_ca", "JPHTS": "hts_jp",
+    "KRHTS": "hts_kr", "MXHTS": "hts_mx", "ECCN": "eccn",
+}
+
+
+def _trade_facts(items: object) -> tuple[tuple[str, str], ...]:
+    pairs = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("ComplianceName") or "").strip()
+        value = str(item.get("ComplianceValue") or "").strip()
+        if not name or not value:
+            continue
+        canonical = _COMPLIANCE_NAMES.get(name.upper())
+        if canonical is None:
+            note(KEY, "compliance name", name)
+            canonical = "trade_" + "".join(ch for ch in name.lower() if ch.isalnum())[:30]
+        pairs.append((canonical, value))
+    return tuple(pairs)
+
+
+def _facts(part: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    pairs = [("rohs_status", str(part.get("ROHSStatus") or "").strip())]
+    pairs += list(_trade_facts(part.get("ProductCompliance")))
+    pairs.append(("suggested_replacement", str(part.get("SuggestedReplacement") or "").strip()))
+    return tuple((name, value) for name, value in pairs if value)
+
+
 def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
     """The offer, or None when the answer does not say how many are on hand (left out, as the contract says)."""
 
@@ -281,13 +343,14 @@ def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
         discontinued=str(part.get("IsDiscontinued") or "").strip().lower() == "true",
         rohs=_rohs(part.get("ROHSStatus")),
         product_url=str(part.get("ProductDetailUrl") or ""),
+        facts=_facts(part),
     )
 
 
 SPEC = ProviderSpec(
     key=KEY,
     label="Mouser",
-    capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH, CAP_LIFECYCLE, CAP_INCOMING}),
+    capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH, CAP_LIFECYCLE, CAP_INCOMING, CAP_SUBSTANCES}),
     max_batch=MAX_BATCH,
     stock_pooling="separate",
     credential_fields=(CredentialField("api_key", "Search API key"),),

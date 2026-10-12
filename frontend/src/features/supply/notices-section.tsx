@@ -48,11 +48,13 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
                   {item.state === "closed" ? <span className="text-xs text-muted-foreground">closed</span> : null}
                   {item.notice_url ? <a href={item.notice_url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">{item.title}</a> : <span className="font-medium">{item.title}</span>}
                 </span>
+                {item.source && item.source !== "manual" && item.notes ? <span className="block text-xs">{item.notes}</span> : null}
                 <span className="block text-xs text-muted-foreground">
+                  {item.published_on ? `Released ${item.published_on}. ` : ""}
                   {item.last_time_buy ? `Last time buy ${item.last_time_buy}. ` : ""}
                   {item.last_time_ship ? `Last time to ship ${item.last_time_ship}. ` : ""}
                   {item.parts > 1 ? `Covers ${item.parts} parts. ` : ""}
-                  Entered by {item.created_by}.
+                  {item.source && item.source !== "manual" ? `From ${item.source_label}.` : `Entered by ${item.created_by}.`}
                 </span>
               </span>
               {canEdit && item.state === "open" ? (
