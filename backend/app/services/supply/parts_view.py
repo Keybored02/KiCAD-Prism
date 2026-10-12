@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
-from app.services.supply import insights, parts, pricing, stock, usage
+from app.services.supply import insights, parts, prices, pricing, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -379,6 +379,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "lifecycle": lifecycle.value,
         "listings": listings,
         "history": days,
+        "price": prices.view(prices.daily_cheapest(conn, part_id, now, prices.CHART_DAYS), now.date()),
         "used_in": usage.used_in(conn, part_id, role),
         "insight": insight_from(days, watch_row["threshold"], now),
     }

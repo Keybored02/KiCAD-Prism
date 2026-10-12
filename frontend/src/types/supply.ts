@@ -338,6 +338,12 @@ export interface SupplyPartDetail {
   listings: SupplyListing[];
   /** `listings` is how many listings stood behind the day, so a jump from a new one is not read as a restock. */
   history: Array<{ day: string; stock: number; listings: number }>;
+  /** The cheapest counted unit price per day. `trend` is the move over the last 30 days, or null when there is not enough to read one. */
+  price: {
+    currency: string;
+    history: Array<{ day: string; price: number }>;
+    trend: { currency: string; was: string; now: string; change_percent: number; days: number } | null;
+  };
   insight: SupplyInsight;
   used_in: Array<{ project_id: string; project_name: string; quantity: number; references: string }>;
 }

@@ -9,6 +9,7 @@ import { AssessmentSection } from "./assessment-section";
 import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
 import { ListingTable } from "./listing-table";
+import { PriceTrend } from "./price-trend";
 import { Sparkline } from "./sparkline";
 import { formatStock, LIFECYCLE_LABEL } from "./supply-format";
 import { WatchSettings } from "./watch-settings";
@@ -64,6 +65,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
           <p className="text-xs text-muted-foreground">History builds up as the part is read.</p>
         )}
       </section>
+
+      <PriceTrend price={detail.price} />
 
       <AssessmentSection partId={detail.part.id} role={role} />
 

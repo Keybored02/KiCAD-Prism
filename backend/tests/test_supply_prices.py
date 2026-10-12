@@ -39,6 +39,14 @@ class PriceTrendTests(unittest.TestCase):
         self.assertEqual(prices.series(mixed), [(day - timedelta(days=1), Decimal("1.00"), "EUR"), (day, Decimal("1.10"), "EUR")])
         self.assertEqual(prices.series([]), [])
 
+    def test_the_view_has_the_daily_series_and_the_move_over_the_last_thirty_days_only(self) -> None:
+        old = (TODAY - timedelta(days=60), Decimal("0.50"), "EUR")
+        recent = points("1.00", "1.30", every=10)
+        view = prices.view([old, *recent], TODAY)
+        self.assertEqual((view["currency"], [h["price"] for h in view["history"]]), ("EUR", [0.5, 1.0, 1.3]))
+        self.assertEqual(view["trend"]["change_percent"], 30.0, "the 60 day old reading is outside the move")
+        self.assertEqual(prices.view([], TODAY), {"currency": "", "history": [], "trend": None})
+
 
 if __name__ == "__main__":
     unittest.main()

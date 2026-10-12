@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any, Sequence
 
 WINDOW_DAYS = 30
+CHART_DAYS = 90
 MIN_SPAN_DAYS = 7
 MAX_AGE_DAYS = 3
 _COUNTED = ("exact", "manual")
@@ -21,10 +22,10 @@ _COUNTED = ("exact", "manual")
 DayPrice = tuple[date, Decimal, str]  # day, cheapest unit price, currency
 
 
-def daily_cheapest(conn, part_id: str, now: datetime) -> list[DayPrice]:
-    """The cheapest counted unit price per day over the window, oldest first, in one currency."""
+def daily_cheapest(conn, part_id: str, now: datetime, days: int = WINDOW_DAYS) -> list[DayPrice]:
+    """The cheapest counted unit price per day over the last ``days``, oldest first, in one currency."""
 
-    since = now - timedelta(days=WINDOW_DAYS)
+    since = now - timedelta(days=days)
     rows = conn.execute(
         """
         SELECT day, currency, MIN(price) AS price FROM (
@@ -61,6 +62,17 @@ def series(points: Sequence[DayPrice]) -> list[DayPrice]:
         if code == currency and price > 0:
             cheapest[day] = min(price, cheapest.get(day, price))
     return [(day, cheapest[day], currency) for day in sorted(cheapest)]
+
+
+def view(points: Sequence[DayPrice], today: date) -> dict[str, Any]:
+    """What the part sheet shows: the daily series and, over the last 30 days of it, the move."""
+
+    recent = [point for point in points if (today - point[0]).days <= WINDOW_DAYS]
+    return {
+        "currency": points[-1][2] if points else "",
+        "history": [{"day": day.isoformat(), "price": float(price)} for day, price, _ in points],
+        "trend": trend(recent, today),
+    }
 
 
 def trend(points: Sequence[DayPrice], today: date) -> dict[str, Any] | None:

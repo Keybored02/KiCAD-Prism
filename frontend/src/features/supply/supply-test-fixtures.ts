@@ -93,6 +93,7 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
       },
     ],
     used_in: [],
+    price: { currency: "", history: [], trend: null },
     insight: {
       confidence: "none", trend: null, decrease_per_day: null, days_to_zero: null, days_to_threshold: null,
       restocks: 0, restock_interval_days: null, restock_expected_in_days: null,
