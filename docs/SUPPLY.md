@@ -54,6 +54,16 @@ A component's Sourcing tab lists its approved parts. The component's own part is
 that someone proposes and QA approves and ranks. The list is not part of a component revision. If the part and every
 approved alternate are out of stock, the component says so.
 
+## Datasheets
+
+A distributor's answer can carry the manufacturer's datasheet address (Mouser, DigiKey, Farnell and LCSC do). Prism
+keeps the first one it sees, fetches the PDF weekly for watched parts and parts on project BOMs, and keeps up to five
+versions. A part sheet's Datasheets section shows each version, how much of the first pages' text changed, and
+lifecycle phrases the text mentions ("not recommended for new designs", "last time buy", "obsolete", "end of life",
+"discontinued", "preliminary"). A new version of a watched part raises a *datasheet changed* alert for two weeks.
+Designers and administrators can set the address by hand. Files come from the public internet and are never opened by
+Prism itself: text is read in a separate process with a time limit, and downloads are served as sandboxed attachments.
+
 ## Demand
 
 A part sheet's Demand section holds what is needed and by when. A negative quantity is stock already on its way in.
@@ -93,7 +103,7 @@ section.
 ## Alerts
 
 Supply > Inbox. A watched part raises an alert when it runs out, falls to its threshold, may run out within eight
-weeks at the recent rate, rises 20% or more in price over 30 days, changes lifecycle, is dropped by every distributor,
+weeks at the recent rate, rises 20% or more in price over 30 days, changes lifecycle, gets a new datasheet, is dropped by every distributor,
 or is lost. A condition must hold on two looks at least 30 minutes apart. Acknowledge or snooze an alert; it clears by
 itself. Nothing is sent by email or chat.
 
