@@ -24,6 +24,7 @@ INSUFFICIENT_STOCK = "insufficient_stock"
 LEAD_TIME_OVER_THRESHOLD = "lead_time_over_threshold"
 ROHS_NONCOMPLIANT = "rohs_noncompliant"
 DATA_STALE = "data_stale"
+SINGLE_SOURCE = "single_source"
 
 DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     PART_NOT_FOUND: Status.ERROR,
@@ -36,6 +37,7 @@ DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     LEAD_TIME_OVER_THRESHOLD: Status.WARNING,
     ROHS_NONCOMPLIANT: Status.ERROR,
     DATA_STALE: Status.WARNING,
+    SINGLE_SOURCE: Status.WARNING,
 })
 
 SUB_SCORES = ("lifecycle", "sourcing", "inventory", "market", "compliance")
@@ -74,6 +76,7 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     LEAD_TIME_OVER_THRESHOLD: "Lead time over the limit",
     ROHS_NONCOMPLIANT: "Not RoHS compliant",
     DATA_STALE: "Distributor data is out of date",
+    SINGLE_SOURCE: "Only one distributor has it in stock",
 })
 
 # What a workspace may set. "ok" turns a check into a note that does not count against health.

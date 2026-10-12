@@ -354,7 +354,7 @@ export interface SupplyInsight {
   inputs: { points: number; span_days: number; points_in_run: number; current: number | null };
 }
 
-export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon";
+export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up";
 export type SupplyAlertState = "open" | "acknowledged" | "snoozed" | "resolved";
 
 export interface SupplyAlert {
@@ -369,6 +369,7 @@ export interface SupplyAlert {
   detail: {
     stock?: number; threshold?: number; lifecycle?: string; problem?: string; dropped?: boolean;
     days_to_zero?: number; decrease_per_day?: number; confidence?: string;
+    change_percent?: number; was?: string; now?: string; currency?: string; days?: number;
   };
   opened_at: string | null;
   last_event_at: string | null;

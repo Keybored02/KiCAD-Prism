@@ -50,6 +50,15 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(ids(checks.evaluate(facts(need=5000), DEFAULTS)), ["insufficient_stock"])
         self.assertEqual(checks.evaluate(facts(need=1000), DEFAULTS), [], "exactly enough is enough")
 
+    def test_one_distributor_among_several_is_a_single_source(self) -> None:
+        one_holder = [offer(), offer(connector_id="c2", stock=0)]
+        self.assertEqual(ids(checks.evaluate(facts(one_holder, distributors=2), DEFAULTS)), ["single_source"])
+        self.assertEqual(checks.evaluate(facts(one_holder, distributors=1), DEFAULTS), [], "with one distributor there is no choice")
+        self.assertEqual(checks.evaluate(facts(one_holder), DEFAULTS), [], "unknown means not asked")
+        two_holders = [offer(), offer(connector_id="c2")]
+        self.assertEqual(checks.evaluate(facts(two_holders, distributors=2), DEFAULTS), [])
+        self.assertNotIn("single_source", ids(checks.evaluate(facts([offer(stock=0)], distributors=3), DEFAULTS)))
+
     def test_marketplace_stock_does_not_count(self) -> None:
         self.assertEqual(ids(checks.evaluate(facts([offer(stock=900, marketplace=True)]), DEFAULTS)), ["no_distributor_stock"])
 

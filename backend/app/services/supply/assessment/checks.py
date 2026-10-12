@@ -2,7 +2,7 @@
 
 Pure functions. ``Facts`` is everything the checks look at; the service builds it from the
 database and nothing here reads one. The checks that need data Prism does not hold yet (REACH,
-parameter mismatch, target price, approved sources per component) are not here; they arrive with
+parameter mismatch, package, target price, approved sources per component) are not here; they arrive with
 the data, under the ids the plan reserves.
 """
 
@@ -29,6 +29,8 @@ class Facts:
     problem: str | None = None
     # Units needed, for the parts that sit on a BOM. None when there is no demand to compare with.
     need: int | None = None
+    # Distributors Prism reads. A part held by one of several is a single source; with only one there is no choice.
+    distributors: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +84,9 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
         add(ids.NO_DISTRIBUTOR_STOCK, "No distributor has this part in stock.", "no_stock")
     elif facts.need is not None and stock < facts.need:
         add(ids.INSUFFICIENT_STOCK, f"Distributors hold {stock:,} and the build needs {facts.need:,}.", "short")
+    holders = {o["connector_id"] for o in offers if o["stock"] > 0 and not o["marketplace"]}
+    if len(holders) == 1 and (facts.distributors or 0) > 1:
+        add(ids.SINGLE_SOURCE, "Only one distributor has this part in stock.", "single_source")
     lead = lead_time_of(offers)
     if lead is not None and lead > settings.lead_time_days:
         add(ids.LEAD_TIME_OVER_THRESHOLD, f"Lead time is {lead} days, over the {settings.lead_time_days} you accept.", "slow")

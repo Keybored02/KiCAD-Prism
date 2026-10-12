@@ -64,6 +64,7 @@ root first.
 | `backend/app/services/supply/publish_hook.py` | Called by Release Studio after a publish; takes the snapshot; any failure is logged and dropped. |
 | `backend/app/api/supply_release.py` | Release check and release snapshot endpoints (readers; projects follow the caller's role). |
 | `bom_fields.py` | Which symbol fields are the manufacturer and the manufacturer part number (best name first; never the distributor's number), what counts as fitted, and the `Prism ID` field. The frontend's `frontend/src/features/supply/bom-supply.ts` keeps the same lists; a test compares them. |
+| `prices.py` | The cheapest counted unit price per day from the recorded samples, in one currency, and whether a rise over the last 30 days counts as a price move (readings a week apart, the latest recent). |
 | `usage.py` | Where parts are used: one row per distinct part on each project's BOM, read from semantic indexes that already exist (it builds none). A symbol with a `Prism ID` the catalog knows takes that component's manufacturer and number. Each project carries the roles its folder lets see it, and every read filters by the caller's role. |
 | `overview.py` | The Supply overview: counts, what needs attention, open alerts, data age, quota today. |
 | `backend/app/api/supply_alerts.py` | Overview and alerts API. Readers see both; admin and designer acknowledge and snooze. |

@@ -40,6 +40,7 @@ beforeEach(() => {
       alertFixture({ id: 3, kind: "lifecycle", severity: "fatal", mpn: "EOL-1", detail: { lifecycle: "obsolete" } }),
       alertFixture({ id: 4, kind: "out_of_stock", severity: "error", mpn: "OOS-1", detail: { stock: 0 } }),
       alertFixture({ id: 5, kind: "rupture_soon", mpn: "DRAIN-1", detail: { days_to_zero: 9, decrease_per_day: 40, confidence: "medium" } }),
+      alertFixture({ id: 6, kind: "price_up", mpn: "PRICEY-1", detail: { change_percent: 30, days: 20, was: "1", now: "1.3", currency: "EUR" } }),
     ],
   });
 });
@@ -53,6 +54,7 @@ describe("the inbox", () => {
     expect(screen.getByText("Marked obsolete")).toBeTruthy();
     expect(screen.getByText("Out of stock")).toBeTruthy();
     expect(screen.getByText("Could run out in about 9 days at the recent rate (medium confidence)")).toBeTruthy();
+    expect(screen.getByText("Cheapest price up 30% in 20 days, from 1 to 1.3 EUR")).toBeTruthy();
   });
 
   it("opens the part from the alert", async () => {
@@ -122,7 +124,7 @@ describe("the inbox", () => {
     fireEvent.click((await screen.findAllByRole("button", { name: /Acknowledge/ }))[0]);
     const alerts = await screen.findAllByRole("alert");
     expect(alerts.some((node) => node.textContent?.includes("already cleared"))).toBe(true);
-    expect(within(screen.getByRole("list")).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(screen.getByRole("list")).getAllByRole("listitem")).toHaveLength(6);
   });
 
   it("reports a load failure and retries", async () => {

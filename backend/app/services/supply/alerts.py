@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Mapping
 
-from app.services.supply import insights, parts_view
+from app.services.supply import insights, parts_view, prices
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.vocabulary import Lifecycle, Status
 
@@ -31,7 +31,11 @@ BELOW_THRESHOLD = "below_threshold"
 LIFECYCLE = "lifecycle"
 PART_LOST = "part_lost"
 RUPTURE_SOON = "rupture_soon"
-KINDS = (OUT_OF_STOCK, BELOW_THRESHOLD, LIFECYCLE, PART_LOST, RUPTURE_SOON)
+PRICE_UP = "price_up"
+KINDS = (OUT_OF_STOCK, BELOW_THRESHOLD, LIFECYCLE, PART_LOST, RUPTURE_SOON, PRICE_UP)
+
+# The cheapest price rising by this much over the window is worth a look.
+PRICE_RISE_PERCENT = 20
 
 _IMMEDIATE = frozenset({PART_LOST})
 _SEVERITY_RANK = {Status.FATAL.value: 0, Status.ERROR.value: 1, Status.WARNING.value: 2}
@@ -53,8 +57,10 @@ class Condition:
     detail: Mapping[str, Any]
 
 
-def conditions_for(item: Mapping[str, Any], insight: Mapping[str, Any] | None = None) -> dict[str, Condition]:
-    """The lines a watched part has crossed, from its summary row and, when there is one, its insight."""
+def conditions_for(
+    item: Mapping[str, Any], insight: Mapping[str, Any] | None = None, price: Mapping[str, Any] | None = None
+) -> dict[str, Condition]:
+    """The lines a watched part has crossed, from its summary row and, when there are any, its insight and price trend."""
 
     found: dict[str, Condition] = {}
     watch = item["watch"]
@@ -74,6 +80,8 @@ def conditions_for(item: Mapping[str, Any], insight: Mapping[str, Any] | None = 
             found[RUPTURE_SOON] = Condition(Status.WARNING.value, {
                 "days_to_zero": days, "decrease_per_day": insight["decrease_per_day"], "confidence": insight["confidence"],
             })
+    if price is not None and price["change_percent"] >= PRICE_RISE_PERCENT:
+        found[PRICE_UP] = Condition(Status.WARNING.value, dict(price))
     lifecycle = item["lifecycle"]
     if lifecycle == Lifecycle.OBSOLETE.value:
         found[LIFECYCLE] = Condition(Status.FATAL.value, {"lifecycle": lifecycle})
@@ -97,7 +105,8 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
         insight = None
         if watch is not None and item["stock"]:
             insight = parts_view.insight_from(parts_view.history(conn, item["id"], now), watch["threshold"], now)
-        current[item["id"]] = conditions_for(item, insight)
+        price = prices.trend(prices.daily_cheapest(conn, item["id"], now), now.date()) if watch is not None else None
+        current[item["id"]] = conditions_for(item, insight, price)
     existing: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in conn.execute(
         "SELECT * FROM alerts WHERE part_id = ANY(%s) AND state <> 'resolved' FOR UPDATE", (ids,)

@@ -11,6 +11,7 @@ import sys
 import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 from unittest import mock
 
@@ -254,6 +255,29 @@ class SupplyAlertsTests(unittest.TestCase):
         self.assertEqual(alert["detail"]["confidence"], "high")
         self.assertEqual(alert["detail"]["decrease_per_day"], 50.0)
         self.assertEqual(alert["detail"]["days_to_zero"], 6)
+
+    def priced_part(self, mpn: str, first: str, last: str, *, days: int = 20):
+        watch = self.watch(mpn)
+        listing = self.listing(watch["part_id"], mpn, stock=500)
+        with self.store.connection() as conn:
+            for index in range(days):
+                price = Decimal(first) + (Decimal(last) - Decimal(first)) * index / (days - 1)
+                conn.execute(
+                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 500, %s, 'EUR')",
+                    (listing, START - timedelta(days=days - index), price),
+                )
+        return watch
+
+    def test_a_rising_price_raises_a_warning_and_a_steady_one_does_not(self) -> None:
+        rising = self.priced_part("PRICEY", "1.00", "1.30")
+        steady = self.priced_part("STEADY", "1.00", "1.05")
+        for later in (timedelta(0), timedelta(hours=1)):
+            self.evaluate(rising["part_id"], after=later)
+            self.evaluate(steady["part_id"], after=later)
+        (alert,) = self.listed()
+        self.assertEqual((alert["part_id"], alert["kind"], alert["severity"]), (rising["part_id"], "price_up", "warning"))
+        self.assertEqual((alert["detail"]["was"], alert["detail"]["now"], alert["detail"]["currency"]), ("1", "1.3", "EUR"))
+        self.assertEqual(alert["detail"]["change_percent"], 30.0)
 
     def test_a_threshold_already_crossed_is_the_alert_not_also_a_projection(self) -> None:
         watch = self.falling_part(threshold=1000)

@@ -22,9 +22,11 @@ def assess_one(
     now: datetime,
     need: int | None = None,
     settings: AssessmentSettings = DEFAULTS,
+    distributors: int | None = None,
 ) -> dict[str, Any]:
     facts = checks.Facts(
         lifecycle=Lifecycle(item["lifecycle"]), offers=offers, now=now, problem=item["problem"], need=need,
+        distributors=distributors,
     )
     findings = waivers.apply(checks.evaluate(facts, settings), part_waivers)
     scores = risk.sub_scores(facts)
@@ -54,8 +56,9 @@ def assess_summaries(
 
     settings = settings or settings_store.load(conn)
     held = waivers.for_parts(conn, [item["id"] for item in items])
+    distributors = conn.execute("SELECT COUNT(*) AS n FROM connectors WHERE enabled").fetchone()["n"]
     return {
-        item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings)
+        item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors)
         for item in items
     }
 

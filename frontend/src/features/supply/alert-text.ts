@@ -18,6 +18,8 @@ export function alertTitle(alert: SupplyAlert): string {
       return PROBLEM_LABEL[(detail.problem ?? "gone") as SupplyProblem];
     case "rupture_soon":
       return `Could run out in about ${detail.days_to_zero ?? 0} days at the recent rate (${confidenceWord(detail.confidence)} confidence)`;
+    case "price_up":
+      return `Cheapest price up ${detail.change_percent ?? 0}% in ${detail.days ?? 0} days, from ${detail.was ?? "?"} to ${detail.now ?? "?"} ${detail.currency ?? ""}`.trim();
   }
 }
 
