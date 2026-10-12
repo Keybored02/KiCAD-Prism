@@ -158,10 +158,22 @@ describe("the rollup in words", () => {
   });
 });
 
+describe("the project's own part number", () => {
+  it("is carried on the line from the first component that has one", () => {
+    const component = (reference: string, fields: Record<string, string>) => ({ reference, fields } as unknown as SemanticComponent);
+    const [line] = buildLines([
+      component("R1", { Manufacturer: "Acme", MPN: "X-1" }),
+      component("R2", { Manufacturer: "Acme", MPN: "X-1", "SAP Code": "4711" }),
+      component("R3", { Manufacturer: "Acme", MPN: "X-1", "SAP Code": "9999" }),
+    ]);
+    expect([line.quantity, line.sapCode]).toEqual([3, "4711"]);
+  });
+});
+
 describe("the order list", () => {
   const lines = [
     { key: "a", manufacturer: "Acme", mpn: "X-1", quantity: 2, references: ["R1", "R2"] },
-    { key: "b", manufacturer: "Acme", mpn: "Y-2", quantity: 1, references: ["C1"] },
+    { key: "b", manufacturer: "Acme", mpn: "Y-2", quantity: 1, references: ["C1"], sapCode: "4711" },
     { key: "c", manufacturer: "Acme", mpn: "Z-3", quantity: 1, references: ["U1"] },
     { key: "d", manufacturer: "", mpn: "", quantity: 1, references: ["TP1"] },
   ];
@@ -177,10 +189,10 @@ describe("the order list", () => {
       d: result({ state: "no_mpn", part_id: null }),
     });
     const rows = csv.trim().split("\r\n");
-    expect(rows[0]).toBe("Distributor,SKU,Manufacturer,Manufacturer Part Number,Order quantity,Unit price,Currency,Extended,Covers stock,References,Product page");
+    expect(rows[0]).toBe("Distributor,SKU,Manufacturer,Manufacturer Part Number,SAP Code,Order quantity,Unit price,Currency,Extended,Covers stock,References,Product page");
     expect(rows.slice(1)).toEqual([
-      "Mouser,595-Y2,Acme,Y-2,100,0.5,EUR,50,no,C1,https://shop.example/x",
-      "TME,X1-TME,Acme,X-1,100,0.5,EUR,50,yes,R1 R2,https://shop.example/x",
+      "Mouser,595-Y2,Acme,Y-2,4711,100,0.5,EUR,50,no,C1,https://shop.example/x",
+      "TME,X1-TME,Acme,X-1,,100,0.5,EUR,50,yes,R1 R2,https://shop.example/x",
     ]);
   });
 

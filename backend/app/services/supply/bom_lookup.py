@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import math
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -141,7 +142,14 @@ def _lead_time(offers: Sequence[Mapping[str, Any]]) -> int | None:
     return min(pool) if pool else None
 
 
-def lookup(conn, lines: Sequence[BomLine], build_quantity: int) -> dict[str, Any]:
+def needed(per_board: int, build_quantity: int, attrition_percent: float = 0) -> int:
+    """Units to have for a build: what the boards use, plus the spares attrition asks for, rounded up."""
+
+    exact = Decimal(per_board * build_quantity) * (Decimal(100) + Decimal(str(attrition_percent))) / Decimal(100)
+    return math.ceil(exact)
+
+
+def lookup(conn, lines: Sequence[BomLine], build_quantity: int, attrition_percent: float = 0) -> dict[str, Any]:
     if len(lines) > MAX_LINES:
         raise ValueError(f"At most {MAX_LINES} lines can be looked up at once.")
     resolved = _resolve(lines, conn)
@@ -159,18 +167,18 @@ def lookup(conn, lines: Sequence[BomLine], build_quantity: int) -> dict[str, Any
             per_board[part_id] = per_board.get(part_id, 0) + line.quantity
             first_line.setdefault(part_id, line.key)
 
-    needs = {part_id: count * build_quantity for part_id, count in per_board.items()}
+    needs = {part_id: needed(count, build_quantity, attrition_percent) for part_id, count in per_board.items()}
     assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc))
 
     results: dict[str, dict[str, Any]] = {}
     for line in lines:
         state, part_id, how = resolved[line.key]
-        entry: dict[str, Any] = {"state": state, "part_id": part_id, "manufacturer_match": how, "need": line.quantity * build_quantity}
+        entry: dict[str, Any] = {"state": state, "part_id": part_id, "manufacturer_match": how, "need": needed(line.quantity, build_quantity, attrition_percent)}
         if part_id:
             item = summary[part_id]
             offers_here = offers.get(part_id, [])
             stock = item["stock"]
-            part_need = per_board[part_id] * build_quantity
+            part_need = needs[part_id]
             leader = first_line[part_id]
             entry |= {
                 "watched": item["watch"] is not None,
@@ -190,8 +198,9 @@ def lookup(conn, lines: Sequence[BomLine], build_quantity: int) -> dict[str, Any
         results[line.key] = entry
     return {
         "build_quantity": build_quantity,
+        "attrition_percent": attrition_percent,
         "lines": results,
-        "rollup": _rollup(lines, results, build_quantity, per_board, first_line)
+        "rollup": _rollup(lines, results, build_quantity, per_board, first_line, attrition_percent)
         | _health_rollup(assessed, needs),
     }
 
@@ -216,6 +225,7 @@ def _rollup(
     build_quantity: int,
     per_board: Mapping[str, int],
     first_line: Mapping[str, str],
+    attrition_percent: float = 0,
 ) -> dict[str, Any]:
     """Counts of lines (``lines``, ``tracked``, ``not_tracked``, ``watched``) and of distinct parts
     (``at_risk``, ``short``, ``priced``, ``without_stock_data``);
@@ -234,7 +244,8 @@ def _rollup(
         stock = results[key]["stock"]
         if stock is None:
             continue
-        possible = stock // per_board[part_id]
+        # Boards the stock covers once the spares are set aside.
+        possible = int(Decimal(stock) * 100 // (Decimal(per_board[part_id]) * (Decimal(100) + Decimal(str(attrition_percent)))))
         if can_build is None or possible < can_build:
             can_build, limiting = possible, key
     return {

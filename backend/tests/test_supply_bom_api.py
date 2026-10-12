@@ -70,8 +70,9 @@ class BomLookupTests(unittest.TestCase):
     def call(self, path: str, body, *, role: str = "admin"):
         return _request(self.app, "POST", path, user=self.users[role], body=body)
 
-    def lookup(self, lines, build: int = 1, role: str = "admin") -> dict:
-        response = self.call("/api/supply/bom/lookup", {"build_quantity": build, "lines": lines}, role=role)
+    def lookup(self, lines, build: int = 1, role: str = "admin", attrition: float | None = None) -> dict:
+        body = {"build_quantity": build, "lines": lines} | ({} if attrition is None else {"attrition_percent": attrition})
+        response = self.call("/api/supply/bom/lookup", body, role=role)
         self.assertEqual(response.status, 200, response.text)
         return response.json
 
@@ -202,6 +203,20 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual((rollup["lines_priced"], rollup["lines"]), (2, 5), "the cost covers two of five lines")
         self.assertEqual((rollup["currency"], rollup["cost_build"], rollup["cost_per_board"]), ("EUR", "24.00", "2.4000"))
         self.assertEqual((rollup["can_build"], rollup["limited_by"]), (15, "b"), "30 pieces at 2 a board: 15 boards")
+
+    def test_attrition_adds_spares_to_the_need_and_takes_them_off_what_can_be_built(self) -> None:
+        part_id = self.part("Acme", "R1")
+        self.offer(part_id, "A", stock=105)
+        lines = [{"key": "r", "manufacturer": "Acme", "mpn": "R1", "quantity": 5}]
+        plain = self.lookup(lines, build=20)
+        self.assertEqual((plain["lines"]["r"]["need"], plain["rollup"]["short"], plain["rollup"]["can_build"]), (100, 0, 21))
+        spare = self.lookup(lines, build=20, attrition=10)
+        self.assertEqual(spare["attrition_percent"], 10)
+        self.assertEqual((spare["lines"]["r"]["need"], spare["lines"]["r"]["part_need"], spare["rollup"]["short"]), (110, 110, 0 if 105 >= 110 else 1))
+        self.assertEqual(spare["rollup"]["can_build"], 19, "105 pieces at 5.5 a board")
+        self.assertEqual(self.lookup(lines, build=3, attrition=10)["lines"]["r"]["need"], 17, "16.5 rounds up")
+        bad = self.call("/api/supply/bom/lookup", {"build_quantity": 1, "attrition_percent": 150, "lines": lines})
+        self.assertEqual(bad.status, 422)
 
     def test_a_shortage_is_counted_and_nothing_to_build_with_says_none(self) -> None:
         part_id = self.part("Acme", "R1")

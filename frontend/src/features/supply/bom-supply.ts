@@ -18,6 +18,9 @@ const MPN_FIELDS: readonly string[] = [
   "mfg part number", "manufacturer pn", "mfr pn", "mnf part number", "partnumber", "part number", "part_number",
 ];
 
+/** Where a project keeps its own (ERP) number for a part. It rides along on the order list; it is never used to find a part. */
+const SAP_FIELDS: readonly string[] = ["sap code", "sap_code", "sap number", "sap no", "sap"];
+
 /** The columns the supply data adds to the BOM table, in the order they appear. */
 export const BOM_SUPPLY_COLUMNS = ["Supply", "Stock", "Unit price", "Extended", "Lead time"] as const;
 
@@ -57,6 +60,8 @@ export function lineKey(identity: PartIdentity): string {
 
 export interface BomLineDetail extends BomLineInput {
   references: string[];
+  /** The project's own number for the part, when its components carry one. */
+  sapCode?: string;
 }
 
 /** The distinct parts among the fitted components, with how many go on one board. */
@@ -69,8 +74,9 @@ export function buildLines(fitted: readonly SemanticComponent[]): BomLineDetail[
     if (line) {
       line.quantity += 1;
       line.references.push(component.reference);
+      line.sapCode ||= fieldText(component, SAP_FIELDS);
     } else {
-      lines.set(key, { key, ...identity, quantity: 1, references: [component.reference] });
+      lines.set(key, { key, ...identity, quantity: 1, references: [component.reference], sapCode: fieldText(component, SAP_FIELDS) });
     }
   }
   return [...lines.values()];

@@ -58,6 +58,23 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
         />
         boards
       </label>
+      <label className="flex items-center gap-1.5 text-muted-foreground" title="Extra parts to order on top of what the boards use">
+        Spares
+        <Input
+          type="number"
+          min={0}
+          max={100}
+          step={1}
+          value={supply.attritionPercent}
+          aria-label="Spare parts, percent"
+          className="h-7 w-16"
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (Number.isFinite(next) && next >= 0 && next <= 100) supply.setAttritionPercent(next);
+          }}
+        />
+        %
+      </label>
       {status === "loading" ? <span className="text-muted-foreground">Reading supply data...</span> : null}
       {status === "error" ? (
         <span className="text-destructive">

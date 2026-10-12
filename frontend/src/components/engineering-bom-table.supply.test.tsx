@@ -168,6 +168,15 @@ describe("supply columns on the BOM", () => {
     expect(await screen.findByText("Can build 3 of 50, limited by C-100N")).toBeTruthy();
   });
 
+  it("asks for spares on top of the build and looks the BOM up again", async () => {
+    renderTable("admin");
+    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByLabelText("Spare parts, percent"), { target: { value: "10" } });
+    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), 1, expect.objectContaining({ attritionPercent: 10 })));
+    fireEvent.change(screen.getByLabelText("Spare parts, percent"), { target: { value: "150" } });
+    expect((screen.getByLabelText("Spare parts, percent") as HTMLInputElement).value).toBe("10");
+  });
+
   it("is hidden from roles that cannot read supply data, and from signed-out users", async () => {
     for (const role of ["viewer", null] as const) {
       renderTable(role);
@@ -207,7 +216,7 @@ describe("actions on the BOM", () => {
       reader.onload = () => resolve(String(reader.result));
       reader.readAsText(created[0]);
     });
-    expect(text).toContain("TME,R-10K-TME,Acme,R-10K,100,0.05,EUR,5,yes,R1 R2");
+    expect(text).toContain("TME,R-10K-TME,Acme,R-10K,,100,0.05,EUR,5,yes,R1 R2");
     expect(text).not.toContain("C-100N");
     click.mockRestore();
     vi.unstubAllGlobals();

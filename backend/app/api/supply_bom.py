@@ -39,6 +39,8 @@ class LookupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     build_quantity: int = Field(default=1, ge=1, le=1_000_000)
+    # Spares on top of what the boards use, as a percentage of the quantity.
+    attrition_percent: float = Field(default=0, ge=0, le=100)
     lines: list[LineIn] = Field(max_length=bom_lookup.MAX_LINES)
 
 
@@ -90,7 +92,7 @@ async def refresh_usage(_user: AuthenticatedUser = Depends(require_supply_reader
 async def lookup(body: LookupRequest, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            return bom_lookup.lookup(conn, _lines(body.lines), body.build_quantity)
+            return bom_lookup.lookup(conn, _lines(body.lines), body.build_quantity, body.attrition_percent)
 
     return await _run(read)
 

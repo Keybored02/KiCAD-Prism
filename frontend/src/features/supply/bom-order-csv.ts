@@ -2,7 +2,7 @@ import type { SupplyBomLineResult } from "@/types/supply";
 import type { BomLineDetail } from "./bom-supply";
 
 const HEADER = [
-  "Distributor", "SKU", "Manufacturer", "Manufacturer Part Number", "Order quantity", "Unit price", "Currency",
+  "Distributor", "SKU", "Manufacturer", "Manufacturer Part Number", "SAP Code", "Order quantity", "Unit price", "Currency",
   "Extended", "Covers stock", "References", "Product page",
 ];
 
@@ -26,7 +26,7 @@ export function buildOrderCsv(lines: readonly BomLineDetail[], results: Record<s
     .filter((entry): entry is { line: BomLineDetail; buy: NonNullable<typeof entry.buy> } => entry.buy !== null)
     .sort((a, b) => a.buy.connector_name.localeCompare(b.buy.connector_name) || a.line.mpn.localeCompare(b.line.mpn));
   const body = rows.map(({ line, buy }) => [
-    buy.connector_name, buy.sku, line.manufacturer, line.mpn, buy.quantity, buy.unit_price, buy.currency,
+    buy.connector_name, buy.sku, line.manufacturer, line.mpn, line.sapCode ?? "", buy.quantity, buy.unit_price, buy.currency,
     buy.extended, buy.covers ? "yes" : "no", line.references.join(" "), buy.product_url,
   ].map(cell).join(","));
   return [HEADER.map(cell).join(","), ...body].join("\r\n") + "\r\n";

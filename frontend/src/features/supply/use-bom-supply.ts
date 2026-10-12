@@ -19,6 +19,9 @@ export interface BomSupply {
   canWatch: boolean;
   buildQuantity: number;
   setBuildQuantity: (quantity: number) => void;
+  /** Spares on top of what the boards use, as a percentage. */
+  attritionPercent: number;
+  setAttritionPercent: (percent: number) => void;
   lines: BomLineDetail[];
   fittedKeys: ReadonlySet<string>;
   truncated: boolean;
@@ -40,18 +43,19 @@ const EMPTY_KEYS: ReadonlySet<string> = new Set();
 export function useBomSupply(fitted: readonly SemanticComponent[], user: User | null): BomSupply {
   const enabled = canOpenSupply(user?.role);
   const [buildQuantity, setBuildQuantity] = useState(1);
+  const [attritionPercent, setAttritionPercent] = useState(0);
   const allLines = useMemo(() => (enabled ? buildLines(fitted) : []), [enabled, fitted]);
   const lines = useMemo(() => allLines.slice(0, MAX_LINES), [allLines]);
   const fittedKeys = useMemo(() => (lines.length ? new Set(lines.map((line) => line.key)) : EMPTY_KEYS), [lines]);
 
   const requestKey = useMemo(
-    () => (enabled && lines.length > 0 ? `${buildQuantity}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
-    [enabled, lines, buildQuantity],
+    () => (enabled && lines.length > 0 ? `${buildQuantity}+${attritionPercent}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
+    [enabled, lines, buildQuantity, attritionPercent],
   );
   const fetcher = useCallback(
     (signal: AbortSignal) =>
-      lookupSupplyBom(lines.map(({ key, manufacturer, mpn, quantity }) => ({ key, manufacturer, mpn, quantity })), buildQuantity, signal),
-    [lines, buildQuantity],
+      lookupSupplyBom(lines.map(({ key, manufacturer, mpn, quantity }) => ({ key, manufacturer, mpn, quantity })), buildQuantity, { signal, attritionPercent }),
+    [lines, buildQuantity, attritionPercent],
   );
   const { status: loadStatus, data, error, retry, refresh } = useLoaded<SupplyBomLookup>(requestKey, fetcher, "Could not look the BOM up");
 
@@ -79,6 +83,8 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
     canWatch: canEditSupply(user?.role),
     buildQuantity,
     setBuildQuantity,
+    attritionPercent,
+    setAttritionPercent,
     lines,
     fittedKeys,
     truncated: allLines.length > MAX_LINES,

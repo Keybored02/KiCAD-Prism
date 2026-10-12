@@ -86,10 +86,18 @@ export function refreshSupplyUsage(): Promise<SupplyUsageRefresh> {
   return post(`${BASE}/bom/usage/refresh`, undefined, "Could not read where parts are used");
 }
 
-export function lookupSupplyBom(lines: BomLineInput[], buildQuantity: number, signal?: AbortSignal): Promise<SupplyBomLookup> {
+export function lookupSupplyBom(
+  lines: BomLineInput[],
+  buildQuantity: number,
+  options: { signal?: AbortSignal; attritionPercent?: number } = {},
+): Promise<SupplyBomLookup> {
   return fetchJson<SupplyBomLookup>(
     `${BASE}/bom/lookup`,
-    { method: "POST", body: JSON.stringify({ build_quantity: buildQuantity, lines }), signal },
+    {
+      method: "POST",
+      body: JSON.stringify({ build_quantity: buildQuantity, attrition_percent: options.attritionPercent ?? 0, lines }),
+      signal: options.signal,
+    },
     "Could not look the BOM up",
   );
 }
