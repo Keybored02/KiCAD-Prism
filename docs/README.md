@@ -43,6 +43,8 @@ testers of unreleased behavior work from `dev`.
   browser review, comments, comparisons, jobsets, and assets.
 - [Library Manager](LIBRARY_MANAGER.md) covers component import, revisions, QA,
   release, KLC checks, and DBL export.
+- [Supply chain data](SUPPLY.md) covers distributor connectors, watching parts, BOM
+  stock and cost, assessment and alerts.
 - [Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md) covers connecting desktop
   KiCad and placing released components.
 - [Design variants](PROJECT_WORKFLOWS.md#design-variants) describes assembly

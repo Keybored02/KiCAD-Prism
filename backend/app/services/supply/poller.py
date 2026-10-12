@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import alerts, demand, ledger, pricing, stock, tiers, trouble
+from app.services.supply import alerts, demand, ledger, pricing, quota, stock, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.models import Offer
 from app.services.supply.providers import registry
@@ -56,6 +56,19 @@ class PollSummary:
     stopped: str | None = None
 
 
+# When the budget cannot serve everything, the most urgent tier goes first. A listing never read goes before
+# all of them, and one overdue by more than twice its interval is served ahead of its tier so nothing starves.
+_TIER_RANK = {"hot": 0, "warm": 1, "normal": 2, "cold": 3}
+_SERVICE_ORDER = (
+    "(ps.listing_id IS NOT NULL), "
+    "(ps.listing_id IS NULL OR ps.next_poll_at > %s::timestamptz - (2 * CASE ps.tier "
+    + " ".join(f"WHEN '{tier}' THEN {quota.TIER_INTERVAL_HOURS[tier]}" for tier in _TIER_RANK)
+    + " END) * interval '1 hour'), "
+    "CASE ps.tier " + " ".join(f"WHEN '{tier}' THEN {rank}" for tier, rank in _TIER_RANK.items()) + " END NULLS FIRST, "
+    "COALESCE(ps.next_poll_at, '-infinity'::timestamptz), l.sku"
+)
+
+
 def due_listings(conn, connector_id: str, now: datetime, limit: int, only_part: str | None = None) -> list[DueListing]:
     """Counted listings of watched parts that have never been polled or whose time has come.
 
@@ -79,7 +92,7 @@ def due_listings(conn, connector_id: str, now: datetime, limit: int, only_part: 
             for r in rows
         ]
     rows = conn.execute(
-        """
+        f"""
         SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
                COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at
         FROM listings l
@@ -87,10 +100,10 @@ def due_listings(conn, connector_id: str, now: datetime, limit: int, only_part: 
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
           AND (ps.listing_id IS NULL OR ps.next_poll_at <= %s)
-        ORDER BY COALESCE(ps.next_poll_at, '-infinity'::timestamptz), l.sku
+        ORDER BY {_SERVICE_ORDER}
         LIMIT %s
         """,
-        (connector_id, now, limit),
+        (connector_id, now, now, limit),
     ).fetchall()
     return [
         DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"])

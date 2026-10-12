@@ -32,6 +32,7 @@ from app.api.supply_bom import router as supply_bom_router
 from app.api.supply_fill import router as supply_fill_router
 from app.api.supply_sources import router as supply_sources_router
 from app.api.supply_demands import router as supply_demands_router
+from app.api.supply_health import router as supply_health_router
 from app.api.supply_seed import router as supply_seed_router
 from app.api.supply_assessment import router as supply_assessment_router
 from app.api.supply_release import router as supply_release_router
@@ -314,6 +315,7 @@ app.include_router(supply_bom_router)
 app.include_router(supply_fill_router)
 app.include_router(supply_sources_router)
 app.include_router(supply_demands_router)
+app.include_router(supply_health_router)
 app.include_router(supply_seed_router)
 app.include_router(supply_assessment_router)
 app.include_router(supply_release_router)
