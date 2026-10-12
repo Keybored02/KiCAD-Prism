@@ -127,6 +127,7 @@ class MouserProvider:
                 manufacturer=str(part.get("Manufacturer") or ""),
                 description=str(part.get("Description") or ""),
                 product_url=str(part.get("ProductDetailUrl") or ""),
+                datasheet_url=str(part.get("DataSheetUrl") or ""),
             ))
         return matches
 

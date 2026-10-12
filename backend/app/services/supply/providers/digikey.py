@@ -230,6 +230,7 @@ def _match(product: Mapping[str, Any], sku: str) -> PartMatch:
         manufacturer=str((product.get("Manufacturer") or {}).get("Name") or ""),
         description=str((product.get("Description") or {}).get("ProductDescription") or ""),
         product_url=str(product.get("ProductUrl") or ""),
+        datasheet_url=str(product.get("DatasheetUrl") or ""),
     )
 
 

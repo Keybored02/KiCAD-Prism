@@ -561,6 +561,45 @@ def _m015_fx_rates(conn) -> None:
     )
 
 
+def _m016_datasheets(conn) -> None:
+    """Datasheets kept as the manufacturer published them, one row per version.
+
+    The file itself is stored by its SHA-256 outside the database. A new hash for the same part is a new
+    version; ``markers`` are phrases found in the text that matter for lifecycle, and ``change_summary``
+    says what differs from the version before. ``datasheet_checks`` remembers when an address was last
+    tried so a dead link is not retried every run.
+    """
+
+    conn.execute(
+        """
+        ALTER TABLE parts ADD COLUMN IF NOT EXISTS datasheet_url TEXT NOT NULL DEFAULT '';
+        CREATE TABLE IF NOT EXISTS datasheets (
+            id TEXT PRIMARY KEY,
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            version INTEGER NOT NULL CHECK (version >= 1),
+            url TEXT NOT NULL,
+            sha256 TEXT NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+            size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+            pages INTEGER NOT NULL DEFAULT 0,
+            text_sha256 TEXT NOT NULL DEFAULT '',
+            markers TEXT[] NOT NULL DEFAULT '{}',
+            change_summary TEXT NOT NULL DEFAULT '',
+            fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (part_id, version),
+            UNIQUE (part_id, sha256)
+        );
+        CREATE TABLE IF NOT EXISTS datasheet_checks (
+            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+            url TEXT NOT NULL,
+            checked_at TIMESTAMPTZ NOT NULL,
+            status TEXT NOT NULL,
+            failures INTEGER NOT NULL DEFAULT 0
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -577,6 +616,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (13, "settings", _m013_settings),
     (14, "demands", _m014_demands),
     (15, "fx_rates", _m015_fx_rates),
+    (16, "datasheets", _m016_datasheets),
 ]
 
 

@@ -95,6 +95,8 @@ class PartMatch:
     manufacturer: str
     description: str = ""
     product_url: str = ""
+    # The manufacturer's datasheet, when the search answer carries one.
+    datasheet_url: str = ""
 
     def __post_init__(self) -> None:
         if not self.provider or not self.sku or not self.mpn:

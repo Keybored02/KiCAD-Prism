@@ -32,7 +32,11 @@ LIFECYCLE = "lifecycle"
 PART_LOST = "part_lost"
 RUPTURE_SOON = "rupture_soon"
 PRICE_UP = "price_up"
-KINDS = (OUT_OF_STOCK, BELOW_THRESHOLD, LIFECYCLE, PART_LOST, RUPTURE_SOON, PRICE_UP)
+DATASHEET_CHANGED = "datasheet_changed"
+KINDS = (OUT_OF_STOCK, BELOW_THRESHOLD, LIFECYCLE, PART_LOST, RUPTURE_SOON, PRICE_UP, DATASHEET_CHANGED)
+
+# A new datasheet version is worth a look for this long.
+DATASHEET_ALERT_DAYS = 14
 
 # The cheapest price rising by this much over the window is worth a look.
 PRICE_RISE_PERCENT = 20
@@ -58,7 +62,10 @@ class Condition:
 
 
 def conditions_for(
-    item: Mapping[str, Any], insight: Mapping[str, Any] | None = None, price: Mapping[str, Any] | None = None
+    item: Mapping[str, Any],
+    insight: Mapping[str, Any] | None = None,
+    price: Mapping[str, Any] | None = None,
+    datasheet: Mapping[str, Any] | None = None,
 ) -> dict[str, Condition]:
     """The lines a watched part has crossed, from its summary row and, when there are any, its insight and price trend."""
 
@@ -82,6 +89,8 @@ def conditions_for(
             })
     if price is not None and price["change_percent"] >= PRICE_RISE_PERCENT:
         found[PRICE_UP] = Condition(Status.WARNING.value, dict(price))
+    if datasheet is not None:
+        found[DATASHEET_CHANGED] = Condition(Status.WARNING.value, dict(datasheet))
     lifecycle = item["lifecycle"]
     if lifecycle == Lifecycle.OBSOLETE.value:
         found[LIFECYCLE] = Condition(Status.FATAL.value, {"lifecycle": lifecycle})
@@ -90,6 +99,17 @@ def conditions_for(
     elif item.get("dropped"):
         found[LIFECYCLE] = Condition(Status.WARNING.value, {"lifecycle": lifecycle, "dropped": True})
     return found
+
+
+def _recent_datasheet_change(conn, part_id: str, now: datetime) -> dict[str, Any] | None:
+    """The newest datasheet version when it replaced an earlier one lately."""
+
+    row = conn.execute(
+        "SELECT version, change_summary, fetched_at FROM datasheets WHERE part_id = %s ORDER BY version DESC LIMIT 1", (part_id,)
+    ).fetchone()
+    if row is None or row["version"] < 2 or now - row["fetched_at"] > timedelta(days=DATASHEET_ALERT_DAYS):
+        return None
+    return {"version": row["version"], "change_summary": row["change_summary"]}
 
 
 def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
@@ -106,7 +126,8 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
         if watch is not None and item["stock"]:
             insight = parts_view.insight_from(parts_view.history(conn, item["id"], now), watch["threshold"], now)
         price = prices.trend(prices.daily_cheapest(conn, item["id"], now), now.date()) if watch is not None else None
-        current[item["id"]] = conditions_for(item, insight, price)
+        sheet = _recent_datasheet_change(conn, item["id"], now) if watch is not None else None
+        current[item["id"]] = conditions_for(item, insight, price, sheet)
     existing: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in conn.execute(
         "SELECT * FROM alerts WHERE part_id = ANY(%s) AND state <> 'resolved' FOR UPDATE", (ids,)

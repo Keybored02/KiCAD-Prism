@@ -26,6 +26,7 @@ import type {
   SupplyReviewQueue,
   SupplyBomRollup,
   SupplyComponentFinding,
+  SupplyDatasheets,
   SupplyDemand,
   SupplyDemandSummary,
   SupplySource,
@@ -379,6 +380,25 @@ export async function closePartDemand(demandId: string): Promise<void> {
 /** A project's BOM rolled up from the lines stored when it was read. `available` is false until it has been. */
 export function getProjectBomHealth(projectId: string, signal?: AbortSignal): Promise<{ available: boolean; rollup?: SupplyBomRollup }> {
   return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/bom-health`, { signal }, "Could not load the supply health");
+}
+
+export function getPartDatasheets(partId: string, signal?: AbortSignal): Promise<SupplyDatasheets> {
+  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/datasheets`, { signal }, "Could not load the datasheets");
+}
+
+export async function setDatasheetUrl(partId: string, url: string): Promise<void> {
+  const response = await fetchApi(`${BASE}/parts/${encodeURIComponent(partId)}/datasheet-url`, {
+    method: "PUT",
+    body: JSON.stringify({ url }),
+  });
+  if (!response.ok) {
+    throw new ApiHttpError(response.status, await readApiError(response, "Could not save the datasheet address"));
+  }
+}
+
+/** Where a kept datasheet is downloaded from. */
+export function datasheetFileUrl(datasheetId: string): string {
+  return `${BASE}/datasheets/${encodeURIComponent(datasheetId)}/file`;
 }
 
 export interface SupplyReadNow {

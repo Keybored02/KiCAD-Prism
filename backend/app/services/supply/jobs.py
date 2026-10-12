@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
-from app.services.supply import fx, ledger, quota, retention
+from app.services.supply import datasheets, fx, ledger, quota, retention
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import REDO_AFTER, Discoverer
 from app.services.supply.poller import Poller
@@ -124,6 +124,15 @@ def schedule_due_supply_jobs(
     return queued
 
 
+def _check_datasheets(store: SupplyStore) -> None:
+    """Fetch a couple of due datasheets. Best effort: a failure is recorded against the part, never the job."""
+
+    try:
+        datasheets.run_due(store)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).info("Datasheets not checked", exc_info=True)
+
+
 def _refresh_rates(conn) -> None:
     """Keep the exchange rates fresh. Best effort: with no route to the ECB, rates stay as they were."""
 
@@ -147,6 +156,8 @@ def run_supply_poll_job(context: Any) -> Any:
     with connectors.store.connection() as conn:
         _refresh_rates(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
+    # Outside the connection above: fetching a file can take a while.
+    _check_datasheets(connectors.store)
     details: Mapping[str, Any] = {
         "searched": found.searched, "listings_found": found.listings, "discovery_stopped": found.stopped,
         "calls": polled.calls, "polled": polled.polled, "gone": polled.gone, "poll_stopped": polled.stopped,

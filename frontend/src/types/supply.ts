@@ -109,6 +109,27 @@ export interface SupplyCapacity {
   searches_pending: number;
 }
 
+/** One kept version of a manufacturer's datasheet. */
+export interface SupplyDatasheetVersion {
+  id: string;
+  version: number;
+  url: string;
+  size_bytes: number;
+  pages: number;
+  /** Lifecycle phrases found in the text. */
+  markers: string[];
+  /** What differs from the version before; empty for the first. */
+  change_summary: string;
+  fetched_at: string;
+}
+
+export interface SupplyDatasheets {
+  url: string;
+  checked_at: string | null;
+  status: string | null;
+  items: SupplyDatasheetVersion[];
+}
+
 /** How many of a part are needed. A negative quantity is stock already on its way in. */
 export interface SupplyDemand {
   id: string;
@@ -391,7 +412,7 @@ export interface SupplyInsight {
   inputs: { points: number; span_days: number; points_in_run: number; current: number | null };
 }
 
-export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up";
+export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "datasheet_changed";
 export type SupplyAlertState = "open" | "acknowledged" | "snoozed" | "resolved";
 
 export interface SupplyAlert {
@@ -407,6 +428,7 @@ export interface SupplyAlert {
     stock?: number; threshold?: number; lifecycle?: string; problem?: string; dropped?: boolean;
     days_to_zero?: number; decrease_per_day?: number; confidence?: string;
     change_percent?: number; was?: string; now?: string; currency?: string; days?: number;
+    version?: number; change_summary?: string;
   };
   opened_at: string | null;
   last_event_at: string | null;

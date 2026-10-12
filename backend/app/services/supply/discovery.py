@@ -81,6 +81,8 @@ class DiscoveryService:
                 resolution = parts.resolve_manufacturer(conn, match.manufacturer, provider=match.provider)
                 state, reason = classify(part, match, resolution)
                 state = self._upsert(conn, connector_id, part.id, match, state, reason)
+                if state == EXACT and match.datasheet_url:
+                    remember_datasheet(conn, part.id, match.datasheet_url)
                 if state in counts:
                     counts[state] += 1
         return DiscoveryResult(part.id, connector_id, counts[EXACT], counts[UNRESOLVED], counts[NEAR])
@@ -121,6 +123,14 @@ class DiscoveryService:
             (match.mpn, match.manufacturer, part_id, state, reason, existing["id"]),
         )
         return state
+
+
+def remember_datasheet(conn, part_id: str, url: str) -> None:
+    """Keep the first datasheet address a distributor gives for a part. A person's choice later replaces it."""
+
+    url = url.strip()
+    if url.lower().startswith("https://") and len(url) <= 500:
+        conn.execute("UPDATE parts SET datasheet_url = %s WHERE id = %s AND datasheet_url = ''", (url, part_id))
 
 
 def pin_listing(conn, listing_id: str, part_id: str, actor: str) -> None:

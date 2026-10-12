@@ -121,6 +121,7 @@ def _match(sku: str, product: Mapping[str, Any]) -> PartMatch:
         manufacturer=str(product.get("brandNameEn") or ""),
         description=_description(product),
         product_url=PAGE_URL.format(sku),
+        datasheet_url=str(product.get("pdfUrl") or ""),
     )
 
 

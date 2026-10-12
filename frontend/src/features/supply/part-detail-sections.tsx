@@ -8,6 +8,7 @@ import type { SupplyPartDetail } from "@/types/supply";
 import { AssessmentSection } from "./assessment-section";
 import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
+import { DatasheetSection } from "./datasheet-section";
 import { DemandSection } from "./demand-section";
 import { ListingTable } from "./listing-table";
 import { PriceTrend } from "./price-trend";
@@ -93,6 +94,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
           </ul>
         </section>
       ) : null}
+
+      <DatasheetSection partId={detail.part.id} canEdit={canEdit} />
 
       <section aria-label="Listings" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Listings ({detail.listings.length})</h3>

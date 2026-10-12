@@ -167,6 +167,7 @@ def _match(product: Mapping[str, Any], sku: str, number: str) -> PartMatch:
         manufacturer=str(product.get("brandName") or ""),
         description=str(product.get("displayName") or ""),
         product_url=str(product.get("productURL") or ""),
+        datasheet_url=next((str(d["url"]) for d in product.get("datasheets") or [] if isinstance(d, dict) and d.get("url")), ""),
     )
 
 

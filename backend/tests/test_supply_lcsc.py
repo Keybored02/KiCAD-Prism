@@ -96,6 +96,7 @@ class LcscTests(unittest.TestCase):
         (match,) = provider(client).lookup_mpn(" c2040 ")
         self.assertEqual((match.sku, match.mpn, match.manufacturer), ("C2040", "RP2040", "Raspberry Pi"))
         self.assertEqual(match.product_url, "https://www.lcsc.com/product-detail/C2040.html")
+        self.assertTrue(match.datasheet_url.startswith("https://datasheet.lcsc.com/"))
 
     def test_part_data_has_the_description_and_datasheet(self) -> None:
         client = FakeClient({PATH: [answer(product()), answer(product())]})
