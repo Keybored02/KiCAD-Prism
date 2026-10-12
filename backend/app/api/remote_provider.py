@@ -3,18 +3,21 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
+from app.core.roles import SUPPLY_READ_ROLES
 from app.core.security import AuthenticatedUser, require_remote_symbol_reader
 from app.services import provider_auth_service
 from app.services.component_catalog_service import catalog_service
 from app.services.public_url_service import resolve_public_base_url
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static" / "remote_provider"
 
@@ -98,6 +101,50 @@ def _component_payload(component: dict, origin: str, representation_id: str = ""
     }
 
 
+def _supply_visible(user: AuthenticatedUser) -> bool:
+    return user.role in SUPPLY_READ_ROLES
+
+
+def _supply_version(user: AuthenticatedUser) -> str:
+    """Part of the cache key, so a panel refetches a list when supply data has moved on."""
+
+    if not _supply_visible(user):
+        return ""
+    try:
+        from app.services.supply import panel_payload
+        from app.services.supply.store import supply_store
+
+        with supply_store.connection() as conn:
+            return panel_payload.data_version(conn)
+    except Exception:  # noqa: BLE001 - supply data is optional; browsing the catalog must not depend on it
+        logger.warning("Supply data version unavailable for the panel", exc_info=True)
+        return ""
+
+
+def _attach_supply(payloads: list[dict], user: AuthenticatedUser, origin: str, *, full: bool = False) -> None:
+    """Add the supply summary (and on detail the rest) to payloads, in place. Never raises."""
+
+    if not payloads or not _supply_visible(user):
+        return
+    try:
+        from app.services.supply import panel_payload
+        from app.services.supply.store import supply_store
+
+        with supply_store.connection() as conn:
+            if full:
+                found = {payload["id"]: panel_payload.detail(conn, payload, user.role, origin) for payload in payloads}
+                found = {key: value for key, value in found.items() if value}
+            else:
+                found = {key: {"summary": value} for key, value in panel_payload.summaries(conn, payloads, user.role).items()}
+    except Exception:  # noqa: BLE001 - supply data is optional; browsing the catalog must not depend on it
+        logger.warning("Supply data unavailable for the panel", exc_info=True)
+        return
+    for payload in payloads:
+        extra = found.get(payload["id"])
+        if extra:
+            payload["supply"] = {**payload["supply"], **extra}
+
+
 def _projection_etag(version: str, **parameters: object) -> str:
     suffix = hashlib.sha256(
         json.dumps(
@@ -116,7 +163,7 @@ async def provider_metadata(request: Request):
     auth_metadata = {"type": "none"}
     metadata = {
         "provider_name": "KiCAD Prism Remote Symbols",
-        "provider_version": "0.3.0",
+        "provider_version": "0.4.0",
         "api_base_url": base_url,
         "panel_url": f"{base_url}/remote-provider/panel",
         "auth": auth_metadata,
@@ -249,8 +296,10 @@ async def search_components(
 ):
     _ = user
     version = await asyncio.to_thread(catalog_service.remote_projection_version)
+    supply_version = await asyncio.to_thread(_supply_version, user)
     etag = _projection_etag(
         version,
+        supply=supply_version,
         endpoint="search",
         q=q,
         page=page,
@@ -267,8 +316,10 @@ async def search_components(
         include_total=include_total,
     )
     origin = _provider_origin(request)
+    items = [_component_payload(c, origin) for c in result["items"]]
+    await asyncio.to_thread(_attach_supply, items, user, origin)
     return JSONResponse({
-        "items": [_component_payload(c, origin) for c in result["items"]],
+        "items": items,
         "total": result["total"],
         "has_more": result["has_more"],
         "page": result["page"],
@@ -305,8 +356,10 @@ async def components_by_category(
 ):
     _ = user
     version = await asyncio.to_thread(catalog_service.remote_projection_version)
+    supply_version = await asyncio.to_thread(_supply_version, user)
     etag = _projection_etag(
         version,
+        supply=supply_version,
         endpoint="category",
         category=category,
         page=page,
@@ -323,8 +376,10 @@ async def components_by_category(
         include_total=include_total,
     )
     origin = _provider_origin(request)
+    items = [_component_payload(c, origin) for c in result["items"]]
+    await asyncio.to_thread(_attach_supply, items, user, origin)
     return JSONResponse({
-        "items": [_component_payload(c, origin) for c in result["items"]],
+        "items": items,
         "total": result["total"],
         "has_more": result["has_more"],
         "page": result["page"],
@@ -339,7 +394,6 @@ async def get_component(
     representation: str = Query(default=""),
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
-    _ = user
     component = await asyncio.to_thread(
         catalog_service.get_component,
         component_id,
@@ -348,10 +402,13 @@ async def get_component(
     )
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
+    origin = _provider_origin(request)
     try:
-        return _component_payload(component, _provider_origin(request), representation)
+        payload = _component_payload(component, origin, representation)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await asyncio.to_thread(_attach_supply, [payload], user, origin, full=True)
+    return payload
 
 
 @router.get("/api/remote-provider/parts/{part_id}")

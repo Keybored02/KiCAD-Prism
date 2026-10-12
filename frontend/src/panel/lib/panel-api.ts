@@ -56,8 +56,43 @@ export interface PanelSupplySource {
   product_url?: string;
 }
 
+/** The one-line standing of a component's manufacturer part, from the distributors. Absent when Prism does not track it. */
+export interface PanelSupplySummary {
+  part_id: string;
+  status: "ok" | "warning" | "error" | "fatal" | "unknown";
+  stock: number | null;
+  distributors: number;
+  lifecycle: "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
+  unit_price: string | null;
+  price_quantity: number;
+  currency: string;
+  fetched_at: string | null;
+  watched: boolean;
+}
+
+export interface PanelDistributorOffer {
+  connector: string;
+  sku: string;
+  stock: number;
+  marketplace: boolean;
+  unit_price: string | null;
+  currency: string;
+  moq: number;
+  lead_time_days: number | null;
+  product_url: string;
+  fetched_at: string | null;
+}
+
 export interface PanelSupply {
+  /** Inventory sources. Distributor offers are in `offers`. */
   sources: PanelSupplySource[];
+  summary?: PanelSupplySummary;
+  /** Detail only, from here down. */
+  offers?: PanelDistributorOffer[];
+  alternates?: Array<{ manufacturer: string; mpn: string; status: PanelSupplySummary["status"]; stock: number | null; rank: number }>;
+  health?: { score: number; status: PanelSupplySummary["status"] };
+  risks?: string[];
+  links?: { component: string; sourcing: string; supply: string };
 }
 
 /** Local inventory row for badges; vendor rows are ignored for on-shelf counts. */

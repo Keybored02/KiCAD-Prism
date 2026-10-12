@@ -29,6 +29,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { PanelComponent, PanelSupplySource } from "@/panel/lib/panel-api";
+import { SupplyAvailability } from "@/panel/screens/SupplyAvailability";
 import {
   classifyPanelLoadFailure,
   getComponent,
@@ -438,10 +439,13 @@ export function PartDetailScreen({
           ) : null
         }
       >
+        {component.supply?.summary ? <SupplyAvailability supply={component.supply} /> : null}
         {sources.length === 0 ? (
-          <p className="px-0.5 py-1 text-[11px] leading-snug text-muted-foreground">
-            No availability data.
-          </p>
+          component.supply?.summary ? null : (
+            <p className="px-0.5 py-1 text-[11px] leading-snug text-muted-foreground">
+              No availability data.
+            </p>
+          )
         ) : (
           <div className="flex flex-col gap-1.5">
             {sources.map((source) => (

@@ -92,6 +92,12 @@ def _resolve(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | None,
     return resolved
 
 
+def resolve_lines(lines: Sequence[BomLine], conn) -> dict[str, tuple[str, str | None, str | None]]:
+    """Per line key: (state, part id, how the manufacturer matched). Reads only."""
+
+    return _resolve(lines, conn)
+
+
 def _best_purchase(offers: Sequence[Mapping[str, Any]], need: int) -> dict[str, Any] | None:
     """The cheapest single offer for ``need`` pieces, in one currency.
 
