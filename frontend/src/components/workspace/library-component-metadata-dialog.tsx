@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { FillFromDistributor } from "@/features/supply/fill-from-distributor";
 import { fetchJson } from "@/lib/api";
 import type { CatalogComponent, CatalogMetadataField } from "@/types/catalog";
 
@@ -159,6 +160,7 @@ export function MetadataEditDialog({
                 onChange={(next) => setValues({ ...values, [field.key]: next })}
               />
             ))}
+            <FillFromDistributor values={values} onApply={(changes) => setValues({ ...values, ...changes })} />
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="component-edit-unknown-extras">Additional extra fields (JSON object)</Label>
               <Textarea

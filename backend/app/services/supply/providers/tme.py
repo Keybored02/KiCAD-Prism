@@ -170,6 +170,7 @@ class TmeProvider:
                 mpn=mpn_here,
                 manufacturer=str((product.get("manufacturer") or {}).get("name") or ""),
                 description=str(product.get("description") or ""),
+                product_url=_page_url(symbol, self._country or ""),
             ))
         return matches
 

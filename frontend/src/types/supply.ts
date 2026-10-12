@@ -392,3 +392,26 @@ export interface UpdateWatchInput {
   threshold?: number | null;
   pinned?: boolean;
 }
+
+export interface FillCandidate {
+  connector_id: string;
+  connector: string;
+  sku: string;
+  mpn: string;
+  manufacturer: string;
+  description: string;
+  product_url: string;
+  manufacturer_matches: boolean;
+}
+
+export interface FillSearchResult {
+  candidates: FillCandidate[];
+  skipped: Array<{ connector: string; reason: string }>;
+}
+
+export interface FillDetails {
+  description: string;
+  datasheet_url: string;
+  package_name: string;
+  category: string;
+}
