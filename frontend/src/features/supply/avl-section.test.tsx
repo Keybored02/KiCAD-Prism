@@ -8,6 +8,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   listComponentSources: vi.fn(),
   getComponentFindings: vi.fn(),
+  watchComponentAlternates: vi.fn(),
   addComponentSource: vi.fn(),
   decideSource: vi.fn(),
   rankSource: vi.fn(),
@@ -44,6 +45,21 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("the approved parts list", () => {
+  it("lets a writer watch the approved alternates", async () => {
+    mocked.listComponentSources.mockResolvedValue([source({})]);
+    mocked.watchComponentAlternates.mockResolvedValue({ watched: 1, already_watched: 0 });
+    renderSection("designer");
+    fireEvent.click(await screen.findByRole("button", { name: /Watch alternates/ }));
+    await waitFor(() => expect(mocked.watchComponentAlternates).toHaveBeenCalledWith("cmp_1"));
+  });
+
+  it("offers no watching to QA, who approve but do not watch", async () => {
+    mocked.listComponentSources.mockResolvedValue([source({})]);
+    renderSection("qa");
+    await screen.findByRole("region", { name: "Approved parts" });
+    expect(screen.queryByRole("button", { name: /Watch alternates/ })).toBeNull();
+  });
+
   it("says so when nothing approved is in stock", async () => {
     mocked.listComponentSources.mockResolvedValue([source({ stock: 0, status: "error" })]);
     mocked.getComponentFindings.mockResolvedValue([

@@ -15,8 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.api.supply_access import require_supply_editor
-from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader
-from app.services.supply import catalog_read, parts, sources
+from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
+from app.services.supply import catalog_read, parts, sources, watches
 from app.services.supply.assessment import component_checks, settings_store
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
@@ -80,6 +80,25 @@ async def component_assessment(component_id: str, _user: AuthenticatedUser = Dep
             return {"findings": [{"check": f.check, "severity": f.severity.value, "text": f.text, "scope": f.scope} for f in found]}
 
     return await _run(read)
+
+
+@router.post("/components/{component_id}/watch-alternates")
+async def watch_alternates(component_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, int]:
+    """Watch every approved alternate of the component, so they are read like its own part. Watching twice changes nothing."""
+
+    def run() -> dict[str, int]:
+        added = already = 0
+        with _store().connection() as conn:
+            for item in sources.list_sources(conn, component_id):
+                if item["approval"] != sources.APPROVED:
+                    continue
+                with conn.transaction():
+                    _record, created = watches.add_watch(conn, item["manufacturer"], item["mpn"], writer.email)
+                added += 1 if created else 0
+                already += 0 if created else 1
+        return {"watched": added, "already_watched": already}
+
+    return await _run(run)
 
 
 @router.post("/components/{component_id}/sources", status_code=201)

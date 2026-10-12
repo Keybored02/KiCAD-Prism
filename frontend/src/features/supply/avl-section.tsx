@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ArrowDown, ArrowUp, Check, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Eye, Plus, X } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,7 @@ import type { User } from "@/types/auth";
 import type { SupplyComponentFinding, SupplySource } from "@/types/supply";
 import { AddAlternateDialog } from "./add-alternate-dialog";
 import { StatusDot } from "./status-dot";
-import { decideSource, getComponentFindings, listComponentSources, rankSource, removeSource } from "./supply-api";
+import { decideSource, getComponentFindings, listComponentSources, rankSource, removeSource, watchComponentAlternates } from "./supply-api";
 import { formatStock, LIFECYCLE_LABEL, STATUS_LABEL } from "./supply-format";
 import { useLoaded } from "./use-loaded";
 
@@ -60,9 +60,16 @@ export function AvlSection({ componentId, manufacturer, mpn, user }: AvlSectionP
     <section aria-label="Approved parts" className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Approved parts</h3>
-        {proposes ? (
-          <Button size="sm" variant="outline" onClick={() => setAdding(true)}><Plus className="h-3.5 w-3.5" /> Add alternate</Button>
-        ) : null}
+        <span className="flex items-center gap-1.5">
+          {canEditSupply(user?.role) && approved.length > 0 ? (
+            <Button size="sm" variant="ghost" title="Read the approved alternates like the component's own part" onClick={() => void act(async () => { await watchComponentAlternates(componentId); })}>
+              <Eye className="h-3.5 w-3.5" /> Watch alternates
+            </Button>
+          ) : null}
+          {proposes ? (
+            <Button size="sm" variant="outline" onClick={() => setAdding(true)}><Plus className="h-3.5 w-3.5" /> Add alternate</Button>
+          ) : null}
+        </span>
       </div>
       <ul className="divide-y border text-sm">
         <li className="flex items-center justify-between gap-3 p-2">

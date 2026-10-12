@@ -318,6 +318,10 @@ export async function getComponentFindings(componentId: string, signal?: AbortSi
   return (await fetchJson<{ findings: SupplyComponentFinding[] }>(url, { signal }, "Could not load the component check")).findings;
 }
 
+export function watchComponentAlternates(componentId: string): Promise<{ watched: number; already_watched: number }> {
+  return post(`${BASE}/components/${encodeURIComponent(componentId)}/watch-alternates`, undefined, "Could not watch the alternates");
+}
+
 export function addComponentSource(componentId: string, manufacturer: string, mpn: string): Promise<{ id: string; approval: string }> {
   return post(`${BASE}/components/${encodeURIComponent(componentId)}/sources`, { manufacturer, mpn }, "Could not add the part");
 }

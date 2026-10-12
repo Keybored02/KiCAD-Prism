@@ -57,7 +57,7 @@ class SupplySourcesTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("component_sources", "offers", "listings", "connectors", "parts", "manufacturer_aliases", "manufacturers", "audit_events"):
+            for table in ("watches", "component_sources", "offers", "listings", "connectors", "parts", "manufacturer_aliases", "manufacturers", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme'), ('m2', 'Globex', 'globex')")
 
@@ -155,6 +155,18 @@ class SupplySourcesTests(unittest.TestCase):
             conn.execute("UPDATE offers SET stock = 5 WHERE listing_id = 'l-A'")
         self.assertEqual(findings(), [])
         self.assertEqual(self.call("GET", f"/api/supply/components/{COMPONENT}/assessment", role="viewer").status, 403)
+
+    def test_watching_the_alternates_watches_the_approved_ones_once(self) -> None:
+        self.add(mpn="ALT-1", role="qa")
+        self.add(mpn="ALT-2", role="designer")
+        path = f"/api/supply/components/{COMPONENT}/watch-alternates"
+        first = self.call("POST", path, role="designer")
+        self.assertEqual((first.status, first.json), (200, {"watched": 1, "already_watched": 0}))
+        self.assertEqual(self.call("POST", path, role="designer").json, {"watched": 0, "already_watched": 1})
+        with self.store.connection() as conn:
+            watched = [r["mpn"] for r in conn.execute("SELECT p.mpn FROM watches w JOIN parts p ON p.id = w.part_id").fetchall()]
+        self.assertEqual(watched, ["ALT-1"], "the proposal waiting for QA is not watched")
+        self.assertEqual(self.call("POST", path, role="qa").status, 403)
 
     def test_lists_are_per_component(self) -> None:
         self.add()
