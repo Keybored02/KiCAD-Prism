@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
-from app.services.supply import insights, outlook, parts, pcn, prices, pricing, stock, usage
+from app.services.supply import insights, outlook, params, parts, pcn, prices, pricing, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -295,6 +295,26 @@ def insight_from(days: list[dict[str, Any]], threshold: int | None, now: datetim
     return insights.analyse(points, threshold=threshold, today=now.astimezone(timezone.utc).date())
 
 
+def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
+    """The attributes distributors list for the part: known ones in one vocabulary first, the rest as written."""
+
+    rows = conn.execute(
+        "SELECT provider, name, raw FROM part_params WHERE part_id = %s ORDER BY provider, name", (part_id,)
+    ).fetchall()
+    sources: dict[tuple[str, str], list[str]] = {}
+    for row in rows:
+        sources.setdefault((row["name"].lower(), row["raw"]), []).append(row["provider"])
+    first_seen = list(dict.fromkeys((row["name"], row["raw"]) for row in rows))
+    return [
+        {
+            "name": item.name, "raw": item.raw, "key": item.key, "unit": item.unit,
+            "value": format(item.value.normalize(), "f") if item.value is not None else None,
+            "sources": sources.get((item.name.lower(), item.raw), []),
+        }
+        for item in params.normalise(first_seen)
+    ]
+
+
 def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     part = parts.get_part(conn, part_id)
@@ -383,6 +403,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "listings": listings,
         "history": days,
         "price": price_view,
+        "parameters": parameters_of(conn, part_id),
         "outlook": outlook.outlook(
             lifecycle,
             [item["offer"] for item in listings if item["counted"] and item["offer"]],

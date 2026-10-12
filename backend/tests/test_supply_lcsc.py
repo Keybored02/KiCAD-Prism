@@ -25,6 +25,7 @@ def product(**change):
         "productIntroEn": "ARM Cortex-M0+ 32 Bit 133MHz LQFN-56(7x7) Microcontrollers ",
         "pdfUrl": "https://datasheet.lcsc.com/datasheet/pdf/3dad1d8f987a4e00bfc677055df1f959.pdf?productCode=C2040",
         "minBuyNumber": 1, "split": 1, "stockNumber": 48974, "productCycle": "normal", "isRohsCert": None,
+        "paramVOList": [{"paramNameEn": "Resistance", "paramValueEn": "10kΩ"}, {"paramNameEn": "Tolerance", "paramValueEn": "±1%"}],
         "productPriceList": [
             {"ladder": 1, "productPrice": "0.9", "usdPrice": 0.9},
             {"ladder": 10, "productPrice": "0.8", "usdPrice": 0.8},
@@ -97,6 +98,7 @@ class LcscTests(unittest.TestCase):
         self.assertEqual((match.sku, match.mpn, match.manufacturer), ("C2040", "RP2040", "Raspberry Pi"))
         self.assertEqual(match.product_url, "https://www.lcsc.com/product-detail/C2040.html")
         self.assertTrue(match.datasheet_url.startswith("https://datasheet.lcsc.com/"))
+        self.assertEqual(match.parameters, (("Resistance", "10kΩ"), ("Tolerance", "±1%")))
 
     def test_part_data_has_the_description_and_datasheet(self) -> None:
         client = FakeClient({PATH: [answer(product()), answer(product())]})

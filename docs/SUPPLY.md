@@ -72,6 +72,14 @@ supplier declared, as CAS numbers; an administrator loads the ECHA Candidate Lis
 and a CAS column) in Supply settings, and a declared substance on the list makes the part *affected by REACH*. A part
 nobody says anything about is *unknown*, never clear.
 
+## Parameters
+
+A part sheet's Parameters section lists the attributes distributors give for the part (Mouser, DigiKey and LCSC give them
+when the part is found). For resistors, capacitors and inductors the common ones (resistance, capacitance, inductance,
+tolerance, voltage and power rating, package, dielectric) are put in one vocabulary first, with the value in SI units next
+to the distributor's own text; everything else is shown as written, with who gave it. A text Prism cannot read is shown
+raw and never guessed.
+
 ## Product change notices
 
 A manufacturer's notice (end of life, last time buy, not recommended for new designs, or another change) is entered by

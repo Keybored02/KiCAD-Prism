@@ -128,6 +128,11 @@ class MouserProvider:
                 description=str(part.get("Description") or ""),
                 product_url=str(part.get("ProductDetailUrl") or ""),
                 datasheet_url=str(part.get("DataSheetUrl") or ""),
+                parameters=tuple(
+                    (str(item.get("AttributeName") or ""), str(item.get("AttributeValue") or ""))
+                    for item in part.get("ProductAttributes") or []
+                    if isinstance(item, dict) and item.get("AttributeName")
+                ),
             ))
         return matches
 

@@ -83,6 +83,8 @@ class DiscoveryService:
                 state = self._upsert(conn, connector_id, part.id, match, state, reason)
                 if state == EXACT and match.datasheet_url:
                     remember_datasheet(conn, part.id, match.datasheet_url)
+                if state == EXACT and match.parameters:
+                    remember_parameters(conn, part.id, match.provider, match.parameters)
                 if state in counts:
                     counts[state] += 1
         return DiscoveryResult(part.id, connector_id, counts[EXACT], counts[UNRESOLVED], counts[NEAR])
@@ -131,6 +133,24 @@ def remember_datasheet(conn, part_id: str, url: str) -> None:
     url = url.strip()
     if url.lower().startswith("https://") and len(url) <= 500:
         conn.execute("UPDATE parts SET datasheet_url = %s WHERE id = %s AND datasheet_url = ''", (url, part_id))
+
+
+MAX_PARAMETERS = 80
+
+
+def remember_parameters(conn, part_id: str, provider: str, attributes) -> None:
+    """Keep the latest attributes a distributor gave for a part."""
+
+    for name, raw in list(attributes)[:MAX_PARAMETERS]:
+        name, raw = str(name).strip()[:120], str(raw).strip()[:300]
+        if name and raw:
+            conn.execute(
+                """
+                INSERT INTO part_params (part_id, provider, name, raw) VALUES (%s, %s, %s, %s)
+                ON CONFLICT (part_id, provider, name) DO UPDATE SET raw = EXCLUDED.raw, observed_at = NOW()
+                """,
+                (part_id, provider, name, raw),
+            )
 
 
 def pin_listing(conn, listing_id: str, part_id: str, actor: str) -> None:

@@ -99,6 +99,8 @@ class PartMatch:
     product_url: str = ""
     # The manufacturer's datasheet, when the search answer carries one.
     datasheet_url: str = ""
+    # The distributor's attributes (name, text), when the search answer carries them.
+    parameters: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.provider or not self.sku or not self.mpn:

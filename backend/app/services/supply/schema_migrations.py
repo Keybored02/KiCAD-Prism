@@ -687,6 +687,28 @@ def _m019_pcns(conn) -> None:
     )
 
 
+def _m020_part_params(conn) -> None:
+    """Attributes distributors list for a part, as they wrote them (see ``params.py`` for how they are read).
+
+    One row per part, provider and attribute name: the latest text seen. Normalising happens when they are read,
+    so a better parser applies to what is already stored.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS part_params (
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL,
+            name TEXT NOT NULL,
+            raw TEXT NOT NULL,
+            observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (part_id, provider, name)
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -707,6 +729,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (17, "reach", _m017_reach),
     (18, "market_indices", _m018_market_indices),
     (19, "pcns", _m019_pcns),
+    (20, "part_params", _m020_part_params),
 ]
 
 

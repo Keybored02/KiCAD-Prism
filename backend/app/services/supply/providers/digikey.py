@@ -231,6 +231,11 @@ def _match(product: Mapping[str, Any], sku: str) -> PartMatch:
         description=str((product.get("Description") or {}).get("ProductDescription") or ""),
         product_url=str(product.get("ProductUrl") or ""),
         datasheet_url=str(product.get("DatasheetUrl") or ""),
+        parameters=tuple(
+            (str(item.get("ParameterText") or ""), str(item.get("ValueText") or ""))
+            for item in product.get("Parameters") or []
+            if isinstance(item, dict) and item.get("ParameterText")
+        ),
     )
 
 

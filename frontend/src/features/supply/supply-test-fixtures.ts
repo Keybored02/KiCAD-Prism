@@ -94,6 +94,7 @@ export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): Su
     ],
     used_in: [],
     price: { currency: "", history: [], trend: null },
+    parameters: [],
     outlook: { band: "no_signs", label: "No signs of an end of life", method: "rule-based", signals: [] },
     insight: {
       confidence: "none", trend: null, decrease_per_day: null, days_to_zero: null, days_to_threshold: null,

@@ -144,6 +144,16 @@ export interface SupplyMarket {
   }>;
 }
 
+/** An attribute distributors list for a part. `value` is in SI units when it could be read, else null. */
+export interface SupplyParameter {
+  name: string;
+  raw: string;
+  key: string | null;
+  unit: string;
+  value: string | null;
+  sources: string[];
+}
+
 export interface SupplyOutlook {
   band: "ended" | "under_2_years" | "2_to_5_years" | "no_signs" | "unknown";
   label: string;
@@ -454,6 +464,7 @@ export interface SupplyPartDetail {
   };
   /** A rule-based band with every signal behind it. */
   outlook: SupplyOutlook;
+  parameters: SupplyParameter[];
   insight: SupplyInsight;
   used_in: Array<{ project_id: string; project_name: string; quantity: number; references: string }>;
 }

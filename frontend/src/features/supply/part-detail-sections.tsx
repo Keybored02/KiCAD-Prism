@@ -14,6 +14,7 @@ import { DemandSection } from "./demand-section";
 import { ListingTable } from "./listing-table";
 import { NoticesSection } from "./notices-section";
 import { OutlookSection } from "./outlook-section";
+import { ParametersSection } from "./parameters-section";
 import { PriceTrend } from "./price-trend";
 import { Sparkline } from "./sparkline";
 import { formatStock, LIFECYCLE_LABEL } from "./supply-format";
@@ -105,6 +106,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       <NoticesSection part={{ id: detail.part.id, manufacturer: detail.part.manufacturer, mpn: detail.part.mpn }} canEdit={canEdit} />
 
       <DatasheetSection partId={detail.part.id} canEdit={canEdit} />
+
+      <ParametersSection parameters={detail.parameters} />
 
       <section aria-label="Listings" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Listings ({detail.listings.length})</h3>
