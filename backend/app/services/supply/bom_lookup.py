@@ -152,10 +152,17 @@ def needed(per_board: int, build_quantity: int, attrition_percent: float = 0) ->
     return math.ceil(exact)
 
 
-def with_library_identity(lines: Sequence[BomLine], identities: usage.Identities | None) -> list[BomLine]:
+def library_identities(lines: Sequence[BomLine], identities: usage.Identities | None) -> dict[str, tuple[str, str]]:
+    """Manufacturer and part number of the catalog components the lines name. A component without a part number is left out."""
+
+    wanted = {line.prism_id for line in lines if line.prism_id}
+    found = identities(wanted) if identities and wanted else {}
+    return {component_id: identity for component_id, identity in found.items() if identity[1].strip()}
+
+
+def with_library_identity(lines: Sequence[BomLine], library: Mapping[str, tuple[str, str]]) -> list[BomLine]:
     """Lines whose ``prism_id`` the catalog knows take the library component's manufacturer and part number (6.4, step 1)."""
 
-    library = identities({line.prism_id for line in lines if line.prism_id}) if identities else {}
     return [replace(line, manufacturer=library[line.prism_id][0], mpn=library[line.prism_id][1]) if line.prism_id in library else line for line in lines]
 
 
@@ -164,8 +171,8 @@ def lookup(
 ) -> dict[str, Any]:
     if len(lines) > MAX_LINES:
         raise ValueError(f"At most {MAX_LINES} lines can be looked up at once.")
-    known = identities({line.prism_id for line in lines if line.prism_id}) if identities else {}
-    lines = with_library_identity(lines, identities)
+    known = library_identities(lines, identities)
+    lines = with_library_identity(lines, known)
     resolved = _resolve(lines, conn)
     part_ids = sorted({part_id for _, part_id, _ in resolved.values() if part_id})
     items, offers = parts_view.summaries_with_offers(conn, part_ids)
@@ -295,7 +302,7 @@ def watch_lines(
 
     if len(lines) > MAX_WATCH_LINES:
         raise ValueError(f"At most {MAX_WATCH_LINES} lines can be watched at once.")
-    lines = with_library_identity(lines, identities)
+    lines = with_library_identity(lines, library_identities(lines, identities))
     seen: set[tuple[str, str]] = set()
     watched = already = 0
     skipped: list[dict[str, str]] = []

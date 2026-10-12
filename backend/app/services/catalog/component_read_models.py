@@ -907,6 +907,22 @@ class CatalogComponentReadModels:
             return None
         return self.component_payload(conn, component, revision)
 
+    def identities(self, conn: Any, component_ids: list[str]) -> dict[str, tuple[str, str]]:
+        """Manufacturer and MPN of the current revision of each active component, in one query."""
+
+        if not component_ids:
+            return {}
+        rows = conn.execute(
+            """
+            SELECT component.id, revision.manufacturer, revision.mpn
+            FROM components component
+            JOIN component_revisions revision ON revision.id = component.current_revision_id
+            WHERE component.is_active = 1 AND component.id = ANY(%s)
+            """,
+            (list(component_ids),),
+        ).fetchall()
+        return {str(row["id"]): (str(row["manufacturer"] or ""), str(row["mpn"] or "")) for row in rows}
+
     def get_component(
         self,
         conn: Any,

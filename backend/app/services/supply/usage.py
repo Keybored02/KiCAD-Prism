@@ -68,7 +68,9 @@ def lines_from_components(components: Iterable[Mapping[str, Any]], identities: I
     found: dict[str, dict[str, Any]] = {}
     for component in fitted:
         fields = component.get("fields") or {}
-        manufacturer, mpn = library.get(prism_id_of(fields)) or identity_of(fields)
+        placed = library.get(prism_id_of(fields))
+        # A component without a part number yet says nothing; the symbol's own fields stay.
+        manufacturer, mpn = placed if placed and placed[1].strip() else identity_of(fields)
         number = match_key(mpn)
         if not number:
             continue

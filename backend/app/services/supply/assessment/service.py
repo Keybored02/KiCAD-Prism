@@ -15,6 +15,14 @@ from app.services.supply.assessment.settings import DEFAULTS, AssessmentSettings
 from app.services.supply.vocabulary import Lifecycle
 
 
+def distributor_count(conn) -> int:
+    """Distributors Prism reads: distinct providers among enabled connectors. Files and the simulator are not distributors."""
+
+    return conn.execute(
+        "SELECT COUNT(DISTINCT provider) AS n FROM connectors WHERE enabled AND provider NOT IN ('csv', 'fake')"
+    ).fetchone()["n"]
+
+
 def assess_one(
     item: Mapping[str, Any],
     offers: Sequence[Mapping[str, Any]],
@@ -61,7 +69,7 @@ def assess_summaries(
 
     settings = settings or settings_store.load(conn)
     held = waivers.for_parts(conn, [item["id"] for item in items])
-    distributors = conn.execute("SELECT COUNT(*) AS n FROM connectors WHERE enabled").fetchone()["n"]
+    distributors = distributor_count(conn)
     return {
         item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors, (extras or {}).get(item["id"], ()))
         for item in items

@@ -83,6 +83,12 @@ class LinesTests(unittest.TestCase):
         self.assertEqual(asked, [{"c1", "gone"}])
         self.assertEqual([(line.manufacturer, line.mpn, line.quantity) for line in lines], [("Texas Instruments", "LM358DR", 2), ("Acme", "X-1", 1)])
 
+    def test_a_component_without_a_part_number_leaves_the_symbols_own_fields(self) -> None:
+        (line,) = usage.lines_from_components(
+            [component("U1", "TI", "LM358", **{"Prism ID": "c1"})], lambda ids: {"c1": ("TI", "  ")},
+        )
+        self.assertEqual((line.manufacturer, line.mpn), ("TI", "LM358"))
+
     def test_a_missing_manufacturer_gives_a_blank_alias_key(self) -> None:
         (line,) = usage.lines_from_components([component("U1", "", "LM358")])
         self.assertEqual((line.alias_key, line.match_key), ("", "LM358"))

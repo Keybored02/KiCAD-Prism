@@ -143,6 +143,36 @@ class BomLookupTests(unittest.TestCase):
             better = self.lookup([placed])["lines"]["u1"]["assessment"]["open"]
         self.assertEqual(checks_open - better, 1, "the finding goes once an alternate has stock")
 
+    def test_the_library_is_asked_once_and_a_component_without_a_number_changes_nothing(self) -> None:
+        part_id = self.part("Texas Instruments", "LM358DR")
+        asked = []
+
+        def library(ids):
+            asked.append(set(ids))
+            return {"blank": ("Wrong Co", " "), "full": ("Texas Instruments", "LM358DR")}
+
+        lines = [
+            {"key": "a", "manufacturer": "Texas Instruments", "mpn": "LM358DR", "prism_id": "blank"},
+            {"key": "b", "manufacturer": "", "mpn": "", "prism_id": "full"},
+        ]
+        from app.services.supply import catalog_read
+
+        with mock.patch.object(catalog_read, "identities", library):
+            result = self.lookup(lines)["lines"]
+        self.assertEqual(len(asked), 1)
+        self.assertEqual((result["a"]["part_id"], result["b"]["part_id"]), (part_id, part_id))
+
+    def test_only_distinct_providers_count_as_distributors(self) -> None:
+        from app.services.supply.assessment import service
+
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM connectors")
+            for index, (provider, store, enabled) in enumerate((
+                ("tme", "IT", True), ("tme", "DE", True), ("mouser", "", True), ("csv", "", True), ("fake", "", True), ("digikey", "", False),
+            )):
+                conn.execute("INSERT INTO connectors (id, provider, storefront, enabled) VALUES (%s, %s, %s, %s)", (f"x{index}", provider, store, enabled))
+            self.assertEqual(service.distributor_count(conn), 2)
+
     def test_the_other_resolutions(self) -> None:
         only = self.part("Texas Instruments", "UNIQUE1")
         self.part("Texas Instruments", "TWIN1")

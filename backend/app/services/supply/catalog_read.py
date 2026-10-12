@@ -32,12 +32,8 @@ def identities(component_ids: Iterable[str]) -> dict[str, tuple[str, str]]:
 
     from app.services.component_catalog_service import catalog_service
 
-    found: dict[str, tuple[str, str]] = {}
-    for component_id in sorted({str(item) for item in component_ids if item}):
-        component = catalog_service.get_component(component_id)
-        if component:
-            found[component_id] = (str(component.get("manufacturer") or ""), str(component.get("mpn") or ""))
-    return found
+    wanted = sorted({str(item) for item in component_ids if item})
+    return catalog_service.component_identities(wanted) if wanted else {}
 
 
 def component_ids_by_part(components: Iterator[dict[str, Any]] | None = None) -> dict[tuple[str, str], str]:

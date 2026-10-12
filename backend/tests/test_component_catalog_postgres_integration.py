@@ -236,6 +236,13 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.component_ids.append(str(component["id"]))
         return component
 
+    def test_component_identities_reads_manufacturer_and_mpn_for_known_ids_only(self) -> None:
+        first, second = self._component(), self._component()
+        found = self.service.component_identities([str(first["id"]), str(second["id"]), "no-such-component"])
+        self.assertEqual(set(found), {str(first["id"]), str(second["id"])})
+        self.assertEqual(found[str(first["id"])], ("Prism Integration", first["mpn"]))
+        self.assertEqual(self.service.component_identities([]), {})
+
     def _install_deterministic_preview_renderer(self) -> None:
         """Keep preview evidence independent of kicad-cli availability and version."""
 
