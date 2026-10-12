@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { SemanticComponent } from "@/types/prism-selection";
 import type { SupplyBomLineResult, SupplyBomRollup } from "@/types/supply";
 import { buildLines, identityOf, isSupplyColumn, lineKey, rowSupply, unwatchedCount, untrackedLabel } from "./bom-supply";
-import { buildOrderCsv } from "./bom-order-csv";
 import { rollupSentences } from "./bom-rollup-text";
 
 function part(reference: string, fields: Record<string, string | number | boolean | null> = {}): SemanticComponent {
@@ -158,56 +157,3 @@ describe("the rollup in words", () => {
   });
 });
 
-describe("the project's own part number", () => {
-  it("is carried on the line from the first component that has one", () => {
-    const component = (reference: string, fields: Record<string, string>) => ({ reference, fields } as unknown as SemanticComponent);
-    const [line] = buildLines([
-      component("R1", { Manufacturer: "Acme", MPN: "X-1" }),
-      component("R2", { Manufacturer: "Acme", MPN: "X-1", "SAP Code": "4711" }),
-      component("R3", { Manufacturer: "Acme", MPN: "X-1", "SAP Code": "9999" }),
-    ]);
-    expect([line.quantity, line.sapCode]).toEqual([3, "4711"]);
-  });
-});
-
-describe("the order list", () => {
-  const lines = [
-    { key: "a", manufacturer: "Acme", mpn: "X-1", quantity: 2, references: ["R1", "R2"] },
-    { key: "b", manufacturer: "Acme", mpn: "Y-2", quantity: 1, references: ["C1"], sapCode: "4711" },
-    { key: "c", manufacturer: "Acme", mpn: "Z-3", quantity: 1, references: ["U1"] },
-    { key: "d", manufacturer: "", mpn: "", quantity: 1, references: ["TP1"] },
-  ];
-  const buy = (connector: string, sku: string, overrides = {}) => ({
-    quantity: 100, unit_price: "0.5", currency: "EUR", extended: "50", covers: true, connector_name: connector, sku, product_url: "https://shop.example/x", ...overrides,
-  });
-
-  it("lists what has an offer, grouped by distributor, and leaves out the rest", () => {
-    const csv = buildOrderCsv(lines, {
-      a: result({ buy: buy("TME", "X1-TME") }),
-      b: result({ buy: buy("Mouser", "595-Y2", { covers: false }) }),
-      c: result({ buy: null }),
-      d: result({ state: "no_mpn", part_id: null }),
-    });
-    const rows = csv.trim().split("\r\n");
-    expect(rows[0]).toBe("Distributor,SKU,Manufacturer,Manufacturer Part Number,SAP Code,Order quantity,Unit price,Currency,Extended,Covers stock,References,Product page");
-    expect(rows.slice(1)).toEqual([
-      "Mouser,595-Y2,Acme,Y-2,4711,100,0.5,EUR,50,no,C1,https://shop.example/x",
-      "TME,X1-TME,Acme,X-1,,100,0.5,EUR,50,yes,R1 R2,https://shop.example/x",
-    ]);
-  });
-
-  it("quotes commas and quotes, and defuses cells a spreadsheet would run as formulas", () => {
-    const csv = buildOrderCsv(
-      [{ key: "a", manufacturer: 'Acme, "Inc"', mpn: "=SUM(A1)", quantity: 1, references: ["R1"] }],
-      { a: result({ buy: buy("TME", "+X") }) },
-    );
-    const row = csv.trim().split("\r\n")[1];
-    expect(row).toContain('"Acme, ""Inc"""');
-    expect(row).toContain("'=SUM(A1)");
-    expect(row).toContain("'+X");
-  });
-
-  it("is just the header when nothing can be ordered", () => {
-    expect(buildOrderCsv(lines, {}).trim().split("\r\n")).toHaveLength(1);
-  });
-});

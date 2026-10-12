@@ -204,24 +204,6 @@ describe("actions on the BOM", () => {
     expect(screen.queryByRole("button", { name: /Watch all lines/ })).toBeNull();
   });
 
-  it("downloads the order list for lines that have an offer", async () => {
-    const created: Blob[] = [];
-    vi.stubGlobal("URL", { ...URL, createObjectURL: (blob: Blob) => { created.push(blob); return "blob:x"; }, revokeObjectURL: () => {} });
-    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    renderTable("designer");
-    fireEvent.click(await screen.findByRole("button", { name: /Order list/ }));
-    expect(click).toHaveBeenCalled();
-    const text = await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.readAsText(created[0]);
-    });
-    expect(text).toContain("TME,R-10K-TME,Acme,R-10K,,100,0.05,EUR,5,yes,R1 R2");
-    expect(text).not.toContain("C-100N");
-    click.mockRestore();
-    vi.unstubAllGlobals();
-  });
-
   it("reports a lookup that failed and retries", async () => {
     mocked.lookupSupplyBom.mockRejectedValueOnce(new Error("Backend is down")).mockImplementation(async (_lines, build) => lookupFor(build));
     renderTable("designer");

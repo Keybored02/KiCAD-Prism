@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { Download, Eye } from "lucide-react";
+import { Eye } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { buildOrderCsv, downloadCsv } from "./bom-order-csv";
 import { unwatchedCount } from "./bom-supply";
 import { rollupSentences } from "./bom-rollup-text";
 import type { BomSupply } from "./use-bom-supply";
@@ -92,17 +91,6 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
         {supply.canWatch && lookup && unwatched > 0 ? (
           <Button type="button" size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => void watchAll()}>
             <Eye className="h-3.5 w-3.5" />Watch all lines
-          </Button>
-        ) : null}
-        {lookup && lookup.rollup.priced > 0 ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7"
-            onClick={() => downloadCsv("bom-order-list.csv", buildOrderCsv(lines, lookup.lines))}
-          >
-            <Download className="h-3.5 w-3.5" />Order list
           </Button>
         ) : null}
       </span>
