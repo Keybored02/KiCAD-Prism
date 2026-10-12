@@ -15,6 +15,7 @@ import { PartSheet } from "./part-sheet";
 import { PartsTable } from "./parts-table";
 import { refreshSupplyUsage } from "./supply-api";
 import { useSupplyPartsList } from "./use-supply-parts";
+import { SeedFromCatalogButton } from "./seed-from-catalog-button";
 import { WatchPartDialog } from "./watch-part-dialog";
 
 const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
@@ -64,11 +65,14 @@ export function PartsView({ user }: { user: User | null }) {
               Stock and price across your distributors. Watch a part to have it read regularly and to be warned before it runs out.
             </p>
           </div>
-          <PermissionHint blocked={!canEdit} action="watch parts" allowedRoles={["designer", "admin"]}>
-            <Button disabled={!canEdit} onClick={() => setWatching(true)}>
-              <Eye className="h-4 w-4" />Watch a part
-            </Button>
-          </PermissionHint>
+          <div className="flex flex-wrap items-center gap-2">
+            {canEdit ? <SeedFromCatalogButton onDone={() => void refresh()} /> : null}
+            <PermissionHint blocked={!canEdit} action="watch parts" allowedRoles={["designer", "admin"]}>
+              <Button disabled={!canEdit} onClick={() => setWatching(true)}>
+                <Eye className="h-4 w-4" />Watch a part
+              </Button>
+            </PermissionHint>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

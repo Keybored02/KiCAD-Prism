@@ -279,3 +279,16 @@ export function rankSource(id: string, rank: number): Promise<void> {
 export function removeSource(id: string): Promise<void> {
   return send(sourcePath(id), "DELETE", undefined, "Could not remove the part");
 }
+
+export interface SupplySeedResult {
+  considered: number;
+  added: number;
+  already: number;
+  no_connector: number;
+  unknown_manufacturer: number;
+}
+
+/** Add listings for catalog components that name a connected vendor and its part number. */
+export function seedSupplyFromCatalog(): Promise<SupplySeedResult> {
+  return post(`${BASE}/seed/catalog`, undefined, "Could not read the catalog vendors");
+}

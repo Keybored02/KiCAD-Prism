@@ -42,6 +42,8 @@ root first.
 | `backend/app/api/supply_fill.py` | Fill search and details (admin, designer). |
 | `sources.py` | The approved parts list (AVL): alternates for a catalog component, proposed by writers, approved and ranked by QA, audited. The component's own part is its primary source and is not stored. |
 | `backend/app/api/supply_sources.py` | AVL API: readers list; admin, designer and qa propose; admin and qa approve, reject and rank. |
+| `seeding.py` | Seeds listings from the catalog: a component naming a connected vendor and its part number gets a manual listing. Adds nothing else; safe to run again. |
+| `backend/app/api/supply_seed.py` | Seeding endpoint (admin, designer). |
 | `bom_fields.py` | Which symbol fields are the manufacturer and the manufacturer part number (best name first; never the distributor's number), and what counts as fitted. The frontend's `frontend/src/features/supply/bom-supply.ts` keeps the same lists; a test compares them. |
 | `usage.py` | Where parts are used: one row per distinct part on each project's BOM, read from semantic indexes that already exist (it builds none). Each project carries the roles its folder lets see it, and every read filters by the caller's role. |
 | `overview.py` | The Supply overview: counts, what needs attention, open alerts, data age, quota today. |
