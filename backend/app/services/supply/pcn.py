@@ -33,6 +33,10 @@ MAX_PARTS = 100
 MAX_TITLE = 200
 MAX_NOTES = 1000
 SOON_DAYS = 90
+# Any other notice (a change of packaging, site, design) is news for this long after Prism first sees it, if it was
+# released in the last year. Older ones are history: they stay on the part sheet and stay out of the Inbox.
+NEW_FOR_DAYS = 14
+RECENT_RELEASE_DAYS = 365
 SOURCES = ("manual", "digikey")
 SOURCE_LABEL = {"manual": "Entered by hand", "digikey": "DigiKey"}
 
@@ -191,12 +195,28 @@ def for_part(conn, part_id: str, *, include_closed: bool = False) -> list[dict[s
     ]
 
 
+def _is_new(notice: Mapping[str, Any], today: date) -> bool:
+    seen = notice.get("created_at")
+    if not seen or (today - datetime.fromisoformat(seen).date()).days > NEW_FOR_DAYS:
+        return False
+    released = notice.get("published_on")
+    return not released or (today - date.fromisoformat(released)).days <= RECENT_RELEASE_DAYS
+
+
 def alert_detail(notices: Sequence[Mapping[str, Any]], today: date) -> dict[str, Any] | None:
-    """For the alert on a watched part: the most pressing open notice that says the part is ending, or None."""
+    """For the alert on a watched part: the most pressing open notice that says the part is ending; failing that, the
+    newest change notice Prism has just learned of (``NEW_FOR_DAYS``, released within ``RECENT_RELEASE_DAYS``). Else None."""
 
     ending = [n for n in notices if n["state"] == "open" and n["kind"] in ENDING]
     if not ending:
-        return None
+        fresh = [n for n in notices if n["state"] == "open" and _is_new(n, today)]
+        if not fresh:
+            return None
+        latest = max(fresh, key=lambda n: (n.get("published_on") or "", n.get("created_at") or ""))
+        return {
+            "title": latest["title"], "kind": latest["kind"], "kind_label": latest["kind_label"], "description": latest.get("notes", ""),
+            "last_time_buy": None, "last_time_ship": None, "soon": False, "new": len(fresh),
+        }
     chosen = min(ending, key=lambda n: (n["last_time_buy"] or "9999-12-31"))
     soon = bool(chosen["last_time_buy"]) and (date.fromisoformat(chosen["last_time_buy"]) - today).days <= SOON_DAYS
     return {

@@ -636,6 +636,7 @@ export interface SupplyAlert {
     change_percent?: number; was?: string; now?: string; currency?: string; days?: number;
     version?: number; change_summary?: string;
     title?: string; kind?: string; kind_label?: string; last_time_buy?: string | null; last_time_ship?: string | null; soon?: boolean;
+    description?: string; new?: number;
   };
   opened_at: string | null;
   last_event_at: string | null;

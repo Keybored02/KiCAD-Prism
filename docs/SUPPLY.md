@@ -112,7 +112,7 @@ a designer or administrator on a part sheet: a title, what it announces, its dat
 With a DigiKey sign-in, Prism also reads DigiKey's notices for each DigiKey listing of watched parts and parts on project
 BOMs once a week: its type, description, release date and a link to the notice. The same notice is kept once however many
 parts it covers, and one that is closed stays closed. Prism keeps a copy of a notice's PDF (a "Kept copy" link) but does not read it, so a last time buy date is one a person
-typed (DigiKey's last date to buy shows under Compliance and in the Outlook). An open notice that announces an ending feeds the
+typed (DigiKey's last date to buy shows under Compliance and in the Outlook). Any other notice on a watched part (a change of packaging, assembly site or design) goes to the Inbox for two weeks after Prism first sees it, if it was released in the last year; older ones stay on the part sheet only. An open notice that announces an ending feeds the
 outlook and raises an alert on watched parts, an error when the last time buy is within 90 days. Closing a notice keeps
 it.
 

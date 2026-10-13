@@ -19,6 +19,10 @@ export function alertTitle(alert: SupplyAlert): string {
     case "rupture_soon":
       return `Could run out in about ${detail.days_to_zero ?? 0} days at the recent rate (${confidenceWord(detail.confidence)} confidence)`;
     case "pcn":
+      if (detail.new) {
+        const more = detail.new > 1 ? ` (${detail.new} new notices)` : "";
+        return `New change notice: ${detail.title ?? ""}${detail.description ? `, ${detail.description}` : ""}${more}`;
+      }
       return `${detail.kind_label ?? "Notice"}: ${detail.title ?? ""}${detail.last_time_buy ? `, last time buy ${detail.last_time_buy}` : ""}`;
     case "datasheet_changed":
       return `New datasheet (version ${detail.version ?? "?"}). ${detail.change_summary ?? ""}`.trim();

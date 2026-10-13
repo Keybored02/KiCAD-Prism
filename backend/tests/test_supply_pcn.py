@@ -35,6 +35,20 @@ class PureTests(unittest.TestCase):
         self.assertFalse(far["soon"])
         self.assertFalse(pcn.alert_detail([notice("nrnd", buy=None)], today)["soon"])
 
+    def test_a_change_notice_just_learned_of_is_news_and_an_old_one_is_not(self) -> None:
+        today = date(2026, 3, 1)
+
+        def change(released, seen="2026-02-25T10:00:00+00:00", description="Assembly site 10/Feb/2026"):
+            return notice("change") | {"title": "PCN Assembly/Origin", "notes": description, "published_on": released, "created_at": seen}
+
+        fresh = pcn.alert_detail([change("2026-02-10"), change("2017-03-12", description="Label Chg 12/Mar/2017")], today)
+        self.assertEqual((fresh["title"], fresh["description"], fresh["new"], fresh["soon"]), ("PCN Assembly/Origin", "Assembly site 10/Feb/2026", 1, False))
+        self.assertIsNone(pcn.alert_detail([change("2017-03-12")], today), "released years ago: history, not news")
+        self.assertIsNone(pcn.alert_detail([change("2026-02-10", seen="2026-01-20T10:00:00+00:00")], today), "seen more than two weeks ago")
+        self.assertEqual(pcn.alert_detail([change(None)], today)["new"], 1, "no release date: news while it is new to Prism")
+        ending = pcn.alert_detail([change("2026-02-10"), notice("end_of_life")], today)
+        self.assertEqual(ending["kind"], "end_of_life", "an ending notice still comes first")
+
     def test_an_open_notice_is_a_signal_in_the_outlook(self) -> None:
         eol = outlook.outlook(Lifecycle.ACTIVE, [{"discontinued": False}], notices=[notice("end_of_life")])
         self.assertEqual(eol["band"], "under_2_years")
