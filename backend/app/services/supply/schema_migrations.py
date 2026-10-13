@@ -709,6 +709,12 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m023_connector_retention(conn) -> None:
+    """Days raw samples are kept per connector, for a provider whose terms limit how long its data may be stored."""
+
+    conn.execute("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS retention_days INTEGER CHECK (retention_days BETWEEN 1 AND 365)", prepare=False)
+
+
 def _m022_usage_lcsc(conn) -> None:
     """The LCSC number a BOM line's symbol carries, kept with the stored line so lines read later resolve through it."""
 
@@ -789,6 +795,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (20, "part_params", _m020_part_params),
     (21, "distributor_details", _m021_distributor_details),
     (22, "usage_lcsc", _m022_usage_lcsc),
+    (23, "connector_retention", _m023_connector_retention),
 ]
 
 

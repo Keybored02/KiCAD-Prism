@@ -214,7 +214,7 @@ the part now (same 15 minute wait). Links open the part in Prism for roles that 
 
 - Administrators: `GET /api/supply/health` lists calls against budget, errors, late reads and the oldest read per
   connector.
-- Old readings are rolled into one row per listing per day after 60 days.
+- Old readings are rolled into one row per listing per day after 60 days. An administrator can set a shorter or longer time on a connector (1 to 365 days), for a provider whose terms limit how long its data may be stored.
 - Providers that Prism does not know yet can be added as plugins (`prism.supply_providers` entry point). Run
   `backend/tests/test_supply_provider_contract.py` with the plugin installed.
 - Real answers for tests: `backend/scripts/record_supply_answer.py`, run where the connector's credentials can be

@@ -263,6 +263,24 @@ class HardeningTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.assertEqual(self.retention.compact_samples(conn, START), 0, "nothing left to do")
 
+    def test_a_connector_can_keep_raw_samples_for_fewer_days(self) -> None:
+        short = self.connector("fake", storefront="")
+        self.connectors.update(short, actor="a@example.com", retention_days=10)
+        with self.assertRaises(Exception):
+            self.connectors.update(short, actor="a@example.com", retention_days=0)
+        kept = self.connector("csv")
+        part = self.watch().part_id
+        one, two = self.add_listing(part, short, "S"), self.add_listing(part, kept, "K")
+        stamp = START - timedelta(days=20)
+        with self.store.connection() as conn:
+            for listing in (one, two):
+                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, stamp))
+            self.assertEqual(self.retention.compact_samples(conn, START), 1, "only the short-keeping connector's sample is old enough")
+        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM samples")], [two])
+        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM samples_daily")], [one])
+        self.connectors.update(short, actor="a@example.com", retention_days=None)
+        self.assertIsNone(self.connectors.get(short)["retention_days"])
+
     def test_the_first_run_on_a_long_history_works_in_slices(self) -> None:
         cid = self.connector()
         listing = self.add_listing(self.watch().part_id, cid, "A")

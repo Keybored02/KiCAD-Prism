@@ -23,7 +23,7 @@ from app.services.supply.providers.base import ProviderConfig, ProviderSpec, Sup
 from app.services.supply.store import SupplyStore, supply_store
 
 _UPDATABLE = frozenset({
-    "display_name", "currency", "enabled", "daily_budget", "interactive_reserve_pct",
+    "display_name", "currency", "enabled", "daily_budget", "interactive_reserve_pct", "retention_days",
 })
 _MAX_REASON = 200
 
@@ -66,6 +66,16 @@ def _clean_budget(value: Any) -> int:
 def _clean_reserve(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 50:
         raise ConnectorError("invalid_reserve", "Interactive reserve must be between 0 and 50 percent.")
+    return value
+
+
+def _clean_retention(value: Any) -> int | None:
+    """Days raw samples stay before they are rolled into daily rows; None means the default."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 365:
+        raise ConnectorError("invalid_retention", "Keep raw samples for 1 to 365 days, or leave it empty for the default.")
     return value
 
 
@@ -192,6 +202,8 @@ class ConnectorService:
             fields["daily_budget"] = _clean_budget(changes["daily_budget"])
         if "interactive_reserve_pct" in changes:
             fields["interactive_reserve_pct"] = _clean_reserve(changes["interactive_reserve_pct"])
+        if "retention_days" in changes:
+            fields["retention_days"] = _clean_retention(changes["retention_days"])
         if not fields:
             return self.get(connector_id)
         # Column names come from the whitelist above, never from the caller.
@@ -358,6 +370,7 @@ class ConnectorService:
             "paused_reason": row["paused_reason"],
             "daily_budget": row["daily_budget"],
             "interactive_reserve_pct": row["interactive_reserve_pct"],
+            "retention_days": row["retention_days"],
             "metered": spec.metered if spec else True,
             "usage_today": {"spent": 0, "interactive_spent": 0, **(usage or {})},
             "csv_import": csv_import.to_dto() if csv_import else None,

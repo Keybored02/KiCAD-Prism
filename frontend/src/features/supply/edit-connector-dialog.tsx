@@ -82,6 +82,17 @@ function EditForm({ connector, onClose, onSaved }: { connector: SupplyConnector 
             </div>
           </>
         ) : null}
+        <div className="col-span-2 space-y-1.5">
+          <Label htmlFor="edit-connector-retention">Keep raw samples (days)</Label>
+          <Input
+            id="edit-connector-retention"
+            inputMode="numeric"
+            placeholder="60"
+            value={values.retention}
+            onChange={(event) => update({ retention: event.target.value })}
+          />
+          <p className="text-[11px] text-muted-foreground">Older samples are kept as one row per day. Shorten it if the provider&apos;s terms limit storage.</p>
+        </div>
       </div>
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
       <DialogFooter>

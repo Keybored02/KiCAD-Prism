@@ -19,24 +19,36 @@ def _midnight(day) -> datetime:
 
 
 def compact_samples(conn, now: datetime) -> int:
-    """Roll up raw samples older than ``RAW_DAYS``. Returns how many raw rows were removed.
+    """Roll up raw samples past their connector's keep time (``RAW_DAYS`` unless the connector says otherwise).
 
-    Works in bounded slices of days, so the first run on a large table does not
-    hold one long transaction. The cut is at a UTC day boundary: a day is rolled
-    up whole or not at all.
+    Returns how many raw rows were removed. A listing's keep time is that of its connector.
     """
 
-    cutoff = (now - timedelta(days=RAW_DAYS)).date()
+    keeps = [
+        int(row["days"])
+        for row in conn.execute("SELECT DISTINCT COALESCE(retention_days, %s) AS days FROM connectors", (RAW_DAYS,)).fetchall()
+    ]
+    removed = 0
+    for days in keeps or [RAW_DAYS]:
+        removed += _compact(conn, now, days)
+    return removed
+
+
+def _compact(conn, now: datetime, days: int) -> int:
+    """One keep time. Works in bounded slices of days, so the first run on a large table does not
+    hold one long transaction. The cut is at a UTC day boundary: a day is rolled up whole or not at all."""
+
+    cutoff = (now - timedelta(days=days)).date()
+    mine = "listing_id IN (SELECT l.id FROM listings l JOIN connectors c ON c.id = l.connector_id WHERE COALESCE(c.retention_days, %s) = %s)"
     oldest = conn.execute(
-        "SELECT MIN((sampled_at AT TIME ZONE 'UTC')::date) AS day FROM samples "
-        "WHERE sampled_at < %s",
-        (_midnight(cutoff),),
+        f"SELECT MIN((sampled_at AT TIME ZONE 'UTC')::date) AS day FROM samples WHERE sampled_at < %s AND {mine}",
+        (_midnight(cutoff), RAW_DAYS, days),
     ).fetchone()["day"]
     if oldest is None:
         return 0
     stop = min(cutoff, oldest + timedelta(days=BATCH_DAYS))
     conn.execute(
-        """
+        f"""
         INSERT INTO samples_daily (listing_id, day, min_stock, max_stock, last_stock, last_unit_price,
                                    currency, marketplace, sample_count)
         SELECT listing_id,
@@ -48,11 +60,11 @@ def compact_samples(conn, now: datetime) -> int:
                (ARRAY_AGG(marketplace ORDER BY sampled_at DESC))[1],
                COUNT(*)
         FROM samples
-        WHERE sampled_at < %s
+        WHERE sampled_at < %s AND {mine}
         GROUP BY listing_id, (sampled_at AT TIME ZONE 'UTC')::date
         ON CONFLICT (listing_id, day) DO NOTHING
         """,
-        (_midnight(stop),),
+        (_midnight(stop), RAW_DAYS, days),
     )
-    removed = conn.execute("DELETE FROM samples WHERE sampled_at < %s", (_midnight(stop),)).rowcount
+    removed = conn.execute(f"DELETE FROM samples WHERE sampled_at < %s AND {mine}", (_midnight(stop), RAW_DAYS, days)).rowcount
     return int(removed or 0)

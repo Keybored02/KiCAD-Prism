@@ -52,4 +52,13 @@ describe("edit form model", () => {
     const values = { ...valuesOf(connector), displayName: "  Renamed ", currency: "gbp", budget: "500" };
     expect(changesFrom(connector, values)).toEqual({ display_name: "Renamed", currency: "GBP", daily_budget: 500 });
   });
+
+  it("sets and clears how long raw samples are kept", () => {
+    const set = { ...valuesOf(connector), retention: "14" };
+    expect(changesFrom(connector, set)).toEqual({ retention_days: 14 });
+    const kept = connectorFixture({ retention_days: 14 });
+    expect(changesFrom(kept, { ...valuesOf(kept), retention: "" })).toEqual({ retention_days: null });
+    expect(settingsProblem({ currency: "", budget: "1", reserve: "10", retention: "0" })).toMatch(/1 to 365/);
+    expect(settingsProblem({ currency: "", budget: "1", reserve: "10", retention: "" })).toBeNull();
+  });
 });

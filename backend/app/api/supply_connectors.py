@@ -54,6 +54,8 @@ class UpdateConnectorRequest(BaseModel):
     enabled: Optional[bool] = None
     daily_budget: Optional[int] = None
     interactive_reserve_pct: Optional[int] = None
+    # Days raw samples are kept before they are rolled up. Null puts it back to the default.
+    retention_days: Optional[int] = None
 
 
 class CredentialsRequest(BaseModel):

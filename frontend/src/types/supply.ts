@@ -51,6 +51,8 @@ export interface SupplyConnector {
   paused_reason: string;
   daily_budget: number;
   interactive_reserve_pct: number;
+  /** Days raw samples are kept before they are rolled into daily rows; null is the default (60). */
+  retention_days: number | null;
   metered: boolean;
   csv_import: SupplyCsvImport | null;
   usage_today: { spent: number; interactive_spent: number };
@@ -83,6 +85,7 @@ export interface UpdateSupplyConnectorInput {
   enabled?: boolean;
   daily_budget?: number;
   interactive_reserve_pct?: number;
+  retention_days?: number | null;
 }
 
 /** The outcome of one real call to a provider. A failure is a result, not an error. */
