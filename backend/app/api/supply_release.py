@@ -101,6 +101,34 @@ async def release_check_for(
     return await _run(read)
 
 
+@router.get("/{project_id}/releases/{build_id}/compliance")
+async def release_compliance(
+    project_id: str,
+    build_id: str,
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+    user: AuthenticatedUser = Depends(require_supply_reader),
+) -> Any:
+    """The draft RoHS and REACH declaration as it stood when the release was published. A working document, not a declaration."""
+
+    get_project_for_role_or_404(project_id, user.role)
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return release_check.get_snapshot(conn, project_id, build_id)
+
+    snapshot = await _run(read)
+    if snapshot["compliance"] is None:
+        raise HTTPException(status_code=404, detail="This release was published before drafts were kept")
+    if format == "csv":
+        name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in snapshot["tag"])[:60] or "release"
+        return Response(
+            content=compliance_draft.to_csv(snapshot["compliance"]),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{name}-compliance-draft.csv"'},
+        )
+    return {"tag": snapshot["tag"], "created_at": snapshot["created_at"], "draft": snapshot["compliance"]}
+
+
 @router.get("/{project_id}/releases/{build_id}/supply")
 async def release_snapshot(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_reader)

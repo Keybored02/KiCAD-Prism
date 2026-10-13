@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
-from app.services.supply import bom_lookup, sources, usage
+from app.services.supply import bom_lookup, compliance_draft, sources, usage
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
 from app.services.supply.audit import write_audit
@@ -122,14 +122,21 @@ def freeze(
 
     result = check(conn, components, now, identities)
     snapshot_id = uuid.uuid4().hex
+    # The draft RoHS and REACH declaration for this BOM, frozen with it. A draft that cannot be built does not stop the snapshot.
+    lines = usage.lines_from_components(components, identities)
+    draft = compliance_draft.build(conn, [
+        {"key": line.key, "manufacturer": line.manufacturer, "mpn": line.mpn, "quantity": line.quantity,
+         "references": line.references, "lcsc": line.lcsc}
+        for line in lines
+    ])
     created = conn.execute(
         """
-        INSERT INTO release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment, avl)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+        INSERT INTO release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment, avl, compliance)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb)
         ON CONFLICT (build_id) DO NOTHING RETURNING id
         """,
         (snapshot_id, project_id, build_id, tag, commit_sha, actor, result["health"], result["status"],
-         json.dumps(result), json.dumps(avl_for(conn, result["lines"], component_ids))),
+         json.dumps(result), json.dumps(avl_for(conn, result["lines"], component_ids)), json.dumps(draft)),
     ).fetchone()
     if created is None:
         return None
@@ -149,5 +156,5 @@ def get_snapshot(conn, project_id: str, build_id: str) -> dict[str, Any]:
         "id": row["id"], "project_id": row["project_id"], "build_id": row["build_id"], "tag": row["tag"],
         "commit_sha": row["commit_sha"], "created_by": row["created_by"], "created_at": row["created_at"].isoformat(),
         "health": float(row["health"]) if row["health"] is not None else None, "status": row["status"],
-        "assessment": row["assessment"], "avl": row["avl"],
+        "assessment": row["assessment"], "avl": row["avl"], "compliance": row["compliance"],
     }

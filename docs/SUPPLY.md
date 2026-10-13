@@ -207,7 +207,7 @@ itself. Nothing is sent by email or chat.
 ## Releases
 
 The publish step in Release Studio shows a supply note for the BOM. It informs and never blocks a release. At
-publish, the BOM assessment and approved parts are recorded once and cannot be changed.
+publish, the BOM assessment, the approved parts and the compliance draft are recorded once and cannot be changed. The kept draft is at `/api/supply/projects/<project>/releases/<build>/compliance` (add `?format=csv` for the file); releases published before this have none.
 
 ## KiCad panel
 

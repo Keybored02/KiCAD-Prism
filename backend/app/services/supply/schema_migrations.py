@@ -709,6 +709,15 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m030_release_compliance(conn) -> None:
+    """The compliance draft as it stood when a release was published, kept beside the rest of its snapshot.
+
+    Snapshots are never updated, so the column is filled at insert. Snapshots taken before this have none.
+    """
+
+    conn.execute("ALTER TABLE release_snapshots ADD COLUMN IF NOT EXISTS compliance JSONB", prepare=False)
+
+
 def _m029_notice_files(conn) -> None:
     """A kept copy of a notice's PDF: its hash (the file is stored like a datasheet), and when and how the last try went."""
 
@@ -886,6 +895,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (27, "component_watches", _m027_component_watches),
     (28, "datasheet_denied_hosts", _m028_datasheet_denied_hosts),
     (29, "notice_files", _m029_notice_files),
+    (30, "release_compliance", _m030_release_compliance),
 ]
 
 

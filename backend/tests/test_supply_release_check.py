@@ -126,6 +126,22 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertIsNone(again, "a build is frozen once")
         self.assertEqual((snapshot["tag"], snapshot["status"], snapshot["assessment"]["parts"]), ("v1", "ok", 1))
         self.assertEqual([(a["mpn"], a["approval"]) for a in snapshot["avl"]["cmp-1"]["alternates"]], [("ALT-1", "approved")])
+        draft = snapshot["compliance"]
+        self.assertEqual([(item["mpn"], item["quantity"]) for item in draft["parts"]], [("GOOD-1", 1)])
+        project = SimpleNamespace(id="prj_1", name="One")
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            frozen = _request(self.app, "GET", "/api/supply/projects/prj_1/releases/bld_1/compliance", user=self.users["qa"])
+            as_csv = _request(self.app, "GET", "/api/supply/projects/prj_1/releases/bld_1/compliance", user=self.users["qa"], query="format=csv")
+            missing = _request(self.app, "GET", "/api/supply/projects/prj_1/releases/nope/compliance", user=self.users["qa"])
+            with self.store.connection() as conn:
+                conn.execute("ALTER TABLE release_snapshots DISABLE TRIGGER trg_release_snapshots_frozen")
+                conn.execute("UPDATE release_snapshots SET compliance = NULL")
+                conn.execute("ALTER TABLE release_snapshots ENABLE TRIGGER trg_release_snapshots_frozen")
+            old = _request(self.app, "GET", "/api/supply/projects/prj_1/releases/bld_1/compliance", user=self.users["qa"])
+        self.assertEqual((frozen.status, frozen.json["tag"], len(frozen.json["draft"]["parts"])), (200, "v1", 1))
+        self.assertEqual((as_csv.status, as_csv.headers["content-type"].startswith("text/csv")), (200, True))
+        self.assertIn("GOOD-1", as_csv.text)
+        self.assertEqual((missing.status, old.status), (404, 404))
         with self.store.connection() as conn, self.assertRaises(Exception) as caught:
             conn.execute("UPDATE release_snapshots SET tag = 'v2'")
         self.assertIn("cannot be changed", str(caught.exception))
