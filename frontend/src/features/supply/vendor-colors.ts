@@ -8,6 +8,7 @@ export const VENDOR_COLORS: Readonly<Record<string, string>> = {
   farnell: "#4eb661",
   lcsc: "#1166dd",
   tme: "#183884",
+  avnet: "#f59e0b",
 };
 
 export function vendorColor(provider: string | null | undefined): string | null {

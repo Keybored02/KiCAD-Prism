@@ -34,6 +34,7 @@ LABELS: dict[str, str] = {
     "hts_br": "Tariff code, Brazil",
     "last_buy_date": "Last date to buy",
     "suggested_replacement": "Suggested replacement",
+    "eol_notice_date": "End-of-life notice date",
 }
 ORDER = tuple(LABELS)
 MAX_VALUE = 500
