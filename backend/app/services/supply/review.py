@@ -57,9 +57,11 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
         key = alias_key(row["raw_manufacturer"])
         waiting_by_alias[key] = waiting_by_alias.get(key, 0) + 1
 
+    # A spelling nothing waits on is not a question: it stays pending, and comes back if a listing uses it again.
     aliases = [
-        {**alias, "first_seen_at": alias["first_seen_at"].isoformat(), "waiting_listings": waiting_by_alias.get(alias["alias_key"], 0)}
+        {**alias, "first_seen_at": alias["first_seen_at"].isoformat(), "waiting_listings": waiting_by_alias[alias["alias_key"]]}
         for alias in parts.pending_aliases(conn)
+        if waiting_by_alias.get(alias["alias_key"], 0) > 0
     ]
     return {
         "aliases": aliases,

@@ -143,6 +143,13 @@ class SupplyReviewApiTests(unittest.TestCase):
 
     # --- decisions --------------------------------------------------------
 
+    def test_a_spelling_nothing_waits_on_is_not_listed(self) -> None:
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO manufacturer_aliases (alias_key, alias_text, status, seen_at_provider) VALUES ('stale', 'Stale', 'pending', 'fake')")
+        queue = self.call("GET", "/api/supply/review", role="designer").json
+        self.assertEqual([item["alias_key"] for item in queue["aliases"]], ["ti"])
+        self.assertEqual(queue["counts"]["aliases"], 1)
+
     def test_confirming_a_spelling_settles_the_listings_waiting_on_it(self) -> None:
         response = self.call("POST", "/api/supply/review/aliases/confirm", role="qa",
                              body={"alias_key": "ti", "manufacturer_id": self.part.manufacturer_id})
