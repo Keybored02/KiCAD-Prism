@@ -51,7 +51,7 @@ export function partRowFixture(overrides: Partial<SupplyPartRow> = {}): SupplyPa
     id: "p1",
     mpn: "LM358D",
     manufacturer: "Texas Instruments",
-    watch: { id: "w1", threshold: null, pinned: false, owner: "ana@example.com" },
+    watch: { id: "w1", threshold: null, pinned: false, owner: "ana@example.com", packaging: "any" },
     status: "ok",
     problem: null,
     stock: 12500,
@@ -71,7 +71,7 @@ export function partRowFixture(overrides: Partial<SupplyPartRow> = {}): SupplyPa
 export function partDetailFixture(overrides: Partial<SupplyPartDetail> = {}): SupplyPartDetail {
   return {
     part: { id: "p1", mpn: "LM358D", manufacturer: "Texas Instruments" },
-    watch: { id: "w1", threshold: 500, pinned: false, owner: "ana@example.com" },
+    watch: { id: "w1", threshold: 500, pinned: false, owner: "ana@example.com", packaging: "any" },
     status: "ok",
     problem: null,
     problem_text: "",

@@ -16,6 +16,16 @@ from typing import Any, Iterable, Mapping
 from app.services.supply.providers import registry
 
 
+# A watch can count only one packaging: cut tape for prototypes, reel for production. "any" counts all.
+POLICIES = ("any", "cut_tape", "tape_reel", "tray", "tube", "bulk")
+
+
+def counts(packaging: str | None, policy: str) -> bool:
+    """Whether a listing of this packaging counts under the watch's policy. A listing of unknown packaging does not match a specific one."""
+
+    return policy == "any" or packaging == policy
+
+
 @dataclass(frozen=True, slots=True)
 class PartStock:
     total: int
@@ -24,8 +34,9 @@ class PartStock:
     newest_fetched_at: datetime | None = None
 
 
-def aggregate(rows: Iterable[Mapping[str, Any]]) -> PartStock:
-    """Combine offer rows of one part. Each row needs connector_id, provider, stock, marketplace, fetched_at."""
+def aggregate(rows: Iterable[Mapping[str, Any]], policy: str = "any") -> PartStock:
+    """Combine offer rows of one part. Each row needs connector_id, provider, stock, marketplace, fetched_at,
+    and ``packaging`` when ``policy`` names one: other packaging is left out of the total (but still dates it)."""
 
     pools: dict[str, list[int]] = {}
     providers: dict[str, str] = {}
@@ -34,7 +45,7 @@ def aggregate(rows: Iterable[Mapping[str, Any]]) -> PartStock:
     for row in rows:
         if newest is None or row["fetched_at"] > newest:
             newest = row["fetched_at"]
-        if row["marketplace"]:
+        if row["marketplace"] or not counts(row.get("packaging"), policy):
             continue
         counted += 1
         pools.setdefault(row["connector_id"], []).append(int(row["stock"]))
@@ -53,7 +64,7 @@ def aggregate(rows: Iterable[Mapping[str, Any]]) -> PartStock:
 def part_stock(conn, part_id: str) -> PartStock:
     rows = conn.execute(
         """
-        SELECT l.connector_id, c.provider, o.stock, o.marketplace, o.fetched_at
+        SELECT l.connector_id, c.provider, o.stock, o.marketplace, o.fetched_at, o.packaging
         FROM listings l
         JOIN offers o ON o.listing_id = l.id
         JOIN connectors c ON c.id = l.connector_id
@@ -61,4 +72,5 @@ def part_stock(conn, part_id: str) -> PartStock:
         """,
         (part_id,),
     ).fetchall()
-    return aggregate(rows)
+    watch = conn.execute("SELECT packaging FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    return aggregate(rows, watch["packaging"] if watch else "any")

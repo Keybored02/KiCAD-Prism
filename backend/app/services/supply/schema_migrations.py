@@ -709,6 +709,16 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m026_watch_packaging(conn) -> None:
+    """Which packaging a watch counts: any, or one of cut tape, tape and reel, tray, tube, bulk."""
+
+    conn.execute(
+        "ALTER TABLE watches ADD COLUMN IF NOT EXISTS packaging TEXT NOT NULL DEFAULT 'any' "
+        "CHECK (packaging IN ('any', 'cut_tape', 'tape_reel', 'tray', 'tube', 'bulk'))",
+        prepare=False,
+    )
+
+
 def _m025_worker_seen(conn) -> None:
     """The worker's last report of the providers it knows and the age of its code (see ``worker_seen.py``)."""
 
@@ -824,6 +834,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (23, "connector_retention", _m023_connector_retention),
     (24, "market_categories", _m024_market_categories),
     (25, "worker_seen", _m025_worker_seen),
+    (26, "watch_packaging", _m026_watch_packaging),
 ]
 
 

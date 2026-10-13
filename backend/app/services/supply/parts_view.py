@@ -48,7 +48,8 @@ def _like(text: str) -> str:
 def _watch_dto(row) -> dict[str, Any] | None:
     if row["watch_id"] is None:
         return None
-    return {"id": row["watch_id"], "threshold": row["threshold"], "pinned": bool(row["pinned"]), "owner": row["owner"]}
+    return {"id": row["watch_id"], "threshold": row["threshold"], "pinned": bool(row["pinned"]), "owner": row["owner"],
+            "packaging": row["watch_packaging"] or "any"}
 
 
 def _cheapest(offers: list[dict]) -> tuple[str | None, str, int]:
@@ -114,7 +115,7 @@ _USES = "FROM bom_usage u JOIN bom_usage_projects up ON up.project_id = u.projec
 _IN_USE = "EXISTS (SELECT 1 " + _USES + ")"
 
 _ROW_SELECT = (
-    "SELECT p.id, p.mpn, m.name AS manufacturer, w.id AS watch_id, w.threshold, w.pinned, w.owner, "
+    "SELECT p.id, p.mpn, m.name AS manufacturer, w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging, "
     "(SELECT COUNT(DISTINCT u.project_id) " + _USES + ") AS used_in "
     "FROM parts p JOIN manufacturers m ON m.id = p.manufacturer_id LEFT JOIN watches w ON w.part_id = p.id "
 )
@@ -129,7 +130,7 @@ def offers_by_part(conn, part_ids: list[str]) -> dict[str, list[dict]]:
     for row in conn.execute(
         """
         SELECT l.part_id, l.connector_id, l.sku, c.provider, c.display_name AS connector_name,
-               o.stock, o.marketplace, o.discontinued, o.rohs, o.reach_affected, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
+               o.stock, o.marketplace, o.packaging, o.discontinued, o.rohs, o.reach_affected, o.fetched_at, o.lifecycle, o.price_breaks, o.currency, o.moq,
                o.order_multiple, o.lead_time_days, o.product_url, ps.tier
         FROM listings l
         JOIN offers o ON o.listing_id = l.id
@@ -152,8 +153,10 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
 
     items = []
     for row in rows:
-        offers_here = offers_by_part_id.get(row["id"], [])
-        combined = stock.aggregate(offers_here) if offers_here else None
+        policy = row["watch_packaging"] or "any"
+        # Only the packaging the watch counts: stock, lifecycle and price all follow it.
+        offers_here = [o for o in offers_by_part_id.get(row["id"], []) if stock.counts(o["packaging"], policy)]
+        combined = stock.aggregate(offers_here, policy) if offers_here else None
         lifecycle = worst_lifecycle(Lifecycle(o["lifecycle"]) for o in offers_here)
         price, currency, price_quantity = _cheapest([o for o in offers_here if not o["marketplace"]])
         tiers = [o["tier"] for o in offers_here if o["tier"]]
@@ -239,7 +242,7 @@ def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
     raw = conn.execute(
         """
         SELECT DISTINCT ON (s.listing_id, (s.sampled_at AT TIME ZONE 'UTC')::date)
-               s.listing_id, l.connector_id, c.provider, l.match_state,
+               s.listing_id, l.connector_id, c.provider, l.match_state, l.packaging,
                (s.sampled_at AT TIME ZONE 'UTC')::date AS day, s.stock, s.marketplace
         FROM samples s
         JOIN listings l ON l.id = s.listing_id
@@ -251,7 +254,7 @@ def _day_rows(conn, part_id: str, since: datetime) -> list[dict]:
     ).fetchall()
     rolled = conn.execute(
         """
-        SELECT d.listing_id, l.connector_id, c.provider, l.match_state, d.day, d.last_stock AS stock, d.marketplace
+        SELECT d.listing_id, l.connector_id, c.provider, l.match_state, l.packaging, d.day, d.last_stock AS stock, d.marketplace
         FROM samples_daily d
         JOIN listings l ON l.id = d.listing_id
         JOIN connectors c ON c.id = l.connector_id
@@ -276,6 +279,8 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     rows = _day_rows(conn, part_id, now - timedelta(days=HISTORY_DAYS))
     if not rows:
         return []
+    watch = conn.execute("SELECT packaging FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    policy = watch["packaging"] if watch else "any"
     by_day: dict[date, list] = defaultdict(list)
     last_day: dict[str, date] = {}
     gone: set[str] = set()
@@ -291,12 +296,12 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
         for row in by_day.get(day, []):
             last[row["listing_id"]] = {
                 "connector_id": row["connector_id"], "provider": row["provider"], "stock": row["stock"],
-                "marketplace": bool(row["marketplace"]), "fetched_at": day,
+                "marketplace": bool(row["marketplace"]), "fetched_at": day, "packaging": row["packaging"],
             }
         for listing_id in gone:
             if last_day[listing_id] < day:
                 last.pop(listing_id, None)
-        combined = stock.aggregate(last.values())
+        combined = stock.aggregate(last.values(), policy)
         series.append({"day": day.isoformat(), "stock": combined.total, "listings": combined.listings})
         day += timedelta(days=1)
     return series
@@ -333,8 +338,9 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
     now = now or datetime.now(timezone.utc)
     part = parts.get_part(conn, part_id)
     watch_row = conn.execute(
-        "SELECT w.id AS watch_id, w.threshold, w.pinned, w.owner FROM watches w WHERE w.part_id = %s", (part_id,)
-    ).fetchone() or {"watch_id": None, "threshold": None, "pinned": False, "owner": ""}
+        "SELECT w.id AS watch_id, w.threshold, w.pinned, w.owner, w.packaging AS watch_packaging FROM watches w WHERE w.part_id = %s",
+        (part_id,),
+    ).fetchone() or {"watch_id": None, "threshold": None, "pinned": False, "owner": "", "watch_packaging": "any"}
 
     rows = conn.execute(
         """
@@ -352,8 +358,9 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         (part_id,),
     ).fetchall()
 
+    policy = watch_row["watch_packaging"] or "any"
     counted = [dict(r) for r in rows if r["match_state"] in _COUNTED and r["fetched_at"] is not None]
-    combined = stock.aggregate(counted) if counted else None
+    combined = stock.aggregate(counted, policy) if counted else None
     lifecycle = worst_lifecycle(Lifecycle(r["lifecycle"]) for r in counted)
     names = {r["connector_id"]: r["connector_name"] for r in rows}
     providers = {r["connector_id"]: r["provider"] for r in rows}

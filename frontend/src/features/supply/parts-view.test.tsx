@@ -266,7 +266,7 @@ describe("watching", () => {
 
 describe("the watch settings", () => {
   it("saves a changed threshold and pin", async () => {
-    mocked.updateSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "T", mpn: "L", threshold: 800, pinned: true, owner: "o" });
+    mocked.updateSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "T", mpn: "L", threshold: 800, pinned: true, owner: "o", packaging: "any" });
     renderView("designer", "/?part=p1");
     const threshold = (await screen.findByLabelText("Warn when stock is at or below")) as HTMLInputElement;
     expect(threshold.value).toBe("500");
@@ -275,16 +275,24 @@ describe("the watch settings", () => {
     fireEvent.change(threshold, { target: { value: "800" } });
     fireEvent.click(screen.getByLabelText("Always read at the fastest rate"));
     fireEvent.click(save);
-    await waitFor(() => expect(mocked.updateSupplyWatch).toHaveBeenCalledWith("w1", { threshold: 800, pinned: true }));
+    await waitFor(() => expect(mocked.updateSupplyWatch).toHaveBeenCalledWith("w1", { threshold: 800, pinned: true, packaging: "any" }));
     await waitFor(() => expect(mocked.getSupplyPart.mock.calls.length).toBeGreaterThan(1));
   });
 
   it("clears the threshold with an empty box", async () => {
-    mocked.updateSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "T", mpn: "L", threshold: null, pinned: false, owner: "o" });
+    mocked.updateSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "T", mpn: "L", threshold: null, pinned: false, owner: "o", packaging: "any" });
     renderView("designer", "/?part=p1");
     fireEvent.change(await screen.findByLabelText("Warn when stock is at or below"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(mocked.updateSupplyWatch).toHaveBeenCalledWith("w1", { threshold: null, pinned: false }));
+    await waitFor(() => expect(mocked.updateSupplyWatch).toHaveBeenCalledWith("w1", { threshold: null, pinned: false, packaging: "any" }));
+  });
+
+  it("saves which packaging the watch counts", async () => {
+    mocked.updateSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "T", mpn: "L", threshold: 500, pinned: false, owner: "o", packaging: "cut_tape" });
+    renderView("designer", "/?part=p1");
+    fireEvent.change(await screen.findByLabelText("Count stock of"), { target: { value: "cut_tape" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocked.updateSupplyWatch).toHaveBeenCalledWith("w1", { threshold: 500, pinned: false, packaging: "cut_tape" }));
   });
 
   it("will not save an invalid threshold", async () => {
@@ -432,7 +440,7 @@ describe("the watch settings", () => {
 
   it("offers to watch a part that is not watched", async () => {
     mocked.getSupplyPart.mockResolvedValue(partDetailFixture({ watch: null }));
-    mocked.addSupplyWatch.mockResolvedValue({ id: "w2", part_id: "p1", manufacturer: "T", mpn: "L", threshold: null, pinned: false, owner: "o" });
+    mocked.addSupplyWatch.mockResolvedValue({ id: "w2", part_id: "p1", manufacturer: "T", mpn: "L", threshold: null, pinned: false, owner: "o", packaging: "any" });
     renderView("admin", "/?part=p1");
     fireEvent.click(await screen.findByRole("button", { name: "Watch this part" }));
     await waitFor(() => expect(mocked.addSupplyWatch).toHaveBeenCalledWith({ manufacturer: "Texas Instruments", mpn: "LM358D" }));

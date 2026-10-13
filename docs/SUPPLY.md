@@ -119,6 +119,8 @@ lifecycle risk, the share every distributor dropped, and the median lead time, e
 a month of snapshots exists. It covers watched parts and parts on project BOMs only, a manufacturer needs at least three
 of them, and the number of parts is always shown. It is not the market as a whole.
 
+A watch can count only one packaging (cut tape for prototypes, tape and reel for production). Stock, price and warnings for that part then follow it, and listings of unknown packaging are left out. It is set in the part sheet.
+
 ## Outlook
 
 A part sheet's Outlook says whether the part looks headed for its end: *ended*, *under 2 years*, *2 to 5 years*, *no signs

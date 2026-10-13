@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { SupplyWatchSummary } from "@/types/supply";
+import type { SupplyWatchSummary, WatchPackaging } from "@/types/supply";
 import { addSupplyWatch, removeSupplyWatch, updateSupplyWatch } from "./supply-api";
 import { parseThreshold } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
@@ -21,14 +21,24 @@ interface WatchSettingsProps {
 interface Draft {
   threshold: string;
   pinned: boolean;
+  packaging: WatchPackaging;
 }
+
+const PACKAGINGS: ReadonlyArray<{ value: WatchPackaging; label: string }> = [
+  { value: "any", label: "All packaging" },
+  { value: "cut_tape", label: "Cut tape only (prototypes)" },
+  { value: "tape_reel", label: "Tape and reel only (production)" },
+  { value: "tray", label: "Tray only" },
+  { value: "tube", label: "Tube only" },
+  { value: "bulk", label: "Bulk only" },
+];
 
 function edit(state: Draft, change: Partial<Draft>): Draft {
   return { ...state, ...change };
 }
 
 function draftOf(watch: SupplyWatchSummary | null): Draft {
-  return { threshold: watch?.threshold === null || watch === null ? "" : String(watch.threshold), pinned: watch?.pinned ?? false };
+  return { threshold: watch?.threshold === null || watch === null ? "" : String(watch.threshold), pinned: watch?.pinned ?? false, packaging: watch?.packaging ?? "any" };
 }
 
 export function WatchSettings({ part, watch, canEdit, onChanged }: WatchSettingsProps) {
@@ -58,7 +68,7 @@ export function WatchSettings({ part, watch, canEdit, onChanged }: WatchSettings
   }
 
   const threshold = parseThreshold(draft.threshold);
-  const changed = threshold !== watch.threshold || draft.pinned !== watch.pinned;
+  const changed = threshold !== watch.threshold || draft.pinned !== watch.pinned || draft.packaging !== watch.packaging;
 
   if (!canEdit) {
     return (
@@ -66,6 +76,7 @@ export function WatchSettings({ part, watch, canEdit, onChanged }: WatchSettings
         Watched by {watch.owner}.
         {watch.threshold !== null ? ` Warns at ${watch.threshold.toLocaleString()} in stock.` : ""}
         {watch.pinned ? " Pinned to the fastest polling." : ""}
+        {watch.packaging !== "any" ? ` Counts ${PACKAGINGS.find((item) => item.value === watch.packaging)?.label.toLowerCase()}.` : ""}
       </p>
     );
   }
@@ -77,7 +88,7 @@ export function WatchSettings({ part, watch, canEdit, onChanged }: WatchSettings
         event.preventDefault();
         if (threshold === undefined || !changed) return;
         void run(async () => {
-          await updateSupplyWatch(watch.id, { threshold, pinned: draft.pinned });
+          await updateSupplyWatch(watch.id, { threshold, pinned: draft.pinned, packaging: draft.packaging });
           await onChanged();
         });
       }}
@@ -93,6 +104,18 @@ export function WatchSettings({ part, watch, canEdit, onChanged }: WatchSettings
           onChange={(event) => update({ threshold: event.target.value })}
         />
         {threshold === undefined ? <p className="text-xs text-destructive">A whole number, or leave it empty.</p> : null}
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="watch-packaging">Count stock of</Label>
+        <select
+          id="watch-packaging"
+          className="h-9 w-64 border bg-background px-2 text-sm"
+          value={draft.packaging}
+          onChange={(event) => update({ packaging: event.target.value as WatchPackaging })}
+        >
+          {PACKAGINGS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
+        <p className="text-xs text-muted-foreground">Stock, price and warnings follow only the packaging you pick. Listings of unknown packaging are left out.</p>
       </div>
       <div className="flex items-center gap-2">
         <Checkbox id="watch-pinned" checked={draft.pinned} onCheckedChange={(checked) => update({ pinned: checked === true })} />

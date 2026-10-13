@@ -237,7 +237,38 @@ class SupplyPartsApiTests(unittest.TestCase):
                          ("Acme", "LM358-D", 100, False, "admin@example.com"))
         (item,) = self.call("GET", "/api/supply/parts").json["items"]
         self.assertEqual((item["mpn"], item["status"], item["stock"], item["listings"], item["tier"]), ("LM358-D", "unknown", None, 0, None))
-        self.assertEqual(item["watch"], {"id": watch["id"], "threshold": 100, "pinned": False, "owner": "admin@example.com"})
+        self.assertEqual(item["watch"], {"id": watch["id"], "threshold": 100, "pinned": False, "owner": "admin@example.com", "packaging": "any"})
+
+    def test_a_watch_can_count_only_one_packaging(self) -> None:
+        cid = self.fake_connector()
+        watch = self.watch_via_api("PK-1")
+        part = self.part_row("PK-1")["id"]
+        cut = self.insert_listing(part, cid, "PK-CT", stock=300)
+        reel = self.insert_listing(part, cid, "PK-REEL", stock=5000)
+        with self.store.connection() as conn:
+            conn.execute("UPDATE listings SET packaging = 'cut_tape' WHERE id = %s", (cut,))
+            conn.execute("UPDATE listings SET packaging = 'tape_reel' WHERE id = %s", (reel,))
+            conn.execute("UPDATE offers SET packaging = 'cut_tape' WHERE listing_id = %s", (cut,))
+            conn.execute("UPDATE offers SET packaging = 'tape_reel' WHERE listing_id = %s", (reel,))
+            conn.execute("UPDATE connectors SET provider = 'demo_sum' WHERE id = %s", (cid,))
+        from app.services.supply.providers import registry
+        from app.services.supply.providers.base import ProviderSpec
+
+        registry.register(ProviderSpec(
+            key="demo_sum", label="Sum", capabilities=frozenset({"offers"}), max_batch=10, stock_pooling="separate",
+            credential_fields=(), factory=lambda config: self.FakeProvider(config)), replace=True)
+        try:
+            self.assertEqual(self.part_row("PK-1")["stock"], 5300)
+            reply = self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"packaging": "cut_tape"})
+            self.assertEqual((reply.status, reply.json["packaging"]), (200, "cut_tape"))
+            self.assertEqual(self.part_row("PK-1")["stock"], 300)
+            detail = self.call("GET", f"/api/supply/parts/{part}").json
+            self.assertEqual((detail["stock"]["total"], detail["watch"]["packaging"]), (300, "cut_tape"))
+            self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"packaging": "tape_reel"})
+            self.assertEqual(self.part_row("PK-1")["stock"], 5000)
+            self.assertEqual(self.call("PATCH", f"/api/supply/watches/{watch['id']}", body={"packaging": "nonsense"}).status, 422)
+        finally:
+            registry.unregister("demo_sum")
 
     def test_watching_twice_is_one_watch(self) -> None:
         first, second = self.watch_via_api("LM358-D"), self.watch_via_api("lm358d", status=200)

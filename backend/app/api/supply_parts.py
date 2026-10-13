@@ -29,6 +29,7 @@ class AddWatchRequest(BaseModel):
     mpn: str = Field(min_length=1, max_length=100)
     threshold: Optional[int] = Field(default=None, ge=0)
     pinned: bool = False
+    packaging: Literal["any", "cut_tape", "tape_reel", "tray", "tube", "bulk"] = "any"
 
 
 class UpdateWatchRequest(BaseModel):
@@ -37,6 +38,7 @@ class UpdateWatchRequest(BaseModel):
     # Absent leaves it alone; null clears the threshold.
     threshold: Optional[int] = Field(default=None, ge=0)
     pinned: Optional[bool] = None
+    packaging: Optional[Literal["any", "cut_tape", "tape_reel", "tray", "tube", "bulk"]] = None
 
 
 def _store():
@@ -68,7 +70,7 @@ async def _run(call: Callable[[], T]) -> T:
 def _watch_dto(record: watches.WatchRecord) -> dict[str, Any]:
     return {
         "id": record.id, "part_id": record.part_id, "manufacturer": record.manufacturer_name, "mpn": record.mpn,
-        "threshold": record.threshold, "pinned": record.pinned, "owner": record.owner,
+        "threshold": record.threshold, "pinned": record.pinned, "owner": record.owner, "packaging": record.packaging,
     }
 
 
@@ -136,6 +138,7 @@ async def add_watch(
         with _store().connection() as conn:
             record, created = watches.add_watch(
                 conn, body.manufacturer, body.mpn, writer.email, threshold=body.threshold, pinned=body.pinned,
+                packaging=body.packaging,
                 may_create_manufacturer=writer.role in SUPPLY_APPROVE_ROLES,
             )
         return _watch_dto(record), created
@@ -154,6 +157,8 @@ async def update_watch(
         changes["threshold"] = body.threshold
     if "pinned" in body.model_fields_set:
         changes["pinned"] = body.pinned
+    if "packaging" in body.model_fields_set and body.packaging is not None:
+        changes["packaging"] = body.packaging
 
     def run() -> dict[str, Any]:
         with _store().connection() as conn:

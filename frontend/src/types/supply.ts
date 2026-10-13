@@ -441,11 +441,15 @@ export type PartsFilter = "" | "at_risk" | "out_of_stock" | "lifecycle";
 /** Why a part with nothing counted is in trouble. */
 export type SupplyProblem = "not_found" | "gone";
 
+/** Which listings a watch counts: all, or only one packaging. */
+export type WatchPackaging = "any" | "cut_tape" | "tape_reel" | "tray" | "tube" | "bulk";
+
 export interface SupplyWatchSummary {
   id: string;
   threshold: number | null;
   pinned: boolean;
   owner: string;
+  packaging: WatchPackaging;
 }
 
 export interface SupplyWatch {
@@ -456,6 +460,7 @@ export interface SupplyWatch {
   threshold: number | null;
   pinned: boolean;
   owner: string;
+  packaging: WatchPackaging;
 }
 
 export interface SupplyPartRow {
@@ -629,6 +634,7 @@ export interface AddWatchInput {
 export interface UpdateWatchInput {
   threshold?: number | null;
   pinned?: boolean;
+  packaging?: WatchPackaging;
 }
 
 export interface FillCandidate {

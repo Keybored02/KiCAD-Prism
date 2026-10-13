@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from app.services.supply import alerts, parts
+from app.services.supply import alerts, parts, stock
 from app.services.supply.audit import actor_text, write_audit
 
 MAX_PINNED = 25
@@ -38,10 +38,11 @@ class WatchRecord:
     pinned: bool
     owner: str
     created_at: datetime
+    packaging: str = "any"
 
 
 _SELECT = """
-    SELECT w.id, w.part_id, m.name AS manufacturer_name, p.mpn, w.threshold, w.pinned, w.owner, w.created_at
+    SELECT w.id, w.part_id, m.name AS manufacturer_name, p.mpn, w.threshold, w.pinned, w.owner, w.created_at, w.packaging
     FROM watches w JOIN parts p ON p.id = w.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
 """
 
@@ -49,7 +50,7 @@ _SELECT = """
 def _record(row) -> WatchRecord:
     return WatchRecord(
         row["id"], row["part_id"], row["manufacturer_name"], row["mpn"],
-        row["threshold"], bool(row["pinned"]), row["owner"], row["created_at"],
+        row["threshold"], bool(row["pinned"]), row["owner"], row["created_at"], row["packaging"],
     )
 
 
@@ -59,6 +60,12 @@ def _check_threshold(threshold: Any) -> int | None:
     if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:
         raise WatchError("The threshold is a whole number, 0 or more.")
     return threshold
+
+
+def _check_packaging(packaging: Any) -> str:
+    if packaging not in stock.POLICIES:
+        raise WatchError("Packaging is any, cut_tape, tape_reel, tray, tube or bulk.")
+    return packaging
 
 
 def _check_pin_room(conn, *, excluding: str | None = None) -> None:
@@ -89,6 +96,7 @@ def add_watch(
     *,
     threshold: int | None = None,
     pinned: bool = False,
+    packaging: str = "any",
     may_create_manufacturer: bool = True,
 ) -> tuple[WatchRecord, bool]:
     """Watch a part, creating it if needed. Returns the watch and whether it is new.
@@ -99,6 +107,7 @@ def add_watch(
 
     actor = actor_text(actor)
     threshold = _check_threshold(threshold)
+    packaging = _check_packaging(packaging)
     part = parts.ensure_part(conn, manufacturer_name, mpn, actor, may_create=may_create_manufacturer)
     existing = conn.execute("SELECT id FROM watches WHERE part_id = %s", (part.id,)).fetchone()
     if existing:
@@ -107,23 +116,27 @@ def add_watch(
             asked["threshold"] = threshold
         if pinned:
             asked["pinned"] = True
+        if packaging != "any":
+            asked["packaging"] = packaging
         return (update_watch(conn, existing["id"], actor, **asked) if asked else get_watch(conn, existing["id"])), False
     if pinned:
         _check_pin_room(conn)
     watch_id = uuid.uuid4().hex
     created = conn.execute(
-        "INSERT INTO watches (id, part_id, threshold, pinned, owner, created_by) VALUES (%s, %s, %s, %s, %s, %s) "
+        "INSERT INTO watches (id, part_id, threshold, pinned, packaging, owner, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (part_id) DO NOTHING RETURNING id",
-        (watch_id, part.id, threshold, pinned, actor, actor),
+        (watch_id, part.id, threshold, pinned, packaging, actor, actor),
     ).fetchone()
     row = conn.execute("SELECT id FROM watches WHERE part_id = %s", (part.id,)).fetchone()
     if created:
         write_audit(conn, actor, "watch.add", row["id"],
-                    {"part_id": part.id, "threshold": threshold, "pinned": pinned}, subject_kind="watch")
+                    {"part_id": part.id, "threshold": threshold, "pinned": pinned, "packaging": packaging}, subject_kind="watch")
     return get_watch(conn, row["id"]), bool(created)
 
 
-def update_watch(conn, watch_id: str, actor: str, *, threshold: Any = _UNSET, pinned: Any = _UNSET) -> WatchRecord:
+def update_watch(
+    conn, watch_id: str, actor: str, *, threshold: Any = _UNSET, pinned: Any = _UNSET, packaging: Any = _UNSET
+) -> WatchRecord:
     """Change the rules of a watch. Omit a field to leave it; ``threshold=None`` clears it."""
 
     actor = actor_text(actor)
@@ -137,6 +150,8 @@ def update_watch(conn, watch_id: str, actor: str, *, threshold: Any = _UNSET, pi
         if pinned and not current.pinned:
             _check_pin_room(conn, excluding=watch_id)
         changes["pinned"] = pinned
+    if packaging is not _UNSET:
+        changes["packaging"] = _check_packaging(packaging)
     if not changes:
         return current
     # Column names come from the fixed set above, never from the caller.
