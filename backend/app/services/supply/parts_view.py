@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from app.services.supply import facts, insights, outlook, params, parts, pcn, prices, pricing, stock, usage
 from app.services.supply.part_status import (
@@ -19,6 +19,15 @@ from app.services.supply.tiers import Tier
 from app.services.supply.vocabulary import Lifecycle
 
 Scope = Literal["watched", "in_use", "all"]
+Filter = Literal["", "at_risk", "out_of_stock", "lifecycle"]
+_NEEDS_A_LOOK = ("fatal", "error", "warning")
+_LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
+# The groups the Overview counts, so a count and the list it links to agree.
+FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {
+    "at_risk": lambda item: item["status"] in _NEEDS_A_LOOK,
+    "out_of_stock": lambda item: item["stock"] == 0,
+    "lifecycle": lambda item: item["lifecycle"] in _LIFECYCLE_RISK,
+}
 MAX_LIMIT = 200
 # Parts are ordered by how much they need a look, which needs every candidate's
 # status, so the list reads this many at most before it cuts to the page.
@@ -210,11 +219,16 @@ def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str |
     return items, int(total)
 
 
-def list_parts(conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None) -> dict[str, Any]:
-    """Parts that need a look first (worst status), then by name."""
+def list_parts(
+    conn, *, scope: Scope = "watched", query: str = "", limit: int = 100, role: str | None = None, only: Filter = ""
+) -> dict[str, Any]:
+    """Parts that need a look first (worst status), then by name. ``only`` keeps one group of them."""
 
     limit = max(1, min(limit, MAX_LIMIT))
     items, total = ranked_parts(conn, scope=scope, query=query, role=role)
+    if only:
+        items = [item for item in items if FILTERS[only](item)]
+        total = len(items)
     return {"items": items[:limit], "total": total, "limit": limit}
 
 

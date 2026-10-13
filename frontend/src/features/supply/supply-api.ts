@@ -6,6 +6,7 @@ import type {
   BomLineInput,
   ConfirmAliasInput,
   CreateSupplyConnectorInput,
+  PartsFilter,
   PartsScope,
   SupplyConnector,
   SupplyCsvResult,
@@ -249,8 +250,9 @@ export function rejectSupplyListing(listingId: string): Promise<void> {
   return decide(listingId, "reject", "Could not reject the listing");
 }
 
-export function listSupplyParts(scope: PartsScope, query: string, signal?: AbortSignal): Promise<SupplyPartsPage> {
+export function listSupplyParts(scope: PartsScope, query: string, signal?: AbortSignal, only: PartsFilter = ""): Promise<SupplyPartsPage> {
   const params = new URLSearchParams({ scope });
+  if (only) params.set("only", only);
   if (query.trim()) params.set("q", query.trim());
   return fetchJson<SupplyPartsPage>(`${BASE}/parts?${params}`, { signal }, "Could not load parts");
 }

@@ -58,6 +58,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       updated.delete("part");
       updated.delete("partsQ");
       updated.delete("partsScope");
+      updated.delete("partsOnly");
       return updated;
     });
   };

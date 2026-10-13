@@ -230,6 +230,41 @@ def list_alerts(conn, now: datetime, *, include_resolved: bool = False, limit: i
     return items
 
 
+def recent_changes(conn, now: datetime, *, days: int = 14, limit: int = 15) -> list[dict[str, Any]]:
+    """What happened lately, newest first: alerts that opened, alerts that cleared, listings that disappeared."""
+
+    since = now - timedelta(days=days)
+    changes: list[dict[str, Any]] = []
+    rows = conn.execute(
+        """
+        SELECT a.*, p.mpn, m.name AS manufacturer
+        FROM alerts a JOIN parts p ON p.id = a.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        WHERE a.opened_at >= %s OR a.resolved_at >= %s
+        """,
+        (since, since),
+    ).fetchall()
+    for row in rows:
+        alert = _dto(row, now)
+        if row["opened_at"] and row["opened_at"] >= since:
+            changes.append({"at": alert["opened_at"], "type": "alert_opened", "part_id": row["part_id"], "mpn": row["mpn"],
+                            "manufacturer": row["manufacturer"], "alert": alert, "sku": ""})
+        if row["resolved_at"] and row["resolved_at"] >= since:
+            changes.append({"at": alert["resolved_at"], "type": "alert_cleared", "part_id": row["part_id"], "mpn": row["mpn"],
+                            "manufacturer": row["manufacturer"], "alert": alert, "sku": ""})
+    for row in conn.execute(
+        """
+        SELECT e.at, e.part_id, e.payload, p.mpn, m.name AS manufacturer
+        FROM events e JOIN parts p ON p.id = e.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
+        WHERE e.kind = 'listing_gone' AND e.at >= %s
+        """,
+        (since,),
+    ).fetchall():
+        changes.append({"at": row["at"].isoformat(), "type": "listing_gone", "part_id": row["part_id"], "mpn": row["mpn"],
+                        "manufacturer": row["manufacturer"], "alert": None, "sku": str((row["payload"] or {}).get("sku", ""))})
+    changes.sort(key=lambda item: item["at"], reverse=True)
+    return changes[:limit]
+
+
 def count_attention(conn, now: datetime) -> int:
     """Alerts that are open (not acknowledged, snoozed or resolved)."""
 

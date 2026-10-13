@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Eye, PackageSearch, Search } from "lucide-react";
+import { Eye, PackageSearch, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -10,7 +10,7 @@ import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import type { PartsScope } from "@/types/supply";
+import type { PartsFilter, PartsScope } from "@/types/supply";
 import { PartSheet } from "./part-sheet";
 import { PartsTable } from "./parts-table";
 import { refreshSupplyUsage } from "./supply-api";
@@ -18,6 +18,12 @@ import { useSupplyPartsList } from "./use-supply-parts";
 import { ReadProjectBomsButton } from "./read-project-boms-button";
 import { SeedFromCatalogButton } from "./seed-from-catalog-button";
 import { WatchPartDialog } from "./watch-part-dialog";
+
+const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
+  at_risk: "At risk",
+  out_of_stock: "Out of stock",
+  lifecycle: "End of life",
+};
 
 const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
   { id: "watched", label: "Watched" },
@@ -31,10 +37,12 @@ export function PartsView({ user }: { user: User | null }) {
   const requestedScope = searchParams.get("partsScope");
   const scope: PartsScope = requestedScope === "all" || requestedScope === "in_use" ? requestedScope : "watched";
   const query = searchParams.get("partsQ") ?? "";
+  const requestedOnly = searchParams.get("partsOnly");
+  const only: PartsFilter = requestedOnly && requestedOnly in FILTER_LABEL ? (requestedOnly as PartsFilter) : "";
   const openPart = searchParams.get("part");
   const canEdit = canEditSupply(user?.role);
   const [watching, setWatching] = useState(false);
-  const { status, data, error, retry, refresh } = useSupplyPartsList(scope, query);
+  const { status, data, error, retry, refresh } = useSupplyPartsList(scope, query, only);
 
   // Where parts are used comes from project BOMs read earlier; bring it up to date when the scope is chosen.
   useEffect(() => {
@@ -91,6 +99,11 @@ export function PartsView({ user }: { user: User | null }) {
             ))}
           </div>
           <SearchBox key={query} initial={query} onSearch={(text) => setParams({ partsQ: text })} />
+          {only ? (
+            <Button size="sm" variant="secondary" onClick={() => setParams({ partsOnly: null })} aria-label={`Showing only ${FILTER_LABEL[only]}. Show all`}>
+              {FILTER_LABEL[only]}<X className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
         </div>
 
         {status === "loading" ? <Skeleton className="h-48 w-full" aria-label="Loading parts" /> : null}
@@ -106,7 +119,7 @@ export function PartsView({ user }: { user: User | null }) {
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
             {data.items.length === 0 ? (
-              <EmptyState scope={scope} searching={query !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
+              <EmptyState scope={scope} searching={query !== "" || only !== ""} canEdit={canEdit} onWatch={() => setWatching(true)} />
             ) : (
               <>
                 <PartsTable items={data.items} selectedId={openPart} onOpen={(partId) => setParams({ part: partId })} />

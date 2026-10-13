@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 
 import type {
+  PartsFilter,
   PartsScope,
   SupplyAlert,
   SupplyManufacturer,
@@ -18,9 +19,9 @@ import {
 } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 
-export function useSupplyPartsList(scope: PartsScope, query: string) {
-  const fetcher = useCallback((signal: AbortSignal) => listSupplyParts(scope, query, signal), [scope, query]);
-  return useLoaded<SupplyPartsPage>(`${scope}|${query}`, fetcher, "Could not load parts");
+export function useSupplyPartsList(scope: PartsScope, query: string, only: PartsFilter = "") {
+  const fetcher = useCallback((signal: AbortSignal) => listSupplyParts(scope, query, signal, only), [scope, query, only]);
+  return useLoaded<SupplyPartsPage>(`${scope}|${query}|${only}`, fetcher, "Could not load parts");
 }
 
 /** The manufacturers Prism knows, for suggestions. A failure just means no suggestions. */

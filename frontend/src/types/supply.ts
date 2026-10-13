@@ -430,6 +430,8 @@ export type SupplyStatus = "ok" | "warning" | "error" | "fatal" | "unknown";
 export type SupplyLifecycle = "active" | "nrnd" | "last_time_buy" | "obsolete" | "unknown";
 export type SupplyTier = "hot" | "warm" | "normal" | "cold";
 export type PartsScope = "watched" | "in_use" | "all";
+/** One group of parts the Overview counts; empty is no narrowing. */
+export type PartsFilter = "" | "at_risk" | "out_of_stock" | "lifecycle";
 /** Why a part with nothing counted is in trouble. */
 export type SupplyProblem = "not_found" | "gone";
 
@@ -586,10 +588,24 @@ export interface SupplyAlert {
   resolved_at: string | null;
 }
 
+/** Something that happened lately to a watched part. */
+export interface SupplyRecentChange {
+  at: string;
+  type: "alert_opened" | "alert_cleared" | "listing_gone";
+  part_id: string;
+  mpn: string;
+  manufacturer: string;
+  /** The alert behind an opened or cleared change. */
+  alert: SupplyAlert | null;
+  /** The distributor number of a listing that went. */
+  sku: string;
+}
+
 export interface SupplyOverview {
   figures: { watched: number; at_risk: number; out_of_stock: number; lifecycle: number; no_data: number };
   needs_attention: SupplyPartRow[];
   open_alerts: number;
+  recent_changes: SupplyRecentChange[];
   data_age: { oldest: string | null; newest: string | null };
   /** Enabled connectors. */
   connectors: number;

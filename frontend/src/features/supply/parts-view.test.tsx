@@ -70,6 +70,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("the parts list", () => {
+  it("narrows to a group from the URL and lets it go", async () => {
+    renderView("designer", "/?section=supply&partsOnly=out_of_stock");
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything(), "out_of_stock"));
+    fireEvent.click(await screen.findByRole("button", { name: /Showing only Out of stock/ }));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), ""));
+    expect(search()).not.toContain("partsOnly");
+  });
+
   it("shows each part with its status, stock, price and lifecycle", async () => {
     renderView();
     const row = (await screen.findByRole("button", { name: "LM358D" })).closest("tr")!;
@@ -81,7 +89,7 @@ describe("the parts list", () => {
     expect(within(row).getByText("2 h ago")).toBeTruthy();
     expect(within(row).getByLabelText("Watched")).toBeTruthy();
     expect(screen.getByText("1 part")).toBeTruthy();
-    expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything());
+    expect(mocked.listSupplyParts).toHaveBeenCalledWith("watched", "", expect.anything(), "");
   });
 
   it("says plainly when a part has not been read yet", async () => {
@@ -105,11 +113,11 @@ describe("the parts list", () => {
     renderView();
     await screen.findByRole("button", { name: "LM358D" });
     fireEvent.click(screen.getByRole("button", { name: "All known" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything()));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), ""));
     expect(search()).toContain("partsScope=all");
     expect(screen.getByRole("button", { name: "All known" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Watched" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything()));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), ""));
     expect(search()).not.toContain("partsScope");
   });
 
@@ -118,13 +126,13 @@ describe("the parts list", () => {
     await screen.findByRole("button", { name: "LM358D" });
     fireEvent.change(screen.getByLabelText("Search parts"), { target: { value: "  lm358  " } });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "lm358", expect.anything()));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "lm358", expect.anything(), ""));
     expect(search()).toContain("partsQ=lm358");
     cleanup();
 
     renderView("designer", "/?section=supply&partsScope=all&partsQ=tps");
     await screen.findByRole("button", { name: "LM358D" });
-    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "tps", expect.anything());
+    expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "tps", expect.anything(), "");
     expect((screen.getByLabelText("Search parts") as HTMLInputElement).value).toBe("tps");
   });
 
@@ -340,7 +348,7 @@ describe("the watch settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "In use" }));
     expect(search()).toContain("partsScope=in_use");
     await waitFor(() => expect(mocked.refreshSupplyUsage).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("in_use", "", expect.anything()));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("in_use", "", expect.anything(), ""));
     // Once for the first load of the scope and once after the usage was read.
     await waitFor(() => expect(mocked.listSupplyParts.mock.calls.filter((call) => call[0] === "in_use").length).toBeGreaterThanOrEqual(2));
     expect(await screen.findByText("Used in 3 projects")).toBeTruthy();
@@ -350,7 +358,7 @@ describe("the watch settings", () => {
     renderView();
     await screen.findByRole("button", { name: "LM358D" });
     fireEvent.click(screen.getByRole("button", { name: "All known" }));
-    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("all", "", expect.anything()));
+    await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenCalledWith("all", "", expect.anything(), ""));
     expect(mocked.refreshSupplyUsage).not.toHaveBeenCalled();
   });
 

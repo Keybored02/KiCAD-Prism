@@ -382,6 +382,24 @@ class SupplyAlertsTests(unittest.TestCase):
         (quota,) = data["quota"]
         self.assertEqual((quota["name"], quota["metered"], quota["spent"]), ("Sim", True, 0))
 
+    def test_recent_changes_list_alerts_that_opened_or_cleared_and_listings_that_went(self) -> None:
+        empty = self.watch("EMPTY")
+        stock_id = self.listing(empty["part_id"], "E", stock=0)
+        self.evaluate(empty["part_id"])
+        self.evaluate(empty["part_id"], after=timedelta(hours=1))
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET stock = 50 WHERE listing_id = %s", (stock_id,))
+            conn.execute("INSERT INTO events (at, kind, part_id, listing_id, payload) VALUES (%s, 'listing_gone', %s, %s, '{\"sku\": \"E\"}'::jsonb)",
+                         (START + timedelta(hours=3), empty["part_id"], stock_id))
+        self.evaluate(empty["part_id"], after=timedelta(hours=4))
+        self.evaluate(empty["part_id"], after=timedelta(hours=5))
+        with self.store.connection() as conn:
+            changes = self.alerts.recent_changes(conn, START + timedelta(hours=6))
+            self.assertEqual(self.alerts.recent_changes(conn, START + timedelta(days=60)), [], "old changes drop off")
+        self.assertEqual([(c["type"], c["mpn"]) for c in changes], [("alert_cleared", "EMPTY"), ("listing_gone", "EMPTY"), ("alert_opened", "EMPTY")])
+        self.assertEqual(changes[0]["alert"]["kind"], "out_of_stock")
+        self.assertEqual(changes[1]["sku"], "E")
+
     def test_an_empty_overview(self) -> None:
         with self.store.connection() as conn:
             conn.execute("DELETE FROM connectors")

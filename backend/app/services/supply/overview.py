@@ -11,11 +11,8 @@ from typing import Any
 
 from app.services.supply import alerts, parts_view
 from app.services.supply.providers import registry
-from app.services.supply.vocabulary import Lifecycle
 
 ATTENTION_LIMIT = 10
-_NEEDS_A_LOOK = ("fatal", "error", "warning")
-_LIFECYCLE_RISK = (Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value)
 
 
 def _quota_today(conn, now: datetime) -> list[dict[str, Any]]:
@@ -52,13 +49,12 @@ def build_overview(conn, now: datetime | None = None) -> dict[str, Any]:
     return {
         "figures": {
             "watched": len(items),
-            "at_risk": sum(1 for item in items if item["status"] in _NEEDS_A_LOOK),
-            "out_of_stock": sum(1 for item in items if item["stock"] == 0),
-            "lifecycle": sum(1 for item in items if item["lifecycle"] in _LIFECYCLE_RISK),
+            **{name: sum(1 for item in items if matches(item)) for name, matches in parts_view.FILTERS.items()},
             "no_data": sum(1 for item in items if item["status"] == "unknown"),
         },
-        "needs_attention": [item for item in items if item["status"] in _NEEDS_A_LOOK][:ATTENTION_LIMIT],
+        "needs_attention": [item for item in items if parts_view.FILTERS["at_risk"](item)][:ATTENTION_LIMIT],
         "open_alerts": alerts.count_attention(conn, now),
+        "recent_changes": alerts.recent_changes(conn, now),
         "data_age": {"oldest": min(read_times) if read_times else None, "newest": max(read_times) if read_times else None},
         "connectors": int(connectors),
         "quota": _quota_today(conn, now),

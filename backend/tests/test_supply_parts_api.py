@@ -328,6 +328,23 @@ class SupplyPartsApiTests(unittest.TestCase):
         nrnd = self.part_row("NRND-1")
         self.assertEqual((nrnd["status"], nrnd["lifecycle"]), ("warning", "nrnd"))
 
+    def test_the_list_can_be_narrowed_to_the_groups_the_overview_counts(self) -> None:
+        cid = self.fake_connector()
+        for mpn in ("OOS-1", "EOL-1", "NRND-1", "FINE-1"):
+            self.watch_via_api(mpn)
+        self.collect(cid)
+
+        def only(group: str) -> list[str]:
+            reply = self.call("GET", "/api/supply/parts", query=f"only={group}").json
+            self.assertEqual(reply["total"], len(reply["items"]))
+            return sorted(item["mpn"] for item in reply["items"])
+
+        self.assertEqual(only("out_of_stock"), ["OOS-1"])
+        self.assertEqual(only("lifecycle"), ["EOL-1", "NRND-1"])
+        self.assertEqual(only("at_risk"), ["EOL-1", "NRND-1", "OOS-1"])
+        self.assertEqual(len(only("")), 4)
+        self.assertEqual(self.call("GET", "/api/supply/parts", query="only=nonsense").status, 422)
+
     def test_a_threshold_above_stock_is_a_warning(self) -> None:
         cid = self.fake_connector()
         watch = self.watch_via_api("ABC123", threshold=10_000_000)

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { overviewFixture } from "./supply-test-fixtures";
+import { alertFixture, overviewFixture } from "./supply-test-fixtures";
 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
@@ -59,6 +59,33 @@ describe("the overview", () => {
     fireEvent.click(screen.getByText("Open alerts").closest("button")!);
     expect(search()).toContain("supplyView=inbox");
     expect(search()).not.toContain("part=");
+  });
+
+  it("lists what changed lately and opens the part", async () => {
+    mocked.getSupplyOverview.mockResolvedValue(overviewFixture({
+      recent_changes: [
+        { at: new Date(Date.now() - 3600 * 1000).toISOString(), type: "alert_opened", part_id: "p9", mpn: "LM358D", manufacturer: "TI", sku: "",
+          alert: alertFixture({ kind: "out_of_stock", severity: "error" }) },
+        { at: new Date(Date.now() - 7200 * 1000).toISOString(), type: "listing_gone", part_id: "p8", mpn: "NE555", manufacturer: "TI", sku: "C7950", alert: null },
+      ],
+    }));
+    renderView();
+    const region = await screen.findByRole("region", { name: "Recent changes" });
+    expect(within(region).getByText("Out of stock")).toBeTruthy();
+    expect(within(region).getByText(/stopped listing it \(C7950\)/)).toBeTruthy();
+    fireEvent.click(within(region).getByRole("button", { name: "NE555" }));
+    expect(search()).toContain("part=p8");
+  });
+
+  it("links each figure to the parts it counts", async () => {
+    renderView();
+    fireEvent.click((await screen.findByText("At risk")).closest("button")!);
+    expect(search()).toContain("supplyView=parts");
+    expect(search()).toContain("partsOnly=at_risk");
+    fireEvent.click(screen.getByText("End of life").closest("button")!);
+    expect(search()).toContain("partsOnly=lifecycle");
+    fireEvent.click(screen.getAllByText("Watched")[0].closest("button")!);
+    expect(search()).not.toContain("partsOnly");
   });
 
   it("offers to see the rest when more parts are at risk than are listed", async () => {

@@ -141,6 +141,7 @@ export function overviewFixture(overrides: Partial<SupplyOverview> = {}): Supply
     figures: { watched: 4, at_risk: 2, out_of_stock: 1, lifecycle: 1, no_data: 0 },
     needs_attention: [partRowFixture({ id: "p2", mpn: "TPS62840", status: "error", stock: 0 })],
     open_alerts: 2,
+    recent_changes: [],
     data_age: { oldest: new Date(Date.now() - 26 * 3600 * 1000).toISOString(), newest: new Date(Date.now() - 600 * 1000).toISOString() },
     connectors: 1,
     quota: [{ connector_id: "c1", name: "Mouser EU", metered: true, spent: 450, budget: 1000, paused: false }],

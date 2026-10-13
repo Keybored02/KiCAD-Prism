@@ -2,8 +2,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import type { SupplyOverview } from "@/types/supply";
+import type { PartsFilter, SupplyOverview } from "@/types/supply";
 import { PartsTable } from "./parts-table";
+import { RecentChanges } from "./recent-changes";
 import { formatAgo } from "./supply-format";
 import { useSupplyNavigation } from "./use-supply-navigation";
 import { useSupplyOverview } from "./use-supply-parts";
@@ -35,9 +36,10 @@ export function OverviewView() {
         ) : null}
         {status === "ready" && data ? (
           <>
-            <Figures overview={data} onParts={() => go("parts")} onInbox={() => go("inbox")} />
+            <Figures overview={data} onParts={(only) => go("parts", only ? { partsOnly: only } : {})} onInbox={() => go("inbox")} />
             <p className="text-xs text-muted-foreground">{dataAge(data)}</p>
-            <NeedsAttention overview={data} onOpenPart={openPart} onParts={() => go("parts")} />
+            <NeedsAttention overview={data} onOpenPart={openPart} onParts={() => go("parts", { partsOnly: "at_risk" })} />
+            <RecentChanges changes={data.recent_changes} onOpenPart={openPart} />
             <Quota quota={data.quota} />
           </>
         ) : null}
@@ -51,13 +53,13 @@ function dataAge({ data_age: age, figures }: SupplyOverview): string {
   return `Latest read ${formatAgo(age.newest)}. The part read longest ago: ${formatAgo(age.oldest)}.`;
 }
 
-function Figures({ overview, onParts, onInbox }: { overview: SupplyOverview; onParts: () => void; onInbox: () => void }) {
+function Figures({ overview, onParts, onInbox }: { overview: SupplyOverview; onParts: (only: PartsFilter) => void; onInbox: () => void }) {
   const { figures, open_alerts: alerts } = overview;
   const tiles: Array<{ label: string; value: number; tone?: boolean; onClick?: () => void }> = [
-    { label: "Watched", value: figures.watched, onClick: onParts },
-    { label: "At risk", value: figures.at_risk, tone: figures.at_risk > 0, onClick: onParts },
-    { label: "Out of stock", value: figures.out_of_stock, tone: figures.out_of_stock > 0 },
-    { label: "End of life", value: figures.lifecycle, tone: figures.lifecycle > 0 },
+    { label: "Watched", value: figures.watched, onClick: () => onParts("") },
+    { label: "At risk", value: figures.at_risk, tone: figures.at_risk > 0, onClick: () => onParts("at_risk") },
+    { label: "Out of stock", value: figures.out_of_stock, tone: figures.out_of_stock > 0, onClick: () => onParts("out_of_stock") },
+    { label: "End of life", value: figures.lifecycle, tone: figures.lifecycle > 0, onClick: () => onParts("lifecycle") },
     { label: "Open alerts", value: alerts, tone: alerts > 0, onClick: onInbox },
   ];
   return (
