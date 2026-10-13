@@ -6,10 +6,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { canEditSupply, canReviewSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import type { SupplyComponentFinding, SupplySource } from "@/types/supply";
+import type { SupplyComponentCheck, SupplySource } from "@/types/supply";
+import { FindingRow } from "./finding-row";
 import { AddAlternateDialog } from "./add-alternate-dialog";
 import { StatusDot } from "./status-dot";
-import { decideSource, getComponentFindings, listComponentSources, rankSource, removeSource, watchComponentAlternates } from "./supply-api";
+import {
+  decideSource, decideWaiver, getComponentFindings, listComponentSources, proposeWaiver, rankSource, removeSource, revokeWaiver,
+  watchComponentAlternates,
+} from "./supply-api";
 import { formatStock, LIFECYCLE_LABEL, STATUS_LABEL } from "./supply-format";
 import { useLoaded } from "./use-loaded";
 
@@ -27,7 +31,7 @@ export function AvlSection({ componentId, manufacturer, mpn, user }: AvlSectionP
   const fetcher = useCallback((signal: AbortSignal) => listComponentSources(componentId, signal), [componentId]);
   const sources = useLoaded<SupplySource[]>(componentId, fetcher, "Could not load the approved parts");
   const findingsFetcher = useCallback((signal: AbortSignal) => getComponentFindings(componentId, signal), [componentId]);
-  const findings = useLoaded<SupplyComponentFinding[]>(`${componentId}:findings`, findingsFetcher, "Could not load the component check");
+  const findings = useLoaded<SupplyComponentCheck>(`${componentId}:findings`, findingsFetcher, "Could not load the component check");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
   const approves = canReviewSupply(user?.role);
@@ -106,11 +110,21 @@ export function AvlSection({ componentId, manufacturer, mpn, user }: AvlSectionP
           </li>
         ))}
       </ul>
-      {(findings.data ?? []).map((finding) => (
-        <Alert key={finding.check} variant={finding.severity === "warning" ? "default" : "destructive"}>
-          <AlertDescription>{finding.text}</AlertDescription>
-        </Alert>
-      ))}
+      {findings.data && findings.data.findings.length > 0 ? (
+        <ul aria-label="Component findings" className="divide-y border">
+          {findings.data.findings.map((finding) => (
+            <FindingRow
+              key={finding.check}
+              finding={finding}
+              canPropose={proposes && findings.data?.part_id != null}
+              canApprove={approves}
+              onPropose={(reason) => act(() => proposeWaiver(findings.data?.part_id ?? "", finding.check, reason, componentId).then(() => undefined))}
+              onDecide={(waiverId, approve) => act(() => decideWaiver(waiverId, approve))}
+              onRevoke={(waiverId) => act(() => revokeWaiver(waiverId))}
+            />
+          ))}
+        </ul>
+      ) : null}
       {sources.status === "error" ? <Alert variant="destructive"><AlertDescription>{sources.error}</AlertDescription></Alert> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       {sources.status === "ready" && items.length === 0 ? <p className="text-xs text-muted-foreground">No alternates yet.</p> : null}

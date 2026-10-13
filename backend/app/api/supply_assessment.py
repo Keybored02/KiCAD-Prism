@@ -17,7 +17,7 @@ from app.api.supply_access import require_supply_editor
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader
 from app.services.supply import demand, parts
-from app.services.supply.assessment import service, waivers
+from app.services.supply.assessment import component_checks, service, settings_store, waivers
 from app.services.supply.assessment.checks import Finding
 from app.services.supply.vocabulary import Status
 
@@ -32,6 +32,8 @@ class ProposeWaiverRequest(BaseModel):
     check: str = Field(min_length=1, max_length=64)
     reason: str = Field(min_length=1, max_length=waivers.MAX_REASON)
     quantity: Optional[int] = Field(default=None, ge=1, le=10_000_000)
+    # The catalog component whose findings (its approved alternates taken together) the waiver may be about.
+    component_id: Optional[str] = Field(default=None, max_length=64)
 
 
 def _store():
@@ -88,7 +90,13 @@ async def propose_waiver(
         with _store().connection() as conn:
             parts.get_part(conn, part_id)
             current = service.assess_parts(conn, [part_id], {part_id: body.quantity})[part_id]
-            finding = next((f for f in current["findings"] if f["check"] == body.check), None)
+            found = list(current["findings"])
+            if body.component_id:
+                found += [
+                    {"check": f.check, "severity": f.severity.value, "text": f.text, "scope": f.scope}
+                    for f in component_checks.for_component(conn, body.component_id, part_id, settings_store.load(conn))
+                ]
+            finding = next((f for f in found if f["check"] == body.check), None)
             # The finding the waiver is tied to, as the assessment says it stands now.
             raised = Finding(finding["check"], Status(finding["severity"]), finding["text"], finding["scope"]) if finding else None
             return waivers.propose(conn, part_id, raised, body.reason, editor.email, approver=editor.role in SUPPLY_APPROVE_ROLES)

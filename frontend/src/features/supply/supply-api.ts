@@ -27,7 +27,7 @@ import type {
   SupplyReviewQueue,
   SupplyBomRollup,
   SupplyCompliance,
-  SupplyComponentFinding,
+  SupplyComponentCheck,
   SupplyDatasheets,
   SupplyMarket,
   SupplyMarketHistory,
@@ -334,9 +334,9 @@ export async function listComponentSources(componentId: string, signal?: AbortSi
 }
 
 /** What is wrong with a component taken with its approved alternates; empty when nothing is. */
-export async function getComponentFindings(componentId: string, signal?: AbortSignal): Promise<SupplyComponentFinding[]> {
+export function getComponentFindings(componentId: string, signal?: AbortSignal): Promise<SupplyComponentCheck> {
   const url = `${BASE}/components/${encodeURIComponent(componentId)}/assessment`;
-  return (await fetchJson<{ findings: SupplyComponentFinding[] }>(url, { signal }, "Could not load the component check")).findings;
+  return fetchJson<SupplyComponentCheck>(url, { signal }, "Could not load the component check");
 }
 
 export function watchComponentAlternates(componentId: string): Promise<{ watched: number; already_watched: number }> {
@@ -377,8 +377,9 @@ export function getSupplyAssessment(partId: string, quantity?: number, signal?: 
   return fetchJson<SupplyAssessment>(`${BASE}/parts/${encodeURIComponent(partId)}/assessment${query}`, { signal }, "Could not load the assessment");
 }
 
-export function proposeWaiver(partId: string, check: string, reason: string): Promise<{ id: string; state: string }> {
-  return post(`${BASE}/parts/${encodeURIComponent(partId)}/waivers`, { check, reason }, "Could not propose the waiver");
+export function proposeWaiver(partId: string, check: string, reason: string, componentId?: string): Promise<{ id: string; state: string }> {
+  const body = componentId ? { check, reason, component_id: componentId } : { check, reason };
+  return post(`${BASE}/parts/${encodeURIComponent(partId)}/waivers`, body, "Could not propose the waiver");
 }
 
 export function decideWaiver(id: string, approve: boolean): Promise<void> {

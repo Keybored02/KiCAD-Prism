@@ -151,6 +151,15 @@ class SupplySourcesTests(unittest.TestCase):
             return [f["check"] for f in response.json["findings"]]
 
         self.assertEqual(findings(), ["no_approved_source"])
+        from app.services.supply.assessment import component_checks, waivers
+
+        with self.store.connection() as conn:
+            (raised,) = component_checks.for_component(conn, COMPONENT, primary)
+            waivers.propose(conn, primary, raised, "Reel arrives on the 20th", "qa@example.com", approver=True)
+        with mock.patch.object(catalog_read, "identities", lambda ids: {COMPONENT: ("Acme", "PRIM-1")}):
+            shown = self.call("GET", f"/api/supply/components/{COMPONENT}/assessment", role="qa").json
+        self.assertEqual(shown["part_id"], primary)
+        self.assertTrue(shown["findings"][0]["waiver"]["holds"])
         with self.store.connection() as conn:
             conn.execute("UPDATE offers SET stock = 5 WHERE listing_id = 'l-A'")
         self.assertEqual(findings(), [])

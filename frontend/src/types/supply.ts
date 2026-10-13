@@ -297,6 +297,13 @@ export interface SupplyComponentFinding {
   severity: "ok" | "warning" | "error" | "fatal";
   text: string;
   scope: string;
+  waiver: SupplyWaiver | null;
+}
+
+/** A component's findings and the part they are waived on (its own part), or null when it has none tracked. */
+export interface SupplyComponentCheck {
+  part_id: string | null;
+  findings: SupplyComponentFinding[];
 }
 
 /** One distinct part on a BOM: what goes into a lookup. `quantity` is fitted parts per board. */

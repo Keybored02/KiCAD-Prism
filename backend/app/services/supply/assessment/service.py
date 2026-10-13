@@ -39,7 +39,8 @@ def assess_one(
         distributors=distributors,
         svhc_listed=svhc_listed,
     )
-    findings = [*waivers.apply(checks.evaluate(facts, settings), part_waivers), *extras]
+    # Findings from outside the part (a component's) are waived like the part's own.
+    findings = waivers.apply([*checks.evaluate(facts, settings), *extras], part_waivers)
     scores = risk.sub_scores(facts)
     result = health.health(findings, scores, settings, has_data=bool(offers))
     return {
@@ -66,7 +67,7 @@ def assess_summaries(
 ) -> dict[str, dict[str, Any]]:
     """Assess parts whose summaries and offers a caller already loaded, by the workspace's settings.
 
-    ``extras`` are findings from outside the part (a component's, say); they are not waivable here.
+    ``extras`` are findings from outside the part (a component's, say); a waiver on the part covers them like its own.
     """
 
     settings = settings or settings_store.load(conn)

@@ -13,6 +13,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   decideSource: vi.fn(),
   rankSource: vi.fn(),
   removeSource: vi.fn(),
+  proposeWaiver: vi.fn(),
   listSupplyManufacturers: vi.fn(),
 }));
 
@@ -37,7 +38,7 @@ function renderSection(role: UserRole) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.listSupplyManufacturers.mockResolvedValue({ items: [] });
-  mocked.getComponentFindings.mockResolvedValue([]);
+  mocked.getComponentFindings.mockResolvedValue({ part_id: "p1", findings: [] });
   mocked.decideSource.mockResolvedValue();
   mocked.rankSource.mockResolvedValue();
   mocked.removeSource.mockResolvedValue();
@@ -62,11 +63,26 @@ describe("the approved parts list", () => {
 
   it("says so when nothing approved is in stock", async () => {
     mocked.listComponentSources.mockResolvedValue([source({ stock: 0, status: "error" })]);
-    mocked.getComponentFindings.mockResolvedValue([
-      { check: "no_approved_source", severity: "error", text: "The part and its approved alternate are out of stock.", scope: "no_approved_source" },
-    ]);
+    mocked.getComponentFindings.mockResolvedValue({
+      part_id: "p1",
+      findings: [{ check: "no_approved_source", severity: "error", text: "The part and its approved alternate are out of stock.", scope: "no_approved_source", waiver: null }],
+    });
     renderSection("designer");
     expect(await screen.findByText("The part and its approved alternate are out of stock.")).toBeTruthy();
+  });
+
+  it("lets QA waive a component finding on the component's own part", async () => {
+    mocked.listComponentSources.mockResolvedValue([source({ stock: 0, status: "error" })]);
+    mocked.getComponentFindings.mockResolvedValue({
+      part_id: "p9",
+      findings: [{ check: "no_approved_source", severity: "error", text: "All out of stock.", scope: "no_approved_source", waiver: null }],
+    });
+    mocked.proposeWaiver.mockResolvedValue({ id: "w1", state: "approved" });
+    renderSection("qa");
+    fireEvent.click(await screen.findByRole("button", { name: "Waive" }));
+    fireEvent.change(screen.getByLabelText("Why no approved source is acceptable"), { target: { value: "Reel due on the 20th" } });
+    fireEvent.click(screen.getByRole("button", { name: "Waive" }));
+    await waitFor(() => expect(mocked.proposeWaiver).toHaveBeenCalledWith("p9", "no_approved_source", "Reel due on the 20th", "cmp_1"));
   });
 
   it("shows the component's own part as primary, then its alternates with how they stand", async () => {

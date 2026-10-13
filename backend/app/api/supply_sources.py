@@ -17,7 +17,7 @@ from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.api.supply_access import require_supply_editor
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
 from app.services.supply import catalog_read, parts, sources, watches
-from app.services.supply.assessment import component_checks, settings_store
+from app.services.supply.assessment import component_checks, settings_store, waivers
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -77,7 +77,16 @@ async def component_assessment(component_id: str, _user: AuthenticatedUser = Dep
             maker, mpn = catalog_read.identities([component_id]).get(component_id, ("", ""))
             primary = parts.find_part(conn, maker, mpn) if maker and mpn else None
             found = component_checks.for_component(conn, component_id, primary.id if primary else None, settings_store.load(conn))
-            return {"findings": [{"check": f.check, "severity": f.severity.value, "text": f.text, "scope": f.scope} for f in found]}
+            if primary:
+                found = waivers.apply(found, waivers.for_parts(conn, [primary.id]).get(primary.id, []))
+            return {
+                "part_id": primary.id if primary else None,
+                "findings": [
+                    {"check": f.check, "severity": f.severity.value, "text": f.text, "scope": f.scope,
+                     "waiver": dict(f.waiver) if f.waiver else None}
+                    for f in found
+                ],
+            }
 
     return await _run(read)
 
