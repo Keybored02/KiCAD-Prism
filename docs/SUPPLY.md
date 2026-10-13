@@ -10,7 +10,7 @@ manage connectors and settings. Viewers see none of it.
 
 ## Set up a distributor
 
-Library Manager > Connectors. One connector per provider and storefront.
+Supply > Connectors. One connector per provider and storefront.
 
 | Provider | Needs | Notes |
 | --- | --- | --- |

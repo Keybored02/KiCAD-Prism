@@ -22,7 +22,7 @@ from app.services.trackers.secrets import SecretStoreLocked
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
-RETURN_TO = "/?section=library-manager&libraryView=connectors"
+RETURN_TO = "/?section=supply&supplyView=connectors"
 
 
 def _service():

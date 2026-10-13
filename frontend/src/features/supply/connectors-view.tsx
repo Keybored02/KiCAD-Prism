@@ -22,7 +22,7 @@ import { useSupplyConnectors } from "./use-supply-connectors";
 
 type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "terms" | "test">; id: string };
 
-/** Library Manager > Connectors: distributor accounts, budgets and state. Admins change them. */
+/** Supply > Connectors: distributor accounts, budgets and state. Admins change them. */
 export function SupplyConnectorsView({ user }: { user: User | null }) {
   const isAdmin = user?.role === "admin";
   const { status, providers, connectors, error, apply, remove, reload, refresh } = useSupplyConnectors();

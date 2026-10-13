@@ -98,7 +98,7 @@ function NeedsAttention({ overview, onOpenPart, onParts }: { overview: SupplyOve
       ) : (
         <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
           {connectors === 0
-            ? "No distributor is connected. Add one in Library Manager, under Connectors, and Prism can start reading stock."
+            ? "No distributor is connected. Add one under Connectors, and Prism can start reading stock."
             : figures.watched === 0
               ? "No parts are watched yet. Watch a part in Parts and it is read regularly."
               : figures.no_data === figures.watched

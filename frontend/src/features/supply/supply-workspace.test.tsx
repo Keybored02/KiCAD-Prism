@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +7,7 @@ import type { User, UserRole } from "@/types/auth";
 vi.mock("./overview-view", () => ({ OverviewView: () => <div>Overview content</div> }));
 vi.mock("./inbox-view", () => ({ InboxView: () => <div>Inbox content</div> }));
 vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
+vi.mock("./connectors-view", () => ({ SupplyConnectorsView: () => <div>Connectors content</div> }));
 vi.mock("./review-view", () => ({ ReviewView: () => <div>Review content</div> }));
 vi.mock("./supply-settings-dialog", () => ({ SupplySettingsDialog: () => <div>Settings dialog</div> }));
 
@@ -42,6 +43,13 @@ describe("the Supply section", () => {
     cleanup();
     renderAt("qa", "/?section=supply&supplyView=inbox");
     expect(await screen.findByText("Inbox content")).toBeTruthy();
+  });
+
+  it("has the Connectors tab, where a DigiKey sign-in returns and says how it went", async () => {
+    renderAt("admin", "/?section=supply&supplyView=connectors&signin=ok");
+    expect(await screen.findByText("Connectors content")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Connectors" }).getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/?section=supply&supplyView=connectors"));
   });
 
   it("shows Review when asked for it", async () => {

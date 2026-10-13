@@ -26,19 +26,19 @@ function at(search: string) {
 
 describe("the DigiKey sign-in result", () => {
   it("says it worked once and takes it out of the address", async () => {
-    at("?section=library-manager&libraryView=connectors&signin=ok");
-    await waitFor(() => expect(seen).toBe("?section=library-manager&libraryView=connectors"));
+    at("?section=supply&supplyView=connectors&signin=ok");
+    await waitFor(() => expect(seen).toBe("?section=supply&supplyView=connectors"));
     expect(toast.success).toHaveBeenCalledTimes(1);
   });
 
   it("gives the reason when it failed", async () => {
-    at("?libraryView=connectors&signin=failed&message=This+sign-in+expired");
+    at("?supplyView=connectors&signin=failed&message=This+sign-in+expired");
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("The DigiKey sign-in did not finish", { description: "This sign-in expired" }));
-    expect(seen).toBe("?libraryView=connectors");
+    expect(seen).toBe("?supplyView=connectors");
   });
 
   it("does nothing without a result", () => {
-    at("?libraryView=connectors");
+    at("?supplyView=connectors");
     expect(toast.success).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
   });

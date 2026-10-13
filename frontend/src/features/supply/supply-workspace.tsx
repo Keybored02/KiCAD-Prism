@@ -1,11 +1,12 @@
 import { lazy, Suspense, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BellRing, Boxes, CalendarClock, FileSpreadsheet, LayoutDashboard, LineChart, ListChecks, Settings, ShieldAlert, type LucideIcon } from "lucide-react";
+import { BellRing, Boxes, CalendarClock, FileSpreadsheet, LayoutDashboard, LineChart, ListChecks, Plug, Settings, ShieldAlert, type LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
+import { useSigninResult } from "./use-signin-result";
 
 const OverviewView = lazy(() => import("./overview-view").then((module) => ({ default: module.OverviewView })));
 const InboxView = lazy(() => import("./inbox-view").then((module) => ({ default: module.InboxView })));
@@ -14,6 +15,7 @@ const SupplySettingsDialog = lazy(() => import("./supply-settings-dialog").then(
 const MarketView = lazy(() => import("./market-view").then((module) => ({ default: module.MarketView })));
 const PlanningView = lazy(() => import("./planning-view").then((module) => ({ default: module.PlanningView })));
 const BomFileView = lazy(() => import("./bom-file-view").then((module) => ({ default: module.BomFileView })));
+const SupplyConnectorsView = lazy(() => import("./connectors-view").then((module) => ({ default: module.SupplyConnectorsView })));
 const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
 
 const VIEWS: ReadonlyArray<{ id: SupplyView; label: string; icon: LucideIcon }> = [
@@ -24,9 +26,10 @@ const VIEWS: ReadonlyArray<{ id: SupplyView; label: string; icon: LucideIcon }> 
   { id: "market", label: "Market", icon: LineChart },
   { id: "planning", label: "Planning", icon: CalendarClock },
   { id: "bom-file", label: "BOM file", icon: FileSpreadsheet },
+  { id: "connectors", label: "Connectors", icon: Plug },
 ];
 
-type SupplyView = "overview" | "parts" | "inbox" | "review" | "market" | "planning" | "bom-file";
+type SupplyView = "overview" | "parts" | "inbox" | "review" | "market" | "planning" | "bom-file" | "connectors";
 
 function isSupplyView(value: string | null): value is SupplyView {
   return VIEWS.some((view) => view.id === value);
@@ -38,6 +41,8 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
   const requested = searchParams.get("supplyView");
   const view: SupplyView = isSupplyView(requested) ? requested : "overview";
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // A DigiKey sign-in returns here, on the Connectors tab, with its result in the address.
+  useSigninResult();
 
   if (!canOpenSupply(user?.role)) {
     return (
@@ -95,6 +100,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
           {view === "market" && <MarketView />}
           {view === "planning" && <PlanningView />}
           {view === "bom-file" && <BomFileView />}
+          {view === "connectors" && <SupplyConnectorsView user={user} />}
         </div>
       </Suspense>
       {settingsOpen ? (
