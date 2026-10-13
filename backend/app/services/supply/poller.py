@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Sequence
 
-from app.services.supply import alerts, demand, facts, ledger, pricing, quota, stock, tiers, trouble
+from app.services.supply import alerts, demand, facts, insights, ledger, parts_view, pricing, quota, stock, tiers, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import remember_datasheet
 from app.services.supply.identity import match_key
@@ -351,6 +351,10 @@ class Poller:
 
     def _tier_for(self, conn, row: DueListing, lifecycle: Lifecycle, last_change: datetime | None, now: datetime) -> tiers.Tier:
         watch = conn.execute("SELECT threshold, pinned FROM watches WHERE part_id = %s", (row.part_id,)).fetchone()
+        rupture = None
+        if watch is not None:
+            insight = parts_view.insight_from(parts_view.history(conn, row.part_id, now), watch["threshold"], now)
+            rupture = insights.rupture_expected_within(insight)
         return tiers.choose_tier(tiers.TierInputs(
             now=now,
             watched=watch is not None,
@@ -360,6 +364,7 @@ class Poller:
             threshold=watch["threshold"] if watch else None,
             last_change_at=last_change,
             demand=demand.open_totals(conn, [row.part_id]).get(row.part_id),
+            rupture_days=rupture,
         ))
 
     @staticmethod

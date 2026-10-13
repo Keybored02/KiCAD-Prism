@@ -52,6 +52,12 @@ class ChooseTierTests(unittest.TestCase):
             self.assertEqual(pick(lifecycle=lifecycle, total_stock=5000), Tier.WARM, lifecycle)
         self.assertEqual(pick(lifecycle=Lifecycle.ACTIVE, total_stock=5000), Tier.NORMAL)
 
+    def test_a_projected_rupture_speeds_polling_by_how_near_it_is(self) -> None:
+        self.assertEqual(pick(total_stock=5000, rupture_days=10), Tier.HOT)
+        self.assertEqual(pick(total_stock=5000, rupture_days=14), Tier.HOT)
+        self.assertEqual(pick(total_stock=5000, rupture_days=40), Tier.WARM)
+        self.assertEqual(pick(total_stock=5000, rupture_days=None), Tier.NORMAL)
+
     def test_recent_movement_is_warm_and_old_movement_is_not(self) -> None:
         self.assertEqual(pick(last_change_at=NOW - timedelta(hours=3)), Tier.WARM)
         self.assertEqual(pick(last_change_at=NOW - timedelta(days=2)), Tier.NORMAL)
