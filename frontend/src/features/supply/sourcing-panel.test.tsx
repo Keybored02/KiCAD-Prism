@@ -53,7 +53,7 @@ describe("the Sourcing tab", () => {
 
   it("offers to watch a part Prism does not know yet, then shows it", async () => {
     mocked.findSupplyPart.mockResolvedValueOnce(null);
-    mocked.addSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "Texas Instruments", mpn: "LM358D", threshold: null, pinned: false, owner: "x" });
+    mocked.addSupplyWatch.mockResolvedValue({ id: "w1", part_id: "p1", manufacturer: "Texas Instruments", mpn: "LM358D", threshold: null, pinned: false, owner: "x", packaging: "any" });
     renderPanel();
     fireEvent.click(await screen.findByRole("button", { name: "Watch this part" }));
     await waitFor(() => expect(mocked.addSupplyWatch).toHaveBeenCalledWith({ manufacturer: "Texas Instruments", mpn: "LM358D" }));

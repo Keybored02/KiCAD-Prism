@@ -9,6 +9,7 @@ import type { SupplyWatchSummary, WatchPackaging } from "@/types/supply";
 import { addSupplyWatch, removeSupplyWatch, updateSupplyWatch } from "./supply-api";
 import { parseThreshold } from "./supply-format";
 import { useConnectorSubmit } from "./use-connector-submit";
+import { PACKAGINGS } from "./watch-packaging";
 
 interface WatchSettingsProps {
   part: { mpn: string; manufacturer: string };
@@ -24,14 +25,6 @@ interface Draft {
   packaging: WatchPackaging;
 }
 
-const PACKAGINGS: ReadonlyArray<{ value: WatchPackaging; label: string }> = [
-  { value: "any", label: "All packaging" },
-  { value: "cut_tape", label: "Cut tape only (prototypes)" },
-  { value: "tape_reel", label: "Tape and reel only (production)" },
-  { value: "tray", label: "Tray only" },
-  { value: "tube", label: "Tube only" },
-  { value: "bulk", label: "Bulk only" },
-];
 
 function edit(state: Draft, change: Partial<Draft>): Draft {
   return { ...state, ...change };

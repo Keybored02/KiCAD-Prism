@@ -176,6 +176,18 @@ def _refresh_rates(conn) -> None:
         logging.getLogger(__name__).info("Exchange rates not refreshed", exc_info=True)
 
 
+def _sync_component_watches(conn) -> None:
+    """Watch the parts of watched components, so alternates approved elsewhere are picked up. Best effort."""
+
+    try:
+        from app.services.supply import catalog_read, component_watches
+
+        with conn.transaction():
+            component_watches.sync_all(conn, catalog_read.identities)
+    except Exception:  # noqa: BLE001 - the catalog may be unavailable; the next job tries again
+        logging.getLogger(__name__).info("Component watches not synced", exc_info=True)
+
+
 def run_supply_poll_job(context: Any) -> Any:
     """Job handler: search for new listings, then ask about the ones that are due."""
 
@@ -190,6 +202,7 @@ def run_supply_poll_job(context: Any) -> Any:
     with connectors.store.connection() as conn:
         _refresh_rates(conn)
         _snapshot_market(conn)
+        _sync_component_watches(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
     # Outside the connection above: fetching a file can take a while.
     _check_datasheets(connectors.store)

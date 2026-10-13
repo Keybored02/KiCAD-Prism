@@ -28,6 +28,7 @@ import type {
   SupplyBomRollup,
   SupplyCompliance,
   SupplyComponentCheck,
+  SupplyComponentWatch,
   SupplyDatasheets,
   SupplyMarket,
   SupplyMarketHistory,
@@ -42,6 +43,7 @@ import type {
   SupplyWatch,
   UpdateSupplyConnectorInput,
   UpdateWatchInput,
+  WatchPackaging,
 } from "@/types/supply";
 
 const BASE = "/api/supply";
@@ -341,6 +343,21 @@ export function getComponentFindings(componentId: string, signal?: AbortSignal):
 
 export function watchComponentAlternates(componentId: string): Promise<{ watched: number; already_watched: number }> {
   return post(`${BASE}/components/${encodeURIComponent(componentId)}/watch-alternates`, undefined, "Could not watch the alternates");
+}
+
+export async function getComponentWatch(componentId: string, signal?: AbortSignal): Promise<SupplyComponentWatch | null> {
+  const url = `${BASE}/components/${encodeURIComponent(componentId)}/watch`;
+  return (await fetchJson<{ watch: SupplyComponentWatch | null }>(url, { signal }, "Could not load the component watch")).watch;
+}
+
+export async function setComponentWatch(componentId: string, includeAlternates: boolean, packaging: WatchPackaging): Promise<SupplyComponentWatch> {
+  const url = `${BASE}/components/${encodeURIComponent(componentId)}/watch`;
+  const body = JSON.stringify({ include_alternates: includeAlternates, packaging });
+  return (await fetchJson<{ watch: SupplyComponentWatch }>(url, { method: "PUT", body }, "Could not watch the component")).watch;
+}
+
+export function removeComponentWatch(componentId: string): Promise<void> {
+  return send(`${BASE}/components/${encodeURIComponent(componentId)}/watch`, "DELETE", undefined, "Could not stop watching the component");
 }
 
 export function addComponentSource(componentId: string, manufacturer: string, mpn: string): Promise<{ id: string; approval: string }> {

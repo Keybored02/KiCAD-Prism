@@ -300,6 +300,14 @@ export interface SupplyComponentFinding {
   waiver: SupplyWaiver | null;
 }
 
+/** A standing request to watch a component and, when asked, its approved alternates. */
+export interface SupplyComponentWatch {
+  component_id: string;
+  include_alternates: boolean;
+  packaging: WatchPackaging;
+  owner: string;
+}
+
 /** A component's findings and the part they are waived on (its own part), or null when it has none tracked. */
 export interface SupplyComponentCheck {
   part_id: string | null;

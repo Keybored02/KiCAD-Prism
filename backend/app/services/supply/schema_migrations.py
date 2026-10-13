@@ -709,6 +709,24 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m027_component_watches(conn) -> None:
+    """A standing request to watch a catalog component, and its approved alternates when asked (see ``component_watches.py``)."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS component_watches (
+            component_id TEXT PRIMARY KEY,
+            include_alternates BOOLEAN NOT NULL DEFAULT FALSE,
+            packaging TEXT NOT NULL DEFAULT 'any' CHECK (packaging IN ('any', 'cut_tape', 'tape_reel', 'tray', 'tube', 'bulk')),
+            owner TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """,
+        prepare=False,
+    )
+
+
 def _m026_watch_packaging(conn) -> None:
     """Which packaging a watch counts: any, or one of cut tape, tape and reel, tray, tube, bulk."""
 
@@ -835,6 +853,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (24, "market_categories", _m024_market_categories),
     (25, "worker_seen", _m025_worker_seen),
     (26, "watch_packaging", _m026_watch_packaging),
+    (27, "component_watches", _m027_component_watches),
 ]
 
 

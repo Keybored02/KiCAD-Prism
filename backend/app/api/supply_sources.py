@@ -7,7 +7,7 @@ approval access (admin, designer, qa); approving, rejecting and ranking follow c
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Literal, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,7 +16,7 @@ from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.api.supply_access import require_supply_editor
 from app.core.security import AuthenticatedUser, require_supply_approver, require_supply_reader, require_supply_writer
-from app.services.supply import catalog_read, parts, sources, watches
+from app.services.supply import catalog_read, component_watches, parts, sources, watches
 from app.services.supply.assessment import component_checks, settings_store, waivers
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
@@ -110,16 +110,61 @@ async def watch_alternates(component_id: str, writer: AuthenticatedUser = Depend
     return await _run(run)
 
 
+class ComponentWatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    include_alternates: bool = False
+    packaging: Literal["any", "cut_tape", "tape_reel", "tray", "tube", "bulk"] = "any"
+
+
+@router.get("/components/{component_id}/watch")
+async def get_component_watch(component_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return {"watch": component_watches.get(conn, component_id)}
+
+    return await _run(read)
+
+
+@router.put("/components/{component_id}/watch")
+async def set_component_watch(
+    component_id: str, body: ComponentWatchRequest, writer: AuthenticatedUser = Depends(require_supply_writer)
+) -> dict[str, Any]:
+    """Watch a component, and its approved alternates when asked. Setting it again changes the options."""
+
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return {"watch": component_watches.set_watch(
+                conn, component_id, writer.email, catalog_read.identities,
+                include_alternates=body.include_alternates, packaging=body.packaging,
+            )}
+
+    return await _run(run)
+
+
+@router.delete("/components/{component_id}/watch", status_code=204)
+async def remove_component_watch(component_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> Response:
+    def run() -> None:
+        with _store().connection() as conn:
+            component_watches.remove_watch(conn, component_id, writer.email)
+
+    await _run(run)
+    return Response(status_code=204)
+
+
 @router.post("/components/{component_id}/sources", status_code=201)
 async def add_source(
     component_id: str, body: AddSourceRequest, writer: AuthenticatedUser = Depends(require_supply_editor)
 ) -> dict[str, Any]:
     def run() -> dict[str, Any]:
         with _store().connection() as conn:
-            return sources.add_source(
+            added = sources.add_source(
                 conn, component_id, body.manufacturer, body.mpn, writer.email,
                 approver=writer.role in SUPPLY_APPROVE_ROLES,
             )
+            if added["approval"] == sources.APPROVED:
+                component_watches.sync_component(conn, component_id, catalog_read.identities)
+            return added
 
     return await _run(run)
 
@@ -128,7 +173,9 @@ async def add_source(
 async def approve_source(source_id: str, approver: AuthenticatedUser = Depends(require_supply_approver)) -> Response:
     def run() -> None:
         with _store().connection() as conn:
-            sources.decide(conn, source_id, approver.email, approve=True)
+            component_id = sources.decide(conn, source_id, approver.email, approve=True)
+            # An alternate approved for a watched component is watched with it.
+            component_watches.sync_component(conn, component_id, catalog_read.identities)
 
     await _run(run)
     return Response(status_code=204)

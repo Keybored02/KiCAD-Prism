@@ -111,12 +111,14 @@ def add_source(conn, component_id: str, manufacturer: str, mpn: str, actor: str,
     return {"id": source_id, "part_id": part.id, "approval": approval}
 
 
-def decide(conn, source_id: str, actor: str, *, approve: bool) -> None:
+def decide(conn, source_id: str, actor: str, *, approve: bool) -> str:
+    """Approve or reject a source. Returns the component it belongs to."""
+
     actor = actor_text(actor)
     row = _row(conn, source_id)
     approval = APPROVED if approve else REJECTED
     if row["approval"] == approval:
-        return
+        return row["component_id"]
     conn.execute(
         "UPDATE component_sources SET approval = %s, decided_by = %s, decided_at = NOW() WHERE id = %s",
         (approval, actor, source_id),
@@ -124,6 +126,7 @@ def decide(conn, source_id: str, actor: str, *, approve: bool) -> None:
     write_audit(conn, actor, "source.approve" if approve else "source.reject", source_id,
                 {"component_id": row["component_id"], "part_id": row["part_id"], "was": row["approval"]},
                 subject_kind="component_source")
+    return row["component_id"]
 
 
 def set_rank(conn, source_id: str, rank: int, actor: str) -> None:

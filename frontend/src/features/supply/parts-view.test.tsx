@@ -221,7 +221,7 @@ describe("a part", () => {
 
 describe("watching", () => {
   it("watches a new part from the list and opens it", async () => {
-    mocked.addSupplyWatch.mockResolvedValue({ id: "w9", part_id: "p9", manufacturer: "Acme", mpn: "X1", threshold: 50, pinned: false, owner: "d" });
+    mocked.addSupplyWatch.mockResolvedValue({ id: "w9", part_id: "p9", manufacturer: "Acme", mpn: "X1", threshold: 50, pinned: false, owner: "d", packaging: "any" });
     renderView();
     await screen.findByRole("button", { name: "LM358D" });
     fireEvent.click(screen.getAllByRole("button", { name: "Watch a part" })[0]);

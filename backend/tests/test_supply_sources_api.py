@@ -57,7 +57,7 @@ class SupplySourcesTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("watches", "component_sources", "offers", "listings", "connectors", "parts", "manufacturer_aliases", "manufacturers", "audit_events"):
+            for table in ("component_watches", "watches", "component_sources", "offers", "listings", "connectors", "parts", "manufacturer_aliases", "manufacturers", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme'), ('m2', 'Globex', 'globex')")
 
@@ -164,6 +164,33 @@ class SupplySourcesTests(unittest.TestCase):
             conn.execute("UPDATE offers SET stock = 5 WHERE listing_id = 'l-A'")
         self.assertEqual(findings(), [])
         self.assertEqual(self.call("GET", f"/api/supply/components/{COMPONENT}/assessment", role="viewer").status, 403)
+
+    def test_a_component_watch_watches_its_part_and_alternates_approved_later(self) -> None:
+        from app.services.supply import catalog_read
+
+        def watched() -> list[str]:
+            with self.store.connection() as conn:
+                return sorted(r["mpn"] for r in conn.execute("SELECT p.mpn FROM watches w JOIN parts p ON p.id = w.part_id").fetchall())
+
+        path = f"/api/supply/components/{COMPONENT}/watch"
+        with mock.patch.object(catalog_read, "identities", lambda ids: {COMPONENT: ("Acme", "PRIM-1")}):
+            self.assertEqual(self.call("GET", path, role="qa").json, {"watch": None})
+            self.assertEqual(self.call("PUT", path, role="viewer", body={"include_alternates": True}).status, 403)
+            reply = self.call("PUT", path, role="designer", body={"include_alternates": True, "packaging": "cut_tape"})
+            self.assertEqual((reply.status, reply.json["watch"]["include_alternates"]), (200, True), reply.text)
+            self.assertEqual(watched(), ["PRIM-1"])
+            self.add(mpn="ALT-1", role="designer")
+            self.assertEqual(watched(), ["PRIM-1"], "a proposal waits for QA")
+            source = self.listed()[0]["id"]
+            self.assertEqual(self.call("POST", f"/api/supply/sources/{source}/approve", role="qa").status, 204)
+            self.assertEqual(watched(), ["ALT-1", "PRIM-1"], "approving adds it to the watch")
+            with self.store.connection() as conn:
+                self.assertEqual({r["packaging"] for r in conn.execute("SELECT packaging FROM watches").fetchall()}, {"cut_tape"})
+            self.assertEqual(self.call("DELETE", path, role="designer").status, 204)
+            self.assertEqual(self.call("GET", path, role="qa").json, {"watch": None})
+            self.assertEqual(watched(), ["ALT-1", "PRIM-1"], "stopping leaves the part watches")
+        with mock.patch.object(catalog_read, "identities", lambda ids: {}):
+            self.assertEqual(self.call("PUT", path, role="designer", body={}).status, 400)
 
     def test_watching_the_alternates_watches_the_approved_ones_once(self) -> None:
         self.add(mpn="ALT-1", role="qa")
