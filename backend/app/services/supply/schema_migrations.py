@@ -709,6 +709,22 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m025_worker_seen(conn) -> None:
+    """The worker's last report of the providers it knows and the age of its code (see ``worker_seen.py``)."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS worker_seen (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            providers TEXT[] NOT NULL DEFAULT '{}',
+            code_stamp DOUBLE PRECISION NOT NULL DEFAULT 0,
+            seen_at TIMESTAMPTZ NOT NULL
+        );
+        """,
+        prepare=False,
+    )
+
+
 def _m024_market_categories(conn) -> None:
     """Market figures by the category a distributor files a part under, as well as by manufacturer."""
 
@@ -807,6 +823,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (22, "usage_lcsc", _m022_usage_lcsc),
     (23, "connector_retention", _m023_connector_retention),
     (24, "market_categories", _m024_market_categories),
+    (25, "worker_seen", _m025_worker_seen),
 ]
 
 

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
-from app.services.supply import datasheets, details, fx, ledger, market, quota, retention
+from app.services.supply import datasheets, details, fx, ledger, market, quota, retention, worker_seen
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, REDO_AFTER, REDO_FOUND_AFTER, Discoverer
 from app.services.supply.poller import Poller
@@ -121,6 +121,7 @@ def schedule_due_supply_jobs(
     store.initialize()
     moment = now or datetime.now(timezone.utc)
     with store.connection() as conn:
+        worker_seen.record(conn, moment)
         connector_ids = connectors_with_work(conn, moment)
     queued = []
     for connector_id in connector_ids:

@@ -31,6 +31,7 @@ root first.
 | `stock.py` | A part's stock across distributors, honouring each provider's pooling. Only exact and manual listings, no marketplace stock. |
 | `discoverer.py` | Searches for listings of watched parts, once per part per connector; again after a month when the part was found there, after a week when not. A provider with `search_batch` is asked for a group of parts per call (`lookup_mpns`). Costs budget like any call. |
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
+| `worker_seen.py` | The worker's report of its providers and code age, written each scan; health compares it with the server so an out-of-date worker is visible. |
 | `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. |
 | `poller.py` | `Poller.poll_connector`: asks for due listings in batches within the call budget and records offers and samples. A provider with `groups_by_part` (DigiKey) is asked once per part, with the part's other listings read in the same call. |
 | `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. |
