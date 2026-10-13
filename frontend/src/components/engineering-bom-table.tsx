@@ -59,6 +59,8 @@ interface BomSearchTerm {
 }
 
 interface EngineeringBomTableProps {
+    /** The project the BOM is from; build plans are kept per project. */
+    projectId?: string;
     semanticIndex: PrismSemanticIndex | null;
     loading: boolean;
     error?: string | null;
@@ -198,6 +200,7 @@ export function EngineeringBomTable({
     onRetry,
     components,
     user,
+    projectId,
 }: EngineeringBomTableProps) {
     const [query, setQuery] = useState("");
     const [assemblyFilter, setAssemblyFilter] =
@@ -213,7 +216,7 @@ export function EngineeringBomTable({
     );
     // Supply figures are for what is fitted, whichever rows the assembly filter shows.
     const fitted = useMemo(() => allComponents.filter(isAssembled), [allComponents]);
-    const supply = useBomSupply(fitted, user ?? null);
+    const supply = useBomSupply(fitted, user ?? null, projectId);
     const detail = useBomRowDetail(supply, user ?? null);
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
         if (typeof window === "undefined") return {};

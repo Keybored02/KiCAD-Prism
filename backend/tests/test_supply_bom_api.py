@@ -223,6 +223,18 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual(self.call("/api/supply/bom/plan", {"name": "x", "lines": lines}, role="qa").status, 403)
         self.assertEqual(self.call("/api/supply/bom/plan", {"name": "", "lines": lines}).status, 422)
 
+    def test_two_projects_can_plan_under_the_same_name(self) -> None:
+        one = self.part("Acme", "R-1")
+        lines = [{"key": "a", "manufacturer": "Acme", "mpn": "R-1", "quantity": 2}]
+        for project in ("alpha", "beta"):
+            reply = self.call("/api/supply/bom/plan", {"name": "25 boards", "project_id": project, "build_quantity": 25, "lines": lines})
+            self.assertEqual((reply.status, reply.json), (200, {"parts": 1, "replaced": 0}), reply.text)
+        with self.store.connection() as conn:
+            refs = sorted(r["source_ref"] for r in conn.execute("SELECT source_ref FROM demands WHERE state <> 'closed' AND part_id = %s", (one,)).fetchall())
+        self.assertEqual(refs, ["alpha/25 boards", "beta/25 boards"])
+        again = self.call("/api/supply/bom/plan", {"name": "25 boards", "project_id": "alpha", "build_quantity": 10, "lines": lines})
+        self.assertEqual(again.json, {"parts": 1, "replaced": 1})
+
     def test_the_other_resolutions(self) -> None:
         only = self.part("Texas Instruments", "UNIQUE1")
         self.part("Texas Instruments", "TWIN1")

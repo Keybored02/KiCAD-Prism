@@ -43,6 +43,10 @@ class ParseTests(unittest.TestCase):
         items = compliance.parse_list("Name;CAS\nLead compounds;7439-92-1 / 7440-43-9\n")
         self.assertEqual([i["cas"] for i in items], ["7439-92-1", "7440-43-9"])
 
+    def test_title_rows_above_the_header_are_skipped(self) -> None:
+        text = 'Candidate List of substances\n\nExported 2026-01-01\n"Substance name","EC No.","CAS No."\n"Lead","231-100-4","7439-92-1"\n'
+        self.assertEqual([i["cas"] for i in compliance.parse_list(text)], ["7439-92-1"])
+
     def test_a_file_without_the_columns_or_without_substances_is_refused(self) -> None:
         for text in ("", "Foo,Bar\n1,2\n", "Name,CAS\nLead,not-a-cas\n"):
             with self.assertRaises(compliance.ComplianceError):

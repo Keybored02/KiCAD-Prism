@@ -405,6 +405,7 @@ def _offer(sku: str, answer: Mapping[str, Any], now: datetime) -> Offer | None:
         reach_affected=_reach((product.get("Classifications") or {}).get("ReachStatus")),
         marketplace=bool(variation.get("MarketPlace")),
         product_url=str(product.get("ProductUrl") or ""),
+        datasheet_url=str(product.get("DatasheetUrl") or ""),
         facts=_facts(product),
     )
 

@@ -171,6 +171,14 @@ class UsageDatabaseTests(unittest.TestCase):
         self.assertTrue(self.store_project("p1", "Board A renamed", [component("R1", "Acme", "OTHER")], revision="r2"))
         self.assertEqual([row["mpn"] for row in self.rows("SELECT mpn FROM bom_usage")], ["OTHER"])
 
+    def test_a_stored_line_keeps_the_lcsc_number_of_its_symbol(self) -> None:
+        self.store_project("p1", "Board A", [component("R1", "Acme", "R-1", LCSC="c25804"), component("R2", "Acme", "R-1")])
+        self.assertEqual([row["lcsc"] for row in self.rows("SELECT lcsc FROM bom_usage")], ["C25804"])
+        from app.services.supply import usage as usage_module
+
+        with self.store.connection() as conn:
+            self.assertEqual([row["lcsc"] for row in usage_module.project_rows(conn, "p1")], ["C25804"])
+
     def test_refresh_reads_existing_indexes_and_drops_projects_that_are_gone(self) -> None:
         self.store_project("gone", "Removed board", [component("R1", "Acme", "R-1")])
         projects = [SimpleNamespace(id="p1", name="Board A"), SimpleNamespace(id="p2", name="Never opened"), SimpleNamespace(id="p3", name="Broken")]

@@ -198,6 +198,7 @@ def _offer(product: Mapping[str, Any], now: datetime) -> Offer:
         discontinued=cycle == _CYCLE_DROPPED,
         rohs=rohs if isinstance(rohs, bool) else None,
         product_url=PAGE_URL.format(sku),
+        datasheet_url=str(product.get("pdfUrl") or ""),
     )
 
 

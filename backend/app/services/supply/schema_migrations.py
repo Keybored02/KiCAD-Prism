@@ -709,6 +709,12 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m022_usage_lcsc(conn) -> None:
+    """The LCSC number a BOM line's symbol carries, kept with the stored line so lines read later resolve through it."""
+
+    conn.execute("ALTER TABLE bom_usage ADD COLUMN IF NOT EXISTS lcsc TEXT NOT NULL DEFAULT ''", prepare=False)
+
+
 def _m021_distributor_details(conn) -> None:
     """Compliance and trade facts, a person's sign-in at a distributor, and notices read from distributors.
 
@@ -782,6 +788,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (19, "pcns", _m019_pcns),
     (20, "part_params", _m020_part_params),
     (21, "distributor_details", _m021_distributor_details),
+    (22, "usage_lcsc", _m022_usage_lcsc),
 ]
 
 

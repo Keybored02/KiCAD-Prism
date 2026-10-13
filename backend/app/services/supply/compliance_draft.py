@@ -35,7 +35,7 @@ def _reach_text(standing: Mapping[str, Any]) -> str:
 def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """The draft for BOM lines (``key``, ``manufacturer``, ``mpn``, ``quantity``, optionally ``references``)."""
 
-    lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"]) for row in rows]
+    lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row.get("lcsc", "")) for row in rows]
     resolved = bom_lookup.resolve_lines(lines, conn)
     part_ids = sorted({part_id for state, part_id, _how in resolved.values() if state == bom_lookup.TRACKED and part_id})
     flags: dict[str, list[tuple[bool | None, bool | None]]] = {part_id: [] for part_id in part_ids}
@@ -75,8 +75,6 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 gaps.append("Affected by REACH: get the manufacturer's substance declaration.")
             if "exempt" in said.get("rohs", "").lower():
                 gaps.append("RoHS compliant by exemption: name the exemption in the declaration.")
-        if not list_loaded and not gaps:
-            gaps.append("The REACH Candidate List is not loaded, so declared substances were not checked.")
         out.append({
             "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": row["quantity"], "references": row.get("references", ""),
             "rohs": rohs, "reach": reach, "on_candidate_list": on_list, "gaps": gaps,
@@ -86,8 +84,12 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {
         "parts": out,
         "summary": {"parts": len(out), "with_gaps": gap_count, "rohs_unknown": sum(1 for i in out if i["rohs"] == "unknown"),
-                    "reach_unknown": sum(1 for i in out if i["reach"] == "unknown"), "candidate_list_loaded": list_loaded},
+                    "reach_unknown": sum(1 for i in out if i["reach"] == "unknown"), "candidate_list_loaded": list_loaded,
+                    "note": "" if list_loaded else LIST_NOT_LOADED},
     }
+
+
+LIST_NOT_LOADED = "The REACH Candidate List is not loaded, so declared substances were not checked."
 
 
 def _safe(cell: object) -> str:
@@ -101,6 +103,9 @@ def to_csv(draft: Mapping[str, Any]) -> str:
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
     writer.writerow(HEADER)
+    note = draft.get("summary", {}).get("note", "")
+    if note:
+        writer.writerow([""] * (len(HEADER) - 1) + [note])
     for item in draft["parts"]:
         writer.writerow([
             _safe(item["manufacturer"]), _safe(item["mpn"]), item["quantity"], _safe(item["references"]), item["rohs"], item["reach"],

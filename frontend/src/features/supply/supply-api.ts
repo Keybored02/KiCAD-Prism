@@ -114,6 +114,7 @@ export function buildSupplyUsageIndexes(): Promise<SupplyIndexBuild> {
 /** Ask for a build's parts as demand under a name; the same name replaces what it asked for before. */
 export function planSupplyBuild(plan: {
   name: string;
+  projectId?: string;
   lines: BomLineInput[];
   buildQuantity: number;
   attritionPercent: number;
@@ -121,7 +122,7 @@ export function planSupplyBuild(plan: {
 }): Promise<{ parts: number; replaced: number }> {
   return post(
     `${BASE}/bom/plan`,
-    { name: plan.name, lines: plan.lines, build_quantity: plan.buildQuantity, attrition_percent: plan.attritionPercent, need_by: plan.needBy },
+    { name: plan.name, project_id: plan.projectId ?? "", lines: plan.lines, build_quantity: plan.buildQuantity, attrition_percent: plan.attritionPercent, need_by: plan.needBy },
     "Could not add the build to the plan",
   );
 }

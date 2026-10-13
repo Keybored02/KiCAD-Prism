@@ -142,6 +142,8 @@ class PlanRequest(BaseModel):
 
     # The plan's name. Sending the same name again replaces what it asked for before.
     name: str = Field(min_length=1, max_length=demand.MAX_REF)
+    # The project the BOM is from. Plans are told apart by project and name, so two projects can both plan "25 boards".
+    project_id: str = Field(default="", max_length=64)
     build_quantity: int = Field(default=1, ge=1, le=1_000_000)
     attrition_percent: float = Field(default=0, ge=0, le=100)
     need_by: Optional[date] = None
@@ -157,8 +159,10 @@ async def plan_build(body: PlanRequest, writer: AuthenticatedUser = Depends(requ
             quantities = bom_lookup.build_needs(
                 conn, _lines(body.lines), body.build_quantity, body.attrition_percent, identities=catalog_read.identities
             )
+            # "<project>/<name>" must stay within the reference limit, so the name is cut to fit after the project.
+            ref = f"{body.project_id}/{body.name}"[: demand.MAX_REF] if body.project_id else body.name
             return demand.replace_from_source(
-                conn, "bom_watch", body.name, quantities, writer.email, need_by=body.need_by,
+                conn, "bom_watch", ref, quantities, writer.email, need_by=body.need_by,
                 note=f"{body.build_quantity} boards",
             )
 

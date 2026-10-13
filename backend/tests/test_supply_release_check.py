@@ -198,6 +198,10 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertIn("'=EVIL()", csv_response.text)
         self.assertNotIn(",=EVIL()", csv_response.text)
         self.assertEqual(compliance_draft.to_csv({"parts": []}).strip(), ",".join(compliance_draft.HEADER))
+        summary = response.json["draft"]["summary"]
+        self.assertEqual((summary["candidate_list_loaded"], summary["note"]), (False, compliance_draft.LIST_NOT_LOADED))
+        self.assertFalse(any(compliance_draft.LIST_NOT_LOADED in gap for item in by_mpn.values() for gap in item["gaps"]), "said once, not per part")
+        self.assertIn(compliance_draft.LIST_NOT_LOADED, csv_response.text)
 
     def test_a_revision_without_a_read_bom_says_so(self) -> None:
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="p")), \

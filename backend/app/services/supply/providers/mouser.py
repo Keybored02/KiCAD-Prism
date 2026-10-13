@@ -361,6 +361,7 @@ def _offer(sku: str, part: Mapping[str, Any], now: datetime) -> Offer | None:
         discontinued=str(part.get("IsDiscontinued") or "").strip().lower() == "true",
         rohs=_rohs(part.get("ROHSStatus")),
         product_url=str(part.get("ProductDetailUrl") or ""),
+        datasheet_url=str(part.get("DataSheetUrl") or ""),
         facts=_facts(part),
     )
 

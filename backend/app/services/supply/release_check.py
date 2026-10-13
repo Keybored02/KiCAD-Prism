@@ -45,7 +45,7 @@ def check(
 
     now = now or datetime.now(timezone.utc)
     lines = usage.lines_from_components(components, identities)
-    bom = [BomLine(line.key, line.manufacturer, line.mpn, line.quantity) for line in lines]
+    bom = [BomLine(line.key, line.manufacturer, line.mpn, line.quantity, lcsc=line.lcsc) for line in lines]
     resolved = bom_lookup.resolve_lines(bom, conn)
     needs: dict[str, int] = {}
     for line in bom:

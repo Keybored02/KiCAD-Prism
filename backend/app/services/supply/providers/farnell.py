@@ -221,6 +221,7 @@ def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime) -
         discontinued=status in _STATUS_DROPPED or release in _RELEASE_DROPPING,
         rohs=_rohs(product.get("rohsStatusCode")),
         product_url=str(product.get("productURL") or ""),
+        datasheet_url=next((str(d["url"]) for d in product.get("datasheets") or [] if isinstance(d, dict) and d.get("url")), ""),
     )
 
 

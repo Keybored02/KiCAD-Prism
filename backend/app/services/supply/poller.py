@@ -22,6 +22,8 @@ from typing import Callable, Sequence
 
 from app.services.supply import alerts, demand, facts, ledger, pricing, quota, stock, tiers, trouble
 from app.services.supply.connectors import ConnectorService
+from app.services.supply.discovery import remember_datasheet
+from app.services.supply.identity import match_key
 from app.services.supply.models import Offer
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import AuthError, ProviderError, RateLimited, SupplyProvider
@@ -248,7 +250,30 @@ class Poller:
                 self._record_offer(conn, row, offer, now)
         return gone
 
+    @staticmethod
+    def _bom_link_is_wrong(conn, row: DueListing, offer: Offer) -> bool:
+        """A number taken from a BOM field is trusted until the distributor names the product. If the product is another
+        part (not the same number, nor one that extends it, as with a packaging suffix), the link is only a near match
+        and its figures are not kept. True when the link was demoted."""
+
+        link = conn.execute(
+            "SELECT l.match_state, l.matched_by, p.match_key FROM listings l JOIN parts p ON p.id = l.part_id WHERE l.id = %s",
+            (row.id,),
+        ).fetchone()
+        if link is None or link["match_state"] != "manual" or link["matched_by"] != "bom" or not offer.mpn.strip():
+            return False
+        wanted, found = link["match_key"], match_key(offer.mpn)
+        if not found or wanted == found or found.startswith(wanted) or wanted.startswith(found):
+            return False
+        conn.execute(
+            "UPDATE listings SET match_state = 'near', match_reason = %s WHERE id = %s",
+            (f"The BOM gave this number, but the distributor lists it as {offer.mpn.strip()[:80]}.", row.id),
+        )
+        return True
+
     def _record_offer(self, conn, row: DueListing, offer: Offer, now: datetime) -> None:
+        if self._bom_link_is_wrong(conn, row, offer):
+            return
         price = pricing.unit_price_at(
             [(item.quantity, item.unit_price) for item in offer.price_breaks],
             moq=offer.moq, order_multiple=offer.order_multiple,
@@ -298,6 +323,8 @@ class Poller:
         conn.execute("UPDATE listings SET packaging = %s, last_seen_at = %s WHERE id = %s", (offer.packaging.value, now, row.id))
         # Compliance and trade facts come with the answer; keeping them costs no call.
         facts.replace(conn, row.part_id, offer.provider, offer.facts, now)
+        if offer.datasheet_url:
+            remember_datasheet(conn, row.part_id, offer.datasheet_url)
 
         last_change = now if changed else row.last_change_at
         tier = self._tier_for(conn, row, offer.lifecycle, last_change, now)

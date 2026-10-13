@@ -1851,6 +1851,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     {activeTab === "bom" && (
                         <div className="absolute inset-0 z-20 bg-background">
                             <EngineeringBomTable
+                                projectId={projectId}
                                 semanticIndex={semanticIndex}
                                 components={effectiveComponents}
                                 user={user}

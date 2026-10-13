@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from app.services.supply.bom_fields import identity_of, is_fitted, prism_id_of
+from app.services.supply.bom_fields import identity_of, is_fitted, lcsc_of, prism_id_of
 from app.services.supply.identity import alias_key, match_key
 
 MAX_REFERENCES_TEXT = 500
@@ -49,6 +49,7 @@ class UsageLine:
     match_key: str
     quantity: int
     references: str
+    lcsc: str = ""
 
 
 Identities = Callable[[Iterable[str]], Mapping[str, tuple[str, str]]]
@@ -75,11 +76,12 @@ def lines_from_components(components: Iterable[Mapping[str, Any]], identities: I
         if not number:
             continue
         key = f"{alias_key(manufacturer)}|{number}"
-        line = found.setdefault(key, {"manufacturer": manufacturer, "mpn": mpn, "alias": alias_key(manufacturer), "number": number, "refs": []})
+        line = found.setdefault(key, {"manufacturer": manufacturer, "mpn": mpn, "alias": alias_key(manufacturer), "number": number, "refs": [], "lcsc": ""})
         line["refs"].append(str(component.get("reference") or ""))
+        line["lcsc"] = line["lcsc"] or lcsc_of(fields)
     return [
         UsageLine(key, line["manufacturer"], line["mpn"], line["alias"], line["number"], len(line["refs"]),
-                  " ".join(sorted(ref for ref in line["refs"] if ref))[:MAX_REFERENCES_TEXT])
+                  " ".join(sorted(ref for ref in line["refs"] if ref))[:MAX_REFERENCES_TEXT], line["lcsc"])
         for key, line in found.items()
     ]
 
@@ -114,9 +116,10 @@ def store_project(
     )
     for line in lines:
         conn.execute(
-            "INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (project_id, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity, line.references),
+            "INSERT INTO bom_usage (project_id, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (project_id, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity, line.references,
+             line.lcsc),
         )
     return True
 
@@ -164,9 +167,13 @@ def project_rows(conn, project_id: str) -> list[dict[str, Any]]:
     """The stored BOM lines of a project (manufacturer, number, quantity per board); empty when it was never read."""
 
     rows = conn.execute(
-        "SELECT line_key, manufacturer, mpn, quantity, refs FROM bom_usage WHERE project_id = %s ORDER BY line_key", (project_id,)
+        "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc FROM bom_usage WHERE project_id = %s ORDER BY line_key", (project_id,)
     ).fetchall()
-    return [{"key": row["line_key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": int(row["quantity"]), "references": row["refs"]} for row in rows]
+    return [
+        {"key": row["line_key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": int(row["quantity"]),
+         "references": row["refs"], "lcsc": row["lcsc"]}
+        for row in rows
+    ]
 
 
 def used_in(conn, part_id: str, role: str | None = None) -> list[dict[str, Any]]:

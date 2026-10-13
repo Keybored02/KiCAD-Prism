@@ -49,12 +49,27 @@ def _delimiter(sample: str) -> str:
     return max((",", ";", "\t"), key=sample.count)
 
 
+HEADER_SEARCH_LINES = 20
+
+
+def _from_header(text: str) -> str:
+    """The text from its header row on. An export can start with title rows; the header is the first line with a CAS and a name column."""
+
+    lines = text.splitlines(keepends=True)
+    for index, line in enumerate(lines[:HEADER_SEARCH_LINES]):
+        cells = {cell.strip().strip('"').lower() for cell in line.split(_delimiter(line))}
+        if cells & set(_COLUMNS["cas"]) and cells & set(_COLUMNS["name"]):
+            return "".join(lines[index:])
+    return text
+
+
 def parse_list(text: str) -> list[dict[str, Any]]:
     """Substances of an ECHA Candidate List export. A row without a valid CAS number is skipped and counted by the caller."""
 
     text = text.lstrip("﻿")
     if not text.strip():
         raise ComplianceError("The file is empty.")
+    text = _from_header(text)
     header, _, _ = text.partition("\n")
     reader = csv.DictReader(io.StringIO(text), delimiter=_delimiter(header))
     names = {str(field).strip().lower(): field for field in (reader.fieldnames or [])}

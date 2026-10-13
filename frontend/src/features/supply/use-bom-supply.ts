@@ -42,7 +42,7 @@ export interface BomSupply {
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
 
 /** Supply figures for the fitted parts of a BOM, looked up once per change of parts or build size. */
-export function useBomSupply(fitted: readonly SemanticComponent[], user: User | null): BomSupply {
+export function useBomSupply(fitted: readonly SemanticComponent[], user: User | null, projectId = ""): BomSupply {
   const enabled = canOpenSupply(user?.role);
   const [buildQuantity, setBuildQuantity] = useState(1);
   const [attritionPercent, setAttritionPercent] = useState(0);
@@ -81,8 +81,8 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
   const watchAll = useCallback(() => watchLines(lines), [lines, watchLines]);
 
   const planBuild = useCallback(
-    (name: string, needBy: string | null) => planSupplyBuild({ name, lines: lines.map(lineInput), buildQuantity, attritionPercent, needBy }),
-    [lines, buildQuantity, attritionPercent],
+    (name: string, needBy: string | null) => planSupplyBuild({ name, projectId, lines: lines.map(lineInput), buildQuantity, attritionPercent, needBy }),
+    [lines, projectId, buildQuantity, attritionPercent],
   );
 
   const status = requestKey === null ? "idle" : loadStatus;

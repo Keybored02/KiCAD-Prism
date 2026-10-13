@@ -167,6 +167,14 @@ class ArchiveTests(unittest.TestCase):
         stored = {path.name for path in Path(self.root.name).rglob("*") if path.is_file()}
         self.assertEqual(len([name for name in stored if name.endswith(".txt")]), datasheets.KEEP_VERSIONS)
 
+    def test_losing_a_race_for_the_same_version_is_not_an_error(self) -> None:
+        import psycopg.errors
+        from unittest import mock
+
+        url = "https://acme.example/abc1.pdf"
+        with mock.patch.object(datasheets, "store_version", side_effect=psycopg.errors.UniqueViolation("another job kept it")):
+            self.assertEqual(datasheets.check_part(self.store, self.part, url, NOW, Client(pdf("x"))), "unchanged")
+
     def test_a_dead_address_is_retried_less_and_less_often(self) -> None:
         url = "https://acme.example/abc1.pdf"
         for attempt in range(datasheets.DEAD_AFTER_FAILURES):

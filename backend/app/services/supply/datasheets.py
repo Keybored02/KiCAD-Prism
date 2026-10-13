@@ -27,6 +27,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+import psycopg.errors
+
 from app.core.config import settings
 from app.services.supply import alerts
 from app.services.supply.http_client import SafeHttpClient
@@ -270,6 +272,9 @@ def check_part(store, part_id: str, url: str, now: datetime, client: Any | None 
             created = store_version(conn, part_id, url, data, now)
             _record_check(conn, part_id, url, now, "new" if created else "unchanged", failed=False)
         return "new" if created else "unchanged"
+    except psycopg.errors.UniqueViolation:
+        # Another poll job kept the same version first; its copy is the one that counts.
+        return "unchanged"
     except DatasheetError as exc:
         with store.connection() as conn:
             _record_check(conn, part_id, url, now, str(exc), failed=True)

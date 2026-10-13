@@ -67,6 +67,8 @@ class Offer:
     reach_affected: bool | None = None
     marketplace: bool = False
     product_url: str = ""
+    # The datasheet address the distributor gives. Part of the answer, so it costs no call to keep.
+    datasheet_url: str = ""
     # What the distributor states about the part, as (name, text) pairs: compliance and trade facts such as
     # ``rohs_status`` or ``hts_us``. ``facts.py`` names them and reads them.
     facts: tuple[tuple[str, str], ...] = ()

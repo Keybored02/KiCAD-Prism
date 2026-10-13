@@ -201,6 +201,20 @@ class PollingTests(unittest.TestCase):
 
     # --- polling ----------------------------------------------------------
 
+    def test_a_number_from_a_bom_that_names_another_product_is_demoted_and_not_kept(self) -> None:
+        cid = self.connector()
+        watch = self.watch()
+        right = self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT", "manual")
+        wrong = self.add_listing(watch.part_id, cid, "FAKE-OTHER999-CT", "manual")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE listings SET matched_by = 'bom' WHERE id = ANY(%s)", ([right, wrong],))
+        self.poller().poll_connector(cid)
+        states = {r["sku"]: (r["match_state"], r["match_reason"]) for r in self.rows("SELECT sku, match_state, match_reason FROM listings")}
+        self.assertEqual(states["FAKE-ABC123-CT"][0], "manual")
+        self.assertEqual(states["FAKE-OTHER999-CT"][0], "near")
+        self.assertIn("OTHER999", states["FAKE-OTHER999-CT"][1])
+        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM offers")], [right], "the other product's figures are not kept")
+
     def test_the_first_poll_records_the_offer_a_sample_and_the_schedule(self) -> None:
         cid = self.connector()
         watch = self.watch()
@@ -312,6 +326,22 @@ class PollingTests(unittest.TestCase):
         self.discover_csv(watch, free)
         self.assertEqual(self.poller_csv().poll_connector(free).polled, 1)
         self.assertEqual(self.rows("SELECT * FROM quota_ledger WHERE connector_id = %s", free), [])
+
+    def test_a_datasheet_address_in_an_offer_is_kept_for_the_part_once(self) -> None:
+        import dataclasses
+
+        cid = self.connector()
+        watch = self.watch()
+        self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
+
+        class GivesDatasheet:
+            def __init__(self, inner): self.inner = inner
+            def get_offers(self, skus):
+                return [dataclasses.replace(o, datasheet_url="https://acme.example/abc123.pdf") for o in self.inner.get_offers(skus)]
+
+        self.provider_behaviour = GivesDatasheet
+        self.poller().poll_connector(cid)
+        self.assertEqual(self.rows("SELECT datasheet_url FROM parts")[0]["datasheet_url"], "https://acme.example/abc123.pdf")
 
     def test_a_listing_missing_three_times_is_marked_gone(self) -> None:
         cid = self.connector()
