@@ -339,6 +339,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    SUPPLY_OAUTH_BASE_URL: str = Field(
+        default="",
+        description=(
+            "Origin a distributor sign-in (DigiKey change notices) returns to, when it must differ from "
+            "PUBLIC_BASE_URL, for example https://localhost while the app is registered with that address. "
+            "Must be HTTPS. Empty uses PUBLIC_BASE_URL."
+        ),
+    )
+
     REMOTE_PROVIDER_LIBRARY_PREFIX: str = Field(
         default="remote",
         description="Library prefix assumed by the Prism remote-symbol provider when rewriting footprint links."

@@ -74,7 +74,12 @@ class DetailsTests(unittest.TestCase):
             conn.execute(f'DROP SCHEMA IF EXISTS "{cls.store.schema}" CASCADE')
 
     def setUp(self) -> None:
-        from app.services.supply import parts, watches
+        from app.services.supply import oauth, parts, watches
+
+        # A dev .env may set the sign-in address; these tests set PUBLIC_BASE_URL themselves.
+        override = mock.patch.object(oauth.settings, "SUPPLY_OAUTH_BASE_URL", "")
+        override.start()
+        self.addCleanup(override.stop)
 
         with self.store.connection() as conn:
             for table in ("pcn_parts", "pcns", "part_facts", "part_substances", "detail_checks", "oauth_states", "connector_grants",
@@ -216,6 +221,15 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual(self.rows("SELECT value FROM part_facts WHERE name = 'reach_svhc'"), [{"value": "None listed"}])
 
     # --- sign-in ------------------------------------------------------------
+
+    def test_the_sign_in_address_can_differ_from_the_public_one(self) -> None:
+        from app.services.supply import oauth
+
+        with mock.patch.object(oauth.settings, "PUBLIC_BASE_URL", "https://192.168.1.17"),                 mock.patch.object(oauth.settings, "SUPPLY_OAUTH_BASE_URL", "https://localhost/"):
+            self.assertEqual(oauth.redirect_uri(), "https://localhost/api/supply/oauth/digikey/callback")
+            self.assertIn("redirect_uri=https%3A%2F%2Flocalhost%2Fapi", oauth.start(self.connectors, self.digikey, ADMIN, NOW))
+        with mock.patch.object(oauth.settings, "PUBLIC_BASE_URL", "https://192.168.1.17"):
+            self.assertEqual(oauth.redirect_uri(), "https://192.168.1.17/api/supply/oauth/digikey/callback")
 
     def signin(self, client):
         from app.services.supply import oauth

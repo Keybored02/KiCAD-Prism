@@ -9,7 +9,8 @@ Each refresh returns a new refresh token and voids the old one, so a refresh run
 new pair before it is used. A refused refresh marks the grant as needing a new sign-in; nothing else about the
 connector changes (stock and prices keep their own client-credentials token).
 
-The DigiKey app must list ``redirect_uri()`` as its callback address, and ``PUBLIC_BASE_URL`` must be HTTPS.
+The DigiKey app must list ``redirect_uri()`` as its callback address, which must be HTTPS. It is built from
+``SUPPLY_OAUTH_BASE_URL`` when set (an address registered with DigiKey, such as https://localhost), else ``PUBLIC_BASE_URL``.
 """
 
 from __future__ import annotations
@@ -40,8 +41,14 @@ class NotSignedIn(Exception):
     """No usable grant: nobody signed in, or the sign-in ran out or was refused."""
 
 
+def base_url() -> str:
+    """Where the browser comes back to: ``SUPPLY_OAUTH_BASE_URL`` when set, else ``PUBLIC_BASE_URL``."""
+
+    return (settings.SUPPLY_OAUTH_BASE_URL.strip() or settings.PUBLIC_BASE_URL.strip()).rstrip("/")
+
+
 def redirect_uri() -> str:
-    return settings.PUBLIC_BASE_URL.strip().rstrip("/") + CALLBACK_PATH
+    return base_url() + CALLBACK_PATH
 
 
 def _client() -> SafeHttpClient:
@@ -56,8 +63,8 @@ def start(service, connector_id: str, actor: str, now: datetime | None = None) -
     connector = service.get(connector_id)
     if connector["provider"] not in SUPPORTED:
         raise SignInError("Only DigiKey connectors take a sign-in.")
-    if not settings.PUBLIC_BASE_URL.strip().lower().startswith("https://"):
-        raise SignInError("A sign-in needs PUBLIC_BASE_URL to be an HTTPS address that DigiKey can send the browser back to.")
+    if not base_url().lower().startswith("https://"):
+        raise SignInError("A sign-in needs an HTTPS address DigiKey can send the browser back to (PUBLIC_BASE_URL or SUPPLY_OAUTH_BASE_URL).")
     client_id = service.unsealed_credentials(connector_id).get("client_id", "")
     if not client_id:
         raise SignInError("Set the connector's client ID and secret first.")
