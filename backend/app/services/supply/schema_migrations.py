@@ -709,6 +709,26 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m031_bom_comments(conn) -> None:
+    """Notes on a line of a project's BOM (see ``bom_comments.py``). Kept by the line's key, so they follow the part."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bom_comments (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            line_key TEXT NOT NULL,
+            body TEXT NOT NULL,
+            author TEXT NOT NULL,
+            author_name TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_bom_comments_project ON bom_comments (project_id, line_key, created_at);
+        """,
+        prepare=False,
+    )
+
+
 def _m030_release_compliance(conn) -> None:
     """The compliance draft as it stood when a release was published, kept beside the rest of its snapshot.
 
@@ -896,6 +916,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (28, "datasheet_denied_hosts", _m028_datasheet_denied_hosts),
     (29, "notice_files", _m029_notice_files),
     (30, "release_compliance", _m030_release_compliance),
+    (31, "bom_comments", _m031_bom_comments),
 ]
 
 

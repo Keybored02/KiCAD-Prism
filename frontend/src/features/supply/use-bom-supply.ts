@@ -22,6 +22,8 @@ export interface BomSupply {
   /** Spares on top of what the boards use, as a percentage. */
   attritionPercent: number;
   setAttritionPercent: (percent: number) => void;
+  /** The project the BOM is from; empty when it is not known. */
+  projectId: string;
   lines: BomLineDetail[];
   fittedKeys: ReadonlySet<string>;
   truncated: boolean;
@@ -93,6 +95,7 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
     setBuildQuantity,
     attritionPercent,
     setAttritionPercent,
+    projectId,
     lines,
     fittedKeys,
     truncated: allLines.length > MAX_LINES,

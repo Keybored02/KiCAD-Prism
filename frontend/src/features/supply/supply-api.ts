@@ -27,6 +27,7 @@ import type {
   SupplyReviewQueue,
   SupplyBomRollup,
   SupplyCompliance,
+  SupplyBomComment,
   SupplyComponentCheck,
   SupplyComponentWatch,
   SupplyDeniedHost,
@@ -359,6 +360,22 @@ export async function setComponentWatch(componentId: string, includeAlternates: 
 
 export function removeComponentWatch(componentId: string): Promise<void> {
   return send(`${BASE}/components/${encodeURIComponent(componentId)}/watch`, "DELETE", undefined, "Could not stop watching the component");
+}
+
+function commentsPath(projectId: string): string {
+  return `${BASE}/projects/${encodeURIComponent(projectId)}/bom-comments`;
+}
+
+export async function listBomComments(projectId: string, signal?: AbortSignal): Promise<SupplyBomComment[]> {
+  return (await fetchJson<{ items: SupplyBomComment[] }>(commentsPath(projectId), { signal }, "Could not load the comments")).items;
+}
+
+export function addBomComment(projectId: string, lineKey: string, body: string): Promise<SupplyBomComment> {
+  return post(commentsPath(projectId), { line_key: lineKey, body }, "Could not add the comment");
+}
+
+export function removeBomComment(projectId: string, commentId: string): Promise<void> {
+  return send(`${commentsPath(projectId)}/${encodeURIComponent(commentId)}`, "DELETE", undefined, "Could not remove the comment");
 }
 
 export async function listDeniedDatasheetHosts(signal?: AbortSignal): Promise<SupplyDeniedHost[]> {

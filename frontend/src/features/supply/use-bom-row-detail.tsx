@@ -48,6 +48,8 @@ export function useBomRowDetail(supply: BomSupply, user: User | null) {
         onClose={() => setRow(null)}
         onWatch={(line) => void watch(line)}
         onOpenPart={setPartId}
+        projectId={supply.projectId}
+        user={user}
       />
       <PartSheet partId={partId} user={user} onClose={() => setPartId(null)} onWatchChanged={() => void supply.refresh()} />
     </>

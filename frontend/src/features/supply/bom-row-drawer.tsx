@@ -3,7 +3,9 @@ import { ExternalLink, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import type { User } from "@/types/auth";
 import type { SupplyBomLineResult } from "@/types/supply";
+import { BomLineComments } from "./bom-line-comments";
 import { untrackedLabel, type BomLineDetail } from "./bom-supply";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, LIFECYCLE_LABEL, STATUS_LABEL } from "./supply-format";
@@ -19,10 +21,13 @@ interface BomRowDrawerProps {
   onClose: () => void;
   onWatch: (line: BomLineDetail) => void;
   onOpenPart: (partId: string) => void;
+  /** With a project and a user, each part has its comments. */
+  projectId?: string;
+  user?: User | null;
 }
 
 /** Every part on one BOM row, with what is known about it and what can be done next. */
-export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWatch, onOpenPart }: BomRowDrawerProps) {
+export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWatch, onOpenPart, projectId = "", user = null }: BomRowDrawerProps) {
   return (
     <Sheet open={lines !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
@@ -40,6 +45,8 @@ export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWat
               busy={busyKey === line.key}
               onWatch={onWatch}
               onOpenPart={onOpenPart}
+              projectId={projectId}
+              user={user}
             />
           ))}
         </ul>
@@ -48,7 +55,9 @@ export function BomRowDrawer({ lines, results, canWatch, busyKey, onClose, onWat
   );
 }
 
-function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart }: {
+function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart, projectId, user }: {
+  projectId: string;
+  user: User | null;
   line: BomLineDetail;
   result: SupplyBomLineResult | undefined;
   canWatch: boolean;
@@ -78,6 +87,7 @@ function PartCard({ line, result, canWatch, busy, onWatch, onOpenPart }: {
           <Button size="sm" disabled={busy} onClick={() => onWatch(line)}><Eye className="h-4 w-4" />Watch this part</Button>
         ) : null}
       </div>
+      {projectId ? <BomLineComments projectId={projectId} lineKey={line.key} user={user} /> : null}
     </li>
   );
 }

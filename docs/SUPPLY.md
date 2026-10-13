@@ -197,6 +197,10 @@ RoHS and REACH standing, what each distributor states about RoHS, REACH and subs
 (no statement, not tracked, affected, compliant only by exemption, Candidate List not loaded). It is a working
 document for a person to complete; Prism cannot know what a manufacturer has not said, and unknown is never shown as compliant.
 
+## BOM line comments
+
+Each part in the BOM row drawer has a comments list: notes shared by everyone who can open the project, kept by the line's key so they follow the part. An author, or an administrator, can remove a comment.
+
 ## Alerts
 
 Supply > Inbox. A watched part raises an alert when it runs out, falls to its threshold, may run out within eight

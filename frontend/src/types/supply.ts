@@ -302,6 +302,16 @@ export interface SupplyComponentFinding {
   waiver: SupplyWaiver | null;
 }
 
+/** A note on a line of a project's BOM. */
+export interface SupplyBomComment {
+  id: string;
+  line_key: string;
+  body: string;
+  author: string;
+  author_name: string;
+  created_at: string;
+}
+
 /** A host datasheets are not fetched from. */
 export interface SupplyDeniedHost {
   host: string;
