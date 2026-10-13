@@ -75,10 +75,12 @@ describe("market wording", () => {
   });
 
   it("reads shares as percentages and lead times as days", () => {
-    const [share, , , days] = MARKET_COLUMNS;
+    const [share, , , days, index] = MARKET_COLUMNS;
     expect(marketFigure(share, { value: 0.333, before: null })).toBe("33%");
     expect(marketFigure(days, { value: 55.6, before: 40 })).toBe("56 days");
     expect(marketFigure(share, undefined)).toBe("");
+    expect(marketFigure(index, { value: 103.456, before: 100 })).toBe("103.5");
+    expect(marketChange(index, { value: 103.4, before: 100 })).toBe("up 3 points");
     expect(marketChange(days, { value: 40, before: 56 })).toBe("down 16 days");
     expect(marketChange(share, { value: 0.5, before: null })).toBe("");
   });

@@ -148,7 +148,7 @@ export interface SupplyMarket {
     scope: string;
     kind: "all" | "manufacturer" | "category";
     sample: number;
-    metrics: Partial<Record<"out_of_stock" | "lifecycle_risk" | "dropped" | "median_lead_time_days", SupplyMarketMetric>>;
+    metrics: Partial<Record<"out_of_stock" | "lifecycle_risk" | "dropped" | "median_lead_time_days" | "price_index", SupplyMarketMetric>>;
   }>;
 }
 

@@ -5,6 +5,7 @@ export const MARKET_COLUMNS = [
   { key: "lifecycle_risk", label: "Lifecycle risk", kind: "share" },
   { key: "dropped", label: "Dropped by distributors", kind: "share" },
   { key: "median_lead_time_days", label: "Median lead time", kind: "days" },
+  { key: "price_index", label: "Price index", kind: "index" },
 ] as const;
 
 export type MarketColumn = (typeof MARKET_COLUMNS)[number];
@@ -12,7 +13,8 @@ export type MarketColumn = (typeof MARKET_COLUMNS)[number];
 /** A figure as a person reads it: 0.333 as "33%", 56 as "56 days". */
 export function marketFigure(column: MarketColumn, metric: SupplyMarketMetric | undefined): string {
   if (!metric) return "";
-  return column.kind === "share" ? `${Math.round(metric.value * 100)}%` : `${Math.round(metric.value)} days`;
+  if (column.kind === "share") return `${Math.round(metric.value * 100)}%`;
+  return column.kind === "index" ? metric.value.toFixed(1) : `${Math.round(metric.value)} days`;
 }
 
 /** How far a figure moved since the earlier snapshot, or an empty string when there is nothing to compare. */
@@ -20,7 +22,7 @@ export function marketChange(column: MarketColumn, metric: SupplyMarketMetric | 
   if (!metric || metric.before === null) return "";
   const delta = column.kind === "share" ? Math.round((metric.value - metric.before) * 100) : Math.round(metric.value - metric.before);
   if (delta === 0) return "no change";
-  const unit = column.kind === "share" ? " points" : " days";
+  const unit = column.kind === "days" ? " days" : " points";
   return `${delta > 0 ? "up" : "down"} ${Math.abs(delta)}${unit}`;
 }
 

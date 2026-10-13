@@ -229,17 +229,17 @@ class DetailsTests(unittest.TestCase):
     def test_a_sign_in_keeps_sealed_tokens_and_a_refresh_rotates_them(self) -> None:
         from app.services.supply import oauth
 
-        client = FakeTokens(tokens("a1", "r1"), tokens("a2", "r2"))
+        client = FakeTokens(tokens("tok-access-one", "tok-refresh-one"), tokens("tok-access-two", "tok-refresh-two"))
         url, _state = self.signin(client)
         self.assertTrue(url.startswith("https://api.digikey.com/v1/oauth2/authorize?response_type=code&client_id=cid"))
         self.assertIn("redirect_uri=https%3A%2F%2Fprism.example%2Fapi%2Fsupply%2Foauth%2Fdigikey%2Fcallback", url)
         self.assertEqual(client.forms[0]["grant_type"], "authorization_code")
         (grant,) = self.rows("SELECT envelope FROM connector_grants")
-        self.assertNotIn("a1", grant["envelope"])
-        self.assertEqual(oauth.access_token(self.connectors, self.digikey, NOW, client=client), "a1")
+        self.assertNotIn("tok-access-one", grant["envelope"])
+        self.assertEqual(oauth.access_token(self.connectors, self.digikey, NOW, client=client), "tok-access-one")
         later = NOW + timedelta(hours=1)
-        self.assertEqual(oauth.access_token(self.connectors, self.digikey, later, client=client), "a2")
-        self.assertEqual((client.forms[1]["grant_type"], client.forms[1]["refresh_token"]), ("refresh_token", "r1"))
+        self.assertEqual(oauth.access_token(self.connectors, self.digikey, later, client=client), "tok-access-two")
+        self.assertEqual((client.forms[1]["grant_type"], client.forms[1]["refresh_token"]), ("refresh_token", "tok-refresh-one"))
         with self.store.connection() as conn:
             status = oauth.status(conn, self.digikey, later)
         self.assertEqual((status["signed_in"], status["granted_by"]), (True, ADMIN))

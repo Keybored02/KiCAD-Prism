@@ -25,7 +25,7 @@ async def market_overview(_user: AuthenticatedUser = Depends(require_supply_read
 
 @router.get("/market/history")
 async def market_history(
-    metric: Literal["out_of_stock", "lifecycle_risk", "dropped", "median_lead_time_days"],
+    metric: Literal["out_of_stock", "lifecycle_risk", "dropped", "median_lead_time_days", "price_index"],
     _user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
     def read() -> dict[str, Any]:

@@ -56,6 +56,10 @@ How often a part is read: hot every 1.5 hours (pinned, out of stock, at its thre
 is needed), warm every 6 hours, normal daily, cold weekly. When the budget is short, hot goes first and nothing waits
 more than twice its interval. The data age is always shown.
 
+A watch can count only one packaging (cut tape for prototypes, tape and reel for production). Stock, price and warnings for that part then follow it, and listings of unknown packaging are left out. It is set in the part sheet.
+
+A catalog component can be watched as a whole (Approved parts > Watch component): its part, and with "Include approved alternates" every alternate approved for it, now and later.
+
 ## Review
 
 Supply > Review. Distributors spell manufacturers their own way; Prism never merges them by guess. A person maps a
@@ -115,11 +119,9 @@ it.
 ## Market
 
 Supply > Market shows how the parts you follow do as a group, by manufacturer and by category (the one DigiKey or Mouser files the part under) and, once two days are stored, a chart of any figure over time: the share out of stock, the share with a
-lifecycle risk, the share every distributor dropped, and the median lead time, each with its change since a month ago once
+lifecycle risk, the share every distributor dropped, the median lead time and a price index (100 at the first snapshot, then the median price change of the listings), each with its change since a month ago once
 a month of snapshots exists. It covers watched parts and parts on project BOMs only, a manufacturer needs at least three
 of them, and the number of parts is always shown. It is not the market as a whole.
-
-A watch can count only one packaging (cut tape for prototypes, tape and reel for production). Stock, price and warnings for that part then follow it, and listings of unknown packaging are left out. It is set in the part sheet.
 
 ## Outlook
 

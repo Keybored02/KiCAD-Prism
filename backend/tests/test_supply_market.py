@@ -83,7 +83,7 @@ class MarketDatabaseTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("market_indices", "offers", "listings", "watches", "parts", "manufacturers", "connectors"):
+            for table in ("market_indices", "samples", "offers", "listings", "watches", "parts", "manufacturers", "connectors"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme'), ('m2', 'Globex', 'globex')")
             conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
@@ -140,6 +140,34 @@ class MarketDatabaseTests(unittest.TestCase):
         self.assertEqual(history["series"][0]["points"], [["2026-03-01", 0.0]])
         with self.assertRaises(ValueError):
             market.history(conn, "nonsense")
+
+    def test_the_price_index_starts_at_100_and_follows_the_median_price_change(self) -> None:
+        from datetime import datetime, timezone
+
+        for index in range(3):
+            self.follow("Acme", f"A-{index}", 100)
+
+        def price(mpn: str, day: date, unit: str) -> None:
+            with self.store.connection() as conn:
+                conn.execute(
+                    "INSERT INTO samples (listing_id, sampled_at, stock, unit_price, currency) VALUES (%s, %s, 100, %s, 'EUR')",
+                    (f"l-{mpn}", datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), unit))
+
+        for mpn in ("A-0", "A-1", "A-2"):
+            price(mpn, date(2026, 3, 1), "1.00")
+        with self.store.connection() as conn:
+            market.snapshot(conn, date(2026, 3, 1))
+        # Two parts rise 10%, one falls 50%: the median change is +10%.
+        price("A-0", date(2026, 3, 2), "1.10")
+        price("A-1", date(2026, 3, 2), "1.10")
+        price("A-2", date(2026, 3, 2), "0.50")
+        with self.store.connection() as conn:
+            market.snapshot(conn, date(2026, 3, 2))
+            history = market.history(conn, "price_index", date(2026, 3, 3))
+        line = history["series"][0]["points"]
+        self.assertEqual([day for day, _ in line], ["2026-03-01", "2026-03-02"])
+        self.assertAlmostEqual(line[0][1], 100.0)
+        self.assertAlmostEqual(line[1][1], 110.0, places=3)
 
     def test_the_history_is_for_readers_and_one_known_metric(self) -> None:
         self.assertEqual(_request(self.app, "GET", "/api/supply/market/history", user=self.users["qa"], query="metric=dropped").json,

@@ -8,12 +8,15 @@ set against a month earlier.
 A group is a manufacturer or a category (the one the distributors file the part under; DigiKey's, else Mouser's).
 Metrics (shares are 0 to 1): ``out_of_stock`` (no distributor has it), ``lifecycle_risk`` (not recommended for
 new designs, last time buy or obsolete), ``dropped`` (every distributor stopped selling it) and
-``median_lead_time_days`` (parts with a lead time given).
+``median_lead_time_days`` (parts with a lead time given) and ``price_index``: a chain-linked index, 100 on the first
+snapshot of a group, each day multiplied by the median change in price of the group's listings since the last
+snapshot (each listing against its own earlier price, so a currency never mixes with another).
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from statistics import median
 from typing import Any, Mapping, Sequence
 
@@ -23,7 +26,8 @@ from app.services.supply.vocabulary import Lifecycle
 MIN_SAMPLE = 3
 MAX_SERIES = 6
 ALL = "all"
-METRICS = ("out_of_stock", "lifecycle_risk", "dropped", "median_lead_time_days")
+METRICS = ("out_of_stock", "lifecycle_risk", "dropped", "median_lead_time_days", "price_index")
+INDEX_BASE = Decimal(100)
 _LIFECYCLE_RISK = {Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value}
 COMPARE_DAYS = 30
 CATEGORY_PREFIX = "category:"
@@ -84,7 +88,7 @@ def compute(conn) -> dict[str, dict[str, Any]]:
     items, offers = parts_view.summaries_with_offers(conn, ids)
     categories = _categories(conn, ids)
     rows = [
-        {"manufacturer": item["manufacturer"], "category": categories.get(item["id"], ""), "stock": item["stock"],
+        {"id": item["id"], "manufacturer": item["manufacturer"], "category": categories.get(item["id"], ""), "stock": item["stock"],
          "lifecycle": item["lifecycle"], "offers": offers.get(item["id"], [])}
         for item in items
     ]
@@ -95,11 +99,55 @@ def compute(conn) -> dict[str, dict[str, Any]]:
             groups.setdefault(CATEGORY_PREFIX + row["category"], []).append(row)
     scopes: dict[str, dict[str, Any]] = {}
     if len(rows) >= MIN_SAMPLE:
-        scopes[ALL] = {"sample": len(rows), "metrics": metrics_of(rows)}
+        scopes[ALL] = {"sample": len(rows), "metrics": metrics_of(rows), "ids": [row["id"] for row in rows]}
     for name, group in groups.items():
         if len(group) >= MIN_SAMPLE:
-            scopes[name] = {"sample": len(group), "metrics": metrics_of(group)}
+            scopes[name] = {"sample": len(group), "metrics": metrics_of(group), "ids": [row["id"] for row in group]}
     return scopes
+
+
+def price_changes(conn, part_ids: Sequence[str], since: datetime) -> dict[str, list[Decimal]]:
+    """Per part, how each of its listings' unit price changed since ``since`` (latest price now over latest price then).
+
+    A listing with no price at either end, or a price of nothing, is left out. A part with no listing left has no entry.
+    """
+
+    if not part_ids:
+        return {}
+    rows = conn.execute(
+        """
+        SELECT l.part_id,
+               (SELECT s.unit_price FROM samples s WHERE s.listing_id = l.id AND s.sampled_at < %s AND s.unit_price IS NOT NULL
+                ORDER BY s.sampled_at DESC LIMIT 1) AS before,
+               (SELECT s.unit_price FROM samples s WHERE s.listing_id = l.id AND s.unit_price IS NOT NULL
+                ORDER BY s.sampled_at DESC LIMIT 1) AS now
+        FROM listings l
+        WHERE l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')
+        """,
+        (since, list(part_ids)),
+    ).fetchall()
+    found: dict[str, list[Decimal]] = {}
+    for row in rows:
+        if row["before"] and row["now"] and row["before"] > 0:
+            found.setdefault(row["part_id"], []).append(Decimal(row["now"]) / Decimal(row["before"]))
+    return found
+
+
+def _price_index(conn, kind: str, name: str, ids: Sequence[str], today: date) -> Decimal | None:
+    """Today's chain-linked price index of one group: the last stored value times the median price change since then."""
+
+    last = conn.execute(
+        "SELECT day, value FROM market_indices WHERE scope_kind = %s AND scope_value = %s AND metric = 'price_index' AND day < %s "
+        "ORDER BY day DESC LIMIT 1",
+        (kind, name, today),
+    ).fetchone()
+    if last is None:
+        return INDEX_BASE
+    since = datetime.combine(last["day"] + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+    per_part = [Decimal(str(median(ratios))) for ratios in price_changes(conn, ids, since).values()]
+    if not per_part:
+        return Decimal(last["value"])
+    return (Decimal(last["value"]) * Decimal(str(median(per_part)))).quantize(Decimal("0.0001"))
 
 
 def snapshot(conn, today: date | None = None) -> int:
@@ -116,6 +164,7 @@ def snapshot(conn, today: date | None = None) -> int:
             kind, name = "category", scope[len(CATEGORY_PREFIX):]
         else:
             kind, name = "manufacturer", scope
+        data["metrics"]["price_index"] = float(_price_index(conn, kind, name, data["ids"], today) or INDEX_BASE)
         for metric, value in data["metrics"].items():
             conn.execute(
                 "INSERT INTO market_indices (day, scope_kind, scope_value, metric, value, sample_size) VALUES (%s, %s, %s, %s, %s, %s)",
