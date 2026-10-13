@@ -7,6 +7,7 @@ import type { SupplyBomLineResult } from "@/types/supply";
 import { untrackedLabel, type BomLineDetail } from "./bom-supply";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, LIFECYCLE_LABEL, STATUS_LABEL } from "./supply-format";
+import { VendorName } from "./vendor-name";
 
 interface BomRowDrawerProps {
   /** The parts on the row that was opened; null keeps the drawer closed. */
@@ -119,7 +120,7 @@ function Tracked({ result }: { result: SupplyBomLineResult }) {
       {result.bought_with ? <p className="text-xs text-muted-foreground">Bought together with another line of this part.</p> : null}
       {buy ? (
         <p>
-          Buy {buy.quantity.toLocaleString()} from {buy.connector_name}{" "}
+          Buy {buy.quantity.toLocaleString()} from <VendorName provider={buy.provider} name={buy.connector_name} />{" "}
           {buy.product_url ? (
             <a href={buy.product_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
               {buy.sku}<ExternalLink className="h-3 w-3" />

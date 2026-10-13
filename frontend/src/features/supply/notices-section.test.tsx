@@ -66,7 +66,7 @@ describe("the notices section", () => {
     expect(await screen.findByRole("link", { name: "EOL" })).toBeTruthy();
     expect(screen.getByText("Obsolescence of the LM358 family")).toBeTruthy();
     expect(screen.getByText(/Released 2025-11-04\./)).toBeTruthy();
-    expect(screen.getByText(/From DigiKey\./)).toBeTruthy();
+    expect(screen.getByText(/Released 2025-11-04\./).textContent).toContain("From DigiKey.");
     expect(screen.queryByText(/Entered by/)).toBeNull();
   });
 

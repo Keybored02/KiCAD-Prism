@@ -311,6 +311,8 @@ export interface SupplyBomBuy {
   /** False when no offer holds enough stock; the cheapest is shown anyway. */
   covers: boolean;
   connector_name: string;
+  /** The connector's provider key, for its colour. */
+  provider?: string;
   sku: string;
   product_url: string;
 }
@@ -397,6 +399,8 @@ export interface SupplyReviewListing {
   id: string;
   connector_id: string;
   connector_name: string;
+  /** The connector's provider key, for its colour. */
+  provider?: string;
   sku: string;
   raw_mpn: string;
   raw_manufacturer: string;
@@ -492,6 +496,8 @@ export interface SupplyListing {
   id: string;
   connector_id: string;
   connector_name: string;
+  /** The connector's provider key, for its colour. */
+  provider?: string;
   sku: string;
   packaging: string;
   match_state: string;
@@ -513,7 +519,7 @@ export interface SupplyPartDetail {
   status: SupplyStatus;
   problem: SupplyProblem | null;
   problem_text: string;
-  stock: { total: number | null; by_connector: Array<{ connector_id: string; connector_name: string; stock: number }> };
+  stock: { total: number | null; by_connector: Array<{ connector_id: string; connector_name: string; provider?: string; stock: number }> };
   lifecycle: SupplyLifecycle;
   listings: SupplyListing[];
   /** `listings` is how many listings stood behind the day, so a jump from a new one is not read as a restock. */
@@ -603,6 +609,8 @@ export interface UpdateWatchInput {
 export interface FillCandidate {
   connector_id: string;
   connector: string;
+  /** The connector's provider key, for its colour. */
+  provider?: string;
   sku: string;
   mpn: string;
   manufacturer: string;

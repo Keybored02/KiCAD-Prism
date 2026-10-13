@@ -368,7 +368,7 @@ class SupplyPartsApiTests(unittest.TestCase):
         self.assertIsNotNone(main["poll"]["next_poll_at"])
         self.assertEqual((skus["NEARSKU"]["counted"], skus["NEARSKU"]["offer"], skus["NEARSKU"]["poll"]), (False, None, None))
         self.assertEqual(detail["stock"]["total"], main["offer"]["stock"])
-        self.assertEqual(detail["stock"]["by_connector"], [{"connector_id": cid, "connector_name": "Sim", "stock": main["offer"]["stock"]}])
+        self.assertEqual(detail["stock"]["by_connector"], [{"connector_id": cid, "connector_name": "Sim", "provider": "fake", "stock": main["offer"]["stock"]}])
         self.assertNotIn(rejected, [item["id"] for item in detail["listings"]])
         self.assertNotIn(near, [item["id"] for item in detail["listings"] if item["counted"]])
 

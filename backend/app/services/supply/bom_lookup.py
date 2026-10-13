@@ -179,6 +179,7 @@ def _best_purchase(
         "extended": format(extended.quantize(Decimal("0.0001")).normalize(), "f"),
         "covers": covers,
         "connector_name": offer["connector_name"],
+        "provider": offer["provider"],
         "sku": offer["sku"],
         "product_url": offer["product_url"],
     }

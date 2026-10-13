@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import type { SupplyReviewListing } from "@/types/supply";
 import { pinSupplyListing, rejectSupplyListing } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
+import { VendorName } from "./vendor-name";
 
 interface ListingRowProps {
   listing: SupplyReviewListing;
@@ -24,7 +25,7 @@ export function ListingRow({ listing, canDecide, onDecided }: ListingRowProps) {
         <div className="min-w-0 space-y-0.5">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold">{listing.sku}</span>
-            <span className="text-xs text-muted-foreground">{listing.connector_name}</span>
+            <VendorName provider={listing.provider} name={listing.connector_name} className="text-xs text-muted-foreground" />
             <Badge variant={listing.match_state === "near" ? "outline" : "warning"}>
               {listing.match_state === "near" ? "Near match" : "Spelling not mapped"}
             </Badge>

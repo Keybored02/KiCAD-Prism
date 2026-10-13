@@ -19,6 +19,7 @@ import { PriceTrend } from "./price-trend";
 import { Sparkline } from "./sparkline";
 import { formatStock, LIFECYCLE_LABEL } from "./supply-format";
 import { WatchSettings } from "./watch-settings";
+import { VendorName } from "./vendor-name";
 
 // Recharts is large and only a part that is open needs it, so it loads on demand.
 const StockChart = lazy(() => import("./stock-chart"));
@@ -54,8 +55,10 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
         </div>
         {detail.problem_text ? <p role="alert" className="text-sm text-destructive">{detail.problem_text}</p> : null}
         {detail.stock.by_connector.length > 1 ? (
-          <p className="text-xs text-muted-foreground">
-            {detail.stock.by_connector.map((item) => `${item.connector_name} ${item.stock.toLocaleString()}`).join(", ")}
+          <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+            {detail.stock.by_connector.map((item) => (
+              <VendorName key={item.connector_id} provider={item.provider} name={`${item.connector_name} ${item.stock.toLocaleString()}`} />
+            ))}
           </p>
         ) : null}
         {values.length > 1 ? (

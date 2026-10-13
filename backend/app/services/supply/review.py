@@ -30,7 +30,7 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
 
     rows = conn.execute(
         """
-        SELECT l.id, l.connector_id, c.display_name AS connector_name, l.sku, l.raw_mpn, l.raw_manufacturer,
+        SELECT l.id, l.connector_id, c.display_name AS connector_name, c.provider, l.sku, l.raw_mpn, l.raw_manufacturer,
                l.match_state, l.match_reason, l.first_seen_at,
                p.id AS part_id, p.mpn AS part_mpn, m.name AS part_manufacturer
         FROM listings l
@@ -68,6 +68,7 @@ def review_queue(conn, *, limit: int = 200) -> dict[str, Any]:
                 "id": row["id"],
                 "connector_id": row["connector_id"],
                 "connector_name": row["connector_name"],
+                "provider": row["provider"],
                 "sku": row["sku"],
                 "raw_mpn": row["raw_mpn"],
                 "raw_manufacturer": row["raw_manufacturer"],

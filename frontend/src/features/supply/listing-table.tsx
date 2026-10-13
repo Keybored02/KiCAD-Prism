@@ -3,6 +3,7 @@ import { ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { SupplyListing } from "@/types/supply";
 import { formatAgo, formatPrice, formatStock, matchLabel, packagingLabel, tierLabel } from "./supply-format";
+import { VendorName } from "./vendor-name";
 
 /** Every distributor listing of a part, and whether it counts toward stock. */
 export function ListingTable({ listings }: { listings: SupplyListing[] }) {
@@ -22,7 +23,7 @@ export function ListingTable({ listings }: { listings: SupplyListing[] }) {
           <article key={listing.id} aria-label={`Listing ${listing.sku}`} className="rounded-md border p-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{listing.connector_name}</span>
+                <VendorName provider={listing.provider} name={listing.connector_name} className="font-medium" />
                 <span className="text-xs text-muted-foreground">{listing.sku}</span>
                 {packagingLabel(listing.packaging) ? <Badge variant="outline">{packagingLabel(listing.packaging)}</Badge> : null}
                 {!listing.counted ? <Badge variant="warning">{matchLabel(listing.match_state)}, not counted</Badge> : null}

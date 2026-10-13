@@ -119,6 +119,7 @@ def _candidate(connector: dict[str, Any], match: PartMatch, asked_manufacturer: 
     return {
         "connector_id": connector["id"],
         "connector": connector["display_name"],
+        "provider": connector["provider"],
         "sku": match.sku,
         "mpn": match.mpn,
         "manufacturer": match.manufacturer,

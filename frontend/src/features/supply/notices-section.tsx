@@ -9,6 +9,7 @@ import type { SupplyNotice, SupplyNoticeKind } from "@/types/supply";
 import { addNotice, closeNotice, listPartNotices } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
+import { VendorName } from "./vendor-name";
 
 const KIND_CHOICES: ReadonlyArray<{ value: SupplyNoticeKind; label: string }> = [
   { value: "end_of_life", label: "End of life" },
@@ -54,7 +55,7 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
                   {item.last_time_buy ? `Last time buy ${item.last_time_buy}. ` : ""}
                   {item.last_time_ship ? `Last time to ship ${item.last_time_ship}. ` : ""}
                   {item.parts > 1 ? `Covers ${item.parts} parts. ` : ""}
-                  {item.source && item.source !== "manual" ? `From ${item.source_label}.` : `Entered by ${item.created_by}.`}
+                  {item.source && item.source !== "manual" ? <>From <VendorName provider={item.source} name={item.source_label} />.</> : `Entered by ${item.created_by}.`}
                 </span>
               </span>
               {canEdit && item.state === "open" ? (

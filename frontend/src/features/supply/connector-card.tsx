@@ -12,6 +12,7 @@ import {
 import { CSV_PROVIDER, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
 import { CallBudget, CapacityNote, OffersFile } from "./connector-card-parts";
 import { ConnectorSignin } from "./connector-signin";
+import { vendorColor } from "./vendor-colors";
 import { connectorState, errorCodeLabel, formatWhen, lastCallFailed } from "./connector-status";
 
 export type ConnectorAction =
@@ -40,7 +41,11 @@ export function ConnectorCard({ connector, capacity, isAdmin, onAction }: Connec
   const where = [connector.provider_label, connector.storefront, connector.currency].filter(Boolean).join(" · ");
 
   return (
-    <article className="rounded-lg border bg-card p-4" aria-label={connector.display_name}>
+    <article
+      className="rounded-lg border bg-card p-4"
+      style={vendorColor(connector.provider) ? { borderLeft: `4px solid ${vendorColor(connector.provider)}` } : undefined}
+      aria-label={connector.display_name}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

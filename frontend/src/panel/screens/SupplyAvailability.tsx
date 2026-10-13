@@ -2,6 +2,7 @@ import { ExternalLink } from "lucide-react";
 
 import type { PanelSupply, PanelSupplySummary } from "@/panel/lib/panel-api";
 import { compactCount, price, summaryText } from "@/panel/lib/supply-summary";
+import { vendorColor } from "@/features/supply/vendor-colors";
 
 const DOT: Record<PanelSupplySummary["status"], string> = {
   ok: "bg-emerald-500",
@@ -47,6 +48,9 @@ export function SupplyAvailability({ supply }: { supply: PanelSupply }) {
           {offers.map((offer) => (
             <li key={`${offer.connector}:${offer.sku}`} className="flex items-baseline gap-2 border-t border-border/30 px-2.5 py-1.5 first:border-t-0">
               <span className="min-w-0 flex-1 truncate">
+                {vendorColor(offer.provider) ? (
+                  <span aria-hidden className="mr-1.5 inline-block h-2 w-2 rounded-[2px]" style={{ backgroundColor: vendorColor(offer.provider) ?? undefined }} />
+                ) : null}
                 {offer.connector}
                 {offer.marketplace ? <span className="ml-1 text-[10px] text-muted-foreground">marketplace</span> : null}
               </span>

@@ -72,6 +72,8 @@ export interface PanelSupplySummary {
 
 export interface PanelDistributorOffer {
   connector: string;
+  /** The connector's provider key, for its colour. */
+  provider?: string;
   sku: string;
   stock: number;
   marketplace: boolean;

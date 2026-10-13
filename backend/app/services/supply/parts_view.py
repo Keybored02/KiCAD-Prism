@@ -342,6 +342,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
     combined = stock.aggregate(counted) if counted else None
     lifecycle = worst_lifecycle(Lifecycle(r["lifecycle"]) for r in counted)
     names = {r["connector_id"]: r["connector_name"] for r in rows}
+    providers = {r["connector_id"]: r["provider"] for r in rows}
     problem = _problems(conn, [part_id])[part_id] if combined is None else None
 
     def iso(value: datetime | None) -> str | None:
@@ -354,6 +355,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
             "id": r["id"],
             "connector_id": r["connector_id"],
             "connector_name": r["connector_name"],
+            "provider": r["provider"],
             "sku": r["sku"],
             "packaging": r["packaging"],
             "match_state": r["match_state"],
@@ -395,7 +397,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "stock": {
             "total": combined.total if combined else None,
             "by_connector": [
-                {"connector_id": cid, "connector_name": names.get(cid, ""), "stock": value}
+                {"connector_id": cid, "connector_name": names.get(cid, ""), "provider": providers.get(cid, ""), "stock": value}
                 for cid, value in (combined.by_connector.items() if combined else [])
             ],
         },

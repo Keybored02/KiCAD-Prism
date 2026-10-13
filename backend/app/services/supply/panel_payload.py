@@ -80,6 +80,7 @@ def _source_rows(offers: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
         price = pricing.unit_price_at(breaks, moq=offer["moq"], order_multiple=offer["order_multiple"]) if offer["currency"] else None
         rows.append({
             "connector": offer["connector_name"],
+            "provider": offer["provider"],
             "sku": offer["sku"],
             "stock": offer["stock"],
             "marketplace": bool(offer["marketplace"]),

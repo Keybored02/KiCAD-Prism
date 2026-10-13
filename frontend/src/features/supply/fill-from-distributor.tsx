@@ -8,6 +8,7 @@ import type { FillCandidate, FillDetails, FillSearchResult } from "@/types/suppl
 import { defaultChosen, fillChanges, searchSummary } from "./fill-model";
 import type { FillChange } from "./fill-model";
 import { getFillDetails, searchFillCandidates } from "./fill-api";
+import { VendorName } from "./vendor-name";
 
 type Step =
   | { name: "idle" }
@@ -109,7 +110,7 @@ function Candidates({ result, onPick }: { result: FillSearchResult; onPick: (can
                   {candidate.manufacturer || "Unknown manufacturer"}, {candidate.mpn}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {candidate.connector}, {candidate.sku}
+                  <VendorName provider={candidate.provider} name={candidate.connector} />, {candidate.sku}
                   {candidate.description ? `, ${candidate.description}` : ""}
                 </div>
               </div>

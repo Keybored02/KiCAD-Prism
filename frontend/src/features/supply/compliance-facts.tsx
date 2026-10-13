@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import type { SupplyFact } from "@/types/supply";
+import { VendorName } from "./vendor-name";
 
 /** What each distributor states about the part, as it wrote it: RoHS and REACH wording, tariff codes, last date to buy. */
 export function ComplianceFacts({ facts }: { facts: readonly SupplyFact[] }) {
@@ -20,7 +21,7 @@ export function ComplianceFacts({ facts }: { facts: readonly SupplyFact[] }) {
                   <li key={source.provider}>
                     <span className="break-words">{source.value}</span>
                     <span className="ml-2 text-xs text-muted-foreground" title={`Seen ${new Date(source.observed_at).toLocaleString()}`}>
-                      {source.source}
+                      <VendorName provider={source.provider} name={source.source} />
                     </span>
                   </li>
                 ))}
