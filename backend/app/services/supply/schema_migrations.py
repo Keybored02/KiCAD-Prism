@@ -709,6 +709,22 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m028_datasheet_denied_hosts(conn) -> None:
+    """Hosts datasheets are never fetched from, set by an administrator (see ``datasheets.deny``)."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS datasheet_denied_hosts (
+            host TEXT PRIMARY KEY,
+            reason TEXT NOT NULL DEFAULT '',
+            added_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """,
+        prepare=False,
+    )
+
+
 def _m027_component_watches(conn) -> None:
     """A standing request to watch a catalog component, and its approved alternates when asked (see ``component_watches.py``)."""
 
@@ -854,6 +870,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (25, "worker_seen", _m025_worker_seen),
     (26, "watch_packaging", _m026_watch_packaging),
     (27, "component_watches", _m027_component_watches),
+    (28, "datasheet_denied_hosts", _m028_datasheet_denied_hosts),
 ]
 
 

@@ -77,7 +77,7 @@ A distributor's answer can carry the manufacturer's datasheet address (Mouser, D
 keeps the first one it sees, fetches the PDF weekly for watched parts and parts on project BOMs, and keeps up to five
 versions. A part sheet's Datasheets section shows each version, how much of the first pages' text changed, and
 lifecycle phrases the text mentions ("not recommended for new designs", "last time buy", "obsolete", "end of life",
-"discontinued", "preliminary"). A new version of a watched part raises a *datasheet changed* alert for two weeks.
+"discontinued", "preliminary"). A new version of a watched part raises a *datasheet changed* alert for two weeks. An administrator can list hosts to avoid in Supply settings; nothing is fetched from them or their subdomains.
 Designers and administrators can set the address by hand. Files come from the public internet and are never opened by
 Prism itself: text is read in a separate process with a time limit, and downloads are served as sandboxed attachments.
 

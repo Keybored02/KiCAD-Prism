@@ -28,9 +28,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 import psycopg.errors
+from urllib.parse import urlsplit
 
 from app.core.config import settings
 from app.services.supply import alerts
+from app.services.supply.audit import write_audit
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.providers.base import ProviderError
 
@@ -71,7 +73,7 @@ sys.stdout.write(json.dumps({"pages": total, "text": "\n".join(text)[:%d]}))
 """
 
 
-class DatasheetError(Exception):
+class DatasheetError(ValueError):
     """A datasheet could not be fetched or read. The message is safe to show."""
 
 
@@ -110,6 +112,59 @@ def _write_once(path: Path, data: bytes) -> None:
 def read_file(sha256: str) -> bytes | None:
     path = _blob(sha256)
     return path.read_bytes() if path.exists() else None
+
+
+MAX_HOST = 253
+
+
+def host_of(url: str) -> str:
+    """The host in an address, lower case, or an empty string."""
+
+    return (urlsplit(url.strip()).hostname or "").lower()
+
+
+def clean_host(text: str) -> str:
+    """A host name from what an administrator typed (a bare host or a whole address). Raises DatasheetError if it is not one."""
+
+    value = text.strip().lower()
+    host = host_of(value) if "://" in value else value.split("/")[0].split(":")[0]
+    if not host or len(host) > MAX_HOST or not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?", host) or ".." in host:
+        raise DatasheetError("Enter a host name such as example.com.")
+    return host
+
+
+def denied_hosts(conn) -> list[dict[str, Any]]:
+    return [
+        {"host": row["host"], "reason": row["reason"], "added_by": row["added_by"], "created_at": row["created_at"].isoformat()}
+        for row in conn.execute("SELECT host, reason, added_by, created_at FROM datasheet_denied_hosts ORDER BY host").fetchall()
+    ]
+
+
+def is_denied(conn, url: str) -> bool:
+    """Whether the address is on a denied host or a subdomain of one."""
+
+    host = host_of(url)
+    if not host:
+        return False
+    return conn.execute(
+        "SELECT 1 FROM datasheet_denied_hosts WHERE %s = host OR %s LIKE '%%.' || host LIMIT 1", (host, host)
+    ).fetchone() is not None
+
+
+def deny(conn, host: str, reason: str, actor: str) -> str:
+    host = clean_host(host)
+    conn.execute(
+        "INSERT INTO datasheet_denied_hosts (host, reason, added_by) VALUES (%s, %s, %s) "
+        "ON CONFLICT (host) DO UPDATE SET reason = EXCLUDED.reason",
+        (host, reason.strip()[:300], actor),
+    )
+    write_audit(conn, actor, "datasheet.deny_host", host, {"reason": reason.strip()[:300]}, subject_kind="datasheet_host")
+    return host
+
+
+def allow(conn, host: str, actor: str) -> None:
+    conn.execute("DELETE FROM datasheet_denied_hosts WHERE host = %s", (clean_host(host),))
+    write_audit(conn, actor, "datasheet.allow_host", host.strip().lower(), {}, subject_kind="datasheet_host")
 
 
 def fetch(url: str, client: Any | None = None) -> bytes:
@@ -267,6 +322,9 @@ def check_part(store, part_id: str, url: str, now: datetime, client: Any | None 
     """Fetch one datasheet and keep it if it is new. Returns ``new``, ``unchanged`` or the failure code."""
 
     try:
+        with store.connection() as conn:
+            if is_denied(conn, url):
+                raise DatasheetError("host_denied")
         data = fetch(url, client)
         with store.connection() as conn:
             created = store_version(conn, part_id, url, data, now)

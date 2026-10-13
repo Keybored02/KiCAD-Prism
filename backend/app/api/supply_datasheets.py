@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
-from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
+from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_writer
 from app.services.supply import datasheets, parts
 from app.services.supply.audit import write_audit
 
@@ -67,6 +67,10 @@ async def set_datasheet_url(
     url = body.url.strip()
     if url and not url.lower().startswith("https://"):
         raise HTTPException(status_code=400, detail={"code": "invalid_datasheet", "message": "The datasheet address must start with https://."})
+    if url:
+        with _store().connection() as check:
+            if datasheets.is_denied(check, url):
+                raise HTTPException(status_code=400, detail={"code": "invalid_datasheet", "message": "Datasheets are not fetched from that host."})
 
     def run() -> None:
         with _store().connection() as conn:
@@ -79,6 +83,44 @@ async def set_datasheet_url(
 
     await _run(run)
     return Response(status_code=204)
+
+
+class DeniedHost(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = Field(min_length=1, max_length=300)
+    reason: str = Field(default="", max_length=300)
+
+
+@router.get("/datasheet-hosts")
+async def list_denied_hosts(_admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
+    """Hosts datasheets are never fetched from."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return {"items": datasheets.denied_hosts(conn)}
+
+    return await _run(read)
+
+
+@router.put("/datasheet-hosts")
+async def deny_host(body: DeniedHost, admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            datasheets.deny(conn, body.host, body.reason, admin.email)
+            return {"items": datasheets.denied_hosts(conn)}
+
+    return await _run(run)
+
+
+@router.delete("/datasheet-hosts/{host}")
+async def allow_host(host: str, admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            datasheets.allow(conn, host, admin.email)
+            return {"items": datasheets.denied_hosts(conn)}
+
+    return await _run(run)
 
 
 @router.get("/datasheets/{datasheet_id}/file")

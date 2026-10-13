@@ -29,6 +29,7 @@ import type {
   SupplyCompliance,
   SupplyComponentCheck,
   SupplyComponentWatch,
+  SupplyDeniedHost,
   SupplyDatasheets,
   SupplyMarket,
   SupplyMarketHistory,
@@ -358,6 +359,18 @@ export async function setComponentWatch(componentId: string, includeAlternates: 
 
 export function removeComponentWatch(componentId: string): Promise<void> {
   return send(`${BASE}/components/${encodeURIComponent(componentId)}/watch`, "DELETE", undefined, "Could not stop watching the component");
+}
+
+export async function listDeniedDatasheetHosts(signal?: AbortSignal): Promise<SupplyDeniedHost[]> {
+  return (await fetchJson<{ items: SupplyDeniedHost[] }>(`${BASE}/datasheet-hosts`, { signal }, "Could not load the blocked hosts")).items;
+}
+
+export function denyDatasheetHost(host: string, reason = ""): Promise<void> {
+  return send(`${BASE}/datasheet-hosts`, "PUT", { host, reason }, "Could not block the host");
+}
+
+export function allowDatasheetHost(host: string): Promise<void> {
+  return send(`${BASE}/datasheet-hosts/${encodeURIComponent(host)}`, "DELETE", undefined, "Could not allow the host");
 }
 
 export function addComponentSource(componentId: string, manufacturer: string, mpn: string): Promise<{ id: string; approval: string }> {

@@ -300,6 +300,14 @@ export interface SupplyComponentFinding {
   waiver: SupplyWaiver | null;
 }
 
+/** A host datasheets are not fetched from. */
+export interface SupplyDeniedHost {
+  host: string;
+  reason: string;
+  added_by: string;
+  created_at: string;
+}
+
 /** A standing request to watch a component and, when asked, its approved alternates. */
 export interface SupplyComponentWatch {
   component_id: string;

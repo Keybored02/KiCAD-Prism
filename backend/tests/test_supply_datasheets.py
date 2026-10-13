@@ -236,6 +236,20 @@ class ArchiveTests(unittest.TestCase):
         after = self.call("GET", f"/api/supply/parts/{self.part}/datasheets").json
         self.assertEqual((after["url"], after["status"]), ("https://x.example/a.pdf", None), "a new address starts fresh")
 
+    def test_an_administrator_denies_a_host_and_nothing_is_fetched_from_it_or_its_subdomains(self) -> None:
+        url = "https://cdn.blocked.example/abc1.pdf"
+        self.assertEqual(self.call("PUT", "/api/supply/datasheet-hosts", role="designer", body={"host": "blocked.example"}).status, 403)
+        reply = self.call("PUT", "/api/supply/datasheet-hosts", role="admin", body={"host": "https://Blocked.example/x", "reason": "slow"})
+        self.assertEqual([item["host"] for item in reply.json["items"]], ["blocked.example"])
+        self.assertEqual(self.call("PUT", "/api/supply/datasheet-hosts", role="admin", body={"host": "not a host!"}).status, 400)
+        try:
+            self.assertEqual(datasheets.check_part(self.store, self.part, url, NOW, Client(pdf("x"))), "host_denied")
+            self.assertEqual(datasheets.check_part(self.store, self.part, "https://notblocked.example/a.pdf", NOW, Client(pdf("x"))), "new")
+            self.assertEqual(self.call("PUT", f"/api/supply/parts/{self.part}/datasheet-url", body={"url": url}).status, 400)
+            self.assertEqual(self.call("GET", "/api/supply/datasheet-hosts", role="qa").status, 403)
+        finally:
+            self.assertEqual(self.call("DELETE", "/api/supply/datasheet-hosts/blocked.example", role="admin").json["items"], [])
+
 
 if __name__ == "__main__":
     unittest.main()
