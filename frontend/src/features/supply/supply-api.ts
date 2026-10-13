@@ -30,6 +30,7 @@ import type {
   SupplyComponentFinding,
   SupplyDatasheets,
   SupplyMarket,
+  SupplyMarketHistory,
   SupplyNotice,
   SupplyPlan,
   SupplyNoticeKind,
@@ -468,6 +469,10 @@ export function loadSvhcList(csv: string, sourceName: string): Promise<SupplySvh
 
 export function getSupplyMarket(signal?: AbortSignal): Promise<SupplyMarket> {
   return fetchJson(`${BASE}/market`, { signal }, "Could not load the market figures");
+}
+
+export function getSupplyMarketHistory(metric: string, signal?: AbortSignal): Promise<SupplyMarketHistory> {
+  return fetchJson(`${BASE}/market/history?metric=${encodeURIComponent(metric)}`, { signal }, "Could not load the market history");
 }
 
 export async function listPartNotices(partId: string, signal?: AbortSignal): Promise<SupplyNotice[]> {

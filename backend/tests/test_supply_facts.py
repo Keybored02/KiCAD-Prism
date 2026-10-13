@@ -67,9 +67,17 @@ class DigiKeyFactsTests(unittest.TestCase):
                              "/products/v4/search/296-1395-1-ND/productdetails": [dk_details(product)]})
         (offer,) = dk_provider(client).get_offers(["296-1395-1-ND"])
         self.assertEqual(dict(offer.facts), {
-            "rohs_status": "ROHS3 Compliant", "reach_status": "REACH Unaffected", "msl": "1  (Unlimited)", "eccn": "EAR99",
-            "hts_us": "8542.33.0001", "last_buy_date": "2027-03-31",
+            "category": "Linear - Amplifiers", "rohs_status": "ROHS3 Compliant", "reach_status": "REACH Unaffected",
+            "msl": "1  (Unlimited)", "eccn": "EAR99", "hts_us": "8542.33.0001", "last_buy_date": "2027-03-31",
         })
+
+    def test_the_category_is_the_most_specific_name_in_the_chain(self) -> None:
+        from app.services.supply.providers import digikey
+
+        nested = {"Name": "Integrated Circuits (ICs)", "ChildCategories": [{"Name": "Linear", "ChildCategories": [{"Name": "Amplifiers"}]}]}
+        self.assertEqual(digikey._leaf_category(nested), "Amplifiers")
+        self.assertEqual(digikey._leaf_category({"Name": "Only"}), "Only")
+        self.assertEqual(digikey._leaf_category(None), "")
 
     def test_change_notices_need_a_user_token_and_a_404_means_none(self) -> None:
         with self.assertRaises(AuthError):

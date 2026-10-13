@@ -146,10 +146,16 @@ export interface SupplyMarket {
   min_sample?: number;
   scopes: Array<{
     scope: string;
-    kind: "all" | "manufacturer";
+    kind: "all" | "manufacturer" | "category";
     sample: number;
     metrics: Partial<Record<"out_of_stock" | "lifecycle_risk" | "dropped" | "median_lead_time_days", SupplyMarketMetric>>;
   }>;
+}
+
+/** One metric over the stored days, a line per group. */
+export interface SupplyMarketHistory {
+  metric: string;
+  series: Array<{ kind: "all" | "manufacturer" | "category"; scope: string; sample: number; points: Array<[string, number]> }>;
 }
 
 /** An attribute distributors list for a part. `value` is in SI units when it could be read, else null. */

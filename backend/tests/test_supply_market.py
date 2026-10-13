@@ -120,6 +120,33 @@ class MarketDatabaseTests(unittest.TestCase):
         self.assertEqual((metric["before"], round(metric["value"], 2)), (0.0, 0.33))
         self.assertEqual(result["scopes"][0]["scope"], "All followed parts")
 
+    def test_parts_are_also_grouped_by_the_category_a_distributor_files_them_under(self) -> None:
+        from app.services.supply import facts
+
+        for index in range(3):
+            self.follow("Acme" if index < 2 else "Globex", f"X-{index}", 100)
+        with self.store.connection() as conn:
+            for mpn, provider, category in (("X-0", "digikey", "Op Amps"), ("X-1", "mouser", "Op Amps"), ("X-2", "digikey", "Op Amps"), ("X-2", "mouser", "Other")):
+                part = conn.execute("SELECT id FROM parts WHERE mpn = %s", (mpn,)).fetchone()["id"]
+                facts.set_one(conn, part, provider, "category", category, NOW)
+            scopes = market.compute(conn)
+            market.snapshot(conn, date(2026, 3, 1))
+            history = market.history(conn, "out_of_stock", date(2026, 3, 2))
+        self.assertEqual(scopes["category:Op Amps"]["sample"], 3, "DigiKey's wording wins over Mouser's")
+        self.assertNotIn("category:Other", scopes)
+        kinds = [(s["kind"], s["scope"]) for s in history["series"]]
+        self.assertEqual(kinds[0], ("all", "All followed parts"))
+        self.assertIn(("category", "Op Amps"), kinds)
+        self.assertEqual(history["series"][0]["points"], [["2026-03-01", 0.0]])
+        with self.assertRaises(ValueError):
+            market.history(conn, "nonsense")
+
+    def test_the_history_is_for_readers_and_one_known_metric(self) -> None:
+        self.assertEqual(_request(self.app, "GET", "/api/supply/market/history", user=self.users["qa"], query="metric=dropped").json,
+                         {"metric": "dropped", "series": []})
+        self.assertEqual(_request(self.app, "GET", "/api/supply/market/history", user=self.users["qa"], query="metric=bad").status, 422)
+        self.assertEqual(_request(self.app, "GET", "/api/supply/market/history", user=self.users["viewer"], query="metric=dropped").status, 403)
+
     def test_nothing_stored_yet_says_so_and_only_readers_see_it(self) -> None:
         response = _request(self.app, "GET", "/api/supply/market", user=self.users["qa"])
         self.assertEqual((response.status, response.json), (200, {"day": None, "scopes": []}))

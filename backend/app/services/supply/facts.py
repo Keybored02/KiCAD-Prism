@@ -21,6 +21,7 @@ LABELS: dict[str, str] = {
     "rohs_status": "RoHS",
     "reach_status": "REACH",
     "reach_svhc": "Substances of very high concern",
+    "category": "Distributor category",
     "msl": "Moisture sensitivity level",
     "eccn": "Export control class (ECCN)",
     "hts_us": "Tariff code, United States (HTS)",

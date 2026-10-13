@@ -4,11 +4,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SupplyMarket } from "@/types/supply";
+import { MarketHistory } from "./market-history";
 import { MARKET_COLUMNS, marketChange, marketFigure } from "./market-model";
 import { getSupplyMarket } from "./supply-api";
 import { useLoaded } from "./use-loaded";
 
-/** How the parts this workspace follows do as a group, by manufacturer. Not the market as a whole, and it says so. */
+/** How the parts this workspace follows do as a group, by manufacturer and by category. Not the market as a whole, and it says so. */
 export function MarketView() {
   const fetcher = useCallback((signal: AbortSignal) => getSupplyMarket(signal), []);
   const loaded = useLoaded<SupplyMarket>("market", fetcher, "Could not load the market figures");
@@ -30,7 +31,7 @@ export function MarketView() {
     <div className="space-y-3 p-4">
       <p className="max-w-3xl text-sm text-muted-foreground">
         Figures over the parts that are watched or on a project BOM, read from the distributors you connect. They describe your own
-        parts, not the market, and a manufacturer shows only with at least {market.min_sample ?? 3} such parts. One snapshot is kept a day.
+        parts, not the market, and a manufacturer or category shows only with at least {market.min_sample ?? 3} such parts. One snapshot is kept a day.
       </p>
       {market.scopes.length === 0 ? (
         <p className="text-sm">
@@ -51,7 +52,10 @@ export function MarketView() {
             <tbody>
               {market.scopes.map((scope) => (
                 <tr key={`${scope.kind}:${scope.scope}`} className="border-t">
-                  <th scope="row" className="p-2 text-left font-medium">{scope.scope}</th>
+                  <th scope="row" className="p-2 text-left font-medium">
+                    {scope.scope}
+                    {scope.kind === "category" ? <span className="ml-2 text-[10px] font-normal uppercase tracking-wider text-muted-foreground">Category</span> : null}
+                  </th>
                   <td className="p-2 text-right tabular-nums">{scope.sample}</td>
                   {MARKET_COLUMNS.map((column) => {
                     const metric = scope.metrics[column.key];
@@ -69,6 +73,7 @@ export function MarketView() {
           </table>
         </div>
       )}
+      {market.scopes.length > 0 ? <MarketHistory /> : null}
       {market.day ? (
         <p className="text-xs text-muted-foreground">
           Snapshot of {market.day}{market.compared_with ? `, changes against ${market.compared_with}` : ", nothing older to compare with yet"}.

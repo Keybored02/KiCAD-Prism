@@ -322,7 +322,7 @@ def _trade_facts(items: object) -> tuple[tuple[str, str], ...]:
 
 
 def _facts(part: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
-    pairs = [("rohs_status", str(part.get("ROHSStatus") or "").strip())]
+    pairs = [("rohs_status", str(part.get("ROHSStatus") or "").strip()), ("category", str(part.get("Category") or "").strip())]
     pairs += list(_trade_facts(part.get("ProductCompliance")))
     pairs.append(("suggested_replacement", str(part.get("SuggestedReplacement") or "").strip()))
     return tuple((name, value) for name, value in pairs if value)

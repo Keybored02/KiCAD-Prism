@@ -709,6 +709,16 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m024_market_categories(conn) -> None:
+    """Market figures by the category a distributor files a part under, as well as by manufacturer."""
+
+    conn.execute("ALTER TABLE market_indices DROP CONSTRAINT IF EXISTS market_indices_scope_kind_check", prepare=False)
+    conn.execute(
+        "ALTER TABLE market_indices ADD CONSTRAINT market_indices_scope_kind_check CHECK (scope_kind IN ('all', 'manufacturer', 'category'))",
+        prepare=False,
+    )
+
+
 def _m023_connector_retention(conn) -> None:
     """Days raw samples are kept per connector, for a provider whose terms limit how long its data may be stored."""
 
@@ -796,6 +806,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (21, "distributor_details", _m021_distributor_details),
     (22, "usage_lcsc", _m022_usage_lcsc),
     (23, "connector_retention", _m023_connector_retention),
+    (24, "market_categories", _m024_market_categories),
 ]
 
 

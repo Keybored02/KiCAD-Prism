@@ -1,12 +1,13 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SupplyMarket } from "@/types/supply";
-import { MARKET_COLUMNS, marketChange, marketFigure } from "./market-model";
+import { MARKET_COLUMNS, marketChange, marketFigure, marketRows } from "./market-model";
 
 vi.mock("./supply-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./supply-api")>()),
   getSupplyMarket: vi.fn(),
+  getSupplyMarketHistory: vi.fn(),
 }));
 
 import { MarketView } from "./market-view";
@@ -27,6 +28,7 @@ const market: SupplyMarket = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.getSupplyMarket.mockResolvedValue(market);
+  mocked.getSupplyMarketHistory.mockResolvedValue({ metric: "out_of_stock", series: [] });
 });
 afterEach(cleanup);
 
@@ -42,6 +44,20 @@ describe("the market view", () => {
     expect(screen.getAllByText("no data").length).toBeGreaterThan(0);
   });
 
+  it("tags a category and explains the empty history", async () => {
+    mocked.getSupplyMarket.mockResolvedValue({ ...market, scopes: [...market.scopes, { scope: "Op Amps", kind: "category", sample: 4, metrics: {} }] });
+    render(<MarketView />);
+    expect(await screen.findByText("Op Amps")).toBeTruthy();
+    expect(screen.getByText("Category")).toBeTruthy();
+    expect(await screen.findByText(/A line appears once two days of figures are stored/)).toBeTruthy();
+  });
+
+  it("asks for the figure that was picked", async () => {
+    render(<MarketView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Lifecycle risk" }));
+    await waitFor(() => expect(mocked.getSupplyMarketHistory).toHaveBeenLastCalledWith("lifecycle_risk", expect.anything()));
+  });
+
   it("says plainly that nothing is stored yet", async () => {
     mocked.getSupplyMarket.mockResolvedValue({ day: null, scopes: [] });
     render(<MarketView />);
@@ -50,6 +66,14 @@ describe("the market view", () => {
 });
 
 describe("market wording", () => {
+  it("lines the days up across groups, leaving a gap where a group has no value", () => {
+    const rows = marketRows([
+      { kind: "all", scope: "All", sample: 5, points: [["2026-03-01", 0.1], ["2026-03-02", 0.2]] },
+      { kind: "category", scope: "Op Amps", sample: 3, points: [["2026-03-02", 0.5]] },
+    ]);
+    expect(rows).toEqual([{ day: "2026-03-01", s0: 0.1, s1: null }, { day: "2026-03-02", s0: 0.2, s1: 0.5 }]);
+  });
+
   it("reads shares as percentages and lead times as days", () => {
     const [share, , , days] = MARKET_COLUMNS;
     expect(marketFigure(share, { value: 0.333, before: null })).toBe("33%");

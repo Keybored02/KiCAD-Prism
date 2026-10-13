@@ -1,4 +1,4 @@
-import type { SupplyMarketMetric } from "@/types/supply";
+import type { SupplyMarketHistory, SupplyMarketMetric } from "@/types/supply";
 
 export const MARKET_COLUMNS = [
   { key: "out_of_stock", label: "Out of stock", kind: "share" },
@@ -22,4 +22,18 @@ export function marketChange(column: MarketColumn, metric: SupplyMarketMetric | 
   if (delta === 0) return "no change";
   const unit = column.kind === "share" ? " points" : " days";
   return `${delta > 0 ? "up" : "down"} ${Math.abs(delta)}${unit}`;
+}
+
+export type MarketMetricKey = (typeof MARKET_COLUMNS)[number]["key"];
+
+/** One row per day with a value for each line, in the shape the chart reads: `{ day, s0, s1 }`. */
+export function marketRows(series: SupplyMarketHistory["series"]): Array<Record<string, number | string | null>> {
+  const days = [...new Set(series.flatMap((line) => line.points.map(([day]) => day)))].sort();
+  return days.map((day) => {
+    const row: Record<string, number | string | null> = { day };
+    series.forEach((line, index) => {
+      row[`s${index}`] = line.points.find(([pointDay]) => pointDay === day)?.[1] ?? null;
+    });
+    return row;
+  });
 }

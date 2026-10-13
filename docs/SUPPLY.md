@@ -114,7 +114,7 @@ it.
 
 ## Market
 
-Supply > Market shows how the parts you follow do as a group, by manufacturer: the share out of stock, the share with a
+Supply > Market shows how the parts you follow do as a group, by manufacturer and by category (the one DigiKey or Mouser files the part under) and, once two days are stored, a chart of any figure over time: the share out of stock, the share with a
 lifecycle risk, the share every distributor dropped, and the median lead time, each with its change since a month ago once
 a month of snapshots exists. It covers watched parts and parts on project BOMs only, a manufacturer needs at least three
 of them, and the number of parts is always shown. It is not the market as a whole.

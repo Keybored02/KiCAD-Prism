@@ -344,9 +344,21 @@ def _notice(sku: str, item: Mapping[str, Any]) -> ChangeNotice:
     )
 
 
+def _leaf_category(category: Any) -> str:
+    """The most specific category name: DigiKey nests them (``Category`` holds ``ChildCategories``)."""
+
+    name = ""
+    while isinstance(category, dict):
+        name = str(category.get("Name") or name)
+        children = category.get("ChildCategories")
+        category = children[0] if isinstance(children, list) and children else None
+    return name
+
+
 def _facts(product: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     classes = product.get("Classifications") or {}
     pairs = [
+        ("category", _leaf_category(product.get("Category"))),
         ("rohs_status", classes.get("RohsStatus")),
         ("reach_status", classes.get("ReachStatus")),
         ("msl", classes.get("MoistureSensitivityLevel")),

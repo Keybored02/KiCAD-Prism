@@ -5,6 +5,7 @@ distributors it connects. They are not the market. A figure is shown only for a 
 ``MIN_SAMPLE`` parts, and its sample size is always given. One snapshot is stored a day, so a figure can be
 set against a month earlier.
 
+A group is a manufacturer or a category (the one the distributors file the part under; DigiKey's, else Mouser's).
 Metrics (shares are 0 to 1): ``out_of_stock`` (no distributor has it), ``lifecycle_risk`` (not recommended for
 new designs, last time buy or obsolete), ``dropped`` (every distributor stopped selling it) and
 ``median_lead_time_days`` (parts with a lead time given).
@@ -20,10 +21,13 @@ from app.services.supply import parts_view
 from app.services.supply.vocabulary import Lifecycle
 
 MIN_SAMPLE = 3
+MAX_SERIES = 6
 ALL = "all"
 METRICS = ("out_of_stock", "lifecycle_risk", "dropped", "median_lead_time_days")
 _LIFECYCLE_RISK = {Lifecycle.NRND.value, Lifecycle.LAST_TIME_BUY.value, Lifecycle.OBSOLETE.value}
 COMPARE_DAYS = 30
+CATEGORY_PREFIX = "category:"
+HISTORY_DAYS = 365
 
 
 def _tracked_part_ids(conn) -> list[str]:
@@ -60,18 +64,35 @@ def metrics_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
     return result
 
 
+def _categories(conn, part_ids: Sequence[str]) -> dict[str, str]:
+    """Each part's category: DigiKey's wording when it has one, else Mouser's, else any provider's."""
+
+    if not part_ids:
+        return {}
+    rows = conn.execute(
+        "SELECT DISTINCT ON (part_id) part_id, value FROM part_facts WHERE name = 'category' AND part_id = ANY(%s) "
+        "ORDER BY part_id, CASE provider WHEN 'digikey' THEN 0 WHEN 'mouser' THEN 1 ELSE 2 END, provider",
+        (list(part_ids),),
+    ).fetchall()
+    return {row["part_id"]: row["value"] for row in rows}
+
+
 def compute(conn) -> dict[str, dict[str, Any]]:
-    """Metrics per scope: ``all`` and every manufacturer with enough tracked parts."""
+    """Metrics per scope: ``all``, every manufacturer and every category (``category:<name>``) with enough tracked parts."""
 
     ids = _tracked_part_ids(conn)
     items, offers = parts_view.summaries_with_offers(conn, ids)
+    categories = _categories(conn, ids)
     rows = [
-        {"manufacturer": item["manufacturer"], "stock": item["stock"], "lifecycle": item["lifecycle"], "offers": offers.get(item["id"], [])}
+        {"manufacturer": item["manufacturer"], "category": categories.get(item["id"], ""), "stock": item["stock"],
+         "lifecycle": item["lifecycle"], "offers": offers.get(item["id"], [])}
         for item in items
     ]
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         groups.setdefault(row["manufacturer"], []).append(row)
+        if row["category"]:
+            groups.setdefault(CATEGORY_PREFIX + row["category"], []).append(row)
     scopes: dict[str, dict[str, Any]] = {}
     if len(rows) >= MIN_SAMPLE:
         scopes[ALL] = {"sample": len(rows), "metrics": metrics_of(rows)}
@@ -89,11 +110,16 @@ def snapshot(conn, today: date | None = None) -> int:
         return 0
     written = 0
     for scope, data in compute(conn).items():
-        kind = "all" if scope == ALL else "manufacturer"
+        if scope == ALL:
+            kind, name = "all", ""
+        elif scope.startswith(CATEGORY_PREFIX):
+            kind, name = "category", scope[len(CATEGORY_PREFIX):]
+        else:
+            kind, name = "manufacturer", scope
         for metric, value in data["metrics"].items():
             conn.execute(
                 "INSERT INTO market_indices (day, scope_kind, scope_value, metric, value, sample_size) VALUES (%s, %s, %s, %s, %s, %s)",
-                (today, kind, "" if scope == ALL else scope, metric, value, data["sample"]),
+                (today, kind, name, metric, value, data["sample"]),
             )
             written += 1
     return written
@@ -124,3 +150,27 @@ def overview(conn, today: date | None = None) -> dict[str, Any]:
                 target["metrics"][row["metric"]]["before"] = float(row["value"])
     ordered = sorted(scopes.values(), key=lambda item: (item["kind"] != "all", -item["sample"], item["scope"].lower()))
     return {"day": latest_day.isoformat(), "compared_with": before_day.isoformat() if before_day else None, "min_sample": MIN_SAMPLE, "scopes": ordered}
+
+
+def history(conn, metric: str, today: date | None = None) -> dict[str, Any]:
+    """One metric over the stored days, a line per group: ``{"metric", "series": [{"kind", "scope", "points": [[day, value]]}]}``.
+
+    Groups are the whole set first, then the largest by sample size, at most ``MAX_SERIES``.
+    """
+
+    if metric not in METRICS:
+        raise ValueError("unknown metric")
+    today = today or datetime.now(timezone.utc).date()
+    rows = conn.execute(
+        "SELECT day, scope_kind, scope_value, value, sample_size FROM market_indices "
+        "WHERE metric = %s AND day >= %s ORDER BY day",
+        (metric, today - timedelta(days=HISTORY_DAYS)),
+    ).fetchall()
+    series: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        entry = series.setdefault((row["scope_kind"], row["scope_value"]), {
+            "kind": row["scope_kind"], "scope": row["scope_value"] or "All followed parts", "sample": 0, "points": []})
+        entry["sample"] = row["sample_size"]
+        entry["points"].append([row["day"].isoformat(), float(row["value"])])
+    ordered = sorted(series.values(), key=lambda item: (item["kind"] != "all", -item["sample"], item["scope"].lower()))
+    return {"metric": metric, "series": ordered[:MAX_SERIES]}
