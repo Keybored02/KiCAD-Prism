@@ -88,13 +88,21 @@ class DigiKeyFactsTests(unittest.TestCase):
 
     def test_change_notices_are_read_as_written(self) -> None:
         answer = {"DigiKeyPartNumber": "296-1395-1-ND", "ProductChangeNotifications": [
-            {"DigiKeyPartNumber": "296-1395-1-ND", "PcnChangeDate": "2025-11-04T00:00:00", "PcnTypeId": "3", "PcnType": "EOL",
-             "PcnDescription": "Obsolescence of LM358DR", "PcnLink": "https://media.digikey.com/pdf/PCN/TI/x.pdf"},
+            {"DigiKeyPartNumber": "296-1395-1-ND", "PcnChangeDate": "2026-10-12T19:22:00Z", "PcnTypeId": "3", "PcnType": "EOL",
+             "PcnDescription": "Obsolescence of LM358DR 4/Nov/2025", "PcnLink": "https://media.digikey.com/pdf/PCN/TI/x.pdf"},
             {"PcnType": "Packaging", "PcnDescription": "Reel change", "PcnLink": "http://insecure.example/x.pdf"},
         ]}
         (eol, packaging) = dk_provider(FakeClient({PCN_PATH.format("296-1395-1-ND"): [answer]})).change_notices("296-1395-1-ND", "tok")
         self.assertEqual((eol.kind_text, eol.published_on, eol.url), ("EOL", date(2025, 11, 4), "https://media.digikey.com/pdf/PCN/TI/x.pdf"))
         self.assertEqual((packaging.kind_text, packaging.url, packaging.published_on), ("Packaging", "", None), "only HTTPS links are kept")
+
+    def test_the_release_date_comes_from_the_description_not_the_record_date(self) -> None:
+        from app.services.supply.providers import digikey
+
+        self.assertEqual(digikey._description_day("Label Chg 12/Mar/2017"), date(2017, 3, 12))
+        self.assertEqual(digikey._description_day("All Dev Label Chgs 2/Aug/2020"), date(2020, 8, 2))
+        self.assertIsNone(digikey._description_day("Assembly site change"))
+        self.assertIsNone(digikey._description_day("Odd 31/Feb/2020"))
 
 
 class MouserFactsTests(unittest.TestCase):

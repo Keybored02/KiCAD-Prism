@@ -222,6 +222,20 @@ class DetailsTests(unittest.TestCase):
 
     # --- sign-in ------------------------------------------------------------
 
+    def test_a_later_reading_corrects_the_date_of_a_notice_kept_before(self) -> None:
+        from datetime import date
+
+        from app.services.supply import pcn
+
+        with self.store.connection() as conn:
+            part = conn.execute("SELECT id FROM parts LIMIT 1").fetchone()["id"]
+            pcn.record_external(conn, "digikey", "k1", part, kind_text="PCN Packaging", description="Label Chg 12/Mar/2017",
+                                notice_url="https://x.example/a.pdf", published_on=date(2026, 10, 12))
+            again = pcn.record_external(conn, "digikey", "k1", part, kind_text="PCN Packaging", description="Label Chg 12/Mar/2017",
+                                        notice_url="https://x.example/a.pdf", published_on=date(2017, 3, 12))
+            row = conn.execute("SELECT published_on FROM pcns WHERE external_key = 'k1'").fetchone()
+        self.assertEqual((again, row["published_on"]), (False, date(2017, 3, 12)), "the same notice, its date corrected")
+
     def test_the_sign_in_address_can_differ_from_the_public_one(self) -> None:
         from app.services.supply import oauth
 

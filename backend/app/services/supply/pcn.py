@@ -138,9 +138,12 @@ def record_external(
         """,
         (uuid.uuid4().hex, title, kind_from_text(kind_text), url, description.strip()[:MAX_NOTES], source, source, key, published_on),
     ).fetchone()
-    notice_id = created["id"] if created else conn.execute(
-        "SELECT id FROM pcns WHERE source = %s AND external_key = %s", (source, key)
-    ).fetchone()["id"]
+    if created:
+        notice_id = created["id"]
+    else:
+        notice_id = conn.execute("SELECT id FROM pcns WHERE source = %s AND external_key = %s", (source, key)).fetchone()["id"]
+        # The distributor's latest reading of the date wins, so a reading corrected later fixes a notice kept before.
+        conn.execute("UPDATE pcns SET published_on = %s WHERE id = %s AND published_on IS DISTINCT FROM %s", (published_on, notice_id, published_on))
     tied = conn.execute(
         "INSERT INTO pcn_parts (pcn_id, part_id) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING pcn_id", (notice_id, part_id)
     ).fetchone()

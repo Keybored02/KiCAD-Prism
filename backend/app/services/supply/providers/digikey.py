@@ -44,6 +44,7 @@ Limits. The description gives none. DigiKey's published defaults for this API (1
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -332,6 +333,23 @@ def _day(text: object) -> date | None:
         return None
 
 
+_DESCRIPTION_DAY = re.compile(r"(\d{1,2})/([A-Za-z]{3})/(\d{4})")
+_MONTHS = {name: number for number, name in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
+
+
+def _description_day(text: str) -> date | None:
+    """The date a notice's description gives, such as "Label Chg 12/Mar/2017". None when it gives none."""
+
+    found = _DESCRIPTION_DAY.search(text)
+    month = _MONTHS.get(found.group(2).lower()) if found else None
+    if not found or month is None:
+        return None
+    try:
+        return date(int(found.group(3)), month, int(found.group(1)))
+    except ValueError:
+        return None
+
+
 def _notice(sku: str, item: Mapping[str, Any]) -> ChangeNotice:
     link = str(item.get("PcnLink") or "").strip()
     return ChangeNotice(
@@ -340,7 +358,9 @@ def _notice(sku: str, item: Mapping[str, Any]) -> ChangeNotice:
         kind_text=str(item.get("PcnType") or "").strip(),
         description=str(item.get("PcnDescription") or "").strip(),
         url=link if link.lower().startswith("https://") else "",
-        published_on=_day(item.get("PcnChangeDate")),
+        # ``PcnChangeDate`` is when DigiKey last changed its record (seen 2026-10-13: notices from 2017 dated last week),
+        # not when the notice came out. The release date is in the description, when DigiKey writes one.
+        published_on=_description_day(str(item.get("PcnDescription") or "")),
     )
 
 
