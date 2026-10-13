@@ -246,10 +246,38 @@ class FarnellTests(unittest.TestCase):
         (offer,) = fa_provider(client).get_offers(["1278613"])
         self.assertEqual((offer.stock, offer.lead_time_days), (0, 63))
 
-    def test_the_answer_has_no_currency_so_the_connector_must_name_one(self) -> None:
+    def test_the_answer_has_no_currency_so_the_connector_names_one_or_the_store_decides(self) -> None:
         client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
-        (offer,) = fa_provider(client, currency="").get_offers(["1278613"])
-        self.assertEqual((offer.price_breaks, offer.currency), ((), ""))
+        (unknown,) = fa_provider(client, store="il.farnell.com", currency="").get_offers(["1278613"])
+        self.assertEqual((unknown.price_breaks, unknown.currency), ((), ""), "a store whose currency is in doubt needs one named")
+        client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
+        (named,) = fa_provider(client, store="il.farnell.com", currency="USD").get_offers(["1278613"])
+        self.assertEqual((len(named.price_breaks), named.currency), (3, "USD"))
+        client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
+        (italy,) = fa_provider(client, store="it.farnell.com", currency="").get_offers(["1278613"])
+        self.assertEqual((len(italy.price_breaks), italy.currency), (3, "EUR"), "a euro store prices in euros")
+        client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
+        (uk,) = fa_provider(client, store="uk.farnell.com", currency="").get_offers(["1278613"])
+        self.assertEqual(uk.currency, "GBP")
+
+    def test_a_product_link_is_the_stores_search_for_the_sku_unless_the_service_gives_one(self) -> None:
+        from app.services.supply.providers import farnell
+
+        self.assertEqual(farnell.page_url("it.farnell.com", "2787798RL", {"productURL": None}), "https://it.farnell.com/search?st=2787798RL")
+        self.assertEqual(farnell.page_url("it.farnell.com", "1", {"productURL": "https://it.farnell.com/x/dp/1"}), "https://it.farnell.com/x/dp/1")
+        self.assertEqual(farnell.page_url("it.farnell.com", "1", {"productURL": "http://insecure.example/1"}), "https://it.farnell.com/search?st=1")
+        client = FakeClient({"/catalog/products": [wrapped(fa_product())]})
+        (offer,) = fa_provider(client, store="it.farnell.com").get_offers(["1278613"])
+        self.assertEqual(offer.product_url, "https://it.farnell.com/search?st=1278613")
+        client = FakeClient({"/catalog/products": [wrapped(fa_product(translatedManufacturerPartNumber="LM358DR"))]})
+        (match,) = fa_provider(client, store="it.farnell.com").lookup_mpn("LM358DR")
+        self.assertEqual(match.product_url, "https://it.farnell.com/search?st=1278613")
+
+    def test_roHS_codes_seen_live_are_read(self) -> None:
+        for code, expected in (("YES", True), ("Y-EX", True), ("NO", False)):
+            client = FakeClient({"/catalog/products": [wrapped(fa_product(rohsStatusCode=code))]})
+            (offer,) = fa_provider(client).get_offers(["1278613"])
+            self.assertEqual(offer.rohs, expected, code)
 
     def test_status_and_release_codes_say_who_stopped_what(self) -> None:
         cases = [

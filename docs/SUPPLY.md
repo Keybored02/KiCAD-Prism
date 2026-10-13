@@ -17,7 +17,7 @@ Supply > Connectors. One connector per provider and storefront.
 | TME | API token and secret | Prices follow the account's country. |
 | Mouser | API key | Answers in the account's language. About 1,000 calls a day. |
 | DigiKey | Client id and secret | One part per call, so it is slow for large watchlists. Change notices also need an administrator's sign-in at DigiKey (below). |
-| Farnell, Newark, element14 | API key, store, currency | Choose the store and the currency yourself. Not yet checked against the live service. |
+| Farnell, Newark, element14 | API key, store, currency | Choose the store carefully: `il.farnell.com` is Israel, `it.farnell.com` is Italy. Farnell's answer does not name its currency, so Prism uses the store's own for UK (GBP), the euro-zone stores (EUR) and Newark US and Canada. For any other store, set the currency on the connector or offers show no price. Product links are the store's search for the SKU. Checked against the live service on 2026-10-13. |
 | LCSC | Nothing | Searches by manufacturer part number through EasyEDA's part search, or reads an LCSC number (`C2040`) directly. Prices are in US dollars. Not a published API; it can change. |
 | CSV | A file you upload | For air-gapped installs. The file replaces the previous one. |
 

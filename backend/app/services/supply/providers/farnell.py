@@ -1,14 +1,17 @@
 """Farnell, Newark and element14: the Product Search API (REST).
 
 Written against the description element14 publishes at
-partner.element14.com/docs/Product_Search_API_REST__Description. It has not been run against the live
-service yet; the tests use schema-shaped answers until a key is available.
+partner.element14.com/docs/Product_Search_API_REST__Description, and run against the live service on 2026-10-13
+(the manufacturer-number search, the ``id`` search and the ``medium`` group all answer as described).
 
 * Endpoint: ``GET https://api.element14.com/catalog/products``. Generic access needs only
   ``callInfo.apiKey``; contract pricing (a signature) is not used here.
 * ``storeInfo.id`` is mandatory and is the store's domain (``uk.farnell.com``, ``www.newark.com``...). That
-  is the connector's storefront. The answer does not say which currency its prices are in, so the
-  connector must name one, and offers have no price without it.
+  is the connector's storefront. The answer does not say which currency its prices are in. The connector's
+  currency is used when it names one; otherwise the store's own currency, for the stores where that is not in
+  doubt (``STORE_CURRENCY``). For any other store offers have no price until the connector names a currency.
+* ``productURL`` (description version 1.3) comes back null from the live service, so a product link is a search
+  on the store for the SKU, which lands on the product page.
 * Search: ``term=manuPartNum:<number>``. Offers: ``term=id:<SKU>``. ``resultsSettings.responseGroup=medium``
   carries stock, prices, status and RoHS. The description shows several SKUs in one ``id`` term but says
   nothing about a limit, so one SKU is asked for per call until that is checked against the service.
@@ -28,6 +31,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
+from urllib.parse import quote
 from typing import Any, Callable, Mapping, Sequence
 
 from app.services.supply.http_client import SafeHttpClient
@@ -65,6 +69,18 @@ STOREFRONTS = (
     "kr.element14.com", "vn.element14.com",
 )
 
+# Stores whose prices are in their country's currency, which is not in doubt. The API does not say, so any store not
+# listed here needs the currency set on the connector.
+_EURO_STORES = (
+    "at", "be", "de", "es", "fi", "fr", "ie", "it", "lt", "lv", "nl", "pt", "sk", "si", "ee",
+)
+STORE_CURRENCY: Mapping[str, str] = {
+    "uk.farnell.com": "GBP",
+    "www.newark.com": "USD",
+    "canada.newark.com": "CAD",
+    **{f"{code}.farnell.com": "EUR" for code in _EURO_STORES},
+}
+
 # Meaning of these is in the description. Anything else is logged once and read as having no effect.
 _STATUS_ENDED = "NO_LONGER_MANUFACTURED"
 _STATUS_DROPPED = frozenset({"NO_LONGER_STOCKED"})
@@ -85,7 +101,7 @@ class FarnellProvider:
     ) -> None:
         self._api_key = config.credentials.get("api_key", "")
         self._store = config.storefront
-        self._currency = config.currency
+        self._currency = config.currency or STORE_CURRENCY.get(config.storefront, "")
         self._client = client or SafeHttpClient(ALLOWED_HOSTS)
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic
@@ -123,7 +139,7 @@ class FarnellProvider:
         for product in self._search(f"manuPartNum:{mpn.strip()}"):
             sku, number = str(product.get("sku") or ""), str(product.get("translatedManufacturerPartNumber") or "")
             if sku and number and match_key(number) == wanted:
-                matches.append(_match(product, sku, number))
+                matches.append(_match(product, sku, number, self._store))
         return matches
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
@@ -131,7 +147,7 @@ class FarnellProvider:
         for sku in skus:
             product = next((p for p in self._search(f"id:{sku}") if str(p.get("sku") or "") == sku), None)
             if product is not None:
-                offers.append(_offer(sku, product, self._currency, self._clock()))
+                offers.append(_offer(sku, product, self._currency, self._clock(), self._store))
         return offers
 
     def get_part_data(self, match: PartMatch) -> PartData:
@@ -159,14 +175,23 @@ def _products(answer: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _match(product: Mapping[str, Any], sku: str, number: str) -> PartMatch:
+def page_url(store: str, sku: str, product: Mapping[str, Any]) -> str:
+    """The product page: the address the service gives when it gives one, else the store's search for the SKU."""
+
+    given = str(product.get("productURL") or "").strip()
+    if given.lower().startswith("https://"):
+        return given
+    return f"https://{store}/search?st={quote(sku, safe='')}" if store else ""
+
+
+def _match(product: Mapping[str, Any], sku: str, number: str, store: str = "") -> PartMatch:
     return PartMatch(
         provider=KEY,
         sku=sku,
         mpn=number,
         manufacturer=str(product.get("brandName") or ""),
         description=str(product.get("displayName") or ""),
-        product_url=str(product.get("productURL") or ""),
+        product_url=page_url(store, sku, product),
         datasheet_url=next((str(d["url"]) for d in product.get("datasheets") or [] if isinstance(d, dict) and d.get("url")), ""),
     )
 
@@ -184,16 +209,17 @@ def _price_breaks(product: Mapping[str, Any]) -> tuple[PriceBreak, ...]:
 
 def _rohs(code: object) -> bool | None:
     value = str(code or "").strip().upper()
-    if value == "YES":
+    # "Y-EX" was seen live: compliant by an exemption.
+    if value in ("YES", "Y", "Y-EX"):
         return True
-    if value == "NO":
+    if value in ("NO", "N"):
         return False
     if value:
         note(KEY, "RoHS code", value)
     return None
 
 
-def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime) -> Offer:
+def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime, store: str = "") -> Offer:
     stock_info = product.get("stock") if isinstance(product.get("stock"), dict) else {}
     stock = parse_count(stock_info.get("level")) or 0
     status = str(product.get("productStatus") or "").strip().upper()
@@ -220,7 +246,7 @@ def _offer(sku: str, product: Mapping[str, Any], currency: str, now: datetime) -
         lifecycle=Lifecycle.OBSOLETE if ended else Lifecycle.UNKNOWN,
         discontinued=status in _STATUS_DROPPED or release in _RELEASE_DROPPING,
         rohs=_rohs(product.get("rohsStatusCode")),
-        product_url=str(product.get("productURL") or ""),
+        product_url=page_url(store, sku, product),
         datasheet_url=next((str(d["url"]) for d in product.get("datasheets") or [] if isinstance(d, dict) and d.get("url")), ""),
     )
 
