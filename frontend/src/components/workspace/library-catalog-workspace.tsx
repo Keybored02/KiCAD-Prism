@@ -43,6 +43,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { CatalogSupplyDot } from "@/features/supply/catalog-supply-dot";
+import { CatalogSupplyBar } from "@/features/supply/catalog-supply-bar";
+import { passesSupplyFilter, supplyFilterFrom } from "@/features/supply/catalog-supply-filter";
 import { useCatalogSupply } from "@/features/supply/use-catalog-supply";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { fetchJson } from "@/lib/api";
@@ -441,10 +443,13 @@ export function LibraryCatalogWorkspace({
     : "minmax(0,2.4fr) minmax(0,1.5fr) minmax(0,1.5fr) minmax(124px,1fr) minmax(104px,0.9fr) minmax(104px,0.9fr) minmax(0,1.6fr)";
   const firstItem = total ? (page - 1) * PAGE_SIZE + 1 : 0;
   const lastItem = Math.min(page * PAGE_SIZE, total);
+  const { standing: supplyStanding, refresh: refreshSupply } = useCatalogSupply(items.map((item) => ({ id: item.id, manufacturer: item.manufacturer, mpn: item.mpn })), user?.role);
+  // The Watched and At risk filters narrow the page that is loaded; the server does not know about supply.
+  const supplyFilter = supplyFilterFrom(searchParams.get("catalogSupply"));
+  const shownItems = supplyFilter ? items.filter((item) => passesSupplyFilter(supplyFilter, supplyStanding[item.id])) : items;
   const firstVisibleRow = Math.max(0, Math.floor(catalogViewport.scrollTop / CATALOG_ROW_HEIGHT) - CATALOG_OVERSCAN);
-  const lastVisibleRow = Math.min(items.length, Math.ceil((catalogViewport.scrollTop + catalogViewport.height) / CATALOG_ROW_HEIGHT) + CATALOG_OVERSCAN);
-  const visibleItems = items.slice(firstVisibleRow, lastVisibleRow);
-  const supplyStanding = useCatalogSupply(items.map((item) => ({ id: item.id, manufacturer: item.manufacturer, mpn: item.mpn })), user?.role);
+  const lastVisibleRow = Math.min(shownItems.length, Math.ceil((catalogViewport.scrollTop + catalogViewport.height) / CATALOG_ROW_HEIGHT) + CATALOG_OVERSCAN);
+  const visibleItems = shownItems.slice(firstVisibleRow, lastVisibleRow);
 
   const clearFilters = () => {
     setQuery("");
@@ -455,6 +460,7 @@ export function LibraryCatalogWorkspace({
       catalogAvailability: null,
       catalogValidation: null,
       catalogCategory: null,
+      catalogSupply: null,
     });
   };
 
@@ -497,6 +503,14 @@ export function LibraryCatalogWorkspace({
           <Select value={availability} onValueChange={(value) => updateCatalogParams({ catalogAvailability: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by CAD availability"><SelectValue placeholder="CAD availability" /></SelectTrigger><SelectContent><SelectItem value="all">All CAD states</SelectItem>{Object.entries(AVAILABILITY_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
           <Select value={validation} onValueChange={(value) => updateCatalogParams({ catalogValidation: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by validation"><SelectValue placeholder="Validation" /></SelectTrigger><SelectContent><SelectItem value="all">All validation states</SelectItem>{Object.entries(VALIDATION_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
           <Select value={category} onValueChange={(value) => updateCatalogParams({ catalogCategory: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by category" className="max-w-48"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem><SelectItem value="uncategorized">Uncategorized</SelectItem>{categories.flatMap((item) => (item.name ? [<SelectItem key={item.name} value={item.name}>{item.name} ({item.count})</SelectItem>] : []))}</SelectContent></Select>
+          <CatalogSupplyBar
+            filter={supplyFilter}
+            onFilter={(next) => updateCatalogParams({ catalogSupply: next || null })}
+            rows={shownItems}
+            standing={supplyStanding}
+            role={user?.role}
+            onChanged={() => void refreshSupply()}
+          />
           {isFiltered ? <Button size="sm" variant="ghost" className="h-7" onClick={clearFilters}><FilterX className="h-3.5 w-3.5" /> Clear {activeFilterCount ? `(${activeFilterCount})` : ""}</Button> : null}
         </div>
       </header>
@@ -504,7 +518,7 @@ export function LibraryCatalogWorkspace({
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col p-4">
         <div className="mb-2 flex shrink-0 items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span aria-live="polite">{loading ? "Querying catalog index…" : `${firstItem.toLocaleString()}–${lastItem.toLocaleString()} of ${total.toLocaleString()} components`}</span>
+          <span aria-live="polite">{loading ? "Querying catalog index…" : `${firstItem.toLocaleString()}–${lastItem.toLocaleString()} of ${total.toLocaleString()} components${supplyFilter ? `, ${shownItems.length} of this page match the supply filter` : ""}`}</span>
           <span>100 rows per page · server-side search and sort</span>
         </div>
 
@@ -530,7 +544,7 @@ export function LibraryCatalogWorkspace({
               className="min-h-0 flex-1 overflow-auto"
               onScroll={catalogViewport.onScroll}
             >
-              <div className="relative" style={{ height: items.length * CATALOG_ROW_HEIGHT }}>
+              <div className="relative" style={{ height: shownItems.length * CATALOG_ROW_HEIGHT }}>
               {visibleItems.map((component, visibleIndex) => (
                 <button
                   key={component.id}

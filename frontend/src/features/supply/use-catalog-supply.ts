@@ -14,8 +14,14 @@ interface CatalogRow {
 
 const EMPTY: Record<string, SupplyComponentStanding> = {};
 
-/** Where each catalog component on screen stands at the distributors. Components Prism does not track are absent; roles without supply access ask nothing. */
-export function useCatalogSupply(rows: readonly CatalogRow[], role: UserRole | null | undefined): Record<string, SupplyComponentStanding> {
+/**
+ * Where each catalog component on screen stands at the distributors. Components Prism does not track are absent; roles without
+ * supply access ask nothing. `refresh` asks again, after a watch.
+ */
+export function useCatalogSupply(
+  rows: readonly CatalogRow[],
+  role: UserRole | null | undefined,
+): { standing: Record<string, SupplyComponentStanding>; refresh: () => Promise<void> } {
   const wanted = canOpenSupply(role) ? rows.filter((row) => row.mpn && row.manufacturer) : [];
   const key = wanted.length ? wanted.map((row) => row.id).join(",") : null;
   const fetcher = useCallback(
@@ -25,5 +31,5 @@ export function useCatalogSupply(rows: readonly CatalogRow[], role: UserRole | n
     [key],
   );
   const loaded = useLoaded<Record<string, SupplyComponentStanding>>(key, fetcher, "Could not load supply status");
-  return loaded.data ?? EMPTY;
+  return { standing: loaded.data ?? EMPTY, refresh: loaded.refresh };
 }

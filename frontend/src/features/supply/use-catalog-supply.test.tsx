@@ -22,14 +22,14 @@ afterEach(cleanup);
 describe("supply status in the catalog", () => {
   it("asks once for the rows that have a manufacturer and a part number", async () => {
     const { result } = renderHook(() => useCatalogSupply(rows, "designer"));
-    await waitFor(() => expect(result.current.c1?.status).toBe("warning"));
+    await waitFor(() => expect(result.current.standing.c1?.status).toBe("warning"));
     expect(mocked.getComponentsStatus).toHaveBeenCalledTimes(1);
     expect(mocked.getComponentsStatus.mock.calls[0][0]).toEqual([{ id: "c1", manufacturer: "Acme", mpn: "ABC-1" }]);
   });
 
   it("asks nothing for a role without supply access", () => {
     const { result } = renderHook(() => useCatalogSupply(rows, "viewer"));
-    expect(result.current).toEqual({});
+    expect(result.current.standing).toEqual({});
     expect(mocked.getComponentsStatus).not.toHaveBeenCalled();
   });
 

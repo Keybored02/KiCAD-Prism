@@ -10,3 +10,17 @@ export async function getComponentsStatus(
   const url = "/api/supply/bom/components-status";
   return (await fetchJson<{ items: Record<string, SupplyComponentStanding> }>(url, { method: "POST", body, signal }, "Could not load supply status")).items;
 }
+
+const WATCH_BATCH = 200;
+
+/** Watch these components' parts. Returns how many were newly watched. Each part is on one row, so the batches can go together. */
+export async function watchCatalogComponents(components: Array<{ id: string; manufacturer: string; mpn: string }>): Promise<number> {
+  const batches: Array<typeof components> = [];
+  for (let start = 0; start < components.length; start += WATCH_BATCH) batches.push(components.slice(start, start + WATCH_BATCH));
+  const results = await Promise.all(batches.map((batch) => fetchJson<{ watched: number }>(
+    "/api/supply/bom/watch",
+    { method: "POST", body: JSON.stringify({ lines: batch.map(({ id, manufacturer, mpn }) => ({ key: id, manufacturer, mpn, quantity: 1 })) }) },
+    "Could not watch the parts",
+  )));
+  return results.reduce((sum, result) => sum + result.watched, 0);
+}
