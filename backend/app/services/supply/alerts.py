@@ -42,7 +42,8 @@ DATASHEET_ALERT_DAYS = 14
 # The cheapest price rising by this much over the window is worth a look.
 PRICE_RISE_PERCENT = 20
 
-_IMMEDIATE = frozenset({PART_LOST})
+# Open on the first look: these are facts that do not flicker, unlike a stock reading.
+_IMMEDIATE = frozenset({PART_LOST, PCN})
 _SEVERITY_RANK = {Status.FATAL.value: 0, Status.ERROR.value: 1, Status.WARNING.value: 2}
 
 PENDING, OPEN, ACKNOWLEDGED, SNOOZED, RESOLVED = "pending", "open", "acknowledged", "snoozed", "resolved"

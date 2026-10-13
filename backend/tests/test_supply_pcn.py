@@ -168,12 +168,11 @@ class PcnDatabaseTests(unittest.TestCase):
 
     def test_an_open_ending_notice_raises_an_alert_that_clears_when_the_notice_is_closed(self) -> None:
         notice_id = self.add().json["id"]
-        for later in (timedelta(0), timedelta(hours=1)):
-            with self.store.connection() as conn:
-                self.alerts.evaluate_parts(conn, [self.part], NOW + later)
+        with self.store.connection() as conn:
+            self.alerts.evaluate_parts(conn, [self.part], NOW)
         with self.store.connection() as conn:
             (alert,) = [a for a in self.alerts.list_alerts(conn, NOW + timedelta(hours=2)) if a["kind"] == "pcn"]
-        self.assertEqual((alert["severity"], alert["detail"]["kind"]), ("error", "end_of_life"))
+        self.assertEqual((alert["severity"], alert["detail"]["kind"], alert["state"]), ("error", "end_of_life", "open"), "a notice opens on the first look")
         self.assertEqual(self.call("POST", f"/api/supply/notices/{notice_id}/close").status, 204)
         with self.store.connection() as conn:
             self.alerts.evaluate_parts(conn, [self.part], NOW + timedelta(hours=3))
