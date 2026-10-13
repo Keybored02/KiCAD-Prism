@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SupplyPlan } from "@/types/supply";
+import { PlanWeeks } from "./plan-weeks";
 import { heldText, planSentence } from "./planning-model";
 import { StatusDot } from "./status-dot";
 import { getSupplyPlan } from "./supply-api";
@@ -53,6 +54,7 @@ export function PlanningView() {
                     {row.needed.toLocaleString()} needed{row.next_need_by ? `, next by ${row.next_need_by}` : ""}
                     {row.committed > 0 ? `, ${row.committed.toLocaleString()} committed` : ""}. {heldText(row)}.
                   </span>
+                  <PlanWeeks weeks={row.weeks ?? []} />
                 </span>
               </li>
             ))}

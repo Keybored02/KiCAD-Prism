@@ -9,7 +9,7 @@ demand without a date is added last. Nothing here buys anything: it only says wh
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from app.services.supply import demand, parts_view
@@ -52,6 +52,36 @@ def shortage(entries: Sequence[Entry], supply_now: int) -> dict[str, Any]:
     }
 
 
+MAX_WEEKS = 26
+
+
+def weekly(entries: Sequence[Entry], supply_now: int) -> list[dict[str, Any]]:
+    """Week by week, from the week of the first dated entry: demand, stock arriving, and what is left after both.
+
+    ``balance`` starts from what is held (and incoming stock with no date) and ends each week less the demand so far plus
+    the arrivals so far; below 0 the plan is short that week. Demand without a date is not in any week. At most
+    ``MAX_WEEKS`` weeks are given.
+    """
+
+    dated = [e for e in entries if e.need_by is not None]
+    if not dated:
+        return []
+    first = min(e.need_by for e in dated)
+    start = first - timedelta(days=first.weekday())
+    balance = supply_now + sum(-e.quantity for e in entries if e.quantity < 0 and e.need_by is None)
+    last = max(e.need_by for e in dated)
+    weeks: list[dict[str, Any]] = []
+    cursor = start
+    while cursor <= last and len(weeks) < MAX_WEEKS:
+        end = cursor + timedelta(days=7)
+        needs = sum(e.quantity for e in dated if e.quantity > 0 and cursor <= e.need_by < end)
+        arrives = sum(-e.quantity for e in dated if e.quantity < 0 and cursor <= e.need_by < end)
+        balance += arrives - needs
+        weeks.append({"week": cursor.isoformat(), "demand": needs, "incoming": arrives, "balance": balance})
+        cursor = end
+    return weeks
+
+
 def compute(conn, own_stock: OwnStock | None = None) -> dict[str, Any]:
     """One row per part with open demand: the plan against what is held. Shortages first, the soonest first."""
 
@@ -81,6 +111,7 @@ def compute(conn, own_stock: OwnStock | None = None) -> dict[str, Any]:
             "own_stock": own_here, "distributor_stock": item["stock"],
             "next_need_by": dated[0].isoformat() if dated else None, **result,
             "stock_known": item["stock"] is not None,
+            "weeks": weekly(entries, held + (own_here or 0)),
         })
     planned.sort(key=lambda row: (not row["short"], row["first_short_on"] or "9999-12-31", row["next_need_by"] or "9999-12-31", row["mpn"].lower()))
     return {"parts": planned, "short": sum(1 for row in planned if row["short"])}

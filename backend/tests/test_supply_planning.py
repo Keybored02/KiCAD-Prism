@@ -25,6 +25,18 @@ def entry(quantity, day=None, state="planned"):
 
 
 class ShortageRuleTests(unittest.TestCase):
+    def test_the_weeks_show_demand_arrivals_and_what_is_left(self) -> None:
+        # 2026-05-04 is a Monday. 100 held, 30 arriving with no date: 130 to start.
+        entries = [entry(80, "2026-05-05"), entry(-50, "2026-05-13"), entry(120, "2026-05-14"), entry(-30), entry(10)]
+        weeks = planning.weekly(entries, 100)
+        self.assertEqual(weeks, [
+            {"week": "2026-05-04", "demand": 80, "incoming": 0, "balance": 50},
+            {"week": "2026-05-11", "demand": 120, "incoming": 50, "balance": -20},
+        ])
+        self.assertEqual(planning.weekly([entry(5)], 10), [], "demand with no date is in no week")
+        far = planning.weekly([entry(1, "2026-01-01"), entry(1, "2030-01-01")], 5)
+        self.assertEqual(len(far), planning.MAX_WEEKS)
+
     def test_enough_supply_is_not_short(self) -> None:
         result = planning.shortage([entry(500, "2026-04-01"), entry(300, "2026-06-01")], 1000)
         self.assertEqual((result["short"], result["first_short_on"], result["total_short_by"]), (False, None, 0))

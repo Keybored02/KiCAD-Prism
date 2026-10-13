@@ -194,6 +194,8 @@ export interface SupplyPlanRow {
   first_short_on: string | null;
   short_by: number;
   total_short_by: number;
+  /** Week by week from the first dated demand: demand, stock arriving, and what is left after both. */
+  weeks?: Array<{ week: string; demand: number; incoming: number; balance: number }>;
 }
 
 export interface SupplyPlan {

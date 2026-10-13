@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SupplyPlan, SupplyPlanRow } from "@/types/supply";
+import { PlanWeeks } from "./plan-weeks";
 import { heldText, planSentence } from "./planning-model";
 
 vi.mock("./supply-api", async (importOriginal) => ({
@@ -24,6 +25,23 @@ function row(overrides: Partial<SupplyPlanRow> = {}): SupplyPlanRow {
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
+
+describe("the weekly plan", () => {
+  it("shows each week's demand, arrivals and balance, and marks a short week", () => {
+    const { container } = render(<PlanWeeks weeks={[
+      { week: "2026-05-04", demand: 80, incoming: 0, balance: 50 },
+      { week: "2026-05-11", demand: 120, incoming: 50, balance: -20 },
+    ]} />);
+    expect(screen.getByText("2026-05-11")).toBeTruthy();
+    expect(screen.getByText("-20").className).toContain("text-destructive");
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
+  });
+
+  it("shows nothing for a part without dated demand", () => {
+    const { container } = render(<PlanWeeks weeks={[]} />);
+    expect(container.textContent).toBe("");
+  });
+});
 
 describe("the planning view", () => {
   it("names the parts that run short and the date they do", async () => {
