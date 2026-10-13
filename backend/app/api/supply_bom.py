@@ -37,6 +37,9 @@ class LineIn(BaseModel):
     prism_id: str = Field(default="", max_length=100)
     # The LCSC number on the symbol, such as C7950.
     lcsc: str = Field(default="", max_length=14, pattern=r"^(C\d{1,12})?$")
+    # The symbol's value and the footprint's name, checked against the distributor's value and package.
+    value: str = Field(default="", max_length=60)
+    footprint: str = Field(default="", max_length=200)
 
 
 class LookupRequest(BaseModel):
@@ -70,7 +73,7 @@ async def _run(call: Callable[[], T]) -> T:
 
 
 def _lines(items: list[LineIn]) -> list[bom_lookup.BomLine]:
-    return [bom_lookup.BomLine(item.key, item.manufacturer, item.mpn, item.quantity, item.prism_id, item.lcsc) for item in items]
+    return [bom_lookup.BomLine(item.key, item.manufacturer, item.mpn, item.quantity, item.prism_id, item.lcsc, item.value, item.footprint) for item in items]
 
 
 def _lcsc_connector() -> str | None:

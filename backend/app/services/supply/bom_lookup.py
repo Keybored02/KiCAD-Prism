@@ -55,6 +55,8 @@ class BomLine:
     quantity: int  # per board, counting only parts that are fitted
     prism_id: str = ""  # the catalog component placed on the symbol
     lcsc: str = ""  # the LCSC number the symbol carries, such as C7950
+    value: str = ""  # the symbol's value, such as 10k, checked against the distributor's
+    footprint: str = ""  # the footprint's name, whose size (0603) is checked against the distributor's package
 
 
 LCSC_PROVIDER = "lcsc"
@@ -250,7 +252,7 @@ def lookup(
         leader = next(resolved[line.key][1] for line in lines if line.prism_id == component_id)
         if leader:
             extras.setdefault(leader, []).extend(component_checks.for_component(conn, component_id, leader, settings))
-    _line_findings(lines, resolved, summary, first_line, set(known), in_library, settings, extras)
+    _line_findings(conn, lines, resolved, summary, first_line, set(known), in_library, settings, extras)
     assessed = assessment.assess_summaries(conn, items, offers, needs, datetime.now(timezone.utc), settings, extras)
 
     rates = fx.latest(conn)
@@ -289,7 +291,7 @@ def lookup(
     }
 
 
-def _line_findings(lines, resolved, summary, first_line, placed, in_library, settings, extras) -> None:
+def _line_findings(conn, lines, resolved, summary, first_line, placed, in_library, settings, extras) -> None:
     """Add what the way a line names its part says: a missing manufacturer, a part the library does not have."""
 
     by_key = {line.key: line for line in lines}
@@ -297,6 +299,12 @@ def _line_findings(lines, resolved, summary, first_line, placed, in_library, set
     for part_id, line in leaders.items():
         if resolved[line.key][2] == "missing":
             extras.setdefault(part_id, []).append(line_checks.manufacturer_missing(settings))
+    for part_id, line in leaders.items():
+        if line.value or line.footprint:
+            listed = parts_view.parameters_of(conn, part_id)
+            for found in (line_checks.parameter_mismatch(line.value, listed, settings), line_checks.package_mismatch(line.footprint, listed, settings)):
+                if found:
+                    extras.setdefault(part_id, []).append(found)
     if in_library is None:
         return
     unplaced = {part_id: line for part_id, line in leaders.items() if line.prism_id not in placed}

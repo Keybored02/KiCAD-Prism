@@ -157,6 +157,22 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual(sorted(checked["blank"]["assessment"]["checks"]), ["manufacturer_missing", "not_in_library"])
         self.assertEqual(checked["named"]["assessment"]["checks"], [], "the library has Acme R-2")
 
+    def test_a_value_or_footprint_that_disagrees_with_the_distributor_is_a_finding(self) -> None:
+        from app.services.supply import bom_lookup, discovery
+
+        part = self.part("Acme", "R-10K")
+        with self.store.connection() as conn:
+            discovery.remember_parameters(conn, part, "mouser", [("Resistance", "4.7 kOhms"), ("Package / Case", "0805 (2012 Metric)")])
+        lines = [
+            bom_lookup.BomLine("a", "Acme", "R-10K", 1, value="10k", footprint="Resistor_SMD:R_0603_1608Metric"),
+            bom_lookup.BomLine("b", "Acme", "R-10K", 1, value="4k7", footprint="Resistor_SMD:R_0805_2012Metric"),
+        ]
+        with self.store.connection() as conn:
+            first = bom_lookup.lookup(conn, lines[:1], 1)["lines"]["a"]["assessment"]["checks"]
+            second = bom_lookup.lookup(conn, lines[1:], 1)["lines"]["b"]["assessment"]["checks"]
+        self.assertEqual(sorted(first), ["package_mismatch", "parameter_mismatch"])
+        self.assertEqual(second, [], "4k7 does not parse, so it says nothing, and 0805 matches")
+
     def test_the_library_is_asked_once_and_a_component_without_a_number_changes_nothing(self) -> None:
         part_id = self.part("Texas Instruments", "LM358DR")
         asked = []

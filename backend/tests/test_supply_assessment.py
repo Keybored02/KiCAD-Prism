@@ -44,6 +44,31 @@ class ComponentCheckTests(unittest.TestCase):
         self.assertIsNone(component_checks.no_approved_source(0, []), "no alternates: the part's own finding says it")
 
 
+class LineCheckTests(unittest.TestCase):
+    PARAMS = [
+        {"key": "resistance", "raw": "10 kOhms", "value": "10000"},
+        {"key": "package", "raw": "0603 (1608 Metric)", "value": None},
+    ]
+
+    def test_a_value_is_compared_as_a_number_and_an_unreadable_one_says_nothing(self) -> None:
+        from app.services.supply.assessment import line_checks
+
+        self.assertIsNone(line_checks.parameter_mismatch("10k", self.PARAMS))
+        self.assertIsNone(line_checks.parameter_mismatch("10000", self.PARAMS), "the same number written plainly")
+        self.assertIsNone(line_checks.parameter_mismatch("4k7", self.PARAMS), "not read, never guessed")
+        self.assertIsNone(line_checks.parameter_mismatch("", self.PARAMS))
+        found = line_checks.parameter_mismatch("4.7k", self.PARAMS)
+        self.assertEqual((found.check, found.severity, found.scope), ("parameter_mismatch", Status.WARNING, "parameter_mismatch:4.7k"))
+
+    def test_the_footprint_size_is_compared_with_the_listed_package(self) -> None:
+        from app.services.supply.assessment import line_checks
+
+        self.assertIsNone(line_checks.package_mismatch("Resistor_SMD:R_0603_1608Metric", self.PARAMS))
+        self.assertIsNone(line_checks.package_mismatch("Custom:Pad", self.PARAMS), "no size in the name")
+        self.assertIsNone(line_checks.package_mismatch("R_0805", []), "the distributor lists no package")
+        self.assertEqual(line_checks.package_mismatch("R_0805_2012Metric", self.PARAMS).check, "package_mismatch")
+
+
 class CheckTests(unittest.TestCase):
     def test_a_healthy_part_has_no_findings(self) -> None:
         self.assertEqual(checks.evaluate(facts(), DEFAULTS), [])

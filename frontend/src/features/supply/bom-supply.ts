@@ -78,8 +78,11 @@ export interface BomLineDetail extends BomLineInput {
 }
 
 /** What a line sends to the server: its identity and count, without the references. */
-export function lineInput({ key, manufacturer, mpn, quantity, prism_id, lcsc }: BomLineInput): BomLineInput {
-  return { key, manufacturer, mpn, quantity, ...(prism_id ? { prism_id } : {}), ...(lcsc ? { lcsc } : {}) };
+export function lineInput({ key, manufacturer, mpn, quantity, prism_id, lcsc, value, footprint }: BomLineInput): BomLineInput {
+  return {
+    key, manufacturer, mpn, quantity,
+    ...(prism_id ? { prism_id } : {}), ...(lcsc ? { lcsc } : {}), ...(value ? { value } : {}), ...(footprint ? { footprint } : {}),
+  };
 }
 
 /** The distinct parts among the fitted components, with how many go on one board. */
@@ -97,8 +100,11 @@ export function buildLines(fitted: readonly SemanticComponent[]): BomLineDetail[
       if (lcsc && !line.lcsc) line.lcsc = lcsc;
     } else {
       const prismId = fieldText(component, ["prism id"]);
+      const value = (component.value ?? "").trim().slice(0, 60);
+      const footprint = (component.footprint ?? "").trim().slice(0, 200);
       lines.set(key, {
         key, ...identity, quantity: 1, references: [component.reference], ...(prismId ? { prism_id: prismId } : {}), ...(lcsc ? { lcsc } : {}),
+        ...(value ? { value } : {}), ...(footprint ? { footprint } : {}),
       });
     }
   }

@@ -324,6 +324,9 @@ export interface BomLineInput {
   prism_id?: string;
   /** The LCSC number on the symbol, such as C7950. */
   lcsc?: string;
+  /** The symbol's value (10k) and the footprint's name, checked against the distributor's value and package. */
+  value?: string;
+  footprint?: string;
 }
 
 export interface SupplyBomBuy {

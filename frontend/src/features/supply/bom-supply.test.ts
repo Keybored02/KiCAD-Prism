@@ -13,6 +13,20 @@ function result(overrides: Partial<SupplyBomLineResult> = {}): SupplyBomLineResu
   return { state: "tracked", part_id: "p1", manufacturer_match: "exact", need: 10, watched: true, status: "ok", stock: 100, short: false, buy: null, ...overrides };
 }
 
+describe("the value and footprint a line carries", () => {
+  it("sends the first symbol's value and footprint, and leaves them out when empty", () => {
+    const fields = { Manufacturer: "Acme", MPN: "R-1" };
+    const [line] = buildLines([
+      { ...part("R1", fields), value: " 10k ", footprint: "Resistor_SMD:R_0603_1608Metric" },
+      { ...part("R2", fields), value: "10K", footprint: "Other" },
+    ]);
+    expect(line).toMatchObject({ quantity: 2, value: "10k", footprint: "Resistor_SMD:R_0603_1608Metric" });
+    expect(lineInput(line)).toMatchObject({ value: "10k", footprint: "Resistor_SMD:R_0603_1608Metric" });
+    const [bare] = buildLines([part("R3", fields)]);
+    expect(Object.keys(lineInput(bare))).toEqual(["key", "manufacturer", "mpn", "quantity"]);
+  });
+});
+
 describe("part identity from field names", () => {
   it("reads the spellings KiCad projects use, ignoring case", () => {
     expect(identityOf(part("R1", { Manufacturer: "Acme", "Manufacturer Part Number": "X-1" }))).toEqual({ manufacturer: "Acme", mpn: "X-1" });

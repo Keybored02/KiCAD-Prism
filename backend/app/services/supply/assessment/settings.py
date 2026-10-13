@@ -29,6 +29,8 @@ NO_APPROVED_SOURCE = "no_approved_source"
 MANUFACTURER_MISSING = "manufacturer_missing"
 NOT_IN_LIBRARY = "not_in_library"
 REACH_SVHC = "reach_svhc"
+PARAMETER_MISMATCH = "parameter_mismatch"
+PACKAGE_MISMATCH = "package_mismatch"
 
 DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     PART_NOT_FOUND: Status.ERROR,
@@ -47,6 +49,8 @@ DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     # The plan says error; a manufacturer spelled differently in the library would flood a BOM, so it starts as a warning.
     NOT_IN_LIBRARY: Status.WARNING,
     REACH_SVHC: Status.WARNING,
+    PARAMETER_MISMATCH: Status.WARNING,
+    PACKAGE_MISMATCH: Status.WARNING,
 })
 
 SUB_SCORES = ("lifecycle", "sourcing", "inventory", "market", "compliance")
@@ -92,6 +96,8 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     MANUFACTURER_MISSING: "The BOM line has no manufacturer",
     NOT_IN_LIBRARY: "No library component has this part",
     REACH_SVHC: "Affected by REACH (substance of very high concern)",
+    PARAMETER_MISMATCH: "The BOM value differs from the distributor's",
+    PACKAGE_MISMATCH: "The footprint size differs from the distributor's package",
 })
 
 # What a workspace may set. "ok" turns a check into a note that does not count against health.
