@@ -30,6 +30,7 @@ LABELS: dict[str, str] = {
     "hts_jp": "Tariff code, Japan",
     "hts_kr": "Tariff code, South Korea",
     "hts_mx": "Tariff code, Mexico",
+    "hts_br": "Tariff code, Brazil",
     "last_buy_date": "Last date to buy",
     "suggested_replacement": "Suggested replacement",
 }

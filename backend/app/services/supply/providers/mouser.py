@@ -282,7 +282,7 @@ def _rohs(text: object) -> bool | None:
 # Mouser's compliance names (seen live) to Prism's fact names. Others are kept under their own name, lower case.
 _COMPLIANCE_NAMES = {
     "USHTS": "hts_us", "TARIC": "hts_eu", "CNHTS": "hts_cn", "CAHTS": "hts_ca", "JPHTS": "hts_jp",
-    "KRHTS": "hts_kr", "MXHTS": "hts_mx", "ECCN": "eccn",
+    "KRHTS": "hts_kr", "MXHTS": "hts_mx", "BRHTS": "hts_br", "ECCN": "eccn",
 }
 
 

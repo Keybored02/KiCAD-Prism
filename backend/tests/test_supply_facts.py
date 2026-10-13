@@ -102,7 +102,7 @@ class MouserFactsTests(unittest.TestCase):
         self.assertNotIn("suggested_replacement", found, "an empty replacement is left out")
 
     def test_an_unknown_compliance_name_is_kept_under_its_own_name_and_logged(self) -> None:
-        self.assertEqual(mouser._trade_facts([{"ComplianceName": "BRHTS", "ComplianceValue": "8542"}]), (("trade_brhts", "8542"),))
+        self.assertEqual(mouser._trade_facts([{"ComplianceName": "ZZHTS", "ComplianceValue": "8542"}]), (("trade_zzhts", "8542"),))
         self.assertEqual(len(unrecognised._seen), 1)
 
     def test_substances_are_read_from_version_2_with_the_manufacturer_name(self) -> None:

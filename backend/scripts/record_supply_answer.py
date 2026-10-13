@@ -6,7 +6,8 @@ Run it in the dev environment, where the connector's credentials can be unsealed
     python scripts/record_supply_answer.py --provider digikey --mpn LM358DR
 
 It builds the connector's adapter, looks the part number up, reads the offers of the first
-matches, and writes every JSON answer it saw to ``tests/fixtures/supply/<provider>_live_<mpn>.json``.
+matches, and with ``--details`` also the reads that run weekly (Mouser's substance list through API
+version 2, DigiKey's change notices when someone is signed in), then writes every JSON answer it saw to ``tests/fixtures/supply/<provider>_live_<mpn>.json``.
 Token answers are replaced, query strings and headers are never kept, and the file is refused if any
 credential value or token turns up in it. Read the file before committing it.
 """
@@ -44,11 +45,28 @@ def _secrets_in(provider) -> list[str]:
     return found
 
 
+def _details(connectors, connector_id, provider, match) -> None:
+    from app.services.supply import oauth
+
+    if hasattr(provider, "substances"):
+        found = provider.substances(match.sku, match.manufacturer)
+        print(f"Substances: stated={found.stated}, entries={list(found.entries)}")
+    if hasattr(provider, "change_notices"):
+        try:
+            token = oauth.access_token(connectors, connector_id)
+        except oauth.NotSignedIn as exc:
+            print(f"Change notices skipped: not signed in ({exc}).")
+            return
+        notices = provider.change_notices(match.sku, token)
+        print(f"Change notices: {len(notices)}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--provider", required=True, help="provider key, such as digikey or farnell")
     parser.add_argument("--mpn", required=True)
     parser.add_argument("--manufacturer", default=None)
+    parser.add_argument("--details", action="store_true", help="also record substances (Mouser) or change notices (DigiKey)")
     args = parser.parse_args()
 
     connectors = supply_connectors.service
@@ -75,6 +93,8 @@ def main() -> int:
         if matches:
             provider.get_offers([match.sku for match in matches[:MAX_OFFERS]])
             provider.get_part_data(matches[0])
+            if args.details:
+                _details(connectors, connector_id, provider, matches[0])
     finally:
         http_client.SafeHttpClient.request_json = original
 
