@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import notice_files, parts, pcn
+from app.services.supply import details, notice_files, parts, pcn
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -54,6 +54,8 @@ async def _run(call: Callable[[], T]) -> T:
         raise HTTPException(status_code=404, detail="Not found") from exc
     except parts.UnknownManufacturer as exc:
         raise HTTPException(status_code=400, detail={"code": "unknown_manufacturer", "message": str(exc)}) from exc
+    except details.TooSoon as exc:
+        raise HTTPException(status_code=429, detail={"code": "too_soon", "message": str(exc)}) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_notice", "message": str(exc)}) from exc
 
@@ -66,6 +68,13 @@ async def part_notices(part_id: str, _user: AuthenticatedUser = Depends(require_
             return {"items": pcn.for_part(conn, part_id, include_closed=True)}
 
     return await _run(read)
+
+
+@router.post("/parts/{part_id}/check-notices")
+async def check_notices(part_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, Any]:
+    """Read this part's change notices from the distributors that list them, now. Once an hour per person and part."""
+
+    return await _run(lambda: details.check_now(supply_connectors.service, part_id, writer.email))
 
 
 @router.post("/notices", status_code=201)

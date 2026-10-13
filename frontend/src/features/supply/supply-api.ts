@@ -560,6 +560,19 @@ export interface SupplyReadNow {
 }
 
 /** Read one part from its distributors now. Spends the interactive reserve; once per 15 minutes per person and part. */
+/** What reading a part's notices now found. */
+export interface SupplyNoticeCheck {
+  read: number;
+  new: number;
+  connectors: number;
+  problems: Array<{ connector: string; reason: string }>;
+}
+
+/** Read this part's change notices from the distributors that list them, now. Once an hour per person and part. */
+export function checkPartNotices(partId: string): Promise<SupplyNoticeCheck> {
+  return post(`${BASE}/parts/${encodeURIComponent(partId)}/check-notices`, undefined, "Could not check the notices");
+}
+
 export function readSupplyPartNow(partId: string): Promise<SupplyReadNow> {
   return post(`${BASE}/parts/${encodeURIComponent(partId)}/refresh`, undefined, "Could not read the part");
 }

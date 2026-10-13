@@ -188,6 +188,40 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual(self.rows("SELECT last_error FROM connector_grants"), [{"last_error": "refused"}])
         self.assertEqual(self.connectors.get(self.digikey)["paused_reason"], "", "the connector itself is not paused")
 
+    def test_a_person_can_check_one_parts_notices_now_once_an_hour(self) -> None:
+        from datetime import timedelta as delta
+
+        from app.services.supply import details, oauth
+        from app.services.supply.models import ChangeNotice
+
+        calls = []
+
+        class Provider:
+            def change_notices(self, sku, user_token):
+                calls.append(sku)
+                return [ChangeNotice("digikey", sku, kind_text="PCN Packaging", description="Label Chg 12/Mar/2025", url="https://x.example/p.pdf")]
+
+        # The wait is judged against the audit log's own clock, so this test uses the real one.
+        real = datetime.now(timezone.utc)
+        token = lambda *_a: "tok"  # noqa: E731
+        self.run_notices({})  # this week's turn is used up, which a check ignores
+        first = details.check_now(self.connectors, self.part_a, ADMIN, now=real, provider=Provider(), token_for=token)
+        self.assertEqual((first["read"], first["new"], first["connectors"], first["problems"]), (1, 1, 1, []))
+        self.assertEqual(calls, ["296-1395-1-ND"], "only this part's listing is read")
+        with self.assertRaises(details.TooSoon):
+            details.check_now(self.connectors, self.part_a, ADMIN, now=real + delta(minutes=10), provider=Provider(), token_for=token)
+        again = details.check_now(self.connectors, self.part_a, "other@example.com", now=real + delta(minutes=10), provider=Provider(), token_for=token)
+        self.assertEqual((again["read"], again["new"]), (1, 0), "another person may ask; the notice is kept once")
+        later = details.check_now(self.connectors, self.part_a, ADMIN, now=real + delta(hours=1, minutes=1), provider=Provider(), token_for=token)
+        self.assertEqual(later["read"], 1)
+
+        def nobody(*_args):
+            raise oauth.NotSignedIn("nobody")
+
+        said = details.check_now(self.connectors, self.part_a, "third@example.com", now=real, provider=Provider(), token_for=nobody)
+        self.assertEqual((said["read"], len(said["problems"])), (0, 1))
+        self.assertIn("sign in at DigiKey", said["problems"][0]["reason"])
+
     # --- Mouser substances --------------------------------------------------
 
     def test_substances_mouser_names_become_its_declarations_and_follow_its_list(self) -> None:

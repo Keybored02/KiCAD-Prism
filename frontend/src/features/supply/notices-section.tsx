@@ -1,12 +1,13 @@
 import { useCallback, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SupplyNotice, SupplyNoticeKind } from "@/types/supply";
-import { addNotice, listPartNotices } from "./supply-api";
+import { addNotice, checkPartNotices, listPartNotices } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
 import { VendorName } from "./vendor-name";
@@ -36,7 +37,25 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
   const [lastBuy, setLastBuy] = useState("");
   const [lastShip, setLastShip] = useState("");
   const [url, setUrl] = useState("");
+  const [checking, setChecking] = useState(false);
   const items = loaded.data ?? [];
+
+  const check = async () => {
+    setChecking(true);
+    try {
+      const result = await checkPartNotices(part.id);
+      const found = result.connectors === 0 ? "No distributor lists notices for this part."
+        : `Read ${result.read} ${result.read === 1 ? "listing" : "listings"}: ${result.new === 0 ? "no new notices" : `${result.new} new ${result.new === 1 ? "notice" : "notices"}`}.`;
+      const message = [found, ...result.problems.map((problem) => problem.reason)].join(" ");
+      if (result.problems.length > 0) toast.warning(message);
+      else toast.success(message);
+      await loaded.refresh();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Could not check the notices");
+    } finally {
+      setChecking(false);
+    }
+  };
   if (!canEdit && items.length === 0) return null;
 
   const announcesEnding = items.some((item) => item.state === "open" && item.kind !== "change");
@@ -46,6 +65,16 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
         <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
         Product change notices
         {items.length > 0 ? <span className="font-normal normal-case tracking-normal">({items.length})</span> : null}
+        {canEdit ? (
+          <Button
+            type="button" size="sm" variant="ghost" className="ml-auto h-6 px-2 text-xs normal-case tracking-normal" disabled={checking}
+            title="Ask the distributors for this part's notices now"
+            onClick={(event) => { event.preventDefault(); void check(); }}
+          >
+            {checking ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Check notices
+          </Button>
+        ) : null}
       </summary>
       {items.length > 0 ? (
         <ul className="divide-y border text-sm">

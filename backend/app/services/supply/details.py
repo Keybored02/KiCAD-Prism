@@ -88,14 +88,20 @@ def run(
     return _substances(service, connector, now, provider, limit)
 
 
-def _spend(service, connector, now: datetime) -> bool:
-    return not connector["metered"] or ledger.spend_call(service.store, connector, now=now)
+def _spend(service, connector, now: datetime, interactive: bool = False) -> bool:
+    return not connector["metered"] or ledger.spend_call(service.store, connector, now=now, interactive=interactive)
 
 
 def _notices(service, connector, now, provider, token_for, limit) -> DetailsSummary:
-    connector_id = connector["id"]
     with service.store.connection() as conn:
-        rows = due(conn, connector_id, "notices", now, limit)
+        rows = due(conn, connector["id"], "notices", now, limit)
+    return _read_notices(service, connector, rows, now, provider, token_for)
+
+
+def _read_notices(service, connector, rows, now, provider, token_for, *, interactive: bool = False) -> DetailsSummary:
+    """Read the notices of these listings of one connector, one call each."""
+
+    connector_id = connector["id"]
     if not rows:
         return DetailsSummary()
     try:
@@ -105,7 +111,7 @@ def _notices(service, connector, now, provider, token_for, limit) -> DetailsSumm
     provider = provider or service.load_provider(connector_id)
     read = new = 0
     for row in rows:
-        if not _spend(service, connector, now):
+        if not _spend(service, connector, now, interactive):
             return DetailsSummary(read, new, "budget")
         try:
             notices = provider.change_notices(row["sku"], token)
@@ -132,6 +138,88 @@ def _notices(service, connector, now, provider, token_for, limit) -> DetailsSumm
                 alerts.evaluate_parts(conn, [row["part_id"]], now)
         new += added
     return DetailsSummary(read, new)
+
+
+ASK_ACTION = "part.check_notices"
+ASK_COOLDOWN = timedelta(hours=1)
+
+
+class TooSoon(ValueError):
+    """The same person asked for this part's notices a short while ago."""
+
+
+_ASK_STOPPED = {
+    "not_signed_in": "needs an administrator to sign in at DigiKey (Supply > Connectors)",
+    "sign_in_refused": "refused the sign-in; an administrator needs to sign in again",
+    "budget": "has used today's allowance for asking",
+    "rate_limited": "is limiting requests",
+    "unavailable": "did not answer",
+    "inactive": "is disabled or paused",
+    "cooling_down": "is cooling down after an error",
+}
+
+
+def check_now(
+    service,
+    part_id: str,
+    actor: str,
+    *,
+    now: datetime | None = None,
+    provider: Any | None = None,
+    token_for: Callable[..., str] = oauth.access_token,
+) -> dict[str, Any]:
+    """Read the notices of one part now, at every connector that lists them, whatever the week's turn says.
+
+    One call per listing, from the interactive reserve. A person may ask for the same part once an hour. The answer says
+    how many listings were read, how many notices are new, and what stopped a connector.
+    """
+
+    from app.services.supply import parts
+    from app.services.supply.audit import actor_text, write_audit
+
+    actor = actor_text(actor)
+    now = now or datetime.now(timezone.utc)
+    store = service.store
+    with store.connection() as conn:
+        parts.get_part(conn, part_id)
+        last = conn.execute(
+            "SELECT MAX(at) AS at FROM audit_events WHERE action = %s AND subject_id = %s AND actor = %s", (ASK_ACTION, part_id, actor)
+        ).fetchone()["at"]
+        if last is not None and now - last < ASK_COOLDOWN:
+            minutes = max(1, int((ASK_COOLDOWN - (now - last)).total_seconds() // 60) + 1)
+            raise TooSoon(f"You checked this part's notices a moment ago. You can check again in {minutes} {'minute' if minutes == 1 else 'minutes'}.")
+        listings = conn.execute(
+            """
+            SELECT l.id, l.sku, l.part_id, l.connector_id FROM listings l JOIN connectors c ON c.id = l.connector_id
+            WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual') ORDER BY l.connector_id, l.sku
+            """,
+            (part_id,),
+        ).fetchall()
+    by_connector: dict[str, list[dict[str, Any]]] = {}
+    for row in listings:
+        by_connector.setdefault(row["connector_id"], []).append(dict(row))
+    read = new = checked = 0
+    problems: list[dict[str, str]] = []
+    for connector_id, rows in by_connector.items():
+        connector = service.get(connector_id)
+        if CAP_PCN not in registry.get_spec(connector["provider"]).capabilities:
+            continue
+        checked += 1
+        if not connector["enabled"] or connector["paused_reason"]:
+            summary = DetailsSummary(stopped="inactive")
+        elif trouble.cooling_down(store, connector_id, now):
+            summary = DetailsSummary(stopped="cooling_down")
+        else:
+            summary = _read_notices(service, connector, rows, now, provider, token_for, interactive=True)
+        read += summary.read
+        new += summary.new
+        if summary.stopped:
+            name = connector["display_name"]
+            problems.append({"connector": name, "reason": f"{name} {_ASK_STOPPED.get(summary.stopped, 'could not be read')}."})
+    if checked:
+        with store.connection() as conn:
+            write_audit(conn, actor, ASK_ACTION, part_id, {"read": read, "new": new}, subject_kind="part")
+    return {"read": read, "new": new, "connectors": checked, "problems": problems}
 
 
 def _substances(service, connector, now, provider, limit) -> DetailsSummary:
