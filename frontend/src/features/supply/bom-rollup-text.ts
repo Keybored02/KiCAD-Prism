@@ -9,6 +9,12 @@ export interface RollupSentence {
 
 const plural = (count: number, one: string, many: string) => `${count.toLocaleString()} ${count === 1 ? one : many}`;
 
+/** " (from 80.00 USD and 30.00 EUR)": what a converted total was made of. */
+function originals(rollup: SupplyBomRollup): string {
+  const parts = Object.entries(rollup.original_costs ?? {}).map(([code, amount]) => `${amount} ${code}`);
+  return parts.length > 1 ? ` (from ${parts.join(" and ")})` : "";
+}
+
 /** What the rollup of a lookup says about a build, as short sentences. */
 export function rollupSentences(rollup: SupplyBomRollup, build: number, lines: readonly BomLineDetail[]): RollupSentence[] {
   const sentences: RollupSentence[] = [];
@@ -30,7 +36,7 @@ export function rollupSentences(rollup: SupplyBomRollup, build: number, lines: r
     // A cost that leaves lines out is not the cost of the BOM, so it says how much it covers.
     const covers = rollup.lines_priced < rollup.lines ? `, covers ${rollup.lines_priced.toLocaleString()} of ${plural(rollup.lines, "line", "lines")}` : "";
     sentences.push({
-      text: `${formatPrice(rollup.cost_build, rollup.currency)} for ${plural(build, "board", "boards")}${each}${covers}${rollup.converted && rollup.rates_day ? `, converted at the rates of ${rollup.rates_day}` : ""}, list prices without VAT or shipping`,
+      text: `${formatPrice(rollup.cost_build, rollup.currency)} for ${plural(build, "board", "boards")}${each}${covers}${rollup.converted && rollup.rates_day ? `, converted at the rates of ${rollup.rates_day}${originals(rollup)}` : ""}, list prices without VAT or shipping`,
       tone: rollup.lines_priced < rollup.lines ? "warn" : "plain",
     });
   } else if (rollup.priced > 0) {

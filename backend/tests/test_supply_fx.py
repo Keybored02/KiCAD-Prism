@@ -151,6 +151,7 @@ class FxDatabaseTests(unittest.TestCase):
         rollup = after["rollup"]
         self.assertEqual((rollup["currency"], rollup["converted"], rollup["rates_day"]), ("EUR", True, "2026-03-02"))
         self.assertEqual(rollup["cost_build"], "28.33", "10 boards at 0.8333 + 2.00 each")
+        self.assertEqual(rollup["original_costs"], {"EUR": "20.00", "USD": "9.00"}, "what the total was made of, before conversion")
 
     def test_one_currency_throughout_needs_no_rates(self) -> None:
         with self.store.connection() as conn:
@@ -158,6 +159,7 @@ class FxDatabaseTests(unittest.TestCase):
         self.offer(one, "c2", "B", "0.50", "USD")
         result = self.lookup([{"key": "a", "manufacturer": "Acme", "mpn": "P-1", "quantity": 2}])
         self.assertEqual((result["rollup"]["currency"], result["rollup"]["converted"], result["rollup"]["cost_build"]), ("USD", False, "10.00"))
+        self.assertEqual(result["rollup"]["original_costs"], {})
 
 
 if __name__ == "__main__":

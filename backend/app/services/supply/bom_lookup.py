@@ -386,6 +386,12 @@ def _rollup(
         "converted": converted,
         "rates_day": rates.day.isoformat() if converted and rates is not None and rates.day else None,
         "cost_build": format(total.quantize(Decimal("0.01")), "f") if total is not None else None,
+        # What the total is made of before conversion, per currency the offers are quoted in. Empty when nothing was converted.
+        "original_costs": (
+            {code: format(sum((Decimal(buy["extended"]) for buy in priced if buy["currency"] == code), Decimal(0)).quantize(Decimal("0.01")), "f")
+             for code in sorted(currencies)}
+            if converted else {}
+        ),
         "cost_per_board": format((total / build_quantity).quantize(Decimal("0.0001")), "f") if total is not None else None,
         "can_build": can_build,
         "limited_by": limiting,

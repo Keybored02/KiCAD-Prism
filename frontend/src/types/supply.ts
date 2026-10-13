@@ -406,6 +406,8 @@ export interface SupplyBomRollup {
   converted?: boolean;
   rates_day?: string | null;
   cost_build: string | null;
+  /** Before conversion, per currency the offers are quoted in; empty when nothing was converted. */
+  original_costs?: Record<string, string>;
   cost_per_board: string | null;
   can_build: number | null;
   limited_by: string | null;

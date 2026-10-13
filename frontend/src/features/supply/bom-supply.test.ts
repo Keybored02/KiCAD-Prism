@@ -169,6 +169,13 @@ describe("the rollup in words", () => {
     expect(complete[1].tone).toBe("plain");
   });
 
+  it("says what a converted total was made of", () => {
+    const converted = rollupSentences({ ...rollup, converted: true, rates_day: "2026-03-02", original_costs: { EUR: "20.00", USD: "9.00" } }, 10, lines);
+    expect(converted[1].text).toContain("converted at the rates of 2026-03-02 (from 20.00 EUR and 9.00 USD), list prices without VAT or shipping");
+    const single = rollupSentences({ ...rollup, converted: true, rates_day: "2026-03-02", original_costs: { USD: "9.00" } }, 10, lines);
+    expect(single[1].text).not.toContain("(from");
+  });
+
   it("names the part that limits the build when stock falls short", () => {
     expect(text(rollupSentences({ ...rollup, can_build: 4 }, 10, lines))[0]).toBe("Can build 4 of 10, limited by B-1");
     expect(rollupSentences({ ...rollup, can_build: 4 }, 10, lines)[0].tone).toBe("bad");
