@@ -15,7 +15,7 @@ from typing import Any, Mapping
 from app.core.config import settings
 from app.services.supply import datasheets, details, fx, ledger, market, quota, retention
 from app.services.supply.connectors import ConnectorService
-from app.services.supply.discoverer import REDO_AFTER, Discoverer
+from app.services.supply.discoverer import DUE_SEARCH, REDO_AFTER, REDO_FOUND_AFTER, Discoverer
 from app.services.supply.poller import Poller
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SEARCH
@@ -85,9 +85,9 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         SELECT DISTINCT c.id, c.provider FROM connectors c
         CROSS JOIN watches w
         LEFT JOIN discovery_runs d ON d.part_id = w.part_id AND d.connector_id = c.id
-        WHERE {active} AND (d.part_id IS NULL OR d.last_run_at <= %(redo)s)
+        WHERE {active} AND ({DUE_SEARCH})
         """,
-        {"now": now, "redo": now - REDO_AFTER},
+        {"now": now, "found": now - REDO_FOUND_AFTER, "missing": now - REDO_AFTER},
     ).fetchall()
 
     ids = [row["id"] for row in due]

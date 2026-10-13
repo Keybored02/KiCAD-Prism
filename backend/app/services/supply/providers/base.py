@@ -122,6 +122,12 @@ class ProviderSpec:
     metered: bool = True
     # Calls one get_offers batch makes, so the budget is charged what is really spent.
     calls_per_offers_batch: int = 1
+    # One answer serves every listing of a part at this provider (DigiKey: a product lists all its packagings), so
+    # the poller reads a part's listings together and asks once per group. The provider reports the calls it made
+    # in ``last_batch_calls``.
+    groups_by_part: bool = False
+    # Manufacturer part numbers one search call can look up (``lookup_mpns``). 1 means one number per call.
+    search_batch: int = 1
 
     def __post_init__(self) -> None:
         if not _KEY.match(self.key):

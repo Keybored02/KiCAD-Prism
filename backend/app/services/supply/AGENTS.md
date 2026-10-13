@@ -29,10 +29,10 @@ root first.
 | `watches.py` | The watchlist: one watch per part, with a stock threshold and a pin to the fastest polling (pins are capped). |
 | `tiers.py` | Pure rules: which polling tier a listing is on, and when it is next asked (`next_poll_at`) or retried (`retry_at`). |
 | `stock.py` | A part's stock across distributors, honouring each provider's pooling. Only exact and manual listings, no marketplace stock. |
-| `discoverer.py` | Searches for listings of watched parts, once per part per connector and weekly after. Costs budget like any call. |
+| `discoverer.py` | Searches for listings of watched parts, once per part per connector; again after a month when the part was found there, after a week when not. A provider with `search_batch` is asked for a group of parts per call (`lookup_mpns`). Costs budget like any call. |
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
 | `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. |
-| `poller.py` | `Poller.poll_connector`: asks for due listings in batches within the call budget and records offers and samples. |
+| `poller.py` | `Poller.poll_connector`: asks for due listings in batches within the call budget and records offers and samples. A provider with `groups_by_part` (DigiKey) is asked once per part, with the part's other listings read in the same call. |
 | `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. |
 | `part_status.py` | The interim status of a part (ok, warning, error, fatal, unknown), with the problems that make an unread part an error (no distributor carries it, every listing gone). The assessment pipeline replaces it. |
 | `alerts.py` | Alerts on watched parts: one per part and kind, opened after two looks 30 minutes apart (a lost part opens at once), cleared when the condition clears, acknowledged or snoozed by people. In-app only; nothing is sent anywhere. Evaluated after every read and every watch change. |

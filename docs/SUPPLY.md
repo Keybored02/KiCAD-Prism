@@ -47,6 +47,11 @@ A part is a manufacturer and a part number. Watched parts are read regularly; un
   Fill only fills the form; the save is the normal revision.
 - Parts need a manufacturer part number. Components without one are not tracked.
 
+Calls are saved where the distributors allow it. TME reads 50 parts and Mouser 10 per call. DigiKey has no batch, but
+one answer holds every packaging of a part, so a part with three packagings costs one call, not three. Searching for
+new parts also goes 50 (TME) or 10 (Mouser) at a time. A part a distributor carries is searched there again only
+after a month (new packagings are rare); one it does not carry, after a week.
+
 How often a part is read: hot every 1.5 hours (pinned, out of stock, at its threshold, or stock under 1.5 times what
 is needed), warm every 6 hours, normal daily, cold weekly. When the budget is short, hot goes first and nothing waits
 more than twice its interval. The data age is always shown.

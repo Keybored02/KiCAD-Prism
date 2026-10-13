@@ -13,9 +13,12 @@ fixtures in the tests as soon as a key is available.
   says which locale it used (``SearchLocaleUsed``), and that currency is the one prices are in.
 * Discovery: ``POST /search/keyword`` with ``Keywords``. ``ExactMatches`` are used; if there are none,
   only products whose manufacturer part number is the one asked for.
-* Offers: ``GET /search/{productNumber}/productdetails``. One call per SKU: DigiKey has no batch.
-  A SKU is a DigiKey product number, which is one packaging of a part (cut tape, tape and reel,
-  Digi-Reel each have their own), so a part has one listing per packaging.
+* Offers: ``GET /search/{productNumber}/productdetails``. DigiKey has no batch endpoint (checked in the
+  v4 description: none, and the old v3 batch API is gone). A SKU is a DigiKey product number, which is one
+  packaging of a part (cut tape, tape and reel, Digi-Reel each have their own), so a part has one listing per
+  packaging. But one answer lists every packaging of its product in ``ProductVariations``, so the listings of
+  a part are read together (``groups_by_part``): ``get_offers`` serves a number found in an answer it already
+  has from that answer, and says how many calls it made in ``last_batch_calls``.
 
 Stock. ``QuantityAvailableforPackageType`` is the stock of one packaging. DigiKey shares one pool of
 stock between some packagings, so the provider is declared pooled: a part's stock here is the largest
@@ -126,6 +129,7 @@ class DigiKeyProvider:
         self._access_token = ""
         self._expires_at = 0.0
         self._last_call: float | None = None
+        self.last_batch_calls = 0
 
     # --- calls --------------------------------------------------------------
 
@@ -192,15 +196,29 @@ class DigiKeyProvider:
         return matches
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
+        """Offers for DigiKey product numbers. One answer lists every packaging of its product, so a number found
+        in an answer already read is served from it: a part with three packagings costs one call, not three.
+        ``last_batch_calls`` says how many calls this took."""
+
+        wanted = set(skus)
+        answers: dict[str, Mapping[str, Any]] = {}
         offers: list[Offer] = []
+        self.last_batch_calls = 0
         for sku in skus:
-            try:
-                answer = self._call("GET", f"/search/{_quote(sku)}/productdetails")
-            except (AuthError, RateLimited, Unavailable):
-                raise
-            except ProviderError:
-                continue  # a number DigiKey no longer knows: left out, as the contract says
-            offer = _offer(sku, answer, self._clock())
+            if sku not in answers:
+                try:
+                    self.last_batch_calls += 1
+                    answer = self._call("GET", f"/search/{_quote(sku)}/productdetails")
+                except (AuthError, RateLimited, Unavailable):
+                    raise
+                except ProviderError:
+                    continue  # a number DigiKey no longer knows: left out, as the contract says
+                answers[sku] = answer
+                for variation in (answer.get("Product") or {}).get("ProductVariations") or []:
+                    number = str((variation or {}).get("DigiKeyProductNumber") or "") if isinstance(variation, dict) else ""
+                    if number in wanted:
+                        answers.setdefault(number, answer)
+            offer = _offer(sku, answers[sku], self._clock())
             if offer is not None:
                 offers.append(offer)
         return offers
@@ -404,4 +422,5 @@ SPEC = ProviderSpec(
     factory=lambda config: DigiKeyProvider(config),
     storefronts=STOREFRONTS,
     default_daily_budget=1000,
+    groups_by_part=True,
 )

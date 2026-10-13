@@ -74,6 +74,10 @@ class DiscoveryService:
         with self._store.connection() as conn:
             part = parts.get_part(conn, part_id)
         matches = self._provider_for(connector_id).lookup_mpn(part.mpn, part.manufacturer_name)
+        return self.apply(part, matches, connector_id)
+
+    def apply(self, part: parts.PartRecord, matches: list[PartMatch], connector_id: str) -> DiscoveryResult:
+        """Sort a provider's answer for ``part`` into listings. Split from ``discover`` so one search call can serve many parts."""
 
         counts = {EXACT: 0, UNRESOLVED: 0, NEAR: 0}
         with self._store.connection() as conn:

@@ -158,21 +158,48 @@ class TmeProvider:
         wanted = match_key(mpn)
         matches = []
         for product in self._get("/products", [("mpns[]", mpn)]):
-            symbol = str(product.get("symbol") or "")
-            if not symbol:
-                continue
-            numbers = [str(item) for item in product.get("manufacturer_symbols") or [] if item]
-            # The part number TME lists for this symbol that is the one asked for, if any.
-            mpn_here = next((item for item in numbers if match_key(item) == wanted), numbers[0] if numbers else symbol)
-            matches.append(PartMatch(
-                provider=KEY,
-                sku=symbol,
-                mpn=mpn_here,
-                manufacturer=str((product.get("manufacturer") or {}).get("name") or ""),
-                description=str(product.get("description") or ""),
-                product_url=_page_url(symbol, self._country or ""),
-            ))
+            match = self._search_match(product, wanted, strict=False)
+            if match is not None:
+                matches.append(match)
         return matches
+
+    def lookup_mpns(self, mpns: Sequence[str]) -> dict[str, list[PartMatch]]:
+        """Several manufacturer numbers in one call (up to ``MAX_BATCH``), keyed by each number's ``match_key``.
+
+        A product is given to each asked number it lists among its manufacturer symbols; one that lists none of them
+        is left out.
+        """
+
+        found: dict[str, list[PartMatch]] = {match_key(number): [] for number in mpns if match_key(number)}
+        askable = list(dict.fromkeys(number.strip() for number in mpns if match_key(number)))
+        for start in range(0, len(askable), MAX_BATCH):
+            chunk = askable[start:start + MAX_BATCH]
+            for product in self._get("/products", [("mpns[]", number) for number in chunk]):
+                for number in chunk:
+                    match = self._search_match(product, match_key(number), strict=True)
+                    if match is not None:
+                        found[match_key(number)].append(match)
+        return found
+
+    def _search_match(self, product: Mapping[str, Any], wanted: str, *, strict: bool) -> PartMatch | None:
+        symbol = str(product.get("symbol") or "")
+        if not symbol:
+            return None
+        numbers = [str(item) for item in product.get("manufacturer_symbols") or [] if item]
+        # The part number TME lists for this symbol that is the one asked for, if any.
+        here = next((item for item in numbers if match_key(item) == wanted), None)
+        if here is None:
+            if strict:
+                return None
+            here = numbers[0] if numbers else symbol
+        return PartMatch(
+            provider=KEY,
+            sku=symbol,
+            mpn=here,
+            manufacturer=str((product.get("manufacturer") or {}).get("name") or ""),
+            description=str(product.get("description") or ""),
+            product_url=_page_url(symbol, self._country or ""),
+        )
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         offers: list[Offer] = []
@@ -293,6 +320,7 @@ SPEC = ProviderSpec(
     label="TME",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH}),
     max_batch=MAX_BATCH,
+    search_batch=MAX_BATCH,
     stock_pooling="separate",
     credential_fields=(
         CredentialField("token", "Token"),

@@ -126,9 +126,18 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual((run["found"], run["last_run_at"]), (1, self.clock.now))
         self.assertEqual(self.discoverer_().run(cid).searched, 0, "already searched")
 
-    def test_a_part_is_searched_again_after_a_week(self) -> None:
+    def test_a_part_the_distributor_carries_is_searched_again_after_a_month(self) -> None:
         cid = self.connector()
         self.watch()
+        self.discoverer_().run(cid)
+        self.clock.advance(days=8)
+        self.assertEqual(self.discoverer_().run(cid).searched, 0, "found parts wait a month, not a week")
+        self.clock.advance(days=23)
+        self.assertEqual(self.discoverer_().run(cid).searched, 1)
+
+    def test_a_part_not_found_is_searched_again_after_a_week(self) -> None:
+        cid = self.connector()
+        self.watch("NONE-1")
         self.discoverer_().run(cid)
         self.clock.advance(days=6)
         self.assertEqual(self.discoverer_().run(cid).searched, 0)

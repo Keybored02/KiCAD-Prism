@@ -81,6 +81,27 @@ def try_spend(
     return True
 
 
+def record_calls(store, connector_id: str, units: int, *, now: datetime, interactive: bool = False) -> None:
+    """Count calls that were already made beyond what was reserved, so the day's figure stays true.
+
+    Unlike ``try_spend`` it never refuses: the calls happened. It is used when one batch needed more calls than
+    the one it paid for (a part whose packagings DigiKey lists under two products).
+    """
+
+    if units < 1:
+        return
+    day = _day(now)
+    with store.connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO quota_ledger (connector_id, day, spent, interactive_spent) VALUES (%s, %s, %s, %s)
+            ON CONFLICT (connector_id, day) DO UPDATE SET spent = quota_ledger.spent + EXCLUDED.spent,
+                interactive_spent = quota_ledger.interactive_spent + EXCLUDED.interactive_spent
+            """,
+            (connector_id, day, units, units if interactive else 0),
+        )
+
+
 def spend_call(store, connector: Mapping, *, now: datetime, interactive: bool = False, units: int = 1) -> bool:
     """Spend one call for a connector, in its own transaction. Free connectors never get here."""
 

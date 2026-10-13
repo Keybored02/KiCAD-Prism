@@ -29,6 +29,9 @@ from app.services.supply.store import SupplyStore, supply_store
 from app.services.supply.vocabulary import Lifecycle
 
 MAX_BATCHES_PER_RUN = 20
+# For a provider that reads a part's listings together, how many due listings a run starts from per batch (a part
+# usually has two or three packagings).
+GROUP_LISTINGS = 3
 MISSES_BEFORE_GONE = 3
 
 STOPPED_INACTIVE = "inactive"
@@ -115,6 +118,43 @@ def _chunks(items: Sequence[DueListing], size: int) -> list[Sequence[DueListing]
     return [items[i:i + size] for i in range(0, len(items), size)]
 
 
+def _by_part(items: Sequence[DueListing]) -> list[Sequence[DueListing]]:
+    """Listings grouped by part, in the order each part first appears (the service order)."""
+
+    groups: dict[str, list[DueListing]] = {}
+    for item in items:
+        groups.setdefault(item.part_id, []).append(item)
+    return list(groups.values())
+
+
+def with_siblings(conn, connector_id: str, due: Sequence[DueListing]) -> list[DueListing]:
+    """``due`` plus the other counted listings of the same parts at this connector.
+
+    For a provider whose one answer serves all of a part's listings, the others come for free, so they are read
+    in the same call rather than later in calls of their own.
+    """
+
+    have = {item.id for item in due}
+    part_ids = sorted({item.part_id for item in due})
+    if not part_ids:
+        return list(due)
+    rows = conn.execute(
+        """
+        SELECT l.id, l.sku, l.part_id, COALESCE(ps.error_streak, 0) AS error_streak,
+               COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at
+        FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id
+        WHERE l.connector_id = %s AND l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual') AND NOT (l.id = ANY(%s))
+        ORDER BY l.sku
+        """,
+        (connector_id, part_ids, sorted(have)),
+    ).fetchall()
+    extra = [
+        DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"])
+        for r in rows
+    ]
+    return list(due) + extra
+
+
 class Poller:
     def __init__(
         self,
@@ -139,14 +179,18 @@ class Poller:
         if trouble.cooling_down(self._store, connector_id, now):
             return PollSummary(connector_id, stopped=STOPPED_COOLING_DOWN)
         with self._store.connection() as conn:
-            due = due_listings(conn, connector_id, now, spec.max_batch * MAX_BATCHES_PER_RUN, only_part)
+            due = due_listings(
+                conn, connector_id, now, (GROUP_LISTINGS if spec.groups_by_part else spec.max_batch) * MAX_BATCHES_PER_RUN, only_part
+            )
+            if spec.groups_by_part:
+                due = with_siblings(conn, connector_id, due)
         if not due:
             return PollSummary(connector_id, stopped=STOPPED_NOTHING_DUE)
 
         provider = self._provider_for(connector_id)
         calls = polled = gone = 0
         stopped: str | None = None
-        for batch in _chunks(due, spec.max_batch):
+        for batch in _by_part(due) if spec.groups_by_part else _chunks(due, spec.max_batch):
             if spec.metered and not ledger.spend_call(
                 self._store, connector, now=now, interactive=interactive, units=spec.calls_per_offers_batch
             ):
@@ -155,6 +199,11 @@ class Poller:
             calls += 1
             try:
                 offers = provider.get_offers([row.sku for row in batch])
+                # A group that needed more calls than the one it paid for (two products) pays the rest now.
+                extra = getattr(provider, "last_batch_calls", 1) - spec.calls_per_offers_batch if spec.groups_by_part else 0
+                if extra > 0:
+                    ledger.record_calls(self._store, connector_id, extra, now=now, interactive=interactive)
+                    calls += extra
             except ProviderError as exc:
                 if not isinstance(exc, (RateLimited, AuthError)):
                     # Only a failure of this batch is the batch's fault; a rate limit or

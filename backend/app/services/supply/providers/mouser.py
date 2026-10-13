@@ -39,6 +39,7 @@ from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 
 from app.services.supply.http_client import SafeHttpClient
+from app.services.supply.identity import match_key
 from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak, Substances
 from app.services.supply.providers.base import (
     CAP_BATCH,
@@ -128,25 +129,23 @@ class MouserProvider:
     def lookup_mpn(self, mpn: str, manufacturer: str | None = None) -> list[PartMatch]:
         if not 3 <= len(mpn.strip()) <= 40:
             return []  # outside what the search accepts; nothing to ask
-        matches = []
-        for part in self._search([mpn.strip()]):
-            sku, number = str(part.get("MouserPartNumber") or ""), str(part.get("ManufacturerPartNumber") or "")
-            # "N/A" stands for a Mouser number that cannot be ordered.
-            if not sku or not number or sku.upper() == "N/A":
-                continue
-            matches.append(PartMatch(
-                provider=KEY, sku=sku, mpn=number,
-                manufacturer=str(part.get("Manufacturer") or ""),
-                description=str(part.get("Description") or ""),
-                product_url=str(part.get("ProductDetailUrl") or ""),
-                datasheet_url=str(part.get("DataSheetUrl") or ""),
-                parameters=tuple(
-                    (str(item.get("AttributeName") or ""), str(item.get("AttributeValue") or ""))
-                    for item in part.get("ProductAttributes") or []
-                    if isinstance(item, dict) and item.get("AttributeName")
-                ),
-            ))
-        return matches
+        return [match for part in self._search([mpn.strip()]) if (match := _match(part)) is not None]
+
+    def lookup_mpns(self, mpns: Sequence[str]) -> dict[str, list[PartMatch]]:
+        """Several manufacturer numbers in as few calls as Mouser allows (``MAX_BATCH`` a call).
+
+        The answer is keyed by each number's ``match_key``. A part is given to the number it matches; one that matches
+        none of those asked for (Mouser sometimes answers a near number) is left out.
+        """
+
+        found: dict[str, list[PartMatch]] = {match_key(number): [] for number in mpns if match_key(number)}
+        askable = list(dict.fromkeys(number.strip() for number in mpns if 3 <= len(number.strip()) <= 40 and match_key(number)))
+        for start in range(0, len(askable), MAX_BATCH):
+            for part in self._search(askable[start:start + MAX_BATCH]):
+                match = _match(part)
+                if match is not None and match_key(match.mpn) in found:
+                    found[match_key(match.mpn)].append(match)
+        return found
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
         wanted = {sku.upper(): sku for sku in skus}
@@ -196,6 +195,25 @@ class MouserProvider:
             category=str(part.get("Category") or ""),
             parameters=attributes,
         )
+
+
+def _match(part: Mapping[str, Any]) -> PartMatch | None:
+    sku, number = str(part.get("MouserPartNumber") or ""), str(part.get("ManufacturerPartNumber") or "")
+    # "N/A" stands for a Mouser number that cannot be ordered.
+    if not sku or not number or sku.upper() == "N/A":
+        return None
+    return PartMatch(
+        provider=KEY, sku=sku, mpn=number,
+        manufacturer=str(part.get("Manufacturer") or ""),
+        description=str(part.get("Description") or ""),
+        product_url=str(part.get("ProductDetailUrl") or ""),
+        datasheet_url=str(part.get("DataSheetUrl") or ""),
+        parameters=tuple(
+            (str(item.get("AttributeName") or ""), str(item.get("AttributeValue") or ""))
+            for item in part.get("ProductAttributes") or []
+            if isinstance(item, dict) and item.get("AttributeName")
+        ),
+    )
 
 
 def _raise_for_errors(errors: Sequence[Any]) -> None:
@@ -352,6 +370,7 @@ SPEC = ProviderSpec(
     label="Mouser",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_BATCH, CAP_LIFECYCLE, CAP_INCOMING, CAP_SUBSTANCES}),
     max_batch=MAX_BATCH,
+    search_batch=MAX_BATCH,
     stock_pooling="separate",
     credential_fields=(CredentialField("api_key", "Search API key"),),
     factory=lambda config: MouserProvider(config),

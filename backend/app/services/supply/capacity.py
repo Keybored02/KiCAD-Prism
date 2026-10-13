@@ -24,10 +24,11 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
         "WHERE enabled ORDER BY lower(display_name), id"
     ).fetchall()
     tiers: dict[str, dict[str, int]] = {}
+    part_tiers: dict[str, dict[str, int]] = {}
     for row in conn.execute(
         """
-        SELECT connector_id, tier, COUNT(*) AS n FROM (
-            SELECT l.connector_id, COALESCE(ps.tier, %s) AS tier
+        SELECT connector_id, tier, COUNT(*) AS n, COUNT(DISTINCT part_id) AS parts FROM (
+            SELECT l.connector_id, l.part_id, COALESCE(ps.tier, %s) AS tier
             FROM listings l
             JOIN watches w ON w.part_id = l.part_id
             LEFT JOIN poll_state ps ON ps.listing_id = l.id
@@ -37,6 +38,7 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
         (_UNPOLLED_TIER,),
     ).fetchall():
         tiers.setdefault(row["connector_id"], {})[row["tier"]] = int(row["n"])
+        part_tiers.setdefault(row["connector_id"], {})[row["tier"]] = int(row["parts"])
     unsearched = {
         row["connector_id"]: int(row["n"])
         for row in conn.execute(
@@ -58,8 +60,10 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
         if not spec.metered:
             continue
         by_tier = tiers.get(row["id"], {})
+        # One call reads all of a part's listings at a provider that groups them, so its load is counted in parts.
+        loaded = part_tiers.get(row["id"], {}) if spec.groups_by_part else by_tier
         estimate = quota.estimate_capacity(
-            by_tier, max_batch=spec.max_batch, daily_budget=row["daily_budget"],
+            loaded, max_batch=1 if spec.groups_by_part else spec.max_batch, daily_budget=row["daily_budget"],
             reserve_pct=row["interactive_reserve_pct"], calls_per_batch=spec.calls_per_offers_batch,
         )
         result.append({
