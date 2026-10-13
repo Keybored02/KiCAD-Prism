@@ -709,6 +709,27 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m032_bom_usage_variants(conn) -> None:
+    """The BOM lines of each design variant of a project, beside the base design's ``bom_usage`` (see ``usage.py``)."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bom_usage_variants (
+            project_id TEXT NOT NULL REFERENCES bom_usage_projects(project_id) ON DELETE CASCADE,
+            variant TEXT NOT NULL,
+            line_key TEXT NOT NULL,
+            manufacturer TEXT NOT NULL DEFAULT '',
+            mpn TEXT NOT NULL,
+            quantity INTEGER NOT NULL CHECK (quantity >= 1),
+            refs TEXT NOT NULL DEFAULT '',
+            lcsc TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (project_id, variant, line_key)
+        );
+        """,
+        prepare=False,
+    )
+
+
 def _m031_bom_comments(conn) -> None:
     """Notes on a line of a project's BOM (see ``bom_comments.py``). Kept by the line's key, so they follow the part."""
 
@@ -917,6 +938,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (29, "notice_files", _m029_notice_files),
     (30, "release_compliance", _m030_release_compliance),
     (31, "bom_comments", _m031_bom_comments),
+    (32, "bom_usage_variants", _m032_bom_usage_variants),
 ]
 
 

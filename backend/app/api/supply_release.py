@@ -38,19 +38,26 @@ async def _run(call: Callable[[], T]) -> T:
 async def bom_health(
     project_id: str,
     build_quantity: int = Query(default=1, ge=1, le=1_000_000),
+    variant: str = Query(default="", max_length=120),
     user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
-    """The project's BOM rolled up from the lines stored when its BOM was read. Never calls a distributor."""
+    """The project's BOM rolled up from the lines stored when its BOM was read. Never calls a distributor.
+
+    ``variant`` names a design variant; empty is the base design. ``variants`` lists the names stored.
+    """
 
     get_project_for_role_or_404(project_id, user.role)
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            rows = usage.project_rows(conn, project_id)
+            rows = usage.project_rows(conn, project_id, variant)
             if not rows:
                 return {"available": False}
             lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
-            return {"available": True, "build_quantity": build_quantity, "rollup": bom_lookup.lookup(conn, lines, build_quantity)["rollup"]}
+            return {
+                "available": True, "build_quantity": build_quantity, "variant": variant, "variants": usage.project_variants(conn, project_id),
+                "rollup": bom_lookup.lookup(conn, lines, build_quantity)["rollup"],
+            }
 
     return await _run(read)
 
@@ -59,6 +66,7 @@ async def bom_health(
 async def compliance_draft_for(
     project_id: str,
     format: str = Query(default="json", pattern="^(json|csv)$"),
+    variant: str = Query(default="", max_length=120),
     user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> Any:
     """A draft RoHS and REACH declaration for the project's stored BOM, with the gaps listed. A working document, not a declaration."""
@@ -67,7 +75,7 @@ async def compliance_draft_for(
 
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
-            rows = usage.project_rows(conn, project_id)
+            rows = usage.project_rows(conn, project_id, variant)
             return {"available": bool(rows), "draft": compliance_draft.build(conn, rows) if rows else None}
 
     result = await _run(read)

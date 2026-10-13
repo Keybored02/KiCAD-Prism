@@ -177,6 +177,14 @@ class ReleaseCheckTests(unittest.TestCase):
         rollup = response.json["rollup"]
         self.assertEqual((response.json["available"], rollup["lines"], rollup["tracked"], rollup["not_tracked"], rollup["can_build"]), (True, 2, 1, 1, 2500))
         self.assertEqual(rollup["health_status"], "ok")
+        with self.store.connection() as conn:
+            conn.execute(
+                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity) VALUES ('prj_9', 'Lite', 'k', 'Acme', 'GOOD-1', 1)")
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            lite = self.request("prj_9/bom-health", query="variant=Lite").json
+            nothing = self.request("prj_9/bom-health", query="variant=Nope").json
+        self.assertEqual((lite["available"], lite["variant"], lite["variants"], lite["rollup"]["lines"]), (True, "Lite", ["Lite"], 1))
+        self.assertEqual(nothing, {"available": False})
 
     def test_the_compliance_draft_lists_each_part_with_what_is_known_and_what_is_missing(self) -> None:
         from app.services.supply import compliance_draft, usage

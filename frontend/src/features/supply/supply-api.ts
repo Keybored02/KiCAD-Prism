@@ -472,8 +472,13 @@ export async function closePartDemand(demandId: string): Promise<void> {
 }
 
 /** A project's BOM rolled up from the lines stored when it was read. `available` is false until it has been. */
-export function getProjectBomHealth(projectId: string, signal?: AbortSignal): Promise<{ available: boolean; rollup?: SupplyBomRollup }> {
-  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/bom-health`, { signal }, "Could not load the supply health");
+export function getProjectBomHealth(
+  projectId: string,
+  signal?: AbortSignal,
+  variant = "",
+): Promise<{ available: boolean; rollup?: SupplyBomRollup; variants?: string[] }> {
+  const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/bom-health${query}`, { signal }, "Could not load the supply health");
 }
 
 export function getPartDatasheets(partId: string, signal?: AbortSignal): Promise<SupplyDatasheets> {

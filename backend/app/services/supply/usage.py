@@ -54,6 +54,43 @@ class UsageLine:
 
 Identities = Callable[[Iterable[str]], Mapping[str, tuple[str, str]]]
 
+# Part of the stored revision key. Raise it when what is stored from an index changes (a new kind of row), so every project
+# is read again once. With the index's own revision key it is the fingerprint of what the rows were made from.
+USAGE_VERSION = 2
+MAX_VARIANTS = 30
+
+
+def variant_names(payload: Mapping[str, Any]) -> list[str]:
+    """The design variants a semantic index lists, in its order."""
+
+    assembly = payload.get("assembly") or {}
+    names = [str(item.get("name") or "") for item in assembly.get("variants") or [] if isinstance(item, Mapping)]
+    return [name for name in dict.fromkeys(names) if name][:MAX_VARIANTS]
+
+
+def variant_components(payload: Mapping[str, Any], name: str) -> list[Mapping[str, Any]]:
+    """The index's components as the named variant has them: its DNP and In BOM flags and its field overrides.
+
+    The same projection the BOM table makes on screen. A name the index does not list gives the components as they are.
+    """
+
+    assembly = payload.get("assembly") or {}
+    variant = next((item for item in assembly.get("variants") or [] if isinstance(item, Mapping) and item.get("name") == name), None)
+    components = payload.get("components") or []
+    if variant is None:
+        return list(components)
+    defaults = (assembly.get("default") or {}).get("components") or {}
+    overrides = variant.get("components") or {}
+    projected = []
+    for component in components:
+        uid = component.get("componentUid")
+        base, over = defaults.get(uid) or {}, overrides.get(uid) or {}
+        fields = {**(component.get("fields") or {}), **(over.get("fields") or {})}
+        fields["DNP"] = "Yes" if over.get("dnp", base.get("dnp", False)) else "No"
+        fields["In BOM"] = "No" if over.get("excludeFromBom", base.get("excludeFromBom", False)) else "Yes"
+        projected.append({**component, "fields": fields})
+    return projected
+
 
 def lines_from_components(components: Iterable[Mapping[str, Any]], identities: Identities | None = None) -> list[UsageLine]:
     """The distinct parts among the fitted components, with how many go on one board. No number, no line.
@@ -94,8 +131,12 @@ def store_project(
     lines: list[UsageLine],
     now: datetime,
     visible_roles: Sequence[str] = ALL_ROLES,
+    variant_lines: Mapping[str, list[UsageLine]] | None = None,
 ) -> bool:
-    """Replace a project's rows. Returns False, doing nothing, when this revision is already stored."""
+    """Replace a project's rows. Returns False, doing nothing, when this revision is already stored.
+
+    ``variant_lines`` are the lines of each named design variant; the base design's are ``lines``.
+    """
 
     current = conn.execute("SELECT revision_key FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone()
     if current and current["revision_key"] == revision_key:
@@ -105,6 +146,7 @@ def store_project(
         )
         return False
     conn.execute("DELETE FROM bom_usage WHERE project_id = %s", (project_id,))
+    conn.execute("DELETE FROM bom_usage_variants WHERE project_id = %s", (project_id,))
     conn.execute(
         """
         INSERT INTO bom_usage_projects (project_id, project_name, revision_key, line_count, updated_at, visible_roles)
@@ -121,6 +163,13 @@ def store_project(
             (project_id, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity, line.references,
              line.lcsc),
         )
+    for name, named in (variant_lines or {}).items():
+        for line in named:
+            conn.execute(
+                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity, refs, lcsc) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (project_id, name, line.key, line.manufacturer, line.mpn, line.quantity, line.references, line.lcsc),
+            )
     return True
 
 
@@ -151,9 +200,10 @@ def refresh(
             missing += 1
             continue
         lines = lines_from_components(payload.get("components") or [], identities)
-        revision = str(payload.get("sourceRevisionKey") or "")
+        named = {name: lines_from_components(variant_components(payload, name), identities) for name in variant_names(payload)}
+        revision = f"{payload.get('sourceRevisionKey') or ''}|u{USAGE_VERSION}"
         roles = (visible_roles or {}).get(str(project.id), ALL_ROLES)
-        if store_project(conn, str(project.id), str(project.name), revision, lines, now, roles):
+        if store_project(conn, str(project.id), str(project.name), revision, lines, now, roles, named):
             updated += 1
         else:
             skipped += 1
@@ -163,12 +213,31 @@ def refresh(
     return {"updated": updated, "unchanged": skipped, "without_index": missing, "removed": len(gone)}
 
 
-def project_rows(conn, project_id: str) -> list[dict[str, Any]]:
-    """The stored BOM lines of a project (manufacturer, number, quantity per board); empty when it was never read."""
+def project_variants(conn, project_id: str) -> list[str]:
+    """The design variants stored for a project."""
 
-    rows = conn.execute(
-        "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc FROM bom_usage WHERE project_id = %s ORDER BY line_key", (project_id,)
-    ).fetchall()
+    return [
+        row["variant"] for row in conn.execute(
+            "SELECT DISTINCT variant FROM bom_usage_variants WHERE project_id = %s ORDER BY variant", (project_id,)
+        ).fetchall()
+    ]
+
+
+def project_rows(conn, project_id: str, variant: str = "") -> list[dict[str, Any]]:
+    """The stored BOM lines of a project (manufacturer, number, quantity per board); empty when it was never read.
+
+    ``variant`` names a design variant; empty is the base design.
+    """
+
+    if variant:
+        rows = conn.execute(
+            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc FROM bom_usage_variants WHERE project_id = %s AND variant = %s "
+            "ORDER BY line_key", (project_id, variant),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT line_key, manufacturer, mpn, quantity, refs, lcsc FROM bom_usage WHERE project_id = %s ORDER BY line_key", (project_id,)
+        ).fetchall()
     return [
         {"key": row["line_key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": int(row["quantity"]),
          "references": row["refs"], "lcsc": row["lcsc"]}

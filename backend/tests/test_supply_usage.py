@@ -171,6 +171,39 @@ class UsageDatabaseTests(unittest.TestCase):
         self.assertTrue(self.store_project("p1", "Board A renamed", [component("R1", "Acme", "OTHER")], revision="r2"))
         self.assertEqual([row["mpn"] for row in self.rows("SELECT mpn FROM bom_usage")], ["OTHER"])
 
+    def test_each_design_variant_has_its_own_lines_and_the_revision_decides_when_to_read_them_again(self) -> None:
+        def part(reference, mpn, uid, **fields):
+            return {**component(reference, "Acme", mpn, **fields), "componentUid": uid}
+
+        payload = {
+            "sourceRevisionKey": "rev-1",
+            "components": [part("R1", "R-1", "u1"), part("R2", "R-2", "u2"), part("R3", "R-3", "u3", DNP="Yes")],
+            "assembly": {
+                "default": {"components": {"u3": {"dnp": True}}},
+                "variants": [
+                    {"name": "No R2", "components": {"u2": {"dnp": True}}},
+                    {"name": "Fit R3, swap R1", "components": {"u3": {"dnp": False}, "u1": {"fields": {"Manufacturer Part Number": "R-9"}}}},
+                ],
+            },
+        }
+        self.assertEqual(usage.variant_names(payload), ["No R2", "Fit R3, swap R1"])
+        by_variant = {name: sorted(line.mpn for line in usage.lines_from_components(usage.variant_components(payload, name))) for name in usage.variant_names(payload)}
+        self.assertEqual(by_variant, {"No R2": ["R-1"], "Fit R3, swap R1": ["R-2", "R-3", "R-9"]})
+        self.assertEqual(sorted(line.mpn for line in usage.lines_from_components(usage.variant_components(payload, "unknown"))), ["R-1", "R-2"],
+                         "an unlisted name gives the components as they are")
+
+        project = SimpleNamespace(id="pv", name="Variants")
+        with self.store.connection() as conn:
+            first = usage.refresh(conn, [project], lambda _p: payload, NOW)
+            again = usage.refresh(conn, [project], lambda _p: payload, NOW)
+            self.assertEqual((first["updated"], again["unchanged"]), (1, 1))
+            self.assertEqual(usage.project_variants(conn, "pv"), ["Fit R3, swap R1", "No R2"])
+            self.assertEqual([r["mpn"] for r in usage.project_rows(conn, "pv")], ["R-1", "R-2"], "the base design has R3 as DNP")
+            self.assertEqual([r["mpn"] for r in usage.project_rows(conn, "pv", "No R2")], ["R-1"])
+            self.assertEqual(usage.project_rows(conn, "pv", "none such"), [])
+            changed = usage.refresh(conn, [project], lambda _p: payload | {"sourceRevisionKey": "rev-2", "assembly": {}}, NOW)
+            self.assertEqual((changed["updated"], usage.project_variants(conn, "pv")), (1, []), "a new revision replaces the variants too")
+
     def test_a_stored_line_keeps_the_lcsc_number_of_its_symbol(self) -> None:
         self.store_project("p1", "Board A", [component("R1", "Acme", "R-1", LCSC="c25804"), component("R2", "Acme", "R-1")])
         self.assertEqual([row["lcsc"] for row in self.rows("SELECT lcsc FROM bom_usage")], ["C25804"])

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SupplyBomRollup } from "@/types/supply";
@@ -37,6 +37,14 @@ describe("the project supply card", () => {
     render(<ProjectSupplyCard projectId="p 1" role="qa" />);
     const link = await screen.findByRole("link", { name: "Download a draft RoHS and REACH declaration" });
     expect(link.getAttribute("href")).toBe("/api/supply/projects/p%201/compliance-draft?format=csv");
+  });
+
+  it("offers the design variants and reads the one picked", async () => {
+    mocked.getProjectBomHealth.mockResolvedValue({ available: true, rollup, variants: ["Lite"] });
+    render(<ProjectSupplyCard projectId="p1" role="qa" />);
+    fireEvent.change(await screen.findByLabelText("Design variant"), { target: { value: "Lite" } });
+    await waitFor(() => expect(mocked.getProjectBomHealth).toHaveBeenLastCalledWith("p1", expect.anything(), "Lite"));
+    expect((await screen.findByRole("link", { name: "Download a draft RoHS and REACH declaration" })).getAttribute("href")).toContain("&variant=Lite");
   });
 
   it("shows nothing to a viewer, and never asks", () => {
