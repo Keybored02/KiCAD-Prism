@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal
 
-from app.services.supply import facts, insights, outlook, params, parts, pcn, prices, pricing, stock, usage
+from app.services.supply import demand, facts, insights, outlook, params, parts, pcn, prices, pricing, stock, usage
 from app.services.supply.part_status import (
     PROBLEM_LABEL, STATUS_ORDER, part_problem, part_status, worst_lifecycle,
 )
@@ -150,6 +150,7 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
     ids = [r["id"] for r in rows]
     offers_by_part_id = offers if offers is not None else offers_by_part(conn, ids)
     problems = _problems(conn, ids)
+    needed, needed_by = demand.open_totals(conn, ids), demand.next_needs(conn, ids)
 
     items = []
     for row in rows:
@@ -179,6 +180,9 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
             "fetched_at": combined.newest_fetched_at.isoformat() if combined and combined.newest_fetched_at else None,
             "tier": min(tiers, key=_TIER_ORDER.index) if tiers else None,
             "used_in": int(row["used_in"]),
+            # What open demand asks of the part, and the soonest date it is wanted by.
+            "needed": max(0, needed.get(row["id"], 0)),
+            "need_by": needed_by.get(row["id"]),
         })
     return items
 

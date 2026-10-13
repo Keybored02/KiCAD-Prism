@@ -522,6 +522,9 @@ export interface SupplyPartRow {
   tier: SupplyTier | null;
   /** How many projects' BOMs carry this part, among those whose BOM Prism has read. */
   used_in: number;
+  /** Units open demand asks of the part, and the soonest date it is wanted by. */
+  needed?: number;
+  need_by?: string | null;
 }
 
 export interface SupplyPartsPage {

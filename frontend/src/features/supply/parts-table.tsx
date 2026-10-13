@@ -49,6 +49,7 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
               <td className="px-3 py-2 text-right tabular-nums">
                 {part.stock === null ? <span className="text-muted-foreground">{formatStock(null)}</span> : formatStock(part.stock)}
                 {part.listings > 1 ? <div className="text-xs text-muted-foreground">{part.listings} listings</div> : null}
+                {part.needed ? <div className="text-xs text-muted-foreground">needed {part.needed.toLocaleString()}{part.need_by ? ` by ${part.need_by}` : ""}</div> : null}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {formatPrice(part.unit_price, part.currency)}

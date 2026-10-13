@@ -69,6 +69,14 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+describe("the parts list, demand", () => {
+  it("says how much open demand asks of a part and by when", async () => {
+    mocked.listSupplyParts.mockResolvedValue({ items: [partRowFixture({ needed: 700, need_by: "2026-05-01" })], total: 1, limit: 100 });
+    renderView();
+    expect(await screen.findByText("needed 700 by 2026-05-01")).toBeTruthy();
+  });
+});
+
 describe("the parts list", () => {
   it("narrows to a group from the URL and lets it go", async () => {
     renderView("designer", "/?section=supply&partsOnly=out_of_stock");

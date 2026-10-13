@@ -148,6 +148,19 @@ def open_totals(conn, part_ids: Sequence[str]) -> dict[str, int]:
     return {row["part_id"]: row["total"] for row in rows}
 
 
+def next_needs(conn, part_ids: Sequence[str]) -> dict[str, str]:
+    """Per part, the soonest date something open is needed by. Parts with no dated demand are left out."""
+
+    if not part_ids:
+        return {}
+    rows = conn.execute(
+        "SELECT part_id, MIN(need_by) AS day FROM demands WHERE part_id = ANY(%s) AND state = ANY(%s) AND quantity > 0 AND need_by IS NOT NULL "
+        "GROUP BY part_id",
+        (list(part_ids), list(OPEN_STATES)),
+    ).fetchall()
+    return {row["part_id"]: row["day"].isoformat() for row in rows}
+
+
 def net_requirement(open_total: int, own_stock: int | None) -> int:
     """What distributors must cover: open demand less our own stock. Never below 0."""
 
