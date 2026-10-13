@@ -1,12 +1,12 @@
 import { useCallback, useState } from "react";
-import { X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SupplyNotice, SupplyNoticeKind } from "@/types/supply";
-import { addNotice, closeNotice, listPartNotices } from "./supply-api";
+import { addNotice, listPartNotices } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
 import { VendorName } from "./vendor-name";
@@ -23,7 +23,10 @@ interface NoticesSectionProps {
   canEdit: boolean;
 }
 
-/** Product change notices for the part, as people entered them. Prism does not read the notice for you. */
+/**
+ * Product change notices for the part: the ones people entered and the ones a distributor lists. They are a record, so they
+ * cannot be dismissed here. The section folds away, and starts open only when a notice announces an ending.
+ */
 export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
   const fetcher = useCallback((signal: AbortSignal) => listPartNotices(part.id, signal), [part.id]);
   const loaded = useLoaded<SupplyNotice[]>(`${part.id}:notices`, fetcher, "Could not load the notices");
@@ -36,9 +39,14 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
   const items = loaded.data ?? [];
   if (!canEdit && items.length === 0) return null;
 
+  const announcesEnding = items.some((item) => item.state === "open" && item.kind !== "change");
   return (
-    <section aria-label="Notices" className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Product change notices</h3>
+    <details aria-label="Notices" className="group space-y-2" open={announcesEnding || undefined}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+        Product change notices
+        {items.length > 0 ? <span className="font-normal normal-case tracking-normal">({items.length})</span> : null}
+      </summary>
       {items.length > 0 ? (
         <ul className="divide-y border text-sm">
           {items.map((item) => (
@@ -59,12 +67,6 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
                   {item.source && item.source !== "manual" ? <>From <VendorName provider={item.source} name={item.source_label} />.</> : `Entered by ${item.created_by}.`}
                 </span>
               </span>
-              {canEdit && item.state === "open" ? (
-                <Button size="icon" variant="ghost" aria-label={`Close ${item.title}`} disabled={busy}
-                  onClick={() => void run(async () => { await closeNotice(item.id); await loaded.refresh(); })}>
-                  <X className="h-4 w-4" />
-                </Button>
-              ) : null}
             </li>
           ))}
         </ul>
@@ -112,6 +114,6 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
         </form>
       ) : null}
       {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
-    </section>
+    </details>
   );
 }

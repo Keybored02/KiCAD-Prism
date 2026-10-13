@@ -47,7 +47,7 @@ describe("the notices section", () => {
     expect(screen.queryByRole("button", { name: "Add notice" })).toBeNull();
   });
 
-  it("adds a notice for this part and closes one", async () => {
+  it("adds a notice for this part", async () => {
     render(<NoticesSection part={part} canEdit />);
     await screen.findByRole("link", { name: "PCN-1234" });
     fireEvent.change(screen.getByLabelText("Notice title or number"), { target: { value: "PCN-9" } });
@@ -57,8 +57,7 @@ describe("the notices section", () => {
     await waitFor(() => expect(mocked.addNotice).toHaveBeenCalledWith({
       title: "PCN-9", kind: "last_time_buy", parts: [{ manufacturer: "Acme", mpn: "ABC-1" }], notice_url: "", last_time_buy: "2026-09-01", last_time_ship: null, notes: "",
     }));
-    fireEvent.click(screen.getByRole("button", { name: "Close PCN-1234" }));
-    await waitFor(() => expect(mocked.closeNotice).toHaveBeenCalledWith("n1"));
+    expect(screen.queryByRole("button", { name: /Close/ }), "a notice is a record: it cannot be dismissed here").toBeNull();
   });
 
   it("says a notice read from DigiKey came from there, with its release date and description", async () => {
@@ -69,6 +68,20 @@ describe("the notices section", () => {
     expect(screen.getByText(/Released 2025-11-04\./)).toBeTruthy();
     expect(screen.getByText(/Released 2025-11-04\./).textContent).toContain("From DigiKey.");
     expect(screen.queryByText(/Entered by/)).toBeNull();
+  });
+
+  it("folds away, open only when a notice announces an ending", async () => {
+    const change = { ...fromDigikey, id: "n8", kind: "change" as const, kind_label: "Product change", title: "PCN Packaging" };
+    mocked.listPartNotices.mockResolvedValue([change]);
+    const { container, unmount } = render(<NoticesSection part={part} canEdit={false} />);
+    await screen.findByText("PCN Packaging");
+    expect(container.querySelector("details")?.hasAttribute("open")).toBe(false);
+    expect(screen.getByText("(1)")).toBeTruthy();
+    unmount();
+    mocked.listPartNotices.mockResolvedValue([notice]);
+    const ending = render(<NoticesSection part={part} canEdit={false} />);
+    await screen.findByText("PCN-1234");
+    expect(ending.container.querySelector("details")?.hasAttribute("open")).toBe(true);
   });
 
   it("shows nothing to a reader when there are no notices", async () => {
