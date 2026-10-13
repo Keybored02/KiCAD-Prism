@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
-from app.services.supply import datasheets, details, fx, ledger, market, quota, retention, worker_seen
+from app.services.supply import datasheets, details, fx, ledger, market, notice_files, quota, retention, worker_seen
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, REDO_AFTER, REDO_FOUND_AFTER, Discoverer
 from app.services.supply.poller import Poller
@@ -147,6 +147,15 @@ def _check_datasheets(store: SupplyStore) -> None:
         logging.getLogger(__name__).info("Datasheets not checked", exc_info=True)
 
 
+def _keep_notice_files(store: SupplyStore) -> None:
+    """Keep a copy of a couple of notice PDFs. Best effort: a failure is recorded against the notice, never the job."""
+
+    try:
+        notice_files.run_due(store)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).info("Notice files not kept", exc_info=True)
+
+
 def _read_details(connectors: ConnectorService, connector_id: str) -> str | None:
     """Read a few due change notices or substance lists. Best effort: a failure is recorded per listing, never the job."""
 
@@ -206,6 +215,7 @@ def run_supply_poll_job(context: Any) -> Any:
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
     # Outside the connection above: fetching a file can take a while.
     _check_datasheets(connectors.store)
+    _keep_notice_files(connectors.store)
     details_stopped = _read_details(connectors, connector_id)
     details: Mapping[str, Any] = {
         "searched": found.searched, "listings_found": found.listings, "discovery_stopped": found.stopped,

@@ -101,6 +101,44 @@ class PcnDatabaseTests(unittest.TestCase):
             self.assertEqual((len(listed), listed[0]["kind_label"], listed[0]["last_time_buy"], listed[0]["parts"]), (1, "End of life", "2026-04-15", 2))
         self.assertEqual(self.call("GET", f"/api/supply/parts/{self.part}/notices", role="viewer").status, 403)
 
+    def test_a_notice_pdf_is_kept_once_and_served_and_a_dead_link_is_given_up_on(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        from app.services.supply import datasheets, notice_files
+
+        class Client:
+            def __init__(self, *bodies):
+                self.bodies = list(bodies)
+
+            def request(self, method, url, **kwargs):
+                body = self.bodies.pop(0)
+                if isinstance(body, Exception):
+                    raise body
+                return SimpleNamespace(body=body)
+
+        created = self.add(notice_url="https://acme.example/pcn.pdf").json
+        now = datetime(2026, 3, 1, 12, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(datasheets, "archive_root", lambda: Path(root)):
+            self.assertEqual(notice_files.run_due(self.store, now, 2, Client(b"%PDF-1.4 notice")), {"kept": 1})
+            self.assertEqual(notice_files.run_due(self.store, now, 2, Client()), {}, "nothing left to keep")
+            listed = self.call("GET", f"/api/supply/parts/{self.part}/notices", role="qa").json["items"]
+            self.assertTrue(listed[0]["has_file"])
+            served = self.call("GET", f"/api/supply/notices/{created['id']}/file", role="qa")
+            self.assertEqual((served.status, served.headers["content-type"]), (200, "application/pdf"))
+            self.assertEqual(self.call("GET", "/api/supply/notices/nope/file", role="qa").status, 404)
+            self.assertEqual(self.call("GET", f"/api/supply/notices/{created['id']}/file", role="viewer").status, 403)
+
+            other = self.add(title="Another", notice_url="https://acme.example/gone.pdf").json
+            for attempt in range(notice_files.GIVE_UP_AFTER + 2):
+                later = now + notice_files.RETRY_AFTER * (attempt + 1)
+                notice_files.run_due(self.store, later, 2, Client(b"<html>not a pdf</html>"))
+            with self.store.connection() as conn:
+                row = conn.execute("SELECT file_failures, file_status, file_sha256 FROM pcns WHERE id = %s", (other["id"],)).fetchone()
+            self.assertEqual((row["file_failures"], row["file_status"], row["file_sha256"]), (notice_files.GIVE_UP_AFTER, "not_a_pdf", ""))
+            self.assertEqual(self.call("GET", f"/api/supply/notices/{other['id']}/file", role="qa").status, 404)
+
     def test_what_is_refused_says_why(self) -> None:
         cases = [
             ({"kind": "other"}, "kind must be one of"),

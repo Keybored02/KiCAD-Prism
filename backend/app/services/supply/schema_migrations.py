@@ -709,6 +709,20 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m029_notice_files(conn) -> None:
+    """A kept copy of a notice's PDF: its hash (the file is stored like a datasheet), and when and how the last try went."""
+
+    conn.execute(
+        """
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS file_sha256 TEXT NOT NULL DEFAULT '';
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS file_checked_at TIMESTAMPTZ;
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS file_status TEXT NOT NULL DEFAULT '';
+        ALTER TABLE pcns ADD COLUMN IF NOT EXISTS file_failures INTEGER NOT NULL DEFAULT 0;
+        """,
+        prepare=False,
+    )
+
+
 def _m028_datasheet_denied_hosts(conn) -> None:
     """Hosts datasheets are never fetched from, set by an administrator (see ``datasheets.deny``)."""
 
@@ -871,6 +885,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (26, "watch_packaging", _m026_watch_packaging),
     (27, "component_watches", _m027_component_watches),
     (28, "datasheet_denied_hosts", _m028_datasheet_denied_hosts),
+    (29, "notice_files", _m029_notice_files),
 ]
 
 

@@ -114,6 +114,14 @@ def read_file(sha256: str) -> bytes | None:
     return path.read_bytes() if path.exists() else None
 
 
+def keep_file(data: bytes) -> str:
+    """Store a file by its hash (shared with datasheets) and return the hash. The same file is stored once."""
+
+    sha = hashlib.sha256(data).hexdigest()
+    _write_once(_blob(sha), data)
+    return sha
+
+
 MAX_HOST = 253
 
 

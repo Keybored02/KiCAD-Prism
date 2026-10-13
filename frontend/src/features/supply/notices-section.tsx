@@ -48,6 +48,7 @@ export function NoticesSection({ part, canEdit }: NoticesSectionProps) {
                   <Badge variant={item.state === "closed" ? "outline" : item.kind === "change" ? "secondary" : "warning"}>{item.kind_label}</Badge>
                   {item.state === "closed" ? <span className="text-xs text-muted-foreground">closed</span> : null}
                   {item.notice_url ? <a href={item.notice_url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">{item.title}</a> : <span className="font-medium">{item.title}</span>}
+                  {item.has_file ? <a href={`/api/supply/notices/${encodeURIComponent(item.id)}/file`} className="text-xs text-primary hover:underline">Kept copy</a> : null}
                 </span>
                 {item.source && item.source !== "manual" && item.notes ? <span className="block text-xs">{item.notes}</span> : null}
                 <span className="block text-xs text-muted-foreground">

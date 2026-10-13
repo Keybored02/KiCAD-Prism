@@ -132,6 +132,8 @@ export interface SupplyNotice {
   source_label: string;
   /** The date the distributor gives for the notice. */
   published_on: string | null;
+  /** Whether Prism kept a copy of the notice's PDF. */
+  has_file?: boolean;
 }
 
 export interface SupplyMarketMetric {

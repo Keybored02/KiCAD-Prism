@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import parts, pcn
+from app.services.supply import notice_files, parts, pcn
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -90,3 +90,26 @@ async def close_notice(notice_id: str, writer: AuthenticatedUser = Depends(requi
 
     await _run(run)
     return Response(status_code=204)
+
+
+@router.get("/notices/{notice_id}/file")
+async def notice_file(notice_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> Response:
+    """The copy of the notice's PDF Prism kept."""
+
+    def read() -> tuple[str, bytes] | None:
+        with _store().connection() as conn:
+            return notice_files.file_of(conn, notice_id)
+
+    found = await _run(read)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    name, data = found
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}"',
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
+        },
+    )
