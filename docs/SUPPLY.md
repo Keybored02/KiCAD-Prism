@@ -35,7 +35,7 @@ when, and asks for a new sign-in when it runs out or DigiKey refuses it. Stock a
 
 ## Watch parts
 
-In the Component Catalog a coloured dot beside a component's name shows where its manufacturer part stands (hover for stock and whether it is watched). A component Prism does not track has no dot.
+In the Component Catalog a coloured dot beside a component's name shows where its manufacturer part stands (hover for stock and whether it is watched). A component Prism does not track has no dot. Designers and admins also get Watched and At risk filters and a Watch button there: it watches the components shown, or only the ones picked with ctrl-click (cmd-click on a Mac).
 
 A part is a manufacturer and a part number. Watched parts are read regularly; unwatched ones only when someone asks.
 
