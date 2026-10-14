@@ -36,17 +36,17 @@ describe("the catalog supply filters", () => {
 
   it("toggles a filter on and off", () => {
     const onFilter = vi.fn();
-    const { rerender } = render(<CatalogSupplyBar filter="" onFilter={onFilter} rows={rows} standing={standing} role="designer" onChanged={() => undefined} />);
+    const { rerender } = render(<CatalogSupplyBar filter="" onFilter={onFilter} rows={rows} standing={standing} role="designer" onChanged={() => undefined} picked={new Set()} onClearPicks={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "At risk" }));
     expect(onFilter).toHaveBeenLastCalledWith("at_risk");
-    rerender(<CatalogSupplyBar filter="at_risk" onFilter={onFilter} rows={rows} standing={standing} role="designer" onChanged={() => undefined} />);
+    rerender(<CatalogSupplyBar filter="at_risk" onFilter={onFilter} rows={rows} standing={standing} role="designer" onChanged={() => undefined} picked={new Set()} onClearPicks={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "At risk" }));
     expect(onFilter).toHaveBeenLastCalledWith("");
   });
 
   it("watches the shown components that are not watched yet and have a part number", async () => {
     const changed = vi.fn();
-    render(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={standing} role="designer" onChanged={changed} />);
+    render(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={standing} role="designer" onChanged={changed} picked={new Set()} onClearPicks={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: /Watch 1 shown/ }));
     await waitFor(() => expect(mocked.watchCatalogComponents).toHaveBeenCalledWith([{ id: "c2", manufacturer: "Acme", mpn: "A-2" }]));
     await waitFor(() => expect(changed).toHaveBeenCalled());
@@ -54,15 +54,25 @@ describe("the catalog supply filters", () => {
 
   it("says how many were left out and why", async () => {
     mocked.watchCatalogComponents.mockResolvedValue({ watched: 1, skipped: 2 });
-    render(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={standing} role="designer" onChanged={() => undefined} />);
+    render(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={standing} role="designer" onChanged={() => undefined} picked={new Set()} onClearPicks={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: /Watch 1 shown/ }));
     await waitFor(() => expect(toast.warning).toHaveBeenCalledWith("Watching 1 part", { description: expect.stringContaining("2 left out") }));
   });
 
+  it("watches only the picked rows when some are picked", async () => {
+    const cleared = vi.fn();
+    render(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={{}} role="designer" onChanged={() => undefined} picked={new Set(["c2"])} onClearPicks={cleared} />);
+    fireEvent.click(screen.getByRole("button", { name: /Watch 1 picked/ }));
+    await waitFor(() => expect(mocked.watchCatalogComponents).toHaveBeenCalledWith([{ id: "c2", manufacturer: "Acme", mpn: "A-2" }]));
+    await waitFor(() => expect(cleared).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Clear picks" }));
+    expect(cleared).toHaveBeenCalledTimes(2);
+  });
+
   it("offers no watching to a reader, and nothing at all to a role without supply access", () => {
-    const { rerender, container } = render(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={standing} role="qa" onChanged={() => undefined} />);
+    const { rerender, container } = render(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={standing} role="qa" onChanged={() => undefined} picked={new Set()} onClearPicks={() => undefined} />);
     expect(screen.queryByRole("button", { name: /Watch (these|\d+ shown)/ })).toBeNull();
-    rerender(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={standing} role="viewer" onChanged={() => undefined} />);
+    rerender(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={standing} role="viewer" onChanged={() => undefined} picked={new Set()} onClearPicks={() => undefined} />);
     expect(container.textContent).toBe("");
   });
 });

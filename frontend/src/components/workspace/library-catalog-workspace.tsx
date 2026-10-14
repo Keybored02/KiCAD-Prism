@@ -45,6 +45,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { CatalogSupplyDot } from "@/features/supply/catalog-supply-dot";
 import { CatalogSupplyBar } from "@/features/supply/catalog-supply-bar";
 import { passesSupplyFilter, supplyFilterFrom } from "@/features/supply/catalog-supply-filter";
+import { useCatalogPicks } from "@/features/supply/use-catalog-picks";
 import { useCatalogSupply } from "@/features/supply/use-catalog-supply";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { fetchJson } from "@/lib/api";
@@ -57,7 +58,7 @@ import {
   WORKFLOW_BADGE_VARIANT,
 } from "@/lib/catalog-badges";
 import { PermissionHint } from "@/components/ui/permission-hint";
-import { canWriteCatalog } from "@/lib/roles";
+import { canEditSupply, canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
@@ -443,6 +444,7 @@ export function LibraryCatalogWorkspace({
     : "minmax(0,2.4fr) minmax(0,1.5fr) minmax(0,1.5fr) minmax(124px,1fr) minmax(104px,0.9fr) minmax(104px,0.9fr) minmax(0,1.6fr)";
   const firstItem = total ? (page - 1) * PAGE_SIZE + 1 : 0;
   const lastItem = Math.min(page * PAGE_SIZE, total);
+  const picks = useCatalogPicks();
   const { standing: supplyStanding, refresh: refreshSupply } = useCatalogSupply(items.map((item) => ({ id: item.id, manufacturer: item.manufacturer, mpn: item.mpn })), user?.role);
   // The Watched and At risk filters narrow the page that is loaded; the server does not know about supply.
   const supplyFilter = supplyFilterFrom(searchParams.get("catalogSupply"));
@@ -510,6 +512,8 @@ export function LibraryCatalogWorkspace({
             standing={supplyStanding}
             role={user?.role}
             onChanged={() => void refreshSupply()}
+            picked={picks.picked}
+            onClearPicks={picks.clear}
           />
           {isFiltered ? <Button size="sm" variant="ghost" className="h-7" onClick={clearFilters}><FilterX className="h-3.5 w-3.5" /> Clear {activeFilterCount ? `(${activeFilterCount})` : ""}</Button> : null}
         </div>
@@ -549,9 +553,9 @@ export function LibraryCatalogWorkspace({
                 <button
                   key={component.id}
                   type="button"
-                  className={cn("absolute inset-x-0 grid h-16 w-full items-center gap-3 border-b px-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selectedComponentId === component.id && "bg-secondary")}
+                  className={cn("absolute inset-x-0 grid h-16 w-full items-center gap-3 border-b px-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selectedComponentId === component.id && "bg-secondary", picks.picked.has(component.id) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}
                   style={{ transform: `translateY(${(firstVisibleRow + visibleIndex) * CATALOG_ROW_HEIGHT}px)`, gridTemplateColumns: catalogGridTemplate }}
-                  onClick={() => selectComponent(component)}
+                  onClick={(event) => (event.ctrlKey || event.metaKey) && canEditSupply(user?.role) ? picks.toggle(component.id) : selectComponent(component)}
                   aria-pressed={selectedComponentId === component.id}
                 >
                   <div className="min-w-0"><p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium"><CatalogSupplyDot standing={supplyStanding[component.id]} /><span className="truncate">{component.name}</span>{component.kind && component.kind !== "part" ? <Badge variant="outline" className="shrink-0 capitalize">{component.kind}</Badge> : null}</p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
