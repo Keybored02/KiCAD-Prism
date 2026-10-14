@@ -97,7 +97,9 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
             {detail.used_in.map((use) => (
               <li key={use.project_id} className="flex items-baseline justify-between gap-3">
                 <Link to={`/project/${encodeURIComponent(use.project_id)}`} className="text-primary hover:underline">{use.project_name}</Link>
-                <span className="text-xs text-muted-foreground" title={use.references}>{use.quantity} per board</span>
+                <span className="text-xs text-muted-foreground" title={use.references}>
+                  {use.quantity} per board{use.only_in_variants?.length ? `, only in ${use.only_in_variants.join(", ")}` : ""}
+                </span>
               </li>
             ))}
           </ul>

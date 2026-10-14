@@ -35,6 +35,17 @@ describe("the supply check on a release", () => {
     expect(within(list).getByText("The manufacturer lists this part as obsolete.")).toBeTruthy();
   });
 
+  it("lists each design variant with its own status", async () => {
+    mocked.getReleaseCheck.mockResolvedValue({
+      ...available,
+      variants: { Full: { health: 0, status: "fatal", parts: 2, tracked: 2, not_tracked: 0, needing_a_look: 1, attention: [] } },
+    } as ReleaseCheck);
+    render(<ReleaseSupplyCheck projectId="prj_1" commit="abc" />);
+    const list = await screen.findByRole("list", { name: "Design variants" });
+    expect(within(list).getByText("Full")).toBeTruthy();
+    expect(within(list).getByText(/health 0.0, 1 to look at/)).toBeTruthy();
+  });
+
   it("lists nothing when no part needs a look", async () => {
     mocked.getReleaseCheck.mockResolvedValue({ ...available, status: "ok", health: 8.8, needing_a_look: 0, attention: [] } as ReleaseCheck);
     render(<ReleaseSupplyCheck projectId="prj_1" commit="abc" />);

@@ -31,7 +31,7 @@ import psycopg.errors
 from urllib.parse import urlsplit
 
 from app.core.config import settings
-from app.services.supply import alerts
+from app.services.supply import alerts, usage
 from app.services.supply.audit import write_audit
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.providers.base import ProviderError
@@ -313,7 +313,7 @@ def due_parts(conn, now: datetime, limit: int) -> list[dict[str, Any]]:
     """Watched parts and parts on project BOMs with a datasheet address that has not been checked lately."""
 
     rows = conn.execute(
-        """
+        f"""
         SELECT p.id, p.datasheet_url, c.checked_at, COALESCE(c.failures, 0) AS failures,
                (w.part_id IS NOT NULL) AS watched
         FROM parts p
@@ -321,7 +321,7 @@ def due_parts(conn, now: datetime, limit: int) -> list[dict[str, Any]]:
         LEFT JOIN watches w ON w.part_id = p.id
         WHERE p.datasheet_url <> ''
           AND (w.part_id IS NOT NULL OR EXISTS (
-                SELECT 1 FROM bom_usage u WHERE u.match_key = p.match_key))
+                SELECT 1 FROM {usage.ALL_USES} u WHERE u.match_key = p.match_key))
           AND (c.checked_at IS NULL
                OR (COALESCE(c.failures, 0) < %s AND c.checked_at <= %s)
                OR (COALESCE(c.failures, 0) >= %s AND c.checked_at <= %s))

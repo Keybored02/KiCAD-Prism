@@ -605,7 +605,7 @@ export interface SupplyPartDetail {
   outlook: SupplyOutlook;
   parameters: SupplyParameter[];
   insight: SupplyInsight;
-  used_in: Array<{ project_id: string; project_name: string; quantity: number; references: string }>;
+  used_in: Array<{ project_id: string; project_name: string; quantity: number; references: string; only_in_variants?: string[] }>;
 }
 
 export interface SupplyManufacturer {
@@ -800,7 +800,19 @@ export type ReleaseCheck =
       needing_a_look: number;
       attention: ReleaseCheckLine[];
       lines: ReleaseCheckLine[];
+      /** The same check for each named design variant, when the design has any. */
+      variants?: Record<string, ReleaseCheckVariant>;
     };
+
+export interface ReleaseCheckVariant {
+  health: number | null;
+  status: SupplyStatus;
+  parts: number;
+  tracked: number;
+  not_tracked: number;
+  needing_a_look: number;
+  attention: ReleaseCheckLine[];
+}
 
 export type AssessmentSeverity = "ok" | "warning" | "error" | "fatal";
 

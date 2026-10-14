@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from app.services.supply import alerts, compliance, facts, ledger, oauth, pcn, trouble
+from app.services.supply import alerts, compliance, facts, ledger, oauth, pcn, trouble, usage
 from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthError, ProviderError, RateLimited, Unavailable
 
@@ -36,13 +36,13 @@ def due(conn, connector_id: str, kind: str, now: datetime, limit: int) -> list[d
     """Counted listings at the connector, of watched parts or parts on a project BOM, not read for ``kind`` this week."""
 
     rows = conn.execute(
-        """
+        f"""
         SELECT l.id, l.sku, l.part_id, l.raw_manufacturer FROM listings l
         JOIN parts p ON p.id = l.part_id
         LEFT JOIN detail_checks d ON d.listing_id = l.id AND d.kind = %s
         WHERE l.connector_id = %s AND l.match_state IN ('exact', 'manual')
           AND (EXISTS (SELECT 1 FROM watches w WHERE w.part_id = l.part_id)
-               OR EXISTS (SELECT 1 FROM bom_usage u WHERE u.match_key = p.match_key))
+               OR EXISTS (SELECT 1 FROM {usage.ALL_USES} u WHERE u.match_key = p.match_key))
           AND (d.listing_id IS NULL OR d.checked_at <= %s)
         ORDER BY d.checked_at NULLS FIRST, l.sku
         LIMIT %s

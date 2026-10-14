@@ -29,6 +29,20 @@ export function ReleaseSupplyCheck({ projectId, commit }: { projectId: string; c
         {data.tracked} of {data.parts} parts tracked
         {data.not_tracked > 0 ? `, ${data.not_tracked} not yet` : ""}. This is a note for the release; it does not block publishing.
       </p>
+      {data.variants && Object.keys(data.variants).length > 0 ? (
+        <ul aria-label="Design variants" className="space-y-1 text-xs">
+          {Object.entries(data.variants).map(([name, variant]) => (
+            <li key={name} className="flex flex-wrap items-center gap-2">
+              <StatusDot status={variant.status} />
+              <span className="font-medium">{name}</span>
+              <span className="text-muted-foreground">
+                {variant.health === null ? "no supply data" : `health ${variant.health.toFixed(1)}`}
+                {variant.needing_a_look > 0 ? `, ${variant.needing_a_look} to look at` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {data.attention.length > 0 ? (
         <ul aria-label="Parts that need a look" className="divide-y border">
           {data.attention.map((line) => (

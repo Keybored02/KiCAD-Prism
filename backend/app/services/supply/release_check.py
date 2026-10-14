@@ -36,15 +36,36 @@ def _open(findings: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     return [f for f in findings if not (f["waiver"] and f["waiver"]["holds"])]
 
 
+def variants_of(index: Mapping[str, Any]) -> dict[str, list[Mapping[str, Any]]]:
+    """The components of each named design variant in a semantic index."""
+
+    return {name: usage.variant_components(index, name) for name in usage.variant_names(index)[: usage.MAX_VARIANTS]}
+
+
 def check(
     conn,
     components: Iterable[Mapping[str, Any]],
     now: datetime | None = None,
     identities: usage.Identities | None = None,
+    variants: Mapping[str, Iterable[Mapping[str, Any]]] | None = None,
 ) -> dict[str, Any]:
-    """Assess the distinct parts on a BOM. ``components`` are a semantic index's components."""
+    """Assess the distinct parts on a BOM. ``components`` are a semantic index's components.
+
+    With ``variants`` (name to components) each named design variant is assessed too and summarised under ``variants``:
+    a part that only a variant fits is still looked at.
+    """
 
     now = now or datetime.now(timezone.utc)
+    result = _assess(conn, components, now, identities)
+    if variants:
+        result["variants"] = {
+            name: {key: assessed[key] for key in ("health", "status", "parts", "tracked", "not_tracked", "needing_a_look", "attention")}
+            for name, assessed in ((name, _assess(conn, items, now, identities)) for name, items in variants.items())
+        }
+    return result
+
+
+def _assess(conn, components: Iterable[Mapping[str, Any]], now: datetime, identities: usage.Identities | None) -> dict[str, Any]:
     lines = usage.lines_from_components(components, identities)
     bom = [BomLine(line.key, line.manufacturer, line.mpn, line.quantity, lcsc=line.lcsc) for line in lines]
     resolved = bom_lookup.resolve_lines(bom, conn)
@@ -118,10 +139,11 @@ def freeze(
     component_ids: Mapping[tuple[str, str], str],
     now: datetime | None = None,
     identities: usage.Identities | None = None,
+    variants: Mapping[str, Iterable[Mapping[str, Any]]] | None = None,
 ) -> str | None:
     """Record the BOM check and the approved parts as they stand now. Returns the id, or None if already recorded."""
 
-    result = check(conn, components, now, identities)
+    result = check(conn, components, now, identities, variants)
     snapshot_id = uuid.uuid4().hex
     # The draft RoHS and REACH declaration for this BOM, frozen with it. A draft that cannot be built does not stop the snapshot.
     draft: dict[str, Any] | None

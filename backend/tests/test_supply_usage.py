@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from supply_api_helpers import request as _request  # noqa: E402
 
-from app.services.supply import bom_fields, usage  # noqa: E402
+from app.services.supply import bom_fields, parts_view, usage  # noqa: E402
 
 POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 NOW = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
@@ -204,6 +204,25 @@ class UsageDatabaseTests(unittest.TestCase):
             changed = usage.refresh(conn, [project], lambda _p: payload | {"sourceRevisionKey": "rev-2", "assembly": {}}, NOW)
             self.assertEqual((changed["updated"], usage.project_variants(conn, "pv")), (1, []), "a new revision replaces the variants too")
 
+    def test_a_part_only_a_design_variant_fits_counts_as_in_use(self) -> None:
+        def part(reference, mpn, uid, **fields):
+            return {**component(reference, "Acme", mpn, **fields), "componentUid": uid}
+
+        payload = {
+            "sourceRevisionKey": "rev-1",
+            "components": [part("R1", "R-1", "u1"), part("R3", "R-3", "u3", DNP="Yes")],
+            "assembly": {"default": {"components": {"u3": {"dnp": True}}}, "variants": [{"name": "Full", "components": {"u3": {"dnp": False}}}]},
+        }
+        only_variant, both = self.part("Acme", "R-3"), self.part("Acme", "R-1")
+        with self.store.connection() as conn:
+            usage.refresh(conn, [SimpleNamespace(id="pv", name="Variants")], lambda _p: payload, NOW)
+            found = usage.used_in(conn, only_variant)
+            plain = usage.used_in(conn, both)
+            in_use = [item["mpn"] for item in parts_view.ranked_parts(conn, scope="in_use")[0]]
+        self.assertEqual(found, [{"project_id": "pv", "project_name": "Variants", "quantity": 1, "references": "R3", "only_in_variants": ["Full"]}])
+        self.assertEqual([(use["quantity"], use["only_in_variants"]) for use in plain], [(1, [])], "in the base design too: counted once, no variant named")
+        self.assertEqual(sorted(in_use), ["R-1", "R-3"])
+
     def test_a_stored_line_keeps_the_lcsc_number_of_its_symbol(self) -> None:
         self.store_project("p1", "Board A", [component("R1", "Acme", "R-1", LCSC="c25804"), component("R2", "Acme", "R-1")])
         self.assertEqual([row["lcsc"] for row in self.rows("SELECT lcsc FROM bom_usage")], ["C25804"])
@@ -264,7 +283,7 @@ class UsageDatabaseTests(unittest.TestCase):
         part_id = self.part("Acme", "USED-1")
         self.store_project("p1", "Board A", [component("R2", "Acme", "USED-1"), component("R1", "Acme", "USED-1")])
         detail = self.call("GET", f"/api/supply/parts/{part_id}").json
-        self.assertEqual(detail["used_in"], [{"project_id": "p1", "project_name": "Board A", "quantity": 2, "references": "R1 R2"}])
+        self.assertEqual(detail["used_in"], [{"project_id": "p1", "project_name": "Board A", "quantity": 2, "references": "R1 R2", "only_in_variants": []}])
         alone = self.call("GET", f"/api/supply/parts/{self.part('Acme', 'LONELY')}").json
         self.assertEqual(alone["used_in"], [])
 

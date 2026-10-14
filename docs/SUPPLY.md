@@ -157,7 +157,7 @@ counted as *not tracked*. "Read project BOMs" queues the BOM reading of projects
 A symbol can carry its LCSC number in a field named `LCSC`, `LCSC Part #`, `LCSC Part Number` or similar, or in
 `Supplier Part` when `Supplier` is `LCSC` (as EasyEDA exports it). Watching the BOM's parts links that number to the
 part at the LCSC connector, so LCSC is read without a search. After that, a line whose part number Prism does not know
-is still found by its LCSC number. The project overview's Supply card has a design variant picker, and the draft declaration download follows it.
+is still found by its LCSC number. The project overview's Supply card has a design variant picker, and the draft declaration download follows it. A part that only a design variant fits counts as in use, the part sheet says which variants, and the release check assesses each named variant beside the base design.
 
 ## Assessment
 

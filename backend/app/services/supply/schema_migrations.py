@@ -709,6 +709,14 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m034_variant_usage_keys(conn) -> None:
+    """The match keys of variant lines, so a part only a design variant fits is found as in use like any other."""
+
+    conn.execute("ALTER TABLE bom_usage_variants ADD COLUMN IF NOT EXISTS alias_key TEXT NOT NULL DEFAULT ''", prepare=False)
+    conn.execute("ALTER TABLE bom_usage_variants ADD COLUMN IF NOT EXISTS match_key TEXT NOT NULL DEFAULT ''", prepare=False)
+    conn.execute("CREATE INDEX IF NOT EXISTS bom_usage_variants_match_key ON bom_usage_variants (match_key)", prepare=False)
+
+
 def _m033_connector_keep_days(conn) -> None:
     """Days any history of a connector's listings may be kept, for a provider whose terms limit storage. Empty means for good."""
 
@@ -946,6 +954,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (31, "bom_comments", _m031_bom_comments),
     (32, "bom_usage_variants", _m032_bom_usage_variants),
     (33, "connector_keep_days", _m033_connector_keep_days),
+    (34, "variant_usage_keys", _m034_variant_usage_keys),
 ]
 
 

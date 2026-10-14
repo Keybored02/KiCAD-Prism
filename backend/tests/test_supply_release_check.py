@@ -113,6 +113,27 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual((result["needing_a_look"], result["status"]), (0, "ok"))
         self.assertEqual(result["lines"][0]["waived"], 1)
 
+    def test_a_part_only_a_variant_fits_is_checked_too(self) -> None:
+        self.part("GOOD-1", stock=5000)
+        self.part("OBS-1", stock=0, lifecycle="obsolete")
+        base = [
+            {**component("R1", "Acme", "GOOD-1"), "componentUid": "u1"},
+            {**component("U1", "Acme", "OBS-1", DNP="Yes"), "componentUid": "u2"},
+        ]
+        index = {"components": base, "assembly": {"default": {"components": {}}, "variants": [{"name": "Full", "components": {"u2": {"dnp": False}}}]}}
+        variants = self.release_check.variants_of(index)
+        self.assertEqual(list(variants), ["Full"])
+        with self.store.connection() as conn:
+            result = self.release_check.check(conn, base, NOW, variants=variants)
+            plain = self.release_check.check(conn, base, NOW)
+            snapshot_id = self.release_check.freeze(conn, "prj_1", "bld_var", "vv", "d" * 40, "qa@example.com", base, {}, NOW, None, variants)
+            frozen = self.release_check.get_snapshot(conn, "prj_1", "bld_var")
+        self.assertEqual((result["status"], result["parts"]), ("ok", 1), "the base design fits only the good part")
+        self.assertEqual((result["variants"]["Full"]["status"], result["variants"]["Full"]["parts"], result["variants"]["Full"]["needing_a_look"]), ("fatal", 2, 1))
+        self.assertNotIn("variants", plain)
+        self.assertIsNotNone(snapshot_id)
+        self.assertEqual(frozen["assessment"]["variants"]["Full"]["status"], "fatal")
+
     def test_a_draft_that_cannot_be_built_does_not_cost_the_snapshot(self) -> None:
         self.part("GOOD-1", stock=5000)
         with self.store.connection() as conn, mock.patch.object(self.release_check.compliance_draft, "build", side_effect=RuntimeError("boom")):

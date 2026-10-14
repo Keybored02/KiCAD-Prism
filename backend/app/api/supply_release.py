@@ -104,7 +104,9 @@ async def release_check_for(
         if not index:
             return {"available": False, "reason": "This revision's BOM has not been read yet. Open its BOM once to read it."}
         with _store().connection() as conn:
-            return {"available": True, **release_check.check(conn, index.get("components") or [], identities=catalog_read.identities)}
+            return {"available": True, **release_check.check(
+                conn, index.get("components") or [], identities=catalog_read.identities, variants=release_check.variants_of(index),
+            )}
 
     return await _run(read)
 

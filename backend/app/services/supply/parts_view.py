@@ -111,7 +111,7 @@ def _problems(conn, part_ids: list[str]) -> dict[str, str | None]:
     return result
 
 
-_USES = "FROM bom_usage u JOIN bom_usage_projects up ON up.project_id = u.project_id WHERE " + usage.MATCHES_PART + " AND " + usage.VISIBLE
+_USES = "FROM " + usage.ALL_USES + " u JOIN bom_usage_projects up ON up.project_id = u.project_id WHERE " + usage.MATCHES_PART + " AND " + usage.VISIBLE
 _IN_USE = "EXISTS (SELECT 1 " + _USES + ")"
 
 _ROW_SELECT = (

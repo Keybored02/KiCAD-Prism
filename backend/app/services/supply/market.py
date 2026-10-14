@@ -20,7 +20,7 @@ from decimal import Decimal
 from statistics import median
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import parts_view
+from app.services.supply import parts_view, usage
 from app.services.supply.vocabulary import Lifecycle
 
 MIN_SAMPLE = 3
@@ -38,10 +38,10 @@ def _tracked_part_ids(conn) -> list[str]:
     return [
         row["id"]
         for row in conn.execute(
-            """
+            f"""
             SELECT p.id FROM parts p
             WHERE EXISTS (SELECT 1 FROM watches w WHERE w.part_id = p.id)
-               OR EXISTS (SELECT 1 FROM bom_usage u WHERE u.match_key = p.match_key)
+               OR EXISTS (SELECT 1 FROM {usage.ALL_USES} u WHERE u.match_key = p.match_key)
             """
         ).fetchall()
     ]

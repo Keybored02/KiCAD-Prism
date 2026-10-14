@@ -31,7 +31,7 @@ def freeze_after_publish(project_id: str, build_id: str, tag: str, commit_sha: s
             return release_check.freeze(
                 conn, project_id, build_id, tag, commit_sha, actor,
                 index.get("components") or [], catalog_read.component_ids_by_part(), datetime.now(timezone.utc),
-                catalog_read.identities,
+                catalog_read.identities, release_check.variants_of(index),
             )
     except Exception:  # noqa: BLE001 - see the module docstring
         logger.warning("Could not take the supply snapshot for build %s", build_id, exc_info=True)

@@ -2,7 +2,8 @@
 
 Read from the projects' semantic indexes that already exist; nothing here builds one, so a
 refresh is cheap and a project nobody has opened yet is simply absent. A project's rows are
-replaced only when its source revision changed. Only the base design is read (not variants).
+replaced only when its source revision changed. The base design and each named design variant are stored; a part counts as
+in use when either has it.
 
 A usage row is a part number key and a manufacturer spelling key, so it can be matched to a
 supply part later, however the part got into Prism. ``MATCHES_PART`` is that match as SQL.
@@ -18,6 +19,12 @@ from app.services.supply.bom_fields import identity_of, is_fitted, lcsc_of, pris
 from app.services.supply.identity import alias_key, match_key
 
 MAX_REFERENCES_TEXT = 500
+
+# Every stored line of every design, the base design (variant '') and the named variants, as one table.
+ALL_USES = (
+    "(SELECT project_id, match_key, alias_key, quantity, refs, '' AS variant FROM bom_usage "
+    "UNION ALL SELECT project_id, match_key, alias_key, quantity, refs, variant FROM bom_usage_variants)"
+)
 
 # A usage row `u` is a use of the part `p` (manufacturer `m`) when the numbers match and the
 # manufacturer is blank, is the part's own name, or is a confirmed spelling of it.
@@ -56,7 +63,7 @@ Identities = Callable[[Iterable[str]], Mapping[str, tuple[str, str]]]
 
 # Part of the stored revision key. Raise it when what is stored from an index changes (a new kind of row), so every project
 # is read again once. With the index's own revision key it is the fingerprint of what the rows were made from.
-USAGE_VERSION = 2
+USAGE_VERSION = 3
 MAX_VARIANTS = 30
 
 
@@ -166,9 +173,10 @@ def store_project(
     for name, named in (variant_lines or {}).items():
         for line in named:
             conn.execute(
-                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, quantity, refs, lcsc) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                (project_id, name, line.key, line.manufacturer, line.mpn, line.quantity, line.references, line.lcsc),
+                "INSERT INTO bom_usage_variants (project_id, variant, line_key, manufacturer, mpn, alias_key, match_key, quantity, refs, lcsc) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (project_id, name, line.key, line.manufacturer, line.mpn, line.alias_key, line.match_key, line.quantity,
+                 line.references, line.lcsc),
             )
     return True
 
@@ -246,22 +254,36 @@ def project_rows(conn, project_id: str, variant: str = "") -> list[dict[str, Any
 
 
 def used_in(conn, part_id: str, role: str | None = None) -> list[dict[str, Any]]:
-    """The projects whose BOM carries this part and that ``role`` may see, most parts first."""
+    """The projects whose BOM carries this part and that ``role`` may see, most parts first.
+
+    The base design's count is the one shown. A project that only a design variant fits the part in shows that variant's
+    count and names the variants (``only_in_variants``).
+    """
 
     rows = conn.execute(
         f"""
-        SELECT u.project_id, up.project_name, SUM(u.quantity) AS quantity, LEFT(string_agg(u.refs, ' '), 500) AS refs
+        SELECT u.project_id, up.project_name, u.variant, SUM(u.quantity) AS quantity, LEFT(string_agg(u.refs, ' '), 500) AS refs
         FROM parts p
         JOIN manufacturers m ON m.id = p.manufacturer_id
-        JOIN bom_usage u ON {MATCHES_PART}
+        JOIN {ALL_USES} u ON {MATCHES_PART}
         JOIN bom_usage_projects up ON up.project_id = u.project_id
         WHERE p.id = %s AND {VISIBLE}
-        GROUP BY u.project_id, up.project_name
-        ORDER BY SUM(u.quantity) DESC, lower(up.project_name)
+        GROUP BY u.project_id, up.project_name, u.variant
         """,
         [part_id, *role_params(role)],
     ).fetchall()
-    return [
-        {"project_id": row["project_id"], "project_name": row["project_name"], "quantity": int(row["quantity"]), "references": row["refs"]}
-        for row in rows
-    ]
+    by_project: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        entry = by_project.setdefault(row["project_id"], {"name": row["project_name"], "base": None, "variants": {}})
+        if row["variant"] == "":
+            entry["base"] = row
+        else:
+            entry["variants"][row["variant"]] = row
+    found = []
+    for project_id, entry in by_project.items():
+        shown = entry["base"] or max(entry["variants"].values(), key=lambda item: int(item["quantity"]))
+        found.append({
+            "project_id": project_id, "project_name": entry["name"], "quantity": int(shown["quantity"]), "references": shown["refs"],
+            "only_in_variants": [] if entry["base"] else sorted(entry["variants"]),
+        })
+    return sorted(found, key=lambda item: (-item["quantity"], item["project_name"].lower()))
