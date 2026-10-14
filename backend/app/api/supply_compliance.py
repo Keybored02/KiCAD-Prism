@@ -7,6 +7,7 @@ administrator loads the Candidate List.
 from __future__ import annotations
 
 import asyncio
+import base64
 from typing import Any, Callable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -25,7 +26,9 @@ class LoadList(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source_name: str = Field(default="", max_length=200)
-    csv: str = Field(min_length=1, max_length=compliance.MAX_LIST_BYTES)
+    # Either the CSV text, or an Excel file as base64.
+    csv: str = Field(default="", max_length=compliance.MAX_LIST_BYTES)
+    xlsx_base64: str = Field(default="", max_length=compliance.MAX_LIST_BYTES * 4 // 3 + 16)
 
 
 class Declaration(BaseModel):
@@ -71,8 +74,17 @@ async def svhc_list_info(_user: AuthenticatedUser = Depends(require_supply_reade
 @router.post("/compliance/svhc")
 async def load_svhc_list(body: LoadList, admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
     def run() -> dict[str, Any]:
+        if bool(body.csv) == bool(body.xlsx_base64):
+            raise ValueError("Send the list as CSV text or as an Excel file.")
+        text = body.csv
+        if body.xlsx_base64:
+            try:
+                data = base64.b64decode(body.xlsx_base64, validate=True)
+            except ValueError:
+                raise ValueError("The Excel file did not arrive intact.") from None
+            text = compliance.csv_from_xlsx(data)
         with _store().connection() as conn:
-            return compliance.load_list(conn, body.csv, body.source_name, admin.email)
+            return compliance.load_list(conn, text, body.source_name, admin.email)
 
     return await _run(run)
 

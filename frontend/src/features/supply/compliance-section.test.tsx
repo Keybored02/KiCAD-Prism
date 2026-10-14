@@ -11,6 +11,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   undeclareSubstance: vi.fn(),
   getSvhcList: vi.fn(),
   loadSvhcList: vi.fn(),
+  loadSvhcListXlsx: vi.fn(),
 }));
 
 import { ComplianceSection } from "./compliance-section";
@@ -99,5 +100,16 @@ describe("the Candidate List upload", () => {
     Object.defineProperty(file, "text", { value: () => Promise.resolve("Name,CAS\nLead,7439-92-1\n") });
     fireEvent.change(screen.getByLabelText("Candidate List file"), { target: { files: [file] } });
     await waitFor(() => expect(mocked.loadSvhcList).toHaveBeenCalledWith("Name,CAS\nLead,7439-92-1\n", "echa.csv"));
+  });
+
+  it("sends an Excel file as base64", async () => {
+    mocked.loadSvhcListXlsx.mockResolvedValue(data.list);
+    render(<SvhcListUpload />);
+    await screen.findByText(/233 substances/);
+    const file = new File([new Uint8Array([80, 75, 3, 4])], "echa.xlsx");
+    Object.defineProperty(file, "arrayBuffer", { value: () => Promise.resolve(new Uint8Array([80, 75, 3, 4]).buffer) });
+    fireEvent.change(screen.getByLabelText("Candidate List file"), { target: { files: [file] } });
+    await waitFor(() => expect(mocked.loadSvhcListXlsx).toHaveBeenCalledWith("UEsDBA==", "echa.xlsx"));
+    expect(mocked.loadSvhcList).not.toHaveBeenCalled();
   });
 });

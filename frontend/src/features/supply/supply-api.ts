@@ -526,6 +526,11 @@ export function loadSvhcList(csv: string, sourceName: string): Promise<SupplySvh
   return post(`${BASE}/compliance/svhc`, { csv, source_name: sourceName }, "Could not load the Candidate List");
 }
 
+/** The same list as an Excel file, sent as base64. */
+export function loadSvhcListXlsx(xlsxBase64: string, sourceName: string): Promise<SupplySvhcList> {
+  return post(`${BASE}/compliance/svhc`, { xlsx_base64: xlsxBase64, source_name: sourceName }, "Could not load the Candidate List");
+}
+
 export function getSupplyMarket(signal?: AbortSignal): Promise<SupplyMarket> {
   return fetchJson(`${BASE}/market`, { signal }, "Could not load the market figures");
 }

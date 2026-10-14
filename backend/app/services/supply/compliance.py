@@ -19,6 +19,8 @@ from app.services.supply import parts
 from app.services.supply.audit import actor_text, write_audit
 
 MAX_LIST_BYTES = 5 * 1024 * 1024
+# A spreadsheet is a zip file: what it holds once unpacked is capped too, so a small file cannot fill memory.
+MAX_XLSX_UNPACKED = 60 * 1024 * 1024
 MAX_PER_PART = 100
 _CAS = re.compile(r"^\d{2,7}-\d{2}-\d$")
 # Header names ECHA and spreadsheets use, lower case, for each column we read.
@@ -61,6 +63,34 @@ def _from_header(text: str) -> str:
         if cells & set(_COLUMNS["cas"]) and cells & set(_COLUMNS["name"]):
             return "".join(lines[index:])
     return text
+
+
+def csv_from_xlsx(data: bytes) -> str:
+    """The first sheet of an Excel file as CSV text, for ``parse_list`` (which finds the header row itself)."""
+
+    import zipfile
+
+    from openpyxl import load_workbook
+
+    if len(data) > MAX_LIST_BYTES:
+        raise ComplianceError("The file is larger than 5 MB.")
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            if sum(item.file_size for item in archive.infolist()) > MAX_XLSX_UNPACKED:
+                raise ComplianceError("The spreadsheet is too large once unpacked.")
+        book = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        try:
+            out = io.StringIO()
+            writer = csv.writer(out)
+            for row in book.worksheets[0].iter_rows(values_only=True):
+                writer.writerow(["" if cell is None else (cell.date().isoformat() if isinstance(cell, datetime) else str(cell)) for cell in row])
+        finally:
+            book.close()
+    except ComplianceError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - a damaged or foreign file is the person's to fix, whatever the library raised
+        raise ComplianceError("The file is not a readable Excel spreadsheet. Export it as CSV, or save it again as .xlsx.") from exc
+    return out.getvalue()
 
 
 def parse_list(text: str) -> list[dict[str, Any]]:

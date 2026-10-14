@@ -47,6 +47,26 @@ class ParseTests(unittest.TestCase):
         text = 'Candidate List of substances\n\nExported 2026-01-01\n"Substance name","EC No.","CAS No."\n"Lead","231-100-4","7439-92-1"\n'
         self.assertEqual([i["cas"] for i in compliance.parse_list(text)], ["7439-92-1"])
 
+    def test_an_excel_file_is_read_like_the_csv_with_title_rows_and_dates(self) -> None:
+        import io
+        from datetime import date
+
+        from openpyxl import Workbook
+
+        book = Workbook()
+        sheet = book.active
+        sheet.append(["Candidate List of substances"])
+        sheet.append([])
+        sheet.append(["Substance name", "EC No.", "CAS No.", "Date of inclusion"])
+        sheet.append(["Lead", "231-100-4", "7439-92-1", date(2012, 12, 19)])
+        buffer = io.BytesIO()
+        book.save(buffer)
+        items = compliance.parse_list(compliance.csv_from_xlsx(buffer.getvalue()))
+        self.assertEqual([(i["cas"], i["name"], i["ec"], i["added_on"]) for i in items], [("7439-92-1", "Lead", "231-100-4", date(2012, 12, 19))])
+        for junk in (b"", b"not a zip", b"PK\x03\x04 broken"):
+            with self.assertRaises(compliance.ComplianceError):
+                compliance.csv_from_xlsx(junk)
+
     def test_a_file_without_the_columns_or_without_substances_is_refused(self) -> None:
         for text in ("", "Foo,Bar\n1,2\n", "Name,CAS\nLead,not-a-cas\n"):
             with self.assertRaises(compliance.ComplianceError):
@@ -102,6 +122,23 @@ class ComplianceApiTests(unittest.TestCase):
             conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
             conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
             self.part = self.parts.ensure_part(conn, "Acme", "ABC-1", "seed@example.com").id
+
+    def test_the_list_can_be_sent_as_an_excel_file(self) -> None:
+        import base64
+        import io
+
+        from openpyxl import Workbook
+
+        book = Workbook()
+        book.active.append(["Substance name", "CAS No."])
+        book.active.append(["Lead", "7439-92-1"])
+        buffer = io.BytesIO()
+        book.save(buffer)
+        sent = base64.b64encode(buffer.getvalue()).decode()
+        loaded = self.call("POST", "/api/supply/compliance/svhc", body={"xlsx_base64": sent, "source_name": "list.xlsx"})
+        self.assertEqual((loaded.status, loaded.json["substances"]), (200, 1), loaded.text)
+        for body in ({}, {"csv": ECHA, "xlsx_base64": sent}, {"xlsx_base64": "%%%"}, {"xlsx_base64": base64.b64encode(b"nope").decode()}):
+            self.assertEqual(self.call("POST", "/api/supply/compliance/svhc", body=body).status, 400, body)
 
     def offer(self, *, rohs=None, reach=None) -> None:
         with self.store.connection() as conn:

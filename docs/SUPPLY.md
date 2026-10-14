@@ -86,7 +86,7 @@ Prism itself: text is read in a separate process with a time limit, and download
 
 A part sheet's Compliance section shows RoHS and REACH with where each answer comes from. RoHS follows what distributors
 say. For REACH, a distributor may flag a part as affected (DigiKey does). A designer can also enter the substances a
-supplier declared, as CAS numbers; an administrator loads the ECHA Candidate List (a CSV export with a substance name
+supplier declared, as CAS numbers; an administrator loads the ECHA Candidate List (a CSV or Excel export with a substance name
 and a CAS column) in Supply settings, and a declared substance on the list makes the part *affected by REACH*. A part
 nobody says anything about is *unknown*, never clear.
 
