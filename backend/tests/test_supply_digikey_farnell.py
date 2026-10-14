@@ -210,7 +210,7 @@ class FarnellTests(unittest.TestCase):
 
     def test_the_spec(self) -> None:
         spec = registry.get_spec("farnell")
-        self.assertEqual((spec.max_batch, spec.required_credentials), (1, ("api_key",)))
+        self.assertEqual((spec.max_batch, spec.required_credentials), (10, ("api_key",)))
         self.assertIn("uk.farnell.com", spec.storefronts)
         self.assertIn("www.newark.com", spec.storefronts)
         self.assertEqual(len(spec.storefronts), 47)
@@ -240,6 +240,16 @@ class FarnellTests(unittest.TestCase):
         self.assertEqual((offer.stock, offer.moq, offer.currency, offer.rohs, offer.discontinued, offer.lifecycle), (518, 10, "GBP", True, False, Lifecycle.UNKNOWN))
         self.assertEqual([(b.quantity, b.unit_price) for b in offer.price_breaks], [(10, Decimal("0.78")), (100, Decimal("0.62")), (500, Decimal("0.5"))])
         self.assertIsNone(offer.lead_time_days, "stock covers the minimum order")
+
+    def test_several_skus_go_in_one_call_in_batches_of_ten(self) -> None:
+        skus = [str(1000 + n) for n in range(12)]
+        first = wrapped(*[fa_product(sku=sku) for sku in reversed(skus[:10])])
+        second = wrapped(fa_product(sku=skus[10]))
+        client = FakeClient({"/catalog/products": [first, second]})
+        offers = fa_provider(client).get_offers(skus)
+        self.assertEqual([o.sku for o in offers], skus[:11], "in the order asked, a SKU the store does not know is left out")
+        self.assertEqual([c["params"]["term"] for c in client.calls], ["id:" + " ".join(skus[:10]), "id:" + " ".join(skus[10:])])
+        self.assertEqual(fa_provider(FakeClient({})).get_offers(["", "a b"]), [], "nothing askable, nothing sent")
 
     def test_lead_time_shows_only_without_enough_stock(self) -> None:
         client = FakeClient({"/catalog/products": [wrapped(fa_product(stock={"level": 0, "leastLeadTime": 63, "status": 0}))]})

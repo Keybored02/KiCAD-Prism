@@ -23,7 +23,9 @@ shortest lead time (read as days); ``prices`` is a list of ``from``/``to``/``cos
 is the break and ``cost`` the unit price (inferred from its example); ``translatedMinimumOrderQuality`` is the
 minimum order; ``productStatus`` ``NO_LONGER_MANUFACTURED`` is the manufacturer's end; ``releaseStatusCode``
 6 and 7 (to be discontinued, discontinued) and ``NO_LONGER_STOCKED`` mean Farnell itself is dropping the part.
-No limits are given; one call a second and 1,000 a day are used until they are known.
+No limits are given; one call a second and 1,000 a day are used until they are known. Offers are read ten SKUs
+a call (one ``id`` term, SKUs separated by spaces, checked live 2026-10-14); a manufacturer number search takes one
+number, since several in one ``manuPartNum`` term find nothing.
 """
 
 from __future__ import annotations
@@ -143,11 +145,14 @@ class FarnellProvider:
         return matches
 
     def get_offers(self, skus: Sequence[str]) -> list[Offer]:
+        # Several SKUs go in one ``id`` term, separated by spaces (checked live on 2026-10-14: four SKUs, one call, all four
+        # answered, in no fixed order). One answer holds at most ``MAX_MATCHES`` products, which sets the batch size.
+        wanted = [sku for sku in dict.fromkeys(skus) if sku and not any(ch.isspace() for ch in sku)]
         offers = []
-        for sku in skus:
-            product = next((p for p in self._search(f"id:{sku}") if str(p.get("sku") or "") == sku), None)
-            if product is not None:
-                offers.append(_offer(sku, product, self._currency, self._clock(), self._store))
+        for start in range(0, len(wanted), MAX_MATCHES):
+            chunk = wanted[start:start + MAX_MATCHES]
+            found = {str(p.get("sku") or ""): p for p in self._search("id:" + " ".join(chunk))}
+            offers += [_offer(sku, found[sku], self._currency, self._clock(), self._store) for sku in chunk if sku in found]
         return offers
 
     def get_part_data(self, match: PartMatch) -> PartData:
@@ -255,7 +260,7 @@ SPEC = ProviderSpec(
     key=KEY,
     label="Farnell / Newark / element14",
     capabilities=frozenset({CAP_SEARCH, CAP_OFFERS, CAP_LIFECYCLE}),
-    max_batch=1,
+    max_batch=MAX_MATCHES,
     stock_pooling="separate",
     credential_fields=(CredentialField("api_key", "API key"),),
     factory=lambda config: FarnellProvider(config),

@@ -48,7 +48,7 @@ A part is a manufacturer and a part number. Watched parts are read regularly; un
   Fill only fills the form; the save is the normal revision.
 - Parts need a manufacturer part number. Components without one are not tracked.
 
-Calls are saved where the distributors allow it. TME reads 50 parts and Mouser 10 per call. DigiKey has no batch, but
+Calls are saved where the distributors allow it. TME reads 50 parts, Mouser 10 and Farnell 10 per call (Farnell searches by part number still go one at a time). DigiKey has no batch, but
 one answer holds every packaging of a part, so a part with three packagings costs one call, not three. Searching for
 new parts also goes 50 (TME) or 10 (Mouser) at a time. A part a distributor carries is searched there again only
 after a month (new packagings are rare); one it does not carry, after a week.
