@@ -142,6 +142,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
       />
       <EditConnectorDialog
         connector={dialog?.kind === "edit" ? target : null}
+        storefronts={target ? providers.find((item) => item.key === target.provider)?.storefronts ?? [] : []}
         onClose={closeDialog}
         onSaved={(connector) => { apply(connector); toast.success("Connector saved"); }}
       />

@@ -89,6 +89,7 @@ export interface UpdateSupplyConnectorInput {
   interactive_reserve_pct?: number;
   retention_days?: number | null;
   keep_days?: number | null;
+  storefront?: string;
 }
 
 /** The outcome of one real call to a provider. A failure is a result, not an error. */

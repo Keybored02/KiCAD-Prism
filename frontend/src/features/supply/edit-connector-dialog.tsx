@@ -23,21 +23,23 @@ function mergeValues(state: EditValues, change: Partial<EditValues>): EditValues
 
 interface EditConnectorDialogProps {
   connector: SupplyConnector | null;
+  /** The storefronts the connector's provider offers, when it has any. */
+  storefronts?: readonly string[];
   onClose: () => void;
   onSaved: (connector: SupplyConnector) => void;
 }
 
-export function EditConnectorDialog({ connector, onClose, onSaved }: EditConnectorDialogProps) {
+export function EditConnectorDialog({ connector, storefronts = [], onClose, onSaved }: EditConnectorDialogProps) {
   return (
     <Dialog open={connector !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="sm:max-w-md">
-        {connector ? <EditForm key={connector.id} connector={connector} onClose={onClose} onSaved={onSaved} /> : null}
+        {connector ? <EditForm key={connector.id} connector={connector} storefronts={storefronts} onClose={onClose} onSaved={onSaved} /> : null}
       </DialogContent>
     </Dialog>
   );
 }
 
-function EditForm({ connector, onClose, onSaved }: { connector: SupplyConnector } & Omit<EditConnectorDialogProps, "connector">) {
+function EditForm({ connector, storefronts = [], onClose, onSaved }: { connector: SupplyConnector } & Omit<EditConnectorDialogProps, "connector">) {
   const [values, update] = useReducer(mergeValues, connector, valuesOf);
   const { busy, error, run } = useConnectorSubmit();
   const changes = changesFrom(connector, values);
@@ -66,6 +68,20 @@ function EditForm({ connector, onClose, onSaved }: { connector: SupplyConnector 
           <Label htmlFor="edit-connector-name">Name</Label>
           <Input id="edit-connector-name" value={values.displayName} onChange={(event) => update({ displayName: event.target.value })} />
         </div>
+        {storefronts.length > 0 ? (
+          <div className="col-span-2 space-y-1.5">
+            <Label htmlFor="edit-connector-storefront">Storefront</Label>
+            <select
+              id="edit-connector-storefront"
+              className="h-9 w-full border bg-background px-2 text-sm"
+              value={values.storefront}
+              onChange={(event) => update({ storefront: event.target.value })}
+            >
+              {storefronts.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <p className="text-[11px] text-muted-foreground">Listings found so far keep their part numbers; prices and stock are read from this store from the next poll.</p>
+          </div>
+        ) : null}
         <div className="space-y-1.5">
           <Label htmlFor="edit-connector-currency">Currency</Label>
           <Input id="edit-connector-currency" maxLength={3} value={values.currency} onChange={(event) => update({ currency: event.target.value })} />

@@ -50,6 +50,7 @@ class UpdateConnectorRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: Optional[str] = Field(default=None, max_length=120)
+    storefront: Optional[str] = Field(default=None, max_length=64)
     currency: Optional[str] = Field(default=None, max_length=3)
     enabled: Optional[bool] = None
     daily_budget: Optional[int] = None

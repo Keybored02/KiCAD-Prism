@@ -24,6 +24,7 @@ from app.services.supply.store import SupplyStore, supply_store
 
 _UPDATABLE = frozenset({
     "display_name", "currency", "enabled", "daily_budget", "interactive_reserve_pct", "retention_days", "keep_days",
+    "storefront",
 })
 _MAX_REASON = 200
 
@@ -216,19 +217,29 @@ class ConnectorService:
             fields["retention_days"] = _clean_retention(changes["retention_days"])
         if "keep_days" in changes:
             fields["keep_days"] = _clean_keep(changes["keep_days"])
+        if "storefront" in changes:
+            with self._store.connection() as conn:
+                spec = self._spec(_fetch(conn, connector_id)["provider"])
+            storefront = str(changes["storefront"] or "").strip()
+            if not spec.storefronts or storefront not in spec.storefronts:
+                raise ConnectorError("invalid_storefront", f"{spec.label} needs one of its own storefronts.")
+            fields["storefront"] = storefront
         if not fields:
             return self.get(connector_id)
         # Column names come from the whitelist above, never from the caller.
         assignments = ", ".join(f"{column} = %s" for column in fields)
-        with self._store.connection() as conn:
-            result = conn.execute(
-                f"UPDATE connectors SET {assignments}, updated_at = NOW() WHERE id = %s",
-                (*fields.values(), connector_id),
-            )
-            if result.rowcount == 0:
-                raise ConnectorNotFound(connector_id)
-            write_audit(conn, actor, "connector.update", connector_id, {"fields": sorted(fields)})
-            return self._dto_from(conn, _fetch(conn, connector_id))
+        try:
+            with self._store.connection() as conn:
+                result = conn.execute(
+                    f"UPDATE connectors SET {assignments}, updated_at = NOW() WHERE id = %s",
+                    (*fields.values(), connector_id),
+                )
+                if result.rowcount == 0:
+                    raise ConnectorNotFound(connector_id)
+                write_audit(conn, actor, "connector.update", connector_id, {"fields": sorted(fields)})
+                return self._dto_from(conn, _fetch(conn, connector_id))
+        except UniqueViolation:
+            raise ConnectorError("duplicate", "A connector for this provider and storefront already exists.") from None
 
     def set_credentials(
         self, connector_id: str, *, actor: str, credentials: Mapping[str, Any]

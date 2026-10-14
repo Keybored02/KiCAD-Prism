@@ -69,6 +69,7 @@ export function createProblem(state: FormState, provider: SupplyProvider | undef
 
 export interface EditValues {
   displayName: string;
+  storefront: string;
   currency: string;
   budget: string;
   reserve: string;
@@ -81,6 +82,7 @@ export interface EditValues {
 export function valuesOf(connector: SupplyConnector): EditValues {
   return {
     displayName: connector.display_name,
+    storefront: connector.storefront,
     currency: connector.currency,
     budget: String(connector.daily_budget),
     reserve: String(connector.interactive_reserve_pct),
@@ -92,6 +94,7 @@ export function valuesOf(connector: SupplyConnector): EditValues {
 /** Only what differs from the saved connector, so an untouched form sends nothing. */
 export function changesFrom(connector: SupplyConnector, values: EditValues): UpdateSupplyConnectorInput {
   const changes: UpdateSupplyConnectorInput = {};
+  if (values.storefront !== connector.storefront) changes.storefront = values.storefront;
   if (values.displayName.trim() !== connector.display_name) changes.display_name = values.displayName.trim();
   if (values.currency.trim().toUpperCase() !== connector.currency) changes.currency = values.currency.trim().toUpperCase();
   if (Number(values.budget) !== connector.daily_budget) changes.daily_budget = Number(values.budget);

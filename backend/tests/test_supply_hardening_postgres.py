@@ -281,6 +281,19 @@ class HardeningTests(unittest.TestCase):
         self.connectors.update(short, actor="a@example.com", retention_days=None)
         self.assertIsNone(self.connectors.get(short)["retention_days"])
 
+    def test_the_storefront_can_move_to_another_one_the_provider_offers(self) -> None:
+        mine = self.connector("farnell", storefront="il.farnell.com", credentials={"api_key": "key-1"})
+        moved = self.connectors.update(mine, actor="a@example.com", storefront="it.farnell.com")
+        self.assertEqual(moved["storefront"], "it.farnell.com")
+        for bad in ("nowhere.example", ""):
+            with self.assertRaises(Exception):
+                self.connectors.update(mine, actor="a@example.com", storefront=bad)
+        other = self.connector("farnell", storefront="uk.farnell.com", credentials={"api_key": "key-2"})
+        with self.assertRaises(Exception):
+            self.connectors.update(other, actor="a@example.com", storefront="it.farnell.com")
+        with self.assertRaises(Exception):
+            self.connectors.update(self.connector("fake", storefront=""), actor="a@example.com", storefront="x")
+
     def test_a_connector_that_may_not_store_history_loses_all_of_it_past_its_limit(self) -> None:
         limited = self.connector("fake", storefront="")
         free = self.connector("csv")
