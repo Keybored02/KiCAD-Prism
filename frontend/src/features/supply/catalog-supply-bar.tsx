@@ -32,8 +32,10 @@ export function CatalogSupplyBar({ filter, onFilter, rows, standing, role, onCha
   const watchShown = async () => {
     setBusy(true);
     try {
-      const watched = await watchCatalogComponents(toWatch);
-      toast.success(watched === 1 ? "Watching 1 part" : `Watching ${watched} parts`);
+      const { watched, skipped } = await watchCatalogComponents(toWatch);
+      const done = watched === 1 ? "Watching 1 part" : `Watching ${watched} parts`;
+      if (skipped > 0) toast.warning(done, { description: `${skipped} left out: Prism does not know their manufacturer yet. Admin or QA can add it in Review.` });
+      else toast.success(done);
       onChanged();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not watch the parts");

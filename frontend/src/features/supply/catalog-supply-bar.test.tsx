@@ -1,12 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 vi.mock("./catalog-supply-api", () => ({ watchCatalogComponents: vi.fn() }));
 
 import { CatalogSupplyBar } from "./catalog-supply-bar";
 import { passesSupplyFilter, supplyFilterFrom } from "./catalog-supply-filter";
 import * as api from "./catalog-supply-api";
+import { toast } from "sonner";
 
 const mocked = vi.mocked(api);
 const rows = [
@@ -18,7 +19,7 @@ const standing = { c1: { status: "ok" as const, stock: 10, watched: true }, c2: 
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.watchCatalogComponents.mockResolvedValue(1);
+  mocked.watchCatalogComponents.mockResolvedValue({ watched: 1, skipped: 0 });
 });
 afterEach(cleanup);
 
@@ -49,6 +50,13 @@ describe("the catalog supply filters", () => {
     fireEvent.click(screen.getByRole("button", { name: /Watch 1 shown/ }));
     await waitFor(() => expect(mocked.watchCatalogComponents).toHaveBeenCalledWith([{ id: "c2", manufacturer: "Acme", mpn: "A-2" }]));
     await waitFor(() => expect(changed).toHaveBeenCalled());
+  });
+
+  it("says how many were left out and why", async () => {
+    mocked.watchCatalogComponents.mockResolvedValue({ watched: 1, skipped: 2 });
+    render(<CatalogSupplyBar filter="" onFilter={() => undefined} rows={rows} standing={standing} role="designer" onChanged={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: /Watch 1 shown/ }));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith("Watching 1 part", { description: expect.stringContaining("2 left out") }));
   });
 
   it("offers no watching to a reader, and nothing at all to a role without supply access", () => {

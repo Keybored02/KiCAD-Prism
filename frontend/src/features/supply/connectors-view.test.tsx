@@ -25,6 +25,7 @@ vi.mock("./supply-api", async (importOriginal) => ({
   clearSupplyCsv: vi.fn(),
   testSupplyConnector: vi.fn(),
   listSupplyCapacity: vi.fn(),
+  getSupplyWorker: vi.fn(),
 }));
 
 import * as api from "./supply-api";

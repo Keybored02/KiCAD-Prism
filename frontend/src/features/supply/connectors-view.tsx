@@ -19,6 +19,7 @@ import { isQuickAction, useQuickConnectorActions } from "./use-connector-actions
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useSupplyCapacity } from "./use-supply-capacity";
 import { useSupplyConnectors } from "./use-supply-connectors";
+import { WorkerStatus } from "./worker-status";
 
 type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "terms" | "test">; id: string };
 
@@ -107,6 +108,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
           </PermissionHint>
         </div>
 
+        {isAdmin ? <WorkerStatus /> : null}
         {status === "loading" ? <ConnectorsSkeleton /> : null}
         {status === "error" ? (
           <Alert variant="destructive">

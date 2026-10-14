@@ -98,6 +98,13 @@ export interface SupplyConnectorCheck {
   checked_at: string;
 }
 
+/** What the background worker said about itself on its last scan. */
+export interface SupplyWorker {
+  seen_at: string | null;
+  older_than_server: boolean;
+  missing_providers: string[];
+}
+
 /** Whether a connector's budget keeps up with what is watched. Metered connectors only. */
 export interface SupplyCapacity {
   connector_id: string;
