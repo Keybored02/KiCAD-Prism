@@ -281,6 +281,27 @@ class HardeningTests(unittest.TestCase):
         self.connectors.update(short, actor="a@example.com", retention_days=None)
         self.assertIsNone(self.connectors.get(short)["retention_days"])
 
+    def test_a_connector_that_may_not_store_history_loses_all_of_it_past_its_limit(self) -> None:
+        limited = self.connector("fake", storefront="")
+        free = self.connector("csv")
+        with self.assertRaises(Exception):
+            self.connectors.update(limited, actor="a@example.com", keep_days=0)
+        self.connectors.update(limited, actor="a@example.com", keep_days=30)
+        part = self.watch().part_id
+        one, two = self.add_listing(part, limited, "L"), self.add_listing(part, free, "F")
+        old = START - timedelta(days=45)
+        with self.store.connection() as conn:
+            for listing in (one, two):
+                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, old))
+                conn.execute("INSERT INTO samples (listing_id, sampled_at, stock) VALUES (%s, %s, 5)", (listing, START - timedelta(days=5)))
+                conn.execute(
+                    "INSERT INTO samples_daily (listing_id, day, min_stock, max_stock, last_stock, sample_count) VALUES (%s, %s, 1, 5, 5, 3)",
+                    (listing, old.date()))
+            self.assertEqual(self.retention.drop_expired(conn, START), 2, "its old sample and its old daily row")
+        self.assertEqual(sorted(r["listing_id"] for r in self.rows("SELECT listing_id FROM samples")), sorted([one, two, two]))
+        self.assertEqual([r["listing_id"] for r in self.rows("SELECT listing_id FROM samples_daily")], [two])
+        self.assertEqual(self.connectors.get(limited)["keep_days"], 30)
+
     def test_the_first_run_on_a_long_history_works_in_slices(self) -> None:
         cid = self.connector()
         listing = self.add_listing(self.watch().part_id, cid, "A")

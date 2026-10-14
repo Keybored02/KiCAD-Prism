@@ -60,5 +60,7 @@ describe("edit form model", () => {
     expect(changesFrom(kept, { ...valuesOf(kept), retention: "" })).toEqual({ retention_days: null });
     expect(settingsProblem({ currency: "", budget: "1", reserve: "10", retention: "0" })).toMatch(/1 to 365/);
     expect(settingsProblem({ currency: "", budget: "1", reserve: "10", retention: "" })).toBeNull();
+    expect(changesFrom(connector, { ...valuesOf(connector), keep: "90" })).toEqual({ keep_days: 90 });
+    expect(settingsProblem({ currency: "", budget: "1", reserve: "10", keep: "0" })).toMatch(/1 to 3650/);
   });
 });

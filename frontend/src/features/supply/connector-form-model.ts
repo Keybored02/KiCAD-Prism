@@ -45,12 +45,15 @@ export function reducer(state: FormState, action: FormAction): FormState {
 }
 
 /** Currency, budget and reserve checks shared by the create and edit forms. */
-export function settingsProblem(values: { currency: string; budget: string; reserve: string; retention?: string }): string | null {
+export function settingsProblem(values: { currency: string; budget: string; reserve: string; retention?: string; keep?: string }): string | null {
   if (values.currency && !/^[A-Za-z]{3}$/.test(values.currency)) return "Currency is a three letter code.";
   if (!/^\d+$/.test(values.budget)) return "Daily budget is a whole number.";
   if (!/^\d+$/.test(values.reserve) || Number(values.reserve) > 50) return "Reserve is 0 to 50 percent.";
   if (values.retention && (!/^\d+$/.test(values.retention) || Number(values.retention) < 1 || Number(values.retention) > 365)) {
     return "Keep raw samples for 1 to 365 days, or leave it empty.";
+  }
+  if (values.keep && (!/^\d+$/.test(values.keep) || Number(values.keep) < 1 || Number(values.keep) > 3650)) {
+    return "Keep history for 1 to 3650 days, or leave it empty.";
   }
   return null;
 }
@@ -71,6 +74,8 @@ export interface EditValues {
   reserve: string;
   /** Days raw samples are kept; empty is the server's default. */
   retention: string;
+  /** Days any history is kept; empty keeps it for good. */
+  keep: string;
 }
 
 export function valuesOf(connector: SupplyConnector): EditValues {
@@ -80,6 +85,7 @@ export function valuesOf(connector: SupplyConnector): EditValues {
     budget: String(connector.daily_budget),
     reserve: String(connector.interactive_reserve_pct),
     retention: connector.retention_days === null ? "" : String(connector.retention_days),
+    keep: connector.keep_days === null ? "" : String(connector.keep_days),
   };
 }
 
@@ -92,5 +98,7 @@ export function changesFrom(connector: SupplyConnector, values: EditValues): Upd
   if (Number(values.reserve) !== connector.interactive_reserve_pct) changes.interactive_reserve_pct = Number(values.reserve);
   const retention = values.retention.trim() === "" ? null : Number(values.retention);
   if (retention !== connector.retention_days) changes.retention_days = retention;
+  const keep = values.keep.trim() === "" ? null : Number(values.keep);
+  if (keep !== connector.keep_days) changes.keep_days = keep;
   return changes;
 }

@@ -4,6 +4,9 @@ Raw samples stay for ``RAW_DAYS``. Older ones are rolled into one row per listin
 per day (lowest, highest and last stock, last price) and the raw rows deleted.
 The roll-up is idempotent, so a run that is interrupted or repeated changes
 nothing it should not.
+
+A connector can also say how long any history may be kept (``keep_days``, for a provider whose terms limit
+storage): past that, raw samples and daily rows are deleted. Without it, daily rows stay for good.
 """
 
 from __future__ import annotations
@@ -31,6 +34,21 @@ def compact_samples(conn, now: datetime) -> int:
     removed = 0
     for days in keeps or [RAW_DAYS]:
         removed += _compact(conn, now, days)
+    return removed
+
+
+def drop_expired(conn, now: datetime) -> int:
+    """Delete history past its connector's ``keep_days``. Returns how many rows were removed."""
+
+    removed = 0
+    for table, column in (("samples", "sampled_at"), ("samples_daily", "day")):
+        cut = "%s - (c.keep_days * INTERVAL '1 day')" if table == "samples" else "(%s - (c.keep_days * INTERVAL '1 day'))::date"
+        result = conn.execute(
+            f"DELETE FROM {table} WHERE listing_id IN (SELECT l.id FROM listings l JOIN connectors c ON c.id = l.connector_id "
+            f"WHERE c.keep_days IS NOT NULL AND {table}.{column} < {cut})",
+            (now,),
+        )
+        removed += int(result.rowcount or 0)
     return removed
 
 

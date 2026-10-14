@@ -225,6 +225,7 @@ def run_supply_poll_job(context: Any) -> Any:
         _snapshot_market(conn)
         _sync_component_watches(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
+        retention.drop_expired(conn, datetime.now(timezone.utc))
     # Outside the connection above: fetching a file can take a while.
     _check_datasheets(connectors.store)
     _keep_notice_files(connectors.store)

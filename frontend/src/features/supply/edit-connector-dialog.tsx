@@ -91,7 +91,18 @@ function EditForm({ connector, onClose, onSaved }: { connector: SupplyConnector 
             value={values.retention}
             onChange={(event) => update({ retention: event.target.value })}
           />
-          <p className="text-[11px] text-muted-foreground">Older samples are kept as one row per day. Shorten it if the provider&apos;s terms limit storage.</p>
+          <p className="text-[11px] text-muted-foreground">Older samples are kept as one row per day.</p>
+        </div>
+        <div className="col-span-2 space-y-1.5">
+          <Label htmlFor="edit-connector-keep">Delete all history after (days)</Label>
+          <Input
+            id="edit-connector-keep"
+            inputMode="numeric"
+            placeholder="Keep it"
+            value={values.keep}
+            onChange={(event) => update({ keep: event.target.value })}
+          />
+          <p className="text-[11px] text-muted-foreground">Set it if the provider&apos;s terms limit how long its data may be stored.</p>
         </div>
       </div>
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}

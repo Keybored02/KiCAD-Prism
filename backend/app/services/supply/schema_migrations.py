@@ -709,6 +709,12 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m033_connector_keep_days(conn) -> None:
+    """Days any history of a connector's listings may be kept, for a provider whose terms limit storage. Empty means for good."""
+
+    conn.execute("ALTER TABLE connectors ADD COLUMN IF NOT EXISTS keep_days INTEGER CHECK (keep_days BETWEEN 1 AND 3650)", prepare=False)
+
+
 def _m032_bom_usage_variants(conn) -> None:
     """The BOM lines of each design variant of a project, beside the base design's ``bom_usage`` (see ``usage.py``)."""
 
@@ -939,6 +945,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (30, "release_compliance", _m030_release_compliance),
     (31, "bom_comments", _m031_bom_comments),
     (32, "bom_usage_variants", _m032_bom_usage_variants),
+    (33, "connector_keep_days", _m033_connector_keep_days),
 ]
 
 
