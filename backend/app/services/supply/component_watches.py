@@ -3,7 +3,8 @@
 A component watch is a standing request. ``sync`` turns it into ordinary part watches (one per part), so the
 poller, alerts and the Parts list work as they do for any watched part. It runs when the watch is set, when an
 alternate is approved, and on the supply poll job, so an alternate approved later is picked up without anyone
-returning to the component. Stopping a component watch leaves the part watches alone: they may be wanted for
+returning to the component. The component's packaging is applied when its part watches are created and when the
+component watch is set; a later sync leaves a packaging someone set on a part alone. Stopping a component watch leaves the part watches alone: they may be wanted for
 other reasons.
 """
 
@@ -48,7 +49,7 @@ def set_watch(
     )
     write_audit(conn, actor, "component_watch.set", component_id,
                 {"include_alternates": include_alternates, "packaging": packaging}, subject_kind="component")
-    sync_component(conn, component_id, identities, actor)
+    sync_component(conn, component_id, identities, actor, apply_packaging=True)
     return get(conn, component_id) or {}
 
 
@@ -58,8 +59,12 @@ def remove_watch(conn, component_id: str, actor: str) -> None:
     write_audit(conn, actor, "component_watch.remove", component_id, {}, subject_kind="component")
 
 
-def sync_component(conn, component_id: str, identities: Identities, actor: str = SYSTEM) -> int:
-    """Make sure the component's parts are watched. Returns how many part watches were added."""
+def sync_component(conn, component_id: str, identities: Identities, actor: str = SYSTEM, *, apply_packaging: bool = False) -> int:
+    """Make sure the component's parts are watched. Returns how many part watches were added.
+
+    A new part watch takes the component's packaging. An existing one keeps its own unless ``apply_packaging`` is
+    set, which is when a person has just set the component watch.
+    """
 
     row = get(conn, component_id)
     if row is None:
@@ -73,7 +78,9 @@ def sync_component(conn, component_id: str, identities: Identities, actor: str =
     added = 0
     for maker, mpn in wanted:
         with conn.transaction():
-            record, created = watches.add_watch(conn, maker, mpn, actor, packaging=row["packaging"])
+            record, created = watches.add_watch(conn, maker, mpn, actor)
+            if (created or apply_packaging) and record.packaging != row["packaging"]:
+                watches.update_watch(conn, record.id, actor, packaging=row["packaging"])
         added += 1 if created else 0
     return added
 

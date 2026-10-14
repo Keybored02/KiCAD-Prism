@@ -192,6 +192,25 @@ class SupplySourcesTests(unittest.TestCase):
         with mock.patch.object(catalog_read, "identities", lambda ids: {}):
             self.assertEqual(self.call("PUT", path, role="designer", body={}).status, 400)
 
+    def test_syncing_again_writes_nothing_and_keeps_a_packaging_set_by_hand(self) -> None:
+        from app.services.supply import component_watches, watches
+
+        identities = lambda ids: {COMPONENT: ("Acme", "PRIM-1")}  # noqa: E731
+        with self.store.connection() as conn:
+            component_watches.set_watch(conn, COMPONENT, "d@example.com", identities, include_alternates=False, packaging="cut_tape")
+            watch = conn.execute("SELECT id FROM watches").fetchone()["id"]
+            watches.update_watch(conn, watch, "d@example.com", packaging="tray")
+            audits = conn.execute("SELECT COUNT(*) AS n FROM audit_events").fetchone()["n"]
+            for _ in range(3):
+                component_watches.sync_all(conn, identities)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM audit_events").fetchone()["n"], audits, "a sync that changes nothing writes nothing")
+            self.assertEqual(conn.execute("SELECT packaging FROM watches").fetchone()["packaging"], "tray")
+            component_watches.set_watch(conn, COMPONENT, "d@example.com", identities, include_alternates=False, packaging="tube")
+            self.assertEqual(conn.execute("SELECT packaging FROM watches").fetchone()["packaging"], "tube", "setting the component watch applies it")
+            before = conn.execute("SELECT COUNT(*) AS n FROM audit_events WHERE action = 'watch.update'").fetchone()["n"]
+            watches.update_watch(conn, watch, "d@example.com", packaging="tube", pinned=False)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM audit_events WHERE action = 'watch.update'").fetchone()["n"], before)
+
     def test_watching_the_alternates_watches_the_approved_ones_once(self) -> None:
         self.add(mpn="ALT-1", role="qa")
         self.add(mpn="ALT-2", role="designer")

@@ -9,6 +9,7 @@ provider cannot pile up jobs.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
@@ -185,9 +186,20 @@ def _refresh_rates(conn) -> None:
         logging.getLogger(__name__).info("Exchange rates not refreshed", exc_info=True)
 
 
-def _sync_component_watches(conn) -> None:
-    """Watch the parts of watched components, so alternates approved elsewhere are picked up. Best effort."""
+COMPONENT_SYNC_EVERY = 3600.0
+_component_sync_at: float | None = None
 
+
+def _sync_component_watches(conn, force: bool = False) -> None:
+    """Watch the parts of watched components, so alternates approved elsewhere are picked up. Best effort.
+
+    Once an hour per process: approving a source and setting a component watch already sync at once.
+    """
+
+    global _component_sync_at
+    if not force and _component_sync_at is not None and time.monotonic() - _component_sync_at < COMPONENT_SYNC_EVERY:
+        return
+    _component_sync_at = time.monotonic()
     try:
         from app.services.supply import catalog_read, component_watches
 

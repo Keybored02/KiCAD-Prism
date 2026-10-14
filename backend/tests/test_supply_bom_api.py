@@ -303,6 +303,21 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual((buy["sku"], buy["unit_price"], buy["quantity"], buy["extended"], buy["covers"]), ("MIDDLE-ENOUGH", "0.2", 100, "20", True))
         self.assertEqual((buy["connector_name"], buy["product_url"]), ("Sim", "https://shop.example/MIDDLE-ENOUGH"))
 
+    def test_a_watched_packaging_is_the_only_one_the_purchase_and_the_checks_use(self) -> None:
+        part_id = self.part("Acme", "TAPED", watch=True)
+        self.offer(part_id, "REEL", stock=50000, price="0.01", moq=1)
+        self.offer(part_id, "CUT", stock=500, price="0.05")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET packaging = 'tape_reel' WHERE listing_id IN (SELECT id FROM listings WHERE sku = 'REEL')")
+            conn.execute("UPDATE offers SET packaging = 'cut_tape' WHERE listing_id IN (SELECT id FROM listings WHERE sku = 'CUT')")
+        line = [{"key": "r", "manufacturer": "Acme", "mpn": "TAPED", "quantity": 1}]
+        self.assertEqual(self.lookup(line, build=100)["lines"]["r"]["buy"]["sku"], "REEL", "any packaging: the cheapest that covers")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE watches SET packaging = 'cut_tape'")
+        entry = self.lookup(line, build=100)["lines"]["r"]
+        self.assertEqual((entry["buy"]["sku"], entry["stock"]), ("CUT", 500), "cut tape only: the reel is not suggested")
+        self.assertEqual(self.lookup(line, build=1000)["lines"]["r"]["short"], True, "and its stock is what is checked")
+
     def test_minimum_order_and_multiples_set_what_is_bought_and_what_it_costs(self) -> None:
         part_id = self.part("Acme", "REELED")
         self.offer(part_id, "REEL", stock=50000, moq=3000, multiple=3000, breaks=[[3000, "0.0500"]])

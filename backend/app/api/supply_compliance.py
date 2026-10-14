@@ -94,7 +94,7 @@ async def part_compliance(part_id: str, _user: AuthenticatedUser = Depends(requi
                 "reach": compliance.standing([dict(row) for row in offers], listed),
                 "substances": substances,
                 "list": compliance.list_info(conn),
-                "facts": facts.for_part(conn, part.id),
+                "facts": facts.for_part(conn, part.id, hide=facts.NOT_COMPLIANCE),
             }
 
     return await _run(read)

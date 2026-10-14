@@ -37,6 +37,8 @@ LABELS: dict[str, str] = {
     "eol_notice_date": "End-of-life notice date",
 }
 ORDER = tuple(LABELS)
+# Facts that describe the part rather than its compliance: the part sheet shows them with the parameters.
+NOT_COMPLIANCE = frozenset({"category"})
 MAX_VALUE = 500
 MAX_PER_PROVIDER = 40
 _NAME = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
@@ -135,7 +137,7 @@ def _order(name: str) -> tuple[int, str]:
     return (ORDER.index(name) if name in LABELS else len(ORDER), name)
 
 
-def for_part(conn, part_id: str) -> list[dict[str, Any]]:
+def for_part(conn, part_id: str, *, hide: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
     """One entry per fact name: its label and what each provider says, in a fixed order. Disagreement is flagged."""
 
     rows = conn.execute(
@@ -150,6 +152,7 @@ def for_part(conn, part_id: str) -> list[dict[str, Any]]:
     return [
         {"name": name, "label": LABELS.get(name, name.replace("_", " ")), "sources": sources, "disagree": _disagree(name, sources)}
         for name, sources in sorted(by_name.items(), key=lambda item: _order(item[0]))
+        if name not in hide
     ]
 
 

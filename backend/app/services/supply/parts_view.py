@@ -194,13 +194,21 @@ def summaries_for(conn, part_ids: list[str]) -> list[dict[str, Any]]:
 
 
 def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) -> tuple[list[dict[str, Any]], dict[str, list[dict]]]:
-    """Summaries of the given parts and the counted offers behind them, for callers that price."""
+    """Summaries of the given parts and the counted offers behind them, for callers that price.
+
+    A watch counts one packaging when it says so (cut tape for prototypes), and the offers returned follow it, so a
+    purchase suggestion and the checks never use a packaging the watch leaves out.
+    """
 
     if not part_ids:
         return [], {}
     rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [*usage.role_params(role), list(part_ids)]).fetchall()
     offers = offers_by_part(conn, [row["id"] for row in rows])
-    return _summaries(conn, rows, offers), offers
+    counted = {
+        row["id"]: [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")]
+        for row in rows
+    }
+    return _summaries(conn, rows, counted), counted
 
 
 def ranked_parts(conn, *, scope: Scope = "watched", query: str = "", role: str | None = None) -> tuple[list[dict[str, Any]], int]:
@@ -328,7 +336,7 @@ def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
     for row in rows:
         sources.setdefault((row["name"].lower(), row["raw"]), []).append(row["provider"])
     first_seen = list(dict.fromkeys((row["name"], row["raw"]) for row in rows))
-    return [
+    listed = [
         {
             "name": item.name, "raw": item.raw, "key": item.key, "unit": item.unit,
             "value": format(item.value.normalize(), "f") if item.value is not None else None,
@@ -336,6 +344,15 @@ def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
         }
         for item in params.normalise(first_seen)
     ]
+    # What a distributor files the part under is not a compliance fact; it is listed here, as the distributor wrote it.
+    for fact in facts.for_part(conn, part_id):
+        if fact["name"] in facts.NOT_COMPLIANCE:
+            for value in dict.fromkeys(source["value"] for source in fact["sources"]):
+                listed.append({
+                    "name": fact["label"], "raw": value, "key": None, "unit": None, "value": None,
+                    "sources": [source["provider"] for source in fact["sources"] if source["value"] == value],
+                })
+    return listed
 
 
 def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:

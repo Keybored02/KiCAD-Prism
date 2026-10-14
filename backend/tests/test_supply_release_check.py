@@ -113,6 +113,14 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual((result["needing_a_look"], result["status"]), (0, "ok"))
         self.assertEqual(result["lines"][0]["waived"], 1)
 
+    def test_a_draft_that_cannot_be_built_does_not_cost_the_snapshot(self) -> None:
+        self.part("GOOD-1", stock=5000)
+        with self.store.connection() as conn, mock.patch.object(self.release_check.compliance_draft, "build", side_effect=RuntimeError("boom")):
+            made = self.release_check.freeze(conn, "prj_1", "bld_nodraft", "vx", "c" * 40, "qa@example.com", [component("R1", "Acme", "GOOD-1")], {}, NOW)
+            snapshot = self.release_check.get_snapshot(conn, "prj_1", "bld_nodraft")
+        self.assertIsNotNone(made)
+        self.assertEqual((snapshot["status"], snapshot["compliance"]), ("ok", None))
+
     def test_the_snapshot_keeps_the_check_and_the_approved_parts_and_can_never_change(self) -> None:
         self.part("GOOD-1", stock=5000)
         with self.store.connection() as conn:

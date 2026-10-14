@@ -170,9 +170,12 @@ class Poller:
         self._store = store
         self._provider_for = provider_for or connectors.load_provider
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        # The rupture projection of a part, worked out once per poll: its listings are recorded one after another.
+        self._rupture: dict[str, int | None] = {}
 
     def poll_connector(self, connector_id: str, *, interactive: bool = False, only_part: str | None = None) -> PollSummary:
         now = self._clock()
+        self._rupture.clear()
         connector = self._connectors.get(connector_id)
         if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]:
             return PollSummary(connector_id, stopped=STOPPED_INACTIVE)
@@ -353,8 +356,10 @@ class Poller:
         watch = conn.execute("SELECT threshold, pinned FROM watches WHERE part_id = %s", (row.part_id,)).fetchone()
         rupture = None
         if watch is not None:
-            insight = parts_view.insight_from(parts_view.history(conn, row.part_id, now), watch["threshold"], now)
-            rupture = insights.rupture_expected_within(insight)
+            if row.part_id not in self._rupture:
+                insight = parts_view.insight_from(parts_view.history(conn, row.part_id, now), watch["threshold"], now)
+                self._rupture[row.part_id] = insights.rupture_expected_within(insight)
+            rupture = self._rupture[row.part_id]
         return tiers.choose_tier(tiers.TierInputs(
             now=now,
             watched=watch is not None,

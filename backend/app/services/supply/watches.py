@@ -152,6 +152,8 @@ def update_watch(
         changes["pinned"] = pinned
     if packaging is not _UNSET:
         changes["packaging"] = _check_packaging(packaging)
+    # A field sent with the value it already has is no change: no write, no audit row, no alert run.
+    changes = {field: value for field, value in changes.items() if getattr(current, field) != value}
     if not changes:
         return current
     # Column names come from the fixed set above, never from the caller.

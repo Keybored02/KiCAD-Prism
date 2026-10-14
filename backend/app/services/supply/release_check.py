@@ -11,6 +11,7 @@ release record. The record is evidence: it is never part of the release digest.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
@@ -123,12 +124,18 @@ def freeze(
     result = check(conn, components, now, identities)
     snapshot_id = uuid.uuid4().hex
     # The draft RoHS and REACH declaration for this BOM, frozen with it. A draft that cannot be built does not stop the snapshot.
-    lines = usage.lines_from_components(components, identities)
-    draft = compliance_draft.build(conn, [
-        {"key": line.key, "manufacturer": line.manufacturer, "mpn": line.mpn, "quantity": line.quantity,
-         "references": line.references, "lcsc": line.lcsc}
-        for line in lines
-    ])
+    draft: dict[str, Any] | None
+    try:
+        with conn.transaction():
+            lines = usage.lines_from_components(components, identities)
+            draft = compliance_draft.build(conn, [
+                {"key": line.key, "manufacturer": line.manufacturer, "mpn": line.mpn, "quantity": line.quantity,
+                 "references": line.references, "lcsc": line.lcsc}
+                for line in lines
+            ])
+    except Exception:  # noqa: BLE001 - the snapshot matters more than its draft; a release without one is shown as such
+        logging.getLogger(__name__).warning("Compliance draft not frozen for build %s", build_id, exc_info=True)
+        draft = None
     created = conn.execute(
         """
         INSERT INTO release_snapshots (id, project_id, build_id, tag, commit_sha, created_by, health, status, assessment, avl, compliance)
@@ -136,7 +143,8 @@ def freeze(
         ON CONFLICT (build_id) DO NOTHING RETURNING id
         """,
         (snapshot_id, project_id, build_id, tag, commit_sha, actor, result["health"], result["status"],
-         json.dumps(result), json.dumps(avl_for(conn, result["lines"], component_ids)), json.dumps(draft)),
+         json.dumps(result), json.dumps(avl_for(conn, result["lines"], component_ids)),
+         json.dumps(draft) if draft is not None else None),
     ).fetchone()
     if created is None:
         return None
