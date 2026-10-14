@@ -224,6 +224,10 @@ class ConnectorService:
         """Replace the whole credential set."""
 
         actor = actor_text(actor)
+        try:
+            before = self.unsealed_credentials(connector_id).get("client_id", "")
+        except Exception:  # noqa: BLE001 - unreadable or none: treat the app as changed
+            before = None
         with self._store.connection() as conn:
             spec = self._spec(_fetch(conn, connector_id)["provider"])
             cleaned = _clean_credentials(spec, credentials)
@@ -235,7 +239,13 @@ class ConnectorService:
                 "updated_at = NOW() WHERE id = %s",
                 (envelope, json.dumps(list(cleaned)), connector_id),
             )
-            write_audit(conn, actor, "connector.credentials", connector_id, {"names": list(cleaned)})
+            detail: dict[str, Any] = {"names": list(cleaned)}
+            if before != cleaned.get("client_id", ""):
+                # A sign-in belongs to the app (client ID) it was made for.
+                dropped = conn.execute("DELETE FROM connector_grants WHERE connector_id = %s", (connector_id,)).rowcount
+                if dropped:
+                    detail["sign_in_dropped"] = True
+            write_audit(conn, actor, "connector.credentials", connector_id, detail)
             return self._dto_from(conn, _fetch(conn, connector_id))
 
     def pause(self, connector_id: str, *, actor: str, reason: str) -> dict[str, Any]:

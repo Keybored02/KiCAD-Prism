@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json as jsonlib
 from dataclasses import dataclass
-from typing import Any, Collection, Mapping, Protocol, Sequence
+from typing import Any, Callable, Collection, Mapping, Protocol, Sequence
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
 import requests
@@ -30,6 +30,7 @@ from app.services.supply.egress import EgressDenied, Resolver, ValidatedTarget, 
 from app.services.supply.providers.base import (
     AuthError,
     EgressBlocked,
+    HostDenied,
     NotFound,
     ProviderError,
     RateLimited,
@@ -189,7 +190,9 @@ class SafeHttpClient:
         max_bytes: int = DEFAULT_MAX_BYTES,
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
         max_redirects: int = MAX_REDIRECTS,
+        host_denied: Callable[[str], bool] | None = None,
     ) -> None:
+        self._host_denied = host_denied
         self._allowed = None if allowed_hosts is None else tuple(allowed_hosts)
         if transport is None:
             from app.core.config import settings
@@ -228,6 +231,8 @@ class SafeHttpClient:
             send_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
 
         for _hop in range(self._max_redirects + 1):
+            if self._host_denied is not None and self._host_denied((urlsplit(url).hostname or "").lower()):
+                raise HostDenied(_label(url))
             response = self._send_once(method, url, send_headers, body)
             if response.status not in _REDIRECT_STATUSES:
                 return self._checked(response, url)

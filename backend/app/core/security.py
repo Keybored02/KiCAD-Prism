@@ -244,6 +244,16 @@ async def require_supply_writer(user: AuthenticatedUser = Depends(get_current_us
     return user
 
 
+async def require_supply_commenter(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    """Anyone who reads supply data may leave a note, with a token that may write."""
+    if user.auth_type == "kicad_provider":
+        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
+    _require_bearer_scope(user, "api:write")
+    if user.role not in SUPPLY_READ_ROLES:
+        raise HTTPException(status_code=403, detail="Supply read access required")
+    return user
+
+
 async def require_supply_approver(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
     if user.auth_type == "kicad_provider":
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")

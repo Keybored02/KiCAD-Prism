@@ -32,9 +32,17 @@ describe("the DigiKey sign-in result", () => {
   });
 
   it("gives the reason when it failed", async () => {
-    at("?supplyView=connectors&signin=failed&message=This+sign-in+expired");
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("The DigiKey sign-in did not finish", { description: "This sign-in expired" }));
+    at("?supplyView=connectors&signin=failed&reason=expired");
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("The DigiKey sign-in did not finish", { description: expect.stringContaining("expired") }));
     expect(seen).toBe("?supplyView=connectors");
+  });
+
+  it("never shows wording that came in the address", async () => {
+    at("?supplyView=connectors&signin=ok&message=Signed+in+somewhere+else");
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Signed in at DigiKey", expect.anything()));
+    cleanup();
+    at("?supplyView=connectors&signin=failed&reason=%3Cb%3Eany+text&message=Call+this+number");
+    await waitFor(() => expect(toast.error).toHaveBeenLastCalledWith("The DigiKey sign-in did not finish", undefined));
   });
 
   it("does nothing without a result", () => {

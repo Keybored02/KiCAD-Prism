@@ -333,6 +333,61 @@ class DetailsTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.assertEqual(oauth.status(conn, self.digikey)["state"], "refused")
 
+    def test_the_distributor_category_is_listed_with_the_parameters_not_under_compliance(self) -> None:
+        from app.services.supply import facts, parts_view
+
+        with self.store.connection() as conn:
+            facts.replace(conn, self.part_a, "digikey", (("category", "Op Amps"), ("rohs_status", "ROHS3 Compliant")), NOW)
+            compliance_names = [item["name"] for item in facts.for_part(conn, self.part_a, hide=facts.NOT_COMPLIANCE)]
+            everything = [item["name"] for item in facts.for_part(conn, self.part_a)]
+            listed = parts_view.parameters_of(conn, self.part_a)
+        self.assertEqual((compliance_names, "category" in everything), (["rohs_status"], True))
+        self.assertEqual([(row["name"], row["raw"], row["sources"]) for row in listed], [("Distributor category", "Op Amps", ["digikey"])])
+
+    def test_any_other_refusal_of_the_token_endpoint_also_needs_a_new_sign_in(self) -> None:
+        from app.services.supply import oauth
+        from app.services.supply.providers.base import ProviderError
+
+        # OAuth answers a dead refresh token with HTTP 400 ``invalid_grant``, which is neither 401 nor 403.
+        for second in (ProviderError("400"), {"access_token": "x"}):
+            with self.store.connection() as conn:
+                conn.execute("DELETE FROM connector_grants")
+            client = FakeTokens(tokens(), second)
+            self.signin(client)
+            with self.assertRaises(oauth.NotSignedIn):
+                oauth.access_token(self.connectors, self.digikey, NOW + timedelta(hours=1), client=client)
+            with self.store.connection() as conn:
+                self.assertEqual(oauth.status(conn, self.digikey)["state"], "refused")
+
+    def test_a_service_that_does_not_answer_leaves_the_sign_in_alone(self) -> None:
+        from app.services.supply import oauth
+        from app.services.supply.providers.base import Unavailable
+
+        client = FakeTokens(tokens(), Unavailable("503"))
+        self.signin(client)
+        with self.assertRaises(Unavailable):
+            oauth.access_token(self.connectors, self.digikey, NOW + timedelta(hours=1), client=client)
+        with self.store.connection() as conn:
+            self.assertEqual(oauth.status(conn, self.digikey, NOW + timedelta(hours=1))["state"], "ok")
+
+    def test_a_sign_in_ends_when_the_app_it_was_made_for_changes(self) -> None:
+        self.signin(FakeTokens(tokens()))
+        self.connectors.set_credentials(self.digikey, actor=ADMIN, credentials={"client_id": "cid", "client_secret": "new-secret"})
+        self.assertEqual(len(self.rows("SELECT 1 FROM connector_grants")), 1, "the same app keeps its sign-in")
+        self.connectors.set_credentials(self.digikey, actor=ADMIN, credentials={"client_id": "other", "client_secret": "s"})
+        self.assertEqual(self.rows("SELECT 1 FROM connector_grants"), [])
+
+    def test_checking_notices_says_so_when_the_token_cannot_be_renewed(self) -> None:
+        from app.services.supply import details
+        from app.services.supply.providers.base import Unavailable
+
+        def down(*_args):
+            raise Unavailable("503")
+
+        said = details.check_now(self.connectors, self.part_a, "fourth@example.com", provider=object(), token_for=down)
+        self.assertEqual((said["read"], len(said["problems"])), (0, 1))
+        self.assertIn("did not answer", said["problems"][0]["reason"])
+
     def test_the_routes_are_for_administrators_and_the_callback_returns_to_the_connectors_tab(self) -> None:
         from app.services.supply import oauth
 
@@ -347,7 +402,7 @@ class DetailsTests(unittest.TestCase):
             self.assertEqual(back.status, 303)
             self.assertEqual(back.headers["location"], "/?section=supply&supplyView=connectors&signin=ok")
             again = _request(self.app, "GET", "/api/supply/oauth/digikey/callback", user=self.users["admin"], query=f"code=abc&state={state}")
-            self.assertIn("signin=failed", again.headers["location"])
+            self.assertTrue(again.headers["location"].endswith("&signin=failed&reason=expired"), again.headers["location"])
             status = _request(self.app, "GET", f"/api/supply/connectors/{self.digikey}/signin", user=self.users["admin"])
         self.assertEqual((status.json["signed_in"], status.json["redirect_uri"]),
                          (True, "https://prism.example/api/supply/oauth/digikey/callback"))

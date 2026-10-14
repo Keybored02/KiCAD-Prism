@@ -69,6 +69,12 @@ class EgressBlocked(ProviderError):
     code = "egress_denied"
 
 
+class HostDenied(EgressBlocked):
+    """An administrator put this host on the deny list."""
+
+    code = "host_denied"
+
+
 class ResponseTooLarge(ProviderError):
     code = "response_too_large"
 

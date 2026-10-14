@@ -62,6 +62,19 @@ class BomCommentTests(unittest.TestCase):
         with mock.patch("app.api.supply_bom_comments.get_project_for_role_or_404", return_value=project):
             return _request(self.app, method, f"/api/supply/projects/prj_1/bom-comments{path}", user=self.users[role], body=body)
 
+    def test_a_token_that_may_only_read_cannot_write_notes(self) -> None:
+        user_class = type(self.users["admin"])
+        reader = user_class(email="bot@example.com", name="bot", role="admin", auth_type="agent", scopes=["api:read"])
+        writer = user_class(email="bot@example.com", name="bot", role="qa", auth_type="agent", scopes=["api:write"])
+        project = SimpleNamespace(id="prj_1")
+        path = "/api/supply/projects/prj_1/bom-comments"
+        with mock.patch("app.api.supply_bom_comments.get_project_for_role_or_404", return_value=project):
+            body = {"line_key": "acme | r1", "body": "Note"}
+            self.assertEqual(_request(self.app, "GET", path, user=reader).status, 200)
+            self.assertEqual(_request(self.app, "POST", path, user=reader, body=body).status, 403)
+            self.assertEqual(_request(self.app, "DELETE", path + "/c1", user=reader).status, 403)
+            self.assertEqual(_request(self.app, "POST", path, user=writer, body=body).status, 201)
+
     def test_readers_write_and_everyone_who_can_open_the_project_reads(self) -> None:
         posted = self.call("POST", "", role="qa", body={"line_key": "acme | r1", "body": " Check the 0402 alternative "})
         self.assertEqual((posted.status, posted.json["body"], posted.json["author"], posted.json["author_name"]), (201, "Check the 0402 alternative", "qa@example.com", "Qa"))

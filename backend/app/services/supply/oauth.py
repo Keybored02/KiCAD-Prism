@@ -25,7 +25,7 @@ from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.providers import digikey
-from app.services.supply.providers.base import AuthError, ProviderError
+from app.services.supply.providers.base import EgressBlocked, ProviderError, RateLimited, ResponseTooLarge, Unavailable
 
 CALLBACK_PATH = "/api/supply/oauth/digikey/callback"
 STATE_TTL = timedelta(minutes=10)
@@ -34,7 +34,11 @@ SUPPORTED = ("digikey",)
 
 
 class SignInError(ValueError):
-    """The sign-in cannot go on. The message is safe to show."""
+    """The sign-in cannot go on. The message is safe to show; ``reason`` is the short code the callback hands the browser."""
+
+    def __init__(self, message: str, reason: str = "failed") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 class NotSignedIn(Exception):
@@ -79,7 +83,7 @@ def start(service, connector_id: str, actor: str, now: datetime | None = None) -
 
 def _keep(conn, service, connector_id: str, answer: Any, now: datetime, granted_by: str | None) -> None:
     if not isinstance(answer, dict) or not answer.get("access_token") or not answer.get("refresh_token"):
-        raise SignInError("DigiKey did not issue the tokens.")
+        raise SignInError("DigiKey did not issue the tokens.", "no_tokens")
     access_for = timedelta(seconds=max(int(answer.get("expires_in") or 1800), 60))
     refresh_for = timedelta(seconds=max(int(answer.get("refresh_token_expires_in") or 90 * 86400), 60))
     envelope = sealed.seal(
@@ -114,15 +118,15 @@ def finish(
     actor = actor_text(actor)
     now = now or datetime.now(timezone.utc)
     if not state or not code:
-        raise SignInError("DigiKey did not send a code back.")
+        raise SignInError("DigiKey did not send a code back.", "no_code")
     with service.store.connection() as conn:
         row = conn.execute(
             "DELETE FROM oauth_states WHERE state = %s RETURNING connector_id, actor, created_at", (state,)
         ).fetchone()
     if row is None or now - row["created_at"] > STATE_TTL:
-        raise SignInError("This sign-in expired or was already used. Start it again from the connector.")
+        raise SignInError("This sign-in expired or was already used. Start it again from the connector.", "expired")
     if row["actor"] != actor:
-        raise SignInError("Finish the sign-in as the person who started it.")
+        raise SignInError("Finish the sign-in as the person who started it.", "wrong_person")
     connector_id = row["connector_id"]
     creds = service.unsealed_credentials(connector_id)
     try:
@@ -131,7 +135,7 @@ def finish(
             "redirect_uri": redirect_uri(), "grant_type": "authorization_code",
         })
     except ProviderError as exc:
-        raise SignInError(f"DigiKey refused the sign-in ({exc.code}).") from None
+        raise SignInError(f"DigiKey refused the sign-in ({exc.code}).", "refused") from None
     with service.store.connection() as conn:
         _keep(conn, service, connector_id, answer, now, granted_by=actor)
         write_audit(conn, actor, "connector.signin", connector_id, {"provider": "digikey"})
@@ -162,11 +166,17 @@ def access_token(service, connector_id: str, now: datetime | None = None, client
                     "refresh_token": grant["refresh_token"], "client_id": creds.get("client_id", ""),
                     "client_secret": creds.get("client_secret", ""), "grant_type": "refresh_token",
                 })
-            except AuthError:
-                failure = "refused"
+            except (Unavailable, RateLimited, EgressBlocked, ResponseTooLarge):
+                raise  # DigiKey did not answer: the grant may be fine, so keep it
+            except ProviderError:
+                failure = "refused"  # 401 and 403, and the 400 ``invalid_grant`` of OAuth
             else:
-                _keep(conn, service, connector_id, answer, now, granted_by=None)
-                return str(answer["access_token"])
+                try:
+                    _keep(conn, service, connector_id, answer, now, granted_by=None)
+                except SignInError:
+                    failure = "refused"  # an answer without tokens is no renewal
+                else:
+                    return str(answer["access_token"])
     _mark(service.store, connector_id, failure)
     raise NotSignedIn(failure)
 

@@ -108,6 +108,10 @@ def _read_notices(service, connector, rows, now, provider, token_for, *, interac
         token = token_for(service, connector_id, now)
     except oauth.NotSignedIn:
         return DetailsSummary(stopped="not_signed_in")
+    except (RateLimited, Unavailable) as exc:
+        return DetailsSummary(stopped=exc.code)
+    except (ProviderError, oauth.SignInError):
+        return DetailsSummary(stopped="unavailable")
     provider = provider or service.load_provider(connector_id)
     read = new = 0
     for row in rows:

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
-from app.core.security import AuthenticatedUser, require_supply_reader
+from app.core.security import AuthenticatedUser, require_supply_commenter, require_supply_reader
 from app.services.supply import bom_comments
 
 router = APIRouter(prefix="/api/supply/projects", tags=["supply"])
@@ -50,7 +50,7 @@ async def list_comments(project_id: str, user: AuthenticatedUser = Depends(requi
 
 
 @router.post("/{project_id}/bom-comments", status_code=201)
-async def add_comment(project_id: str, body: CommentIn, user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+async def add_comment(project_id: str, body: CommentIn, user: AuthenticatedUser = Depends(require_supply_commenter)) -> dict[str, Any]:
     get_project_for_role_or_404(project_id, user.role)
 
     def run() -> dict[str, Any]:
@@ -61,7 +61,7 @@ async def add_comment(project_id: str, body: CommentIn, user: AuthenticatedUser 
 
 
 @router.delete("/{project_id}/bom-comments/{comment_id}", status_code=204)
-async def remove_comment(project_id: str, comment_id: str, user: AuthenticatedUser = Depends(require_supply_reader)) -> Response:
+async def remove_comment(project_id: str, comment_id: str, user: AuthenticatedUser = Depends(require_supply_commenter)) -> Response:
     get_project_for_role_or_404(project_id, user.role)
 
     def run() -> None:

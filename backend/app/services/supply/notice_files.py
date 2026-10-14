@@ -36,7 +36,8 @@ def keep_one(store, notice_id: str, url: str, now: datetime, client: Any | None 
         with store.connection() as conn:
             if datasheets.is_denied(conn, url):
                 raise datasheets.DatasheetError("host_denied")
-        sha = datasheets.keep_file(datasheets.fetch(url, client))
+            denied = datasheets.denied_check(conn)
+        sha = datasheets.keep_file(datasheets.fetch(url, client, denied))
     except datasheets.DatasheetError as exc:
         with store.connection() as conn:
             conn.execute(

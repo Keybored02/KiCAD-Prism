@@ -40,8 +40,12 @@ def _scrub(path: str, answer):
 def _secrets_in(provider) -> list[str]:
     found = []
     for name, value in vars(provider).items():
-        if isinstance(value, str) and len(value) >= 6 and re.search(r"key|secret|token|password|id", name, re.I) and not name.startswith("_client"):
+        if isinstance(value, str) and len(value) >= 6 and re.search(r"key|secret|token|password|id", name, re.I):
             found.append(value)
+    # Whatever the connector was given, however the adapter names it.
+    given = getattr(getattr(provider, "_config", None), "credentials", None)
+    if isinstance(given, dict):
+        found.extend(value for value in given.values() if isinstance(value, str) and len(value) >= 6)
     return found
 
 

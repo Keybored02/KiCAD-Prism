@@ -20,6 +20,7 @@ from app.services.supply.http_client import ConnectFailed, HttpResponse, SafeHtt
 from app.services.supply.providers.base import (  # noqa: E402
     AuthError,
     EgressBlocked,
+    HostDenied,
     ProviderError,
     RateLimited,
     ResponseTooLarge,
@@ -165,6 +166,17 @@ class RedirectTests(unittest.TestCase):
         client, transport = _client(_response(302, location="/v2/search"), _response(200, {"ok": 1}))
         self.assertEqual(client.request_json("GET", "https://api.example.com/v1/search"), {"ok": 1})
         self.assertEqual(transport.calls[1]["url"], "https://api.example.com/v2/search")
+
+    def test_a_denied_host_is_refused_on_the_first_address_and_on_a_redirect(self) -> None:
+        denied = lambda host: host == "bad.example.org"  # noqa: E731
+        client, transport = _client(_response(302, location="https://bad.example.org/f.pdf"), _response(200, {}), allowed=None, host_denied=denied)
+        with self.assertRaises(HostDenied):
+            client.request("GET", "https://api.example.com/x")
+        self.assertEqual(len(transport.calls), 1, "the denied host is never contacted")
+        client, transport = _client(_response(200, {}), allowed=None, host_denied=denied)
+        with self.assertRaises(HostDenied):
+            client.request("GET", "https://bad.example.org/x")
+        self.assertEqual(transport.calls, [])
 
     def test_every_hop_is_validated(self) -> None:
         client, transport = _client(_response(302, location="https://evil.example.org/"), _response(200, {}))

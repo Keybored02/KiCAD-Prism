@@ -1,8 +1,8 @@
 """A person's sign-in at DigiKey, for change notices. Administrators only.
 
 ``POST /api/supply/connectors/{id}/signin`` gives the DigiKey address to open; DigiKey sends the browser back to
-``GET /api/supply/oauth/digikey/callback``, which keeps the grant and returns to the Connectors tab with the result
-in the address. The callback needs the same administrator's session and the one-time state from the start.
+``GET /api/supply/oauth/digikey/callback``, which keeps the grant and returns to the Connectors tab with a result code
+in the address (``signin=ok`` or ``signin=failed&reason=<code>``). The page words the code itself. The callback needs the same administrator's session and the one-time state from the start.
 """
 
 from __future__ import annotations
@@ -71,16 +71,16 @@ async def digikey_callback(
     error: Optional[str] = Query(default=None, max_length=200),
     admin: AuthenticatedUser = Depends(require_admin),
 ) -> RedirectResponse:
-    def back(result: str, message: str = "") -> RedirectResponse:
-        query = urlencode({"signin": result, **({"message": message[:200]} if message else {})})
+    def back(result: str, reason: str = "") -> RedirectResponse:
+        query = urlencode({"signin": result, **({"reason": reason} if reason else {})})
         return RedirectResponse(f"{RETURN_TO}&{query}", status_code=303)
 
     if error:
-        return back("failed", "DigiKey did not give access.")
+        return back("failed", "denied")
     try:
         await asyncio.to_thread(oauth.finish, _service(), state or "", code or "", admin.email)
     except oauth.SignInError as exc:
-        return back("failed", str(exc))
+        return back("failed", exc.reason)
     except (ConnectorNotFound, SecretStoreLocked):
-        return back("failed", "The connector or its credentials cannot be read.")
+        return back("failed", "unreadable")
     return back("ok")

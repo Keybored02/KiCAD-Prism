@@ -175,12 +175,19 @@ def allow(conn, host: str, actor: str) -> None:
     write_audit(conn, actor, "datasheet.allow_host", host.strip().lower(), {}, subject_kind="datasheet_host")
 
 
-def fetch(url: str, client: Any | None = None) -> bytes:
-    """The bytes at ``url`` if it is a PDF within the size cap."""
+def denied_check(conn) -> Callable[[str], bool]:
+    """A test of a host name against the deny list as it stands now, for every hop of a fetch."""
+
+    hosts = [row["host"] for row in denied_hosts(conn)]
+    return lambda host: any(host == denied or host.endswith("." + denied) for denied in hosts)
+
+
+def fetch(url: str, client: Any | None = None, denied: Callable[[str], bool] | None = None) -> bytes:
+    """The bytes at ``url`` if it is a PDF within the size cap. ``denied`` is checked on the first address and on every redirect."""
 
     if not url.lower().startswith("https://"):
         raise DatasheetError("The datasheet address is not HTTPS.")
-    http = client or SafeHttpClient(None, max_bytes=MAX_BYTES)
+    http = client or SafeHttpClient(None, max_bytes=MAX_BYTES, host_denied=denied)
     try:
         body = http.request("GET", url, headers={"Accept": "application/pdf,*/*;q=0.5"}).body
     except ProviderError as exc:
@@ -333,7 +340,8 @@ def check_part(store, part_id: str, url: str, now: datetime, client: Any | None 
         with store.connection() as conn:
             if is_denied(conn, url):
                 raise DatasheetError("host_denied")
-        data = fetch(url, client)
+            denied = denied_check(conn)
+        data = fetch(url, client, denied)
         with store.connection() as conn:
             created = store_version(conn, part_id, url, data, now)
             _record_check(conn, part_id, url, now, "new" if created else "unchanged", failed=False)
