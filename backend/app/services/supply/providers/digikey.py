@@ -3,8 +3,8 @@
 Written against the Swagger 2.0 description DigiKey publishes for "ProductSearch Api"
 (developer.digikey.com, the "Download Swagger File" link on the ProductSearch pages): host
 ``api.digikey.com``, base path ``/products/v4``, token URL ``https://api.digikey.com/v1/oauth2/token``.
-It has not been run against the live service yet; a recorded answer should replace the schema-shaped
-fixtures in the tests as soon as a key is available.
+It has run against the live service; the answers for LM358DR (2026-10-14) are replayed in
+``tests/test_supply_recorded_answers.py``. The unit tests still use small schema-shaped answers for the odd cases.
 
 * Authentication: OAuth 2.0 client credentials. ``POST /v1/oauth2/token`` with ``client_id``,
   ``client_secret`` and ``grant_type=client_credentials``; the answer is a bearer token with
