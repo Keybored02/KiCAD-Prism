@@ -16,9 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
-from app.services.supply import admission, parts, tracking, usage, watches
+from app.services.supply import admission, budget_view, parts, tracking, usage, watches
 
 router = APIRouter(prefix="/api/supply/tracking", tags=["supply"])
+budget_router = APIRouter(prefix="/api/supply", tags=["supply"])
 
 T = TypeVar("T")
 
@@ -189,3 +190,14 @@ async def stop_tracking_part(part_id: str, user: AuthenticatedUser = Depends(req
             watches.stop_tracking(conn, part_id, user.email)
 
     await _run(run)
+
+
+@budget_router.get("/budget")
+async def budget(_user: AuthenticatedUser = Depends(require_supply_reader)) -> list[dict[str, Any]]:
+    """Where each connector's call budget goes, today and over two weeks, and what tracking costs. Everyone who reads supply may see it."""
+
+    def read() -> list[dict[str, Any]]:
+        with _store().connection() as conn:
+            return budget_view.view(conn, datetime.now(timezone.utc))
+
+    return await _run(read)

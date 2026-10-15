@@ -62,6 +62,7 @@ class TrackingApiTests(unittest.TestCase):
         ), replace=True)
         cls.app = FastAPI()
         cls.app.include_router(supply_tracking.router)
+        cls.app.include_router(supply_tracking.budget_router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
         cls.patcher.start()
@@ -155,6 +156,24 @@ class TrackingApiTests(unittest.TestCase):
         self.assertEqual(self.call("GET", f"/parts/{part}").json["tier"]["rate"], "monthly")
         self.assertEqual(self.call("DELETE", f"/parts/{part}").status, 204)
         self.assertIsNone(self.call("GET", f"/parts/{part}").json["tier"])
+
+    def test_the_budget_view_shows_shares_spending_and_what_tracking_costs(self) -> None:
+        cid = self.connector(budget=40, reserve=10)
+        self.call("PUT", "/projects/prj_1", body={"variants": [""]})
+        from app.services.supply import ledger
+
+        spent = ledger.spend_call(self.store, self.connectors.get(cid), now=datetime.now(timezone.utc), interactive=True, kind="search", purpose="interactive")
+        self.assertTrue(spent)
+        response = _request(self.app, "GET", "/api/supply/budget", user=self.users["qa"])
+        self.assertEqual(response.status, 200, response.text)
+        (item,) = response.json
+        self.assertEqual((item["daily_budget"], item["committed"]["capacity"], item["pool"]["capacity"]), (40, 36, 4))
+        self.assertEqual((item["pool"]["spent"], item["spent"]), (1, 1))
+        self.assertEqual(item["tracking"]["admitted"], 3)
+        self.assertEqual([p["project_id"] for p in item["owners"]["projects"]], ["prj_1"])
+        self.assertEqual(len(item["owners"]["parts"]), 3)
+        self.assertEqual(item["hourly"][0]["purpose"], "interactive")
+        self.assertEqual(_request(self.app, "GET", "/api/supply/budget", user=self.users["viewer"]).status, 403)
 
     def test_a_bad_tier_or_unknown_part_is_refused(self) -> None:
         self.connector()
