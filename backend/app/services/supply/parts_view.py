@@ -7,6 +7,7 @@ no marketplace stock, pooling per provider). A part with a watch is "watched".
 from __future__ import annotations
 
 import json
+import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -407,6 +408,35 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     return series
 
 
+LEAD_TREND_DAYS = 90
+LEAD_TREND_WINDOW_DAYS = 14
+LEAD_TREND_MIN_CHANGE_DAYS = 7
+
+
+def lead_time_trend(conn, part_id: str, now: datetime) -> dict[str, Any] | None:
+    """How the quoted lead time moved over the last 90 days: the median of the first two weeks of readings against the last two.
+    None without lead times in both windows, or when the change is under a week."""
+
+    rows = conn.execute(
+        """
+        SELECT s.sampled_at, s.lead_time_days FROM samples s JOIN listings l ON l.id = s.listing_id
+        WHERE l.part_id = %s AND s.lead_time_days IS NOT NULL AND s.sampled_at >= %s ORDER BY s.sampled_at
+        """,
+        (part_id, now - timedelta(days=LEAD_TREND_DAYS)),
+    ).fetchall()
+    if len(rows) < 2:
+        return None
+    window = timedelta(days=LEAD_TREND_WINDOW_DAYS)
+    first = [row["lead_time_days"] for row in rows if row["sampled_at"] <= rows[0]["sampled_at"] + window]
+    last = [row["lead_time_days"] for row in rows if row["sampled_at"] >= rows[-1]["sampled_at"] - window]
+    if rows[-1]["sampled_at"] - rows[0]["sampled_at"] < window * 2:
+        return None
+    before, after = statistics.median(first), statistics.median(last)
+    if abs(after - before) < LEAD_TREND_MIN_CHANGE_DAYS:
+        return None
+    return {"before": round(before), "after": round(after), "since": rows[0]["sampled_at"].date().isoformat()}
+
+
 def _alternate_for(conn, part_id: str) -> list[dict[str, Any]]:
     """For each catalog component that lists this part as an approved alternate, what its parts hold together."""
 
@@ -427,11 +457,11 @@ def _first_seen(conn, part_id: str) -> str | None:
     return row["created_at"].date().isoformat() if row else None
 
 
-def _with_lead_gap(insight: dict[str, Any], listings: list[dict[str, Any]]) -> dict[str, Any]:
+def _with_lead_gap(insight: dict[str, Any], listings: list[dict[str, Any]], trend: dict[str, Any] | None = None) -> dict[str, Any]:
     """Add how far ahead of the soonest restock stock is expected to run out: the shortest lead time any counted listing quotes."""
 
     leads = [item["offer"]["lead_time_days"] for item in listings if item["counted"] and item["offer"] and item["offer"].get("lead_time_days")]
-    return insight | {"lead_gap_days": insights.lead_gap_days(insight, min(leads) if leads else None)}
+    return insight | {"lead_gap_days": insights.lead_gap_days(insight, min(leads) if leads else None), "lead_time_trend": trend}
 
 
 def insight_from(days: list[dict[str, Any]], threshold: int | None, now: datetime) -> dict[str, Any]:
@@ -605,5 +635,5 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "used_in": usage.used_in(conn, part_id, role),
         "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
         "alternate_for": _alternate_for(conn, part_id),
-        "insight": _with_lead_gap(insight_from(days, watch_row["threshold"], now), listings),
+        "insight": _with_lead_gap(insight_from(days, watch_row["threshold"], now), listings, lead_time_trend(conn, part_id, now)),
     }

@@ -183,3 +183,21 @@ class MarketDatabaseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SignalTests(unittest.TestCase):
+    def test_a_group_going_out_of_stock_or_stretching_its_lead_times_is_a_signal(self) -> None:
+        from app.services.supply import market
+
+        def scope(name, sample, **metrics):
+            return {"scope": name, "kind": "manufacturer", "sample": sample, "metrics": {k: {"value": v[1], "before": v[0]} for k, v in metrics.items()}}
+
+        found = market.signals([
+            scope("Acme", 6, out_of_stock=(0.1, 0.4), median_lead_time_days=(40, 80)),
+            scope("Calm", 6, out_of_stock=(0.1, 0.15), median_lead_time_days=(40, 45)),
+            scope("Tiny", 2, out_of_stock=(0.0, 1.0)),
+            scope("New", 6, out_of_stock=(None, 0.9)),
+            {"scope": "All followed parts", "kind": "all", "sample": 20, "metrics": {"out_of_stock": {"value": 0.9, "before": 0.1}}},
+        ])
+        self.assertEqual([(item["scope"], item["signal"]) for item in found], [("Acme", "draining"), ("Acme", "lead_times")])
+        self.assertIn("40% of the parts you follow are out of stock, up from 10%", found[0]["text"])

@@ -156,3 +156,23 @@ class ShapeTests(unittest.TestCase):
         self.assertIsNone(insights.lead_gap_days({"days_to_zero": 40, "confidence": "high"}, 30))
         self.assertIsNone(insights.lead_gap_days({"days_to_zero": 10, "confidence": "low"}, 30), "not believable enough")
         self.assertIsNone(insights.lead_gap_days({"days_to_zero": 10, "confidence": "high"}, None))
+
+
+class UnusualTests(unittest.TestCase):
+    def test_a_one_day_collapse_is_an_anomaly_but_a_slow_fall_or_a_new_listing_is_not(self) -> None:
+        found = insights.analyse(series([1000, 980, 960, 100, 95, 90]))["anomalies"]
+        self.assertEqual([(item["from"], item["to"]) for item in found], [(960, 100)])
+        self.assertEqual(insights.analyse(series([1000, 900, 800, 700, 600, 500]))["anomalies"], [])
+        cut = [Point(START + timedelta(days=index), value, 2 if index < 3 else 1) for index, value in enumerate([1000, 1000, 1000, 100, 100])]
+        self.assertEqual(insights.analyse(cut)["anomalies"], [], "a listing that stopped counting is coverage, not stock")
+        self.assertEqual(insights.analyse(series([40, 5, 5, 5, 5]))["anomalies"], [], "too small a level to notice")
+
+    def test_seasonality_needs_more_than_a_year_and_names_the_months(self) -> None:
+        short = [Point(START + timedelta(days=index), 100, 1) for index in range(200)]
+        self.assertIsNone(insights.analyse(short)["seasonality"])
+        days = [START + timedelta(days=index * 3) for index in range(260)]
+        long_run = [Point(day, 200 if day.month in (11, 12) else 100, 1) for day in days]
+        found = insights.analyse(long_run)["seasonality"]
+        self.assertIn(found["peak"], (11, 12))
+        self.assertLess(found["index"][found["trough"]], 1)
+        self.assertGreater(found["index"][found["peak"]], 1)

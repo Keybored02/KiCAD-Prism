@@ -49,6 +49,8 @@ export function insightLines(insight: SupplyInsight): string[] {
   return [...lines, ...behaviourLines(insight)];
 }
 
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
 /** How the stock has behaved over the whole history, as plain sentences. */
 function behaviourLines(insight: SupplyInsight): string[] {
   const lines: string[] = [];
@@ -63,5 +65,10 @@ function behaviourLines(insight: SupplyInsight): string[] {
     lines.push(`${count} ${count === 1 ? "distributor" : "distributors"} ${insight.sources_change < 0 ? "stopped" : "started"} holding it over this history.`);
   }
   if (insight.concentration !== null && insight.concentration !== undefined && insight.concentration >= 0.8) lines.push("Nearly all of the stock is at one distributor.");
+  const trend = insight.lead_time_trend;
+  if (trend) lines.push(`The quoted lead time went from ${trend.before} to ${trend.after} days since ${trend.since}.`);
+  for (const item of insight.anomalies ?? []) lines.push(`On ${item.day} stock fell from ${item.from.toLocaleString()} to ${item.to.toLocaleString()} in one step, which ordinary use does not do.`);
+  const season = insight.seasonality;
+  if (season) lines.push(`Over the year it runs highest in ${MONTHS[season.peak - 1]} and lowest in ${MONTHS[season.trough - 1]}.`);
   return lines;
 }

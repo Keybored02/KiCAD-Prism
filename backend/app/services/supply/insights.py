@@ -101,11 +101,15 @@ def analyse(points: Sequence[Point], *, threshold: int | None = None, today: dat
         "volatility": None,
         "sources_change": None,
         "concentration": None,
+        "anomalies": [],
+        "seasonality": None,
         "inputs": {"points": len(points), "span_days": 0, "points_in_run": 0, "current": points[-1].stock if points else None},
     }
     if len(points) < 2:
         return result
     result |= _shape(points)
+    result["anomalies"] = anomalies(points)
+    result["seasonality"] = seasonality(points)
 
     span = (points[-1].day - points[0].day).days
     restock_days: list[date] = []
@@ -177,6 +181,50 @@ def _shape(points: Sequence[Point]) -> dict[str, Any]:
     if points[-1].concentration is not None:
         shape["concentration"] = round(points[-1].concentration, 2)
     return shape
+
+
+MAX_ANOMALIES = 5
+# A single day in which stock falls by this share of a level that was worth noticing is not ordinary use.
+ANOMALY_DROP_SHARE = 0.7
+ANOMALY_MIN_LEVEL = 50
+SEASON_MIN_SPAN_DAYS = 540
+SEASON_MIN_POINTS = 120
+SEASON_MIN_PER_MONTH = 5
+
+
+def anomalies(points: Sequence[Point]) -> list[dict[str, Any]]:
+    """Days on which stock fell by most of a notable level between two readings with the same coverage: a block order, a
+    recall or a reporting change look like this, and ordinary use does not. The most recent few, newest first."""
+
+    found = [
+        {"day": after.day.isoformat(), "from": before.stock, "to": after.stock}
+        for before, after in zip(points, points[1:])
+        if before.listings == after.listings and before.stock >= ANOMALY_MIN_LEVEL
+        and after.stock <= before.stock * (1 - ANOMALY_DROP_SHARE) and (after.day - before.day).days <= 3
+    ]
+    return found[::-1][:MAX_ANOMALIES]
+
+
+def seasonality(points: Sequence[Point]) -> dict[str, Any] | None:
+    """How stock runs by month of the year against its average, once there is more than a year of history. None before that.
+
+    ``index`` is the month's average stock over the overall average (1 is typical) for months with enough readings."""
+
+    if len(points) < SEASON_MIN_POINTS or (points[-1].day - points[0].day).days < SEASON_MIN_SPAN_DAYS:
+        return None
+    overall = statistics.fmean(point.stock for point in points)
+    if overall <= 0:
+        return None
+    by_month: dict[int, list[int]] = {}
+    for point in points:
+        by_month.setdefault(point.day.month, []).append(point.stock)
+    index = {
+        month: round(statistics.fmean(values) / overall, 2)
+        for month, values in sorted(by_month.items()) if len(values) >= SEASON_MIN_PER_MONTH
+    }
+    if len(index) < 6:
+        return None
+    return {"index": index, "peak": max(index, key=index.__getitem__), "trough": min(index, key=index.__getitem__)}
 
 
 def lead_gap_days(insight: dict[str, Any], lead_time_days: int | None) -> int | None:

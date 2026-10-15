@@ -76,6 +76,28 @@ class SummaryCacheTests(unittest.TestCase):
             (item,) = self.parts_view.summaries_for(conn, [self.watch.part_id])
         self.assertEqual(item["jlc"], {"library": "Basic", "preferred": True})
 
+    def test_a_lead_time_that_moved_over_three_months_is_a_trend_and_a_small_move_is_not(self) -> None:
+        from datetime import timedelta
+
+        def sample(days_ago: int, lead: int) -> None:
+            with self.store.connection() as conn:
+                conn.execute(
+                    "INSERT INTO samples (listing_id, sampled_at, stock, lead_time_days) VALUES ('l1', %s, 100, %s)",
+                    (NOW - timedelta(days=days_ago), lead),
+                )
+
+        with self.store.connection() as conn:
+            self.assertIsNone(self.parts_view.lead_time_trend(conn, self.watch.part_id, NOW), "no readings")
+        for days_ago, lead in ((80, 28), (75, 28), (5, 70), (1, 70)):
+            sample(days_ago, lead)
+        with self.store.connection() as conn:
+            self.assertEqual(self.parts_view.lead_time_trend(conn, self.watch.part_id, NOW), {"before": 28, "after": 70, "since": (NOW - timedelta(days=80)).date().isoformat()})
+            conn.execute("DELETE FROM samples")
+        for days_ago, lead in ((80, 28), (5, 30)):
+            sample(days_ago, lead)
+        with self.store.connection() as conn:
+            self.assertIsNone(self.parts_view.lead_time_trend(conn, self.watch.part_id, NOW), "two days is not a trend")
+
     def test_a_new_reading_makes_it_stale(self) -> None:
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:

@@ -168,6 +168,8 @@ export interface SupplyMarket {
   day: string | null;
   compared_with?: string | null;
   min_sample?: number;
+  /** Groups where something is moving together: more out of stock than a month ago, or lead times stretching. */
+  signals?: Array<{ kind: "manufacturer" | "category"; scope: string; signal: "draining" | "lead_times"; text: string }>;
   scopes: Array<{
     scope: string;
     kind: "all" | "manufacturer" | "category";
@@ -670,6 +672,12 @@ export interface SupplyInsight {
   concentration?: number | null;
   /** Days by which stock is expected to run out before a new order could arrive. */
   lead_gap_days?: number | null;
+  /** Days on which stock collapsed in one step, newest first. */
+  anomalies?: Array<{ day: string; from: number; to: number }>;
+  /** How stock runs by month of the year, once there is more than a year of history. */
+  seasonality?: { index: Record<string, number>; peak: number; trough: number } | null;
+  /** The quoted lead time, early in the last 90 days against late. */
+  lead_time_trend?: { before: number; after: number; since: string } | null;
   inputs: { points: number; span_days: number; points_in_run: number; current: number | null };
 }
 

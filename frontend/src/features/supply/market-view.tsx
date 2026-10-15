@@ -33,6 +33,11 @@ export function MarketView() {
         Figures over the parts that are watched or on a project BOM, read from the distributors you connect. They describe your own
         parts, not the market, and a manufacturer or category shows only with at least {market.min_sample ?? 3} such parts. One snapshot is kept a day.
       </p>
+      {market.signals && market.signals.length > 0 ? (
+        <ul aria-label="Signals" className="space-y-1 border border-warning/40 p-2 text-sm">
+          {market.signals.map((item) => <li key={`${item.scope}:${item.signal}`}>{item.text}</li>)}
+        </ul>
+      ) : null}
       {market.scopes.length === 0 ? (
         <p className="text-sm">
           {market.day === null

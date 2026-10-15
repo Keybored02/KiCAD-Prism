@@ -194,7 +194,39 @@ def overview(conn, today: date | None = None) -> dict[str, Any]:
             if target and row["metric"] in target["metrics"]:
                 target["metrics"][row["metric"]]["before"] = float(row["value"])
     ordered = sorted(scopes.values(), key=lambda item: (item["kind"] != "all", -item["sample"], item["scope"].lower()))
-    return {"day": latest_day.isoformat(), "compared_with": before_day.isoformat() if before_day else None, "min_sample": MIN_SAMPLE, "scopes": ordered}
+    return {
+        "day": latest_day.isoformat(), "compared_with": before_day.isoformat() if before_day else None, "min_sample": MIN_SAMPLE,
+        "scopes": ordered, "signals": signals(ordered),
+    }
+
+
+SIGNAL_OUT_OF_STOCK_RISE = 0.2
+SIGNAL_LEAD_RISE = 0.25
+SIGNAL_LEAD_MIN_DAYS = 14
+
+
+def signals(scopes: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Groups where something is moving together: more of a manufacturer's or a category's parts out of stock than a month
+    ago, or its lead times stretching. A group is only judged with a figure from a month earlier and enough parts."""
+
+    found: list[dict[str, Any]] = []
+    for scope in scopes:
+        if scope["kind"] == "all" or scope["sample"] < MIN_SAMPLE:
+            continue
+        metrics = scope["metrics"]
+        stock = metrics.get("out_of_stock")
+        if stock and stock["before"] is not None and stock["value"] - stock["before"] >= SIGNAL_OUT_OF_STOCK_RISE:
+            found.append({
+                "kind": scope["kind"], "scope": scope["scope"], "signal": "draining", "was": stock["before"], "now": stock["value"],
+                "text": f"{scope['scope']}: {round(stock['value'] * 100)}% of the parts you follow are out of stock, up from {round(stock['before'] * 100)}%.",
+            })
+        lead = metrics.get("median_lead_time_days")
+        if lead and lead["before"] and lead["value"] - lead["before"] >= SIGNAL_LEAD_MIN_DAYS and lead["value"] >= lead["before"] * (1 + SIGNAL_LEAD_RISE):
+            found.append({
+                "kind": scope["kind"], "scope": scope["scope"], "signal": "lead_times", "was": lead["before"], "now": lead["value"],
+                "text": f"{scope['scope']}: the median lead time is {round(lead['value'])} days, up from {round(lead['before'])}.",
+            })
+    return found
 
 
 def history(conn, metric: str, today: date | None = None) -> dict[str, Any]:
