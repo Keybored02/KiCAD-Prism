@@ -167,6 +167,27 @@ class TrackingTests(unittest.TestCase):
             self.assertEqual(self.tracking.sync_projects(conn), {"parts_created": 0})
         self.assertEqual(self.tier("Acme", "R-2")["tier"], 1)
 
+    def test_the_migration_puts_existing_watches_in_tier_two_and_turns_a_packaging_policy_into_a_pick(self) -> None:
+        from app.services.supply import schema_migrations
+
+        with self.store.connection() as conn:
+            connector = "mig-c"
+            conn.execute("INSERT INTO connectors (id, provider, display_name) VALUES (%s, 'fake', 'Sim')", (connector,))
+            watch, _ = self.watches.add_watch(conn, "Acme", "OLD-1", ACTOR, packaging="tape_reel")
+            for sku, packaging in (("B-CT", "cut_tape"), ("A-REEL", "tape_reel"), ("C-REEL", "tape_reel")):
+                conn.execute(
+                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state, packaging) "
+                    "VALUES (%s, %s, %s, %s, 'x', 'Acme', 'exact', %s)", (sku, connector, sku, watch.part_id, packaging))
+            # Back to how the data looked before tiers: a watch with a packaging policy and nothing derived from it.
+            conn.execute("DELETE FROM part_tiers")
+            conn.execute("DELETE FROM packaging_picks")
+            conn.execute("UPDATE watches SET origin = 'legacy'")
+            schema_migrations._m035_tracking(conn)
+            tier = self.tracking.tier_of(conn, watch.part_id)
+            picks = conn.execute("SELECT listing_id, picked_by FROM packaging_picks").fetchall()
+        self.assertEqual((tier["tier"], tier["rate"], [r["kind"] for r in tier["reasons"]]), (2, "weekly", ["legacy"]))
+        self.assertEqual([(r["listing_id"], r["picked_by"]) for r in picks], [("A-REEL", "migration")], "the first listing of that packaging, by SKU")
+
     def test_a_part_without_a_manufacturer_is_skipped(self) -> None:
         self.project("p1", [component("R1", "", "R-1"), component("R2", "Acme", "R-2")])
         result = self.track("p1")
