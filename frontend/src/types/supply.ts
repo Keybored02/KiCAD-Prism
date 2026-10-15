@@ -800,20 +800,23 @@ export type ReleaseCheck =
       tracked: number;
       not_tracked: number;
       needing_a_look: number;
+      /** Rows of the BOM that name no part number, which the check cannot look at. */
+      without_number: number;
       attention: ReleaseCheckLine[];
       lines: ReleaseCheckLine[];
-      /** The same check for each named design variant, when the design has any. */
-      variants?: Record<string, ReleaseCheckVariant>;
     };
 
-export interface ReleaseCheckVariant {
+/** The supply check frozen when a release was published, kept beside the release record. */
+export interface ReleaseSnapshot {
+  id: string;
+  build_id: string;
+  tag: string;
+  created_at: string;
   health: number | null;
   status: SupplyStatus;
-  parts: number;
-  tracked: number;
-  not_tracked: number;
-  needing_a_look: number;
-  attention: ReleaseCheckLine[];
+  assessment: { parts: number; tracked: number; not_tracked: number; needing_a_look: number; attention: ReleaseCheckLine[] };
+  avl: Record<string, { manufacturer: string; mpn: string; alternates: Array<{ manufacturer: string; mpn: string }> }>;
+  compliance: unknown;
 }
 
 export type AssessmentSeverity = "ok" | "warning" | "error" | "fatal";

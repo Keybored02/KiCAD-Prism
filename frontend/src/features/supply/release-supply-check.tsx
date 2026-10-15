@@ -6,13 +6,32 @@ import { StatusDot } from "./status-dot";
 import { STATUS_LABEL } from "./supply-format";
 import { useLoaded } from "./use-loaded";
 
+/** The supply check of a release build, loaded once for whoever shows it. Someone who cannot read supply data sees nothing. */
+export function useReleaseCheck(projectId: string, buildId: string) {
+  const fetcher = useCallback((signal: AbortSignal) => getReleaseCheck(projectId, buildId, signal), [projectId, buildId]);
+  return useLoaded<ReleaseCheck>(`${projectId}@${buildId}`, fetcher, "Could not check the BOM");
+}
+
+/** One line: the status as a dot, the health, and how many parts need a look. */
+export function ReleaseSupplySummary({ projectId, buildId }: { projectId: string; buildId: string }) {
+  const check = useReleaseCheck(projectId, buildId);
+  if (check.status !== "ready" || !check.data || !check.data.available) return null;
+  const data = check.data;
+  return (
+    <p className="flex items-center gap-2 text-xs" aria-label="Supply check summary">
+      <StatusDot status={data.status} />
+      <span>{data.health === null ? "No supply data on this BOM yet" : `Supply health ${data.health.toFixed(1)} of 10`}</span>
+      {data.needing_a_look > 0 ? <span className="text-muted-foreground">{data.needing_a_look} to look at</span> : null}
+    </p>
+  );
+}
+
 /**
- * What supply data says about the BOM being released. It informs the release and blocks nothing.
- * Someone who cannot read supply data, or a failed check, sees no card: this is not the release's problem.
+ * What supply data says about the BOM being released: the one the build exported. It informs the release and blocks
+ * nothing. A failed check shows no card: this is not the release's problem.
  */
-export function ReleaseSupplyCheck({ projectId, commit }: { projectId: string; commit: string }) {
-  const fetcher = useCallback((signal: AbortSignal) => getReleaseCheck(projectId, commit, signal), [projectId, commit]);
-  const check = useLoaded<ReleaseCheck>(`${projectId}@${commit}`, fetcher, "Could not check the BOM");
+export function ReleaseSupplyCheck({ projectId, buildId }: { projectId: string; buildId: string }) {
+  const check = useReleaseCheck(projectId, buildId);
   if (check.status === "loading") return <p className="text-xs text-muted-foreground">Checking the BOM against supply data...</p>;
   if (check.status === "error" || !check.data) return null;
   const data = check.data;
@@ -27,22 +46,10 @@ export function ReleaseSupplyCheck({ projectId, commit }: { projectId: string; c
       </div>
       <p className="text-xs text-muted-foreground">
         {data.tracked} of {data.parts} parts tracked
-        {data.not_tracked > 0 ? `, ${data.not_tracked} not yet` : ""}. This is a note for the release; it does not block publishing.
+        {data.not_tracked > 0 ? `, ${data.not_tracked} not yet` : ""}
+        {data.without_number > 0 ? `, ${data.without_number} lines without a part number` : ""}. This is a note for the release; it does not block
+        publishing.
       </p>
-      {data.variants && Object.keys(data.variants).length > 0 ? (
-        <ul aria-label="Design variants" className="space-y-1 text-xs">
-          {Object.entries(data.variants).map(([name, variant]) => (
-            <li key={name} className="flex flex-wrap items-center gap-2">
-              <StatusDot status={variant.status} />
-              <span className="font-medium">{name}</span>
-              <span className="text-muted-foreground">
-                {variant.health === null ? "no supply data" : `health ${variant.health.toFixed(1)}`}
-                {variant.needing_a_look > 0 ? `, ${variant.needing_a_look} to look at` : ""}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
       {data.attention.length > 0 ? (
         <ul aria-label="Parts that need a look" className="divide-y border">
           {data.attention.map((line) => (

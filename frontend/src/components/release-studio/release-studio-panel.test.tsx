@@ -665,7 +665,7 @@ describe("ReleaseStudioPanel", () => {
         await waitFor(() => expect(vi.mocked(api.publishBuild)).toHaveBeenCalledWith(
             "p1",
             "build-1",
-            { tag: "v1.0.0", title: "v1.0.0", notes: "" },
+            { tag: "v1.0.0", title: "v1.0.0", notes: "", attach_compliance_draft: false },
         ));
         expect(await screen.findByRole("link", { name: /github.com\/org\/repo\/releases\/tag\/v1/i })).toBeTruthy();
     });

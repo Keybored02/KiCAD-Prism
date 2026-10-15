@@ -144,7 +144,7 @@ export async function getBuild(projectId: string, buildId: string): Promise<Buil
 export async function publishBuild(
     projectId: string,
     buildId: string,
-    body: { tag: string; title?: string; notes?: string },
+    body: { tag: string; title?: string; notes?: string; attach_compliance_draft?: boolean },
 ): Promise<{ release: { url: string; tag: string; forge: string }; filename: string }> {
     return fetchJson(
         `${base(projectId)}/builds/${encodeURIComponent(buildId)}/publish`,

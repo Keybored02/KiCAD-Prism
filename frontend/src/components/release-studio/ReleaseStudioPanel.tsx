@@ -602,6 +602,7 @@ export function ReleaseStudioPanel({
                                         stage={stage}
                                         states={stageStates}
                                         summaries={stageSummaries}
+                                        supply={selectedDetail?.build.status === "succeeded" ? { projectId, buildId: selectedDetail.build.id } : undefined}
                                         onSelect={(next) => {
                                             if (stageStates[next] !== "locked") setStage(next);
                                         }}

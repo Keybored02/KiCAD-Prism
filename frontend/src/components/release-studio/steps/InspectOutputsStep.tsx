@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ReleaseSupplyCheck, ReleaseSupplySummary } from "@/features/supply/release-supply-check";
 import { cn } from "@/lib/utils";
 
 import * as api from "../api";
@@ -96,6 +97,14 @@ export function InspectOutputsStep({
 
     return (
         <div className="flex h-full min-h-0 flex-1 flex-col">
+            <details className="shrink-0 border-b px-2 py-1">
+                <summary className="cursor-pointer list-none">
+                    <ReleaseSupplySummary projectId={projectId} buildId={detail.build.id} />
+                </summary>
+                <div className="py-2">
+                    <ReleaseSupplyCheck projectId={projectId} buildId={detail.build.id} />
+                </div>
+            </details>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                 <Tabs value={outputView} onValueChange={setOutputView} className="shrink-0 gap-0">
                     <div className="flex items-center gap-2 border-b bg-card px-2">
