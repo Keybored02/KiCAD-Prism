@@ -221,6 +221,31 @@ def refresh(
     return {"updated": updated, "unchanged": skipped, "without_index": missing, "removed": len(gone)}
 
 
+def refresh_one(
+    conn,
+    project: Any,
+    existing_index: Callable[[Any], Mapping[str, Any] | None],
+    now: datetime,
+    visible_roles: Sequence[str] = ALL_ROLES,
+    identities: Identities | None = None,
+) -> str:
+    """Read one project's usage from its semantic index, leaving every other project alone.
+
+    Returns ``updated``, ``unchanged`` or ``without_index`` (nothing to read: the index has not been built).
+    """
+
+    try:
+        payload = existing_index(project)
+    except Exception:  # an unreadable index is this project's problem
+        payload = None
+    if not payload:
+        return "without_index"
+    lines = lines_from_components(payload.get("components") or [], identities)
+    named = {name: lines_from_components(variant_components(payload, name), identities) for name in variant_names(payload)}
+    revision = f"{payload.get('sourceRevisionKey') or ''}|u{USAGE_VERSION}"
+    return "updated" if store_project(conn, str(project.id), str(project.name), revision, lines, now, visible_roles, named) else "unchanged"
+
+
 def project_variants(conn, project_id: str) -> list[str]:
     """The design variants stored for a project."""
 

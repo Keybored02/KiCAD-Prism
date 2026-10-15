@@ -254,6 +254,16 @@ async def require_supply_commenter(user: AuthenticatedUser = Depends(get_current
     return user
 
 
+async def require_supply_tracker(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    """Admin, designer and QA decide what Prism follows: a project, a part's tier, a packaging pick."""
+    if user.auth_type == "kicad_provider":
+        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
+    _require_bearer_scope(user, "api:write")
+    if user.role not in SUPPLY_READ_ROLES:
+        raise HTTPException(status_code=403, detail="Supply read access required")
+    return user
+
+
 async def require_supply_approver(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
     if user.auth_type == "kicad_provider":
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")

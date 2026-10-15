@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from app.services.supply import ledger, parts, trouble
+from app.services.supply import admission, ledger, parts, trouble
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discovery import DiscoveryService
 from app.services.supply.identity import match_key
@@ -122,6 +122,10 @@ class Discoverer:
                         "ON CONFLICT (part_id, connector_id) DO UPDATE SET last_run_at = EXCLUDED.last_run_at, found = EXCLUDED.found",
                         (part_id, connector_id, now, result.total),
                     )
+        if searched:
+            # What the searches found replaces the estimate admission was made on.
+            with self._store.connection() as conn:
+                admission.sync(conn)
         return DiscoverySummary(connector_id, searched=searched, listings=listings, stopped=stopped)
 
     def _search(self, service: DiscoveryService, provider: SupplyProvider, group: list[str], connector_id: str, *, batched: bool):

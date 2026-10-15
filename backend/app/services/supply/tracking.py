@@ -17,7 +17,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
 
-from app.services.supply import parts, usage
+from app.services.supply import admission, parts, usage
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key
 
@@ -95,7 +95,7 @@ def track_project(
     actor = actor_text(actor)
     chosen = list(dict.fromkeys(variants)) or [BASE_VARIANT]
     if not conn.execute("SELECT 1 FROM bom_usage_projects WHERE project_id = %s", (project_id,)).fetchone():
-        raise TrackingError("Prism has not read this project's BOM yet.")
+        raise TrackingError("Prism has not read this project's BOM yet. Open its Visualizers once so the BOM is built.")
     stored = {row["variant"] for row in conn.execute(
         "SELECT DISTINCT variant FROM bom_usage_variants WHERE project_id = %s", (project_id,)
     ).fetchall()} | {BASE_VARIANT}
@@ -126,6 +126,8 @@ def track_project(
                 {"variants": chosen, "connector_ids": list(connector_ids) if connector_ids is not None else None},
                 subject_kind="project")
     recompute(conn)
+    # The distributors may have changed without any tier changing.
+    admission.sync(conn)
     return {"project_id": project_id, "variants": chosen, "parts_created": created, "skipped": skipped}
 
 
@@ -158,6 +160,7 @@ def sync_projects(conn, *, may_create_manufacturer: bool = False, actor: str = "
             except parts.UnknownManufacturer:
                 continue
     recompute(conn)
+    admission.sync(conn)
     return {"parts_created": created}
 
 
@@ -246,6 +249,8 @@ def recompute(conn, part_ids: Iterable[str] | None = None) -> dict[str, int]:
     if stale:
         conn.execute("DELETE FROM part_tiers WHERE part_id = ANY(%s)", (stale,))
         removed = len(stale)
+    if added or changed or removed:
+        admission.sync(conn)
     return {"added": added, "changed": changed, "removed": removed}
 
 

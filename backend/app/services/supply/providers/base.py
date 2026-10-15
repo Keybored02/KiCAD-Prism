@@ -145,6 +145,9 @@ class ProviderSpec:
     groups_by_part: bool = False
     # Manufacturer part numbers one search call can look up (``lookup_mpns``). 1 means one number per call.
     search_batch: int = 1
+    # Stock here is only what the provider can place on a board it assembles; it is never sold to anyone else, and a
+    # tracked part is read here only when the project (or a person) chooses it.
+    assembly_only: bool = False
 
     def __post_init__(self) -> None:
         if not _KEY.match(self.key):

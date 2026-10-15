@@ -192,6 +192,28 @@ def update_watch(
     return get_watch(conn, watch_id)
 
 
+def set_tier(conn, part_id: str, tier: int, rate: str, actor: str) -> WatchRecord:
+    """Put a part in tier 1 or 2 by a person's choice, watching it if it is not watched. Lowers as well as raises."""
+
+    tier, rate = tracking.check_tier(tier, rate)
+    part = parts.get_part(conn, part_id)
+    existing = conn.execute("SELECT id FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    if existing:
+        return update_watch(conn, existing["id"], actor, tier=tier, rate=rate)
+    record, _created = add_watch(conn, part.manufacturer_name, part.mpn, actor, tier=tier, rate=rate)
+    return record
+
+
+def stop_tracking(conn, part_id: str, actor: str) -> bool:
+    """Take a part out of a person's tracking. It stays followed for any other reason (a project, a component)."""
+
+    existing = conn.execute("SELECT id FROM watches WHERE part_id = %s", (part_id,)).fetchone()
+    if existing is None:
+        return False
+    remove_watch(conn, existing["id"], actor)
+    return True
+
+
 def remove_watch(conn, watch_id: str, actor: str) -> None:
     actor = actor_text(actor)
     current = get_watch(conn, watch_id)

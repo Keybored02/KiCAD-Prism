@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from psycopg.errors import UniqueViolation
 
-from app.services.supply import accounts, quota
+from app.services.supply import accounts, admission, quota
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.csv_offers import CsvImportInfo, CsvOfferStore
@@ -211,6 +211,7 @@ class ConnectorService:
                 )
                 write_audit(conn, actor, "connector.create", connector_id,
                        {"provider": spec.key, "storefront": storefront})
+                admission.sync(conn)
                 row = _fetch(conn, connector_id)
         except UniqueViolation:
             raise ConnectorError(
@@ -264,6 +265,8 @@ class ConnectorService:
                 if result.rowcount == 0:
                     raise ConnectorNotFound(connector_id)
                 write_audit(conn, actor, "connector.update", connector_id, {"fields": sorted(fields)})
+                if fields.keys() & {"daily_budget", "interactive_reserve_pct", "enabled"}:
+                    admission.sync(conn)
                 return self._dto_from(conn, _fetch(conn, connector_id))
         except UniqueViolation:
             raise ConnectorError("duplicate", "A connector for this provider and storefront already exists.") from None
@@ -296,6 +299,7 @@ class ConnectorService:
                 if dropped:
                     detail["sign_in_dropped"] = True
             write_audit(conn, actor, "connector.credentials", connector_id, detail)
+            admission.sync(conn)
             return self._dto_from(conn, _fetch(conn, connector_id))
 
     def pause(self, connector_id: str, *, actor: str, reason: str) -> dict[str, Any]:
@@ -330,6 +334,7 @@ class ConnectorService:
             conn.execute("DELETE FROM connectors WHERE id = %s", (connector_id,))
             write_audit(conn, actor, "connector.delete", connector_id,
                    {"provider": row["provider"], "storefront": row["storefront"]})
+            admission.sync(conn)
 
     def record_result(self, connector_id: str, error_code: str | None = None) -> None:
         """Note the outcome of a call. Success clears the error; failure keeps its code."""
