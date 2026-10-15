@@ -37,6 +37,7 @@ root first.
 | `oneoff.py` | Check once: a request lists parts, `read_request_work` has a row for each part and distributor; the worker searches and reads them from the pool, then from spare budget, without tracking anything. |
 | `packaging_picks.py` | One followed listing per part and distributor: the picks waiting, the listings side by side, pick and clear, "same for similar". Only the picked listing is read and counted; `admission.sync` drops a pick whose listing is no longer counted. |
 | `oneoff.py` | Check once: `read_requests` list parts, `read_request_work` has a row per part and distributor; the worker searches and reads them from the pool, then spare budget, without tracking. |
+| `project_supply.py` | The project Supply tab: the stored BOM looked up (parts with tier, waiting and note counts), the builds the project put on the plan, release snapshots judged against today for what changed since, and the line notes. Calls no distributor. |
 | `accounts.py` | Connectors on the same credentials are one account (keyed hash): one ledger, one pacer, one job. |
 | `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account, doubled for a day after a rate limit. |
 | `schedule_settings.py` | The workspace's working week and which spare work is on. Spare budget (`quota.spare_allowance`) opens outside working hours and in the last hours of a provider's day. |
@@ -164,8 +165,7 @@ root first.
 
 `frontend/src/features/supply/` holds the UI, with types in
 `frontend/src/types/supply.ts`. The Supply section (`frontend/src/features/supply/supply-workspace.tsx`, opened
-from the sidebar through `frontend/src/components/workspace.tsx`) owns the Parts
-and Review tabs; add new tabs to its `VIEWS` list. The URL holds the scope
+from the sidebar through `frontend/src/components/workspace.tsx`) owns five tabs (Dashboard, Parts, Review, Insights, Connectors); `frontend/src/features/supply/supply-views.ts` maps old addresses to them and a new tab goes in its `VIEWS` list. The project Supply tab is `frontend/src/features/supply/project-supply-tab.tsx`, mounted by the project page for roles that read supply. Icons come from `frontend/src/features/supply/supply-icons.tsx`; use them in lists, tables, bars and cards. The URL holds the scope
 (`partsScope`), the search (`partsQ`) and the open part (`part`). Formatting and
 the threshold parser live in `frontend/src/features/supply/supply-format.ts`. The Connectors tab mounts from
 `frontend/src/components/workspace/library-manager-workspace.tsx`. Each form

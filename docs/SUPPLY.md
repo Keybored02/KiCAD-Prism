@@ -4,6 +4,23 @@ Prism reads stock, prices and lifecycle of manufacturer parts from distributors,
 warn before a part runs out and to judge a project's BOM. It never buys anything: there are no carts, no order lists
 and no purchase support.
 
+## Where supply shows
+
+| Place | What it answers |
+| --- | --- |
+| **Supply > Dashboard** | What needs a person: counts that open the place that deals with them (at risk, out of stock, end of life, open alerts, waiting for room, packaging picks, review queue), then one list of alerts, then recent changes. |
+| **Supply > Parts** | Every part Prism knows, with the scopes below. Track a part, check a BOM file, read catalog vendors. |
+| **Supply > Review** | Spellings, listings and packaging picks. |
+| **Supply > Insights** | Market and Planning, two views of one tab. |
+| **Supply > Connectors** | Distributor accounts and the call budget. |
+| **Project > Supply** | How one product stands: tracking, its parts, planned builds, releases, line notes. Reads the stored BOM of the default branch, never a checked-out commit. |
+| **Project > Visualizers > BOM** | This BOM line, now. Supply shows only at the latest revision, not at a commit checked out from History. |
+| **Release Studio** | Whether what ships is sourceable, recorded with the release. |
+
+Old addresses still work: `overview` and `inbox` open the Dashboard, `market` and `planning` open Insights, `bom-file` opens
+Parts with the tool. Lists, tables and bars use icons with tooltips; detail views keep their words. Comparing two
+revisions shows no supply.
+
 Who sees what: administrators, designers and QA read supply data. Administrators and designers watch parts, add
 demand and read a part now. QA and administrators approve alternates, aliases and waivers. Only administrators
 manage connectors and settings. Viewers see none of it.
@@ -167,7 +184,7 @@ outlook and raises an alert on watched parts, an error when the last time buy is
 
 ## Market
 
-Supply > Market shows how the parts you follow do as a group, by manufacturer and by category (the one DigiKey or Mouser files the part under) and, once two days are stored, a chart of any figure over time: the share out of stock, the share with a
+Supply > Insights > Market shows how the parts you follow do as a group, by manufacturer and by category (the one DigiKey or Mouser files the part under) and, once two days are stored, a chart of any figure over time: the share out of stock, the share with a
 lifecycle risk, the share every distributor dropped, the median lead time and a price index (100 at the first snapshot, then the median price change of the listings), each with its change since a month ago once
 a month of snapshots exists. It covers watched parts and parts on project BOMs only, a manufacturer needs at least three
 of them, and the number of parts is always shown. It is not the market as a whole.
@@ -183,7 +200,7 @@ shows the same phrase.
 
 ## Planning
 
-Supply > Planning lists every part with open demand against our own stock and what the distributors hold now, shortages
+Supply > Insights > Planning lists every part with open demand against our own stock and what the distributors hold now, shortages
 first. A part is short on the first date the demand so far is more than the supply so far; stock already on its way in
 counts from its own date, and demand with no date is counted last. Demand comes from a part sheet's Demand section or from
 the BOM: **Add to plan** on a project BOM asks for the build's parts (spares included) under a name and a needed-by date,
@@ -205,7 +222,7 @@ counted as *not tracked*. "Read project BOMs" queues the BOM reading of projects
 A symbol can carry its LCSC number in a field named `LCSC`, `LCSC Part #`, `LCSC Part Number` or similar, or in
 `Supplier Part` when `Supplier` is `LCSC` (as EasyEDA exports it). Watching the BOM's parts links that number to the
 part at the LCSC connector, so LCSC is read without a search. After that, a line whose part number Prism does not know
-is still found by its LCSC number. The project overview's Supply card has a design variant picker, and the draft declaration download follows it. A part that only a design variant fits counts as in use, the part sheet says which variants, and the release check assesses each named variant beside the base design.
+is still found by its LCSC number. The project's Supply tab has a design variant picker, and the draft declaration download follows it. The overview shows one line (health) that opens the tab. A part that only a design variant fits counts as in use, the part sheet says which variants, and the release check assesses each named variant beside the base design.
 
 ## Assessment
 
@@ -233,7 +250,7 @@ section.
 
 ## BOM file
 
-Supply > BOM file checks a BOM that is not a project. Choose a CSV (comma, semicolon or tab separated; up to 2 MB and 5,000
+Supply > Parts > Check a BOM file checks a BOM that is not a project. Choose a CSV (comma, semicolon or tab separated; up to 2 MB and 5,000
 rows), confirm which column is the part number, manufacturer, LCSC number, quantity and references (they are guessed from
 the header), set the number of boards, and Prism shows what the parts would cost and whether they can be built, with the
 same rollup as a project BOM. A row needs a part number or an LCSC number. Rows of the same part are added together.
@@ -252,7 +269,7 @@ Each part in the BOM row drawer has a comments list: notes shared by everyone wh
 
 ## Alerts
 
-Supply > Inbox. A watched part raises an alert when it runs out, falls to its threshold, may run out within eight
+Supply > Dashboard. A watched part raises an alert when it runs out, falls to its threshold, may run out within eight
 weeks at the recent rate, rises 20% or more in price over 30 days, changes lifecycle, gets a new datasheet, has a product change notice that announces an ending, is dropped by every distributor,
 or is lost. A condition must hold on two looks at least 30 minutes apart. Acknowledge or snooze an alert; it clears by
 itself. Nothing is sent by email or chat.
