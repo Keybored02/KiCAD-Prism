@@ -60,7 +60,7 @@ def check_connector(
         return _result(False, "unknown_provider", "This provider is not installed on the server.", started)
     if not connector["enabled"] or connector["paused_reason"]:
         return _result(False, "inactive", "The connector is disabled or paused. Resume it first.", started)
-    if spec.metered and not ledger.spend_call(service.store, connector, now=now(), interactive=True):
+    if spec.metered and not ledger.spend_call(service.store, connector, now=now(), interactive=True, kind=ledger.KIND_TEST):
         return _result(False, "budget", "No calls are left in the interactive reserve to spend on a test.", started)
 
     provider = service.load_provider(connector_id)

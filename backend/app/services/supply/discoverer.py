@@ -105,7 +105,7 @@ class Discoverer:
         stopped: str | None = None
         for start in range(0, len(part_ids), group_size):
             group = part_ids[start:start + group_size]
-            if spec.metered and not ledger.spend_call(self._store, connector, now=now):
+            if spec.metered and not ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH):
                 stopped = STOPPED_BUDGET
                 break
             try:

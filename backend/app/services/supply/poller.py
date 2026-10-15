@@ -26,7 +26,7 @@ from app.services.supply.discovery import remember_datasheet
 from app.services.supply.identity import match_key
 from app.services.supply.models import Offer
 from app.services.supply.providers import registry
-from app.services.supply.providers.base import AuthError, ProviderError, RateLimited, SupplyProvider
+from app.services.supply.providers.base import AuthError, Blocked, ProviderError, RateLimited, SupplyProvider
 from app.services.supply.store import SupplyStore, supply_store
 from app.services.supply.vocabulary import Lifecycle
 
@@ -210,7 +210,7 @@ class Poller:
                     ledger.record_calls(self._store, connector_id, extra, now=now, interactive=interactive)
                     calls += extra
             except ProviderError as exc:
-                if not isinstance(exc, (RateLimited, AuthError)):
+                if not isinstance(exc, (RateLimited, AuthError, Blocked)):
                     # Only a failure of this batch is the batch's fault; a rate limit or
                     # bad credentials say nothing about the listings.
                     self._record_failure(batch, now, exc.code)

@@ -55,6 +55,15 @@ class RateLimited(ProviderError):
         self.retry_after_seconds = retry_after_seconds
 
 
+class Blocked(ProviderError):
+    """The service answered a web page or a challenge where data was expected: it has taken Prism for a bot.
+
+    Not an error to retry. The connector is held off for hours and an administrator is told.
+    """
+
+    code = "blocked"
+
+
 class Unavailable(ProviderError):
     code = "unavailable"
 
@@ -93,6 +102,8 @@ class ProviderConfig:
     connector_id: str
     storefront: str = ""
     currency: str = ""
+    # The account the connector belongs to (see ``accounts.py``); connectors of one account share their pacing.
+    account: str = ""
     credentials: Mapping[str, str] = field(default_factory=dict, repr=False)
 
 

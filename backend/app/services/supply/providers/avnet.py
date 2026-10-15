@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 
+from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
@@ -55,7 +56,8 @@ KEY = "avnet"
 BASE_URL = "https://apigw.avnet.com/external/getPriceAndQuantity/"
 TOKEN_URL = "https://apigw.avnet.com/external/getToken/oauth2/v2.0/token"
 ALLOWED_HOSTS = ("apigw.avnet.com",)
-MIN_INTERVAL_SECONDS = 1.0
+# About half the per-minute limit; the pacer draws each gap at random around it (see pacing.py).
+PACE_SECONDS = 1.5
 TOKEN_MARGIN_SECONDS = 60
 # Request lines per call. The definition gives no limit (error 017 says it exists), so this is kept small.
 MAX_LINES = 20
@@ -94,7 +96,7 @@ class AvnetProvider:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic
         self._sleep = sleep
-        self._last_call: float | None = None
+        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
         self._access_token = ""
         self._expires_at = 0.0
 
@@ -118,11 +120,7 @@ class AvnetProvider:
     def _post(self, lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for attempt in (0, 1):
             token = self._token(renew=attempt == 1)
-            if self._last_call is not None:
-                wait = MIN_INTERVAL_SECONDS - (self._monotonic() - self._last_call)
-                if wait > 0:
-                    self._sleep(wait)
-            self._last_call = self._monotonic()
+            self._pacer.wait()
             try:
                 answer = self._client.request_json("POST", BASE_URL, json=lines, headers={
                     "Authorization": f"Bearer {token}", "Ocp-Apim-Subscription-Key": self._subscription_key,

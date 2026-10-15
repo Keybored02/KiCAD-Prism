@@ -87,10 +87,28 @@ class RequestShapeTests(unittest.TestCase):
             client.request("POST", "https://api.example.com/x", json={}, form={})
 
     def test_invalid_json_response(self) -> None:
-        client, _ = _client(HttpResponse(200, {}, b"<html>"))
+        client, _ = _client(HttpResponse(200, {}, b"not json"))
         with self.assertRaises(ProviderError) as raised:
             client.request_json("GET", "https://api.example.com/x")
         self.assertEqual(type(raised.exception), ProviderError)
+
+    def test_a_web_page_where_data_was_expected_is_a_block(self) -> None:
+        from app.services.supply.providers.base import Blocked
+
+        for response in (
+            HttpResponse(200, {"content-type": "text/html; charset=utf-8"}, b"<p>hello</p>"),
+            HttpResponse(200, {}, b"  <!DOCTYPE html><html>"),
+            HttpResponse(403, {"content-type": "text/html"}, b"Access denied"),
+            HttpResponse(429, {}, b"<html>Please verify you are human</html>"),
+        ):
+            client, _ = _client(response)
+            with self.assertRaises(Blocked):
+                client.request_json("GET", "https://api.example.com/x")
+
+    def test_a_403_that_speaks_json_is_still_a_rejected_credential(self) -> None:
+        client, _ = _client(HttpResponse(403, {"content-type": "application/json"}, b'{"error": "no"}'))
+        with self.assertRaises(AuthError):
+            client.request_json("GET", "https://api.example.com/x")
 
 
 class ErrorMappingTests(unittest.TestCase):

@@ -1,17 +1,46 @@
-"""The daily call ledger. Spending is atomic so two workers cannot both win."""
+"""The daily call ledger. Spending is atomic so two workers cannot both win.
+
+The ledger belongs to an account (see ``accounts.py``) and counts the provider's day, which begins at the connector's
+reset time. ``call_counts`` is its breakdown by connector, kind and purpose, written in the same transaction, so the two
+always add up (refusals are counted apart: they were already paid for when the call was made).
+"""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Mapping
 
-from app.services.supply import quota
+from app.services.supply import accounts, quota
+
+# What a call asks for.
+KIND_SEARCH = "search"
+KIND_OFFERS = "offers"
+KIND_NOTICES = "notices"
+KIND_SUBSTANCES = "substances"
+KIND_TEST = "test"
+KIND_REFUSED = "refused"
+KINDS = (KIND_SEARCH, KIND_OFFERS, KIND_NOTICES, KIND_SUBSTANCES, KIND_TEST, KIND_REFUSED)
+
+# What a call is for.
+PURPOSE_COMMITTED = "committed"
+PURPOSE_INTERACTIVE = "interactive"
+PURPOSE_ONE_OFF = "oneoff"
+PURPOSE_SPARE = "spare"
+PURPOSES = (PURPOSE_COMMITTED, PURPOSE_INTERACTIVE, PURPOSE_ONE_OFF, PURPOSE_SPARE)
 
 
-def _day(now: datetime):
-    if now.tzinfo is None:
-        raise ValueError("now must be timezone-aware")
-    return now.astimezone(timezone.utc).date()
+def _purpose(purpose: str | None, interactive: bool) -> str:
+    return purpose or (PURPOSE_INTERACTIVE if interactive else PURPOSE_COMMITTED)
+
+
+def _count(conn, connector_id: str, day, hour: int, kind: str, purpose: str, calls: int) -> None:
+    conn.execute(
+        """
+        INSERT INTO call_counts (connector_id, day, hour, kind, purpose, calls) VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (connector_id, day, hour, kind, purpose) DO UPDATE SET calls = call_counts.calls + EXCLUDED.calls
+        """,
+        (connector_id, day, hour, kind, purpose, calls),
+    )
 
 
 def get_state(
@@ -21,10 +50,12 @@ def get_state(
     daily_budget: int,
     reserve_pct: int,
     now: datetime,
+    reset_time: str = quota.DEFAULT_RESET_TIME,
+    reset_tz: str = quota.DEFAULT_RESET_TZ,
 ) -> quota.QuotaState:
     row = conn.execute(
         "SELECT spent, interactive_spent FROM quota_ledger WHERE connector_id = %s AND day = %s",
-        (connector_id, _day(now)),
+        (connector_id, quota.provider_day(now, reset_time, reset_tz)),
     ).fetchone()
     return quota.QuotaState(
         daily_budget=daily_budget,
@@ -43,16 +74,25 @@ def try_spend(
     daily_budget: int,
     reserve_pct: int,
     now: datetime,
+    reset_time: str = quota.DEFAULT_RESET_TIME,
+    reset_tz: str = quota.DEFAULT_RESET_TZ,
+    kind: str = KIND_OFFERS,
+    purpose: str | None = None,
+    counted_for: str | None = None,
+    delay_seconds: int = 0,
 ) -> bool:
     """Spend ``units`` calls if the budget allows. Returns whether it did.
 
-    The day's row is locked while the allowance is computed, so concurrent
+    ``delay_seconds`` holds background spending back after the provider's reset (``quota.start_delay_seconds``).
+
+    ``connector_id`` is the ledger's owner (the account's first connector); ``counted_for`` is the connector the calls
+    are counted against in ``call_counts``. The day's row is locked while the allowance is computed, so concurrent
     callers see each other's spending. The caller owns the transaction.
     """
 
     if units < 1:
         raise ValueError("units must be at least 1")
-    day = _day(now)
+    day = quota.provider_day(now, reset_time, reset_tz)
     conn.execute(
         "INSERT INTO quota_ledger (connector_id, day) VALUES (%s, %s) ON CONFLICT DO NOTHING",
         (connector_id, day),
@@ -69,7 +109,10 @@ def try_spend(
         reserve_pct=reserve_pct,
     )
     allowance = (
-        quota.interactive_allowance(state) if interactive else quota.background_allowance(state, now)
+        quota.interactive_allowance(state) if interactive
+        else quota.background_allowance(
+            state, now, reset_time=reset_time, tz=reset_tz, delay_seconds=delay_seconds
+        )
     )
     if units > allowance:
         return False
@@ -78,10 +121,14 @@ def try_spend(
         "WHERE connector_id = %s AND day = %s",
         (units, units if interactive else 0, connector_id, day),
     )
+    _count(conn, counted_for or connector_id, day, quota.day_hour(now, reset_time, reset_tz), kind, _purpose(purpose, interactive), units)
     return True
 
 
-def record_calls(store, connector_id: str, units: int, *, now: datetime, interactive: bool = False) -> None:
+def record_calls(
+    store, connector_id: str, units: int, *, now: datetime, interactive: bool = False,
+    kind: str = KIND_OFFERS, purpose: str | None = None,
+) -> None:
     """Count calls that were already made beyond what was reserved, so the day's figure stays true.
 
     Unlike ``try_spend`` it never refuses: the calls happened. It is used when one batch needed more calls than
@@ -90,23 +137,43 @@ def record_calls(store, connector_id: str, units: int, *, now: datetime, interac
 
     if units < 1:
         return
-    day = _day(now)
     with store.connection() as conn:
+        account = accounts.resolve(conn, connector_id)
+        day = quota.provider_day(now, account.reset_time, account.reset_tz)
         conn.execute(
             """
             INSERT INTO quota_ledger (connector_id, day, spent, interactive_spent) VALUES (%s, %s, %s, %s)
             ON CONFLICT (connector_id, day) DO UPDATE SET spent = quota_ledger.spent + EXCLUDED.spent,
                 interactive_spent = quota_ledger.interactive_spent + EXCLUDED.interactive_spent
             """,
-            (connector_id, day, units, units if interactive else 0),
+            (account.ledger_id, day, units, units if interactive else 0),
         )
+        _count(conn, connector_id, day, quota.day_hour(now, account.reset_time, account.reset_tz), kind,
+               _purpose(purpose, interactive), units)
 
 
-def spend_call(store, connector: Mapping, *, now: datetime, interactive: bool = False, units: int = 1) -> bool:
-    """Spend one call for a connector, in its own transaction. Free connectors never get here."""
+def note_refusal(store, connector_id: str, *, now: datetime, purpose: str | None = None) -> None:
+    """Count a call the provider turned away (a rate limit, a block). It was paid for when made, so ``spent`` is unchanged."""
 
     with store.connection() as conn:
+        account = accounts.resolve(conn, connector_id)
+        day = quota.provider_day(now, account.reset_time, account.reset_tz)
+        _count(conn, connector_id, day, quota.day_hour(now, account.reset_time, account.reset_tz), KIND_REFUSED,
+               purpose or PURPOSE_COMMITTED, 1)
+
+
+def spend_call(
+    store, connector: Mapping, *, now: datetime, interactive: bool = False, units: int = 1,
+    kind: str = KIND_OFFERS, purpose: str | None = None,
+) -> bool:
+    """Spend calls for a connector against its account, in their own transaction. Free connectors never get here."""
+
+    with store.connection() as conn:
+        account = accounts.resolve(conn, connector["id"])
         return try_spend(
-            conn, connector["id"], units, interactive=interactive,
-            daily_budget=connector["daily_budget"], reserve_pct=connector["interactive_reserve_pct"], now=now,
+            conn, account.ledger_id, units, interactive=interactive,
+            daily_budget=account.daily_budget, reserve_pct=account.reserve_pct, now=now,
+            reset_time=account.reset_time, reset_tz=account.reset_tz,
+            kind=kind, purpose=purpose, counted_for=connector["id"],
+            delay_seconds=quota.start_delay_seconds(account.ledger_id, quota.provider_day(now, account.reset_time, account.reset_tz)),
         )

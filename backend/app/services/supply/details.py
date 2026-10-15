@@ -19,7 +19,7 @@ from typing import Any, Callable
 
 from app.services.supply import alerts, compliance, facts, ledger, oauth, pcn, trouble, usage
 from app.services.supply.providers import registry
-from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthError, ProviderError, RateLimited, Unavailable
+from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, AuthError, Blocked, ProviderError, RateLimited, Unavailable
 
 REDO_AFTER = timedelta(days=7)
 MAX_PER_RUN = 5
@@ -88,8 +88,8 @@ def run(
     return _substances(service, connector, now, provider, limit)
 
 
-def _spend(service, connector, now: datetime, interactive: bool = False) -> bool:
-    return not connector["metered"] or ledger.spend_call(service.store, connector, now=now, interactive=interactive)
+def _spend(service, connector, now: datetime, interactive: bool = False, *, kind: str = ledger.KIND_NOTICES) -> bool:
+    return not connector["metered"] or ledger.spend_call(service.store, connector, now=now, interactive=interactive, kind=kind)
 
 
 def _notices(service, connector, now, provider, token_for, limit) -> DetailsSummary:
@@ -108,7 +108,8 @@ def _read_notices(service, connector, rows, now, provider, token_for, *, interac
         token = token_for(service, connector_id, now)
     except oauth.NotSignedIn:
         return DetailsSummary(stopped="not_signed_in")
-    except (RateLimited, Unavailable) as exc:
+    except (RateLimited, Unavailable, Blocked) as exc:
+        trouble.react(service, service.store, connector_id, exc, now)
         return DetailsSummary(stopped=exc.code)
     except (ProviderError, oauth.SignInError):
         return DetailsSummary(stopped="unavailable")
@@ -122,7 +123,8 @@ def _read_notices(service, connector, rows, now, provider, token_for, *, interac
         except AuthError:
             oauth.mark_refused(service.store, connector_id)
             return DetailsSummary(read, new, "sign_in_refused")
-        except (RateLimited, Unavailable) as exc:
+        except (RateLimited, Unavailable, Blocked) as exc:
+            trouble.react(service, service.store, connector_id, exc, now)
             return DetailsSummary(read, new, exc.code)
         except ProviderError as exc:
             with service.store.connection() as conn:
@@ -235,11 +237,13 @@ def _substances(service, connector, now, provider, limit) -> DetailsSummary:
     provider = provider or service.load_provider(connector_id)
     read = changed = 0
     for row in rows:
-        if not _spend(service, connector, now):
+        if not _spend(service, connector, now, kind=ledger.KIND_SUBSTANCES):
             return DetailsSummary(read, changed, "budget")
         try:
             found = provider.substances(row["sku"], row["raw_manufacturer"] or "")
-        except (AuthError, RateLimited, Unavailable) as exc:
+        except (AuthError, RateLimited, Unavailable, Blocked) as exc:
+            if not isinstance(exc, AuthError):
+                trouble.react(service, service.store, connector_id, exc, now)
             return DetailsSummary(read, changed, exc.code)
         except ProviderError as exc:
             with service.store.connection() as conn:

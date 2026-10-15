@@ -28,7 +28,7 @@ week per listing (``substances``), with the spelling discovery recorded. Its ans
 
 Mouser's published limits (30 calls a minute, 1,000 a day) are not in the
 description; the default daily budget follows them, and calls from one adapter
-are spaced ``MIN_INTERVAL_SECONDS`` apart so a run cannot burst past the minute.
+are spaced ``PACE_SECONDS`` apart so a run cannot burst past the minute.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 
+from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import match_key
 from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak, Substances
@@ -63,7 +64,8 @@ SEARCH_URL = "https://api.mouser.com/api/v1/search/partnumber"
 SEARCH_V2_URL = "https://api.mouser.com/api/v2/search/partnumberandmanufacturer"
 ALLOWED_HOSTS = ("api.mouser.com",)
 MAX_BATCH = 10
-MIN_INTERVAL_SECONDS = 2.0
+# About half the per-minute limit; the pacer draws each gap at random around it (see pacing.py).
+PACE_SECONDS = 4.0
 
 # Mouser's lifecycle wording, lower case, to the canonical set. Anything else is unknown.
 _LIFECYCLE = {
@@ -104,16 +106,12 @@ class MouserProvider:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic
         self._sleep = sleep
-        self._last_call: float | None = None
+        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
 
     def _post(self, url: str, body: Mapping[str, Any]) -> Any:
         if not self._api_key:
             raise AuthError("Mouser needs an API key")
-        if self._last_call is not None:
-            wait = MIN_INTERVAL_SECONDS - (self._monotonic() - self._last_call)
-            if wait > 0:
-                self._sleep(wait)
-        self._last_call = self._monotonic()
+        self._pacer.wait()
         return self._client.request_json("POST", url, params={"apiKey": self._api_key}, json=body)
 
     def _search(self, numbers: Sequence[str]) -> list[dict[str, Any]]:

@@ -296,10 +296,13 @@ class TmeTests(unittest.TestCase):
 def mouser_provider(client, *, api_key="KEY", sleeps=None, clock=None):
     config = ProviderConfig(connector_id="c2", credentials={"api_key": api_key} if api_key else {})
     ticks = clock or {"t": 0.0}
-    return mouser.MouserProvider(
-        config, client=client, clock=lambda: NOW, monotonic=lambda: ticks["t"],
-        sleep=(sleeps.append if sleeps is not None else (lambda seconds: None)),
-    )
+
+    def sleep(seconds: float) -> None:
+        if sleeps is not None:
+            sleeps.append(seconds)
+        ticks["t"] += seconds
+
+    return mouser.MouserProvider(config, client=client, clock=lambda: NOW, monotonic=lambda: ticks["t"], sleep=sleep)
 
 
 SEARCH = "/api/v1/search/partnumber"
@@ -338,7 +341,9 @@ class MouserTests(unittest.TestCase):
         client = FakeClient({SEARCH: [empty, empty, empty]})
         mouser_provider(client, sleeps=sleeps).get_offers(skus)
         self.assertEqual([len(call["json"]["SearchByPartRequest"]["mouserPartNumber"].split("|")) for call in client.calls], [10, 10, 3])
-        self.assertEqual(sleeps, [mouser.MIN_INTERVAL_SECONDS] * 2, "no burst past Mouser's per-minute limit")
+        self.assertEqual(len(sleeps), 2)
+        for gap in sleeps:
+            self.assertTrue(0.75 * mouser.PACE_SECONDS <= gap <= 1.5 * mouser.PACE_SECONDS, "spaced at random around half Mouser's limit")
 
     def test_lookup_skips_unorderable_numbers_and_impossible_queries(self) -> None:
         answer = copy.deepcopy(MOUSER)

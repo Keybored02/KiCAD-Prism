@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from psycopg.errors import UniqueViolation
 
+from app.services.supply import accounts, quota
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.csv_offers import CsvImportInfo, CsvOfferStore
@@ -24,7 +26,7 @@ from app.services.supply.store import SupplyStore, supply_store
 
 _UPDATABLE = frozenset({
     "display_name", "currency", "enabled", "daily_budget", "interactive_reserve_pct", "retention_days", "keep_days",
-    "storefront",
+    "storefront", "reset_time", "reset_tz",
 })
 _MAX_REASON = 200
 
@@ -68,6 +70,26 @@ def _clean_reserve(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 50:
         raise ConnectorError("invalid_reserve", "Interactive reserve must be between 0 and 50 percent.")
     return value
+
+
+def _clean_reset_time(value: Any) -> str:
+    text = str(value or "").strip()
+    try:
+        hours, minutes = (int(part) for part in text.split(":"))
+    except ValueError:
+        hours = minutes = -1
+    if not (0 <= hours <= 23 and 0 <= minutes <= 59) or len(text) != 5:
+        raise ConnectorError("invalid_reset_time", "The reset time is hours and minutes, such as 00:00.")
+    return text
+
+
+def _clean_reset_tz(value: Any) -> str:
+    text = str(value or "").strip()
+    try:
+        ZoneInfo(text)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ConnectorError("invalid_reset_tz", "The time zone is a name such as UTC or Europe/Rome.") from None
+    return text
 
 
 def _clean_retention(value: Any) -> int | None:
@@ -171,19 +193,20 @@ class ConnectorService:
 
         connector_id = uuid.uuid4().hex
         envelope = sealed.seal(self._keyring(), connector_id, cleaned) if cleaned else None
+        account_key = accounts.key_for(self._keyring(), spec.key, cleaned)
         try:
             with self._store.connection() as conn:
                 conn.execute(
                     """
                     INSERT INTO connectors (
                         id, provider, storefront, display_name, currency,
-                        credential_envelope, credential_names,
+                        credential_envelope, credential_names, account_key,
                         daily_budget, interactive_reserve_pct, created_by
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
                     """,
                     (
                         connector_id, spec.key, storefront, name, currency,
-                        envelope, json.dumps(list(cleaned)), budget, reserve, actor,
+                        envelope, json.dumps(list(cleaned)), account_key, budget, reserve, actor,
                     ),
                 )
                 write_audit(conn, actor, "connector.create", connector_id,
@@ -213,6 +236,10 @@ class ConnectorService:
             fields["daily_budget"] = _clean_budget(changes["daily_budget"])
         if "interactive_reserve_pct" in changes:
             fields["interactive_reserve_pct"] = _clean_reserve(changes["interactive_reserve_pct"])
+        if "reset_time" in changes:
+            fields["reset_time"] = _clean_reset_time(changes["reset_time"])
+        if "reset_tz" in changes:
+            fields["reset_tz"] = _clean_reset_tz(changes["reset_tz"])
         if "retention_days" in changes:
             fields["retention_days"] = _clean_retention(changes["retention_days"])
         if "keep_days" in changes:
@@ -258,9 +285,9 @@ class ConnectorService:
                 raise ConnectorError("invalid_credentials", f"{spec.label} takes no credentials.")
             envelope = sealed.seal(self._keyring(), connector_id, cleaned)
             conn.execute(
-                "UPDATE connectors SET credential_envelope = %s, credential_names = %s::jsonb, "
+                "UPDATE connectors SET credential_envelope = %s, credential_names = %s::jsonb, account_key = %s, "
                 "updated_at = NOW() WHERE id = %s",
-                (envelope, json.dumps(list(cleaned)), connector_id),
+                (envelope, json.dumps(list(cleaned)), accounts.key_for(self._keyring(), spec.key, cleaned), connector_id),
             )
             detail: dict[str, Any] = {"names": list(cleaned)}
             if before != cleaned.get("client_id", ""):
@@ -310,12 +337,13 @@ class ConnectorService:
         with self._store.connection() as conn:
             if error_code is None:
                 conn.execute(
-                    "UPDATE connectors SET last_ok_at = NOW(), last_error_code = '' WHERE id = %s",
+                    "UPDATE connectors SET last_ok_at = NOW(), last_error_code = '', error_streak = 0 WHERE id = %s",
                     (connector_id,),
                 )
             else:
                 conn.execute(
-                    "UPDATE connectors SET last_error_code = %s, last_error_at = NOW() WHERE id = %s",
+                    "UPDATE connectors SET last_error_code = %s, last_error_at = NOW(), error_streak = error_streak + 1 "
+                    "WHERE id = %s",
                     (error_code[:64], connector_id),
                 )
 
@@ -346,6 +374,8 @@ class ConnectorService:
             connector_id=connector_id,
             storefront=row["storefront"],
             currency=row["currency"],
+            # Connectors on one account share their pacing; one with no credentials shares it with its provider's others.
+            account=accounts.pace_key(row["account_key"], row["provider"]),
             credentials=creds,
         ))
 
@@ -371,14 +401,24 @@ class ConnectorService:
         return self._dto(row, self._usage_today(conn).get(row["id"]), self._offers.import_info(conn, row["id"]))
 
     def _usage_today(self, conn) -> dict[str, dict[str, Any]]:
-        today: date = self._clock().astimezone(timezone.utc).date()
-        rows = conn.execute(
-            "SELECT connector_id, spent, interactive_spent FROM quota_ledger WHERE day = %s", (today,)
-        ).fetchall()
-        return {
-            row["connector_id"]: {"spent": int(row["spent"]), "interactive_spent": int(row["interactive_spent"])}
-            for row in rows
+        """Calls spent today per connector. A connector's figure is its account's, on the provider's day."""
+
+        now = self._clock()
+        ledger_rows = {
+            (row["connector_id"], row["day"]): row
+            for row in conn.execute(
+                "SELECT connector_id, day, spent, interactive_spent FROM quota_ledger WHERE day >= %s",
+                (now.astimezone(timezone.utc).date() - timedelta(days=2),),
+            ).fetchall()
         }
+        first_of: dict[str, str] = {}
+        usage: dict[str, dict[str, Any]] = {}
+        for row in conn.execute("SELECT id, account_key, reset_time, reset_tz FROM connectors ORDER BY created_at, id").fetchall():
+            owner = first_of.setdefault(row["account_key"], row["id"]) if row["account_key"] else row["id"]
+            found = ledger_rows.get((owner, quota.provider_day(now, row["reset_time"], row["reset_tz"])))
+            if found:
+                usage[row["id"]] = {"spent": int(found["spent"]), "interactive_spent": int(found["interactive_spent"])}
+        return usage
 
     def _dto(
         self,
@@ -405,6 +445,8 @@ class ConnectorService:
             "interactive_reserve_pct": row["interactive_reserve_pct"],
             "retention_days": row["retention_days"],
             "keep_days": row["keep_days"],
+            "reset_time": row["reset_time"],
+            "reset_tz": row["reset_tz"],
             "metered": spec.metered if spec else True,
             "usage_today": {"spent": 0, "interactive_spent": 0, **(usage or {})},
             "csv_import": csv_import.to_dto() if csv_import else None,

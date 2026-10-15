@@ -51,6 +51,7 @@ from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import quote
 
+from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import match_key
 from app.services.supply.models import ChangeNotice, Offer, PartData, PartMatch, PriceBreak
@@ -78,7 +79,8 @@ AUTHORIZE_URL = "https://api.digikey.com/v1/oauth2/authorize"
 TOKEN_URL = "https://api.digikey.com/v1/oauth2/token"
 ALLOWED_HOSTS = ("api.digikey.com",)
 TOKEN_MARGIN_SECONDS = 30
-MIN_INTERVAL_SECONDS = 0.5
+# About half the per-minute limit; the pacer draws each gap at random around it (see pacing.py).
+PACE_SECONDS = 1.0
 MAX_MATCHES = 10
 
 # DigiKey sites that sell in a currency of their own. A wrong one is corrected by the server, which
@@ -129,7 +131,7 @@ class DigiKeyProvider:
         self._sleep = sleep
         self._access_token = ""
         self._expires_at = 0.0
-        self._last_call: float | None = None
+        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
         self.last_batch_calls = 0
 
     # --- calls --------------------------------------------------------------
@@ -158,11 +160,7 @@ class DigiKeyProvider:
         return headers
 
     def _call(self, method: str, path: str, **kwargs: Any) -> Any:
-        if self._last_call is not None:
-            wait = MIN_INTERVAL_SECONDS - (self._monotonic() - self._last_call)
-            if wait > 0:
-                self._sleep(wait)
-        self._last_call = self._monotonic()
+        self._pacer.wait()
         url = f"{API_URL}{path}"
         try:
             answer = self._client.request_json(method, url, headers=self._headers(self._token()), **kwargs)
@@ -229,11 +227,7 @@ class DigiKeyProvider:
 
         if not user_token:
             raise AuthError("DigiKey change notices need a person's sign-in")
-        if self._last_call is not None:
-            wait = MIN_INTERVAL_SECONDS - (self._monotonic() - self._last_call)
-            if wait > 0:
-                self._sleep(wait)
-        self._last_call = self._monotonic()
+        self._pacer.wait()
         try:
             answer = self._client.request_json("GET", PCN_URL.format(_quote(sku)), headers=self._headers(user_token))
         except ProviderError as exc:

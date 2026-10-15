@@ -1,30 +1,46 @@
 """What to do when a provider call fails. Shared by polling and discovery.
 
-The same three reactions apply to any call, so they live in one place:
+The same reactions apply to any call, so they live in one place. A hold applies to the whole account (every connector on
+the same credentials), since the provider sees one caller:
 
-* rate limited: hold the whole connector off until the provider says
+* rate limited: hold off until the provider says (15 minutes when it does not), count the refusal, and slow the pacing
+  for a day
+* blocked (a web page or challenge where data was expected): hold off for hours, count it, slow the pacing, and leave the
+  code on the connector for an administrator to see
 * credentials rejected: pause the connector so it stops spending anything
-* anything else: note the error code, stop the run, and wait a few minutes before
-  the connector is tried again, so a dead provider is not hit on every scan
+* anything else: note the error code, stop the run, and wait before the connector is tried again, longer with each
+  failure in a row and with some random spread, so a dead provider is not hit on every scan
 """
 
 from __future__ import annotations
 
+import random
 from datetime import datetime, timedelta
 
+from app.services.supply import accounts, ledger, pacing
 from app.services.supply.connectors import ConnectorService
-from app.services.supply.providers.base import AuthError, ProviderError, RateLimited
+from app.services.supply.providers.base import AuthError, Blocked, ProviderError, RateLimited
 from app.services.supply.store import SupplyStore
 
 RATE_LIMIT_DEFAULT = timedelta(minutes=15)
 ERROR_COOLDOWN = timedelta(minutes=5)
+ERROR_COOLDOWN_CAP = timedelta(hours=6)
+BLOCK_COOLDOWN = timedelta(hours=12)
 # A provider's own Retry-After is believed, but not beyond this.
 MAX_COOLDOWN = timedelta(hours=24)
 SYSTEM_ACTOR = "system:poller"
 
 RATE_LIMITED = "rate_limited"
 AUTH_FAILED = "auth_failed"
+BLOCKED = "blocked"
 ERROR = "error"
+
+
+def error_cooldown(streak: int, spread: float) -> timedelta:
+    """5 minutes after a first failure, doubling with each one in a row up to 6 hours, plus up to half again at random."""
+
+    base = min(ERROR_COOLDOWN * (2 ** max(streak - 1, 0)), ERROR_COOLDOWN_CAP)
+    return base * (1 + 0.5 * spread)
 
 
 def react(
@@ -33,6 +49,8 @@ def react(
     connector_id: str,
     error: ProviderError,
     now: datetime,
+    *,
+    rng=random.random,
 ) -> str:
     """Apply the connector-level reaction and return why the run stopped."""
 
@@ -40,13 +58,24 @@ def react(
     if isinstance(error, AuthError):
         connectors.pause(connector_id, actor=SYSTEM_ACTOR, reason="The provider rejected the credentials.")
         return AUTH_FAILED
-    if isinstance(error, RateLimited):
-        wait = min(timedelta(seconds=error.retry_after_seconds), MAX_COOLDOWN) if error.retry_after_seconds else RATE_LIMIT_DEFAULT
-        reason = RATE_LIMITED
-    else:
-        wait, reason = ERROR_COOLDOWN, ERROR
     with store.connection() as conn:
-        conn.execute("UPDATE connectors SET cooldown_until = %s WHERE id = %s", (now + wait, connector_id))
+        account = accounts.resolve(conn, connector_id)
+        row = conn.execute(
+            "SELECT provider, account_key, error_streak FROM connectors WHERE id = %s", (connector_id,)
+        ).fetchone()
+    slow = False
+    if isinstance(error, Blocked):
+        wait, reason, slow = BLOCK_COOLDOWN, BLOCKED, True
+    elif isinstance(error, RateLimited):
+        wait = min(timedelta(seconds=error.retry_after_seconds), MAX_COOLDOWN) if error.retry_after_seconds else RATE_LIMIT_DEFAULT
+        reason, slow = RATE_LIMITED, True
+    else:
+        wait, reason = error_cooldown(int(row["error_streak"]), rng()), ERROR
+    if slow:
+        ledger.note_refusal(store, connector_id, now=now)
+        pacing.slow_down(accounts.pace_key(row["account_key"], row["provider"]))
+    with store.connection() as conn:
+        conn.execute("UPDATE connectors SET cooldown_until = %s WHERE id = ANY(%s)", (now + wait, list(account.members)))
     return reason
 
 

@@ -111,7 +111,7 @@ class FillService:
     def _spend(self, connector: dict[str, Any], now: datetime) -> bool:
         if not connector["metered"]:
             return True
-        return ledger.spend_call(self._connectors.store, connector, now=now, interactive=True)
+        return ledger.spend_call(self._connectors.store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH)
 
 
 def _candidate(connector: dict[str, Any], match: PartMatch, asked_manufacturer: str) -> dict[str, Any]:

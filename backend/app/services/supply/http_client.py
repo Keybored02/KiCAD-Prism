@@ -29,6 +29,7 @@ from requests.adapters import HTTPAdapter
 from app.services.supply.egress import EgressDenied, Resolver, ValidatedTarget, system_resolver, validate_url
 from app.services.supply.providers.base import (
     AuthError,
+    Blocked,
     EgressBlocked,
     HostDenied,
     NotFound,
@@ -54,7 +55,17 @@ class HttpResponse:
     headers: Mapping[str, str]
     body: bytes
 
+    @property
+    def is_page(self) -> bool:
+        """A web page, which no API of ours answers with: a block, a challenge or a login wall."""
+
+        if "html" in self.headers.get("content-type", "").lower():
+            return True
+        return self.body[:512].lstrip().lower().startswith((b"<!doctype html", b"<html"))
+
     def json(self) -> Any:
+        if self.is_page:
+            raise Blocked("the service answered a web page where data was expected")
         try:
             return jsonlib.loads(self.body.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
@@ -96,8 +107,26 @@ class _PinnedAdapter(HTTPAdapter):
 
 
 class RequestsTransport:
+    """Sends with ``requests``. Connections are kept open per address for the life of the transport (a job), so a run of
+    calls to one host does not set up a new TLS connection each time."""
+
     def __init__(self, proxy: str = "") -> None:
         self._proxy = proxy.strip()
+        self._sessions: dict[tuple[str, str], requests.Session] = {}
+
+    def _session(self, host: str, address: str) -> requests.Session:
+        session = self._sessions.get((host, address))
+        if session is None:
+            session = requests.Session()
+            session.trust_env = False
+            session.mount("https://", _PinnedAdapter(host))
+            self._sessions[(host, address)] = session
+        return session
+
+    def close(self) -> None:
+        for session in self._sessions.values():
+            session.close()
+        self._sessions.clear()
 
     @property
     def proxied(self) -> bool:
@@ -110,22 +139,22 @@ class RequestsTransport:
         for address in target.addresses:
             netloc = f"[{address}]" if ":" in address else address
             pinned = urlunsplit((parts.scheme, netloc, parts.path or "/", parts.query, ""))
-            with requests.Session() as session:
-                session.trust_env = False
-                session.mount("https://", _PinnedAdapter(target.host))
-                try:
-                    response = session.request(
-                        method, pinned, headers={**headers, "Host": target.host}, data=body,
-                        timeout=timeout, allow_redirects=False, stream=True,
-                    )
-                except requests.ConnectionError:
-                    continue
-                with response:
-                    return HttpResponse(
-                        status=response.status_code,
-                        headers={key.lower(): value for key, value in response.headers.items()},
-                        body=_read_capped(response, max_bytes),
-                    )
+            session = self._session(target.host, address)
+            try:
+                response = session.request(
+                    method, pinned, headers={**headers, "Host": target.host}, data=body,
+                    timeout=timeout, allow_redirects=False, stream=True,
+                )
+            except requests.ConnectionError:
+                session.close()
+                self._sessions.pop((target.host, address), None)
+                continue
+            with response:
+                return HttpResponse(
+                    status=response.status_code,
+                    headers={key.lower(): value for key, value in response.headers.items()},
+                    body=_read_capped(response, max_bytes),
+                )
         raise ConnectFailed(target.host)
 
 
@@ -250,6 +279,11 @@ class SafeHttpClient:
             url = next_url
         raise ProviderError("too many redirects")
 
+    def close(self) -> None:
+        close = getattr(self._transport, "close", None)
+        if close is not None:
+            close()
+
     def request_json(self, method: str, url: str, **kwargs: Any) -> Any:
         return self.request(method, url, **kwargs).json()
 
@@ -276,6 +310,8 @@ class SafeHttpClient:
     @staticmethod
     def _checked(response: HttpResponse, url: str) -> HttpResponse:
         status = response.status
+        if status in (401, 403, 429) and response.is_page:
+            raise Blocked(f"{_label(url)} answered a web page (HTTP {status})")
         if status in (401, 403):
             raise AuthError(f"{_label(url)} rejected the credentials (HTTP {status})")
         if status == 429:

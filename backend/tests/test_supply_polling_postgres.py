@@ -454,7 +454,7 @@ class PollingTests(unittest.TestCase):
         self.assertTrue(all(r["next_poll_at"] >= self.clock.now + timedelta(minutes=5) for r in failed))
         self.assertEqual(self.connectors.get(cid)["last_error_code"], "unavailable")
 
-        self.clock.advance(minutes=6)
+        self.clock.advance(minutes=8)  # the rest is 5 minutes plus up to half again
         self.provider_behaviour = None
         self.poller().poll_connector(cid)
         states = self.rows("SELECT error_streak, last_error_code FROM poll_state")

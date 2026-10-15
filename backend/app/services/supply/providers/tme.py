@@ -42,6 +42,7 @@ from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import quote
 
+from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import match_key
 from app.services.supply.models import Incoming, Offer, PartData, PartMatch, PriceBreak
@@ -60,6 +61,8 @@ from app.services.supply.providers.unrecognised import note
 
 KEY = "tme"
 BASE_URL = "https://api.tme.eu"
+# About half the per-minute rate TME allows; the pacer draws each gap at random around it (see pacing.py).
+PACE_SECONDS = 1.5
 ALLOWED_HOSTS = ("api.tme.eu",)
 MAX_BATCH = 50
 # Fetch a new token this long before the old one expires.
@@ -89,6 +92,7 @@ class TmeProvider:
         client: SafeHttpClient | None = None,
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         token = config.credentials.get("token", "")
         secret = config.credentials.get("secret", "")
@@ -99,6 +103,7 @@ class TmeProvider:
         self._client = client or SafeHttpClient(ALLOWED_HOSTS)
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic
+        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
         self._access_token = ""
         self._expires_at = 0.0
 
@@ -128,6 +133,7 @@ class TmeProvider:
         if self._country:
             query.append(("country", self._country))
         token = self._token()
+        self._pacer.wait()
         try:
             answer = self._client.request_json(
                 "GET", f"{BASE_URL}{path}", params=query,
@@ -135,6 +141,7 @@ class TmeProvider:
             )
         except AuthError:
             # The token may have lapsed between the check and the call: renew once.
+            self._pacer.wait()
             answer = self._client.request_json(
                 "GET", f"{BASE_URL}{path}", params=query,
                 headers={"Authorization": f"Bearer {self._token(renew=True)}", "Accept-Language": "en"},

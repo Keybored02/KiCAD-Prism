@@ -775,6 +775,7 @@ def _m035_tracking(conn) -> None:
         ALTER TABLE connectors ADD COLUMN IF NOT EXISTS account_key TEXT NOT NULL DEFAULT '';
         ALTER TABLE connectors ADD COLUMN IF NOT EXISTS reset_time TEXT NOT NULL DEFAULT '00:00';
         ALTER TABLE connectors ADD COLUMN IF NOT EXISTS reset_tz TEXT NOT NULL DEFAULT 'UTC';
+        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS error_streak INTEGER NOT NULL DEFAULT 0;
         CREATE INDEX IF NOT EXISTS idx_connectors_account ON connectors (account_key) WHERE account_key <> '';
         """,
         prepare=False,

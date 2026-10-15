@@ -49,7 +49,7 @@ class SupplyJobTests(unittest.TestCase):
         from app.services.supply import discoverer, jobs, poller, watches
         from app.services.supply.connectors import ConnectorService
         from app.services.supply.providers import registry
-        from app.services.supply.providers.base import ProviderConfig, ProviderSpec
+        from app.services.supply.providers.base import CredentialField, ProviderConfig, ProviderSpec
         from app.services.supply.providers.fake import FakeProvider
         from app.services.supply.store import SupplyStore
         from app.services.trackers.secrets import CredentialKeyring
@@ -67,10 +67,17 @@ class SupplyJobTests(unittest.TestCase):
             stock_pooling="separate", credential_fields=(), factory=lambda config: FakeProvider(config),
             default_daily_budget=100,
         ), replace=True)
+        # A provider with credentials and storefronts, so two connectors can share an account.
+        registry.register(ProviderSpec(
+            key="demo_keyed", label="Keyed", capabilities=frozenset({"search", "offers"}), max_batch=10,
+            stock_pooling="separate", credential_fields=(CredentialField("api_key", "API key"),),
+            factory=lambda config: FakeProvider(config), storefronts=("uk", "de"), default_daily_budget=100,
+        ), replace=True)
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls.registry.unregister("demo_nosearch")
+        cls.registry.unregister("demo_keyed")
         with cls.database.connection() as conn:
             conn.execute(f'DROP SCHEMA IF EXISTS "{cls.store.schema}" CASCADE')
 
@@ -195,7 +202,7 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual(self.discoverer_().run(cid).stopped, "error")
         self.assertEqual(self.rows("SELECT * FROM discovery_runs"), [], "a failed search is not a search")
         self.assertEqual(self.discoverer_().run(cid).stopped, "cooling_down")
-        self.clock.advance(minutes=6)
+        self.clock.advance(minutes=8)  # the first rest is 5 minutes plus up to half again
         self.behaviour = None
         self.assertEqual(self.discoverer_().run(cid).searched, 1)
 
@@ -311,6 +318,20 @@ class SupplyJobTests(unittest.TestCase):
         self.assertEqual(call["resources"], {"supply": 1})
         self.assertEqual((call["worker_pool"], call["requested_by"], call["max_attempts"]), ("prism", "system:supply-scheduler", 2))
         self.assertNotEqual(first, second)
+
+    def test_connectors_on_one_account_share_one_job(self) -> None:
+        def keyed(storefront: str, key: str) -> str:
+            return self.connectors.create(
+                actor=ACTOR, provider="demo_keyed", storefront=storefront, credentials={"api_key": key}, interactive_reserve_pct=0
+            )["id"]
+
+        uk, de = keyed("uk", "K1"), keyed("de", "K1")
+        self.watch()
+        queue = RecordingJobs()
+        self.jobs.schedule_due_supply_jobs(job_service=queue, store=self.store, now=self.clock.now)
+        (call,) = queue.calls
+        self.assertEqual(sorted(call["payload"]["connector_ids"]), sorted([uk, de]))
+        self.assertEqual(call["artifact_key"], f"supply-poll:{uk}", "keyed by the account's first connector, not by each connector")
 
     def test_the_scan_queues_nothing_when_there_is_nothing_to_do(self) -> None:
         self.connector()

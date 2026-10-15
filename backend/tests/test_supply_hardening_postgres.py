@@ -199,8 +199,10 @@ class HardeningTests(unittest.TestCase):
         while self.ledger.spend_call(self.store, self.connectors.get(cid), now=self.clock.now):
             pass
         self.assertEqual(self.work(), [], "the budget for this stretch of the day is spent")
-        self.clock.advance(hours=12)
-        self.assertEqual(self.work(), [cid], "more of it has accrued by the afternoon")
+        self.clock.advance(minutes=30)
+        self.assertEqual(self.work(), [], "the new day's start is held back a few minutes after the reset")
+        self.clock.advance(hours=12, minutes=30)
+        self.assertEqual(self.work(), [cid], "the next day has opened by the early morning")
 
     def test_a_free_connector_is_never_held_back_by_budget(self) -> None:
         cid = self.connector("csv")

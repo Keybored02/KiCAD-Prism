@@ -36,6 +36,7 @@ from decimal import Decimal
 from urllib.parse import quote
 from typing import Any, Callable, Mapping, Sequence
 
+from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
 from app.services.supply.providers.base import (
@@ -56,7 +57,8 @@ from app.services.supply.vocabulary import Lifecycle
 KEY = "farnell"
 BASE_URL = "https://api.element14.com/catalog/products"
 ALLOWED_HOSTS = ("api.element14.com",)
-MIN_INTERVAL_SECONDS = 1.0
+# About half the per-minute limit; the pacer draws each gap at random around it (see pacing.py).
+PACE_SECONDS = 1.5
 MAX_MATCHES = 10
 
 STOREFRONTS = (
@@ -108,18 +110,14 @@ class FarnellProvider:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic
         self._sleep = sleep
-        self._last_call: float | None = None
+        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
 
     def _search(self, term: str) -> list[dict[str, Any]]:
         if not self._api_key:
             raise AuthError("Farnell needs an API key")
         if not self._store:
             raise ProviderError("Farnell needs a store, such as uk.farnell.com")
-        if self._last_call is not None:
-            wait = MIN_INTERVAL_SECONDS - (self._monotonic() - self._last_call)
-            if wait > 0:
-                self._sleep(wait)
-        self._last_call = self._monotonic()
+        self._pacer.wait()
         answer = self._client.request_json("GET", BASE_URL, params={
             "term": term,
             "storeInfo.id": self._store,

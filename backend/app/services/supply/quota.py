@@ -9,10 +9,12 @@ Everything here is pure. The ledger that records spending is separate.
 
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Mapping
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Defaults for the polling tiers; the poller owns them once it exists.
 TIER_INTERVAL_HOURS: Mapping[str, float] = {
@@ -25,6 +27,50 @@ TIER_INTERVAL_HOURS: Mapping[str, float] = {
 # Percent of the background budget available from the first minute of the day.
 OPENING_BURST_PCT = 10
 _SECONDS_PER_DAY = 86400
+
+
+DEFAULT_RESET_TIME = "00:00"
+DEFAULT_RESET_TZ = "UTC"
+
+
+def _local(now: datetime, reset_time: str, tz: str) -> datetime:
+    """``now`` on the provider's clock, shifted so the provider's day starts at midnight."""
+
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    try:
+        zone = ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = timezone.utc
+    try:
+        hours, minutes = (int(part) for part in reset_time.split(":"))
+    except ValueError:
+        hours, minutes = 0, 0
+    return now.astimezone(zone) - timedelta(hours=hours, minutes=minutes)
+
+
+def provider_day(now: datetime, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ) -> date:
+    """The provider's day this moment falls in: a calendar day in its time zone that begins at its reset time."""
+
+    return _local(now, reset_time, tz).date()
+
+
+def seconds_into_day(now: datetime, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ) -> int:
+    local = _local(now, reset_time, tz)
+    return local.hour * 3600 + local.minute * 60 + local.second
+
+
+def day_hour(now: datetime, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ) -> int:
+    """Hours since the provider's day began, 0 to 23."""
+
+    return seconds_into_day(now, reset_time, tz) // 3600
+
+
+def start_delay_seconds(key: str, day: date) -> int:
+    """A delay of 5 to 30 minutes after a day begins, different each day, so accounts do not all start at the reset."""
+
+    digest = int(hashlib.sha256(f"{key}|{day.isoformat()}".encode()).hexdigest()[:8], 16)
+    return 300 + digest % 1501
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,14 +93,21 @@ def interactive_reserve(daily_budget: int, reserve_pct: int) -> int:
     return math.ceil(daily_budget * reserve_pct / 100)
 
 
-def background_allowance(state: QuotaState, now: datetime) -> int:
-    """Calls the poller may spend right now."""
+def background_allowance(
+    state: QuotaState, now: datetime, *, reset_time: str = DEFAULT_RESET_TIME, tz: str = DEFAULT_RESET_TZ,
+    delay_seconds: int = 0,
+) -> int:
+    """Calls the poller may spend right now.
 
-    if now.tzinfo is None:
-        raise ValueError("now must be timezone-aware")
-    now = now.astimezone(timezone.utc)
+    The day is the provider's (``reset_time`` in ``tz``). ``delay_seconds`` holds background work back after the reset.
+    """
+
+    seconds = seconds_into_day(now, reset_time, tz)
+    if seconds < delay_seconds:
+        return 0
     background_budget = state.daily_budget - interactive_reserve(state.daily_budget, state.reserve_pct)
-    seconds = now.hour * 3600 + now.minute * 60 + now.second
+    # The spread runs over the rest of the day once the delay has passed.
+    seconds = (seconds - delay_seconds) * _SECONDS_PER_DAY // max(_SECONDS_PER_DAY - delay_seconds, 1)
     # Integer arithmetic: a float product lands a hair above whole numbers
     # (900 * 0.55 is 495.00000000000006) and ceil would round it up.
     fraction_numerator = OPENING_BURST_PCT * _SECONDS_PER_DAY + (100 - OPENING_BURST_PCT) * seconds

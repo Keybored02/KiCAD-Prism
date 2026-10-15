@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
-from app.services.supply import datasheets, details, fx, ledger, market, notice_files, quota, retention, tracking, worker_seen
+from app.services.supply import accounts, datasheets, details, fx, ledger, market, notice_files, quota, retention, tracking, worker_seen
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, REDO_AFTER, REDO_FOUND_AFTER, Discoverer
 from app.services.supply.poller import Poller
@@ -43,10 +43,16 @@ def _has_budget(conn, row, now: datetime) -> bool:
             return True
     except registry.UnknownProvider:
         return False
+    account = accounts.resolve(conn, row["id"])
     state = ledger.get_state(
-        conn, row["id"], daily_budget=row["daily_budget"], reserve_pct=row["interactive_reserve_pct"], now=now
+        conn, account.ledger_id, daily_budget=account.daily_budget, reserve_pct=account.reserve_pct, now=now,
+        reset_time=account.reset_time, reset_tz=account.reset_tz,
     )
-    return quota.background_allowance(state, now) > 0
+    day = quota.provider_day(now, account.reset_time, account.reset_tz)
+    return quota.background_allowance(
+        state, now, reset_time=account.reset_time, tz=account.reset_tz,
+        delay_seconds=quota.start_delay_seconds(account.ledger_id, day),
+    ) > 0
 
 
 _warned_providers: set[str] = set()
@@ -124,13 +130,18 @@ def schedule_due_supply_jobs(
     with store.connection() as conn:
         worker_seen.record(conn, moment)
         connector_ids = connectors_with_work(conn, moment)
+    # One job per account: connectors on the same credentials are one caller to the provider, so they take turns.
+    by_account: dict[str, list[str]] = {}
+    with store.connection() as conn:
+        for connector_id in connector_ids:
+            by_account.setdefault(accounts.resolve(conn, connector_id).ledger_id, []).append(connector_id)
     queued = []
-    for connector_id in connector_ids:
+    for ledger_id, members in by_account.items():
         queued.append(job_service.enqueue(
             POLL_JOB_KIND,
-            {"connector_id": connector_id},
+            {"connector_id": members[0], **({"connector_ids": members} if len(members) > 1 else {})},
             worker_pool="prism",
-            artifact_key=artifact_key(connector_id),
+            artifact_key=artifact_key(ledger_id),
             priority=SUPPLY_PRIORITY,
             resources={SUPPLY_RESOURCE: 1},
             requested_by=SYSTEM_REQUESTER,
@@ -224,12 +235,18 @@ def run_supply_poll_job(context: Any) -> Any:
 
     from app.services.job_runtime import JobResult
 
-    connector_id = str(context.payload["connector_id"])
+    connector_ids = [str(item) for item in context.payload.get("connector_ids") or [context.payload["connector_id"]]]
     connectors = ConnectorService()
-    context.progress(stage="supply-discover", message="Searching for listings", percent=10, force=True)
-    found = Discoverer(connectors).run(connector_id)
-    context.progress(stage="supply-poll", message="Reading stock and prices", percent=50, force=True)
-    polled = Poller(connectors).poll_connector(connector_id)
+    searched = listings = calls = polled_count = gone = 0
+    discovery_stopped = poll_stopped = None
+    for connector_id in connector_ids:
+        context.progress(stage="supply-discover", message="Searching for listings", percent=10, force=True)
+        found = Discoverer(connectors).run(connector_id)
+        context.progress(stage="supply-poll", message="Reading stock and prices", percent=50, force=True)
+        polled = Poller(connectors).poll_connector(connector_id)
+        searched, listings = searched + found.searched, listings + found.listings
+        calls, polled_count, gone = calls + polled.calls, polled_count + polled.polled, gone + polled.gone
+        discovery_stopped, poll_stopped = found.stopped, polled.stopped
     with connectors.store.connection() as conn:
         _refresh_rates(conn)
         _snapshot_market(conn)
@@ -240,13 +257,13 @@ def run_supply_poll_job(context: Any) -> Any:
     # Outside the connection above: fetching a file can take a while.
     _check_datasheets(connectors.store)
     _keep_notice_files(connectors.store)
-    details_stopped = _read_details(connectors, connector_id)
+    details_stopped = [_read_details(connectors, connector_id) for connector_id in connector_ids][-1]
     details: Mapping[str, Any] = {
-        "searched": found.searched, "listings_found": found.listings, "discovery_stopped": found.stopped,
-        "calls": polled.calls, "polled": polled.polled, "gone": polled.gone, "poll_stopped": polled.stopped,
+        "searched": searched, "listings_found": listings, "discovery_stopped": discovery_stopped,
+        "calls": calls, "polled": polled_count, "gone": gone, "poll_stopped": poll_stopped,
         "samples_compacted": compacted, "details_stopped": details_stopped,
     }
     return JobResult(
-        message=f"Searched {found.searched} part(s), polled {polled.polled} listing(s)",
+        message=f"Searched {searched} part(s), polled {polled_count} listing(s)",
         details=details,
     )

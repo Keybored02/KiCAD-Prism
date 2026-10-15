@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 
+from app.services.supply import pacing
 from app.services.supply.http_client import SafeHttpClient
 from app.services.supply.identity import match_key
 from app.services.supply.models import Offer, PartData, PartMatch, PriceBreak
@@ -48,7 +49,8 @@ SEARCH_URL = "https://easyeda.com/api/eda/product/search"
 PAGE_URL = "https://www.lcsc.com/product-detail/{}.html"
 ALLOWED_HOSTS = ("wmsc.lcsc.com", "easyeda.com")
 SEARCH_PAGE_SIZE = 20
-MIN_INTERVAL_SECONDS = 1.0
+# About half the per-minute limit; the pacer draws each gap at random around it (see pacing.py).
+PACE_SECONDS = 1.5
 CURRENCY = "USD"
 
 _SKU = re.compile(r"^C\d{1,12}$")
@@ -70,14 +72,10 @@ class LcscProvider:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic
         self._sleep = sleep
-        self._last_call: float | None = None
+        self._pacer = pacing.pacer_for(config.account, PACE_SECONDS, monotonic=monotonic, sleep=sleep)
 
     def _pace(self) -> None:
-        if self._last_call is not None:
-            wait = MIN_INTERVAL_SECONDS - (self._monotonic() - self._last_call)
-            if wait > 0:
-                self._sleep(wait)
-        self._last_call = self._monotonic()
+        self._pacer.wait()
 
     def _search(self, keyword: str) -> list[dict[str, Any]]:
         self._pace()
