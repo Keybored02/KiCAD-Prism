@@ -3,6 +3,7 @@ import { AlertTriangle, Ban, Banknote, Boxes, Clock, HeartPulse, Hourglass, Pack
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply, canOpenSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
@@ -25,6 +26,23 @@ function Stat({ icon: Icon, label, value, bad }: { icon: LucideIcon; label: stri
         <span className={`text-sm font-semibold tabular-nums ${bad ? "text-destructive" : ""}`}>{value}</span>
       </span>
     </div>
+  );
+}
+
+/** The BOM costed at a build size, as a file. It names no distributor or link: a costing, not an order. */
+function CostExport({ projectId, variant }: { projectId: string; variant: string }) {
+  const [boards, setBoards] = useState(100);
+  const href = `/api/supply/projects/${encodeURIComponent(projectId)}/cost-export?build_quantity=${boards}${variant ? `&variant=${encodeURIComponent(variant)}` : ""}`;
+  return (
+    <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <label className="flex items-center gap-1.5">
+        Costing for
+        <Input type="number" min={1} max={1_000_000} value={boards} aria-label="Boards to cost" className="h-7 w-24"
+          onChange={(event) => { const next = Math.floor(Number(event.target.value)); if (Number.isFinite(next) && next >= 1 && next <= 1_000_000) setBoards(next); }} />
+        boards
+      </label>
+      <a href={href} className="text-primary hover:underline">Download the costing as CSV</a>
+    </p>
   );
 }
 
@@ -116,6 +134,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
       <ProjectSupplyBuilds builds={supply.builds} />
       <ProjectSupplyReleases projectId={projectId} releases={supply.releases} />
       <ProjectSupplyNotes supply={supply} />
+      {supply.available ? <CostExport projectId={projectId} variant={variant} /> : null}
       {supply.available ? (
         <p className="text-xs text-muted-foreground">
           <a href={`/api/supply/projects/${encodeURIComponent(projectId)}/compliance-draft?format=csv${variant ? `&variant=${encodeURIComponent(variant)}` : ""}`} className="text-primary hover:underline">

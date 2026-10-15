@@ -145,3 +145,43 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int = 1) 
         "available": True, "variant": variant, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
         "parts": parts, "cost_history": _cost_history(conn, project_id, variant), "builds": builds, "releases": _releases(conn, project_id, status_now), "notes": notes,
     }
+
+
+COST_HEADER = (
+    "Manufacturer", "Part number", "References", "Per board", "For the build", "Status", "In stock", "Lead time (days)",
+    "Unit price", "Currency", "Cost for the build",
+)
+
+
+def cost_csv(conn, project_id: str, variant: str = "", build_quantity: int = 1) -> str | None:
+    """The BOM costed at a build size, as a CSV. It is a costing, not an order: it names no distributor, SKU or link, and says
+    which pieces the smallest orders add. None when the BOM has not been read."""
+
+    import csv
+    import io
+
+    from app.services.supply.compliance_draft import _safe
+
+    rows = usage.project_rows(conn, project_id, variant)
+    if not rows:
+        return None
+    lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
+    result = bom_lookup.lookup(conn, lines, build_quantity)
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\r\n")
+    writer.writerow(COST_HEADER)
+    for row in rows:
+        entry = result["lines"][row["key"]]
+        buy = entry.get("buy") or {}
+        writer.writerow([
+            _safe(row["manufacturer"]), _safe(row["mpn"]), _safe(row["references"]), row["quantity"], entry["need"],
+            entry.get("status") or "not tracked", "" if entry.get("stock") is None else entry["stock"], entry.get("lead_time_days") or "",
+            buy.get("unit_price", ""), buy.get("currency", ""), buy.get("extended", "") if not entry.get("bought_with") else "with another line",
+        ])
+    rollup = result["rollup"]
+    if rollup["cost_build"] is not None:
+        writer.writerow([])
+        writer.writerow(["Total", "", "", "", "", "", "", "", "", rollup["currency"], rollup["cost_build"]])
+        writer.writerow(["Per board", "", "", "", "", "", "", "", "", rollup["currency"], rollup["cost_per_board"]])
+        writer.writerow(["Prices are list prices without VAT or shipping." + (" Converted at the rates of %s." % rollup["rates_day"] if rollup["converted"] else "")])
+    return out.getvalue()

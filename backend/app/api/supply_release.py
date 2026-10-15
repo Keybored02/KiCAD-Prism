@@ -85,6 +85,31 @@ async def project_overview(
     return await _run(read)
 
 
+@router.get("/{project_id}/cost-export")
+async def cost_export(
+    project_id: str,
+    build_quantity: int = Query(default=1, ge=1, le=1_000_000),
+    variant: str = Query(default="", max_length=120),
+    user: AuthenticatedUser = Depends(require_supply_reader),
+) -> Response:
+    """The stored BOM costed at a build size, as a CSV: a costing with no distributor, SKU or link, so nothing to order from."""
+
+    project = get_project_for_role_or_404(project_id, user.role)
+
+    def read() -> str | None:
+        with _store().connection() as conn:
+            return project_supply.cost_csv(conn, project_id, variant, build_quantity)
+
+    text = await _run(read)
+    if text is None:
+        raise HTTPException(status_code=404, detail="This project's BOM has not been read yet")
+    name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in (project.name or project_id))[:60]
+    return Response(
+        content=text, media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}-cost-{build_quantity}.csv"'},
+    )
+
+
 @router.get("/{project_id}/compliance-draft")
 async def compliance_draft_for(
     project_id: str,

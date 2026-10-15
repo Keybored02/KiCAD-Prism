@@ -84,6 +84,12 @@ describe("the project Supply tab", () => {
     expect(screen.getByText("Rounding waste")).toBeTruthy();
   });
 
+  it("offers the costing as a file for a build size", async () => {
+    renderTab();
+    fireEvent.change(await screen.findByLabelText("Boards to cost"), { target: { value: "250" } });
+    expect(screen.getByRole("link", { name: "Download the costing as CSV" }).getAttribute("href")).toBe("/api/supply/projects/prj/cost-export?build_quantity=250");
+  });
+
   it("says when the BOM has not been read, and still offers tracking", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({ available: false, parts: undefined, rollup: undefined, releases: [], notes: [] }));
     renderTab();

@@ -280,6 +280,28 @@ class ReleaseCheckTests(unittest.TestCase):
             history = self.request("prj_7/supply").json["cost_history"]
         self.assertEqual([(point["cost_per_board"], point["complete"]) for point in history], [("0.5000", True)])
 
+    def test_the_cost_export_prices_the_bom_and_names_nothing_to_order_from(self) -> None:
+        from app.services.supply import usage
+
+        self.part("GOOD-1", stock=5000)
+        project = SimpleNamespace(id="prj_6", name="Six")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            usage.store_project(conn, "prj_6", "Six", "rev1", usage.lines_from_components([
+                component("R1", "Acme", "GOOD-1"), component("R2", "Acme", "GOOD-1"), component("C1", "Acme", "UNKNOWN-9"),
+            ]), NOW)
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            response = self.request("prj_6/cost-export", query="build_quantity=10")
+            missing = self.request("prj_0/cost-export")
+        self.assertEqual(response.status, 200)
+        text = response.text
+        self.assertIn("GOOD-1", text)
+        self.assertIn("Total", text)
+        self.assertIn("10.00", text, "2 per board x 10 boards x 0.50")
+        for word in ("S-GOOD", "sku", "http", "Distributor"):
+            self.assertNotIn(word.lower(), text.lower().replace("list prices without", ""), word)
+        self.assertEqual(missing.status, 404)
+
     def test_the_compliance_draft_lists_each_part_with_what_is_known_and_what_is_missing(self) -> None:
         from app.services.supply import compliance_draft, usage
 
