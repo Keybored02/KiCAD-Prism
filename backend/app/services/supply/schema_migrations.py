@@ -1291,6 +1291,18 @@ def _m047_arrival_promises(conn) -> None:
     )
 
 
+def _m048_rate_limits(conn) -> None:
+    """The limits a provider reported in its answer headers at the last test, as text (see ``http_client.limit_headers``)."""
+
+    conn.execute(
+        """
+        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS rate_limits JSONB NOT NULL DEFAULT '{}'::jsonb;
+        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS rate_limits_at TIMESTAMPTZ;
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1339,6 +1351,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (45, "notice_parse", _m045_notice_parse),
     (46, "rohs_exemptions", _m046_rohs_exemptions),
     (47, "arrival_promises", _m047_arrival_promises),
+    (48, "rate_limits", _m048_rate_limits),
 ]
 
 

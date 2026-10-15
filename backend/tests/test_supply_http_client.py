@@ -59,6 +59,25 @@ def _client(*steps, allowed=("api.example.com",), resolve=None, **kwargs):
     return client, transport
 
 
+class LimitHeaderTests(unittest.TestCase):
+    def test_only_headers_about_limits_are_kept_and_only_as_short_text(self) -> None:
+        client, _ = _client(_response(
+            200, {}, X_RateLimit_Remaining="49", X_RateLimit_Limit="50", Set_Cookie="session=secret", Authorization="Bearer x",
+            X_Quota_Note="a" * 100,
+        ))
+        client.request("GET", "https://api.example.com/v1")
+        self.assertEqual(client.last_limits, {"x-ratelimit-remaining": "49", "x-ratelimit-limit": "50"})
+
+    def test_an_answer_with_no_limits_keeps_the_last_ones_and_a_429_still_reports_them(self) -> None:
+        client, _ = _client(_response(200, {}, X_RateLimit_Remaining="3"), _response(200, {}), _response(429, {}, Retry_After="60"))
+        client.request("GET", "https://api.example.com/v1")
+        client.request("GET", "https://api.example.com/v1")
+        self.assertEqual(client.last_limits, {"x-ratelimit-remaining": "3"})
+        with self.assertRaises(RateLimited):
+            client.request("GET", "https://api.example.com/v1")
+        self.assertEqual(client.last_limits, {"retry-after": "60"})
+
+
 class RequestShapeTests(unittest.TestCase):
     def test_get_with_params_and_default_headers(self) -> None:
         client, transport = _client(_response(200, {"ok": True}))

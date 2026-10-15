@@ -66,6 +66,18 @@ describe("connectors list", () => {
     expect(within(card).getByRole("img", { name: "Terms not reviewed" })).toBeTruthy();
   });
 
+  it("shows the limits a provider reported at the last test, or that it reported none", async () => {
+    load([
+      connectorFixture({ display_name: "Reports", rate_limits: { "x-ratelimit-remaining": "49" }, rate_limits_at: "2026-10-15T10:00:00Z" }),
+      connectorFixture({ id: "c2", display_name: "Silent", rate_limits: {}, rate_limits_at: "2026-10-15T10:00:00Z" }),
+      connectorFixture({ id: "c3", display_name: "Untested" }),
+    ]);
+    render(<SupplyConnectorsView user={admin} />);
+    expect(within(await screen.findByRole("article", { name: "Reports" })).getByText("x-ratelimit-remaining: 49")).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Silent" })).getByText(/None\. Checked/)).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Untested" })).queryByText("Limits it reports")).toBeNull();
+  });
+
   it("lets readers look but not change", async () => {
     load();
     render(<SupplyConnectorsView user={designer} />);

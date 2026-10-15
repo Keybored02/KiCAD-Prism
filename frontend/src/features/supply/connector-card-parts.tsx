@@ -60,6 +60,22 @@ export function CapacityNote({ capacity }: { capacity: SupplyCapacity | undefine
   );
 }
 
+/** What the provider says about its own limits, as it sent it. Empty when it sends none. */
+export function ReportedLimits({ connector }: { connector: SupplyConnector }) {
+  const entries = Object.entries(connector.rate_limits ?? {});
+  if (!connector.rate_limits_at) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      <dt className="text-muted-foreground">Limits it reports</dt>
+      {entries.length > 0 ? (
+        entries.map(([name, value]) => <dd key={name} className="rounded border px-1.5 py-0.5">{name}: {value}</dd>)
+      ) : (
+        <dd>None. Checked {formatWhen(connector.rate_limits_at)}</dd>
+      )}
+    </div>
+  );
+}
+
 /** The uploaded file behind a CSV connector, and how old it is. */
 export function OffersFile({ connector }: { connector: SupplyConnector }) {
   const upload = connector.csv_import;

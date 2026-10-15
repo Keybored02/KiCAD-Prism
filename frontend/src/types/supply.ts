@@ -63,6 +63,9 @@ export interface SupplyConnector {
   /** When the provider's day begins, and in which time zone. */
   reset_time?: string;
   reset_tz?: string;
+  /** Rate-limit headers the provider sent at the last test, by lower-case name. */
+  rate_limits?: Record<string, string>;
+  rate_limits_at?: string | null;
   csv_import: SupplyCsvImport | null;
   usage_today: { spent: number; interactive_spent: number };
   /** Which credentials are set. Values are never returned. */

@@ -352,6 +352,15 @@ class ConnectorService:
                     (error_code[:64], connector_id),
                 )
 
+    def record_limits(self, connector_id: str, limits: Mapping[str, str]) -> None:
+        """Keep what the provider's answer headers said about its limits, for the connector card."""
+
+        with self._store.connection() as conn:
+            conn.execute(
+                "UPDATE connectors SET rate_limits = %s::jsonb, rate_limits_at = NOW() WHERE id = %s",
+                (json.dumps(dict(limits)), connector_id),
+            )
+
     def keyring(self):
         """The credential keyring, for sealing what belongs to a connector (``oauth.py``)."""
 
@@ -482,6 +491,8 @@ class ConnectorService:
             "credentials_status": sealed.status(self._keyring, row["credential_envelope"]),
             "terms_reviewed_by": row["terms_reviewed_by"],
             "terms_reviewed_at": _iso(row["terms_reviewed_at"]),
+            "rate_limits": dict(row["rate_limits"] or {}),
+            "rate_limits_at": _iso(row["rate_limits_at"]),
             "last_ok_at": _iso(row["last_ok_at"]),
             "last_error_code": row["last_error_code"],
             "last_error_at": _iso(row["last_error_at"]),

@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CSV_PROVIDER, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
-import { CallBudget, CapacityNote, OffersFile } from "./connector-card-parts";
+import { CallBudget, CapacityNote, OffersFile, ReportedLimits } from "./connector-card-parts";
 import { ConnectorSignin } from "./connector-signin";
 import { TermsIcon } from "./supply-icons";
 import { vendorColor } from "./vendor-colors";
@@ -81,6 +81,7 @@ export function ConnectorCard({ connector, capacity, isAdmin, onAction }: Connec
           <dt className="text-muted-foreground">Last call</dt>
           <dd>{lastCallText(connector)}</dd>
         </div>
+        <ReportedLimits connector={connector} />
         {connector.paused_reason ? (
           <div className="flex gap-1.5">
             <dt className="text-muted-foreground">Paused</dt>

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 import unittest
 import uuid
 from pathlib import Path
@@ -58,6 +59,7 @@ class ConnectorCheckTests(unittest.TestCase):
         class Scripted(FakeProvider):
             def lookup_mpn(self, mpn, manufacturer=None):
                 cls.behaviour["calls"] += 1
+                self._client = types.SimpleNamespace(last_limits=cls.behaviour.get("limits", {}))
                 if cls.behaviour["error"] is not None:
                     raise cls.behaviour["error"]
                 return []
@@ -85,7 +87,7 @@ class ConnectorCheckTests(unittest.TestCase):
         with self.store.connection() as conn:
             for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
-        type(self).behaviour.update(error=None, calls=0)
+        type(self).behaviour.update(error=None, calls=0, limits={})
 
     # --- helpers ----------------------------------------------------------
 
@@ -118,6 +120,15 @@ class ConnectorCheckTests(unittest.TestCase):
         self.assertIsNotNone(connector["last_ok_at"])
         (event,) = self.rows("SELECT actor, detail FROM audit_events WHERE action = 'connector.test'")
         self.assertEqual((event["actor"], event["detail"]), ("admin@example.com", {"ok": True, "code": "ok"}))
+
+    def test_the_limits_a_provider_reports_are_kept_for_the_card(self) -> None:
+        cid = self.connector()
+        self.assertEqual(self.call("GET", "/api/supply/connectors").json[0]["rate_limits"], {})
+        type(self).behaviour["limits"] = {"x-ratelimit-remaining": "49", "x-ratelimit-limit": "50"}
+        self.call("POST", f"/api/supply/connectors/{cid}/test")
+        (shown,) = self.call("GET", "/api/supply/connectors").json
+        self.assertEqual(shown["rate_limits"], {"x-ratelimit-remaining": "49", "x-ratelimit-limit": "50"})
+        self.assertIsNotNone(shown["rate_limits_at"])
 
     def test_each_failure_has_its_own_safe_message_and_never_the_providers_text(self) -> None:
         cid = self.connector(interactive_reserve_pct=50, daily_budget=100)

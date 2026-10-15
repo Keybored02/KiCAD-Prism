@@ -19,6 +19,7 @@ so they never appear in messages or logs.
 from __future__ import annotations
 
 import json as jsonlib
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Collection, Mapping, Protocol, Sequence
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
@@ -200,6 +201,25 @@ def _label(url: str) -> str:
     return f"{parts.hostname}{parts.path}"
 
 
+# Headers that report a limit, what is left of it, or when it resets. Only these are kept, as short text, never the rest.
+_LIMIT_HINTS = ("ratelimit", "rate-limit", "quota", "remaining", "retry-after")
+_LIMIT_VALUE = re.compile(r"^[\w .,:;/+=()-]{1,64}$")
+MAX_LIMIT_HEADERS = 12
+
+
+def limit_headers(headers: Mapping[str, str]) -> dict[str, str]:
+    """The headers of an answer that say something about rate limits, by lower-case name."""
+
+    found: dict[str, str] = {}
+    for name, value in headers.items():
+        key = name.lower()
+        if any(hint in key for hint in _LIMIT_HINTS) and _LIMIT_VALUE.match(str(value).strip()):
+            found[key] = str(value).strip()
+        if len(found) >= MAX_LIMIT_HEADERS:
+            break
+    return found
+
+
 def _retry_after(headers: Mapping[str, str]) -> int | None:
     value = headers.get("retry-after", "").strip()
     if not value.isdigit():
@@ -232,6 +252,8 @@ class SafeHttpClient:
         self._max_bytes = max_bytes
         self._timeout = timeout
         self._max_redirects = max_redirects
+        # What the last answer that reported any limits said (see ``limit_headers``).
+        self.last_limits: dict[str, str] = {}
 
     def request(
         self,
@@ -264,6 +286,7 @@ class SafeHttpClient:
                 raise HostDenied(_label(url))
             response = self._send_once(method, url, send_headers, body)
             if response.status not in _REDIRECT_STATUSES:
+                self.last_limits = limit_headers(response.headers) or self.last_limits
                 return self._checked(response, url)
             location = response.headers.get("location", "")
             if not location:
