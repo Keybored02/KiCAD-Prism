@@ -38,6 +38,9 @@ class Point:
     day: date
     stock: int
     listings: int
+    # How many distributors hold stock that day, and how concentrated it is among them (0 to 1, 1 is all at one).
+    sources: int | None = None
+    concentration: float | None = None
 
 
 def _segments(points: Sequence[Point]) -> list[list[Point]]:
@@ -93,10 +96,16 @@ def analyse(points: Sequence[Point], *, threshold: int | None = None, today: dat
         "restocks": 0,
         "restock_interval_days": None,
         "restock_expected_in_days": None,
+        "zero_share": None,
+        "restock_latency_days": None,
+        "volatility": None,
+        "sources_change": None,
+        "concentration": None,
         "inputs": {"points": len(points), "span_days": 0, "points_in_run": 0, "current": points[-1].stock if points else None},
     }
     if len(points) < 2:
         return result
+    result |= _shape(points)
 
     span = (points[-1].day - points[0].day).days
     restock_days: list[date] = []
@@ -139,6 +148,45 @@ def analyse(points: Sequence[Point], *, threshold: int | None = None, today: dat
         reference = today or points[-1].day
         result["restock_expected_in_days"] = interval - (reference - restock_days[-1]).days
     return result
+
+
+def _shape(points: Sequence[Point]) -> dict[str, Any]:
+    """How the stock has behaved over the whole history, not since the last restock: how often it was at zero, how long
+    it stayed there before it came back, how widely it swung, and how many distributors held it."""
+
+    shape: dict[str, Any] = {}
+    if len(points) >= 4:
+        shape["zero_share"] = round(sum(1 for point in points if point.stock == 0) / len(points), 3)
+        average = statistics.fmean(point.stock for point in points)
+        if average > 0:
+            shape["volatility"] = round(statistics.pstdev(point.stock for point in points) / average, 2)
+    # Zero runs that ended: the days between the first zero and the stock coming back.
+    latencies: list[int] = []
+    started: date | None = None
+    for point in points:
+        if point.stock == 0 and started is None:
+            started = point.day
+        elif point.stock > 0 and started is not None:
+            latencies.append((point.day - started).days)
+            started = None
+    if latencies:
+        shape["restock_latency_days"] = round(statistics.median(latencies))
+    counted = [point.sources for point in points if point.sources is not None]
+    if len(counted) >= 7:
+        shape["sources_change"] = counted[-1] - counted[0]
+    if points[-1].concentration is not None:
+        shape["concentration"] = round(points[-1].concentration, 2)
+    return shape
+
+
+def lead_gap_days(insight: dict[str, Any], lead_time_days: int | None) -> int | None:
+    """Days by which stock is expected to run out before a new order could arrive (the lead time less the days to zero),
+    or None when it does not, or when either is unknown."""
+
+    zero = insight.get("days_to_zero")
+    if zero is None or lead_time_days is None or insight.get("confidence") not in (MEDIUM, HIGH):
+        return None
+    return lead_time_days - zero if zero < lead_time_days else None
 
 
 def rupture_expected_within(insight: dict[str, Any], horizon_days: int = HORIZON_DAYS) -> int | None:

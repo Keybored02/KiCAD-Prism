@@ -129,3 +129,30 @@ class BelievableWarningTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShapeTests(unittest.TestCase):
+    def test_zero_days_the_wait_before_a_restock_and_the_swing(self) -> None:
+        result = insights.analyse(series([100, 0, 0, 0, 100, 100, 0, 0, 0, 100]))
+        self.assertEqual(result["zero_share"], 0.6)
+        self.assertEqual(result["restock_latency_days"], 3, "two waits of 3 days")
+        self.assertGreater(result["volatility"], 0.5)
+
+    def test_a_steady_part_has_no_wait_and_little_swing(self) -> None:
+        result = insights.analyse(series([500, 502, 498, 501, 499]))
+        self.assertEqual((result["zero_share"], result["restock_latency_days"]), (0.0, None))
+        self.assertLess(result["volatility"], 0.05)
+
+    def test_fewer_distributors_and_where_the_stock_sits(self) -> None:
+        points = [Point(START + timedelta(days=index), 100, 3, sources=3 if index < 4 else 1, concentration=0.4 if index < 4 else 1.0) for index in range(8)]
+        result = insights.analyse(points)
+        self.assertEqual((result["sources_change"], result["concentration"]), (-2, 1.0))
+        self.assertIsNone(insights.analyse(series([100, 100, 100]))["sources_change"], "too short to call a trend")
+
+    def test_a_gap_to_the_lead_time_only_when_stock_runs_out_first(self) -> None:
+        falling = insights.analyse(series([1000, 900, 800, 700, 600, 500, 400, 300, 200, 100, 50, 40, 30, 20, 10, 8]))
+        self.assertIsNotNone(falling["days_to_zero"])
+        self.assertEqual(insights.lead_gap_days({"days_to_zero": 10, "confidence": "high"}, 30), 20)
+        self.assertIsNone(insights.lead_gap_days({"days_to_zero": 40, "confidence": "high"}, 30))
+        self.assertIsNone(insights.lead_gap_days({"days_to_zero": 10, "confidence": "low"}, 30), "not believable enough")
+        self.assertIsNone(insights.lead_gap_days({"days_to_zero": 10, "confidence": "high"}, None))

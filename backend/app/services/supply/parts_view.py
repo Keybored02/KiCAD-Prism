@@ -398,15 +398,29 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
             if last_day[listing_id] < day:
                 last.pop(listing_id, None)
         combined = stock.aggregate(last.values(), policy)
-        series.append({"day": day.isoformat(), "stock": combined.total, "listings": combined.listings})
+        holding = [amount for amount in combined.by_connector.values() if amount > 0]
+        series.append({
+            "day": day.isoformat(), "stock": combined.total, "listings": combined.listings, "sources": len(holding),
+            "concentration": sum((amount / combined.total) ** 2 for amount in holding) if combined.total > 0 else None,
+        })
         day += timedelta(days=1)
     return series
+
+
+def _with_lead_gap(insight: dict[str, Any], listings: list[dict[str, Any]]) -> dict[str, Any]:
+    """Add how far ahead of the soonest restock stock is expected to run out: the shortest lead time any counted listing quotes."""
+
+    leads = [item["offer"]["lead_time_days"] for item in listings if item["counted"] and item["offer"] and item["offer"].get("lead_time_days")]
+    return insight | {"lead_gap_days": insights.lead_gap_days(insight, min(leads) if leads else None)}
 
 
 def insight_from(days: list[dict[str, Any]], threshold: int | None, now: datetime) -> dict[str, Any]:
     """What the daily history says (see ``insights``)."""
 
-    points = [insights.Point(date.fromisoformat(day["day"]), day["stock"], day["listings"]) for day in days]
+    points = [
+        insights.Point(date.fromisoformat(day["day"]), day["stock"], day["listings"], day.get("sources"), day.get("concentration"))
+        for day in days
+    ]
     return insights.analyse(points, threshold=threshold, today=now.astimezone(timezone.utc).date())
 
 
@@ -570,5 +584,5 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         ),
         "used_in": usage.used_in(conn, part_id, role),
         "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
-        "insight": insight_from(days, watch_row["threshold"], now),
+        "insight": _with_lead_gap(insight_from(days, watch_row["threshold"], now), listings),
     }

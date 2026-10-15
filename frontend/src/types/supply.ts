@@ -647,6 +647,18 @@ export interface SupplyInsight {
   restock_interval_days: number | null;
   /** Negative when a regular restock is overdue. */
   restock_expected_in_days: number | null;
+  /** Share of the history's days at zero stock. */
+  zero_share?: number | null;
+  /** Median days at zero before stock came back. */
+  restock_latency_days?: number | null;
+  /** Spread of daily stock against its average. */
+  volatility?: number | null;
+  /** Distributors holding stock, last day against the first. */
+  sources_change?: number | null;
+  /** 1 when all the stock is at one distributor. */
+  concentration?: number | null;
+  /** Days by which stock is expected to run out before a new order could arrive. */
+  lead_gap_days?: number | null;
   inputs: { points: number; span_days: number; points_in_run: number; current: number | null };
 }
 

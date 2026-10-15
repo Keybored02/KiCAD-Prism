@@ -45,4 +45,18 @@ describe("insight text", () => {
     expect(insightBasis(insight({ inputs: { points: 2, span_days: 1, points_in_run: 2, current: 5 } }))).toMatch(/over 1 day;/);
     expect(confidenceLabel(insight({ confidence: "high" }))).toBe("High confidence");
   });
+
+  it("tells how the stock behaved over the whole history", () => {
+    const lines = insightLines(insight({
+      trend: "steady", lead_gap_days: 20, zero_share: 0.3, restock_latency_days: 9, volatility: 0.8, sources_change: -2, concentration: 0.9,
+    }));
+    expect(lines).toEqual([
+      "Stock is steady.",
+      "At the observed rate it runs out 20 days before a new order could arrive.",
+      "It was out of stock on 30% of the days, and stayed there about 9 days before stock returned.",
+      "Its stock swings widely.",
+      "2 distributors stopped holding it over this history.",
+      "Nearly all of the stock is at one distributor.",
+    ]);
+  });
 });

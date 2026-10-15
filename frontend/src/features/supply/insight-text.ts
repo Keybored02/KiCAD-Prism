@@ -46,5 +46,22 @@ export function insightLines(insight: SupplyInsight): string[] {
     if (next !== null) restock += next >= 0 ? `. Next expected in ${inDays(next)}` : `. Expected ${Math.abs(next)} days ago, not seen yet`;
     lines.push(`${restock}.`);
   }
+  return [...lines, ...behaviourLines(insight)];
+}
+
+/** How the stock has behaved over the whole history, as plain sentences. */
+function behaviourLines(insight: SupplyInsight): string[] {
+  const lines: string[] = [];
+  if (insight.lead_gap_days) lines.push(`At the observed rate it runs out ${insight.lead_gap_days} days before a new order could arrive.`);
+  if (insight.zero_share) {
+    const wait = insight.restock_latency_days ? `, and stayed there about ${insight.restock_latency_days} days before stock returned` : "";
+    lines.push(`It was out of stock on ${Math.round(insight.zero_share * 100)}% of the days${wait}.`);
+  }
+  if (insight.volatility !== null && insight.volatility !== undefined && insight.volatility >= 0.5) lines.push("Its stock swings widely.");
+  if (insight.sources_change) {
+    const count = Math.abs(insight.sources_change);
+    lines.push(`${count} ${count === 1 ? "distributor" : "distributors"} ${insight.sources_change < 0 ? "stopped" : "started"} holding it over this history.`);
+  }
+  if (insight.concentration !== null && insight.concentration !== undefined && insight.concentration >= 0.8) lines.push("Nearly all of the stock is at one distributor.");
   return lines;
 }
