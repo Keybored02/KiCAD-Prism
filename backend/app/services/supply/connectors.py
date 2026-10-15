@@ -453,6 +453,8 @@ class ConnectorService:
             "reset_time": row["reset_time"],
             "reset_tz": row["reset_tz"],
             "metered": spec.metered if spec else True,
+            # A provider that reads an unpublished address does nothing until its terms are marked as read.
+            "awaiting_terms": bool(spec and spec.needs_terms_review and not row["terms_reviewed_at"]),
             "usage_today": {"spent": 0, "interactive_spent": 0, **(usage or {})},
             "csv_import": csv_import.to_dto() if csv_import else None,
             "credentials": {name: name in names for name in (spec.required_credentials if spec else ())},

@@ -54,6 +54,7 @@ def cutoffs(now: datetime) -> dict[str, Any]:
     return {
         "tier1": now - RESEARCH_AFTER[1], "tier2": now - RESEARCH_AFTER[2],
         "free": [spec.key for spec in registry.list_specs(include_dev=True) if not spec.metered],
+        "needs_terms": [spec.key for spec in registry.list_specs(include_dev=True) if spec.needs_terms_review],
     }
 
 
@@ -117,7 +118,7 @@ class Discoverer:
 
         now = self._clock()
         connector = self._connectors.get(connector_id)
-        if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]:
+        if not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"] or connector["awaiting_terms"]:
             return DiscoverySummary(connector_id, stopped=STOPPED_INACTIVE)
         spec = registry.get_spec(connector["provider"])
         if CAP_SEARCH not in spec.capabilities:

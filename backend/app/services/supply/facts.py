@@ -35,10 +35,12 @@ LABELS: dict[str, str] = {
     "last_buy_date": "Last date to buy",
     "suggested_replacement": "Suggested replacement",
     "eol_notice_date": "End-of-life notice date",
+    "jlc_library": "JLCPCB part class",
+    "jlc_preferred": "JLCPCB preferred part",
 }
 ORDER = tuple(LABELS)
 # Facts that describe the part rather than its compliance: the part sheet shows them with the parameters.
-NOT_COMPLIANCE = frozenset({"category"})
+NOT_COMPLIANCE = frozenset({"category", "jlc_library", "jlc_preferred"})
 MAX_VALUE = 500
 MAX_PER_PROVIDER = 40
 _NAME = re.compile(r"^[a-z][a-z0-9_]{1,40}$")

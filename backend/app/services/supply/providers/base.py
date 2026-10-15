@@ -148,6 +148,8 @@ class ProviderSpec:
     # Stock here is only what the provider can place on a board it assembles; it is never sold to anyone else, and a
     # tracked part is read here only when the project (or a person) chooses it.
     assembly_only: bool = False
+    # Reads an unpublished address, so the connector does nothing until an administrator records that its terms were read.
+    needs_terms_review: bool = False
 
     def __post_init__(self) -> None:
         if not _KEY.match(self.key):

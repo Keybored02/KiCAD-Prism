@@ -94,6 +94,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
 
     active = """
         c.enabled AND c.paused_reason = '' AND (c.cooldown_until IS NULL OR c.cooldown_until <= %(now)s)
+        AND NOT (c.provider = ANY(%(needs_terms)s) AND c.terms_reviewed_at IS NULL)
     """
     due = conn.execute(
         f"""
@@ -144,7 +145,7 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
             OR EXISTS (SELECT 1 FROM admissions a JOIN part_tiers pt ON pt.part_id = a.part_id
                        WHERE a.connector_id = c.id AND a.state = 'admitted' AND pt.tier = 2))
         """,
-        {"now": now, "known": sorted(result)},
+        {"now": now, "known": sorted(result), **{"needs_terms": cutoffs(now)["needs_terms"]}},
     ).fetchall()
     result |= {row["id"] for row in spare if _has_spare(conn, row, now)}
     return sorted(result)
