@@ -80,7 +80,7 @@ function lookupFor(build: number): SupplyBomLookup {
   };
 }
 
-function renderTable(role: UserRole | null, atHead = true) {
+function renderTable(role: UserRole | null, projectId?: string, atHead = true) {
   const user: User | null = role ? { name: role, email: `${role}@example.com`, role } : null;
   render(
     <EngineeringBomTable
@@ -92,6 +92,7 @@ function renderTable(role: UserRole | null, atHead = true) {
       onRetry={() => {}}
       user={user}
       atHead={atHead}
+      projectId={projectId}
     />,
   );
 }
@@ -179,7 +180,7 @@ describe("supply columns on the BOM", () => {
   });
 
   it("is plain at a commit checked out from History, and looks nothing up", async () => {
-    renderTable("designer", false);
+    renderTable("designer", undefined, false);
     expect(screen.getByText("Supply data shows on the latest revision only.")).toBeTruthy();
     expect(screen.queryByRole("columnheader", { name: /^Supply/ })).toBeNull();
     expect(screen.queryByLabelText("Boards to build")).toBeNull();
@@ -198,19 +199,12 @@ describe("supply columns on the BOM", () => {
 });
 
 describe("actions on the BOM", () => {
-  it("watches every part that is not watched and then reloads the figures", async () => {
-    mocked.watchSupplyBomLines.mockResolvedValue({ watched: 1, already_watched: 1, skipped: [{ key: "x", reason: "no_manufacturer" }] });
-    renderTable("designer");
-    fireEvent.click(await screen.findByRole("button", { name: /Watch all lines/ }));
-    await waitFor(() => expect(mocked.watchSupplyBomLines).toHaveBeenCalledTimes(1));
-    expect(mocked.watchSupplyBomLines.mock.calls[0][0].map((line) => line.mpn).sort()).toEqual(["", "C-100N", "C-220N", "R-10K", "R-47K-A", "R-47K-B"]);
-    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(2));
-  });
-
-  it("does not offer to watch to a reader", async () => {
-    renderTable("qa");
-    await screen.findByText("1 at risk");
-    expect(screen.queryByRole("button", { name: /Watch all lines/ })).toBeNull();
+  it("offers Track this project to a reader who may track, and to nobody else", async () => {
+    renderTable("qa", "prj_1");
+    expect(await screen.findByRole("button", { name: /Track this project/ })).toBeTruthy();
+    cleanup();
+    renderTable("viewer", "prj_1");
+    expect(screen.queryByRole("button", { name: /Track this project/ })).toBeNull();
   });
 
   it("reports a lookup that failed and retries", async () => {

@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@/types/auth";
+import { BudgetView } from "./budget-view";
 import { ConnectorCard, type ConnectorAction } from "./connector-card";
 import { ConnectorCredentialsDialog } from "./connector-credentials-dialog";
 import { CreateConnectorDialog } from "./create-connector-dialog";
@@ -109,6 +110,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
         </div>
 
         {isAdmin ? <WorkerStatus /> : null}
+        <BudgetView />
         {status === "loading" ? <ConnectorsSkeleton /> : null}
         {status === "error" ? (
           <Alert variant="destructive">

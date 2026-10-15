@@ -56,6 +56,13 @@ export interface SupplyConnector {
   /** Days any history is kept, daily rows included; null keeps it for good. */
   keep_days: number | null;
   metered: boolean;
+  /** Read only for a project that names it (JLCPCB: stock that feeds its own assembly). */
+  assembly_only?: boolean;
+  /** Does nothing until an administrator marks the provider's terms as read. */
+  awaiting_terms?: boolean;
+  /** When the provider's day begins, and in which time zone. */
+  reset_time?: string;
+  reset_tz?: string;
   csv_import: SupplyCsvImport | null;
   usage_today: { spent: number; interactive_spent: number };
   /** Which credentials are set. Values are never returned. */
@@ -836,4 +843,77 @@ export interface AssessmentSettingsView {
   defaults: AssessmentSettings;
   checks: Array<{ id: string; label: string }>;
   ranges: { lead_time_days: [number, number]; stale_hours: [number, number] };
+}
+
+/** Why Prism follows a part: a tracked project's variant, a person's choice, a catalog component, or a watch from before tiers. */
+export interface TrackingReason {
+  kind: "project" | "person" | "component" | "legacy";
+  ref: string;
+  variant?: string;
+}
+
+/** How Prism follows a part: tier 1 is read daily, tier 2 weekly or monthly. Tier 3 (not followed) is null. */
+export interface PartTracking {
+  tier: 1 | 2;
+  rate: "daily" | "weekly" | "monthly";
+  reasons: TrackingReason[];
+}
+
+/** One connector's committed share, and what a change adds to it. */
+export interface BudgetShare {
+  connector_id: string;
+  name: string;
+  capacity: number;
+  committed: number;
+  free: number;
+  admitted: number;
+  waiting: number;
+  adds_calls?: number;
+  admitted_new?: number;
+  waiting_new?: number;
+}
+
+export interface TrackingPreview {
+  connectors: BudgetShare[];
+  /** Nothing the change adds fits at any connector. */
+  fits_nowhere: boolean;
+  tracked?: { parts_created: number; skipped: Array<{ mpn: string; reason: string }> };
+}
+
+export interface ProjectTrackingState {
+  tracked: { project_id: string; variants: string[]; connector_ids: string[] | null; tracked_by: string; tracked_at: string } | null;
+  has_usage: boolean;
+  variants: string[];
+}
+
+export interface BudgetCall {
+  hour?: number;
+  day?: string;
+  kind?: string;
+  purpose: string;
+  calls: number;
+}
+
+/** Where one connector's call budget goes (GET /api/supply/budget). */
+export interface BudgetConnector {
+  connector_id: string;
+  name: string;
+  provider: string;
+  enabled: boolean;
+  shares_account: boolean;
+  day: string;
+  reset_in_seconds: number;
+  daily_budget: number;
+  committed: { capacity: number; spent: number };
+  pool: { capacity: number; spent: number };
+  spare_spent: number;
+  spent: number;
+  refused_today: number;
+  tracking: BudgetShare | null;
+  hourly: BudgetCall[];
+  days: BudgetCall[];
+  owners: {
+    projects: Array<{ project_id: string; calls_a_day: number }>;
+    parts: Array<{ part_id: string; mpn: string; manufacturer: string; tier: number; calls_a_day: number; pick_saves: number }>;
+  };
 }

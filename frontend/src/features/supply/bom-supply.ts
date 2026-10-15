@@ -155,12 +155,3 @@ export function untrackedLabel(result: SupplyBomLineResult): string {
       return "";
   }
 }
-
-/** Lines that could be watched and are not yet: they name a manufacturer and a number but no one reads them. */
-export function unwatchedCount(lines: readonly BomLineDetail[], results: Record<string, SupplyBomLineResult>): number {
-  return lines.filter((line) => {
-    const result = results[line.key];
-    if (!result || !line.manufacturer || !line.mpn) return false;
-    return result.state === "unknown" || (result.state === "tracked" && !result.watched);
-  }).length;
-}

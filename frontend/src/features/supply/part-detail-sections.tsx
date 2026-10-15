@@ -18,6 +18,7 @@ import { ParametersSection } from "./parameters-section";
 import { PriceTrend } from "./price-trend";
 import { Sparkline } from "./sparkline";
 import { formatStock, LIFECYCLE_LABEL } from "./supply-format";
+import { TrackingControl } from "./tracking-control";
 import { WatchSettings } from "./watch-settings";
 import { VendorName } from "./vendor-name";
 
@@ -87,6 +88,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
 
       <section aria-label="Watch" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Watch</h3>
+        <TrackingControl partId={detail.part.id} canEdit onChanged={onChanged} />
         <WatchSettings part={detail.part} watch={detail.watch} canEdit={canEdit} onChanged={onChanged} />
       </section>
 

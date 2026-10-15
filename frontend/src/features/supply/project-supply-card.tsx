@@ -7,6 +7,7 @@ import type { SupplyBomRollup } from "@/types/supply";
 import { rollupSentences } from "./bom-rollup-text";
 import { getProjectBomHealth } from "./supply-api";
 import { STATUS_LABEL } from "./supply-format";
+import { TrackProjectButton } from "./track-project-dialog";
 import { useLoaded } from "./use-loaded";
 
 /** How the project's parts stand, on its overview. Nothing shows to roles without supply access or before the BOM is read. */
@@ -32,6 +33,7 @@ export function ProjectSupplyCard({ projectId, role }: { projectId: string; role
             {variants.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         ) : null}
+        <span className="ml-auto"><TrackProjectButton projectId={projectId} /></span>
         <Badge variant={rollup.health_status === "ok" ? "outline" : "warning"}>
           {STATUS_LABEL[rollup.health_status]}{rollup.health !== null ? `, ${rollup.health.toFixed(1)} of 10` : ""}
         </Badge>

@@ -31,8 +31,6 @@ export interface BomSupply {
   lookup: SupplyBomLookup | null;
   error: string;
   retry: () => void;
-  /** Watch every part on the BOM that has a manufacturer and a number, then reload the figures. */
-  watchAll: () => Promise<SupplyBomWatchResult>;
   /** Watch just these lines, then reload the figures. */
   watchLines: (subset: readonly BomLineDetail[]) => Promise<SupplyBomWatchResult>;
   /** Reload the figures without the loading state. */
@@ -80,7 +78,6 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
     await refresh();
     return totals;
   }, [refresh]);
-  const watchAll = useCallback(() => watchLines(lines), [lines, watchLines]);
 
   const planBuild = useCallback(
     (name: string, needBy: string | null) => planSupplyBuild({ name, projectId, lines: lines.map(lineInput), buildQuantity, attritionPercent, needBy }),
@@ -103,7 +100,6 @@ export function useBomSupply(fitted: readonly SemanticComponent[], user: User | 
     lookup: requestKey === null ? null : data,
     error,
     retry,
-    watchAll,
     watchLines,
     refresh,
     planBuild,

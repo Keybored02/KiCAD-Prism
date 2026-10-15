@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SemanticComponent } from "@/types/prism-selection";
 import type { SupplyBomLineResult, SupplyBomRollup } from "@/types/supply";
-import { buildLines, identityOf, isSupplyColumn, lcscOf, lineInput, lineKey, rowSupply, unwatchedCount, untrackedLabel } from "./bom-supply";
+import { buildLines, identityOf, isSupplyColumn, lcscOf, lineInput, lineKey, rowSupply, untrackedLabel } from "./bom-supply";
 import { rollupSentences } from "./bom-rollup-text";
 
 function part(reference: string, fields: Record<string, string | number | boolean | null> = {}): SemanticComponent {
@@ -121,27 +121,6 @@ describe("a row's supply", () => {
     expect(untrackedLabel(result({ state: "no_mpn" }))).toBe("No part number");
     expect(untrackedLabel(result({ state: "unknown" }))).toBe("Not watched yet");
     expect(untrackedLabel(result({ state: "ambiguous" }))).toBe("Several parts match");
-  });
-});
-
-describe("what could still be watched", () => {
-  const lines = buildLines([
-    part("R1", { Manufacturer: "Acme", "Manufacturer Part Number": "NEW" }),
-    part("R2", { Manufacturer: "Acme", "Manufacturer Part Number": "KNOWN" }),
-    part("R3", { Manufacturer: "Acme", "Manufacturer Part Number": "DONE" }),
-    part("R4", { "Manufacturer Part Number": "NO-MAKER" }),
-    part("R5"),
-  ]);
-
-  it("counts parts with a manufacturer and a number that nobody reads yet", () => {
-    const data: Record<string, SupplyBomLineResult> = {
-      [lines[0].key]: result({ state: "unknown", part_id: null }),
-      [lines[1].key]: result({ watched: false }),
-      [lines[2].key]: result({ watched: true }),
-      [lines[3].key]: result({ state: "unknown", part_id: null }),
-      [lines[4].key]: result({ state: "no_mpn", part_id: null }),
-    };
-    expect(unwatchedCount(lines, data)).toBe(2);
   });
 });
 

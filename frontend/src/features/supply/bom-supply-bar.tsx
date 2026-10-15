@@ -1,46 +1,15 @@
-import { useState } from "react";
-import { Eye } from "lucide-react";
-import { toast } from "sonner";
-
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { unwatchedCount } from "./bom-supply";
 import { BomPlanButton } from "./bom-plan-button";
 import { rollupSentences } from "./bom-rollup-text";
+import { TrackProjectButton } from "./track-project-dialog";
 import type { BomSupply } from "./use-bom-supply";
-
-const SKIPPED_WHY: Record<string, string> = {
-  no_mpn: "no part number",
-  no_manufacturer: "no manufacturer",
-  unknown_manufacturer: "a manufacturer Prism does not know (QA or an administrator can add it)",
-};
 
 /** Build size, the rollup of what the BOM will cost and whether it can be built, and the actions on it. */
 export function BomSupplyBar({ supply }: { supply: BomSupply }) {
-  const [busy, setBusy] = useState(false);
   const { lookup, status, lines, buildQuantity } = supply;
 
-  const watchAll = async () => {
-    setBusy(true);
-    try {
-      const result = await supply.watchAll();
-      const skipped = result.skipped.length;
-      const linked = result.lcsc_linked ?? 0;
-      const notes = [
-        linked > 0 ? `${linked} LCSC numbers from the BOM linked.` : "",
-        skipped > 0 ? `${skipped} lines skipped. First: ${SKIPPED_WHY[result.skipped[0].reason]}.` : "",
-      ].filter(Boolean);
-      toast.success(`Watching ${result.watched + result.already_watched} parts`, notes.length ? { description: notes.join(" ") } : undefined);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not watch the parts");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const sentences = lookup ? rollupSentences(lookup.rollup, buildQuantity, lines) : [];
-  const unwatched = lookup ? unwatchedCount(lines, lookup.lines) : 0;
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-card/40 px-2 py-1.5 text-xs">
@@ -92,11 +61,7 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
       {supply.truncated ? <span className="text-warning">Only the first 2,000 distinct parts are looked up.</span> : null}
       <span className="ml-auto flex items-center gap-1.5">
         {supply.canWatch && lookup && lookup.rollup.tracked > 0 ? <BomPlanButton supply={supply} /> : null}
-        {supply.canWatch && lookup && unwatched > 0 ? (
-          <Button type="button" size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => void watchAll()}>
-            <Eye className="h-3.5 w-3.5" />Watch all lines
-          </Button>
-        ) : null}
+        {supply.projectId ? <TrackProjectButton projectId={supply.projectId} onChanged={supply.refresh} /> : null}
       </span>
     </div>
   );
