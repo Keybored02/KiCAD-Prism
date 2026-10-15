@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, datasheets, details, fx, ledger, market, notice_files, quota, retention, schedule_settings, tracking, worker_seen,
+    accounts, datasheets, details, fx, ledger, market, notice_files, oneoff, quota, retention, schedule_settings, tracking, worker_seen,
 )
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs
@@ -72,6 +72,22 @@ def _has_spare(conn, row, now: datetime) -> bool:
     )
     week = schedule_settings.work_week(schedule_settings.load(conn))
     return quota.spare_allowance(state, now, week, reset_time=account.reset_time, tz=account.reset_tz) > 0
+
+
+def _has_pool_or_spare(conn, row, now: datetime) -> bool:
+    """Whether the pool has a call left, or spare budget is open, for a check someone asked for once."""
+
+    try:
+        if not registry.get_spec(row["provider"]).metered:
+            return True
+    except registry.UnknownProvider:
+        return False
+    account = accounts.resolve(conn, row["id"])
+    state = ledger.get_state(
+        conn, account.ledger_id, daily_budget=account.daily_budget, reserve_pct=account.reserve_pct, now=now,
+        reset_time=account.reset_time, reset_tz=account.reset_tz,
+    )
+    return quota.interactive_allowance(state) > 0 or _has_spare(conn, row, now)
 
 
 _warned_providers: set[str] = set()
@@ -148,6 +164,15 @@ def connectors_with_work(conn, now: datetime) -> list[str]:
         {"now": now, "known": sorted(result), **{"needs_terms": cutoffs(now)["needs_terms"]}},
     ).fetchall()
     result |= {row["id"] for row in spare if _has_spare(conn, row, now)}
+    # Checks someone asked for once: served from the pool, then from spare budget.
+    wanted = [cid for cid in oneoff.pending_connectors(conn) if cid not in result]
+    if wanted:
+        for row in conn.execute(
+            f"SELECT c.id, c.provider, c.daily_budget, c.interactive_reserve_pct FROM connectors c WHERE {active} AND c.id = ANY(%(ids)s)",
+            {"now": now, "ids": wanted, "needs_terms": cutoffs(now)["needs_terms"]},
+        ).fetchall():
+            if _has_pool_or_spare(conn, row, now):
+                result.add(row["id"])
     return sorted(result)
 
 
@@ -302,6 +327,10 @@ def run_supply_poll_job(context: Any) -> Any:
         found = Discoverer(connectors).run(connector_id)
         context.progress(stage="supply-poll", message="Reading stock and prices", percent=50, force=True)
         polled = Poller(connectors).poll_connector(connector_id)
+        try:
+            oneoff.run(Discoverer(connectors), Poller(connectors), connectors.store, connector_id)
+        except Exception:  # noqa: BLE001 - a check that fails is tried again; it never fails the job
+            logging.getLogger(__name__).info("Check once not served", exc_info=True)
         if polled.stopped in (None, "nothing_due"):
             _spend_spare(connectors, connector_id)
         searched, listings = searched + found.searched, listings + found.listings

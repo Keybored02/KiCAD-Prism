@@ -74,14 +74,14 @@ _SERVICE_ORDER = (
 
 
 def due_listings(
-    conn, connector_id: str, now: datetime, limit: int, only_part: str | None = None, *, metered: bool = True
+    conn, connector_id: str, now: datetime, limit: int, only_part: str | Sequence[str] | None = None, *, metered: bool = True
 ) -> list[DueListing]:
     """Counted listings of followed parts that have never been polled or whose time has come.
 
     A part is read at a connector once it is admitted there (a connector that is not metered admits everything), and
     only the listing a person picked when one is picked.
 
-    ``only_part`` asks for that part's counted listings whatever their schedule, watched or not:
+    ``only_part`` (a part id, or several) asks for the counted listings of those parts whatever their schedule, tracked or not:
     it is a person asking to read one part now.
     """
 
@@ -92,10 +92,10 @@ def due_listings(
                    COALESCE(ps.missing_streak, 0) AS missing_streak, ps.last_change_at,
                    COALESCE((SELECT pt.tier FROM part_tiers pt WHERE pt.part_id = l.part_id), 2) AS tier
             FROM listings l LEFT JOIN poll_state ps ON ps.listing_id = l.id
-            WHERE l.connector_id = %s AND l.part_id = %s AND l.match_state IN ('exact', 'manual')
-            ORDER BY l.sku LIMIT %s
+            WHERE l.connector_id = %s AND l.part_id = ANY(%s) AND l.match_state IN ('exact', 'manual')
+            ORDER BY l.part_id, l.sku LIMIT %s
             """,
-            (connector_id, only_part, limit),
+            (connector_id, [only_part] if isinstance(only_part, str) else list(only_part), limit),
         ).fetchall()
         return [
             DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]))
@@ -223,9 +223,14 @@ class Poller:
         self._reset: tuple[str, str] = ("00:00", "UTC")
 
     def poll_connector(
-        self, connector_id: str, *, interactive: bool = False, only_part: str | None = None, spare: str | None = None
+        self, connector_id: str, *, interactive: bool = False, only_part: str | Sequence[str] | None = None, spare: str | None = None,
+        oneoff: bool = False,
     ) -> PollSummary:
-        """Read what is due. With ``spare`` (a kind from ``spare_listings``) read that spare work instead, from spare budget."""
+        """Read what is due. With ``spare`` (a kind from ``spare_listings``) read that spare work instead, from spare budget.
+
+        ``oneoff`` marks a check someone asked for once (``oneoff.py``): paid from the pool, and from spare budget when the
+        pool is empty.
+        """
 
         now = self._clock()
         self._rupture.clear()
@@ -253,13 +258,17 @@ class Poller:
         stopped: str | None = None
         for batch in _by_part(due) if spec.groups_by_part else _chunks(due, spec.max_batch):
             purpose = (
-                ledger.PURPOSE_INTERACTIVE if interactive else ledger.PURPOSE_SPARE if spare
+                ledger.PURPOSE_ONE_OFF if oneoff else ledger.PURPOSE_INTERACTIVE if interactive else ledger.PURPOSE_SPARE if spare
                 else f"tier{min(row.tier for row in batch)}"
             )
-            if spec.metered and not ledger.spend_call(
-                self._store, connector, now=now, interactive=interactive, units=spec.calls_per_offers_batch,
-                kind=ledger.KIND_OFFERS, purpose=purpose, spare=bool(spare),
-            ):
+
+            def spend(from_spare: bool) -> bool:
+                return ledger.spend_call(
+                    self._store, connector, now=now, interactive=interactive or (oneoff and not from_spare), units=spec.calls_per_offers_batch,
+                    kind=ledger.KIND_OFFERS, purpose=purpose, spare=bool(spare) or from_spare,
+                )
+
+            if spec.metered and not (spend(False) or (oneoff and spend(True))):
                 stopped = STOPPED_BUDGET
                 break
             calls += 1

@@ -709,6 +709,38 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m040_read_requests(conn) -> None:
+    """A BOM or a component someone asked to check once (see ``oneoff.py``): read at every distributor, tracked by nobody.
+
+    ``read_request_work`` has a row for each part and distributor still to be read. It is paid from the pool, and from
+    spare budget when the pool is empty, so a large BOM finishes over evenings and weekends.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS read_requests (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL CHECK (kind IN ('bom', 'component')),
+            project_id TEXT NOT NULL DEFAULT '',
+            requested_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            finished_at TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS idx_read_requests_open ON read_requests (created_at) WHERE finished_at IS NULL;
+        CREATE TABLE IF NOT EXISTS read_request_work (
+            request_id TEXT NOT NULL REFERENCES read_requests(id) ON DELETE CASCADE,
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done', 'failed')),
+            attempts INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (request_id, part_id, connector_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_read_request_work_connector ON read_request_work (connector_id, state);
+        """,
+        prepare=False,
+    )
+
+
 def _m039_summary_dirty_log(conn) -> None:
     """Mark a summary stale by adding a row to a log, not by updating the summary's own row.
 
@@ -1182,6 +1214,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (37, "release_snapshot_jobs", _m037_release_snapshot_jobs),
     (38, "part_summaries", _m038_part_summaries),
     (39, "summary_dirty_log", _m039_summary_dirty_log),
+    (40, "read_requests", _m040_read_requests),
 ]
 
 

@@ -38,7 +38,7 @@ class TrackingApiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         from fastapi import FastAPI
 
-        from app.api import supply_connectors, supply_tracking
+        from app.api import supply_checks, supply_connectors, supply_tracking
         from app.core.security import AuthenticatedUser
         from app.services.postgres_database import database
         from app.services.supply import usage
@@ -63,6 +63,7 @@ class TrackingApiTests(unittest.TestCase):
         cls.app = FastAPI()
         cls.app.include_router(supply_tracking.router)
         cls.app.include_router(supply_tracking.budget_router)
+        cls.app.include_router(supply_checks.router)
         supply_connectors.register_validation_redaction(cls.app)
         cls.patcher = mock.patch.object(supply_connectors, "service", cls.connectors)
         cls.patcher.start()
@@ -174,6 +175,19 @@ class TrackingApiTests(unittest.TestCase):
         self.assertEqual(len(item["owners"]["parts"]), 3)
         self.assertEqual(item["hourly"][0]["purpose"], "interactive")
         self.assertEqual(_request(self.app, "GET", "/api/supply/budget", user=self.users["viewer"]).status, 403)
+
+    def test_a_check_is_asked_for_by_those_who_may_track_and_its_progress_is_read_by_readers(self) -> None:
+        self.connector()
+        body = {"kind": "bom", "project_id": "prj_1", "lines": [{"manufacturer": "Acme", "mpn": "A-1"}, {"manufacturer": "Acme", "mpn": ""}]}
+        made = _request(self.app, "POST", "/api/supply/checks", user=self.users["qa"], body=body)
+        self.assertEqual((made.status, made.json["parts"], made.json["progress"]["parts"]), (201, 1, 1))
+        shown = _request(self.app, "GET", f"/api/supply/checks/{made.json['id']}", user=self.users["designer"])
+        self.assertEqual((shown.status, shown.json["finished"], shown.json["done"]), (200, False, 0))
+        self.assertEqual(_request(self.app, "POST", "/api/supply/checks", user=self.users["viewer"], body=body).status, 403)
+        self.assertEqual(_request(self.app, "GET", "/api/supply/checks/nope", user=self.users["qa"]).status, 404)
+        empty = _request(self.app, "POST", "/api/supply/checks", user=self.users["qa"], body={"kind": "bom", "lines": []})
+        self.assertEqual((empty.status, empty.json["detail"]["code"]), (400, "invalid_check"))
+        self.assertEqual(_request(self.app, "POST", "/api/supply/checks", user=self.users["qa"], body={"kind": "other", "lines": []}).status, 422)
 
     def test_a_bad_tier_or_unknown_part_is_refused(self) -> None:
         self.connector()

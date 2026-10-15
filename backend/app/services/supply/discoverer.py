@@ -168,6 +168,49 @@ class Discoverer:
                 admission.sync(conn)
         return DiscoverySummary(connector_id, searched=searched, listings=listings, stopped=stopped)
 
+    def search_parts(self, connector_id: str, part_ids: list[str]) -> tuple[int, str | None]:
+        """Search for these parts now, for a check someone asked for once: paid from the pool, then from spare budget.
+
+        Returns how many were searched and why it stopped early, if it did. Parts already searched are not searched again.
+        """
+
+        now = self._clock()
+        connector = self._connectors.get(connector_id)
+        spec = registry.get_spec(connector["provider"])
+        if (not connector["enabled"] or connector["paused_reason"] or not connector["provider_available"]
+                or connector["awaiting_terms"] or CAP_SEARCH not in spec.capabilities):
+            return 0, STOPPED_INACTIVE
+        if trouble.cooling_down(self._store, connector_id, now):
+            return 0, STOPPED_COOLING_DOWN
+        with self._store.connection() as conn:
+            done = {r["part_id"] for r in conn.execute(
+                "SELECT part_id FROM discovery_runs WHERE connector_id = %s AND part_id = ANY(%s)", (connector_id, part_ids)).fetchall()}
+        todo = [part_id for part_id in part_ids if part_id not in done]
+        provider = self._provider_for(connector_id)
+        service = DiscoveryService(lambda _id: provider, self._store)
+        size = max(spec.search_batch, 1)
+        searched = 0
+        for start in range(0, len(todo), size):
+            group = todo[start:start + size]
+            if spec.metered and not (
+                ledger.spend_call(self._store, connector, now=now, interactive=True, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF)
+                or ledger.spend_call(self._store, connector, now=now, kind=ledger.KIND_SEARCH, purpose=ledger.PURPOSE_ONE_OFF, spare=True)
+            ):
+                return searched, STOPPED_BUDGET
+            try:
+                results = self._search(service, provider, group, connector_id, batched=size > 1)
+            except ProviderError as exc:
+                return searched, trouble.react(self._connectors, self._store, connector_id, exc, now)
+            for part_id, result in results.items():
+                searched += 1
+                with self._store.connection() as conn:
+                    conn.execute(
+                        "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, %s) "
+                        "ON CONFLICT (part_id, connector_id) DO UPDATE SET last_run_at = EXCLUDED.last_run_at, found = EXCLUDED.found",
+                        (part_id, connector_id, now, result.total),
+                    )
+        return searched, None
+
     def _spend(self, connector, first: bool, purpose: str, *, spare_only: bool = False) -> bool:
         """A first search is paid from the pool and, when that is empty, from spare budget; a repeat from the committed share."""
 
