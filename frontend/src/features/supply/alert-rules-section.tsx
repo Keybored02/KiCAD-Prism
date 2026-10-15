@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ const KIND_LABEL: Record<string, string> = {
 function Form({ partId, initial, mutable }: { partId: string; initial: AlertRules; mutable: string[] }) {
   const [draft, setDraft] = useState(initial);
   const { busy, error, run } = useConnectorSubmit();
+  const muted = useMemo(() => new Set(draft.muted), [draft.muted]);
   const toggle = (kind: string, on: boolean) =>
     setDraft((current) => ({ ...current, muted: on ? current.muted.filter((item) => item !== kind) : [...current.muted, kind] }));
   const save = () => {
@@ -37,7 +38,7 @@ function Form({ partId, initial, mutable }: { partId: string; initial: AlertRule
         <legend className="text-xs text-muted-foreground">Alert me when</legend>
         {mutable.map((kind) => (
           <div key={kind} className="flex items-center gap-2">
-            <Checkbox id={`rule-${kind}`} checked={!draft.muted.includes(kind)} onCheckedChange={(on) => toggle(kind, on === true)} />
+            <Checkbox id={`rule-${kind}`} checked={!muted.has(kind)} onCheckedChange={(on) => toggle(kind, on === true)} />
             <Label htmlFor={`rule-${kind}`} className="font-normal">{KIND_LABEL[kind] ?? kind}</Label>
           </div>
         ))}
