@@ -26,7 +26,11 @@ const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
 };
 
 const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
-  { id: "watched", label: "Watched" },
+  { id: "watched", label: "Tracked" },
+  { id: "tier1", label: "Tier 1" },
+  { id: "tier2", label: "Tier 2" },
+  { id: "waiting", label: "Waiting for room" },
+  { id: "pick", label: "Pick a packaging" },
   { id: "in_use", label: "In use" },
   { id: "all", label: "All known" },
 ];
@@ -35,7 +39,7 @@ const SCOPES: ReadonlyArray<{ id: PartsScope; label: string }> = [
 export function PartsView({ user }: { user: User | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedScope = searchParams.get("partsScope");
-  const scope: PartsScope = requestedScope === "all" || requestedScope === "in_use" ? requestedScope : "watched";
+  const scope: PartsScope = SCOPES.some((item) => item.id === requestedScope) ? (requestedScope as PartsScope) : "watched";
   const query = searchParams.get("partsQ") ?? "";
   const requestedOnly = searchParams.get("partsOnly");
   const only: PartsFilter = requestedOnly && requestedOnly in FILTER_LABEL ? (requestedOnly as PartsFilter) : "";
@@ -169,7 +173,7 @@ function EmptyState({ scope, searching, canEdit, onWatch }: { scope: PartsScope;
   return (
     <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center">
       <PackageSearch className="h-8 w-8 text-muted-foreground" />
-      <p className="text-sm font-medium">{searching ? "No parts match" : scope === "watched" ? "No watched parts yet" : scope === "in_use" ? "No parts in use yet" : "No parts yet"}</p>
+      <p className="text-sm font-medium">{searching ? "No parts match" : scope === "watched" ? "No tracked parts yet" : scope === "in_use" ? "No parts in use yet" : "No parts yet"}</p>
       <p className="max-w-md text-sm text-muted-foreground">
         {searching
           ? "Try a shorter part number or another manufacturer."

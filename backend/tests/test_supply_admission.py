@@ -222,6 +222,23 @@ class AdmissionTests(unittest.TestCase):
         self.assertGreater(counts["waiting"], 0, "listings found beyond the estimate crowd parts out")
         self.assertEqual(counts["admitted"] + counts["waiting"], 15)
 
+    def test_the_parts_list_can_be_narrowed_to_tiers_and_to_parts_waiting_for_room(self) -> None:
+        from app.services.supply import parts_view
+
+        self.connector()
+        for n in range(16):
+            self.watch(n)
+        self.watch(99, tier=2)
+        with self.store.connection() as conn:
+            def mpns(scope):
+                return sorted(item["mpn"] for item in parts_view.ranked_parts(conn, scope=scope)[0])
+
+            self.assertEqual(len(mpns("tier1")), 16)
+            self.assertEqual(mpns("tier2"), ["P-099"])
+            self.assertEqual(len(mpns("waiting")), 1, "one of the sixteen did not fit")
+            self.assertEqual(len(mpns("watched")), 17)
+            self.assertEqual(mpns("pick"), [], "none has several listings")
+
     def test_a_preview_changes_nothing_and_says_what_would_happen(self) -> None:
         cid = self.connector()
         lines = self.usage.lines_from_components([

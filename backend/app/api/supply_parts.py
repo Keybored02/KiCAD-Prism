@@ -76,7 +76,7 @@ def _watch_dto(record: watches.WatchRecord) -> dict[str, Any]:
 
 @router.get("/parts")
 async def list_parts(
-    scope: Literal["watched", "in_use", "all"] = "watched",
+    scope: Literal["watched", "in_use", "all", "tier1", "tier2", "waiting", "pick"] = "watched",
     only: Literal["", "at_risk", "out_of_stock", "lifecycle"] = "",
     q: str = Query(default="", max_length=100),
     limit: int = Query(default=100, ge=1, le=parts_view.MAX_LIMIT),

@@ -124,7 +124,7 @@ describe("the parts list", () => {
     await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("all", "", expect.anything(), ""));
     expect(search()).toContain("partsScope=all");
     expect(screen.getByRole("button", { name: "All known" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Watched" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tracked" }));
     await waitFor(() => expect(mocked.listSupplyParts).toHaveBeenLastCalledWith("watched", "", expect.anything(), ""));
     expect(search()).not.toContain("partsScope");
   });
@@ -147,11 +147,11 @@ describe("the parts list", () => {
   it("explains an empty list for each case", async () => {
     mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 100 });
     renderView();
-    expect(await screen.findByText("No watched parts yet")).toBeTruthy();
+    expect(await screen.findByText("No tracked parts yet")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Watch a part" })).toHaveLength(2);
     cleanup();
     renderView("qa");
-    expect(await screen.findByText("No watched parts yet")).toBeTruthy();
+    expect(await screen.findByText("No tracked parts yet")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Watch a part" })).toHaveLength(1);
     cleanup();
     renderView("designer", "/?partsQ=zzz");
