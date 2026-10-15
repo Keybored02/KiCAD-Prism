@@ -364,6 +364,26 @@ class ConnectorService:
             row = _fetch(conn, connector_id)
         return sealed.unseal(self._keyring(), connector_id, row["credential_envelope"]) if row["credential_envelope"] else {}
 
+    def refresh_account_keys(self) -> int:
+        """Work every connector's account key out again. A key is a hash under the keyring's current key, so after the
+        key rotates, connectors saved before and after would no longer look like one account. Returns how many changed."""
+
+        changed = 0
+        with self._store.connection() as conn:
+            rows = conn.execute("SELECT id, provider, credential_envelope, account_key FROM connectors WHERE credential_envelope <> ''").fetchall()
+            for row in rows:
+                try:
+                    credentials = sealed.unseal(self._keyring(), row["id"], row["credential_envelope"])
+                except Exception:  # noqa: BLE001 - one unreadable connector must not stop the rest
+                    continue
+                key = accounts.key_for(self._keyring(), row["provider"], credentials)
+                if key != row["account_key"]:
+                    conn.execute("UPDATE connectors SET account_key = %s WHERE id = %s", (key, row["id"]))
+                    changed += 1
+            if changed:
+                admission.sync(conn)
+        return changed
+
     def load_provider(self, connector_id: str) -> SupplyProvider:
         """Build the adapter for an active connector, with its credentials."""
 

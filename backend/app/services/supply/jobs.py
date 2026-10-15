@@ -320,6 +320,10 @@ def run_supply_poll_job(context: Any) -> Any:
 
     connector_ids = [str(item) for item in context.payload.get("connector_ids") or [context.payload["connector_id"]]]
     connectors = ConnectorService()
+    try:
+        connectors.refresh_account_keys()
+    except Exception:  # noqa: BLE001 - a stale key only splits a shared budget; the poll goes on
+        logging.getLogger(__name__).info("Account keys not refreshed", exc_info=True)
     searched = listings = calls = polled_count = gone = 0
     discovery_stopped = poll_stopped = None
     for connector_id in connector_ids:

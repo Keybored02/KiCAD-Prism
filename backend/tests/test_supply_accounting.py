@@ -183,7 +183,7 @@ class AccountingTests(unittest.TestCase):
         cls.store = type("TestSupplyStore", (SupplyStore,), {"schema": f"supply_acct_test_{uuid.uuid4().hex[:8]}"})()
         cls.store.initialize()
         cls.clock = {"now": START}
-        ring = CredentialKeyring({"t": os.urandom(32)}, "t")
+        cls.ring = ring = CredentialKeyring({"t": os.urandom(32)}, "t")
         cls.connectors = ConnectorService(cls.store, keyring_factory=lambda: ring, allow_dev=lambda: True, clock=lambda: cls.clock["now"])
         cls.registry = registry
         registry.register(ProviderSpec(
@@ -248,6 +248,22 @@ class AccountingTests(unittest.TestCase):
         with self.store.connection() as conn:
             after = conn.execute("SELECT account_key FROM connectors WHERE id = %s", (cid,)).fetchone()["account_key"]
         self.assertNotEqual(before, after)
+
+    def test_a_rotated_keyring_does_not_split_an_account(self) -> None:
+        from app.services.supply.connectors import ConnectorService
+        from app.services.trackers.secrets import CredentialKeyring
+
+        old = self.make("uk")
+        rotated = CredentialKeyring({"t": self.ring._keys["t"], "u": os.urandom(32)}, "u")
+        later = ConnectorService(self.store, keyring_factory=lambda: rotated, allow_dev=lambda: True, clock=lambda: self.clock["now"])
+        new = later.create(actor=ACTOR, provider="acct_demo", storefront="de", credentials={"api_key": "KEY-1"}, interactive_reserve_pct=10)["id"]
+        with self.store.connection() as conn:
+            keys = {row["id"]: row["account_key"] for row in conn.execute("SELECT id, account_key FROM connectors").fetchall()}
+        self.assertNotEqual(keys[old], keys[new], "the key changed with the keyring")
+        self.assertEqual(later.refresh_account_keys(), 1)
+        self.assertEqual(later.refresh_account_keys(), 0)
+        with self.store.connection() as conn:
+            self.assertTrue(self.accounts.resolve(conn, new).shared)
 
     def test_two_connectors_on_one_key_spend_one_budget(self) -> None:
         uk, de = self.make("uk"), self.make("de")
