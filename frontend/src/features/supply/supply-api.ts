@@ -15,6 +15,7 @@ import type {
   AssessmentSettingsView,
   SupplyAlert,
   SupplyAssessment,
+  ComponentCoverage,
   ProjectSupply,
   SupplyBomLookup,
   SupplyBomWatchResult,
@@ -342,6 +343,11 @@ async function send(url: string, method: string, body: unknown, fallback: string
 export async function listComponentSources(componentId: string, signal?: AbortSignal): Promise<SupplySource[]> {
   const url = `${BASE}/components/${encodeURIComponent(componentId)}/sources`;
   return (await fetchJson<{ items: SupplySource[] }>(url, { signal }, "Could not load the approved parts")).items;
+}
+
+/** What a component's own part and its approved alternates hold together. */
+export function getComponentCoverage(componentId: string, signal?: AbortSignal): Promise<ComponentCoverage> {
+  return fetchJson<ComponentCoverage>(`${BASE}/components/${encodeURIComponent(componentId)}/coverage`, { signal }, "Could not load the component's coverage");
 }
 
 /** What is wrong with a component taken with its approved alternates; empty when nothing is. */

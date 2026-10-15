@@ -614,6 +614,8 @@ export interface SupplyListing {
 
 export interface SupplyPartDetail {
   jlc?: JlcClass | null;
+  /** The catalog components that list this part as an approved alternate, and what their parts hold together. */
+  alternate_for?: ComponentCoverage[];
   part: { id: string; mpn: string; manufacturer: string; first_seen?: string | null };
   watch: SupplyWatchSummary | null;
   status: SupplyStatus;
@@ -1070,4 +1072,15 @@ export interface ProjectSupply {
   builds: Array<{ name: string; parts: number; need_by: string | null; note: string; created_at: string }>;
   releases: ProjectSupplyRelease[];
   notes: SupplyBomComment[];
+}
+
+/** What a component's own part and its approved alternates hold together, and which part gives how much. */
+export interface ComponentCoverage {
+  component_id: string;
+  /** Null when no part has been read. */
+  stock: number | null;
+  /** Parts nobody has read yet, so the total is not complete. */
+  unread: number;
+  parts: Array<{ part_id: string; manufacturer: string; mpn: string; role: "primary" | "alternate"; stock: number | null }>;
+  component?: string;
 }

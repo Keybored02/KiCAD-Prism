@@ -165,6 +165,29 @@ class SupplySourcesTests(unittest.TestCase):
         self.assertEqual(findings(), [])
         self.assertEqual(self.call("GET", f"/api/supply/components/{COMPONENT}/assessment", role="viewer").status, 403)
 
+    def test_coverage_adds_the_parts_of_a_component_and_says_which_gave_what(self) -> None:
+        from app.services.supply import catalog_read, parts
+
+        with self.store.connection() as conn:
+            primary = parts.ensure_part(conn, "Acme", "PRIM-1", "seed@example.com").id
+            conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
+        self.add(mpn="ALT-1", role="qa")
+        self.add(mpn="ALT-2", role="qa")
+        alternate = self.listed()[0]["part_id"]
+        stamp = "2026-03-01T12:00:00+00:00"
+        with self.store.connection() as conn:
+            for part_id, sku, stock in ((primary, "P", 100), (alternate, "A", 40)):
+                conn.execute(
+                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "VALUES (%s, 'c1', %s, %s, 'x', 'x', 'exact')", (f"l-{sku}", sku, part_id))
+                conn.execute("INSERT INTO offers (listing_id, fetched_at, stock) VALUES (%s, %s, %s)", (f"l-{sku}", stamp, stock))
+        with mock.patch.object(catalog_read, "identities", lambda ids: {COMPONENT: ("Acme", "PRIM-1")}):
+            shown = self.call("GET", f"/api/supply/components/{COMPONENT}/coverage", role="qa").json
+        self.assertEqual((shown["stock"], shown["unread"]), (140, 1), "ALT-2 was never read, so the total is not complete")
+        self.assertEqual([(item["role"], item["mpn"], item["stock"]) for item in shown["parts"]],
+                         [("primary", "PRIM-1", 100), ("alternate", "ALT-1", 40), ("alternate", "ALT-2", None)])
+        self.assertEqual(self.call("GET", f"/api/supply/components/{COMPONENT}/coverage", role="viewer").status, 403)
+
     def test_a_component_watch_watches_its_part_and_alternates_approved_later(self) -> None:
         from app.services.supply import catalog_read
 

@@ -91,6 +91,19 @@ async def component_assessment(component_id: str, _user: AuthenticatedUser = Dep
     return await _run(read)
 
 
+@router.get("/components/{component_id}/coverage")
+async def component_coverage(component_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """What the component's own part and its approved alternates hold together, and which part gives how much."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            maker, mpn = catalog_read.identities([component_id]).get(component_id, ("", ""))
+            primary = parts.find_part(conn, maker, mpn) if maker and mpn else None
+            return sources.coverage(conn, component_id, primary.id if primary else None)
+
+    return await _run(read)
+
+
 @router.post("/components/{component_id}/watch-alternates")
 async def watch_alternates(component_id: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> dict[str, int]:
     """Watch every approved alternate of the component, so they are read like its own part. Watching twice changes nothing."""

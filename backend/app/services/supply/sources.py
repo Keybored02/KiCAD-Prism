@@ -153,3 +153,36 @@ def remove(conn, source_id: str, actor: str, *, approver: bool) -> None:
     write_audit(conn, actor, "source.remove", source_id,
                 {"component_id": row["component_id"], "part_id": row["part_id"], "was": row["approval"]},
                 subject_kind="component_source")
+
+
+def coverage(conn, component_id: str, primary_part_id: str | None) -> dict[str, Any]:
+    """What a component's parts hold together: its own part and the alternates approved for it, and which part gives how much.
+
+    ``stock`` is the sum of the figures that exist; ``unread`` counts parts nobody has read yet, so a total is not taken for complete."""
+
+    approved = [row for row in list_sources(conn, component_id) if row["approval"] == APPROVED]
+    ids = [part_id for part_id in [primary_part_id, *(row["part_id"] for row in approved)] if part_id]
+    standing = {item["id"]: item for item in parts_view.summaries_for(conn, ids)} if ids else {}
+    contributors = []
+    if primary_part_id and primary_part_id in standing:
+        item = standing[primary_part_id]
+        contributors.append({"part_id": primary_part_id, "manufacturer": item["manufacturer"], "mpn": item["mpn"], "role": "primary", "stock": item["stock"]})
+    for row in approved:
+        contributors.append({"part_id": row["part_id"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "role": "alternate", "stock": row["stock"]})
+    known = [item["stock"] for item in contributors if item["stock"] is not None]
+    return {
+        "component_id": component_id,
+        "stock": sum(known) if known else None,
+        "unread": sum(1 for item in contributors if item["stock"] is None),
+        "parts": contributors,
+    }
+
+
+def components_with_alternate(conn, part_id: str) -> list[str]:
+    """The catalog components that list this part as an approved alternate."""
+
+    return [
+        row["component_id"] for row in conn.execute(
+            "SELECT DISTINCT component_id FROM component_sources WHERE part_id = %s AND approval = %s ORDER BY component_id", (part_id, APPROVED)
+        ).fetchall()
+    ]

@@ -407,6 +407,19 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     return series
 
 
+def _alternate_for(conn, part_id: str) -> list[dict[str, Any]]:
+    """For each catalog component that lists this part as an approved alternate, what its parts hold together."""
+
+    from app.services.supply import catalog_read, sources
+
+    found = []
+    for component_id in sources.components_with_alternate(conn, part_id):
+        maker, mpn = catalog_read.identities([component_id]).get(component_id, ("", ""))
+        primary = parts.find_part(conn, maker, mpn) if maker and mpn else None
+        found.append(sources.coverage(conn, component_id, primary.id if primary else None) | {"component": f"{maker} {mpn}".strip()})
+    return found
+
+
 def _first_seen(conn, part_id: str) -> str | None:
     """The day Prism first knew the part: a rough age, since parts are created when first searched for."""
 
@@ -591,5 +604,6 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         ),
         "used_in": usage.used_in(conn, part_id, role),
         "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
+        "alternate_for": _alternate_for(conn, part_id),
         "insight": _with_lead_gap(insight_from(days, watch_row["threshold"], now), listings),
     }

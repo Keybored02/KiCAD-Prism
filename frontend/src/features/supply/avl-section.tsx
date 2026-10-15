@@ -10,6 +10,7 @@ import type { SupplyComponentCheck, SupplySource } from "@/types/supply";
 import { FindingRow } from "./finding-row";
 import { AddAlternateDialog } from "./add-alternate-dialog";
 import { ComponentWatch } from "./component-watch";
+import { ComponentCoverageNote } from "./coverage-note";
 import { StatusDot } from "./status-dot";
 import {
   decideSource, decideWaiver, getComponentFindings, listComponentSources, proposeWaiver, rankSource, removeSource, revokeWaiver,
@@ -76,6 +77,7 @@ export function AvlSection({ componentId, manufacturer, mpn, user }: AvlSectionP
           ) : null}
         </span>
       </div>
+      <ComponentCoverageNote componentId={componentId} version={items.length} />
       <ComponentWatch componentId={componentId} canEdit={canEditSupply(user?.role)} onChanged={() => void sources.refresh()} />
       <ul className="divide-y border text-sm">
         <li className="flex items-center justify-between gap-3 p-2">

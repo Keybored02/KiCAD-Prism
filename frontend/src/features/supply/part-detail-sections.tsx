@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import type { UserRole } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
 import { AlertRulesSection } from "./alert-rules-section";
+import { CoverageSummary } from "./coverage-note";
 import { AssessmentSection } from "./assessment-section";
 import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
@@ -94,6 +95,13 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       </section>
 
       {detail.watch ? <AlertRulesSection partId={detail.part.id} canEdit={canEdit} /> : null}
+
+      {detail.alternate_for && detail.alternate_for.length > 0 ? (
+        <section aria-label="Approved alternate for" className="space-y-1">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Approved alternate for</h3>
+          {detail.alternate_for.map((coverage) => <CoverageSummary key={coverage.component_id} coverage={coverage} />)}
+        </section>
+      ) : null}
 
       {detail.used_in.length > 0 ? (
         <section aria-label="Used in" className="space-y-2">
