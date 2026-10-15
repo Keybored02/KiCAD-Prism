@@ -289,3 +289,47 @@ def standing(offers: Iterable[Mapping[str, Any]], listed: Sequence[str]) -> dict
     if flags:
         return {"state": "clear", "reason": "Distributors list the part as not affected. No substance declaration is on file."}
     return {"state": "unknown", "reason": "No distributor or declaration says either way."}
+
+
+MAX_EXEMPTIONS = 20
+_EXEMPTION = re.compile(r"^[0-9]{1,2}(?:\([a-z]{1,2}\))?(?:-[IVX]{1,4})?(?:\([a-z]{1,2}\))?$|^[A-Za-z0-9 ./()\-]{2,24}$")
+
+
+def add_exemption(conn, part_id: str, code: str, note: str, actor: str) -> None:
+    """Record a RoHS exemption the part relies on, as the manufacturer's declaration numbers it (``7(a)``, ``6(c)``)."""
+
+    actor = actor_text(actor)
+    parts.get_part(conn, part_id)
+    code = code.strip()
+    if not code or not _EXEMPTION.match(code):
+        raise ComplianceError("Give the exemption as its number in Annex III or IV, such as 7(a).")
+    count = conn.execute("SELECT COUNT(*) AS n FROM rohs_exemptions WHERE part_id = %s", (part_id,)).fetchone()["n"]
+    if count >= MAX_EXEMPTIONS:
+        raise ComplianceError(f"A part can have at most {MAX_EXEMPTIONS} exemptions.")
+    conn.execute(
+        """
+        INSERT INTO rohs_exemptions (part_id, code, note, declared_by) VALUES (%s, %s, %s, %s)
+        ON CONFLICT (part_id, code) DO UPDATE SET note = EXCLUDED.note, declared_by = EXCLUDED.declared_by, declared_at = NOW()
+        """,
+        (part_id, code, note.strip()[:200], actor),
+    )
+    write_audit(conn, actor, "rohs.exemption", part_id, {"code": code}, subject_kind="part")
+
+
+def remove_exemption(conn, part_id: str, code: str, actor: str) -> None:
+    actor = actor_text(actor)
+    conn.execute("DELETE FROM rohs_exemptions WHERE part_id = %s AND code = %s", (part_id, code))
+    write_audit(conn, actor, "rohs.exemption_removed", part_id, {"code": code}, subject_kind="part")
+
+
+def exemptions(conn, part_ids: Sequence[str]) -> dict[str, list[dict[str, str]]]:
+    """Per part, the exemptions named for it, in code order."""
+
+    if not part_ids:
+        return {}
+    found: dict[str, list[dict[str, str]]] = {}
+    for row in conn.execute(
+        "SELECT part_id, code, note, declared_by FROM rohs_exemptions WHERE part_id = ANY(%s) ORDER BY part_id, code", (list(part_ids),)
+    ).fetchall():
+        found.setdefault(row["part_id"], []).append({"code": row["code"], "note": row["note"], "declared_by": row["declared_by"]})
+    return found

@@ -117,7 +117,7 @@ class ComplianceApiTests(unittest.TestCase):
 
     def setUp(self) -> None:
         with self.store.connection() as conn:
-            for table in ("part_substances", "svhc_list", "svhc_substances", "offers", "listings", "parts", "manufacturers", "connectors", "audit_events"):
+            for table in ("rohs_exemptions", "part_substances", "svhc_list", "svhc_substances", "offers", "listings", "parts", "manufacturers", "connectors", "audit_events"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("INSERT INTO manufacturers (id, name, name_key) VALUES ('m1', 'Acme', 'acme')")
             conn.execute("INSERT INTO connectors (id, provider) VALUES ('c1', 'fake')")
@@ -178,6 +178,23 @@ class ComplianceApiTests(unittest.TestCase):
         self.assertEqual({item["cas"]: item["listed_as"] for item in view["substances"]}, {"64-17-5": None, "7439-92-1": "Lead"})
         self.assertEqual(self.call("DELETE", f"/api/supply/parts/{self.part}/substances/7439-92-1", role="designer").status, 204)
         self.assertNotIn("reach_svhc", self.findings())
+
+    def test_a_rohs_exemption_is_named_by_a_person_and_goes_into_the_draft(self) -> None:
+        from app.services.supply import compliance_draft, usage
+
+        self.offer(rohs=True)
+        path = f"/api/supply/parts/{self.part}/exemptions"
+        self.assertEqual(self.call("POST", path, role="qa", body={"code": "7(a)"}).status, 403)
+        self.assertEqual(self.call("POST", path, role="designer", body={"code": "!!"}).status, 400)
+        self.assertEqual(self.call("POST", path, role="designer", body={"code": "7(a)", "note": "lead in high melting solder"}).status, 204)
+        view = self.call("GET", f"/api/supply/parts/{self.part}/compliance", role="qa").json
+        self.assertEqual([item["code"] for item in view["exemptions"]], ["7(a)"])
+        with self.store.connection() as conn:
+            draft = compliance_draft.build(conn, [{"key": "k", "manufacturer": "Acme", "mpn": "ABC-1", "quantity": 1, "references": "U1"}])
+        self.assertEqual(draft["parts"][0]["exemptions"], ["7(a)"])
+        self.assertIn("RoHS exemptions", compliance_draft.to_csv(draft))
+        self.assertEqual(self.call("DELETE", f"{path}/7(a)", role="designer").status, 204)
+        self.assertEqual(self.call("GET", f"/api/supply/parts/{self.part}/compliance", role="qa").json["exemptions"], [])
 
     def test_a_distributors_reach_flag_is_a_finding_and_rohs_is_reported(self) -> None:
         self.offer(rohs=True, reach=True)

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import type { SupplyCompliance } from "@/types/supply";
 import { ComplianceFacts } from "./compliance-facts";
 import { complianceBadge } from "./compliance-model";
+import { RohsExemptions } from "./rohs-exemptions";
 import { declareSubstance, getPartCompliance, undeclareSubstance } from "./supply-api";
 import { useConnectorSubmit } from "./use-connector-submit";
 import { useLoaded } from "./use-loaded";
@@ -72,6 +73,7 @@ export function ComplianceSection({ partId, canEdit }: ComplianceSectionProps) {
           ))}
         </ul>
       ) : null}
+      <RohsExemptions partId={partId} items={data.exemptions ?? []} canEdit={canEdit} onChanged={() => loaded.refresh()} />
       {!data.list.loaded ? (
         <p className="text-xs text-muted-foreground">The REACH Candidate List is not loaded, so declared substances cannot be checked. An administrator loads it in Supply settings.</p>
       ) : null}

@@ -273,6 +273,8 @@ export interface SupplyCompliance {
   reach: SupplyComplianceState;
   /** ``declared_by`` is a person's address, or a distributor when ``from_distributor``. */
   substances: Array<{ cas: string; note: string; declared_by: string; declared_at: string; listed_as: string | null; from_distributor?: boolean }>;
+  /** RoHS exemptions a person named from the manufacturer's declaration. */
+  exemptions?: Array<{ code: string; note: string; declared_by: string }>;
   list: SupplySvhcList;
   facts?: SupplyFact[];
 }

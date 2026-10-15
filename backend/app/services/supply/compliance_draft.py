@@ -15,7 +15,7 @@ from app.services.supply import bom_lookup, compliance, facts
 
 HEADER = (
     "Manufacturer", "Part number", "Per board", "References", "RoHS", "REACH", "Declared substances on the Candidate List",
-    "RoHS as stated", "REACH as stated", "Substances of very high concern as stated", "Gaps",
+    "RoHS as stated", "REACH as stated", "Substances of very high concern as stated", "RoHS exemptions", "Gaps",
 )
 _RISKY_START = ("=", "+", "-", "@", "\t", "\r")
 
@@ -48,6 +48,7 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             flags[offer["part_id"]].append((offer["rohs"], offer["reach_affected"]))
     listed = compliance.listed_substances(conn, part_ids)
     stated = facts.summary(conn, part_ids)
+    exempt = compliance.exemptions(conn, part_ids)
     list_loaded = compliance.list_info(conn)["loaded"]
     out: list[dict[str, Any]] = []
     for row in rows:
@@ -73,11 +74,12 @@ def build(conn, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 gaps.append("No REACH statement or substance declaration.")
             if reach == "affected":
                 gaps.append("Affected by REACH: get the manufacturer's substance declaration.")
-            if "exempt" in said.get("rohs", "").lower():
+            if "exempt" in said.get("rohs", "").lower() and not exempt.get(part_id):
                 gaps.append("RoHS compliant by exemption: name the exemption in the declaration.")
         out.append({
             "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": row["quantity"], "references": row.get("references", ""),
             "rohs": rohs, "reach": reach, "on_candidate_list": on_list, "gaps": gaps,
+            "exemptions": [item["code"] for item in exempt.get(part_id or "", [])],
             "rohs_stated": said.get("rohs", ""), "reach_stated": said.get("reach", ""), "svhc_stated": said.get("svhc", ""),
         })
     gap_count = sum(1 for item in out if item["gaps"])
@@ -110,6 +112,6 @@ def to_csv(draft: Mapping[str, Any]) -> str:
         writer.writerow([
             _safe(item["manufacturer"]), _safe(item["mpn"]), item["quantity"], _safe(item["references"]), item["rohs"], item["reach"],
             _safe("; ".join(item["on_candidate_list"])), _safe(item["rohs_stated"]), _safe(item["reach_stated"]),
-            _safe(item["svhc_stated"]), _safe(" ".join(item["gaps"])),
+            _safe(item["svhc_stated"]), _safe("; ".join(item["exemptions"])), _safe(" ".join(item["gaps"])),
         ])
     return out.getvalue()

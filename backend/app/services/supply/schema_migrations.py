@@ -1252,6 +1252,24 @@ def _m045_notice_parse(conn) -> None:
     )
 
 
+def _m046_rohs_exemptions(conn) -> None:
+    """The RoHS exemptions a part relies on (such as 7(a), lead in high melting solder), named by a person from the manufacturer's declaration."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rohs_exemptions (
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            code TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            declared_by TEXT NOT NULL,
+            declared_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (part_id, code)
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1298,6 +1316,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (43, "bom_cost_history", _m043_bom_cost_history),
     (44, "alert_rules", _m044_alert_rules),
     (45, "notice_parse", _m045_notice_parse),
+    (46, "rohs_exemptions", _m046_rohs_exemptions),
 ]
 
 

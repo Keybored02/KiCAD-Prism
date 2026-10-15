@@ -537,6 +537,14 @@ export function declareSubstance(partId: string, cas: string, note: string): Pro
   return send(`${BASE}/parts/${encodeURIComponent(partId)}/substances`, "POST", { cas, note }, "Could not declare the substance");
 }
 
+export function addRohsExemption(partId: string, code: string, note: string): Promise<void> {
+  return send(`${BASE}/parts/${encodeURIComponent(partId)}/exemptions`, "POST", { code, note }, "Could not record the exemption");
+}
+
+export function removeRohsExemption(partId: string, code: string): Promise<void> {
+  return send(`${BASE}/parts/${encodeURIComponent(partId)}/exemptions/${encodeURIComponent(code)}`, "DELETE", undefined, "Could not remove the exemption");
+}
+
 export function undeclareSubstance(partId: string, cas: string): Promise<void> {
   return send(`${BASE}/parts/${encodeURIComponent(partId)}/substances/${encodeURIComponent(cas)}`, "DELETE", undefined, "Could not remove the substance");
 }

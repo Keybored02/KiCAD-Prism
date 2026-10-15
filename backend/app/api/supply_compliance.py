@@ -105,6 +105,7 @@ async def part_compliance(part_id: str, _user: AuthenticatedUser = Depends(requi
                 "rohs": _rohs_state([row["rohs"] for row in offers if row["rohs"] is not None]),
                 "reach": compliance.standing([dict(row) for row in offers], listed),
                 "substances": substances,
+                "exemptions": compliance.exemptions(conn, [part.id]).get(part.id, []),
                 "list": compliance.list_info(conn),
                 "facts": facts.for_part(conn, part.id, hide=facts.NOT_COMPLIANCE),
             }
@@ -117,6 +118,34 @@ async def declare_substance(part_id: str, body: Declaration, writer: Authenticat
     def run() -> None:
         with _store().connection() as conn:
             compliance.declare(conn, part_id, body.cas, body.note, writer.email)
+
+    await _run(run)
+    return Response(status_code=204)
+
+
+class Exemption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=24)
+    note: str = Field(default="", max_length=200)
+
+
+@router.post("/parts/{part_id}/exemptions", status_code=204)
+async def add_exemption(part_id: str, body: Exemption, writer: AuthenticatedUser = Depends(require_supply_writer)) -> Response:
+    def run() -> None:
+        with _store().connection() as conn:
+            compliance.add_exemption(conn, part_id, body.code, body.note, writer.email)
+
+    await _run(run)
+    return Response(status_code=204)
+
+
+@router.delete("/parts/{part_id}/exemptions/{code}", status_code=204)
+async def remove_exemption(part_id: str, code: str, writer: AuthenticatedUser = Depends(require_supply_writer)) -> Response:
+    def run() -> None:
+        with _store().connection() as conn:
+            parts.get_part(conn, part_id)
+            compliance.remove_exemption(conn, part_id, code, writer.email)
 
     await _run(run)
     return Response(status_code=204)
