@@ -77,6 +77,8 @@ interface VisualizerProps {
     user: User | null;
     commit?: string | null;
     active?: boolean;
+    /** False when a commit was checked out from History; the BOM then shows no supply. */
+    supplyAtHead?: boolean;
 }
 
 type VisualizerTab = "sch" | "pcb" | "3d" | "bom" | "stackup" | "assembly";
@@ -317,7 +319,7 @@ function EcadViewerHost({
 }
 
 // react-doctor-disable-next-line no-giant-component - viewer event orchestration and the comment system share the viewer refs
-export function Visualizer({ projectId, user, commit, active: viewerActive = true }: VisualizerProps) {
+export function Visualizer({ projectId, user, commit, active: viewerActive = true, supplyAtHead = true }: VisualizerProps) {
     const [schematicViewerElement, setSchematicViewerElement] = useState<ECadViewerElement | null>(null);
     const [pcbViewerElement, setPcbViewerElement] = useState<ECadViewerElement | null>(null);
     // Layer name -> swatch color, read from the PCB viewer so the inspector can
@@ -1852,6 +1854,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         <div className="absolute inset-0 z-20 bg-background">
                             <EngineeringBomTable
                                 projectId={projectId}
+                                atHead={supplyAtHead}
                                 semanticIndex={semanticIndex}
                                 components={effectiveComponents}
                                 user={user}

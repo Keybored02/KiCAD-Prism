@@ -80,7 +80,7 @@ function lookupFor(build: number): SupplyBomLookup {
   };
 }
 
-function renderTable(role: UserRole | null) {
+function renderTable(role: UserRole | null, atHead = true) {
   const user: User | null = role ? { name: role, email: `${role}@example.com`, role } : null;
   render(
     <EngineeringBomTable
@@ -91,6 +91,7 @@ function renderTable(role: UserRole | null) {
       onSelection={() => {}}
       onRetry={() => {}}
       user={user}
+      atHead={atHead}
     />,
   );
 }
@@ -175,6 +176,14 @@ describe("supply columns on the BOM", () => {
     await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), 1, expect.objectContaining({ attritionPercent: 10 })));
     fireEvent.change(screen.getByLabelText("Spare parts, percent"), { target: { value: "150" } });
     expect((screen.getByLabelText("Spare parts, percent") as HTMLInputElement).value).toBe("10");
+  });
+
+  it("is plain at a commit checked out from History, and looks nothing up", async () => {
+    renderTable("designer", false);
+    expect(screen.getByText("Supply data shows on the latest revision only.")).toBeTruthy();
+    expect(screen.queryByRole("columnheader", { name: /^Supply/ })).toBeNull();
+    expect(screen.queryByLabelText("Boards to build")).toBeNull();
+    expect(mocked.lookupSupplyBom).not.toHaveBeenCalled();
   });
 
   it("is hidden from roles that cannot read supply data, and from signed-out users", async () => {

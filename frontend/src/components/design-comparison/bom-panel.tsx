@@ -10,7 +10,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { BomCostDelta } from "@/features/supply/bom-cost-delta";
 import { csvCell, downloadCsv } from "@/lib/csv";
 import { cn } from "@/lib/utils";
 import type { BomChangeRow, BomDiff, BomRowStatus } from "./types";
@@ -189,7 +188,6 @@ export function BomPanel({ bom }: BomPanelProps) {
 
     return (
         <div className="flex min-h-0 flex-1 flex-col bg-background">
-            <BomCostDelta rows={bom.changes} complete={bom.include_unchanged === true} />
             <div className="space-y-2 border-b p-3">
                 <div className="flex flex-wrap items-center gap-2">
                     <div className="flex rounded-md border bg-muted/20 p-0.5">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ExternalLink, PackageSearch, RefreshCw, RotateCcw } from "lucide-react";
+import { Clock, ExternalLink, PackageSearch, RefreshCw, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import { BomSupplyBar } from "@/features/supply/bom-supply-bar";
 import { SupplyCell } from "@/features/supply/bom-supply-cells";
 import { useBomRowDetail } from "@/features/supply/use-bom-row-detail";
 import { useBomSupply } from "@/features/supply/use-bom-supply";
+import { canOpenSupply } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
@@ -74,6 +75,8 @@ interface EngineeringBomTableProps {
     components?: SemanticComponent[] | null;
     /** Roles that may read supply data get stock, price and risk columns. Others see the table as before. */
     user?: User | null;
+    /** False for a commit checked out from History: supply shows on the latest revision only. */
+    atHead?: boolean;
 }
 
 const naturalReferenceSort = (left: SemanticComponent, right: SemanticComponent) =>
@@ -201,6 +204,7 @@ export function EngineeringBomTable({
     components,
     user,
     projectId,
+    atHead = true,
 }: EngineeringBomTableProps) {
     const [query, setQuery] = useState("");
     const [assemblyFilter, setAssemblyFilter] =
@@ -216,8 +220,10 @@ export function EngineeringBomTable({
     );
     // Supply figures are for what is fitted, whichever rows the assembly filter shows.
     const fitted = useMemo(() => allComponents.filter(isAssembled), [allComponents]);
-    const supply = useBomSupply(fitted, user ?? null, projectId);
-    const detail = useBomRowDetail(supply, user ?? null);
+    // Nothing is looked up for a checked-out commit: the BOM is plain there.
+    const supplyUser = atHead ? (user ?? null) : null;
+    const supply = useBomSupply(fitted, supplyUser, projectId);
+    const detail = useBomRowDetail(supply, supplyUser);
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
         if (typeof window === "undefined") return {};
         try {
@@ -363,6 +369,12 @@ export function EngineeringBomTable({
                     </Button>
                 </div>
             </div>
+            {!atHead && canOpenSupply(user?.role) ? (
+                <div className="flex items-center gap-2 border-b px-3 py-1.5 text-xs text-muted-foreground" title="Supply shows on the latest revision">
+                    <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Supply data shows on the latest revision only.</span>
+                </div>
+            ) : null}
             {supply.enabled ? <BomSupplyBar supply={supply} /> : null}
             {supply.enabled ? detail.element : null}
             <div className="min-h-0 flex-1 overflow-auto">

@@ -826,6 +826,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                             projectId={projectId}
                                             user={user}
                                             commit={viewerCommit}
+                                            supplyAtHead={!currentCommit}
                                             active={!comparisonVisible && activeSection === "visualizers"}
                                         />
                                     </Suspense>
