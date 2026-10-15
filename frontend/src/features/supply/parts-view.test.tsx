@@ -148,11 +148,11 @@ describe("the parts list", () => {
     mocked.listSupplyParts.mockResolvedValue({ items: [], total: 0, limit: 100 });
     renderView();
     expect(await screen.findByText("No tracked parts yet")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Watch a part" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Track a part" })).toHaveLength(2);
     cleanup();
     renderView("qa");
     expect(await screen.findByText("No tracked parts yet")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Watch a part" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Track a part" })).toHaveLength(1);
     cleanup();
     renderView("designer", "/?partsQ=zzz");
     expect(await screen.findByText("No parts match")).toBeTruthy();
@@ -232,7 +232,7 @@ describe("watching", () => {
     mocked.addSupplyWatch.mockResolvedValue({ id: "w9", part_id: "p9", manufacturer: "Acme", mpn: "X1", threshold: 50, pinned: false, owner: "d", packaging: "any" });
     renderView();
     await screen.findByRole("button", { name: "LM358D" });
-    fireEvent.click(screen.getAllByRole("button", { name: "Watch a part" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Track a part" })[0]);
     const submit = await screen.findByRole("button", { name: "Watch part" });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Manufacturer"), { target: { value: " Acme " } });
@@ -246,7 +246,7 @@ describe("watching", () => {
 
   it("refuses a threshold that is not a whole number", async () => {
     renderView();
-    fireEvent.click((await screen.findAllByRole("button", { name: "Watch a part" }))[0]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Track a part" }))[0]);
     fireEvent.change(await screen.findByLabelText("Manufacturer"), { target: { value: "Acme" } });
     fireEvent.change(screen.getByLabelText("Part number"), { target: { value: "X1" } });
     fireEvent.change(screen.getByLabelText("Warn when stock is at or below"), { target: { value: "1.5" } });
@@ -257,7 +257,7 @@ describe("watching", () => {
   it("keeps the dialog open and shows the server's reason", async () => {
     mocked.addSupplyWatch.mockRejectedValue(new ApiHttpError(400, "At most 25 parts can be pinned to the fastest polling."));
     renderView();
-    fireEvent.click((await screen.findAllByRole("button", { name: "Watch a part" }))[0]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Track a part" }))[0]);
     fireEvent.change(await screen.findByLabelText("Manufacturer"), { target: { value: "Acme" } });
     fireEvent.change(screen.getByLabelText("Part number"), { target: { value: "X1" } });
     fireEvent.click(screen.getByRole("button", { name: "Watch part" }));
@@ -268,7 +268,7 @@ describe("watching", () => {
   it("is closed to readers who cannot watch", async () => {
     renderView("qa");
     await screen.findByRole("button", { name: "LM358D" });
-    expect((screen.getByRole("button", { name: "Watch a part" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Track a part" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
 
@@ -430,7 +430,7 @@ describe("the watch settings", () => {
         <PartsView user={userWith("designer")} />
       </MemoryRouter>,
     );
-    fireEvent.click((await screen.findAllByRole("button", { name: "Watch a part" }))[0]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Track a part" }))[0]);
     await waitFor(() => expect(mocked.listSupplyManufacturers).toHaveBeenCalled());
     await waitFor(() => expect(document.querySelector("#watch-manufacturer-options option[value='Texas Instruments']")).not.toBeNull());
     expect(container).toBeTruthy();
@@ -439,7 +439,7 @@ describe("the watch settings", () => {
   it("shows the server's reason when a manufacturer is not known", async () => {
     mocked.addSupplyWatch.mockRejectedValue(new ApiHttpError(400, "Prism does not know the manufacturer \"TI\". Pick one from the list.", "unknown_manufacturer"));
     renderView();
-    fireEvent.click((await screen.findAllByRole("button", { name: "Watch a part" }))[0]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Track a part" }))[0]);
     fireEvent.change(await screen.findByLabelText("Manufacturer"), { target: { value: "TI" } });
     fireEvent.change(screen.getByLabelText("Part number"), { target: { value: "TPS1" } });
     fireEvent.click(screen.getByRole("button", { name: "Watch part" }));

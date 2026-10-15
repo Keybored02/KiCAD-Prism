@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { User, UserRole } from "@/types/auth";
 
-vi.mock("./overview-view", () => ({ OverviewView: () => <div>Overview content</div> }));
-vi.mock("./inbox-view", () => ({ InboxView: () => <div>Inbox content</div> }));
+vi.mock("./dashboard-view", () => ({ DashboardView: () => <div>Dashboard content</div> }));
+vi.mock("./insights-view", () => ({ InsightsView: ({ view }: { view: string }) => <div>Insights content {view}</div> }));
 vi.mock("./parts-view", () => ({ PartsView: () => <div>Parts content</div> }));
 vi.mock("./connectors-view", () => ({ SupplyConnectorsView: () => <div>Connectors content</div> }));
 vi.mock("./review-view", () => ({ ReviewView: () => <div>Review content</div> }));
@@ -31,18 +31,29 @@ function renderAt(role: UserRole | null, url = "/?section=supply") {
 }
 
 describe("the Supply section", () => {
-  it.each<UserRole>(["designer", "qa", "admin"])("opens for %s on the Overview tab", async (role) => {
+  it.each<UserRole>(["designer", "qa", "admin"])("opens for %s on the Dashboard tab", async (role) => {
     renderAt(role);
-    expect(await screen.findByText("Overview content")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByText("Dashboard content")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Dashboard" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("has Parts and Inbox tabs too", async () => {
-    renderAt("qa", "/?section=supply&supplyView=parts");
-    expect(await screen.findByText("Parts content")).toBeTruthy();
-    cleanup();
+  it("has five tabs", async () => {
+    renderAt("qa");
+    expect((await screen.findAllByRole("tab")).map((tab) => tab.textContent)).toEqual(["Dashboard", "Parts", "Review", "Insights", "Connectors"]);
+  });
+
+  it("keeps old addresses working", async () => {
     renderAt("qa", "/?section=supply&supplyView=inbox");
-    expect(await screen.findByText("Inbox content")).toBeTruthy();
+    expect(await screen.findByText("Dashboard content")).toBeTruthy();
+    cleanup();
+    renderAt("qa", "/?section=supply&supplyView=planning");
+    expect(await screen.findByText("Insights content planning")).toBeTruthy();
+    cleanup();
+    renderAt("qa", "/?section=supply&supplyView=market");
+    expect(await screen.findByText("Insights content market")).toBeTruthy();
+    cleanup();
+    renderAt("qa", "/?section=supply&supplyView=bom-file");
+    expect(await screen.findByText("Parts content")).toBeTruthy();
   });
 
   it("has the Connectors tab, where a DigiKey sign-in returns and says how it went", async () => {
@@ -65,7 +76,7 @@ describe("the Supply section", () => {
     for (const role of ["designer", "qa"] as const) {
       cleanup();
       renderAt(role);
-      await screen.findByText("Overview content");
+      await screen.findByText("Dashboard content");
       expect(screen.queryByRole("button", { name: "Supply settings" })).toBeNull();
     }
   });
@@ -79,9 +90,9 @@ describe("the Supply section", () => {
     expect(screen.getByText("Supply data is not available to your role")).toBeTruthy();
   });
 
-  it("falls back to the Overview for an unknown view in the URL", async () => {
+  it("falls back to the Dashboard for an unknown view in the URL", async () => {
     renderAt("admin", "/?section=supply&supplyView=nonsense");
-    expect(await screen.findByText("Overview content")).toBeTruthy();
+    expect(await screen.findByText("Dashboard content")).toBeTruthy();
   });
 
   it("drops the open part and search when another tab is chosen", async () => {
@@ -96,7 +107,7 @@ describe("the Supply section", () => {
 
   it("leaves the URL alone when the open tab is clicked again", async () => {
     renderAt("admin", "/?section=supply&other=1");
-    fireEvent.click(await screen.findByRole("tab", { name: "Overview" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Dashboard" }));
     expect(screen.getByLabelText("location").textContent).toBe("/?section=supply&other=1");
   });
 });

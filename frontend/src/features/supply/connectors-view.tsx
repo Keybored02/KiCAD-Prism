@@ -94,14 +94,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
   return (
     <div className="h-full overflow-y-auto p-6">
       <div className="mx-auto max-w-4xl space-y-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Supply</p>
-            <h2 className="mt-1 text-2xl font-semibold tracking-tight">Connectors</h2>
-            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-              Distributor accounts that supply stock, price and part data. One per provider and storefront.
-            </p>
-          </div>
+        <div className="flex flex-wrap items-start justify-end gap-3">
           <PermissionHint blocked={!isAdmin} action="add connectors" allowedRoles={["admin"]}>
             <Button disabled={!canAdd} onClick={() => setDialog({ kind: "create" })}>
               <Plus className="h-4 w-4" />Add connector

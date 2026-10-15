@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Eye, PackageSearch, Search, X } from "lucide-react";
+import { ArrowLeft, Eye, FileSpreadsheet, PackageSearch, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { PartsFilter, PartsScope } from "@/types/supply";
+import { BomFileView } from "./bom-file-view";
 import { PartSheet } from "./part-sheet";
 import { PartsTable } from "./parts-table";
 import { refreshSupplyUsage } from "./supply-api";
@@ -67,25 +68,30 @@ export function PartsView({ user }: { user: User | null }) {
     });
   };
 
+  if (searchParams.get("tool") === "bom-file") {
+    return (
+      <div className="h-full overflow-y-auto">
+        <Button variant="ghost" size="sm" className="m-4 mb-0" onClick={() => setParams({ tool: null })}>
+          <ArrowLeft className="h-4 w-4" />Parts
+        </Button>
+        <BomFileView />
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-y-auto p-6">
       <div className="mx-auto max-w-5xl space-y-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Supply</p>
-            <h2 className="mt-1 text-2xl font-semibold tracking-tight">Parts</h2>
-            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-              Stock and price across your distributors. Watch a part to have it read regularly and to be warned before it runs out.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {canEdit ? <SeedFromCatalogButton onDone={() => void refresh()} /> : null}
-            <PermissionHint blocked={!canEdit} action="watch parts" allowedRoles={["designer", "admin"]}>
-              <Button disabled={!canEdit} onClick={() => setWatching(true)}>
-                <Eye className="h-4 w-4" />Watch a part
-              </Button>
-            </PermissionHint>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {canEdit ? <SeedFromCatalogButton onDone={() => void refresh()} /> : null}
+          <Button variant="outline" onClick={() => setParams({ tool: "bom-file" })}>
+            <FileSpreadsheet className="h-4 w-4" />Check a BOM file
+          </Button>
+          <PermissionHint blocked={!canEdit} action="track parts" allowedRoles={["designer", "admin"]}>
+            <Button disabled={!canEdit} onClick={() => setWatching(true)}>
+              <Eye className="h-4 w-4" />Track a part
+            </Button>
+          </PermissionHint>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -183,7 +189,7 @@ function EmptyState({ scope, searching, canEdit, onWatch }: { scope: PartsScope;
               ? "No project BOM that Prism has read uses a part it knows. Open a project BOM, then watch its parts."
               : "Parts appear here once they are watched or matched."}
       </p>
-      {!searching && scope === "watched" && canEdit ? <Button size="sm" onClick={onWatch}>Watch a part</Button> : null}
+      {!searching && scope === "watched" && canEdit ? <Button size="sm" onClick={onWatch}>Track a part</Button> : null}
       {!searching && scope === "in_use" && canEdit ? <ReadProjectBomsButton /> : null}
     </div>
   );

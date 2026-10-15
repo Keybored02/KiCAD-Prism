@@ -5,13 +5,11 @@ import { canOpenSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
 
 const SUPPLY_VIEWS = [
-  { view: "overview", label: "Overview" },
+  { view: "dashboard", label: "Dashboard" },
   { view: "parts", label: "Parts" },
-  { view: "inbox", label: "Inbox" },
   { view: "review", label: "Review" },
-  { view: "market", label: "Market" },
-  { view: "planning", label: "Planning" },
-  { view: "bom-file", label: "BOM file" },
+  { view: "insights", label: "Insights" },
+  { view: "connectors", label: "Connectors" },
 ] as const;
 
 /** Go-to entries for the Supply section, for roles that may open it. */

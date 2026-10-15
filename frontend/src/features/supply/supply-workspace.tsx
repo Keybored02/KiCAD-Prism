@@ -1,45 +1,39 @@
 import { lazy, Suspense, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BellRing, Boxes, CalendarClock, FileSpreadsheet, LayoutDashboard, LineChart, ListChecks, Plug, Settings, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Boxes, LayoutDashboard, LineChart, ListChecks, Plug, Settings, ShieldAlert, type LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canOpenSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
+import { resolvePlace, type SupplyTab } from "./supply-views";
 import { useSigninResult } from "./use-signin-result";
 
-const OverviewView = lazy(() => import("./overview-view").then((module) => ({ default: module.OverviewView })));
-const InboxView = lazy(() => import("./inbox-view").then((module) => ({ default: module.InboxView })));
+const DashboardView = lazy(() => import("./dashboard-view").then((module) => ({ default: module.DashboardView })));
 const PartsView = lazy(() => import("./parts-view").then((module) => ({ default: module.PartsView })));
 const SupplySettingsDialog = lazy(() => import("./supply-settings-dialog").then((module) => ({ default: module.SupplySettingsDialog })));
-const MarketView = lazy(() => import("./market-view").then((module) => ({ default: module.MarketView })));
-const PlanningView = lazy(() => import("./planning-view").then((module) => ({ default: module.PlanningView })));
-const BomFileView = lazy(() => import("./bom-file-view").then((module) => ({ default: module.BomFileView })));
+const InsightsView = lazy(() => import("./insights-view").then((module) => ({ default: module.InsightsView })));
 const SupplyConnectorsView = lazy(() => import("./connectors-view").then((module) => ({ default: module.SupplyConnectorsView })));
 const ReviewView = lazy(() => import("./review-view").then((module) => ({ default: module.ReviewView })));
 
-const VIEWS: ReadonlyArray<{ id: SupplyView; label: string; icon: LucideIcon }> = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
+const VIEWS: ReadonlyArray<{ id: SupplyTab; label: string; icon: LucideIcon }> = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "parts", label: "Parts", icon: Boxes },
-  { id: "inbox", label: "Inbox", icon: BellRing },
   { id: "review", label: "Review", icon: ListChecks },
-  { id: "market", label: "Market", icon: LineChart },
-  { id: "planning", label: "Planning", icon: CalendarClock },
-  { id: "bom-file", label: "BOM file", icon: FileSpreadsheet },
+  { id: "insights", label: "Insights", icon: LineChart },
   { id: "connectors", label: "Connectors", icon: Plug },
 ];
 
-type SupplyView = "overview" | "parts" | "inbox" | "review" | "market" | "planning" | "bom-file" | "connectors";
-
-function isSupplyView(value: string | null): value is SupplyView {
+function isSupplyView(value: string): value is SupplyTab {
   return VIEWS.some((view) => view.id === value);
 }
 
 /** The Supply section: stock, matching and sourcing. Tabs are added as they ship. */
 export function SupplyWorkspace({ user }: { user: User | null }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const requested = searchParams.get("supplyView");
-  const view: SupplyView = isSupplyView(requested) ? requested : "overview";
+  // Old addresses (overview, inbox, market, planning, bom-file) lead to the tab that took them over.
+  const place = resolvePlace(searchParams.get("supplyView"), searchParams.get("insightsView"), searchParams.get("tool"));
+  const view = place.tab;
   const [settingsOpen, setSettingsOpen] = useState(false);
   // A DigiKey sign-in returns here, on the Connectors tab, with its result in the address.
   useSigninResult();
@@ -54,7 +48,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
     );
   }
 
-  const setView = (next: SupplyView) => {
+  const setView = (next: SupplyTab) => {
     setSearchParams((current) => {
       const updated = new URLSearchParams(current);
       updated.set("section", "supply");
@@ -64,6 +58,7 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       updated.delete("partsQ");
       updated.delete("partsScope");
       updated.delete("partsOnly");
+      updated.delete("tool");
       return updated;
     });
   };
@@ -93,13 +88,10 @@ export function SupplyWorkspace({ user }: { user: User | null }) {
       </div>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>}>
         <div className="min-h-0 flex-1 overflow-hidden">
-          {view === "overview" && <OverviewView />}
+          {view === "dashboard" && <DashboardView user={user} />}
           {view === "parts" && <PartsView user={user} />}
-          {view === "inbox" && <InboxView user={user} />}
           {view === "review" && <ReviewView user={user} />}
-          {view === "market" && <MarketView />}
-          {view === "planning" && <PlanningView />}
-          {view === "bom-file" && <BomFileView />}
+          {view === "insights" && <InsightsView view={place.insight} />}
           {view === "connectors" && <SupplyConnectorsView user={user} />}
         </div>
       </Suspense>

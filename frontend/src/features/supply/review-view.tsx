@@ -20,15 +20,7 @@ export function ReviewView({ user }: { user: User | null }) {
   return (
     <div className="h-full overflow-y-auto p-6">
       <div className="mx-auto max-w-4xl space-y-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Supply</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight">Review</h2>
-          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-            Distributors spell manufacturers and part numbers their own way. Only matches you confirm, or that are exact,
-            count toward stock and price.
-            {canDecide ? "" : " QA and administrators decide."}
-          </p>
-        </div>
+        {canDecide ? null : <p className="text-sm text-muted-foreground">QA and administrators decide.</p>}
 
         {status === "loading" ? <Skeleton className="h-40 w-full" aria-label="Loading the review queue" /> : null}
         {status === "error" ? (

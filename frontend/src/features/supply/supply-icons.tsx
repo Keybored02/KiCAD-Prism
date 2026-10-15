@@ -1,4 +1,4 @@
-import { AlertTriangle, Ban, Banknote, Boxes, Clock, EyeOff, Eye, Layers, HeartPulse, ShieldCheck, ShieldQuestion, Hourglass, PackageMinus, PackageOpen, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Ban, Banknote, Boxes, Clock, EyeOff, Eye, Layers, HeartPulse, ShieldCheck, ShieldQuestion, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { SupplyLifecycle } from "@/types/supply";
@@ -33,16 +33,6 @@ export function DataAgeIcon({ fetchedAt }: { fetchedAt: string | null }) {
 /** The part is tracked, and at which tier. */
 export function TrackedIcon({ tier }: { tier?: number | null }) {
   return <Glyph icon={Eye} label={tier ? `Tracked, tier ${tier}` : "Tracked"} className="text-muted-foreground" />;
-}
-
-/** The part is waiting for room in a distributor's budget. */
-export function WaitingIcon() {
-  return <Glyph icon={Hourglass} label="Waiting for room" className="text-warning" />;
-}
-
-/** Several packagings are listed and none is picked. */
-export function PackagingPickIcon() {
-  return <Glyph icon={PackageOpen} label="Pick a packaging" className="text-warning" />;
 }
 
 const ROLLUP_ICON: Record<RollupKind, LucideIcon> = {
