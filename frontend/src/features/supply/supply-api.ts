@@ -15,6 +15,7 @@ import type {
   AssessmentSettingsView,
   SupplyAlert,
   SupplyAssessment,
+  ProjectSupply,
   SupplyBomLookup,
   SupplyBomWatchResult,
   SupplyCapacity,
@@ -478,6 +479,11 @@ export async function closePartDemand(demandId: string): Promise<void> {
 }
 
 /** A project's BOM rolled up from the lines stored when it was read. `available` is false until it has been. */
+export function getProjectSupply(projectId: string, variant = "", signal?: AbortSignal): Promise<ProjectSupply> {
+  const query = variant ? `?variant=${encodeURIComponent(variant)}` : "";
+  return fetchJson(`${BASE}/projects/${encodeURIComponent(projectId)}/supply${query}`, { signal }, "Could not load the project's supply");
+}
+
 export function getProjectBomHealth(
   projectId: string,
   signal?: AbortSignal,

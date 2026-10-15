@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from
 import { Button } from "@/components/ui/button";
 import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, ExternalLink, Link2 } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, ExternalLink, Link2, Warehouse } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -24,6 +24,8 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { projectLastUpdated } from "@/lib/project-dates";
 import { UsedInPanel } from "@/features/system-builder/used-in-panel";
 import { ProjectSupplyCard } from "@/features/supply/project-supply-card";
+import { ProjectSupplyTab } from "@/features/supply/project-supply-tab";
+import { canOpenSupply } from "@/lib/roles";
 
 const AssetsPortal = lazy(() =>
     import("@/components/assets-portal").then((module) => ({ default: module.AssetsPortal }))
@@ -94,6 +96,7 @@ function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection 
         || section === "documentation"
         || section === "workflows"
         || section === "release-studio"
+        || section === "supply"
     ) {
         return section;
     }
@@ -101,7 +104,7 @@ function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection 
 }
 
 // Fixed navigation table, no closure over props: build it once.
-const NAV_ITEMS = [
+const BASE_NAV_ITEMS = [
     { id: "overview" as ProjectSection, label: "Overview", icon: FileText },
     { id: "history" as ProjectSection, label: "History", icon: History },
     { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
@@ -110,6 +113,7 @@ const NAV_ITEMS = [
     { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
     { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
 ];
+const SUPPLY_NAV_ITEM = { id: "supply" as ProjectSection, label: "Supply", icon: Warehouse };
 
 // Closes over nothing in the component.
 const getDisplayName = (project: Project) => {
@@ -181,6 +185,12 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     }, [searchParams]);
 
     const visitedSections = useVisitedProjectSections(projectId, activeSection);
+    // Supply sits after Release Studio, for the roles that read supply data.
+    const NAV_ITEMS = useMemo(() => {
+        if (!canOpenSupply(user?.role)) return BASE_NAV_ITEMS;
+        const at = BASE_NAV_ITEMS.findIndex((item) => item.id === "release-studio") + 1;
+        return [...BASE_NAV_ITEMS.slice(0, at), SUPPLY_NAV_ITEM, ...BASE_NAV_ITEMS.slice(at)];
+    }, [user?.role]);
 
     const handleSectionChange = (section: ProjectSection) => {
         if (section === "visualizers" && !currentCommit && activeCommit) {
@@ -847,6 +857,18 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                     canMutate={canMutateProject}
                                     userRole={user?.role}
                                 />
+                            </ErrorBoundary>
+                        </ProjectSectionPanel>
+                    )}
+
+                    {visitedSections.has("supply") && canOpenSupply(user?.role) && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:supply`}
+                            active={activeSection === "supply"}
+                        >
+                            <ErrorBoundary label="the project's supply" resetKeys={[projectId]}>
+                                <h2 className="mb-6 text-2xl font-bold">Supply</h2>
+                                {projectId && <ProjectSupplyTab projectId={projectId} role={user?.role} />}
                             </ErrorBoundary>
                         </ProjectSectionPanel>
                     )}

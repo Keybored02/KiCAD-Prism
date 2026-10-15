@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SupplyBomRollup } from "@/types/supply";
@@ -19,43 +20,31 @@ const rollup: SupplyBomRollup = {
   health: 7.4, health_status: "warning",
 };
 
+const renderCard = (role: "designer" | "qa" | "viewer") =>
+  render(<MemoryRouter initialEntries={["/project/p1"]}><ProjectSupplyCard projectId="p1" role={role} /></MemoryRouter>);
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.getProjectBomHealth.mockResolvedValue({ available: true, rollup });
 });
 afterEach(cleanup);
 
-describe("the project supply card", () => {
-  it("says how the project's parts stand", async () => {
-    render(<ProjectSupplyCard projectId="p1" role="designer" />);
-    expect(await screen.findByRole("region", { name: "Supply" })).toBeTruthy();
-    expect(screen.getAllByText(/7\.4 of 10/).length).toBeGreaterThan(0);
-    expect(screen.getByText("1 at risk")).toBeTruthy();
-  });
-
-  it("links the compliance draft for the project", async () => {
-    render(<ProjectSupplyCard projectId="p 1" role="qa" />);
-    const link = await screen.findByRole("link", { name: "Download a draft RoHS and REACH declaration" });
-    expect(link.getAttribute("href")).toBe("/api/supply/projects/p%201/compliance-draft?format=csv");
-  });
-
-  it("offers the design variants and reads the one picked", async () => {
-    mocked.getProjectBomHealth.mockResolvedValue({ available: true, rollup, variants: ["Lite"] });
-    render(<ProjectSupplyCard projectId="p1" role="qa" />);
-    fireEvent.change(await screen.findByLabelText("Design variant"), { target: { value: "Lite" } });
-    await waitFor(() => expect(mocked.getProjectBomHealth).toHaveBeenLastCalledWith("p1", expect.anything(), "Lite"));
-    expect((await screen.findByRole("link", { name: "Download a draft RoHS and REACH declaration" })).getAttribute("href")).toContain("&variant=Lite");
+describe("the project supply line", () => {
+  it("says how the project's parts stand and opens the Supply tab", async () => {
+    renderCard("designer");
+    expect(await screen.findByText(/7\.4 of 10/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Supply" }).getAttribute("href")).toContain("section=supply");
   });
 
   it("shows nothing to a viewer, and never asks", () => {
-    const { container } = render(<ProjectSupplyCard projectId="p1" role="viewer" />);
+    const { container } = renderCard("viewer");
     expect(container.textContent).toBe("");
     expect(mocked.getProjectBomHealth).not.toHaveBeenCalled();
   });
 
   it("shows nothing before the BOM has been read", async () => {
     mocked.getProjectBomHealth.mockResolvedValue({ available: false });
-    const { container } = render(<ProjectSupplyCard projectId="p1" role="qa" />);
+    const { container } = renderCard("qa");
     await vi.waitFor(() => expect(mocked.getProjectBomHealth).toHaveBeenCalled());
     expect(container.textContent).toBe("");
   });

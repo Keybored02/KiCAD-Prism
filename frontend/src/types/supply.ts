@@ -982,3 +982,46 @@ export interface ScheduleSettings {
   end: string;
   spare: { waiting: boolean; tier2_early: boolean; notices: boolean };
 }
+
+/** One part of a project's stored BOM, as the project's Supply tab lists it. */
+export interface ProjectSupplyPart {
+  key: string;
+  manufacturer: string;
+  mpn: string;
+  quantity: number;
+  references: string;
+  part_id: string | null;
+  state: SupplyBomLineResult["state"];
+  status: SupplyStatus | null;
+  stock: number | null;
+  lifecycle: SupplyLifecycle | null;
+  lead_time_days: number | null;
+  short: boolean;
+  unit_price: string | null;
+  tier: 1 | 2 | null;
+  waiting: boolean;
+  notes: number;
+}
+
+export interface ProjectSupplyRelease {
+  build_id: string;
+  tag: string;
+  created_at: string;
+  health: number | null;
+  status: SupplyStatus;
+  parts: number;
+  needing_a_look: number;
+  /** Parts that were fine when it was published and are not today. */
+  changed_since: Array<{ part_id: string; manufacturer: string; mpn: string; was: SupplyStatus | null; now: SupplyStatus }>;
+}
+
+export interface ProjectSupply {
+  available: boolean;
+  variant: string;
+  variants: string[];
+  rollup?: SupplyBomRollup;
+  parts?: ProjectSupplyPart[];
+  builds: Array<{ name: string; parts: number; need_by: string | null; note: string; created_at: string }>;
+  releases: ProjectSupplyRelease[];
+  notes: SupplyBomComment[];
+}

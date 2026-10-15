@@ -69,3 +69,8 @@ export function TermsIcon({ reviewedBy, reviewedAt }: { reviewedBy: string; revi
     ? <Glyph icon={ShieldCheck} label={`Terms reviewed by ${reviewedBy} on ${reviewedAt}`} className="text-success" />
     : <Glyph icon={ShieldQuestion} label="Terms not reviewed" className="text-warning" />;
 }
+
+/** The part is waiting for room in a distributor's budget. */
+export function WaitingIcon() {
+  return <Glyph icon={Hourglass} label="Waiting for room" className="text-warning" />;
+}

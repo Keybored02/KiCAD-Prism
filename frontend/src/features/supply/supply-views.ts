@@ -1,6 +1,5 @@
 /** The five Supply tabs, and where the old addresses lead. */
-const SUPPLY_TABS = ["dashboard", "parts", "review", "insights", "connectors"] as const;
-export type SupplyTab = (typeof SUPPLY_TABS)[number];
+export type SupplyTab = "dashboard" | "parts" | "review" | "insights" | "connectors";
 
 export interface SupplyPlace {
   tab: SupplyTab;
