@@ -17,6 +17,7 @@ root first.
 | `providers/mouser.py` | Mouser Search API V1: `search/partnumber` with up to 10 numbers per call, `Exact` matching, calls spaced 2 seconds apart. Errors arrive in a 200 answer. |
 | `providers/digikey.py` | DigiKey Product Information V4, from its Swagger file: OAuth client credentials, keyword search, one product-details call per SKU (one SKU is one packaging), stock pooled. Not yet run against the live service. |
 | `providers/farnell.py` | Farnell, Newark and element14 Product Search REST: manufacturer-number search, one SKU per call, the connector names the store and the currency. Not yet run against the live service. |
+| `providers/jlcpcb.py` | JLCPCB's own parts search, no key (unpublished, can change). Assembly-only and held until an administrator marks its terms read; its stock is marked marketplace so no total counts it; Basic, Extended and Preferred are facts. One call every 6 to 12 seconds, 300 a day. |
 | `providers/lcsc.py` | LCSC through its product page data service, no key. Searches by manufacturer number through EasyEDA's product search (LCSC's own refuses non-browsers); checked live. |
 | `providers/text_values.py` | Reads numbers sent as display text: "1,234 In Stock", "0,52 EUR", "42 Days". |
 | `providers/unrecognised.py` | Logs once a status or wording an adapter does not know, so a new one that matters gets noticed. |
@@ -27,22 +28,29 @@ root first.
 | `review.py` | Reads the review queue: pending spellings and listings waiting for a person. |
 | `backend/app/api/supply_review.py` | Review API. Everyone who reads supply data sees the queue; confirming a spelling and pinning or rejecting a listing need admin or qa. |
 | `watches.py` | The watchlist: one watch per part, with a stock threshold and a pin to the fastest polling (pins are capped). |
-| `tiers.py` | Pure rules: which polling tier a listing is on, and when it is next asked (`next_poll_at`) or retried (`retry_at`). |
+| `tiers.py` | Pure rules: when a listing is next due (`next_poll_at`: once in each provider day for daily, a day-changing jitter for weekly and monthly), which comes first when the budget is short (`urgency`), and when to retry (`retry_at`). |
+| `tracking.py` | What Prism follows and why: tracked projects, a person's tier choice (`watches.tier`, `rate`, `origin`) and `part_tiers`, derived from every source with its reasons (`recompute`). Tier 1 is read daily, tier 2 weekly or monthly, tier 3 only on request. |
+| `budget.py` | Pure cost model: calls a day one part costs at one provider by tier, rate and listings followed (reads, notices, substances, searches). |
+| `admission.py` | Where each followed part is read (`admissions`): admitted while the account's committed share has room, else waiting for room. `sync`, `preview` (runs a change and rolls it back) and `apply` ("track where room", refused when nothing fits). |
+| `budget_view.py` | The read behind `GET /api/supply/budget`: shares, spending by kind and purpose, 14 days, what tracking costs, what costs most. |
+| `accounts.py` | Connectors on the same credentials are one account (keyed hash): one ledger, one pacer, one job. |
+| `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account, doubled for a day after a rate limit. |
+| `schedule_settings.py` | The workspace's working week and which spare work is on. Spare budget (`quota.spare_allowance`) opens outside working hours and in the last hours of a provider's day. |
 | `stock.py` | A part's stock across distributors, honouring each provider's pooling. Only exact and manual listings, no marketplace stock. |
-| `discoverer.py` | Searches for listings of watched parts, once per part per connector; again after a month when the part was found there, after a week when not. A provider with `search_batch` is asked for a group of parts per call (`lookup_mpns`). Costs budget like any call. |
+| `discoverer.py` | Searches for listings of followed parts at the connectors they are admitted at: the first time from the pool (then spare), again every month at tier 1 and quarter at tier 2, found or not. A provider with `search_batch` is asked for a group of parts per call (`lookup_mpns`). Costs budget like any call. |
 | `trouble.py` | What to do when a provider call fails (rate limit, bad credentials, other), shared by polling and discovery. |
 | `component_watches.py` | A standing request to watch a catalog component and, when asked, its approved alternates; `sync` turns it into part watches. |
 | `bom_comments.py` | Notes on a project's BOM lines, by line key. |
 | `notice_files.py` | Keeps a copy of each notice's PDF in the datasheet archive. |
 | `worker_seen.py` | The worker's report of its providers and code age, written each scan; health compares it with the server so an out-of-date worker is visible. |
 | `jobs.py` | The `supply_poll` job handler and `schedule_due_supply_jobs`, which prism-worker runs every minute. One job per connector with work. |
-| `poller.py` | `Poller.poll_connector`: asks for due listings in batches within the call budget and records offers and samples. A provider with `groups_by_part` (DigiKey) is asked once per part, with the part's other listings read in the same call. |
+| `poller.py` | `Poller.poll_connector`: asks for due listings of admitted pairs (the picked listing when one is picked), tier 1 first, in batches within the call budget, and records offers; a sample only when something changed or the last is a day old. `spare=` reads waiting pairs or tier-2 parts early from spare budget. A provider with `groups_by_part` (DigiKey) is asked once per part, with the part's other listings read in the same call. |
 | `parts_view.py` | Read models for the Parts screen: the list and one part's detail, with history carried forward day by day. |
 | `part_status.py` | The interim status of a part (ok, warning, error, fatal, unknown), with the problems that make an unread part an error (no distributor carries it, every listing gone). The assessment pipeline replaces it. |
 | `alerts.py` | Alerts on watched parts: one per part and kind, opened after two looks 30 minutes apart (a lost part opens at once), cleared when the condition clears, acknowledged or snoozed by people. In-app only; nothing is sent anywhere. Evaluated after every read and every watch change. |
 | `insights.py` | Pure: what a part's daily stock history says. Observed net decrease (Theil-Sen slope since the last restock), days to zero and to the threshold, restocks and cadence, and a confidence. A change in how many listings stand behind the figure is cut, never read as a restock. Every answer lists its inputs. |
 | `connector_check.py` | Tests a connector with one real call charged to the interactive reserve. Reports in fixed, safe words (never the provider's text), records the result on the connector, and never pauses it. |
-| `capacity.py` | Whether each metered connector's budget keeps up with the watchlist: calls a day against usable calls, counting a provider's calls per batch. |
+| `capacity.py` | The older estimate of whether a connector's budget keeps up (calls a day against usable calls); the budget view supersedes it. |
 | `bom_lookup.py` | Looks a BOM up in supply data without calling a distributor: each line resolves to a part (manufacturer and number, or number alone when unambiguous), reports stock, status, lead time and the cheapest offer that covers the need, and rolls up cost, shortages and "can build N". Also watches the parts on a BOM. |
 | `backend/app/api/supply_bom.py` | BOM lookup (readers) and watch-all-lines (admin, designer). |
 | `fill.py` | Fill from distributor: asks the connected distributors for a part number and, for one picked candidate, its description and datasheet. Spends the interactive reserve; writes nothing to the catalog. |
@@ -64,8 +72,10 @@ root first.
 | `backend/app/services/supply/refresh.py` | Read one part now: its counted listings are polled at once from the interactive reserve, once every 15 minutes per person and part. |
 | `backend/app/services/supply/panel_payload.py` | What the KiCad panel gets (remote provider 0.4.0, additive): a one-line summary on search, list and detail; detail adds distributor offers, approved alternates, insight, health, two risk lines and links. Reads only; not sent to roles that cannot read supply data. |
 | `backend/app/services/supply/catalog_read.py` | Reads catalog components for supply through the catalog service: all components, a manufacturer-and-number to component id map, and the manufacturer and number behind a `Prism ID`. |
-| `backend/app/services/supply/release_check.py` | The supply check on a project BOM before release (health, parts that need a look; informs, never blocks) and the snapshot frozen at publish with each matched component's approved parts. The snapshot is evidence beside the release, never part of its digest. |
-| `backend/app/services/supply/publish_hook.py` | Called by Release Studio after a publish; takes the snapshot; any failure is logged and dropped. |
+| `backend/app/services/supply/release_check.py` | The supply check on a release's BOM (health, parts that need a look; informs, never blocks) and the snapshot frozen at publish with each matched component's approved parts. The snapshot is evidence beside the release, never part of its digest. |
+| `backend/app/services/supply/release_bom.py`, `release_source.py` | Read the BOM a release build exported (the dossier's `bom` member, digest-checked) as BOM lines. |
+| `backend/app/services/supply/release_snapshot.py` | Queues and runs the snapshot job at publish: idempotent per build, retried, with a recorded status (`release_snapshot_jobs`). |
+| `backend/app/services/supply/publish_hook.py` | Called by Release Studio after a publish; queues the snapshot job. |
 | `backend/app/api/supply_release.py` | Release check and release snapshot endpoints (readers; projects follow the caller's role). |
 | `bom_fields.py` | Which symbol fields are the manufacturer and the manufacturer part number (best name first; never the distributor's number), what counts as fitted, and the `Prism ID` field. The frontend's `frontend/src/features/supply/bom-supply.ts` keeps the same lists; a test compares them. |
 | `assessment/line_checks.py` | Findings about how a BOM line names its part: `manufacturer_missing` (found by number alone) and `not_in_library` (no catalog component has the pair). |
@@ -97,8 +107,8 @@ root first.
 | `providers/csv_provider.py` | Offers from an uploaded file. Unmetered. Reads its own table, never writes. |
 | `egress.py` | Outbound URL validation. Required before any fetch of a URL that is not hard-coded. |
 | `http_client.py` | `SafeHttpClient`: the only way a provider makes a request. Validates every hop, connects to the checked address, maps statuses to `ProviderError` subclasses, keeps query strings out of messages. |
-| `quota.py` | Pure budget policy: background allowance, interactive reserve, capacity estimate. |
-| `ledger.py` | Atomic daily spending (`try_spend` locks the day's row). |
+| `quota.py` | Pure budget policy: the provider's day and reset, background allowance (spread over the day after a start delay), interactive allowance, spare allowance, capacity estimate. |
+| `ledger.py` | Atomic daily spending per account (`try_spend` locks the day's row) with `call_counts` by connector, kind and purpose in the same transaction. |
 | `credentials.py` | The one adapter over the credential keyring. |
 | `connectors.py` | Connector setup, credentials, pause, state. |
 | `backend/app/api/supply_connectors.py` | HTTP API for connectors. Readers are admin, designer and qa; only admin changes anything. Strips request bodies from 422 errors. |

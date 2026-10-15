@@ -33,6 +33,27 @@ Connectors tab. The DigiKey app must list the callback address the card shows (`
 `/api/supply/oauth/digikey/callback`, HTTPS only). The sign-in lasts about 90 days; the card says who signed in and until
 when, and asks for a new sign-in when it runs out or DigiKey refuses it. Stock and prices do not depend on it.
 
+## Track projects and parts
+
+Prism follows a part at one of two tiers. **Tier 1** is read every day; **tier 2** every week or month. Everything else
+(tier 3) is read only when someone asks. A part is in the highest tier any reason gives it, and the part sheet says why: a
+tracked project, someone's choice, a watched component or its approved alternates, or a watch from before tiers (tier 2).
+
+- **Track a project:** on the BOM (Visualizers) choose **Track this project**. Pick the designs to follow and the
+  distributors you buy from. A distributor that only assembles (JLCPCB) appears as "Built at ..." and is read only when
+  you tick it. Before anything is applied you see, per distributor, the calls a day it adds, how many parts will be read
+  and how many will wait. **Track where there is room** reads what fits; the rest waits for room and is read from spare
+  budget. If nothing fits anywhere it is refused.
+- **Set a part's tier:** the **Tracking** control on the part sheet shows what a choice would cost, then applies it.
+- **Call budget:** each connector's day is split into a committed share (what tracking may use, at most 90%) and a pool
+  for people's reads, first searches and one-off checks. Connectors on the same credentials share one budget. The
+  **Connectors** page shows today's spending by purpose, the last two weeks, what waits for room and what costs most.
+- **Spare budget** is what would go unused: outside working hours, on non-working days and in the last three hours of a
+  provider's day. It reads parts waiting for room, then tier-2 parts early, then change notices of parts nobody tracks.
+- **Politeness:** calls are spaced at random around half a provider's published rate, a rate limit slows the whole account
+  for a day, and a web page or challenge where data was expected is treated as a block: the connector rests for 12 hours
+  and the Connectors page shows why.
+
 ## Watch parts
 
 In the Component Catalog a coloured dot beside a component's name shows where its manufacturer part stands (hover for stock and whether it is watched). A component Prism does not track has no dot. Designers and admins also get Watched and At risk filters and a Watch button there: it watches the components shown, or only the ones picked with ctrl-click (cmd-click on a Mac).
@@ -211,8 +232,14 @@ itself. Nothing is sent by email or chat.
 
 ## Releases
 
-The publish step in Release Studio shows a supply note for the BOM. It informs and never blocks a release. At
-publish, the BOM assessment, the approved parts and the compliance draft are recorded once and cannot be changed. The kept draft is at `/api/supply/projects/<project>/releases/<build>/compliance` (add `?format=csv` for the file); releases published before this have none.
+The supply check reads the BOM the release build exported, so it is exactly what ships. It shows from the Outputs stage on
+(a dot on the stage rail, a summary above the outputs) and again as a one-line summary on Publish. It informs the release
+and never blocks it. At publish you can attach the compliance draft to the forge release (a working document, off by
+default). The snapshot of what supply said then is taken by a worker job, retried, and shown on the published run; if it
+could not be taken, the run says why. The BOM assessment, the approved parts and the compliance draft are recorded once
+and cannot be changed. The kept draft is at `/api/supply/projects/<project>/releases/<build>/compliance` (add `?format=csv`
+for the file); releases published before this have none. For a project Prism has never read, the published run offers to
+keep the release's BOM; that asks no distributor and tracks nothing.
 
 ## KiCad panel
 
