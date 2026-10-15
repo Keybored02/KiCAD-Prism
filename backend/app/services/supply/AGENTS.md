@@ -38,6 +38,12 @@ root first.
 | `packaging_picks.py` | One followed listing per part and distributor: the picks waiting, the listings side by side, pick and clear, "same for similar". Only the picked listing is read and counted; `admission.sync` drops a pick whose listing is no longer counted. |
 | `oneoff.py` | Check once: `read_requests` list parts, `read_request_work` has a row per part and distributor; the worker searches and reads them from the pool, then spare budget, without tracking. |
 | `project_supply.py` | The project Supply tab: the stored BOM looked up (parts with tier, waiting and note counts), the builds the project put on the plan, release snapshots judged against today for what changed since, and the line notes. Calls no distributor. |
+| `alert_rules.py` | Per-part alert rules: muted kinds, the price rise that matters, a target price. `alerts.conditions_for` applies them; `assessment_marks` holds the status each part's assessment is judged against. |
+| `attrition.py` | Spares by package class (small passives 2%, others none), used when a lookup asks for `attrition_percent: null`. |
+| `cross_reference.py` | Alternatives graded direct, form-fit-function or functional from canonical parameters and the distributor category; `grade` is pure. No footprint or pin comparison. |
+| `notice_parse.py` | Reads a kept notice PDF (child process, as datasheets) for dates, kind and named known parts; stored apart in `pcns.parsed` until `apply` confirms it. |
+| `trade.py` | ECCN and tariff codes distributors state for a project's parts, disputes and gaps, and its CSV. |
+| `community_export.py` | The facts with a public source (confirmed aliases, lifecycles with their page) and nothing of the workspace's own. Sends nothing. |
 | `accounts.py` | Connectors on the same credentials are one account (keyed hash): one ledger, one pacer, one job. |
 | `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account, doubled for a day after a rate limit. |
 | `schedule_settings.py` | The workspace's working week and which spare work is on. Spare budget (`quota.spare_allowance`) opens outside working hours and in the last hours of a provider's day. |

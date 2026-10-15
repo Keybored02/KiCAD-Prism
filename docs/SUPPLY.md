@@ -127,6 +127,39 @@ A watch can count only one packaging (cut tape for prototypes, tape and reel for
 
 A catalog component can be watched as a whole (Approved parts > Watch component): its part, and with "Include approved alternates" every alternate approved for it, now and later.
 
+## What else Prism works out
+
+- **Change events.** Each reading is compared with the one before. A lifecycle change, a distributor that stops stocking a part
+  normally, a smallest order that doubles, and a listing that goes (with its packaging) appear under Recent changes on the Dashboard.
+- **Free fields.** Factory stock, normally-stocking, non-cancellable, back orders, the manufacturer's lead weeks and the country of
+  origin come with answers already read and are kept as facts on the part sheet.
+- **Behaviour over the history.** The part sheet's trend lists days at zero and the wait before stock returned, how widely stock swings,
+  how many distributors hold it and how concentrated it is, the gap between the day stock runs out and the lead time, the lead
+  time's own move over 90 days, one-step collapses in stock, and the pattern by month once there is more than a year of history.
+  The Market view adds signals for a manufacturer or category going out of stock or stretching its lead times.
+- **More checks.** Distributors that disagree on lifecycle are a warning. A distributor whose price is far from the median is a note.
+  A part whose whole assessment gets worse raises an alert (accepting it makes the new state the baseline). Per part, **Alert rules**
+  mute alerts, set the price rise that matters, and set a target price.
+- **Costing.** The line drawer shows the pieces bought beyond the need and the next price break. The project tab follows the cost of a
+  board over time, shows the rounding waste, and downloads a costing CSV that names no distributor, SKU or link. Spares can be set
+  **by package** (small passives get 2%, other parts none).
+- **Alternatives.** On the part sheet, **Find alternatives** grades other parts in the same category as direct, same form-fit-function
+  or functional, from the parameters distributors list, and shows replacements distributors name. It does not compare footprint or
+  pins. A candidate is proposed to the part's catalog component and QA approves it. A component's parts, with who gives how much
+  stock, show in the Sourcing tab and on the part sheet.
+- **Notice files.** A kept notice PDF is read for its last-time-buy and last-time-ship dates (only unambiguous ones), its kind, and
+  the known parts it names. This is a suggestion; nothing counts until a person accepts it.
+- **Trade classification.** The project tab lists the export control class (ECCN) and tariff codes distributors state for each part,
+  flags disputes and gaps, and downloads them as CSV. It is what they say, not a classification.
+- **RoHS exemptions.** A person names the exemptions a part relies on (such as 7(a)); they go into the draft declaration.
+- **Parameters** now cover the common ones of voltage regulators, connectors and microcontrollers as well as passives.
+- **MCP.** `POST /api/supply/mcp` is a read-only Model Context Protocol endpoint (parts at risk in a project, part status, best
+  alternate). It answers as the caller's role. **Community export** (`GET /api/supply/community-export`, administrators) shows the
+  facts with a public source Prism could share: confirmed manufacturer spellings and lifecycles with their page. It sends nothing.
+
+Not built: IPC-1752A import (needs a real supplier file to read), datasheet table extraction, a lifecycle survival model (needs more
+observed transitions), TME and Farnell attributes (need a recorded answer), a footprint and pin check of alternatives.
+
 ## Review
 
 Supply > Review. Distributors spell manufacturers their own way; Prism never merges them by guess. A person maps a
