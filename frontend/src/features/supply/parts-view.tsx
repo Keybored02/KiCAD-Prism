@@ -71,7 +71,7 @@ export function PartsView({ user }: { user: User | null }) {
 
   if (searchParams.get("tool") === "bom-file") {
     return (
-      <div className="h-full overflow-y-auto">
+      <div className="relative h-full overflow-y-auto">
         <Button variant="ghost" size="sm" className="m-4 mb-0" onClick={() => setParams({ tool: null })}>
           <ArrowLeft className="h-4 w-4" />Parts
         </Button>
@@ -81,7 +81,7 @@ export function PartsView({ user }: { user: User | null }) {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-6">
+    <div className="relative h-full overflow-y-auto p-6">
       <div className="mx-auto max-w-5xl space-y-5">
         <div className="flex flex-wrap items-center justify-end gap-2">
           {canEdit ? <SeedFromCatalogButton onDone={() => void refresh()} /> : null}

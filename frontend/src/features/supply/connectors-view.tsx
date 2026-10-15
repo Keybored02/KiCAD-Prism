@@ -93,7 +93,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
   const canAdd = isAdmin && providers.length > 0;
 
   return (
-    <div className="h-full overflow-y-auto p-6">
+    <div className="relative h-full overflow-y-auto p-6">
       <div className="mx-auto max-w-4xl space-y-5">
         <div className="flex flex-wrap items-start justify-end gap-3">
           <PermissionHint blocked={!isAdmin} action="add connectors" allowedRoles={["admin"]}>

@@ -52,7 +52,7 @@ export function DashboardView({ user }: { user: User | null }) {
   ];
 
   return (
-    <div className="h-full overflow-y-auto p-6">
+    <div className="relative h-full overflow-y-auto p-6">
       <div className="mx-auto max-w-5xl space-y-6">
         {overview.status === "loading" ? <Skeleton className="h-24 w-full" aria-label="Loading the dashboard" /> : null}
         {overview.status === "error" ? (
