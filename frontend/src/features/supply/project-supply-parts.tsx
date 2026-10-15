@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { ProjectSupplyPart } from "@/types/supply";
 import { StatusDot } from "./status-dot";
 import { formatStock } from "./supply-format";
-import { LifecycleIcon, TrackedIcon, WaitingIcon } from "./supply-icons";
+import { JlcIcon, LifecycleIcon, TrackedIcon, WaitingIcon } from "./supply-icons";
 
 const partLink = (partId: string) => `/?section=supply&supplyView=parts&part=${encodeURIComponent(partId)}`;
 
@@ -34,7 +34,7 @@ export function ProjectSupplyParts({ parts }: { parts: ProjectSupplyPart[] }) {
                 ) : (
                   <span className="font-medium">{part.mpn || "No part number"}</span>
                 )}
-                <div className="text-xs text-muted-foreground">{part.manufacturer}</div>
+                <div className="text-xs text-muted-foreground">{part.manufacturer} <JlcIcon jlc={part.jlc} /></div>
               </td>
               <td className="p-2 text-right tabular-nums">{part.quantity}</td>
               <td className={`p-2 text-right tabular-nums ${part.short ? "text-destructive" : ""}`}>{part.part_id ? formatStock(part.stock) : ""}</td>

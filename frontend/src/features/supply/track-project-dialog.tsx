@@ -103,15 +103,25 @@ function TrackProjectDialog({ projectId, onClose, onChanged }: { projectId: stri
             </fieldset>
             <fieldset className="space-y-1">
               <legend className="text-xs text-muted-foreground">Bought from</legend>
-              {connectors.map((item) => (
+              {connectors.filter((item) => !item.assembly_only).map((item) => (
                 <div key={item.id} className="flex items-center gap-2">
                   <Checkbox id={`con-${item.id}`} checked={bought.has(item.id)} onCheckedChange={(on) => toggleConnector(item.id, on === true)} />
                   <Label htmlFor={`con-${item.id}`} className="font-normal">
-                    {item.assembly_only ? `Built at ${item.display_name}` : item.display_name}
+                    {item.display_name}
                   </Label>
                 </div>
               ))}
             </fieldset>
+            {connectors.filter((item) => item.assembly_only).map((item) => (
+              <fieldset key={item.id} className="space-y-1">
+                <legend className="text-xs text-muted-foreground">Built at {item.display_name}?</legend>
+                <p className="text-xs text-muted-foreground">Its parts are then also read there, for what it can place and at what price. Its stock is never counted.</p>
+                <div className="flex items-center gap-2">
+                  <Checkbox id={`con-${item.id}`} checked={bought.has(item.id)} onCheckedChange={(on) => toggleConnector(item.id, on === true)} />
+                  <Label htmlFor={`con-${item.id}`} className="font-normal">Yes, built at {item.display_name}</Label>
+                </div>
+              </fieldset>
+            ))}
             {preview ? <BudgetPreview connectors={preview.connectors} /> : null}
             {preview?.fits_nowhere ? <p className="text-sm text-destructive">Nothing fits at any distributor. Free room or raise a budget first.</p> : null}
           </div>

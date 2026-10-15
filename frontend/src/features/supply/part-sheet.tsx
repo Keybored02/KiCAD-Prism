@@ -7,6 +7,7 @@ import type { User } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
 import { PartDetailSections } from "./part-detail-sections";
 import { StatusDot } from "./status-dot";
+import { JlcIcon } from "./supply-icons";
 import { STATUS_LABEL } from "./supply-format";
 import { useSupplyPart } from "./use-supply-parts";
 
@@ -67,6 +68,7 @@ function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDe
         <SheetTitle className="flex items-center gap-2">
           <StatusDot status={detail.status} />
           {detail.part.mpn}
+          <JlcIcon jlc={detail.jlc} />
         </SheetTitle>
         <SheetDescription>
           {detail.part.manufacturer}. {STATUS_LABEL[detail.status]}.

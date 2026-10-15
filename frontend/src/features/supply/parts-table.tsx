@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import type { SupplyPartRow } from "@/types/supply";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, PROBLEM_LABEL } from "./supply-format";
-import { DataAgeIcon, LifecycleIcon, TrackedIcon } from "./supply-icons";
+import { DataAgeIcon, JlcIcon, LifecycleIcon, TrackedIcon } from "./supply-icons";
 
 interface PartsTableProps {
   items: SupplyPartRow[];
@@ -41,6 +41,7 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
                 >
                   {part.mpn}
                 </button>
+                <span className="ml-1.5"><JlcIcon jlc={part.jlc} /></span>
                 <div className="text-xs text-muted-foreground">{part.manufacturer}</div>
                 {part.problem ? <div className="text-xs text-destructive">{PROBLEM_LABEL[part.problem]}</div> : null}
                 {part.used_in > 0 ? <div className="text-xs text-muted-foreground">Used in {part.used_in} {part.used_in === 1 ? "project" : "projects"}</div> : null}

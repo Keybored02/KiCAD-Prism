@@ -37,7 +37,7 @@ def _parts(conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[st
             "key": row["key"], "manufacturer": row["manufacturer"], "mpn": row["mpn"], "quantity": row["quantity"],
             "references": row["references"], "part_id": part_id, "state": entry["state"], "status": entry.get("status"),
             "stock": entry.get("stock"), "lifecycle": entry.get("lifecycle"), "lead_time_days": entry.get("lead_time_days"),
-            "short": bool(entry.get("short")), "unit_price": (entry.get("buy") or {}).get("unit_price"),
+            "short": bool(entry.get("short")), "jlc": entry.get("jlc"), "unit_price": (entry.get("buy") or {}).get("unit_price"),
             "tier": tiers.get(part_id), "waiting": part_id in waiting, "notes": notes.get(row["key"], 0),
         })
     parts.sort(key=lambda part: (_WORST_FIRST.get(part["status"] or "unknown", 3), part["mpn"]))

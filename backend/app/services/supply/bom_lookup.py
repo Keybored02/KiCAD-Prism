@@ -268,6 +268,7 @@ def lookup(
             leader = first_line[part_id]
             entry |= {
                 "watched": item["tracking"] is not None,
+                "jlc": item.get("jlc"),
                 "status": item["status"],
                 "problem": item["problem"],
                 "stock": stock,

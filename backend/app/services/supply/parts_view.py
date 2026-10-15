@@ -238,6 +238,7 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
     ids = [r["id"] for r in rows]
     sums = _computed(conn, rows, offers) if offers is not None else _cached(conn, rows)
     needed, needed_by = demand.open_totals(conn, ids), demand.next_needs(conn, ids)
+    jlc = facts.jlc_classes(conn, ids)
 
     items = []
     for row in rows:
@@ -252,6 +253,7 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
             "status": part_status(mine["stock"], row["threshold"], lifecycle, mine["problem"]).value,
             **mine,
             "used_in": int(row["used_in"]),
+            "jlc": jlc.get(row["id"]),
             # What open demand asks of the part, and the soonest date it is wanted by.
             "needed": max(0, needed.get(row["id"], 0)),
             "need_by": needed_by.get(row["id"]),
@@ -567,5 +569,6 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
             ],
         ),
         "used_in": usage.used_in(conn, part_id, role),
+        "jlc": facts.jlc_classes(conn, [part_id]).get(part_id),
         "insight": insight_from(days, watch_row["threshold"], now),
     }

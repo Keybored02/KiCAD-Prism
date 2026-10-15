@@ -1,7 +1,7 @@
-import { AlertTriangle, Ban, Banknote, Boxes, Clock, EyeOff, Eye, Layers, HeartPulse, ShieldCheck, ShieldQuestion, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Ban, Banknote, Boxes, Clock, EyeOff, Eye, Layers, HeartPulse, ShieldCheck, ShieldQuestion, Star, Hourglass, PackageMinus, type LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { SupplyLifecycle } from "@/types/supply";
+import type { JlcClass, SupplyLifecycle } from "@/types/supply";
 import type { RollupKind, RollupSentence } from "./bom-rollup-text";
 import { formatAgo, LIFECYCLE_LABEL } from "./supply-format";
 
@@ -73,4 +73,16 @@ export function TermsIcon({ reviewedBy, reviewedAt }: { reviewedBy: string; revi
 /** The part is waiting for room in a distributor's budget. */
 export function WaitingIcon() {
   return <Glyph icon={Hourglass} label="Waiting for room" className="text-warning" />;
+}
+
+/** JLCPCB's class of a part: Basic parts carry no setup fee, Extended ones do; a star marks the preferred list. Nothing when JLCPCB has no answer. */
+export function JlcIcon({ jlc }: { jlc: JlcClass | null | undefined }) {
+  if (!jlc || (!jlc.library && !jlc.preferred)) return null;
+  const label = `JLCPCB ${jlc.library ? jlc.library.toLowerCase() : "listed"}${jlc.preferred ? ", preferred" : ""}`;
+  return (
+    <span role="img" aria-label={label} title={label} className="inline-flex shrink-0 items-center gap-0.5 rounded border px-1 text-[10px] font-semibold leading-4 text-muted-foreground">
+      {jlc.library === "Basic" ? "B" : jlc.library === "Extended" ? "E" : "J"}
+      {jlc.preferred ? <Star aria-hidden className="h-2.5 w-2.5 fill-current" /> : null}
+    </span>
+  );
 }

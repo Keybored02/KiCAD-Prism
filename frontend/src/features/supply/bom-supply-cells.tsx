@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 
 import type { SupplyBomLineResult } from "@/types/supply";
 import { untrackedLabel, type RowSupply } from "./bom-supply";
-import { MixedIcon } from "./supply-icons";
+import { JlcIcon, MixedIcon } from "./supply-icons";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, STATUS_LABEL } from "./supply-format";
 
@@ -36,6 +36,7 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
           {STATUS_LABEL[result.status ?? "unknown"]}
           {result.watched ? null : <span className="text-muted-foreground">(not watched)</span>}
           {hint ? <AlertTriangle aria-label={hint} className="h-3 w-3 text-warning" /> : null}
+          <JlcIcon jlc={result.jlc} />
         </span>
       );
     }

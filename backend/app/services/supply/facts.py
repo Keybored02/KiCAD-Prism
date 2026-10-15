@@ -202,3 +202,22 @@ def summary(conn, part_ids: Sequence[str]) -> dict[str, dict[str, str]]:
         key = {"rohs_status": "rohs", "reach_status": "reach", "reach_svhc": "svhc"}[row["name"]]
         found.setdefault(row["part_id"], {}).setdefault(key, []).append(f"{row['value']} ({_source_label(row['provider'])})")
     return {part_id: {key: "; ".join(values) for key, values in kinds.items()} for part_id, kinds in found.items()}
+
+
+def jlc_classes(conn, part_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
+    """Per part JLCPCB lists, its class (``Basic`` or ``Extended``) and whether it is preferred. Parts JLCPCB has not answered for are left out."""
+
+    if not part_ids:
+        return {}
+    rows = conn.execute(
+        "SELECT part_id, name, value FROM part_facts WHERE part_id = ANY(%s) AND name IN ('jlc_library', 'jlc_preferred')",
+        (list(part_ids),),
+    ).fetchall()
+    found: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        entry = found.setdefault(row["part_id"], {"library": None, "preferred": False})
+        if row["name"] == "jlc_library":
+            entry["library"] = row["value"]
+        else:
+            entry["preferred"] = True
+    return found

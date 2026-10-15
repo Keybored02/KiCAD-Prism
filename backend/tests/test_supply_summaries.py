@@ -66,6 +66,16 @@ class SummaryCacheTests(unittest.TestCase):
                 time.sleep(0.25)
         self.fail("the summary was never kept")
 
+    def test_the_jlc_class_rides_on_the_row_without_being_kept_in_the_summary(self) -> None:
+        from app.services.supply import facts
+
+        with self.store.connection() as conn:
+            (item,) = self.parts_view.summaries_for(conn, [self.watch.part_id])
+            self.assertIsNone(item["jlc"])
+            facts.replace(conn, self.watch.part_id, "jlcpcb", [("jlc_library", "Basic"), ("jlc_preferred", "Preferred")], NOW)
+            (item,) = self.parts_view.summaries_for(conn, [self.watch.part_id])
+        self.assertEqual(item["jlc"], {"library": "Basic", "preferred": True})
+
     def test_a_new_reading_makes_it_stale(self) -> None:
         self.assertEqual(self.stock(), 100)
         with self.store.connection() as conn:

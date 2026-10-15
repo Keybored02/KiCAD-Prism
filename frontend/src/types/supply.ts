@@ -387,6 +387,7 @@ export interface SupplyBomBuy {
 }
 
 export interface SupplyBomLineResult {
+  jlc?: JlcClass | null;
   /** "tracked" has data; the rest say why a line has none. */
   state: "no_mpn" | "unknown" | "ambiguous" | "tracked";
   part_id: string | null;
@@ -526,8 +527,15 @@ export interface SupplyWatch {
   packaging: WatchPackaging;
 }
 
+/** JLCPCB's class of a part: Basic or Extended, and whether it is on the preferred list. */
+export interface JlcClass {
+  library: "Basic" | "Extended" | null;
+  preferred: boolean;
+}
+
 export interface SupplyPartRow {
   id: string;
+  jlc?: JlcClass | null;
   mpn: string;
   manufacturer: string;
   watch: SupplyWatchSummary | null;
@@ -596,6 +604,7 @@ export interface SupplyListing {
 }
 
 export interface SupplyPartDetail {
+  jlc?: JlcClass | null;
   part: { id: string; mpn: string; manufacturer: string };
   watch: SupplyWatchSummary | null;
   status: SupplyStatus;
@@ -985,6 +994,7 @@ export interface ScheduleSettings {
 
 /** One part of a project's stored BOM, as the project's Supply tab lists it. */
 export interface ProjectSupplyPart {
+  jlc?: JlcClass | null;
   key: string;
   manufacturer: string;
   mpn: string;

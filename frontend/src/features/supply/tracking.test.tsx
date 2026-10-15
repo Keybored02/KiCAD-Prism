@@ -42,7 +42,7 @@ describe("tracking a project", () => {
     expect(await screen.findByLabelText("Call budget")).toBeTruthy();
     expect(screen.getByText("120 calls")).toBeTruthy();
     expect(tracking.previewTrackProject).toHaveBeenLastCalledWith("prj_1", { variants: [""], connector_ids: null }, expect.anything());
-    expect(screen.getByLabelText("Built at JLCPCB")).toBeTruthy();
+    expect(screen.getByLabelText("Yes, built at JLCPCB")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Lite"));
     fireEvent.click(screen.getByRole("button", { name: "Track where there is room" }));
     await waitFor(() => expect(tracking.trackProject).toHaveBeenCalledWith("prj_1", { variants: ["", "Lite"], connector_ids: null }));
