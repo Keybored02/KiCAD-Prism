@@ -7,15 +7,18 @@ cannot open is not found. The check reads existing semantic indexes and calls no
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
-from app.core.security import AuthenticatedUser, require_supply_reader
-from app.services import semantic_index_service
-from app.services.supply import bom_lookup, catalog_read, compliance_draft, release_check, usage
+from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
+from app.services.supply import (
+    bom_lookup, catalog_read, compliance_draft, release_bom, release_check, release_source, usage,
+)
+
+from app.services.supply import release_snapshot as snapshot_jobs  # noqa: E402
 
 router = APIRouter(prefix="/api/supply/projects", tags=["supply"])
 
@@ -32,6 +35,8 @@ async def _run(call: Callable[[], T]) -> T:
         return await asyncio.to_thread(call)
     except release_check.SnapshotNotFound as exc:
         raise HTTPException(status_code=404, detail="No supply snapshot for this build") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
 
 
 @router.get("/{project_id}/bom-health")
@@ -91,24 +96,61 @@ async def compliance_draft_for(
     return result
 
 
-@router.get("/{project_id}/release-check")
+def _build_of_project(project_id: str, build_id: str) -> None:
+    """The build must belong to the project the caller can open."""
+
+    from app.services import release_studio_service as store
+
+    build = store.get_build(build_id)
+    if build is None or str(build.get("project_id") or "") != project_id:
+        raise HTTPException(status_code=404, detail="Build not found")
+
+
+@router.get("/{project_id}/release-builds/{build_id}/check")
 async def release_check_for(
-    project_id: str,
-    commit: Optional[str] = Query(default=None, max_length=64),
-    user: AuthenticatedUser = Depends(require_supply_reader),
+    project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_reader),
 ) -> dict[str, Any]:
-    project = get_project_for_role_or_404(project_id, user.role)
+    """The supply check of the BOM a release build exported: the run's variant and BOM preset, exactly what ships."""
+
+    get_project_for_role_or_404(project_id, user.role)
+    _build_of_project(project_id, build_id)
 
     def read() -> dict[str, Any]:
-        index = semantic_index_service.get_existing(project, commit or None)
-        if not index:
-            return {"available": False, "reason": "This revision's BOM has not been read yet. Open its BOM once to read it."}
+        try:
+            read_bom = release_bom.lines_from_csv(release_source.build_bom_text(build_id), catalog_read.identities)
+        except (release_source.NoBuildBom, release_bom.BomReadError) as exc:
+            return {"available": False, "reason": str(exc)}
         with _store().connection() as conn:
-            return {"available": True, **release_check.check(
-                conn, index.get("components") or [], identities=catalog_read.identities, variants=release_check.variants_of(index),
-            )}
+            return {"available": True, **release_check.check(conn, read_bom.lines, without_number=read_bom.without_number)}
 
     return await _run(read)
+
+
+@router.post("/{project_id}/release-builds/{build_id}/read-bom")
+async def read_release_bom(
+    project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_tracker),
+) -> dict[str, Any]:
+    """Keep the release's BOM lines as the project's usage, for a project Prism has never read. No distributor is asked and
+    nothing is tracked: tracking is a separate decision, made on the project's Supply tab."""
+
+    project = get_project_for_role_or_404(project_id, user.role)
+    _build_of_project(project_id, build_id)
+
+    def run() -> dict[str, Any]:
+        from datetime import datetime, timezone
+
+        try:
+            read_bom = release_bom.lines_from_csv(release_source.build_bom_text(build_id), catalog_read.identities)
+        except (release_source.NoBuildBom, release_bom.BomReadError) as exc:
+            raise ValueError(str(exc)) from exc
+        with _store().connection() as conn:
+            stored = usage.store_project(
+                conn, project_id, project.name or project_id, f"release:{build_id}|u{usage.USAGE_VERSION}", read_bom.lines,
+                datetime.now(timezone.utc),
+            )
+        return {"stored": stored, "parts": len(read_bom.lines), "without_number": read_bom.without_number}
+
+    return await _run(run)
 
 
 @router.get("/{project_id}/releases/{build_id}/compliance")
@@ -148,5 +190,20 @@ async def release_snapshot(
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             return release_check.get_snapshot(conn, project_id, build_id)
+
+    return await _run(read)
+
+
+@router.get("/{project_id}/releases/{build_id}/supply-status")
+async def release_snapshot_status(
+    project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_supply_reader)
+) -> dict[str, Any]:
+    """Whether the release has its supply snapshot (``taken``), is waiting for it (``queued``), or could not have one."""
+
+    get_project_for_role_or_404(project_id, user.role)
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return snapshot_jobs.status_of(conn, project_id, build_id)
 
     return await _run(read)

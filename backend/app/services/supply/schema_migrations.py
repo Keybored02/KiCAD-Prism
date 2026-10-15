@@ -709,6 +709,28 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m037_release_snapshot_jobs(conn) -> None:
+    """Whether a release's supply snapshot was taken, and why not. Snapshots are append-only, so a failure lives apart.
+
+    A snapshot is taken by a worker job queued at publish, retried, and idempotent per build (see ``release_snapshot.py``).
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS release_snapshot_jobs (
+            build_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('queued', 'done', 'failed')),
+            reason TEXT NOT NULL DEFAULT '',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_release_snapshot_jobs_project ON release_snapshot_jobs (project_id);
+        """,
+        prepare=False,
+    )
+
+
 def _m036_poll_schedules(conn) -> None:
     """A listing's schedule is daily, weekly or monthly (its part's tracking rate), not a risk tier; ``urgency`` orders the day's queue."""
 
@@ -1063,6 +1085,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (34, "variant_usage_keys", _m034_variant_usage_keys),
     (35, "tracking", _m035_tracking),
     (36, "poll_schedules", _m036_poll_schedules),
+    (37, "release_snapshot_jobs", _m037_release_snapshot_jobs),
 ]
 
 

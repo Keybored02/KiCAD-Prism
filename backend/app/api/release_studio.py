@@ -32,7 +32,7 @@ from app.services import forge_publish_service as forge_publish
 from app.services import release_studio_build_service as build_service
 from app.services import release_studio_service as store
 from app.services.job_service import jobs
-from app.services.supply.publish_hook import freeze_after_publish
+from app.services.supply.publish_hook import queue_snapshot
 from app.services.workspace_service import workspace
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
@@ -68,6 +68,8 @@ class PublishRequest(BaseModel):
     tag: str = Field(..., min_length=1, max_length=100)
     title: str = Field("", max_length=200)
     notes: str = Field("", max_length=8000)
+    # Attach the compliance draft (a working document, not a declaration) to the forge release.
+    attach_compliance_draft: bool = False
 
 
 class ReviewDecisionRequest(BaseModel):
@@ -614,6 +616,11 @@ async def publish_build(
             tag,
         )
         extra_assets, extra_names = _ready_vendor_pack_assets(build, configuration, filename)
+        if request.attach_compliance_draft:
+            draft = await asyncio.to_thread(_compliance_draft_asset, str(build_id), filename)
+            if draft is not None:
+                extra_assets.append(draft)
+                extra_names.append(draft[0])
         published = forge_publish.publish_release(
             repo_url=str(project.get("repo_url") or ""),
             commit_sha=commit_sha,
@@ -640,8 +647,8 @@ async def publish_build(
         )
     except store.ReviewDecisionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    # What supply data said at publish, kept beside the record. Evidence only; never part of a digest.
-    await asyncio.to_thread(freeze_after_publish, project_id, build_id, tag, commit_sha, user.email)
+    # What supply data said at publish is taken by a worker job and kept beside the record. Evidence only; never part of a digest.
+    await asyncio.to_thread(queue_snapshot, project_id, build_id, tag, commit_sha, user.email)
     return {"release": published, "filename": filename, "publish": record}
 
 
@@ -796,6 +803,26 @@ def _live_forge_release(
         return None
     url = str(live.get("url") or (published or {}).get("forge_url") or "")
     return {"tag": tag, "url": url}
+
+
+def _compliance_draft_asset(build_id: str, zip_filename: str) -> tuple[str, bytes] | None:
+    """The RoHS and REACH draft for the build's BOM as a CSV named for the release, or None when it cannot be made."""
+
+    try:
+        from app.services.supply import catalog_read, compliance_draft, release_bom, release_source
+        from app.services.supply.store import supply_store
+
+        read = release_bom.lines_from_csv(release_source.build_bom_text(build_id), catalog_read.identities)
+        with supply_store.connection() as conn:
+            draft = compliance_draft.build(conn, [
+                {"key": line.key, "manufacturer": line.manufacturer, "mpn": line.mpn, "quantity": line.quantity,
+                 "references": line.references, "lcsc": line.lcsc}
+                for line in read.lines
+            ])
+        return f"{zip_filename.removesuffix('.zip')}-compliance-draft.csv", compliance_draft.to_csv(draft).encode("utf-8")
+    except Exception:  # noqa: BLE001 - an attachment that cannot be made must not stop the release
+        logger.warning("Compliance draft not attached to build %s", build_id, exc_info=True)
+        return None
 
 
 def _ready_vendor_pack_assets(

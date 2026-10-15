@@ -81,6 +81,9 @@ def load_builtin_job_handlers() -> None:
     from app.services.supply.jobs import POLL_JOB_KIND as SUPPLY_POLL_JOB_KIND, run_supply_poll_job
 
     register_job_handler(SUPPLY_POLL_JOB_KIND, run_supply_poll_job)
+    from app.services.supply.release_snapshot import JOB_KIND as SUPPLY_SNAPSHOT_JOB_KIND, run_job as run_supply_snapshot_job
+
+    register_job_handler(SUPPLY_SNAPSHOT_JOB_KIND, run_supply_snapshot_job)
     from app.services.systems.service_step_export import STEP_JOB_KIND, run_step_job
 
     register_job_handler(STEP_JOB_KIND, run_step_job)

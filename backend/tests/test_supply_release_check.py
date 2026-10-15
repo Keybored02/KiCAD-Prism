@@ -20,6 +20,12 @@ POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 NOW = datetime.now(timezone.utc)
 
 
+def lines(components):
+    from app.services.supply import usage
+
+    return usage.lines_from_components(components)
+
+
 def component(reference, maker="", mpn="", **fields):
     values = {"Manufacturer": maker, "Manufacturer Part Number": mpn, "DNP": "No", "In BOM": "Yes", **fields}
     return {"reference": reference, "fields": values}
@@ -89,7 +95,7 @@ class ReleaseCheckTests(unittest.TestCase):
         self.part("GOOD-1", stock=5000)
         self.part("OBS-1", stock=0, lifecycle="obsolete")
         with self.store.connection() as conn:
-            result = self.release_check.check(conn, self.bom(), NOW)
+            result = self.release_check.check(conn, lines(self.bom()), NOW)
         self.assertEqual((result["parts"], result["tracked"], result["not_tracked"]), (3, 2, 1), "a line with no number is not a line")
         self.assertEqual(result["status"], "fatal")
         self.assertEqual(result["needing_a_look"], 1)
@@ -109,35 +115,14 @@ class ReleaseCheckTests(unittest.TestCase):
         with self.store.connection() as conn:
             part_id = conn.execute("SELECT id FROM parts").fetchone()["id"]
             waivers.propose(conn, part_id, Finding("obsolete", Status.FATAL, "x", "obsolete"), "Last-time stock bought", "qa@example.com", approver=True)
-            result = self.release_check.check(conn, [component("U1", "Acme", "OBS-1")], NOW)
+            result = self.release_check.check(conn, lines([component("U1", "Acme", "OBS-1")]), NOW)
         self.assertEqual((result["needing_a_look"], result["status"]), (0, "ok"))
         self.assertEqual(result["lines"][0]["waived"], 1)
-
-    def test_a_part_only_a_variant_fits_is_checked_too(self) -> None:
-        self.part("GOOD-1", stock=5000)
-        self.part("OBS-1", stock=0, lifecycle="obsolete")
-        base = [
-            {**component("R1", "Acme", "GOOD-1"), "componentUid": "u1"},
-            {**component("U1", "Acme", "OBS-1", DNP="Yes"), "componentUid": "u2"},
-        ]
-        index = {"components": base, "assembly": {"default": {"components": {}}, "variants": [{"name": "Full", "components": {"u2": {"dnp": False}}}]}}
-        variants = self.release_check.variants_of(index)
-        self.assertEqual(list(variants), ["Full"])
-        with self.store.connection() as conn:
-            result = self.release_check.check(conn, base, NOW, variants=variants)
-            plain = self.release_check.check(conn, base, NOW)
-            snapshot_id = self.release_check.freeze(conn, "prj_1", "bld_var", "vv", "d" * 40, "qa@example.com", base, {}, NOW, None, variants)
-            frozen = self.release_check.get_snapshot(conn, "prj_1", "bld_var")
-        self.assertEqual((result["status"], result["parts"]), ("ok", 1), "the base design fits only the good part")
-        self.assertEqual((result["variants"]["Full"]["status"], result["variants"]["Full"]["parts"], result["variants"]["Full"]["needing_a_look"]), ("fatal", 2, 1))
-        self.assertNotIn("variants", plain)
-        self.assertIsNotNone(snapshot_id)
-        self.assertEqual(frozen["assessment"]["variants"]["Full"]["status"], "fatal")
 
     def test_a_draft_that_cannot_be_built_does_not_cost_the_snapshot(self) -> None:
         self.part("GOOD-1", stock=5000)
         with self.store.connection() as conn, mock.patch.object(self.release_check.compliance_draft, "build", side_effect=RuntimeError("boom")):
-            made = self.release_check.freeze(conn, "prj_1", "bld_nodraft", "vx", "c" * 40, "qa@example.com", [component("R1", "Acme", "GOOD-1")], {}, NOW)
+            made = self.release_check.freeze(conn, "prj_1", "bld_nodraft", "vx", "c" * 40, "qa@example.com", lines([component("R1", "Acme", "GOOD-1")]), {}, NOW)
             snapshot = self.release_check.get_snapshot(conn, "prj_1", "bld_nodraft")
         self.assertIsNotNone(made)
         self.assertEqual((snapshot["status"], snapshot["compliance"]), ("ok", None))
@@ -148,7 +133,7 @@ class ReleaseCheckTests(unittest.TestCase):
             self.sources.add_source(conn, "cmp-1", "Acme", "ALT-1", "qa@example.com", approver=True)
             self.sources.add_source(conn, "cmp-1", "Acme", "ALT-2", "designer@example.com", approver=False)
             ids = {("acme", "GOOD1"): "cmp-1"}
-            first = self.release_check.freeze(conn, "prj_1", "bld_1", "v1", "a" * 40, "qa@example.com", [component("R1", "Acme", "GOOD-1")], ids, NOW)
+            first = self.release_check.freeze(conn, "prj_1", "bld_1", "v1", "a" * 40, "qa@example.com", lines([component("R1", "Acme", "GOOD-1")]), ids, NOW)
             again = self.release_check.freeze(conn, "prj_1", "bld_1", "v1", "a" * 40, "qa@example.com", [], {}, NOW)
             snapshot = self.release_check.get_snapshot(conn, "prj_1", "bld_1")
         self.assertIsNotNone(first)
@@ -180,15 +165,41 @@ class ReleaseCheckTests(unittest.TestCase):
     def request(self, path: str, role: str = "designer", query: str = ""):
         return _request(self.app, "GET", f"/api/supply/projects/{path}", user=self.users[role], query=query)
 
-    def test_the_endpoint_reads_the_projects_index_for_a_project_the_caller_can_open(self) -> None:
+    BOM_CSV = "Reference,Qty,Manufacturer,MPN\nR1 R2,2,Acme,GOOD-1\nU1,1,Acme,OBS-1\nJ1,1,,\n"
+
+    def test_the_endpoint_checks_the_bom_the_release_build_exported(self) -> None:
         self.part("GOOD-1", stock=5000)
-        project = SimpleNamespace(id="prj_1")
-        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project), \
-                mock.patch("app.api.supply_release.semantic_index_service.get_existing", return_value={"components": [component("R1", "Acme", "GOOD-1")]}) as index:
-            response = self.request("prj_1/release-check", query="commit=abc")
+        self.part("OBS-1", stock=0, lifecycle="obsolete")
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_1")), \
+                mock.patch("app.api.supply_release._build_of_project"), \
+                mock.patch("app.api.supply_release.release_source.build_bom_text", return_value=self.BOM_CSV):
+            response = self.request("prj_1/release-builds/b1/check")
         self.assertEqual(response.status, 200, response.text)
-        self.assertEqual((response.json["available"], response.json["status"]), (True, "ok"))
-        index.assert_called_once_with(project, "abc")
+        self.assertEqual((response.json["available"], response.json["status"], response.json["parts"]), (True, "fatal", 2))
+        self.assertEqual((response.json["without_number"], response.json["needing_a_look"]), (1, 1))
+
+    def test_a_build_with_no_bom_says_so(self) -> None:
+        from app.services.supply import release_source
+
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="p")), \
+                mock.patch("app.api.supply_release._build_of_project"), \
+                mock.patch("app.api.supply_release.release_source.build_bom_text", side_effect=release_source.NoBuildBom("This build exported no BOM file.")):
+            response = self.request("p/release-builds/b/check")
+        self.assertEqual(response.json, {"available": False, "reason": "This build exported no BOM file."})
+
+    def test_reading_the_release_bom_keeps_its_lines_without_tracking_anything(self) -> None:
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_5", name="Five")), \
+                mock.patch("app.api.supply_release._build_of_project"), \
+                mock.patch("app.api.supply_release.release_source.build_bom_text", return_value=self.BOM_CSV):
+            response = _request(self.app, "POST", "/api/supply/projects/prj_5/release-builds/b1/read-bom", user=self.users["qa"])
+        self.assertEqual((response.status, response.json["parts"], response.json["without_number"]), (200, 2, 1))
+        with self.store.connection() as conn:
+            kept = conn.execute("SELECT mpn, quantity FROM bom_usage WHERE project_id = 'prj_5' ORDER BY mpn").fetchall()
+            self.assertEqual([(r["mpn"], r["quantity"]) for r in kept], [("GOOD-1", 2), ("OBS-1", 1)])
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM tracked_projects").fetchone()["n"], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM part_tiers").fetchone()["n"], 0)
+        viewer = _request(self.app, "POST", "/api/supply/projects/prj_5/release-builds/b1/read-bom", user=self.users["viewer"])
+        self.assertEqual(viewer.status, 403)
 
     def test_the_project_health_rolls_up_the_stored_bom_lines(self) -> None:
         from app.services.supply import usage
@@ -256,39 +267,50 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertFalse(any(compliance_draft.LIST_NOT_LOADED in gap for item in by_mpn.values() for gap in item["gaps"]), "said once, not per part")
         self.assertIn(compliance_draft.LIST_NOT_LOADED, csv_response.text)
 
-    def test_a_revision_without_a_read_bom_says_so(self) -> None:
-        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="p")), \
-                mock.patch("app.api.supply_release.semantic_index_service.get_existing", return_value=None):
-            response = self.request("p/release-check")
-        self.assertEqual(response.json["available"], False)
-        self.assertIn("has not been read", response.json["reason"])
-
     def test_who_may_look_and_a_project_the_caller_cannot_open_is_not_found(self) -> None:
-        self.assertEqual(self.request("p/release-check", role="viewer").status, 403)
+        self.assertEqual(self.request("p/release-builds/b/check", role="viewer").status, 403)
         from fastapi import HTTPException
 
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", side_effect=HTTPException(status_code=404, detail="Project not found")):
             self.assertEqual(self.request("p/release-check").status, 404)
             self.assertEqual(self.request("p/releases/b/supply").status, 404)
 
-    def test_publishing_freezes_a_snapshot_and_never_fails_the_release(self) -> None:
-        from app.services.supply import publish_hook
+    def test_the_snapshot_job_freezes_the_release_bom_and_the_status_follows(self) -> None:
+        from app.services.supply import release_snapshot
 
         self.part("GOOD-1", stock=5000)
-        project_row = {"id": "prj_1"}
-        with mock.patch("app.services.workspace_service.workspace.get_project_by_id", return_value=project_row), \
-                mock.patch("app.services.project_service._workspace_row_to_project", return_value=SimpleNamespace(id="prj_1")), \
-                mock.patch("app.services.semantic_index_service.get_existing", return_value={"components": [component("R1", "Acme", "GOOD-1")]}), \
-                mock.patch("app.services.supply.catalog_read.component_ids_by_part", return_value={}), \
-                mock.patch("app.services.supply.store.supply_store", self.store):
-            snapshot_id = publish_hook.freeze_after_publish("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com")
-        self.assertIsNotNone(snapshot_id)
+        with mock.patch("app.services.supply.release_snapshot.supply_store", self.store), \
+                mock.patch("app.services.supply.release_snapshot.release_source.build_bom_text", return_value=self.BOM_CSV), \
+                mock.patch("app.services.supply.release_snapshot.catalog_read.component_ids_by_part", return_value={}):
+            queue = mock.Mock()
+            self.assertTrue(release_snapshot.queue("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com", job_service=queue))
+            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_9")["state"], "queued")
+            self.assertEqual(queue.enqueue.call_args.kwargs["artifact_key"], "supply-snapshot:bld_9")
+            self.assertEqual(release_snapshot.take("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com"), "taken")
+            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_9")["state"], "taken")
+            self.assertEqual(release_snapshot.take("prj_1", "bld_9", "v9", "b" * 40, "qa@example.com"), "taken", "asking twice is harmless")
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_1")):
             response = self.request("prj_1/releases/bld_9/supply")
-        self.assertEqual((response.status, response.json["tag"]), (200, "v9"))
-        with mock.patch("app.services.workspace_service.workspace.get_project_by_id", side_effect=RuntimeError("down")):
-            self.assertIsNone(publish_hook.freeze_after_publish("prj_1", "bld_10", "v10", "c" * 40, "qa@example.com"))
+            status = self.request("prj_1/releases/bld_9/supply-status")
+        self.assertEqual((response.status, response.json["tag"], status.json["state"]), (200, "v9", "taken"))
 
+    def test_a_build_without_a_bom_records_why_there_is_no_snapshot(self) -> None:
+        from app.services.supply import release_snapshot, release_source
 
-if __name__ == "__main__":
-    unittest.main()
+        with mock.patch("app.services.supply.release_snapshot.supply_store", self.store), \
+                mock.patch("app.services.supply.release_snapshot.release_source.build_bom_text", side_effect=release_source.NoBuildBom("This build exported no BOM file.")):
+            self.assertEqual(release_snapshot.take("prj_1", "bld_x", "vx", "c" * 40, "qa@example.com"), "failed")
+            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_x"), {"state": "failed", "reason": "This build exported no BOM file."})
+        self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "never"), {"state": "none", "reason": ""})
+
+    def test_queueing_never_raises_and_says_when_it_could_not(self) -> None:
+        from app.services.supply import release_snapshot
+
+        with mock.patch("app.services.supply.release_snapshot.supply_store", self.store):
+            broken = mock.Mock()
+            broken.enqueue.side_effect = RuntimeError("down")
+            self.assertFalse(release_snapshot.queue("prj_1", "bld_q", "vq", "d" * 40, "qa@example.com", job_service=broken))
+            self.assertEqual(release_snapshot.status_of(self.conn(), "prj_1", "bld_q")["state"], "failed")
+
+    def conn(self):
+        return self.store.connection().__enter__()
