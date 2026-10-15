@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 
 import type { ReleaseCheck } from "@/types/supply";
+import { CheckOnceButton } from "./check-once-button";
 import { getReleaseCheck } from "./release-check-api";
 import { StatusDot } from "./status-dot";
 import { STATUS_LABEL } from "./supply-format";
@@ -36,6 +37,8 @@ export function ReleaseSupplyCheck({ projectId, buildId }: { projectId: string; 
   if (check.status === "error" || !check.data) return null;
   const data = check.data;
   if (!data.available) return <p className="text-xs text-muted-foreground">{data.reason}</p>;
+  // Parts on the release BOM nobody reads: a check once gives the verdict fresh figures.
+  const unread = data.lines.filter((line) => line.manufacturer && line.mpn && (line.state === "unknown" || line.status === null));
 
   return (
     <section aria-label="Supply check" className="space-y-2 border p-3 text-sm">
@@ -50,6 +53,7 @@ export function ReleaseSupplyCheck({ projectId, buildId }: { projectId: string; 
         {data.without_number > 0 ? `, ${data.without_number} lines without a part number` : ""}. This is a note for the release; it does not block
         publishing.
       </p>
+      {unread.length > 0 ? <CheckOnceButton projectId={projectId} lines={unread} onFinished={check.refresh} /> : null}
       {data.attention.length > 0 ? (
         <ul aria-label="Parts that need a look" className="divide-y border">
           {data.attention.map((line) => (

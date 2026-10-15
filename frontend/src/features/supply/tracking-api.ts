@@ -1,5 +1,5 @@
 import { fetchJson } from "@/lib/api";
-import type { BudgetConnector, PartTracking, ProjectTrackingState, TrackingPreview } from "@/types/supply";
+import type { BudgetConnector, CheckProgress, PartTracking, ProjectTrackingState, TrackingPreview } from "@/types/supply";
 
 const BASE = "/api/supply/tracking";
 const json = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
@@ -50,4 +50,14 @@ export async function stopTrackingPart(partId: string): Promise<void> {
 
 export function getBudget(signal?: AbortSignal): Promise<BudgetConnector[]> {
   return fetchJson("/api/supply/budget", { signal }, "Could not load the call budget");
+}
+
+export function startCheck(
+  kind: "bom" | "component", projectId: string, lines: ReadonlyArray<{ manufacturer: string; mpn: string }>,
+): Promise<{ id: string; parts: number; already_tracked: number; skipped: Array<{ mpn: string; reason: string }>; progress: CheckProgress }> {
+  return fetchJson("/api/supply/checks", { method: "POST", body: JSON.stringify({ kind, project_id: projectId, lines }) }, "Could not start the check");
+}
+
+export function getCheck(id: string, signal?: AbortSignal): Promise<CheckProgress> {
+  return fetchJson(`/api/supply/checks/${encodeURIComponent(id)}`, { signal }, "Could not read the check");
 }

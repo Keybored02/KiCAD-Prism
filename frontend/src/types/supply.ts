@@ -958,3 +958,15 @@ export interface PackagingSimilar extends PackagingWaiting {
   listing_id: string;
   sku: string;
 }
+
+/** How far a check someone asked for once has got: parts read everywhere they will be, of all of them. */
+export interface CheckProgress {
+  id: string;
+  kind: "bom" | "component";
+  project_id: string;
+  created_at: string;
+  finished: boolean;
+  parts: number;
+  done: number;
+  failed: number;
+}
