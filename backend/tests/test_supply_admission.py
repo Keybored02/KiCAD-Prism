@@ -235,7 +235,7 @@ class AdmissionTests(unittest.TestCase):
 
             self.assertEqual(len(mpns("tier1")), 16)
             self.assertEqual(mpns("tier2"), ["P-099"])
-            self.assertEqual(len(mpns("waiting")), 1, "one of the sixteen did not fit")
+            self.assertEqual(len(mpns("waiting")), 2, "the sixteenth and the tier-2 part did not fit")
             self.assertEqual(len(mpns("watched")), 17)
             self.assertEqual(mpns("pick"), [], "none has several listings")
 
