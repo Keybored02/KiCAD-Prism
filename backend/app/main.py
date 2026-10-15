@@ -43,6 +43,7 @@ from app.api.supply_planning import router as supply_planning_router
 from app.api.supply_seed import router as supply_seed_router
 from app.api.supply_assessment import router as supply_assessment_router
 from app.api.supply_bom_comments import router as supply_bom_comments_router
+from app.api.supply_packaging import router as supply_packaging_router
 from app.api.supply_tracking import budget_router as supply_budget_router, router as supply_tracking_router
 from app.api.supply_release import router as supply_release_router
 from app.api.supply_settings import router as supply_settings_router
@@ -338,6 +339,7 @@ app.include_router(supply_release_router)
 app.include_router(supply_bom_comments_router)
 app.include_router(supply_tracking_router)
 app.include_router(supply_budget_router)
+app.include_router(supply_packaging_router)
 app.include_router(supply_settings_router)
 register_supply_validation_redaction(app)
 app.include_router(tracker_identity_router)

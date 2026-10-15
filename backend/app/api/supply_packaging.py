@@ -1,0 +1,102 @@
+"""Packaging picks: which listing of a part is followed at each distributor.
+
+Everyone who reads supply data sees the picks waiting; administrators, designers and QA make them.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any, Callable, TypeVar
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.api import supply_connectors
+from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_tracker
+from app.services.supply import packaging_picks, parts
+
+router = APIRouter(prefix="/api/supply/packaging", tags=["supply"])
+
+T = TypeVar("T")
+
+
+class PickIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    listing_id: str = Field(min_length=1, max_length=64)
+
+
+class SimilarIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    connector_id: str = Field(min_length=1, max_length=64)
+    packaging: str = Field(min_length=1, max_length=32)
+    part_ids: list[str] = Field(max_length=packaging_picks.MAX_WAITING)
+
+
+def _store():
+    return supply_connectors.service.store
+
+
+async def _run(call: Callable[[], T]) -> T:
+    try:
+        return await asyncio.to_thread(call)
+    except parts.PartNotFound as exc:
+        raise HTTPException(status_code=404, detail="Not found") from exc
+    except packaging_picks.PickError as exc:
+        raise HTTPException(status_code=400, detail={"code": "invalid_pick", "message": str(exc)}) from exc
+
+
+@router.get("/waiting")
+async def waiting(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            items = packaging_picks.waiting(conn)
+            return {"items": items, "saves_calls_a_day": round(sum(item["saves_calls_a_day"] for item in items), 3)}
+
+    return await _run(read)
+
+
+@router.get("/{part_id}/{connector_id}")
+async def options(part_id: str, connector_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return packaging_picks.options(conn, part_id, connector_id)
+
+    return await _run(read)
+
+
+@router.put("/{part_id}/{connector_id}")
+async def pick(part_id: str, connector_id: str, body: PickIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, Any]:
+    """Pick a listing. The answer offers the same packaging for the similar parts still waiting; nothing applies until confirmed."""
+
+    def run() -> dict[str, Any]:
+        with _store().connection() as conn:
+            packaging_picks.pick(conn, part_id, connector_id, body.listing_id, user.email)
+            chosen = next(item for item in packaging_picks.options(conn, part_id, connector_id)["listings"] if item["id"] == body.listing_id)
+            return {
+                "picked": body.listing_id,
+                "packaging": chosen["packaging"],
+                "similar": packaging_picks.similar(conn, part_id, connector_id, chosen["packaging"]),
+            }
+
+    return await _run(run)
+
+
+@router.delete("/{part_id}/{connector_id}", status_code=204)
+async def clear(part_id: str, connector_id: str, user: AuthenticatedUser = Depends(require_supply_tracker)) -> None:
+    def run() -> None:
+        with _store().connection() as conn:
+            parts.get_part(conn, part_id)
+            packaging_picks.clear(conn, part_id, connector_id, user.email)
+
+    await _run(run)
+
+
+@router.post("/similar")
+async def apply_similar(body: SimilarIn, user: AuthenticatedUser = Depends(require_supply_tracker)) -> dict[str, int]:
+    def run() -> dict[str, int]:
+        with _store().connection() as conn:
+            return {"picked": packaging_picks.apply_similar(conn, body.connector_id, body.packaging, body.part_ids, user.email)}
+
+    return await _run(run)

@@ -69,6 +69,7 @@ def part_stock(conn, part_id: str) -> PartStock:
         JOIN offers o ON o.listing_id = l.id
         JOIN connectors c ON c.id = l.connector_id
         WHERE l.part_id = %s AND l.match_state IN ('exact', 'manual')
+          AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
         """,
         (part_id,),
     ).fetchall()

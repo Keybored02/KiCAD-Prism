@@ -88,7 +88,7 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
 
       <section aria-label="Watch" className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Watch</h3>
-        <TrackingControl partId={detail.part.id} canEdit onChanged={onChanged} />
+        <TrackingControl partId={detail.part.id} canEdit onChanged={onChanged} needsPick={detail.packaging?.needs_pick} />
         <WatchSettings part={detail.part} watch={detail.watch} canEdit={canEdit} onChanged={onChanged} />
       </section>
 

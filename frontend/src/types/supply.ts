@@ -615,6 +615,8 @@ export interface SupplyPartDetail {
   parameters: SupplyParameter[];
   insight: SupplyInsight;
   used_in: Array<{ project_id: string; project_name: string; quantity: number; references: string; only_in_variants?: string[] }>;
+  /** Picks made on this part, and the distributors where it still waits for one. */
+  packaging?: { picks: Record<string, string>; needs_pick: Array<{ connector_id: string; connector: string; listings: number }> };
 }
 
 export interface SupplyManufacturer {
@@ -916,4 +918,43 @@ export interface BudgetConnector {
     projects: Array<{ project_id: string; calls_a_day: number }>;
     parts: Array<{ part_id: string; mpn: string; manufacturer: string; tier: number; calls_a_day: number; pick_saves: number }>;
   };
+}
+
+/** A tracked part with several listings at a distributor and no pick, and what picking would save. */
+export interface PackagingWaiting {
+  part_id: string;
+  connector_id: string;
+  connector: string;
+  mpn: string;
+  manufacturer: string;
+  listings: number;
+  saves_calls_a_day: number;
+}
+
+export interface PackagingListing {
+  id: string;
+  sku: string;
+  packaging: string;
+  moq: number | null;
+  order_multiple: number | null;
+  stock: number | null;
+  lead_time_days: number | null;
+  marketplace: boolean;
+  currency: string;
+  /** Unit price at 1, 100 and 1,000 pieces. */
+  prices: Record<string, string | null>;
+  fetched_at: string | null;
+}
+
+export interface PackagingOptions {
+  part_id: string;
+  connector_id: string;
+  picked: string | null;
+  saves_calls_a_day: number;
+  listings: PackagingListing[];
+}
+
+export interface PackagingSimilar extends PackagingWaiting {
+  listing_id: string;
+  sku: string;
 }

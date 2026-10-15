@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { PartTracking, TrackingPreview } from "@/types/supply";
 import { BudgetPreview } from "./budget-preview";
+import { PackagingPickDialog } from "./packaging-pick-dialog";
 import { getPartTracking, previewPartTier, setPartTier, stopTrackingPart, type TierChoice } from "./tracking-api";
 import { useLoaded } from "./use-loaded";
 
@@ -26,11 +27,14 @@ function valueOf(tracking: PartTracking | null): string {
 }
 
 /** How Prism follows this part and why, with a choice of tier that shows what it costs before it is applied. */
-export function TrackingControl({ partId, canEdit, onChanged }: { partId: string; canEdit: boolean; onChanged: () => Promise<void> | void }) {
+export function TrackingControl({
+  partId, canEdit, onChanged, needsPick = [],
+}: { partId: string; canEdit: boolean; onChanged: () => Promise<void> | void; needsPick?: ReadonlyArray<{ connector_id: string; connector: string; listings: number }> }) {
   const fetcher = useCallback((signal: AbortSignal) => getPartTracking(partId, signal), [partId]);
   const loaded = useLoaded<{ tier: PartTracking | null; waiting_at: string[] }>(partId, fetcher, "Could not read the part's tracking");
   const [pending, setPending] = useState<{ value: string; choice: TierChoice; preview: TrackingPreview } | null>(null);
   const [error, setError] = useState("");
+  const [picking, setPicking] = useState("");
   if (loaded.status !== "ready" || !loaded.data) return null;
   const tracking = loaded.data.tier;
   const reasons = [...new Set((tracking?.reasons ?? []).map((item) => REASON_TEXT[item.kind] ?? item.kind))];
@@ -71,6 +75,17 @@ export function TrackingControl({ partId, canEdit, onChanged }: { partId: string
         </div>
       ) : null}
       {pending ? <BudgetPreview connectors={pending.preview.connectors} /> : null}
+      {tracking && needsPick.length > 0 ? (
+        <ul className="text-xs" aria-label="Packaging to pick">
+          {needsPick.map((item) => (
+            <li key={item.connector_id} className="flex items-center gap-2">
+              <span className="text-warning">Pick a packaging at {item.connector} ({item.listings} listings) to save calls.</span>
+              {canEdit ? <Button size="sm" variant="outline" onClick={() => setPicking(item.connector_id)}>Pick</Button> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {picking ? <PackagingPickDialog partId={partId} connectorId={picking} onClose={() => setPicking("")} onChanged={() => void onChanged()} /> : null}
       {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
     </section>
   );

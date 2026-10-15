@@ -149,6 +149,7 @@ def offers_by_part(conn, part_ids: list[str]) -> dict[str, list[dict]]:
         JOIN connectors c ON c.id = l.connector_id
         LEFT JOIN poll_state ps ON ps.listing_id = l.id
         WHERE l.part_id = ANY(%s) AND l.match_state = ANY(%s)
+          AND NOT EXISTS (SELECT 1 FROM packaging_picks pk WHERE pk.part_id = l.part_id AND pk.connector_id = l.connector_id AND pk.listing_id <> l.id)
         """,
         (part_ids, list(_COUNTED)),
     ).fetchall():
@@ -427,6 +428,26 @@ def parameters_of(conn, part_id: str) -> list[dict[str, Any]]:
     return listed
 
 
+def _packaging_state(conn, part_id: str) -> dict[str, Any]:
+    """The picks on a part (listing per distributor), and the distributors where it still waits for one."""
+
+    picks = {row["connector_id"]: row["listing_id"] for row in conn.execute(
+        "SELECT connector_id, listing_id FROM packaging_picks WHERE part_id = %s", (part_id,)).fetchall()}
+    counts = conn.execute(
+        "SELECT l.connector_id, c.display_name, COUNT(*) AS n FROM listings l JOIN connectors c ON c.id = l.connector_id "
+        "WHERE l.part_id = %s AND l.match_state = ANY(%s) GROUP BY l.connector_id, c.display_name HAVING COUNT(*) > 1",
+        (part_id, list(_COUNTED)),
+    ).fetchall()
+    tracked = conn.execute("SELECT 1 FROM part_tiers WHERE part_id = %s", (part_id,)).fetchone() is not None
+    return {
+        "picks": picks,
+        "needs_pick": [
+            {"connector_id": r["connector_id"], "connector": r["display_name"], "listings": int(r["n"])}
+            for r in counts if tracked and r["connector_id"] not in picks
+        ],
+    }
+
+
 def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | None = None) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     part = parts.get_part(conn, part_id)
@@ -508,6 +529,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
         "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name},
         "watch": _watch_dto(watch_row),
         "tracking": _tracking_dto(watch_row),
+        "packaging": _packaging_state(conn, part_id),
         "status": part_status(combined.total if combined else None, watch_row["threshold"], lifecycle, problem).value,
         "problem": problem,
         "problem_text": PROBLEM_LABEL.get(problem or "", ""),

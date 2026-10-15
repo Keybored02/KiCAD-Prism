@@ -7,12 +7,15 @@ import { canReviewSupply } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import { AliasRow } from "./alias-row";
 import { ListingRow } from "./listing-row";
+import { PackagingSection } from "./packaging-section";
+import { usePackagingWaiting } from "./use-packaging-waiting";
 import { useSupplyReview } from "./use-supply-review";
 
 /** Matches that need a person: manufacturer spellings and listings that are not proven. */
 export function ReviewView({ user }: { user: User | null }) {
   const { status, queue, error, retry, refresh } = useSupplyReview();
   const canDecide = canReviewSupply(user?.role);
+  const packaging = usePackagingWaiting();
 
   return (
     <div className="h-full overflow-y-auto p-6">
@@ -39,7 +42,7 @@ export function ReviewView({ user }: { user: User | null }) {
         {status === "ready" && queue ? (
           <>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-            {queue.aliases.length === 0 && queue.listings.length === 0 ? (
+            {queue.aliases.length === 0 && queue.listings.length === 0 && packaging.items.length === 0 ? (
               <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center">
                 <CheckCheck className="h-8 w-8 text-muted-foreground" />
                 <p className="text-sm font-medium">Nothing to review</p>
@@ -48,6 +51,8 @@ export function ReviewView({ user }: { user: User | null }) {
                 </p>
               </div>
             ) : null}
+
+            <PackagingSection items={packaging.items} saves={packaging.saves} canPick={user !== null && user.role !== "viewer"} onChanged={() => void packaging.refresh()} />
 
             {queue.aliases.length > 0 ? (
               <section aria-label="Manufacturer spellings" className="space-y-2">

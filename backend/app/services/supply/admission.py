@@ -132,6 +132,10 @@ def sync(conn, now: datetime | None = None) -> dict[str, int]:
     """Bring ``admissions`` in line with the tiers, the budgets and the listings. Returns how many pairs changed."""
 
     now = now or datetime.now(timezone.utc)
+    # A pick on a listing that is no longer counted (gone, rejected) is dropped: the part is read at all its listings again.
+    conn.execute(
+        "DELETE FROM packaging_picks pk USING listings l WHERE l.id = pk.listing_id AND l.match_state NOT IN ('exact', 'manual')"
+    )
     accounts, connectors = _accounts(conn)
     data = _inputs(conn)
     existing: dict[tuple[str, str], Any] = {
