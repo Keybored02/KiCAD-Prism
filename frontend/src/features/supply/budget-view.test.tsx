@@ -30,7 +30,8 @@ describe("the call budget", () => {
     expect(within(card).getByText(/Day resets in 3 h 2 min/)).toBeTruthy();
     expect(within(card).getByText(/380 parts read, costing 450 of 900 calls a day. 12 wait for room./)).toBeTruthy();
     expect(within(card).getByText("2 calls turned away today.")).toBeTruthy();
-    expect(within(card).getByText("5 spare calls today.")).toBeTruthy();
+    expect(within(card).getByText("5 calls today from budget left over (in the total, not in the two shares).")).toBeTruthy();
+    expect(within(card).getByRole("img", { name: "Today, all calls: 325 of 1000 calls" })).toBeTruthy();
     expect(within(card).getByLabelText("Calls a day for the last two weeks")).toBeTruthy();
     expect(within(card).getByText(/prj_1: 180.0 calls a day/)).toBeTruthy();
   });

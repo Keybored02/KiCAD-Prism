@@ -67,9 +67,12 @@ function ConnectorBudget({ item }: { item: BudgetConnector }) {
           Day resets in {hoursMinutes(item.reset_in_seconds)}{item.shares_account ? ", shares its budget with another connector" : ""}
         </span>
       </div>
+      <Bar label="Today, all calls" spent={item.spent} capacity={item.daily_budget} />
       <Bar label="Tracking (committed)" spent={item.committed.spent} capacity={item.committed.capacity} />
       <Bar label="Pool (people, first searches, one-off)" spent={item.pool.spent} capacity={item.pool.capacity} />
-      {item.spare_spent > 0 ? <p className="text-xs text-muted-foreground">{item.spare_spent} spare calls today.</p> : null}
+      {item.spare_spent > 0 ? (
+        <p className="text-xs text-muted-foreground">{item.spare_spent} calls today from budget left over (in the total, not in the two shares).</p>
+      ) : null}
       {item.refused_today > 0 ? <p className="text-xs text-warning">{item.refused_today} calls turned away today.</p> : null}
       {standing ? (
         <p className="text-xs text-muted-foreground">
