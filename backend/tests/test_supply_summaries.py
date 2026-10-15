@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import unittest
 import uuid
 from datetime import datetime, timezone
@@ -51,9 +52,19 @@ class SummaryCacheTests(unittest.TestCase):
         return item["stock"]
 
     def test_a_summary_is_kept_and_not_worked_out_again(self) -> None:
-        self.assertEqual(self.stock(), 100)
-        with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
+        # A summary is trusted once no transaction older than its reading is still open. Other test workers
+        # run transactions against the same server, so wait for them to end.
+        for _ in range(40):
             self.assertEqual(self.stock(), 100)
+            try:
+                with mock.patch.object(self.parts_view, "offers_by_part", side_effect=AssertionError("worked out again")):
+                    self.assertEqual(self.stock(), 100)
+                return
+            except AssertionError as exc:
+                if "worked out again" not in str(exc):
+                    raise
+                time.sleep(0.25)
+        self.fail("the summary was never kept")
 
     def test_a_new_reading_makes_it_stale(self) -> None:
         self.assertEqual(self.stock(), 100)
@@ -94,7 +105,15 @@ class SummaryCacheTests(unittest.TestCase):
             conn.execute("UPDATE part_summaries SET computed_at = NOW() - INTERVAL '8 days'")
             retention.trim_summaries(conn)
             self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM part_summaries").fetchone()["n"], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM summary_dirty").fetchone()["n"], 0)
+        # The log keeps what an open transaction of another worker may still depend on; it empties once they end.
+        for _ in range(40):
+            with self.store.connection() as conn:
+                retention.trim_summaries(conn)
+                if conn.execute("SELECT COUNT(*) AS n FROM summary_dirty").fetchone()["n"] == 0:
+                    break
+            time.sleep(0.25)
+        else:
+            self.fail("the log was never trimmed")
         self.assertEqual(self.stock(), 100, "worked out again when asked")
 
     def test_removing_a_part_does_not_trip_the_triggers(self) -> None:
