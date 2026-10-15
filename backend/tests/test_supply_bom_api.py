@@ -338,6 +338,24 @@ class BomLookupTests(unittest.TestCase):
         self.assertEqual((rolled["lines"]["r"]["buy"]["waste"], rolled["lines"]["r"]["buy"]["waste_cost"]), (2800, "140"))
         self.assertEqual(rolled["rollup"]["waste_cost"], "140.00")
 
+    def test_spares_by_package_give_small_passives_a_margin_and_nothing_to_the_rest(self) -> None:
+        small, chip = self.part("Acme", "RSMALL"), self.part("Acme", "ICBIG")
+        self.offer(small, "S", stock=100000)
+        self.offer(chip, "C", stock=100000)
+        lines = [
+            {"key": "r", "manufacturer": "Acme", "mpn": "RSMALL", "quantity": 10, "footprint": "Resistor_SMD:R_0603_1608Metric"},
+            {"key": "u", "manufacturer": "Acme", "mpn": "ICBIG", "quantity": 1, "footprint": "Package_QFP:LQFP-48_7x7mm_P0.5mm"},
+        ]
+        body = {"build_quantity": 100, "lines": lines, "attrition_percent": None}
+        response = self.call("/api/supply/bom/lookup", body)
+        self.assertEqual(response.status, 200, response.text)
+        result = response.json
+        self.assertEqual((result["lines"]["r"]["need"], result["lines"]["u"]["need"]), (1020, 100), "10 x 100 plus 2%; the IC has none")
+        self.assertEqual(sorted(result["attrition_by_part"].values()), [0.0, 2.0])
+        flat = self.lookup(lines, build=100, attrition=0)
+        self.assertEqual(flat["lines"]["r"]["need"], 1000)
+        self.assertIsNone(flat["attrition_by_part"])
+
     def test_when_nothing_covers_the_cheapest_is_still_shown_and_says_so(self) -> None:
         part_id = self.part("Acme", "SCARCE")
         self.offer(part_id, "A", stock=5, price="0.40")

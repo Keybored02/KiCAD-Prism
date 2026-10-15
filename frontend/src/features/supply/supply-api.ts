@@ -138,13 +138,13 @@ export function planSupplyBuild(plan: {
 export function lookupSupplyBom(
   lines: BomLineInput[],
   buildQuantity: number,
-  options: { signal?: AbortSignal; attritionPercent?: number } = {},
+  options: { signal?: AbortSignal; attritionPercent?: number | null } = {},
 ): Promise<SupplyBomLookup> {
   return fetchJson<SupplyBomLookup>(
     `${BASE}/bom/lookup`,
     {
       method: "POST",
-      body: JSON.stringify({ build_quantity: buildQuantity, attrition_percent: options.attritionPercent ?? 0, lines }),
+      body: JSON.stringify({ build_quantity: buildQuantity, attrition_percent: options.attritionPercent === undefined ? 0 : options.attritionPercent, lines }),
       signal: options.signal,
     },
     "Could not look the BOM up",

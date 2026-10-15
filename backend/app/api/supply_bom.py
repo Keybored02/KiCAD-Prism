@@ -47,7 +47,8 @@ class LookupRequest(BaseModel):
 
     build_quantity: int = Field(default=1, ge=1, le=1_000_000)
     # Spares on top of what the boards use, as a percentage of the quantity.
-    attrition_percent: float = Field(default=0, ge=0, le=100)
+    # Null asks for spares by kind of part (small passives get some, the rest none).
+    attrition_percent: float | None = Field(default=0, ge=0, le=100)
     lines: list[LineIn] = Field(max_length=bom_lookup.MAX_LINES)
 
 
@@ -153,7 +154,7 @@ class PlanRequest(BaseModel):
     # The project the BOM is from. Plans are told apart by project and name, so two projects can both plan "25 boards".
     project_id: str = Field(default="", max_length=64)
     build_quantity: int = Field(default=1, ge=1, le=1_000_000)
-    attrition_percent: float = Field(default=0, ge=0, le=100)
+    attrition_percent: float | None = Field(default=0, ge=0, le=100)
     need_by: Optional[date] = None
     lines: list[LineIn] = Field(max_length=bom_lookup.MAX_LINES)
 

@@ -183,6 +183,14 @@ describe("supply columns on the BOM", () => {
     expect((screen.getByLabelText("Spare parts, percent") as HTMLInputElement).value).toBe("10");
   });
 
+  it("can ask for spares by package instead of one percent", async () => {
+    renderTable("admin");
+    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByLabelText("Spares by package"));
+    await waitFor(() => expect(mocked.lookupSupplyBom).toHaveBeenLastCalledWith(expect.anything(), 1, expect.objectContaining({ attritionPercent: null })));
+    expect((screen.getByLabelText("Spare parts, percent") as HTMLInputElement).disabled).toBe(true);
+  });
+
   it("is plain at a commit checked out from History, and looks nothing up", async () => {
     renderTable("designer", undefined, false);
     expect(screen.getByText("Supply data shows on the latest revision only.")).toBeTruthy();

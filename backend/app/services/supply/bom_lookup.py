@@ -32,7 +32,7 @@ import uuid
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from app.services.supply import fx, parts, parts_view, pricing, usage, watches
+from app.services.supply import attrition, fx, parts, parts_view, pricing, usage, watches
 from app.services.supply.assessment import component_checks, line_checks, settings_store
 from app.services.supply.assessment import health as health_rules
 from app.services.supply.assessment import service as assessment
@@ -240,7 +240,7 @@ def lookup(
     conn,
     lines: Sequence[BomLine],
     build_quantity: int,
-    attrition_percent: float = 0,
+    attrition_percent: float | None = 0,
     identities: usage.Identities | None = None,
     in_library: Callable[[Iterable[tuple[str, str]]], set[tuple[str, str]]] | None = None,
 ) -> dict[str, Any]:
@@ -263,7 +263,13 @@ def lookup(
             per_board[part_id] = per_board.get(part_id, 0) + line.quantity
             first_line.setdefault(part_id, line.key)
 
-    needs = {part_id: needed(count, build_quantity, attrition_percent) for part_id, count in per_board.items()}
+    # `None` asks for spares by kind of part, taken from the footprint on the part's first line; a number is for every part.
+    by_key = {line.key: line for line in lines}
+    percents = {
+        part_id: attrition.percent_for(by_key[first_line[part_id]].footprint) if attrition_percent is None else attrition_percent
+        for part_id in per_board
+    }
+    needs = {part_id: needed(count, build_quantity, percents[part_id]) for part_id, count in per_board.items()}
     settings = settings_store.load(conn)
     extras: dict[str, list] = {}
     for component_id in sorted({line.prism_id for line in lines if line.prism_id in known}):
@@ -278,7 +284,7 @@ def lookup(
     results: dict[str, dict[str, Any]] = {}
     for line in lines:
         state, part_id, how = resolved[line.key]
-        entry: dict[str, Any] = {"state": state, "part_id": part_id, "manufacturer_match": how, "need": needed(line.quantity, build_quantity, attrition_percent)}
+        entry: dict[str, Any] = {"state": state, "part_id": part_id, "manufacturer_match": how, "need": needed(line.quantity, build_quantity, percents.get(part_id, attrition_percent or 0) if part_id else (attrition_percent or 0))}
         if part_id:
             item = summary[part_id]
             offers_here = offers.get(part_id, [])
@@ -305,8 +311,9 @@ def lookup(
     return {
         "build_quantity": build_quantity,
         "attrition_percent": attrition_percent,
+        "attrition_by_part": percents if attrition_percent is None else None,
         "lines": results,
-        "rollup": _rollup(lines, results, build_quantity, per_board, first_line, attrition_percent, rates, settings.base_currency)
+        "rollup": _rollup(lines, results, build_quantity, per_board, first_line, percents, rates, settings.base_currency)
         | _health_rollup(assessed, needs),
     }
 
@@ -360,7 +367,7 @@ def _rollup(
     build_quantity: int,
     per_board: Mapping[str, int],
     first_line: Mapping[str, str],
-    attrition_percent: float = 0,
+    percents: Mapping[str, float],
     rates: fx.Rates | None = None,
     base: str = "EUR",
 ) -> dict[str, Any]:
@@ -401,7 +408,7 @@ def _rollup(
         if stock is None:
             continue
         # Boards the stock covers once the spares are set aside.
-        possible = int(Decimal(stock) * 100 // (Decimal(per_board[part_id]) * (Decimal(100) + Decimal(str(attrition_percent)))))
+        possible = int(Decimal(stock) * 100 // (Decimal(per_board[part_id]) * (Decimal(100) + Decimal(str(percents[part_id])))))
         if can_build is None or possible < can_build:
             can_build, limiting = possible, key
     return {
@@ -433,18 +440,23 @@ def _rollup(
 
 
 def build_needs(
-    conn, lines: Sequence[BomLine], build_quantity: int, attrition_percent: float = 0, identities: usage.Identities | None = None
+    conn, lines: Sequence[BomLine], build_quantity: int, attrition_percent: float | None = 0, identities: usage.Identities | None = None
 ) -> dict[str, int]:
     """Units of each tracked part a build needs (spares included), by part id. Lines that resolve to no part are left out."""
 
     lines = with_library_identity(lines, library_identities(lines, identities))
     resolved = _resolve(lines, conn)
     per_board: dict[str, int] = {}
+    first_footprint: dict[str, str] = {}
     for line in lines:
         state, part_id, _how = resolved[line.key]
         if state == TRACKED and part_id:
             per_board[part_id] = per_board.get(part_id, 0) + line.quantity
-    return {part_id: needed(count, build_quantity, attrition_percent) for part_id, count in per_board.items()}
+            first_footprint.setdefault(part_id, line.footprint)
+    return {
+        part_id: needed(count, build_quantity, attrition.percent_for(first_footprint[part_id]) if attrition_percent is None else attrition_percent)
+        for part_id, count in per_board.items()
+    }
 
 
 def standing_of(conn, lines: Sequence[BomLine]) -> dict[str, dict[str, Any]]:

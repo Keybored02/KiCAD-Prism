@@ -19,9 +19,9 @@ export interface BomSupply {
   canWatch: boolean;
   buildQuantity: number;
   setBuildQuantity: (quantity: number) => void;
-  /** Spares on top of what the boards use, as a percentage. */
-  attritionPercent: number;
-  setAttritionPercent: (percent: number) => void;
+  /** Spares on top of what the boards use, as a percentage; null is by kind of part (small passives get some). */
+  attritionPercent: number | null;
+  setAttritionPercent: (percent: number | null) => void;
   /** The project the BOM is from; empty when it is not known. */
   projectId: string;
   lines: BomLineDetail[];
@@ -44,13 +44,13 @@ const EMPTY_KEYS: ReadonlySet<string> = new Set();
 export function useBomSupply(fitted: readonly SemanticComponent[], user: User | null, projectId = ""): BomSupply {
   const enabled = canOpenSupply(user?.role);
   const [buildQuantity, setBuildQuantity] = useState(1);
-  const [attritionPercent, setAttritionPercent] = useState(0);
+  const [attritionPercent, setAttritionPercent] = useState<number | null>(0);
   const allLines = useMemo(() => (enabled ? buildLines(fitted) : []), [enabled, fitted]);
   const lines = useMemo(() => allLines.slice(0, MAX_LINES), [allLines]);
   const fittedKeys = useMemo(() => (lines.length ? new Set(lines.map((line) => line.key)) : EMPTY_KEYS), [lines]);
 
   const requestKey = useMemo(
-    () => (enabled && lines.length > 0 ? `${buildQuantity}+${attritionPercent}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
+    () => (enabled && lines.length > 0 ? `${buildQuantity}+${attritionPercent ?? "auto"}#${lines.map((line) => `${line.key}x${line.quantity}`).join(";")}` : null),
     [enabled, lines, buildQuantity, attritionPercent],
   );
   const fetcher = useCallback(

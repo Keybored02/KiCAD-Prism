@@ -45,7 +45,8 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
           min={0}
           max={100}
           step={1}
-          value={supply.attritionPercent}
+          value={supply.attritionPercent ?? ""}
+          disabled={supply.attritionPercent === null}
           aria-label="Spare parts, percent"
           className="h-7 w-16"
           onChange={(event) => {
@@ -54,6 +55,15 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
           }}
         />
         %
+      </label>
+      <label className="flex items-center gap-1.5 text-muted-foreground" title="Small passives get 2% spares, other parts none">
+        <input
+          type="checkbox"
+          checked={supply.attritionPercent === null}
+          aria-label="Spares by package"
+          onChange={(event) => supply.setAttritionPercent(event.target.checked ? null : 0)}
+        />
+        by package
       </label>
       {status === "loading" ? <span className="text-muted-foreground">Reading supply data...</span> : null}
       {status === "error" ? (
