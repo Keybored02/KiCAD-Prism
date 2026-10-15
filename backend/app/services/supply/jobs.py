@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.supply import (
-    accounts, datasheets, details, fx, ledger, market, notice_files, oneoff, quota, retention, schedule_settings, tracking, worker_seen,
+    accounts, datasheets, details, fx, ledger, market, notice_files, oneoff, project_supply, quota, retention, schedule_settings, tracking, worker_seen,
 )
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, Discoverer, cutoffs
@@ -249,6 +249,16 @@ def _snapshot_market(conn) -> None:
         logging.getLogger(__name__).info("Market indices not stored", exc_info=True)
 
 
+def _snapshot_costs(conn) -> None:
+    """Store today's BOM cost of each tracked project once. Best effort."""
+
+    try:
+        with conn.transaction():
+            project_supply.snapshot_costs(conn, datetime.now(timezone.utc))
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).info("BOM costs not stored", exc_info=True)
+
+
 def _refresh_rates(conn) -> None:
     """Keep the exchange rates fresh. Best effort: with no route to the ECB, rates stay as they were."""
 
@@ -343,6 +353,7 @@ def run_supply_poll_job(context: Any) -> Any:
     with connectors.store.connection() as conn:
         _refresh_rates(conn)
         _snapshot_market(conn)
+        _snapshot_costs(conn)
         _sync_component_watches(conn)
         _sync_tracking(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))

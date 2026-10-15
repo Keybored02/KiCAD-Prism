@@ -256,6 +256,30 @@ class ReleaseCheckTests(unittest.TestCase):
         with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=SimpleNamespace(id="prj_0")):
             self.assertFalse(self.request("prj_0/supply").json["available"])
 
+    def test_a_tracked_projects_cost_is_stored_once_a_day_and_shown_on_its_page(self) -> None:
+        from app.services.supply import project_supply, usage
+
+        self.part("GOOD-1", stock=5000)
+        project = SimpleNamespace(id="prj_7")
+
+        def clear() -> None:
+            with self.store.connection() as conn:
+                for table in ("tracked_projects", "bom_cost_history", "bom_usage_projects"):
+                    conn.execute(f"DELETE FROM {table}")
+
+        clear()
+        self.addCleanup(clear)
+        with self.store.connection() as conn:
+            usage.store_project(conn, "prj_7", "Seven", "rev1", usage.lines_from_components([component("R1", "Acme", "GOOD-1")]), NOW)
+            self.assertEqual(project_supply.snapshot_costs(conn, NOW), 0, "a project nobody tracks has no history")
+            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = '[[1, \"0.5\"]]'::jsonb")
+            conn.execute("INSERT INTO tracked_projects (project_id, variants, tracked_by) VALUES ('prj_7', '{\"\"}', 'a@example.com')")
+            self.assertEqual(project_supply.snapshot_costs(conn, NOW), 1)
+            self.assertEqual(project_supply.snapshot_costs(conn, NOW), 0, "once a day")
+        with mock.patch("app.api.supply_release.get_project_for_role_or_404", return_value=project):
+            history = self.request("prj_7/supply").json["cost_history"]
+        self.assertEqual([(point["cost_per_board"], point["complete"]) for point in history], [("0.5000", True)])
+
     def test_the_compliance_draft_lists_each_part_with_what_is_known_and_what_is_missing(self) -> None:
         from app.services.supply import compliance_draft, usage
 

@@ -1194,6 +1194,26 @@ def _m042_sample_order_terms(conn) -> None:
     )
 
 
+def _m043_bom_cost_history(conn) -> None:
+    """One cost per board a day for each project and design variant that is tracked, so the cost of a BOM can be followed."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bom_cost_history (
+            project_id TEXT NOT NULL,
+            variant TEXT NOT NULL DEFAULT '',
+            day DATE NOT NULL,
+            cost_per_board NUMERIC(14, 4) NOT NULL,
+            currency TEXT NOT NULL,
+            lines INTEGER NOT NULL,
+            lines_priced INTEGER NOT NULL,
+            PRIMARY KEY (project_id, variant, day)
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1237,6 +1257,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (40, "read_requests", _m040_read_requests),
     (41, "catch_up", _m041_catch_up),
     (42, "sample_order_terms", _m042_sample_order_terms),
+    (43, "bom_cost_history", _m043_bom_cost_history),
 ]
 
 

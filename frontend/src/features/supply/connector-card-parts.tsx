@@ -31,7 +31,7 @@ export function CallBudget({ connector }: { connector: SupplyConnector }) {
 
 /** Whether the daily budget keeps up with what is watched, said before it bites. */
 export function CapacityNote({ capacity }: { capacity: SupplyCapacity | undefined }) {
-  if (!capacity || (capacity.listings === 0 && capacity.searches_pending === 0)) return null;
+  if (!capacity || (capacity.listings === 0 && capacity.searches_pending === 0 && !capacity.quotes?.of)) return null;
   const calls = capacity.calls_per_day.toLocaleString();
   const usable = capacity.usable_per_day.toLocaleString();
   return (
@@ -47,6 +47,9 @@ export function CapacityNote({ capacity }: { capacity: SupplyCapacity | undefine
             About {capacity.shortfall_pct}% of reads will run later than their tier asks. Raise the budget or watch fewer parts.
           </p>
         )
+      ) : null}
+      {capacity.quotes && capacity.quotes.of > 0 ? (
+        <p className="text-muted-foreground">Gives a price for {capacity.quotes.parts.toLocaleString()} of {capacity.quotes.of.toLocaleString()} tracked parts.</p>
       ) : null}
       {capacity.searches_pending > 0 ? (
         <p className="text-muted-foreground">

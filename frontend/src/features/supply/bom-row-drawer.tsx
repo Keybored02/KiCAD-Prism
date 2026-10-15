@@ -138,6 +138,15 @@ function Tracked({ result }: { result: SupplyBomLineResult }) {
           ) : buy.sku}
           {" "}at {formatPrice(buy.unit_price, buy.currency)}: {formatPrice(buy.extended, buy.currency)}.
           {buy.covers ? "" : " No offer holds enough stock."}
+          {buy.waste ? <span className="block text-xs text-muted-foreground">{buy.waste.toLocaleString()} more than the build needs, worth {formatPrice(buy.waste_cost ?? "0", buy.currency)}, because of the smallest order.</span> : null}
+          {buy.next_break ? (
+            <span className="block text-xs text-muted-foreground">
+              At {buy.next_break.quantity.toLocaleString()} pieces the price is {formatPrice(buy.next_break.unit_price, buy.currency)} each:{" "}
+              {Number(buy.next_break.extra) < 0
+                ? `buying that many costs ${formatPrice(String(-Number(buy.next_break.extra)), buy.currency)} less in total.`
+                : `buying that many costs ${formatPrice(buy.next_break.extra, buy.currency)} more in total.`}
+            </span>
+          ) : null}
         </p>
       ) : result.bought_with ? null : (
         <p className="text-xs text-muted-foreground">No price for this build size.</p>

@@ -210,6 +210,19 @@ class ConnectorCheckTests(unittest.TestCase):
         (row,) = self.call("GET", "/api/supply/capacity").json
         self.assertEqual((row["calls_per_day"], row["usable_per_day"]), (2, 90), "1 batch x 2 calls, once a day")
 
+    def test_capacity_says_how_many_tracked_parts_a_connector_quotes(self) -> None:
+        cid = self.connector()
+        self.watch_with_listing("PRICED", cid, "daily")
+        self.watch_with_listing("UNPRICED", cid, "daily")
+        with self.store.connection() as conn:
+            listing = conn.execute("SELECT id FROM listings WHERE sku = 'SKU-PRICED'").fetchone()["id"]
+            conn.execute(
+                "INSERT INTO offers (listing_id, fetched_at, stock, currency, price_breaks) VALUES (%s, NOW(), 5, 'EUR', '[[1, \"0.5\"]]'::jsonb)",
+                (listing,),
+            )
+        (row,) = self.call("GET", "/api/supply/capacity").json
+        self.assertEqual(row["quotes"], {"parts": 1, "of": 2})
+
     def test_capacity_reports_searches_still_to_do_and_leaves_out_free_and_disabled_connectors(self) -> None:
         cid = self.connector()
         self.connector("csv")

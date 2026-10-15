@@ -130,6 +130,8 @@ export interface SupplyCapacity {
   fits: boolean;
   /** Watched parts not yet searched for at this connector. */
   searches_pending: number;
+  /** Of the tracked parts, how many this connector gives a price for. */
+  quotes?: { parts: number; of: number };
 }
 
 export type SupplyNoticeKind = "end_of_life" | "nrnd" | "last_time_buy" | "change";
@@ -384,6 +386,11 @@ export interface SupplyBomBuy {
   provider?: string;
   sku: string;
   product_url: string;
+  /** Pieces bought beyond the need, because of the smallest order and its multiples, and their cost. */
+  waste?: number;
+  waste_cost?: string;
+  /** The next price break above the order; `extra` is what buying that many costs in total against the order (negative: cheaper). */
+  next_break?: { quantity: number; unit_price: string; extra: string } | null;
 }
 
 export interface SupplyBomLineResult {
@@ -430,6 +437,8 @@ export interface SupplyBomRollup {
   /** Before conversion, per currency the offers are quoted in; empty when nothing was converted. */
   original_costs?: Record<string, string>;
   cost_per_board: string | null;
+  /** What rounding to smallest orders and multiples buys beyond the need, in the total's currency. */
+  waste_cost?: string | null;
   can_build: number | null;
   limited_by: string | null;
   without_stock_data: number;
@@ -605,7 +614,7 @@ export interface SupplyListing {
 
 export interface SupplyPartDetail {
   jlc?: JlcClass | null;
-  part: { id: string; mpn: string; manufacturer: string };
+  part: { id: string; mpn: string; manufacturer: string; first_seen?: string | null };
   watch: SupplyWatchSummary | null;
   status: SupplyStatus;
   problem: SupplyProblem | null;
@@ -1009,6 +1018,7 @@ export interface ScheduleSettings {
 /** One part of a project's stored BOM, as the project's Supply tab lists it. */
 export interface ProjectSupplyPart {
   jlc?: JlcClass | null;
+  first_seen?: string | null;
   fetched_at?: string | null;
   key: string;
   manufacturer: string;
@@ -1046,6 +1056,8 @@ export interface ProjectSupply {
   variants: string[];
   rollup?: SupplyBomRollup;
   parts?: ProjectSupplyPart[];
+  /** The cost of one board a day, oldest first. */
+  cost_history?: Array<{ day: string; cost_per_board: string; currency: string; complete: boolean }>;
   builds: Array<{ name: string; parts: number; need_by: string | null; note: string; created_at: string }>;
   releases: ProjectSupplyRelease[];
   notes: SupplyBomComment[];

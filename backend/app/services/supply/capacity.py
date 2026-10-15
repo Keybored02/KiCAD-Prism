@@ -51,6 +51,20 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
         ).fetchall()
     }
 
+    tracked_total = int(conn.execute("SELECT COUNT(*) AS n FROM part_tiers").fetchone()["n"])
+    quoted = {
+        row["connector_id"]: int(row["n"])
+        for row in conn.execute(
+            """
+            SELECT l.connector_id, COUNT(DISTINCT l.part_id) AS n
+            FROM listings l JOIN part_tiers w ON w.part_id = l.part_id
+            JOIN offers o ON o.listing_id = l.id
+            WHERE l.match_state IN ('exact', 'manual') AND NOT o.marketplace AND o.currency <> '' AND o.price_breaks <> '[]'::jsonb
+            GROUP BY l.connector_id
+            """
+        ).fetchall()
+    }
+
     result = []
     for row in connectors:
         try:
@@ -75,5 +89,7 @@ def connector_capacity(conn) -> list[dict[str, Any]]:
             "shortfall_pct": estimate.shortfall_pct,
             "fits": estimate.fits,
             "searches_pending": unsearched.get(row["id"], 0),
+            # Of the tracked parts, how many this connector gives a price for.
+            "quotes": {"parts": quoted.get(row["id"], 0), "of": tracked_total},
         })
     return result

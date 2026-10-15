@@ -6,12 +6,14 @@ distributor. A release is judged again against today's data so the page can say 
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
-from app.services.supply import bom_comments, bom_lookup, usage
+from app.services.supply import bom_comments, bom_lookup, tracking, usage
 
 _WORST_FIRST = {"fatal": 0, "error": 1, "warning": 2, "unknown": 3, "ok": 4}
 MAX_RELEASES = 20
+COST_HISTORY_DAYS = 180
 # What changed since a release is told for parts that were fine then and are not now.
 _GOOD = ("ok", "warning", None)
 _BAD = ("error", "fatal")
@@ -24,6 +26,10 @@ def _parts(conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[st
     tiers = {
         row["part_id"]: row["tier"]
         for row in conn.execute("SELECT part_id, tier FROM part_tiers WHERE part_id = ANY(%s)", (part_ids,)).fetchall()
+    } if part_ids else {}
+    first_seen = {
+        row["id"]: row["created_at"].date().isoformat()
+        for row in conn.execute("SELECT id, created_at FROM parts WHERE id = ANY(%s)", (part_ids,)).fetchall()
     } if part_ids else {}
     waiting = {
         row["part_id"]
@@ -38,7 +44,7 @@ def _parts(conn, rows: list[dict[str, Any]], build_quantity: int, notes: dict[st
             "references": row["references"], "part_id": part_id, "state": entry["state"], "status": entry.get("status"),
             "stock": entry.get("stock"), "lifecycle": entry.get("lifecycle"), "lead_time_days": entry.get("lead_time_days"),
             "short": bool(entry.get("short")), "jlc": entry.get("jlc"), "fetched_at": entry.get("fetched_at"), "unit_price": (entry.get("buy") or {}).get("unit_price"),
-            "tier": tiers.get(part_id), "waiting": part_id in waiting, "notes": notes.get(row["key"], 0),
+            "tier": tiers.get(part_id), "first_seen": first_seen.get(part_id), "waiting": part_id in waiting, "notes": notes.get(row["key"], 0),
         })
     parts.sort(key=lambda part: (_WORST_FIRST.get(part["status"] or "unknown", 3), part["mpn"]))
     return parts, result["rollup"]
@@ -85,6 +91,45 @@ def _releases(conn, project_id: str, now_status: dict[str, str | None]) -> list[
     return releases
 
 
+def snapshot_costs(conn, now: datetime) -> int:
+    """Write today's cost per board of every tracked project and variant that has a cost. Once a day; returns rows written."""
+
+    today = now.astimezone(timezone.utc).date()
+    written = 0
+    for project in tracking.list_tracked_projects(conn):
+        for variant in project["variants"]:
+            if conn.execute(
+                "SELECT 1 FROM bom_cost_history WHERE project_id = %s AND variant = %s AND day = %s", (project["project_id"], variant, today)
+            ).fetchone():
+                continue
+            rows = usage.project_rows(conn, project["project_id"], variant)
+            if not rows:
+                continue
+            lines = [bom_lookup.BomLine(row["key"], row["manufacturer"], row["mpn"], row["quantity"], lcsc=row["lcsc"]) for row in rows]
+            rollup = bom_lookup.lookup(conn, lines, 1)["rollup"]
+            if rollup["cost_per_board"] is None or not rollup["currency"]:
+                continue
+            conn.execute(
+                "INSERT INTO bom_cost_history (project_id, variant, day, cost_per_board, currency, lines, lines_priced) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                (project["project_id"], variant, today, rollup["cost_per_board"], rollup["currency"], rollup["lines"], rollup["lines_priced"]),
+            )
+            written += 1
+    return written
+
+
+def _cost_history(conn, project_id: str, variant: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT day, cost_per_board, currency, lines, lines_priced FROM bom_cost_history WHERE project_id = %s AND variant = %s "
+        "ORDER BY day DESC LIMIT %s", (project_id, variant, COST_HISTORY_DAYS),
+    ).fetchall()
+    return [
+        {"day": row["day"].isoformat(), "cost_per_board": format(row["cost_per_board"], "f"), "currency": row["currency"],
+         "complete": row["lines_priced"] >= row["lines"]}
+        for row in reversed(rows)
+    ]
+
+
 def overview(conn, project_id: str, variant: str = "", build_quantity: int = 1) -> dict[str, Any]:
     rows = usage.project_rows(conn, project_id, variant)
     notes_by_line: dict[str, int] = {}
@@ -98,5 +143,5 @@ def overview(conn, project_id: str, variant: str = "", build_quantity: int = 1) 
     status_now = {part["part_id"]: part["status"] for part in parts if part["part_id"]}
     return {
         "available": True, "variant": variant, "variants": usage.project_variants(conn, project_id), "rollup": rollup,
-        "parts": parts, "builds": builds, "releases": _releases(conn, project_id, status_now), "notes": notes,
+        "parts": parts, "cost_history": _cost_history(conn, project_id, variant), "builds": builds, "releases": _releases(conn, project_id, status_now), "notes": notes,
     }

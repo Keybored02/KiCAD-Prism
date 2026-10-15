@@ -71,7 +71,7 @@ function PartDetail({ detail, canEdit, role, onChanged }: { detail: SupplyPartDe
           <JlcIcon jlc={detail.jlc} />
         </SheetTitle>
         <SheetDescription>
-          {detail.part.manufacturer}. {STATUS_LABEL[detail.status]}.
+          {detail.part.manufacturer}. {STATUS_LABEL[detail.status]}.{detail.part.first_seen ? ` Known to Prism since ${detail.part.first_seen}.` : ""}
         </SheetDescription>
       </SheetHeader>
 

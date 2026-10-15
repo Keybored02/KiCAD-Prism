@@ -173,7 +173,12 @@ def _best_purchase(
     covered = [entry for entry in candidates if entry[0]]
     covers, extended, unit, order, offer = min(covered or candidates, key=sort_key)
     converted = in_base(extended, offer["currency"])
+    spare = order - need
     return {
+        # Pieces bought beyond the need because of the smallest order and its multiples, and what they cost.
+        "waste": spare,
+        "waste_cost": format((unit * spare).quantize(Decimal("0.0001")).normalize(), "f") if spare > 0 else "0",
+        "next_break": _next_break(offer, order, extended),
         "in_base": format(converted.quantize(Decimal("0.0001")).normalize(), "f") if converted is not None else None,
         "quantity": order,
         "unit_price": format(unit.normalize(), "f"),
@@ -185,6 +190,20 @@ def _best_purchase(
         "sku": offer["sku"],
         "product_url": offer["product_url"],
     }
+
+
+def _next_break(offer: Mapping[str, Any], order: int, extended: Decimal) -> dict[str, Any] | None:
+    """The next price break above the order, and what buying that many would cost in total against the order. Negative
+    ``extra`` means buying more is cheaper in total."""
+
+    for quantity, price in sorted((int(q), Decimal(p)) for q, p in offer["price_breaks"]):
+        if quantity > order:
+            total = price * pricing.order_quantity(quantity, offer["moq"], offer["order_multiple"])
+            return {
+                "quantity": quantity, "unit_price": format(price.normalize(), "f"),
+                "extra": format((total - extended).quantize(Decimal("0.0001")).normalize(), "f"),
+            }
+    return None
 
 
 def _lead_time(offers: Sequence[Mapping[str, Any]]) -> int | None:
@@ -364,6 +383,17 @@ def _rollup(
     else:
         total, shown_currency = None, None
 
+    # What the rounding to smallest orders and multiples buys beyond the need, in the total's currency.
+    waste: Decimal | None = Decimal(0) if total is not None else None
+    for buy in priced:
+        if waste is None or Decimal(buy["extended"]) <= 0 or buy["waste"] <= 0:
+            continue
+        figure = Decimal(buy["in_base"] if converted else buy["extended"]) if (buy["in_base"] is not None or not converted) else None
+        if figure is None:
+            waste = None
+            break
+        waste += figure * Decimal(buy["waste_cost"]) / Decimal(buy["extended"])
+
     can_build = None
     limiting = None
     for part_id, key in first_line.items():
@@ -393,6 +423,7 @@ def _rollup(
              for code in sorted(currencies)}
             if converted else {}
         ),
+        "waste_cost": format(waste.quantize(Decimal("0.01")), "f") if waste is not None else None,
         "cost_per_board": format((total / build_quantity).quantize(Decimal("0.0001")), "f") if total is not None else None,
         "can_build": can_build,
         "limited_by": limiting,

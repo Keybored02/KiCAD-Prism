@@ -324,6 +324,20 @@ class BomLookupTests(unittest.TestCase):
         buy = self.lookup([{"key": "r", "manufacturer": "Acme", "mpn": "REELED", "quantity": 2}], build=100)["lines"]["r"]["buy"]
         self.assertEqual((buy["quantity"], buy["unit_price"], buy["extended"]), (3000, "0.05", "150"), "200 needed, a reel of 3,000 bought")
 
+    def test_rounding_to_a_reel_is_counted_as_waste_and_the_next_break_is_shown(self) -> None:
+        part_id = self.part("Acme", "WASTED")
+        self.offer(part_id, "REEL", stock=50000, moq=1, multiple=1, breaks=[[1, "0.1000"], [100, "0.0800"], [1000, "0.0500"]])
+        result = self.lookup([{"key": "w", "manufacturer": "Acme", "mpn": "WASTED", "quantity": 1}], build=150)
+        buy = result["lines"]["w"]["buy"]
+        self.assertEqual((buy["quantity"], buy["waste"], buy["waste_cost"]), (150, 0, "0"), "no minimum, nothing wasted")
+        self.assertEqual(buy["next_break"], {"quantity": 1000, "unit_price": "0.05", "extra": "38"}, "1000 at 0.05 is 50 against 150 at 0.08 = 12")
+        self.assertEqual(result["rollup"]["waste_cost"], "0.00")
+        reeled = self.part("Acme", "REELED2")
+        self.offer(reeled, "REEL2", stock=50000, moq=3000, multiple=3000, breaks=[[3000, "0.0500"]])
+        rolled = self.lookup([{"key": "r", "manufacturer": "Acme", "mpn": "REELED2", "quantity": 2}], build=100)
+        self.assertEqual((rolled["lines"]["r"]["buy"]["waste"], rolled["lines"]["r"]["buy"]["waste_cost"]), (2800, "140"))
+        self.assertEqual(rolled["rollup"]["waste_cost"], "140.00")
+
     def test_when_nothing_covers_the_cheapest_is_still_shown_and_says_so(self) -> None:
         part_id = self.part("Acme", "SCARCE")
         self.offer(part_id, "A", stock=5, price="0.40")

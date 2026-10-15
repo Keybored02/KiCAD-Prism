@@ -407,6 +407,13 @@ def history(conn, part_id: str, now: datetime) -> list[dict[str, Any]]:
     return series
 
 
+def _first_seen(conn, part_id: str) -> str | None:
+    """The day Prism first knew the part: a rough age, since parts are created when first searched for."""
+
+    row = conn.execute("SELECT created_at FROM parts WHERE id = %s", (part_id,)).fetchone()
+    return row["created_at"].date().isoformat() if row else None
+
+
 def _with_lead_gap(insight: dict[str, Any], listings: list[dict[str, Any]]) -> dict[str, Any]:
     """Add how far ahead of the soonest restock stock is expected to run out: the shortest lead time any counted listing quotes."""
 
@@ -551,7 +558,7 @@ def part_detail(conn, part_id: str, *, now: datetime | None = None, role: str | 
     price_view = prices.view(prices.daily_cheapest(conn, part_id, now, prices.CHART_DAYS), now.date())
     sheet = conn.execute("SELECT markers FROM datasheets WHERE part_id = %s ORDER BY version DESC LIMIT 1", (part_id,)).fetchone()
     return {
-        "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name},
+        "part": {"id": part.id, "mpn": part.mpn, "manufacturer": part.manufacturer_name, "first_seen": _first_seen(conn, part_id)},
         "watch": _watch_dto(watch_row),
         "tracking": _tracking_dto(watch_row),
         "packaging": _packaging_state(conn, part_id),

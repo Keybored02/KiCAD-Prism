@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { canEditSupply, canOpenSupply } from "@/lib/roles";
 import type { UserRole } from "@/types/auth";
 import type { ProjectSupply } from "@/types/supply";
+import { Sparkline } from "./sparkline";
 import { ProjectPlanButton } from "./project-plan-button";
 import { ProjectSupplyBuilds, ProjectSupplyNotes, ProjectSupplyReleases } from "./project-supply-lists";
 import { ProjectSupplyParts } from "./project-supply-parts";
@@ -27,6 +28,22 @@ function Stat({ icon: Icon, label, value, bad }: { icon: LucideIcon; label: stri
   );
 }
 
+function CostHistory({ points }: { points: NonNullable<ProjectSupply["cost_history"]> }) {
+  if (points.length < 2) return null;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const change = Number(last.cost_per_board) - Number(first.cost_per_board);
+  return (
+    <section aria-label="Cost over time" className="flex flex-wrap items-center gap-3 border p-2 text-sm">
+      <Sparkline values={points.map((point) => Number(point.cost_per_board))} label="Cost of one board over time" />
+      <span>
+        {formatPrice(last.cost_per_board, last.currency)} a board now, {change === 0 ? "unchanged" : `${change > 0 ? "up" : "down"} ${formatPrice(String(Math.abs(change)), last.currency)}`} since {first.day}.
+      </span>
+      {points.some((point) => !point.complete) ? <span className="text-xs text-muted-foreground">Some days price fewer lines than others.</span> : null}
+    </section>
+  );
+}
+
 function Stats({ supply }: { supply: ProjectSupply }) {
   const rollup = supply.rollup;
   const parts = supply.parts ?? [];
@@ -35,7 +52,7 @@ function Stats({ supply }: { supply: ProjectSupply }) {
   const reads = parts.flatMap((part) => (part.fetched_at ? [part.fetched_at] : [])).sort();
   const oldest = reads[0] ?? null;
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-9">
       <Stat icon={HeartPulse} label="Health" value={rollup.health === null ? "No data" : `${rollup.health.toFixed(1)} of 10`} bad={rollup.health_status !== "ok" && rollup.health !== null} />
       <Stat icon={Boxes} label="Parts" value={`${rollup.tracked} of ${rollup.lines} tracked`} />
       <Stat icon={AlertTriangle} label="At risk" value={String(rollup.at_risk)} bad={rollup.at_risk > 0} />
@@ -43,6 +60,7 @@ function Stats({ supply }: { supply: ProjectSupply }) {
       <Stat icon={Banknote} label="Per board" value={rollup.cost_per_board && rollup.currency ? formatPrice(rollup.cost_per_board, rollup.currency) : "No total"} />
       <Stat icon={Hourglass} label="Waiting for room" value={String(waiting)} bad={waiting > 0} />
       <Stat icon={Clock} label="Oldest read" value={oldest ? formatAgo(oldest) : "None yet"} />
+      {rollup.waste_cost && Number(rollup.waste_cost) > 0 && rollup.currency ? <Stat icon={PackageMinus} label="Rounding waste" value={formatPrice(rollup.waste_cost, rollup.currency)} /> : null}
       <Stat icon={Ban} label="End of life" value={String(parts.filter((part) => part.lifecycle && part.lifecycle !== "active" && part.lifecycle !== "unknown").length)} />
     </div>
   );
@@ -84,6 +102,7 @@ export function ProjectSupplyTab({ projectId, role }: { projectId: string; role:
       {supply.available ? (
         <>
           <Stats supply={supply} />
+          <CostHistory points={supply.cost_history ?? []} />
           <section aria-label="Parts" className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parts</h3>
             <ProjectSupplyParts parts={supply.parts ?? []} />

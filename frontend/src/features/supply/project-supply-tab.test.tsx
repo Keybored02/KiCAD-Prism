@@ -70,6 +70,20 @@ describe("the project Supply tab", () => {
     expect(within(notes).getByRole("link", { name: "FLAKY-1" })).toBeTruthy();
   });
 
+  it("follows the cost of a board over time and names what rounding wastes", async () => {
+    mocked.getProjectSupply.mockResolvedValue(supply({
+      rollup: { ...rollup, waste_cost: "3.20" },
+      cost_history: [
+        { day: "2026-09-01", cost_per_board: "12.0000", currency: "EUR", complete: true },
+        { day: "2026-10-01", cost_per_board: "13.5000", currency: "EUR", complete: true },
+      ],
+    }));
+    renderTab();
+    const history = await screen.findByRole("region", { name: "Cost over time" });
+    expect(within(history).getByText(/up .*1\.5.* since 2026-09-01/)).toBeTruthy();
+    expect(screen.getByText("Rounding waste")).toBeTruthy();
+  });
+
   it("says when the BOM has not been read, and still offers tracking", async () => {
     mocked.getProjectSupply.mockResolvedValue(supply({ available: false, parts: undefined, rollup: undefined, releases: [], notes: [] }));
     renderTab();
