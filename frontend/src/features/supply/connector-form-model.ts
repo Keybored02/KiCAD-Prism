@@ -45,7 +45,7 @@ export function reducer(state: FormState, action: FormAction): FormState {
 }
 
 /** Currency, budget and reserve checks shared by the create and edit forms. */
-export function settingsProblem(values: { currency: string; budget: string; reserve: string; retention?: string; keep?: string }): string | null {
+export function settingsProblem(values: { currency: string; budget: string; reserve: string; retention?: string; keep?: string; resetTime?: string }): string | null {
   if (values.currency && !/^[A-Za-z]{3}$/.test(values.currency)) return "Currency is a three letter code.";
   if (!/^\d+$/.test(values.budget)) return "Daily budget is a whole number.";
   if (!/^\d+$/.test(values.reserve) || Number(values.reserve) > 50) return "Reserve is 0 to 50 percent.";
@@ -55,6 +55,7 @@ export function settingsProblem(values: { currency: string; budget: string; rese
   if (values.keep && (!/^\d+$/.test(values.keep) || Number(values.keep) < 1 || Number(values.keep) > 3650)) {
     return "Keep history for 1 to 3650 days, or leave it empty.";
   }
+  if (values.resetTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(values.resetTime.trim())) return "The reset time is hours and minutes, such as 00:00.";
   return null;
 }
 
@@ -77,6 +78,9 @@ export interface EditValues {
   retention: string;
   /** Days any history is kept; empty keeps it for good. */
   keep: string;
+  /** When the provider's day begins, and in which time zone: its budget resets then. */
+  resetTime: string;
+  resetTz: string;
 }
 
 export function valuesOf(connector: SupplyConnector): EditValues {
@@ -88,6 +92,8 @@ export function valuesOf(connector: SupplyConnector): EditValues {
     reserve: String(connector.interactive_reserve_pct),
     retention: connector.retention_days === null ? "" : String(connector.retention_days),
     keep: connector.keep_days === null ? "" : String(connector.keep_days),
+    resetTime: connector.reset_time ?? "00:00",
+    resetTz: connector.reset_tz ?? "UTC",
   };
 }
 
@@ -103,5 +109,7 @@ export function changesFrom(connector: SupplyConnector, values: EditValues): Upd
   if (retention !== connector.retention_days) changes.retention_days = retention;
   const keep = values.keep.trim() === "" ? null : Number(values.keep);
   if (keep !== connector.keep_days) changes.keep_days = keep;
+  if (values.resetTime.trim() !== (connector.reset_time ?? "00:00")) changes.reset_time = values.resetTime.trim();
+  if (values.resetTz.trim() !== (connector.reset_tz ?? "UTC")) changes.reset_tz = values.resetTz.trim();
   return changes;
 }

@@ -93,8 +93,16 @@ function EditForm({ connector, storefronts = [], onClose, onSaved }: { connector
               <Input id="edit-connector-budget" inputMode="numeric" value={values.budget} onChange={(event) => update({ budget: event.target.value })} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-connector-reserve">Held for lookups (%)</Label>
+              <Label htmlFor="edit-connector-reserve">Held for people and one-off checks (%)</Label>
               <Input id="edit-connector-reserve" inputMode="numeric" value={values.reserve} onChange={(event) => update({ reserve: event.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-connector-reset">Provider's day begins at</Label>
+              <Input id="edit-connector-reset" placeholder="00:00" value={values.resetTime} onChange={(event) => update({ resetTime: event.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-connector-tz">Time zone</Label>
+              <Input id="edit-connector-tz" placeholder="UTC" value={values.resetTz} onChange={(event) => update({ resetTz: event.target.value })} />
             </div>
           </>
         ) : null}

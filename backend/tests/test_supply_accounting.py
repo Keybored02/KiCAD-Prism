@@ -304,6 +304,16 @@ class AccountingTests(unittest.TestCase):
                 self.connectors.update(cid, actor=ACTOR, **changes)
         self.assertEqual(self.connectors.update(cid, actor=ACTOR, reset_time="06:30", reset_tz="Europe/Rome")["reset_time"], "06:30")
 
+    def test_the_working_week_must_be_valid(self) -> None:
+        from app.services.supply import schedule_settings
+
+        good = schedule_settings.validate(schedule_settings.DEFAULTS)
+        self.assertEqual(good["days"], [0, 1, 2, 3, 4])
+        with self.store.connection() as conn:
+            self.assertEqual(schedule_settings.load(conn)["tz"], "UTC")
+            saved = schedule_settings.save(conn, {**good, "tz": "Europe/Rome", "days": [5, 6, 5]}, ACTOR)
+            self.assertEqual((saved["days"], schedule_settings.load(conn)["tz"]), ([5, 6], "Europe/Rome"))
+
     def test_a_rate_limit_holds_every_connector_on_the_account_and_is_counted(self) -> None:
         from app.services.supply.providers.base import RateLimited
 

@@ -97,6 +97,8 @@ export interface UpdateSupplyConnectorInput {
   retention_days?: number | null;
   keep_days?: number | null;
   storefront?: string;
+  reset_time?: string;
+  reset_tz?: string;
 }
 
 /** The outcome of one real call to a provider. A failure is a result, not an error. */
@@ -969,4 +971,14 @@ export interface CheckProgress {
   parts: number;
   done: number;
   failed: number;
+}
+
+/** The workspace's working week, and which spare work may run outside it. */
+export interface ScheduleSettings {
+  tz: string;
+  /** 0 is Monday. */
+  days: number[];
+  start: string;
+  end: string;
+  spare: { waiting: boolean; tier2_early: boolean; notices: boolean };
 }

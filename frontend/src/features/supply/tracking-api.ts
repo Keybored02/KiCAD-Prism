@@ -1,5 +1,5 @@
 import { fetchJson } from "@/lib/api";
-import type { BudgetConnector, CheckProgress, PartTracking, ProjectTrackingState, TrackingPreview } from "@/types/supply";
+import type { BudgetConnector, CheckProgress, PartTracking, ProjectTrackingState, ScheduleSettings, TrackingPreview } from "@/types/supply";
 
 const BASE = "/api/supply/tracking";
 const json = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
@@ -60,4 +60,12 @@ export function startCheck(
 
 export function getCheck(id: string, signal?: AbortSignal): Promise<CheckProgress> {
   return fetchJson(`/api/supply/checks/${encodeURIComponent(id)}`, { signal }, "Could not read the check");
+}
+
+export function getSchedule(signal?: AbortSignal): Promise<ScheduleSettings> {
+  return fetchJson("/api/supply/schedule", { signal }, "Could not load the schedule");
+}
+
+export function saveSchedule(settings: ScheduleSettings): Promise<ScheduleSettings> {
+  return fetchJson("/api/supply/schedule", put(settings), "Could not save the schedule");
 }
