@@ -1303,6 +1303,26 @@ def _m048_rate_limits(conn) -> None:
     )
 
 
+def _m049_limit_marks(conn) -> None:
+    """Readings and refusals that bracket a provider's reset (``limits.py``), and the header names a provider sends."""
+
+    conn.execute(
+        """
+        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS headers_seen JSONB NOT NULL DEFAULT '[]'::jsonb;
+        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS reset_from_provider BOOLEAN NOT NULL DEFAULT FALSE;
+        CREATE TABLE IF NOT EXISTS limit_marks (
+            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            at TIMESTAMPTZ NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('remaining', 'refused', 'ok')),
+            remaining INTEGER,
+            quota INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_limit_marks_connector ON limit_marks (connector_id, at);
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1352,6 +1372,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (46, "rohs_exemptions", _m046_rohs_exemptions),
     (47, "arrival_promises", _m047_arrival_promises),
     (48, "rate_limits", _m048_rate_limits),
+    (49, "limit_marks", _m049_limit_marks),
 ]
 
 

@@ -25,6 +25,7 @@ export type ConnectorAction =
   | "enable"
   | "disable"
   | "terms"
+  | "apply-reset"
   | "csv-upload"
   | "csv-clear"
   | "delete";
@@ -81,7 +82,7 @@ export function ConnectorCard({ connector, capacity, isAdmin, onAction }: Connec
           <dt className="text-muted-foreground">Last call</dt>
           <dd>{lastCallText(connector)}</dd>
         </div>
-        <ReportedLimits connector={connector} />
+        <ReportedLimits connector={connector} isAdmin={isAdmin} onApply={() => onAction("apply-reset", connector)} />
         {connector.paused_reason ? (
           <div className="flex gap-1.5">
             <dt className="text-muted-foreground">Paused</dt>

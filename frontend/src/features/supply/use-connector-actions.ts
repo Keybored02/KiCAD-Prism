@@ -9,12 +9,20 @@ import {
   updateSupplyConnector,
 } from "./supply-api";
 
-type QuickAction = Extract<ConnectorAction, "resume" | "enable" | "disable" | "terms">;
+type QuickAction = Extract<ConnectorAction, "resume" | "enable" | "disable" | "terms" | "apply-reset">;
 
 const QUICK: Record<QuickAction, { run: (connector: SupplyConnector) => Promise<SupplyConnector>; done: string }> = {
   resume: { run: (connector) => resumeSupplyConnector(connector.id), done: "Connector resumed" },
   enable: { run: (connector) => updateSupplyConnector(connector.id, { enabled: true }), done: "Connector enabled" },
   disable: { run: (connector) => updateSupplyConnector(connector.id, { enabled: false }), done: "Connector disabled" },
+  "apply-reset": {
+    run: (connector) => {
+      const guess = connector.reset_suggestion;
+      if (!guess) return Promise.reject(new Error("There is no reset time to apply"));
+      return updateSupplyConnector(connector.id, { reset_time: guess.suggested, reset_tz: guess.tz, reset_from_provider: true });
+    },
+    done: "Reset time set from the provider's readings",
+  },
   terms: { run: (connector) => confirmSupplyTermsReview(connector.id), done: "Terms review recorded" },
 };
 

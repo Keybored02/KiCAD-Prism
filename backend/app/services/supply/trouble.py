@@ -17,7 +17,7 @@ from __future__ import annotations
 import random
 from datetime import datetime, timedelta
 
-from app.services.supply import accounts, ledger, pacing
+from app.services.supply import accounts, ledger, limits, pacing
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.providers.base import AuthError, Blocked, ProviderError, RateLimited
 from app.services.supply.store import SupplyStore
@@ -73,6 +73,8 @@ def react(
         wait, reason = error_cooldown(int(row["error_streak"]), rng()), ERROR
     if slow:
         ledger.note_refusal(store, connector_id, now=now)
+        if isinstance(error, RateLimited):
+            limits.note_refused(store, connector_id, now)
         pacing.slow_down(accounts.pace_key(row["account_key"], row["provider"]))
     with store.connection() as conn:
         conn.execute("UPDATE connectors SET cooldown_until = %s WHERE id = ANY(%s)", (now + wait, list(account.members)))

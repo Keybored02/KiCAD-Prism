@@ -59,7 +59,7 @@ class ConnectorCheckTests(unittest.TestCase):
         class Scripted(FakeProvider):
             def lookup_mpn(self, mpn, manufacturer=None):
                 cls.behaviour["calls"] += 1
-                self._client = types.SimpleNamespace(last_limits=cls.behaviour.get("limits", {}))
+                self._client = types.SimpleNamespace(last_limits=cls.behaviour.get("limits", {}), last_header_names=["content-type", "x-ratelimit-limit"])
                 if cls.behaviour["error"] is not None:
                     raise cls.behaviour["error"]
                 return []

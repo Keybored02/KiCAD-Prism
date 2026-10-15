@@ -78,6 +78,17 @@ describe("connectors list", () => {
     expect(within(screen.getByRole("article", { name: "Untested" })).queryByText("Limits it reports")).toBeNull();
   });
 
+  it("offers the reset time the readings agree on, and applies it on request", async () => {
+    const guess = { from: "22:20", to: "22:55", suggested: "22:55", tz: "UTC", windows: 2 };
+    load([connectorFixture({ reset_suggestion: guess, rate_limits: { "x-ratelimit-remaining": "9" }, rate_limits_at: "2026-10-15T10:00:00Z" })]);
+    mocked.updateSupplyConnector.mockResolvedValue(connectorFixture({ reset_from_provider: true, reset_time: "22:55", reset_tz: "UTC" }));
+    render(<SupplyConnectorsView user={admin} />);
+    const card = await screen.findByRole("article", { name: "Demo EU" });
+    expect(within(card).getByText(/between 22:20 and 22:55 UTC/)).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Use 22:55" }));
+    await waitFor(() => expect(mocked.updateSupplyConnector).toHaveBeenCalledWith("c1", { reset_time: "22:55", reset_tz: "UTC", reset_from_provider: true }));
+  });
+
   it("lets readers look but not change", async () => {
     load();
     render(<SupplyConnectorsView user={designer} />);

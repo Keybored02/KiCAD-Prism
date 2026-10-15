@@ -22,7 +22,7 @@ import { useSupplyCapacity } from "./use-supply-capacity";
 import { useSupplyConnectors } from "./use-supply-connectors";
 import { WorkerStatus } from "./worker-status";
 
-type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "terms" | "test">; id: string };
+type Dialog = { kind: "create" } | { kind: Exclude<ConnectorAction, "resume" | "enable" | "disable" | "terms" | "apply-reset" | "test">; id: string };
 
 /** Supply > Connectors: distributor accounts, budgets and state. Admins change them. */
 export function SupplyConnectorsView({ user }: { user: User | null }) {

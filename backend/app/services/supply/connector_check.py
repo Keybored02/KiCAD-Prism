@@ -76,9 +76,9 @@ def check_connector(
     else:
         service.record_result(connector_id)
         result = _result(True, "ok", "The provider accepted the credentials and answered.", started)
-    limits = getattr(getattr(provider, "_client", None), "last_limits", None)
-    if limits is not None:
-        service.record_limits(connector_id, limits)
+    client = getattr(provider, "_client", None)
+    if client is not None and hasattr(client, "last_limits"):
+        service.record_headers(connector_id, client.last_limits, client.last_header_names)
     with service.store.connection() as conn:
         write_audit(conn, actor, "connector.test", connector_id, {"ok": result["ok"], "code": result["code"]})
     return result

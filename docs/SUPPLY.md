@@ -41,7 +41,7 @@ Supply > Connectors. One connector per provider and storefront.
 | CSV | A file you upload | For air-gapped installs. The file replaces the previous one. |
 
 Credentials are encrypted and never shown again. `TRACKER_CREDENTIAL_ROOT_KEY` must be set (see
-[Configuration](CONFIGURATION.md)). Use **Test connection** after saving: it makes one real call, and the card then shows any rate-limit headers the provider sent with its answer (or that it sent none). The card shows how
+[Configuration](CONFIGURATION.md)). Use **Test connection** after saving: it makes one real call, and the card then shows any rate-limit headers the provider sent with its answer (or that it sent none, with the header names it did send). Of the providers tried, only DigiKey reports its limit and what is left. From those readings, or from a refusal that lasted hours, Prism works out when the provider's day resets; once two days agree the card says so and an administrator can use that time, after which Prism takes DigiKey's own count as the truth for the day. The card shows how
 many calls the watchlist needs against the daily budget, and warns when reads will run later than they should.
 Each connector has the time its day resets and a time zone (default 00:00 UTC); set them to the provider's. A day is 23 or 25 hours long where the clocks change, and pacing follows that.
 Record that you reviewed the provider's terms; some limit how long their data may be kept.

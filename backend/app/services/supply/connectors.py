@@ -11,12 +11,12 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from psycopg.errors import UniqueViolation
 
-from app.services.supply import accounts, admission, quota
+from app.services.supply import accounts, admission, limits, quota
 from app.services.supply import credentials as sealed
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.csv_offers import CsvImportInfo, CsvOfferStore
@@ -26,7 +26,7 @@ from app.services.supply.store import SupplyStore, supply_store
 
 _UPDATABLE = frozenset({
     "display_name", "currency", "enabled", "daily_budget", "interactive_reserve_pct", "retention_days", "keep_days",
-    "storefront", "reset_time", "reset_tz",
+    "storefront", "reset_time", "reset_tz", "reset_from_provider",
 })
 _MAX_REASON = 200
 
@@ -158,7 +158,8 @@ class ConnectorService:
             rows = conn.execute("SELECT * FROM connectors ORDER BY created_at, id").fetchall()
             usage = self._usage_today(conn)
             imports = self._offers.import_infos(conn)
-        return [self._dto(row, usage.get(row["id"]), imports.get(row["id"])) for row in rows]
+            guesses = limits.suggestions(conn, self._clock())
+        return [self._dto(row, usage.get(row["id"]), imports.get(row["id"]), guesses.get(row["id"])) for row in rows]
 
     def get(self, connector_id: str) -> dict[str, Any]:
         with self._store.connection() as conn:
@@ -237,6 +238,13 @@ class ConnectorService:
             fields["daily_budget"] = _clean_budget(changes["daily_budget"])
         if "interactive_reserve_pct" in changes:
             fields["interactive_reserve_pct"] = _clean_reserve(changes["interactive_reserve_pct"])
+        if "reset_from_provider" in changes:
+            if not isinstance(changes["reset_from_provider"], bool):
+                raise ConnectorError("invalid_field", "reset_from_provider must be true or false.")
+            fields["reset_from_provider"] = changes["reset_from_provider"]
+        elif changes.keys() & {"reset_time", "reset_tz"}:
+            # A reset typed by hand is not the provider's word.
+            fields["reset_from_provider"] = False
         if "reset_time" in changes:
             fields["reset_time"] = _clean_reset_time(changes["reset_time"])
         if "reset_tz" in changes:
@@ -345,6 +353,7 @@ class ConnectorService:
                     "UPDATE connectors SET last_ok_at = NOW(), last_error_code = '', error_streak = 0 WHERE id = %s",
                     (connector_id,),
                 )
+                limits.note_ok(conn, connector_id, datetime.now(timezone.utc))
             else:
                 conn.execute(
                     "UPDATE connectors SET last_error_code = %s, last_error_at = NOW(), error_streak = error_streak + 1 "
@@ -352,13 +361,13 @@ class ConnectorService:
                     (error_code[:64], connector_id),
                 )
 
-    def record_limits(self, connector_id: str, limits: Mapping[str, str]) -> None:
-        """Keep what the provider's answer headers said about its limits, for the connector card."""
+    def record_headers(self, connector_id: str, found: Mapping[str, str], names: Sequence[str]) -> None:
+        """At Test connection: what the provider's answer said about its limits, and which headers it sent at all."""
 
         with self._store.connection() as conn:
             conn.execute(
-                "UPDATE connectors SET rate_limits = %s::jsonb, rate_limits_at = NOW() WHERE id = %s",
-                (json.dumps(dict(limits)), connector_id),
+                "UPDATE connectors SET rate_limits = %s::jsonb, rate_limits_at = NOW(), headers_seen = %s::jsonb WHERE id = %s",
+                (json.dumps(dict(found)), json.dumps(list(names)), connector_id),
             )
 
     def keyring(self):
@@ -404,7 +413,7 @@ class ConnectorService:
         creds: dict[str, str] = {}
         if row["credential_envelope"]:
             creds = sealed.unseal(self._keyring(), connector_id, row["credential_envelope"])
-        return spec.factory(ProviderConfig(
+        provider = spec.factory(ProviderConfig(
             connector_id=connector_id,
             storefront=row["storefront"],
             currency=row["currency"],
@@ -412,6 +421,10 @@ class ConnectorService:
             account=accounts.pace_key(row["account_key"], row["provider"]),
             credentials=creds,
         ))
+        client = getattr(provider, "_client", None)
+        if client is not None and hasattr(client, "on_limits"):
+            client.on_limits = lambda found: limits.note(self._store, connector_id, found, datetime.now(timezone.utc))
+        return provider
 
     def _set_paused(self, connector_id: str, actor: str, reason: str, action: str) -> dict[str, Any]:
         with self._store.connection() as conn:
@@ -432,7 +445,8 @@ class ConnectorService:
             raise ConnectorError("unknown_provider", f"Unknown provider: {provider}.") from None
 
     def _dto_from(self, conn, row: Mapping[str, Any]) -> dict[str, Any]:
-        return self._dto(row, self._usage_today(conn).get(row["id"]), self._offers.import_info(conn, row["id"]))
+        guess = limits.suggestions(conn, self._clock()).get(row["id"])
+        return self._dto(row, self._usage_today(conn).get(row["id"]), self._offers.import_info(conn, row["id"]), guess)
 
     def _usage_today(self, conn) -> dict[str, dict[str, Any]]:
         """Calls spent today per connector. A connector's figure is its account's, on the provider's day."""
@@ -459,6 +473,7 @@ class ConnectorService:
         row: Mapping[str, Any],
         usage: Mapping[str, Any] | None = None,
         csv_import: CsvImportInfo | None = None,
+        reset_guess: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         try:
             spec: ProviderSpec | None = registry.get_spec(row["provider"])
@@ -492,6 +507,9 @@ class ConnectorService:
             "terms_reviewed_by": row["terms_reviewed_by"],
             "terms_reviewed_at": _iso(row["terms_reviewed_at"]),
             "rate_limits": dict(row["rate_limits"] or {}),
+            "headers_seen": list(row["headers_seen"] or []),
+            "reset_from_provider": bool(row["reset_from_provider"]),
+            "reset_suggestion": dict(reset_guess) if reset_guess else None,
             "rate_limits_at": _iso(row["rate_limits_at"]),
             "last_ok_at": _iso(row["last_ok_at"]),
             "last_error_code": row["last_error_code"],

@@ -1,5 +1,6 @@
 import { FileSpreadsheet } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import type { SupplyCapacity, SupplyConnector } from "@/types/supply";
 import { budgetUsedPercent, formatWhen } from "./connector-status";
 
@@ -60,19 +61,36 @@ export function CapacityNote({ capacity }: { capacity: SupplyCapacity | undefine
   );
 }
 
-/** What the provider says about its own limits, as it sent it. Empty when it sends none. */
-export function ReportedLimits({ connector }: { connector: SupplyConnector }) {
+/** What the provider says about its own limits, as it sent it, and when its day seems to reset. */
+export function ReportedLimits({ connector, isAdmin, onApply }: { connector: SupplyConnector; isAdmin: boolean; onApply: () => void }) {
   const entries = Object.entries(connector.rate_limits ?? {});
-  if (!connector.rate_limits_at) return null;
+  const guess = connector.reset_suggestion;
+  if (!connector.rate_limits_at && !guess) return null;
   return (
-    <div className="flex flex-wrap gap-1.5">
-      <dt className="text-muted-foreground">Limits it reports</dt>
-      {entries.length > 0 ? (
-        entries.map(([name, value]) => <dd key={name} className="rounded border px-1.5 py-0.5">{name}: {value}</dd>)
-      ) : (
-        <dd>None. Checked {formatWhen(connector.rate_limits_at)}</dd>
-      )}
-    </div>
+    <>
+      {connector.rate_limits_at ? (
+        <div className="flex flex-wrap gap-1.5">
+          <dt className="text-muted-foreground">Limits it reports</dt>
+          {entries.length > 0 ? (
+            entries.map(([name, value]) => <dd key={name} className="rounded border px-1.5 py-0.5">{name}: {value}</dd>)
+          ) : (
+            <dd>None. Checked {formatWhen(connector.rate_limits_at)}{connector.headers_seen?.length ? `. Headers it sent: ${connector.headers_seen.join(", ")}` : ""}</dd>
+          )}
+        </div>
+      ) : null}
+      {connector.reset_from_provider ? (
+        <div className="flex gap-1.5">
+          <dt className="text-muted-foreground">Day resets</dt>
+          <dd>{connector.reset_time} {connector.reset_tz}, from the provider's readings</dd>
+        </div>
+      ) : guess ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <dt className="text-muted-foreground">Day seems to reset</dt>
+          <dd>between {guess.from} and {guess.to} {guess.tz} ({guess.windows} readings)</dd>
+          {isAdmin ? <Button variant="outline" size="xs" onClick={onApply}>Use {guess.suggested}</Button> : null}
+        </div>
+      ) : null}
+    </>
   );
 }
 
