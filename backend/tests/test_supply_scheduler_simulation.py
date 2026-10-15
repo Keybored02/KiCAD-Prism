@@ -158,5 +158,54 @@ class SchedulerSimulationTests(unittest.TestCase):
             self.assertLessEqual(row["interactive_spent"], BUDGET - committed_share, "the pool was not overspent")
 
 
+    def test_spare_budget_reads_a_tier_two_part_early_at_most_once_a_day(self) -> None:
+        # Few tier-2 parts and a large budget: in the last hours before the reset everything left is spare, and the
+        # scheduler runs every few minutes. Each part must still be read early only once, not on every run.
+        now = {"t": datetime(2026, 3, 4, 20, 0, tzinfo=timezone.utc)}
+
+        def clock() -> datetime:
+            return now["t"]
+
+        reads: dict[str, int] = defaultdict(int)
+        FakeProvider = self.FakeProvider
+
+        class Counting(FakeProvider):
+            def get_offers(self, skus):
+                for sku in skus:
+                    reads[sku] += 1
+                return super().get_offers(skus)
+
+        with self.store.connection() as conn:
+            for table in ("listings", "watches", "parts", "manufacturer_aliases", "manufacturers", "connectors"):
+                conn.execute(f"DELETE FROM {table}")
+        connector = self.connectors.create(
+            actor=ACTOR, provider="sim_batch", currency="EUR", interactive_reserve_pct=RESERVE_PCT, daily_budget=1000,
+        )["id"]
+        with self.store.connection() as conn:
+            for index in range(5):
+                mpn = f"EARLY-{index}"
+                record, _created = self.watches.add_watch(conn, "Acme", mpn, ACTOR, tier=2, rate="weekly")
+                conn.execute(
+                    "INSERT INTO listings (id, connector_id, sku, part_id, raw_mpn, raw_manufacturer, match_state) "
+                    "VALUES (%s, %s, %s, %s, %s, 'Acme', 'exact')", (f"e{index}", connector, f"FAKE-{mpn}-CT", record.part_id, mpn))
+                conn.execute(
+                    "INSERT INTO discovery_runs (part_id, connector_id, last_run_at, found) VALUES (%s, %s, %s, 1)",
+                    (record.part_id, connector, now["t"]))
+            self.admission.sync(conn, now["t"])
+
+        def provider_for(connector_id: str):
+            return Counting(self.ProviderConfig(connector_id=connector_id, currency="EUR"), clock=clock)
+
+        poller = self.poller_module.Poller(self.connectors, store=self.store, provider_for=provider_for, clock=clock)
+        discoverer = self.Discoverer(self.connectors, store=self.store, provider_for=provider_for, clock=clock)
+        for _run in range(12 * 6):  # every 5 minutes, 20:00 to 02:00, across the reset
+            summary = poller.poll_connector(connector)
+            if summary.stopped in (None, "nothing_due"):
+                self.jobs._spend_spare(self.connectors, connector, poller=poller, discoverer=discoverer)
+            now["t"] += timedelta(minutes=5)
+        self.assertEqual(len(reads), 5)
+        self.assertTrue(all(count <= 2 for count in reads.values()), f"read again and again: {dict(reads)}")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -31,6 +31,8 @@ from app.services.supply.store import SupplyStore, supply_store
 from app.services.supply.vocabulary import Lifecycle
 
 MAX_BATCHES_PER_RUN = 20
+# A tier-2 listing read early from spare budget is not read early again for this long.
+EARLY_GAP = timedelta(days=1)
 # For a provider that reads a part's listings together, how many due listings a run starts from per batch (a part
 # usually has two or three packagings).
 GROUP_LISTINGS = 3
@@ -129,14 +131,18 @@ def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str
     """Listings to read from spare budget.
 
     ``waiting``: counted listings of parts that wait for room here, not read since their rate asks.
-    ``tier2_early``: tier-2 listings admitted here that are not yet due, the soonest due first.
+    ``tier2_early``: tier-2 listings admitted here that are not yet due, the soonest due first, and not read in the last
+    ``EARLY_GAP``: early reads make a tier-2 part fresher, never read more often than a tier-1 one.
     """
 
     if kind == "waiting":
         where = "a.state = 'waiting' AND (ps.listing_id IS NULL OR ps.next_poll_at <= %(now)s)"
         order = "COALESCE(ps.next_poll_at, '-infinity'::timestamptz), l.sku"
     elif kind == "tier2_early":
-        where = "a.state = 'admitted' AND pt.tier = 2 AND ps.listing_id IS NOT NULL AND ps.next_poll_at > %(now)s"
+        where = (
+            "a.state = 'admitted' AND pt.tier = 2 AND ps.listing_id IS NOT NULL AND ps.next_poll_at > %(now)s"
+            " AND (ps.last_polled_at IS NULL OR ps.last_polled_at <= %(early)s)"
+        )
         order = "ps.next_poll_at, l.sku"
     else:
         raise ValueError(f"unknown spare work: {kind}")
@@ -154,7 +160,7 @@ def spare_listings(conn, connector_id: str, now: datetime, limit: int, kind: str
         ORDER BY {order}
         LIMIT %(limit)s
         """,
-        {"connector": connector_id, "now": now, "limit": limit},
+        {"connector": connector_id, "now": now, "limit": limit, "early": now - EARLY_GAP},
     ).fetchall()
     return [
         DueListing(r["id"], r["sku"], r["part_id"], int(r["error_streak"]), int(r["missing_streak"]), r["last_change_at"], int(r["tier"]))
