@@ -2,7 +2,9 @@
 
 A followed part has no listings until a distributor has been asked about it. A part is searched at a connector once it
 is admitted there (``admission.py``), the first time from the pool the budget keeps for one-off work (a person's
-reads), and again every month at tier 1 and every quarter at tier 2, found or not, from the committed share. A search
+reads), and again from the committed share: where it was found, every month at tier 1 and every quarter at tier 2;
+where nothing was found, every two weeks at tier 1 and every month at tier 2, so a distributor that starts stocking a part
+is noticed. A search
 costs a call like any other, so it spends the budget and stops when the budget does. A provider that can look up
 several numbers in one call (``search_batch``) is asked for a group of parts at once. Parts a distributor does not
 carry are recorded as searched, so they are not searched on every scan.
@@ -22,8 +24,9 @@ from app.services.supply.providers import registry
 from app.services.supply.providers.base import CAP_SEARCH, ProviderError, SupplyProvider
 from app.services.supply.store import SupplyStore, supply_store
 
-# How long after a search a part is searched again, by tracking tier.
+# How long after a search a part is searched again, by tracking tier: where it was found, and where nothing was.
 RESEARCH_AFTER = {1: timedelta(days=30), 2: timedelta(days=90)}
+RESEARCH_MISSING_AFTER = {1: timedelta(days=14), 2: timedelta(days=30)}
 MAX_PER_RUN = 10
 
 STOPPED_INACTIVE = "inactive"
@@ -45,14 +48,17 @@ class DiscoverySummary:
 # admission (``%(free)s`` lists those providers). Aliases: c connectors, pt part_tiers, a admissions, d discovery_runs.
 # Shared with the job scheduler.
 DUE_SEARCH = """
-    (a.state = 'admitted' OR c.provider = ANY(%(free)s)) AND (d.part_id IS NULL OR d.last_run_at <= CASE pt.tier
-        WHEN 1 THEN %(tier1)s::timestamptz ELSE %(tier2)s::timestamptz END)
+    (a.state = 'admitted' OR c.provider = ANY(%(free)s)) AND (d.part_id IS NULL OR d.last_run_at <= CASE
+        WHEN d.found = 0 AND pt.tier = 1 THEN %(missing1)s::timestamptz
+        WHEN d.found = 0 THEN %(missing2)s::timestamptz
+        WHEN pt.tier = 1 THEN %(tier1)s::timestamptz ELSE %(tier2)s::timestamptz END)
 """
 
 
 def cutoffs(now: datetime) -> dict[str, Any]:
     return {
         "tier1": now - RESEARCH_AFTER[1], "tier2": now - RESEARCH_AFTER[2],
+        "missing1": now - RESEARCH_MISSING_AFTER[1], "missing2": now - RESEARCH_MISSING_AFTER[2],
         "free": [spec.key for spec in registry.list_specs(include_dev=True) if not spec.metered],
         "needs_terms": [spec.key for spec in registry.list_specs(include_dev=True) if spec.needs_terms_review],
     }

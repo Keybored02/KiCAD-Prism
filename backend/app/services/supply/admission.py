@@ -71,16 +71,17 @@ def _accounts(conn) -> tuple[list[_Account], dict[str, tuple[Any, ProviderSpec]]
     return accounts, connectors
 
 
-def _eligible(spec: ProviderSpec, connector_id: str, reasons: list[dict], restrictions: dict[str, list[str] | None]) -> bool:
-    """Whether a part may be read at a connector: the project's distributors for a project reason, anywhere else for others.
+def _eligible(spec: ProviderSpec, connector_id: str, reasons: list[dict], restrictions: dict[str, tuple[set[str], set[str]]]) -> bool:
+    """Whether a part may be read at a connector: for a project reason, every regular distributor the project does not
+    leave out (so one added later is used too); for other reasons, every regular distributor.
 
     A distributor that is assembly-only is read only for a project that names it.
     """
 
     for reason in reasons:
         if reason["kind"] == "project":
-            chosen = restrictions.get(reason["ref"])
-            if (connector_id in chosen) if chosen is not None else not spec.assembly_only:
+            excluded, built_at = restrictions.get(reason["ref"], (set(), set()))
+            if (connector_id in built_at) if spec.assembly_only else connector_id not in excluded:
                 return True
         elif not spec.assembly_only:
             return True
@@ -93,8 +94,8 @@ def _inputs(conn) -> dict[str, Any]:
         for row in conn.execute("SELECT part_id, tier, rate, reasons FROM part_tiers").fetchall()
     }
     restrictions = {
-        row["project_id"]: row["connector_ids"]
-        for row in conn.execute("SELECT project_id, connector_ids FROM tracked_projects").fetchall()
+        row["project_id"]: (set(row["excluded_ids"] or []), set(row["assembly_ids"] or []))
+        for row in conn.execute("SELECT project_id, excluded_ids, assembly_ids FROM tracked_projects").fetchall()
     }
     listed: dict[tuple[str, str], int] = {
         (row["part_id"], row["connector_id"]): int(row["n"])

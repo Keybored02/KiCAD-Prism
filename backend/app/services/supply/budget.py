@@ -21,6 +21,8 @@ from app.services.supply.providers.base import CAP_PCN, CAP_SUBSTANCES, Provider
 NOTICE_EVERY_DAYS = 7
 SUBSTANCE_EVERY_DAYS = 30
 SEARCH_EVERY_DAYS = {1: 30, 2: 90}
+# A provider that did not carry the part is asked again sooner (``discoverer.RESEARCH_MISSING_AFTER``).
+SEARCH_MISSING_EVERY_DAYS = {1: 14, 2: 30}
 RATE_DAYS = {"daily": 1, "weekly": 7, "monthly": 30}
 # The most of a connector's day that tracking may commit; the rest is the pool for people's reads and one-off checks.
 MAX_COMMITTED_PCT = 90
@@ -45,10 +47,12 @@ def read_cost(spec: ProviderSpec, rate: str, listings: float) -> float:
     return reads_a_day * listings / spec.max_batch * spec.calls_per_offers_batch
 
 
-def search_cost(spec: ProviderSpec, tier: int) -> float:
-    """Calls a day for the search that finds a part's listings, made again every month (tier 1) or quarter (tier 2)."""
+def search_cost(spec: ProviderSpec, tier: int, *, carried: bool = True) -> float:
+    """Calls a day for the search that finds a part's listings, made again every month (tier 1) or quarter (tier 2), or
+    every two weeks or month where the provider did not carry it."""
 
-    return 1 / SEARCH_EVERY_DAYS[tier] / max(spec.search_batch, 1)
+    days = SEARCH_EVERY_DAYS[tier] if carried else SEARCH_MISSING_EVERY_DAYS[tier]
+    return 1 / days / max(spec.search_batch, 1)
 
 
 def extra_cost(spec: ProviderSpec, tier: int) -> float:
@@ -69,7 +73,7 @@ def cost(spec: ProviderSpec, tier: int, rate: str, listings: float) -> float:
         return 0.0
     if listings <= 0:
         # A provider that does not carry the part is still searched now and then, and nothing more.
-        return search_cost(spec, tier)
+        return search_cost(spec, tier, carried=False)
     return read_cost(spec, rate, listings) + extra_cost(spec, tier)
 
 

@@ -62,7 +62,7 @@ tracked project, someone's choice, a watched component or its approved alternate
   distributors you buy from. A distributor that only assembles (JLCPCB) appears as "Built at ..." and is read only when
   you tick it. Before anything is applied you see, per distributor, the calls a day it adds, how many parts will be read
   and how many will wait. **Track where there is room** reads what fits; the rest waits for room and is read from spare
-  budget. If nothing fits anywhere it is refused.
+  budget. If nothing fits anywhere it is refused. A distributor added later is used for the project too, unless you unticked it; an assembly-only one only when ticked.
 - **Set a part's tier:** the **Tracking** control on the part sheet shows what a choice would cost, then applies it.
 - **Call budget:** each connector's day is split into a committed share (what tracking may use, at most 90%) and a pool
   for people's reads, first searches and one-off checks. Connectors on the same credentials share one budget. The
@@ -122,8 +122,9 @@ A part is a manufacturer and a part number. Watched parts are read regularly; un
 
 Calls are saved where the distributors allow it. TME reads 50 parts, Mouser 10 and Farnell 10 per call (Farnell searches by part number still go one at a time). DigiKey has no batch, but
 one answer holds every packaging of a part, so a part with three packagings costs one call, not three. Searching for
-new parts also goes 50 (TME) or 10 (Mouser) at a time. A part a distributor carries is searched there again only
-after a month (new packagings are rare); one it does not carry, after a week.
+new parts also goes 50 (TME) or 10 (Mouser) at a time. A part a distributor carries is searched there again after a
+month at tier 1 and three months at tier 2 (new packagings are rare); one it does not carry, after two weeks at tier 1 and a
+month at tier 2, so a distributor that starts stocking it is noticed. A distributor added later searches every tracked part.
 
 How often a part is read: hot every 1.5 hours (pinned, out of stock, at its threshold, or stock under 1.5 times what
 is needed), warm every 6 hours, normal daily, cold weekly. When the budget is short, hot goes first and nothing waits

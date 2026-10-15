@@ -144,13 +144,22 @@ class SupplyJobTests(unittest.TestCase):
         self.clock.advance(days=23)
         self.assertEqual(self.discoverer_().run(cid).searched, 1)
 
-    def test_a_part_not_found_is_searched_again_on_the_same_cadence_as_one_found(self) -> None:
+    def test_a_part_not_found_is_searched_again_after_two_weeks(self) -> None:
         cid = self.connector()
         self.watch("NONE-1")
         self.discoverer_().run(cid)
         self.clock.advance(days=8)
-        self.assertEqual(self.discoverer_().run(cid).searched, 0, "tier 1 searches again every month, found or not")
-        self.clock.advance(days=23)
+        self.assertEqual(self.discoverer_().run(cid).searched, 0, "not within the week")
+        self.clock.advance(days=7)
+        self.assertEqual(self.discoverer_().run(cid).searched, 1, "a distributor that starts stocking it is noticed")
+
+    def test_a_tier_two_part_not_found_is_searched_again_after_a_month(self) -> None:
+        cid = self.connector()
+        self.watch("NONE-2", tier=2, rate="weekly")
+        self.discoverer_().run(cid)
+        self.clock.advance(days=20)
+        self.assertEqual(self.discoverer_().run(cid).searched, 0)
+        self.clock.advance(days=11)
         self.assertEqual(self.discoverer_().run(cid).searched, 1)
 
     def test_a_tier_two_part_is_searched_again_every_quarter(self) -> None:

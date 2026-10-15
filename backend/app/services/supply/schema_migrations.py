@@ -1329,6 +1329,45 @@ def _m050_drop_headers_seen(conn) -> None:
     conn.execute("ALTER TABLE connectors DROP COLUMN IF EXISTS headers_seen;", prepare=False)
 
 
+def _m051_project_opt_outs(conn) -> None:
+    """A tracked project names the distributors it does not buy from, and the assembly-only ones it is built at.
+
+    It used to name the ones it buys from, so a distributor added later was never used for it. A stored list becomes:
+    every regular connector not in it is left out, and the assembly-only ones in it are kept.
+    """
+
+    from app.services.supply.providers import registry
+
+    conn.execute(
+        """
+        ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS excluded_ids TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE tracked_projects ADD COLUMN IF NOT EXISTS assembly_ids TEXT[] NOT NULL DEFAULT '{}';
+        """,
+        prepare=False,
+    )
+    has_old = conn.execute(
+        "SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'tracked_projects' "
+        "AND column_name = 'connector_ids'"
+    ).fetchone()
+    if not has_old:
+        return
+    assembly = set()
+    regular = set()
+    for row in conn.execute("SELECT id, provider FROM connectors").fetchall():
+        try:
+            only = registry.get_spec(row["provider"]).assembly_only
+        except registry.UnknownProvider:
+            only = False
+        (assembly if only else regular).add(row["id"])
+    for row in conn.execute("SELECT project_id, connector_ids FROM tracked_projects WHERE connector_ids IS NOT NULL").fetchall():
+        chosen = set(row["connector_ids"])
+        conn.execute(
+            "UPDATE tracked_projects SET excluded_ids = %s, assembly_ids = %s WHERE project_id = %s",
+            (sorted(regular - chosen), sorted(chosen & assembly), row["project_id"]),
+        )
+    conn.execute("ALTER TABLE tracked_projects DROP COLUMN connector_ids", prepare=False)
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1380,6 +1419,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (48, "rate_limits", _m048_rate_limits),
     (49, "limit_marks", _m049_limit_marks),
     (50, "drop_headers_seen", _m050_drop_headers_seen),
+    (51, "project_opt_outs", _m051_project_opt_outs),
 ]
 
 

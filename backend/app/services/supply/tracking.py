@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
 
 from app.services.supply import admission, parts, usage
+from app.services.supply.providers import registry
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.identity import alias_key
 
@@ -48,19 +49,44 @@ def check_tier(tier: Any, rate: Any) -> tuple[int, str]:
 # --- projects ---------------------------------------------------------------
 
 
+_PROJECT_COLUMNS = "project_id, variants, excluded_ids, assembly_ids, tracked_by, tracked_at"
+
+
+def _kinds(conn) -> tuple[set[str], set[str]]:
+    """Connector ids that are regular distributors, and those that are assembly-only."""
+
+    regular, assembly = set(), set()
+    for row in conn.execute("SELECT id, provider FROM connectors").fetchall():
+        try:
+            only = registry.get_spec(row["provider"]).assembly_only
+        except registry.UnknownProvider:
+            only = False
+        (assembly if only else regular).add(row["id"])
+    return regular, assembly
+
+
+def _with_choice(conn, row: Any) -> dict[str, Any]:
+    """A stored project with ``connector_ids`` as the dialog shows it: None for every regular distributor, otherwise the list
+    of today's connectors it is read at."""
+
+    found = dict(row)
+    excluded, assembly = found.pop("excluded_ids") or [], found.pop("assembly_ids") or []
+    if not excluded and not assembly:
+        found["connector_ids"] = None
+    else:
+        regular, _ = _kinds(conn)
+        found["connector_ids"] = sorted(regular - set(excluded)) + sorted(assembly)
+    return found
+
+
 def tracked_project(conn, project_id: str) -> dict[str, Any] | None:
-    row = conn.execute(
-        "SELECT project_id, variants, connector_ids, tracked_by, tracked_at FROM tracked_projects WHERE project_id = %s",
-        (project_id,),
-    ).fetchone()
-    return dict(row) if row else None
+    row = conn.execute(f"SELECT {_PROJECT_COLUMNS} FROM tracked_projects WHERE project_id = %s", (project_id,)).fetchone()
+    return _with_choice(conn, row) if row else None
 
 
 def list_tracked_projects(conn) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT project_id, variants, connector_ids, tracked_by, tracked_at FROM tracked_projects ORDER BY project_id"
-    ).fetchall()
-    return [dict(row) for row in rows]
+    rows = conn.execute(f"SELECT {_PROJECT_COLUMNS} FROM tracked_projects ORDER BY project_id").fetchall()
+    return [_with_choice(conn, row) for row in rows]
 
 
 def project_parts(conn, project_id: str, variants: Sequence[str]) -> list[dict[str, Any]]:
@@ -89,7 +115,8 @@ def track_project(
     """Track a project: its chosen variants' parts join tier 1. Returns what was tracked and what was skipped.
 
     ``variants`` names the designs; ``''`` is the base design. ``connector_ids`` limits the distributors the project's
-    parts are read at (None: every distributor but those that are assembly-only).
+    parts are read at (None: every distributor but those that are assembly-only). It is stored as what is left out, so a
+    distributor added later is used for the project too; assembly-only ones are used only when named.
     """
 
     actor = actor_text(actor)
@@ -115,12 +142,19 @@ def track_project(
                 created += 0 if before else 1
         except parts.UnknownManufacturer:
             skipped.append({"mpn": line["mpn"], "reason": "unknown_manufacturer"})
+    excluded: list[str] = []
+    built_at: list[str] = []
+    if connector_ids is not None:
+        regular, assembly = _kinds(conn)
+        named = set(connector_ids)
+        excluded, built_at = sorted(regular - named), sorted(named & assembly)
     conn.execute(
         """
-        INSERT INTO tracked_projects (project_id, variants, connector_ids, tracked_by) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (project_id) DO UPDATE SET variants = EXCLUDED.variants, connector_ids = EXCLUDED.connector_ids
+        INSERT INTO tracked_projects (project_id, variants, excluded_ids, assembly_ids, tracked_by) VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (project_id) DO UPDATE SET variants = EXCLUDED.variants, excluded_ids = EXCLUDED.excluded_ids,
+            assembly_ids = EXCLUDED.assembly_ids
         """,
-        (project_id, chosen, list(connector_ids) if connector_ids is not None else None, actor),
+        (project_id, chosen, excluded, built_at, actor),
     )
     write_audit(conn, actor, "tracking.project", project_id,
                 {"variants": chosen, "connector_ids": list(connector_ids) if connector_ids is not None else None},

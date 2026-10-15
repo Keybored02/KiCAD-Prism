@@ -49,7 +49,7 @@ class CostTests(unittest.TestCase):
         self.assertAlmostEqual(held["mouser"], 6600, delta=100)
 
     def test_a_part_the_provider_does_not_carry_costs_only_its_search(self) -> None:
-        self.assertAlmostEqual(self.cost("digikey", 1, "daily", 0), 1 / 30, places=4)
+        self.assertAlmostEqual(self.cost("digikey", 1, "daily", 0), 1 / 14, places=4, msg="searched again every two weeks")
 
     def test_monthly_costs_less_than_weekly_and_a_free_provider_costs_nothing(self) -> None:
         from app.services.supply import budget
@@ -201,6 +201,23 @@ class AdmissionTests(unittest.TestCase):
         with self.store.connection() as conn:
             self.tracking.track_project(conn, "p1", [""], ACTOR, connector_ids=[de, asm])
         self.assertEqual(self.counts(asm)["admitted"], 1)
+
+    def test_a_distributor_added_after_a_project_was_tracked_is_used_for_it(self) -> None:
+        uk, de = self.connector(storefront="uk", key="A"), self.connector(storefront="de", key="B")
+        lines = self.usage.lines_from_components([
+            {"componentUid": "c1", "reference": "R1", "fields": {"Manufacturer": "Acme", "Manufacturer Part Number": "R-1", "DNP": "No", "In BOM": "Yes"}},
+        ])
+        with self.store.connection() as conn:
+            self.usage.store_project(conn, "p1", "p1", "r1", lines, NOW)
+            self.tracking.track_project(conn, "p1", [""], ACTOR, connector_ids=[de])
+        self.connectors.delete(uk, actor=ACTOR)
+        later = self.connector(storefront="uk", key="C")
+        self.assertEqual((self.counts(de)["admitted"], self.counts(later)["admitted"]), (1, 1), "only what was unticked stays out")
+        asm = self.connector("adm_assembly")
+        self.assertEqual(self.counts(asm)["admitted"], 0, "an assembly-only distributor still has to be named")
+        with self.store.connection() as conn:
+            shown = self.tracking.tracked_project(conn, "p1")["connector_ids"]
+        self.assertEqual(sorted(shown), sorted([de, later]))
 
     def test_searching_replaces_the_estimate_with_what_was_found(self) -> None:
         cid = self.connector()

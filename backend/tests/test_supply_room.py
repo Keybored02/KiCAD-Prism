@@ -93,10 +93,11 @@ class RoomTests(unittest.TestCase):
         cid = self.connector()
         self.track(12, cid, carried=6)
         (row,) = self.view()["accounts"]
-        # 90 committed, 1 used; a typical part carries half the time: (0.1333 + 0.0333) / 2 a day, or (0.0254 + 0.0111) / 2 weekly.
-        self.assertEqual((row["free"], row["searched"], row["carried_percent"]), (89, 12, 50))
-        self.assertEqual(row["room"], {"daily": 1068, "weekly": 4875})
-        self.assertEqual(self.view()["headline"]["daily"], {"room": 1068, "limited_by": row["name"]})
+        # 90 committed, 2 used; a typical part is carried half the time: (0.1333 + 1/14) / 2 a day, or (0.0254 + 1/30) / 2 weekly
+        # (a part not carried is searched again every two weeks at tier 1, every month at tier 2).
+        self.assertEqual((row["free"], row["searched"], row["carried_percent"]), (88, 12, 50))
+        self.assertEqual(row["room"], {"daily": 859, "weekly": 2996})
+        self.assertEqual(self.view()["headline"]["daily"], {"room": 859, "limited_by": row["name"]})
 
     def test_too_few_parts_searched_gives_no_figure(self) -> None:
         cid = self.connector()

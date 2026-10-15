@@ -253,15 +253,17 @@ class SchedulingTests(unittest.TestCase):
         summary = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock).run(self.cid)
         self.assertEqual((summary.searched, summary.stopped), (3, "budget"))
 
-    def test_tier_one_parts_are_searched_again_every_month_found_or_not(self) -> None:
+    def test_tier_one_parts_are_searched_again_after_two_weeks_when_not_found_and_a_month_when_found(self) -> None:
         self.watch("AAA")
         self.watch("NONE-1")
         discoverer = self.discoverer.Discoverer(self.connectors, store=self.store, provider_for=lambda _c: self.provider(), clock=self.clock)
         discoverer.run(self.cid)
         self.clock.now += timedelta(days=8)
-        self.assertEqual(discoverer.run(self.cid).searched, 0, "nobody is searched for again within the month")
-        self.clock.now += timedelta(days=23)
-        self.assertEqual(discoverer.run(self.cid).searched, 2)
+        self.assertEqual(discoverer.run(self.cid).searched, 0, "nobody is searched for again within the week")
+        self.clock.now += timedelta(days=7)
+        self.assertEqual(discoverer.run(self.cid).searched, 1, "the part nobody carried")
+        self.clock.now += timedelta(days=16)
+        self.assertEqual(discoverer.run(self.cid).searched, 2, "the part that was found, after a month, and the other one again")
 
 
 if __name__ == "__main__":
