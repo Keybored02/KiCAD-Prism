@@ -319,8 +319,24 @@ def _trade_facts(items: object) -> tuple[tuple[str, str], ...]:
     return tuple(pairs)
 
 
+# What the account's language calls the country of origin in TradeCompliance (seen: Italian).
+_ORIGIN_NAMES = frozenset({
+    "country of origin", "paese di origine", "pays d'origine", "herkunftsland", "país de origen", "ursprungsland", "land van herkomst",
+})
+
+
+def _origin(items: object) -> str:
+    for item in items if isinstance(items, list) else []:
+        if isinstance(item, dict) and str(item.get("ComplianceName") or "").strip().lower() in _ORIGIN_NAMES:
+            return str(item.get("ComplianceValue") or "").strip()
+    return ""
+
+
 def _facts(part: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     pairs = [("rohs_status", str(part.get("ROHSStatus") or "").strip()), ("category", str(part.get("Category") or "").strip())]
+    pairs.append(("origin_country", _origin(part.get("TradeCompliance"))))
+    factory = parse_count(part.get("FactoryStock"))
+    pairs.append(("factory_stock", "" if factory is None else str(factory)))
     pairs += list(_trade_facts(part.get("ProductCompliance")))
     pairs.append(("suggested_replacement", str(part.get("SuggestedReplacement") or "").strip()))
     return tuple((name, value) for name, value in pairs if value)

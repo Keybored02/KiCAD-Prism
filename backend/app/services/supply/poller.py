@@ -354,7 +354,7 @@ class Poller:
             moq=offer.moq, order_multiple=offer.order_multiple,
         )
         previous = conn.execute(
-            "SELECT sampled_at, stock, unit_price, lifecycle, discontinued FROM samples WHERE listing_id = %s "
+            "SELECT sampled_at, stock, unit_price, lifecycle, discontinued, moq, order_multiple FROM samples WHERE listing_id = %s "
             "ORDER BY sampled_at DESC LIMIT 1", (row.id,)
         ).fetchone()
         changed = previous is None or (
@@ -362,6 +362,8 @@ class Poller:
             or previous["unit_price"] != price
             or previous["lifecycle"] != offer.lifecycle.value
             or previous["discontinued"] != offer.discontinued
+            or previous["moq"] != offer.moq
+            or previous["order_multiple"] != offer.order_multiple
         )
 
         conn.execute(
@@ -392,21 +394,50 @@ class Poller:
             conn.execute(
                 """
                 INSERT INTO samples (listing_id, sampled_at, stock, incoming_qty, unit_price, currency, lead_time_days,
-                                     lifecycle, discontinued, marketplace)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (listing_id, sampled_at) DO NOTHING
+                                     lifecycle, discontinued, marketplace, moq, order_multiple)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (listing_id, sampled_at) DO NOTHING
                 """,
                 (row.id, offer.fetched_at, offer.stock, sum(item.quantity for item in offer.incoming), price,
-                 offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.marketplace),
+                 offer.currency, offer.lead_time_days, offer.lifecycle.value, offer.discontinued, offer.marketplace,
+                 offer.moq, offer.order_multiple),
             )
         conn.execute("UPDATE listings SET packaging = %s, last_seen_at = %s WHERE id = %s", (offer.packaging.value, now, row.id))
         # Compliance and trade facts come with the answer; keeping them costs no call.
+        stocked_before = conn.execute(
+            "SELECT value FROM part_facts WHERE part_id = %s AND provider = %s AND name = 'normally_stocking'", (row.part_id, offer.provider)
+        ).fetchone()
         facts.replace(conn, row.part_id, offer.provider, offer.facts, now)
+        self._note_changes(conn, row, offer, previous, stocked_before["value"] if stocked_before else None)
         if offer.datasheet_url:
             remember_datasheet(conn, row.part_id, offer.datasheet_url)
 
         last_change = now if changed else row.last_change_at
         urgency = self._urgency_for(conn, row, offer.lifecycle, last_change, now)
         self._write_state(conn, row.id, self._schedule_of(conn, row.part_id), urgency, now, last_change, key=row.id, reset=self._reset)
+
+    @staticmethod
+    def _packaging_of(conn, listing_id: str) -> str:
+        found = conn.execute("SELECT packaging FROM listings WHERE id = %s", (listing_id,)).fetchone()
+        return found["packaging"] if found else "unknown"
+
+    @staticmethod
+    def _note_changes(conn, row: DueListing, offer: Offer, previous, stocked_before: str | None) -> None:
+        """Write an event for what a reading shows that the one before did not: a lifecycle change, a distributor that stops
+        stocking the part normally, a jump in the smallest order. Nothing is written for a first reading."""
+
+        def event(kind: str, payload: dict) -> None:
+            conn.execute(
+                "INSERT INTO events (kind, part_id, listing_id, payload) VALUES (%s, %s, %s, %s::jsonb)",
+                (kind, row.part_id, row.id, json.dumps({"sku": row.sku, **payload})),
+            )
+
+        if previous is not None and previous["lifecycle"] != offer.lifecycle.value and "unknown" not in (previous["lifecycle"], offer.lifecycle.value):
+            event("lifecycle_changed", {"from": previous["lifecycle"], "to": offer.lifecycle.value})
+        now_stocked = dict(offer.facts).get("normally_stocking")
+        if stocked_before == "Yes" and now_stocked == "No":
+            event("normally_stocking_lost", {})
+        if previous is not None and previous["moq"] >= 1 and offer.moq >= 2 * previous["moq"]:
+            event("moq_jump", {"from": previous["moq"], "to": offer.moq})
 
     def _record_missing(self, conn, row: DueListing, now: datetime) -> int:
         misses = row.missing_streak + 1
@@ -418,7 +449,7 @@ class Poller:
             conn.execute("DELETE FROM poll_state WHERE listing_id = %s", (row.id,))
             conn.execute(
                 "INSERT INTO events (kind, part_id, listing_id, payload) VALUES ('listing_gone', %s, %s, %s::jsonb)",
-                (row.part_id, row.id, json.dumps({"sku": row.sku})),
+                (row.part_id, row.id, json.dumps({"sku": row.sku, "packaging": self._packaging_of(conn, row.id)})),
             )
             return 1
         # Asking again soon does not change how urgent the listing is or how often it is read.

@@ -1182,6 +1182,18 @@ def _m041_catch_up(conn) -> None:
         migrate(conn)
 
 
+def _m042_sample_order_terms(conn) -> None:
+    """A reading keeps the smallest order and the order multiple, so a jump in either can be told from history."""
+
+    conn.execute(
+        """
+        ALTER TABLE samples ADD COLUMN IF NOT EXISTS moq INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE samples ADD COLUMN IF NOT EXISTS order_multiple INTEGER NOT NULL DEFAULT 1;
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1224,6 +1236,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (39, "summary_dirty_log", _m039_summary_dirty_log),
     (40, "read_requests", _m040_read_requests),
     (41, "catch_up", _m041_catch_up),
+    (42, "sample_order_terms", _m042_sample_order_terms),
 ]
 
 

@@ -120,7 +120,7 @@ class HardeningTests(unittest.TestCase):
             self.clock.advance(hours=2)
         (event,) = self.rows("SELECT kind, part_id, listing_id, payload FROM events")
         self.assertEqual((event["kind"], event["part_id"], event["listing_id"]), ("listing_gone", watch.part_id, listing_id))
-        self.assertEqual(event["payload"], {"sku": "FAKE-GHOST-CT"})
+        self.assertEqual(event["payload"], {"sku": "FAKE-GHOST-CT", "packaging": "unknown"})
 
     def test_a_lifecycle_change_counts_as_a_change(self) -> None:
         from app.services.supply.vocabulary import Lifecycle

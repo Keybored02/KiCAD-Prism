@@ -256,14 +256,15 @@ def recent_changes(conn, now: datetime, *, days: int = 14, limit: int = 15) -> l
                             "manufacturer": row["manufacturer"], "alert": alert, "sku": ""})
     for row in conn.execute(
         """
-        SELECT e.at, e.part_id, e.payload, p.mpn, m.name AS manufacturer
+        SELECT e.at, e.kind, e.part_id, e.payload, p.mpn, m.name AS manufacturer
         FROM events e JOIN parts p ON p.id = e.part_id JOIN manufacturers m ON m.id = p.manufacturer_id
-        WHERE e.kind = 'listing_gone' AND e.at >= %s
+        WHERE e.kind IN ('listing_gone', 'lifecycle_changed', 'normally_stocking_lost', 'moq_jump') AND e.at >= %s
         """,
         (since,),
     ).fetchall():
-        changes.append({"at": row["at"].isoformat(), "type": "listing_gone", "part_id": row["part_id"], "mpn": row["mpn"],
-                        "manufacturer": row["manufacturer"], "alert": None, "sku": str((row["payload"] or {}).get("sku", ""))})
+        changes.append({"at": row["at"].isoformat(), "type": row["kind"], "part_id": row["part_id"], "mpn": row["mpn"],
+                        "manufacturer": row["manufacturer"], "alert": None, "sku": str((row["payload"] or {}).get("sku", "")),
+                        "detail": row["payload"] or {}})
     changes.sort(key=lambda item: item["at"], reverse=True)
     return changes[:limit]
 

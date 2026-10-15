@@ -4,7 +4,14 @@ import { StatusDot } from "./status-dot";
 import { formatAgo } from "./supply-format";
 
 function sentence(change: SupplyRecentChange): string {
-  if (change.type === "listing_gone") return `A distributor stopped listing it${change.sku ? ` (${change.sku})` : ""}`;
+  const detail = change.detail ?? {};
+  if (change.type === "listing_gone") {
+    const packaging = typeof detail.packaging === "string" && detail.packaging !== "unknown" ? `, ${detail.packaging.replace(/_/g, " ")}` : "";
+    return `A distributor stopped listing it${change.sku ? ` (${change.sku}${packaging})` : ""}`;
+  }
+  if (change.type === "lifecycle_changed") return `Lifecycle changed from ${String(detail.from).replace(/_/g, " ")} to ${String(detail.to).replace(/_/g, " ")}${change.sku ? ` (${change.sku})` : ""}`;
+  if (change.type === "normally_stocking_lost") return `A distributor no longer stocks it normally${change.sku ? ` (${change.sku})` : ""}`;
+  if (change.type === "moq_jump") return `Smallest order went from ${String(detail.from)} to ${String(detail.to)}${change.sku ? ` (${change.sku})` : ""}`;
   if (!change.alert) return "";
   return change.type === "alert_cleared" ? `Cleared: ${alertTitle(change.alert)}` : alertTitle(change.alert);
 }

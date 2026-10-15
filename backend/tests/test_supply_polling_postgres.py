@@ -328,6 +328,35 @@ class PollingTests(unittest.TestCase):
         self.assertEqual(self.poller_csv().poll_connector(free).polled, 1)
         self.assertEqual(self.rows("SELECT * FROM quota_ledger WHERE connector_id = %s", free), [])
 
+    def test_a_reading_that_differs_from_the_last_writes_change_events(self) -> None:
+        import dataclasses
+
+        from app.services.supply.vocabulary import Lifecycle
+
+        cid = self.connector()
+        watch = self.watch()
+        self.add_listing(watch.part_id, cid, "FAKE-ABC123-CT")
+        changes = {"now": False}
+
+        class Shifts:
+            def __init__(self, inner): self.inner = inner
+            def get_offers(self, skus):
+                found = self.inner.get_offers(skus)
+                if not changes["now"]:
+                    return [dataclasses.replace(o, lifecycle=Lifecycle.ACTIVE, moq=100, facts=(("normally_stocking", "Yes"),)) for o in found]
+                return [dataclasses.replace(o, lifecycle=Lifecycle.NRND, moq=1000, facts=(("normally_stocking", "No"),)) for o in found]
+
+        self.provider_behaviour = Shifts
+        self.poller().poll_connector(cid)
+        self.assertEqual(self.rows("SELECT kind FROM events"), [], "a first reading is not a change")
+        changes["now"] = True
+        self.clock.advance(days=2)
+        self.poller().poll_connector(cid)
+        kinds = sorted(row["kind"] for row in self.rows("SELECT kind FROM events"))
+        self.assertEqual(kinds, ["lifecycle_changed", "moq_jump", "normally_stocking_lost"])
+        (sample,) = self.rows("SELECT moq, order_multiple FROM samples ORDER BY sampled_at DESC LIMIT 1")
+        self.assertEqual(sample["moq"], 1000)
+
     def test_a_datasheet_address_in_an_offer_is_kept_for_the_part_once(self) -> None:
         import dataclasses
 

@@ -68,8 +68,21 @@ class DigiKeyFactsTests(unittest.TestCase):
         (offer,) = dk_provider(client).get_offers(["296-1395-1-ND"])
         self.assertEqual(dict(offer.facts), {
             "category": "Linear - Amplifiers", "rohs_status": "ROHS3 Compliant", "reach_status": "REACH Unaffected",
-            "msl": "1  (Unlimited)", "eccn": "EAR99", "hts_us": "8542.33.0001", "last_buy_date": "2027-03-31",
+            "msl": "1  (Unlimited)", "eccn": "EAR99", "hts_us": "8542.33.0001", "last_buy_date": "2027-03-31", "mfr_lead_weeks": "14",
         })
+
+    def test_stocking_terms_and_the_factory_stock_come_with_the_offer(self) -> None:
+        product = dk_product() | {
+            "ManufacturerPublicQuantity": 1505000, "ManufacturerLeadWeeks": "13", "NormallyStocking": True, "Ncnr": False, "BackOrderNotAllowed": True,
+        }
+        client = FakeClient({"/v1/oauth2/token": [{"access_token": "t", "expires_in": 599}],
+                             "/products/v4/search/296-1395-1-ND/productdetails": [dk_details(product)]})
+        (offer,) = dk_provider(client).get_offers(["296-1395-1-ND"])
+        found = dict(offer.facts)
+        self.assertEqual(
+            (found["factory_stock"], found["mfr_lead_weeks"], found["normally_stocking"], found["ncnr"], found["backorder_allowed"]),
+            ("1505000", "13", "Yes", "No", "No"),
+        )
 
     def test_the_category_is_the_most_specific_name_in_the_chain(self) -> None:
         from app.services.supply.providers import digikey
@@ -116,6 +129,15 @@ class MouserFactsTests(unittest.TestCase):
         self.assertEqual(found["rohs_status"], "RoHS Compliant")
         self.assertEqual((found["hts_us"], found["hts_eu"], found["eccn"]), ("8542330001", "8542339000", "EAR99"))
         self.assertNotIn("suggested_replacement", found, "an empty replacement is left out")
+
+    def test_the_country_of_origin_and_the_factory_stock_are_kept_whatever_the_language(self) -> None:
+        recorded = json.loads((FIXTURES / "mouser_live_lm358dr.json").read_text(encoding="utf-8"))
+        part = next(item for item in _parts(recorded) if item["MouserPartNumber"] == "595-LM358DR")
+        found = dict(mouser._facts(part))
+        self.assertEqual(found["origin_country"], "Messico")
+        self.assertEqual(found["factory_stock"], "0")
+        english = {"TradeCompliance": [{"ComplianceName": "Country of Origin", "ComplianceValue": "Mexico"}]}
+        self.assertEqual(dict(mouser._facts(english))["origin_country"], "Mexico")
 
     def test_an_unknown_compliance_name_is_kept_under_its_own_name_and_logged(self) -> None:
         self.assertEqual(mouser._trade_facts([{"ComplianceName": "ZZHTS", "ComplianceValue": "8542"}]), (("trade_zzhts", "8542"),))

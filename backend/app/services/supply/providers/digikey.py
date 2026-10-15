@@ -369,6 +369,10 @@ def _leaf_category(category: Any) -> str:
     return name
 
 
+def _yes_no(value: object) -> str | None:
+    return None if not isinstance(value, bool) else "Yes" if value else "No"
+
+
 def _facts(product: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     classes = product.get("Classifications") or {}
     pairs = [
@@ -378,6 +382,13 @@ def _facts(product: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
         ("msl", classes.get("MoistureSensitivityLevel")),
         ("eccn", classes.get("ExportControlClassNumber")),
         ("hts_us", classes.get("HtsusCode")),
+    ]
+    pairs += [
+        ("factory_stock", product.get("ManufacturerPublicQuantity")),
+        ("mfr_lead_weeks", product.get("ManufacturerLeadWeeks")),
+        ("normally_stocking", _yes_no(product.get("NormallyStocking"))),
+        ("ncnr", _yes_no(product.get("Ncnr"))),
+        ("backorder_allowed", _yes_no(not product["BackOrderNotAllowed"]) if isinstance(product.get("BackOrderNotAllowed"), bool) else None),
     ]
     last_buy = _day(product.get("DateLastBuyChance"))
     if last_buy is not None and last_buy.year > 1900:

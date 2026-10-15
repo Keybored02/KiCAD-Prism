@@ -680,7 +680,9 @@ export interface SupplyAlert {
 /** Something that happened lately to a watched part. */
 export interface SupplyRecentChange {
   at: string;
-  type: "alert_opened" | "alert_cleared" | "listing_gone";
+  type: "alert_opened" | "alert_cleared" | "listing_gone" | "lifecycle_changed" | "normally_stocking_lost" | "moq_jump";
+  /** What the event recorded, for the kinds that carry figures. */
+  detail?: Record<string, unknown>;
   part_id: string;
   mpn: string;
   manufacturer: string;
