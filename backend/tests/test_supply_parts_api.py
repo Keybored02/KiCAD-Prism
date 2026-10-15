@@ -419,7 +419,8 @@ class SupplyPartsApiTests(unittest.TestCase):
         near = self.insert_listing(watch["part_id"], cid, "NEARSKU", state="near")
         rejected = self.insert_listing(watch["part_id"], cid, "NOPE", state="rejected", stock=5)
         detail = self.call("GET", f"/api/supply/parts/{watch['part_id']}", role="qa").json
-        self.assertEqual(detail["part"], {"id": watch["part_id"], "mpn": "ABC123", "manufacturer": "Acme"})
+        self.assertEqual({key: value for key, value in detail["part"].items() if key != "first_seen"}, {"id": watch["part_id"], "mpn": "ABC123", "manufacturer": "Acme"})
+        self.assertTrue(detail["part"]["first_seen"])
         self.assertEqual(detail["watch"]["id"], watch["id"])
         skus = {item["sku"]: item for item in detail["listings"]}
         self.assertEqual(sorted(skus), ["FAKE-ABC123-CT", "NEARSKU"], "a rejected listing is not shown")
