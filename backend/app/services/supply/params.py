@@ -2,7 +2,7 @@
 
 Each distributor names and writes attributes its own way ("Resistance", "10 kOhms", "±1%", "Voltage - Rated"). This
 maps the common ones for resistors, capacitors and inductors to a canonical key and reads the number into SI units, so
-they can be compared. The raw text is always kept, and anything not recognised stays as the distributor wrote it: a value
+they can be compared, and the common ones of voltage regulators, connectors and microcontrollers. The raw text is always kept, and anything not recognised stays as the distributor wrote it: a value
 is never guessed, and a number that does not parse is shown raw. Written without a units library on purpose: only a few
 units and prefixes matter here.
 """
@@ -27,6 +27,25 @@ KEYS: dict[str, tuple[str, tuple[str, ...]]] = {
     "power_rating": ("watt", ("power (watts)", "power", "power rating", "power - max")),
     "package": ("", ("package / case", "package", "case/package", "case code - in", "supplier device package", "case code (imperial)")),
     "dielectric": ("", ("temperature coefficient", "dielectric", "dielectric material")),
+    # Voltage regulators.
+    "output_voltage": ("volt", ("voltage - output (min/fixed)", "output voltage", "voltage - output", "fixed output voltage", "output voltage (fixed)")),
+    "input_voltage_max": ("volt", ("voltage - input (max)", "maximum input voltage", "input voltage (max)", "input voltage - max", "input voltage max")),
+    "output_current": ("ampere", ("current - output", "output current", "maximum output current", "current - output (max)")),
+    "regulator_type": ("", ("output type", "regulator topology", "output configuration", "topology")),
+    # Connectors.
+    "positions": ("count", ("number of positions", "number of contacts", "number of pins", "positions", "contacts", "number of positions or pins (grid)")),
+    "rows": ("count", ("number of rows", "rows")),
+    "pitch": ("pitch", ("pitch - mating", "pitch", "pitch - post", "contact pitch")),
+    "mounting": ("", ("mounting type", "mounting style", "mounting", "termination style", "termination")),
+    # Microcontrollers.
+    "core": ("", ("core processor", "core", "processor series", "core architecture")),
+    "clock": ("hertz", ("speed", "maximum clock frequency", "clock frequency", "cpu speed", "frequency")),
+    "flash": ("byte", ("program memory size", "flash size", "program memory", "flash memory size")),
+    "ram": ("byte", ("ram size", "data ram size", "sram size", "ram")),
+    "io_count": ("count", ("number of i/o", "number of i/os", "i/o count", "number of io")),
+    "supply_voltage": ("volt", ("voltage - supply (vcc/vdd)", "operating supply voltage", "supply voltage", "voltage - supply")),
+    # Any part.
+    "temperature_range": ("", ("operating temperature", "operating temperature range", "temperature range")),
 }
 
 _PREFIX = {"p": Decimal("1e-12"), "n": Decimal("1e-9"), "u": Decimal("1e-6"), "µ": Decimal("1e-6"), "μ": Decimal("1e-6"),
@@ -37,6 +56,8 @@ _UNIT_WORDS = {
     "henry": ("h", "henry", "henries"),
     "volt": ("v", "vdc", "volt", "volts"),
     "watt": ("w", "watt", "watts"),
+    "ampere": ("a", "amp", "amps", "ampere", "amperes"),
+    "hertz": ("hz", "hertz"),
 }
 _NUMBER = re.compile(r"^\s*[±+]?\s*(\d+(?:[.,]\d+)?)\s*([pnuµμmkMG]?)\s*([A-Za-zΩΩ]*)\s*$")
 _FRACTION = re.compile(r"^\s*(\d+)\s*/\s*(\d+)\s*([A-Za-z]*)")
@@ -61,9 +82,26 @@ def _unit_of(text: str, wanted: str) -> bool:
     return lowered in {word.lower() for word in _UNIT_WORDS.get(wanted, ())}
 
 
-def parse_quantity(raw: str, unit: str) -> Decimal | None:
-    """The SI value of a text like "10 kOhms", "100nF", "0.1W" or "1/10W", when it is in ``unit``. None if not."""
+_BYTES = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*([kKMG]?)i?B", re.IGNORECASE)
+_BYTE_STEP = {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3}
+_PITCH_MM = re.compile(r"(\d+(?:[.,]\d+)?)\s*mm", re.IGNORECASE)
+_WHOLE = re.compile(r"^\s*(\d+)\s*$")
 
+
+def parse_quantity(raw: str, unit: str) -> Decimal | None:
+    """The SI value of a text like "10 kOhms", "100nF", "0.1W" or "1/10W", when it is in ``unit``. None if not.
+
+    Memory is in bytes (a K is 1,024), a pitch in metres from its millimetre figure, a count is a whole number."""
+
+    if unit == "byte":
+        found = _BYTES.match(raw)
+        return Decimal(found.group(1).replace(",", ".")) * _BYTE_STEP[found.group(2).lower()] if found else None
+    if unit == "pitch":
+        found = _PITCH_MM.search(raw)
+        return Decimal(found.group(1).replace(",", ".")) / 1000 if found else None
+    if unit == "count":
+        found = _WHOLE.match(raw)
+        return Decimal(found.group(1)) if found else None
     if unit == "percent":
         match = re.match(r"^\s*[±+]?\s*(\d+(?:[.,]\d+)?)\s*%", raw)
         return Decimal(match.group(1).replace(",", ".")) if match else None

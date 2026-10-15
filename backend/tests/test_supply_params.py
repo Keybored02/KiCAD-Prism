@@ -36,13 +36,13 @@ class ReadingTests(unittest.TestCase):
             self.assertEqual(params.canonical_key(name), "resistance", name)
         self.assertEqual(params.canonical_key("Voltage - Rated"), "voltage_rating")
         self.assertEqual(params.canonical_key("Package / Case"), "package")
-        self.assertIsNone(params.canonical_key("Mounting Type"))
+        self.assertIsNone(params.canonical_key("Series"))
 
     def test_normalise_puts_known_parameters_first_in_a_fixed_order_and_keeps_the_rest_raw(self) -> None:
-        result = params.normalise([("Mounting Type", "Surface Mount"), ("Tolerance", "±1%"), ("Resistance", "10 kOhms"), ("Package / Case", "0603"), ("Series", "-")])
+        result = params.normalise([("Series", "Surface Mount"), ("Tolerance", "±1%"), ("Resistance", "10 kOhms"), ("Package / Case", "0603"), ("Series", "-")])
         self.assertEqual([item.key for item in result], ["resistance", "tolerance", "package", None])
         self.assertEqual((result[0].value, result[0].unit, result[0].raw), (Decimal("10000"), "ohm", "10 kOhms"))
-        self.assertEqual((result[2].value, result[3].name), (None, "Mounting Type"))
+        self.assertEqual((result[2].value, result[3].name), (None, "Series"))
 
     def test_the_first_spelling_of_a_key_wins(self) -> None:
         result = params.normalise([("Resistance", "10 kOhms"), ("Resistance (Ohms)", "10000")])
@@ -81,14 +81,14 @@ class StorageTests(unittest.TestCase):
 
     def test_attributes_are_kept_per_provider_and_the_part_shows_them_normalised_with_their_sources(self) -> None:
         with self.store.connection() as conn:
-            self.discovery.remember_parameters(conn, self.part, "mouser", [("Resistance", "10 kOhms"), ("Mounting Type", "SMD")])
+            self.discovery.remember_parameters(conn, self.part, "mouser", [("Resistance", "10 kOhms"), ("Series", "SMD")])
             self.discovery.remember_parameters(conn, self.part, "lcsc", [("Resistance", "10 kOhms"), ("Power(Watts)", "100mW")])
             self.discovery.remember_parameters(conn, self.part, "lcsc", [("Resistance", "10 kOhms")])
             shown = self.parts_view.parameters_of(conn, self.part)
         by_name = {item["name"]: item for item in shown}
         self.assertEqual((by_name["Resistance"]["key"], by_name["Resistance"]["value"], by_name["Resistance"]["unit"]), ("resistance", "10000", "ohm"))
         self.assertEqual(sorted(by_name["Resistance"]["sources"]), ["lcsc", "mouser"])
-        self.assertIsNone(by_name["Mounting Type"]["key"])
+        self.assertIsNone(by_name["Series"]["key"])
         self.assertEqual(shown[0]["name"], "Resistance", "known parameters come first")
 
     def test_blank_names_and_values_are_not_kept(self) -> None:
@@ -99,3 +99,29 @@ class StorageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BeyondPassivesTests(unittest.TestCase):
+    def read(self, name: str, raw: str):
+        (found,) = params.normalise([(name, raw)])
+        return found
+
+    def test_regulator_voltages_and_currents_are_read_in_si(self) -> None:
+        self.assertEqual(self.read("Voltage - Output (Min/Fixed)", "3.3V").value, Decimal("3.3"))
+        self.assertEqual(self.read("Voltage - Input (Max)", "15V").key, "input_voltage_max")
+        self.assertEqual(self.read("Current - Output", "500mA").value, Decimal("0.5"))
+        self.assertEqual(self.read("Output Current", "1A").value, Decimal("1"))
+
+    def test_connector_counts_and_pitch(self) -> None:
+        self.assertEqual(self.read("Number of Positions", "20").value, Decimal("20"))
+        self.assertIsNone(self.read("Number of Positions", "2 x 10").value, "not a whole number, so only the raw text")
+        self.assertEqual(self.read("Pitch - Mating", '0.100" (2.54mm)').value, Decimal("0.00254"))
+        self.assertEqual(self.read("Mounting Type", "Through Hole").key, "mounting")
+
+    def test_microcontroller_memory_clock_and_pins(self) -> None:
+        self.assertEqual(self.read("Program Memory Size", "64KB (32K x 16)").value, Decimal(64 * 1024))
+        self.assertEqual(self.read("RAM Size", "8K x 8").value, None, "a layout, not a size: left raw")
+        self.assertEqual(self.read("Speed", "48MHz").value, Decimal(48_000_000))
+        self.assertEqual(self.read("Number of I/O", "37").key, "io_count")
+        self.assertEqual(self.read("Core Processor", "ARM® Cortex®-M4").value, None)
+        self.assertEqual(self.read("Operating Temperature", "-40°C ~ 85°C (TA)").key, "temperature_range")
