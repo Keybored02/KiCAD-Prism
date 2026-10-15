@@ -7,9 +7,10 @@ never calls a distributor.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
-from app.services.supply import compliance, parts_view
+from app.services.supply import compliance, fx, parts_view, pricing
 from app.services.supply.assessment import checks, health, risk, settings_store, waivers
 from app.services.supply.assessment.settings import DEFAULTS, AssessmentSettings
 from app.services.supply.vocabulary import Lifecycle
@@ -23,6 +24,26 @@ def distributor_count(conn) -> int:
     ).fetchone()["n"]
 
 
+def _quotes(offers: Sequence[Mapping[str, Any]], base: str, rates: fx.Rates | None) -> list[tuple[str, Decimal]]:
+    """Each distributor's cheapest unit price at the reference quantity, in the base currency. A distributor with no price, or in
+    a currency without a rate, is left out."""
+
+    cheapest: dict[str, tuple[str, Decimal]] = {}
+    for offer in offers:
+        if offer["marketplace"] or not offer.get("price_breaks") or not offer.get("currency"):
+            continue
+        price = pricing.unit_price_at([(int(q), Decimal(str(p))) for q, p in offer["price_breaks"]], moq=offer["moq"], order_multiple=offer["order_multiple"])
+        if price is None:
+            continue
+        converted = price if offer["currency"] == base else (rates.convert(price, offer["currency"], base) if rates else None)
+        if converted is None:
+            continue
+        name = str(offer.get("connector_name") or offer["connector_id"])
+        if name not in cheapest or converted < cheapest[name][1]:
+            cheapest[name] = (name, converted)
+    return list(cheapest.values())
+
+
 def assess_one(
     item: Mapping[str, Any],
     offers: Sequence[Mapping[str, Any]],
@@ -33,11 +54,12 @@ def assess_one(
     distributors: int | None = None,
     extras: Sequence[checks.Finding] = (),
     svhc_listed: Sequence[str] = (),
+    rates: fx.Rates | None = None,
 ) -> dict[str, Any]:
     facts = checks.Facts(
         lifecycle=Lifecycle(item["lifecycle"]), offers=offers, now=now, problem=item["problem"], need=need,
         distributors=distributors,
-        svhc_listed=svhc_listed,
+        svhc_listed=svhc_listed, prices=_quotes(offers, settings.base_currency, rates),
     )
     # Findings from outside the part (a component's) are waived like the part's own.
     findings = waivers.apply([*checks.evaluate(facts, settings), *extras], part_waivers)
@@ -74,8 +96,9 @@ def assess_summaries(
     held = waivers.for_parts(conn, [item["id"] for item in items])
     distributors = distributor_count(conn)
     listed = compliance.listed_substances(conn, [item["id"] for item in items])
+    rates = fx.latest(conn)
     return {
-        item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors, (extras or {}).get(item["id"], ()), listed.get(item["id"], ()))
+        item["id"]: assess_one(item, offers.get(item["id"], []), held.get(item["id"], []), now, needs.get(item["id"]), settings, distributors, (extras or {}).get(item["id"], ()), listed.get(item["id"], ()), rates)
         for item in items
     }
 

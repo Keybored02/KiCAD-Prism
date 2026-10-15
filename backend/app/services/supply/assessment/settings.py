@@ -31,6 +31,8 @@ NOT_IN_LIBRARY = "not_in_library"
 REACH_SVHC = "reach_svhc"
 PARAMETER_MISMATCH = "parameter_mismatch"
 PACKAGE_MISMATCH = "package_mismatch"
+LIFECYCLE_DISAGREEMENT = "lifecycle_disagreement"
+PRICE_OUTLIER = "price_outlier"
 
 DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     PART_NOT_FOUND: Status.ERROR,
@@ -51,6 +53,9 @@ DEFAULT_SEVERITY: Mapping[str, Status] = MappingProxyType({
     REACH_SVHC: Status.WARNING,
     PARAMETER_MISMATCH: Status.WARNING,
     PACKAGE_MISMATCH: Status.WARNING,
+    LIFECYCLE_DISAGREEMENT: Status.WARNING,
+    # Prices differ for many reasons; it starts as a note that does not count against health.
+    PRICE_OUTLIER: Status.OK,
 })
 
 SUB_SCORES = ("lifecycle", "sourcing", "inventory", "market", "compliance")
@@ -98,6 +103,8 @@ CHECK_LABELS: Mapping[str, str] = MappingProxyType({
     REACH_SVHC: "Affected by REACH (substance of very high concern)",
     PARAMETER_MISMATCH: "The BOM value differs from the distributor's",
     PACKAGE_MISMATCH: "The footprint size differs from the distributor's package",
+    LIFECYCLE_DISAGREEMENT: "Distributors disagree on the lifecycle",
+    PRICE_OUTLIER: "A distributor's price is far from the others'",
 })
 
 # What a workspace may set. "ok" turns a check into a note that does not count against health.

@@ -9,6 +9,8 @@ the data, under the ids the plan reserves.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
+import statistics
 from datetime import datetime, timedelta
 from typing import Any, Mapping, Sequence
 
@@ -33,6 +35,8 @@ class Facts:
     distributors: int | None = None
     # Names of substances declared for the part that are on the ECHA Candidate List.
     svhc_listed: Sequence[str] = ()
+    # What each distributor quotes per piece at the reference quantity, in the base currency: (distributor name, price).
+    prices: Sequence[tuple[str, Decimal]] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +63,24 @@ def lead_time_of(offers: Sequence[Mapping[str, Any]]) -> int | None:
 
     times = [o["lead_time_days"] for o in offers if o["lead_time_days"] is not None and not o["marketplace"]]
     return min(times) if times else None
+
+
+# At least this many quotes, and one at more than this multiple or less than its inverse of the median, make an outlier.
+PRICE_MIN_QUOTES = 3
+PRICE_OUTLIER_RATIO = Decimal(2)
+
+
+def _disagreements(offers: Sequence[Mapping[str, Any]], add) -> None:
+    """Distributors that give the part different lifecycles. The manufacturer's word is one thing; the distributors' copies of it are another."""
+
+    named: dict[str, list[str]] = {}
+    for offer in offers:
+        if offer["marketplace"] or offer.get("lifecycle") in (None, "unknown"):
+            continue
+        named.setdefault(str(offer["lifecycle"]).replace("_", " "), []).append(str(offer.get("connector_name") or offer["connector_id"]))
+    if len(named) > 1:
+        who = "; ".join(f"{lifecycle} at {', '.join(sorted(set(names)))}" for lifecycle, names in sorted(named.items()))
+        add(ids.LIFECYCLE_DISAGREEMENT, f"Distributors disagree on the lifecycle: {who}.", "lifecycle_disagreement")
 
 
 def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
@@ -99,6 +121,14 @@ def evaluate(facts: Facts, settings: AssessmentSettings) -> list[Finding]:
         add(ids.REACH_SVHC, f"A declared substance is on the REACH Candidate List: {', '.join(facts.svhc_listed)}.", "svhc_declared")
     elif any(o.get("reach_affected") for o in offers):
         add(ids.REACH_SVHC, "A distributor lists this part as affected by REACH.", "reach_flag")
+    _disagreements(offers, add)
+    quoted = list(facts.prices)
+    if len(quoted) >= PRICE_MIN_QUOTES:
+        middle = statistics.median(price for _name, price in quoted)
+        far = [(name, price) for name, price in quoted if middle > 0 and not middle / PRICE_OUTLIER_RATIO <= price <= middle * PRICE_OUTLIER_RATIO]
+        if far:
+            name, price = max(far, key=lambda item: abs(item[1] - middle))
+            add(ids.PRICE_OUTLIER, f"{name} quotes {price:.4f} a piece against a median of {middle:.4f} across {len(quoted)} distributors.", "price_outlier")
     newest = max((o["fetched_at"] for o in offers if o["fetched_at"] is not None), default=None)
     if newest is not None and facts.now - newest > timedelta(hours=settings.stale_hours):
         add(ids.DATA_STALE, "Distributor data for this part is out of date.", "stale")

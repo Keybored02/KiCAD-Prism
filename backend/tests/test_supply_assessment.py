@@ -204,3 +204,27 @@ class WaiverApplyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DispersionTests(unittest.TestCase):
+    def test_distributors_that_name_different_lifecycles_are_a_finding(self) -> None:
+        offers = [
+            offer(connector_id="a", connector_name="DigiKey", lifecycle="active"),
+            offer(connector_id="b", connector_name="Mouser", lifecycle="last_time_buy"),
+        ]
+        found = [f for f in checks.evaluate(facts(offers), DEFAULTS) if f.check == "lifecycle_disagreement"]
+        self.assertEqual(len(found), 1)
+        self.assertIn("active at DigiKey; last time buy at Mouser", found[0].text)
+        agree = [offer(connector_id="a", lifecycle="active"), offer(connector_id="b", lifecycle="active"), offer(connector_id="c", lifecycle="unknown")]
+        self.assertNotIn("lifecycle_disagreement", ids(checks.evaluate(facts(agree), DEFAULTS)))
+
+    def test_a_price_far_from_the_median_is_a_note_not_a_penalty(self) -> None:
+        from decimal import Decimal
+
+        prices = [("A", Decimal("1.00")), ("B", Decimal("1.10")), ("C", Decimal("4.00"))]
+        found = [f for f in checks.evaluate(facts(prices=prices), DEFAULTS) if f.check == "price_outlier"]
+        self.assertEqual((len(found), found[0].severity), (1, Status.OK))
+        self.assertIn("C quotes 4.0000", found[0].text)
+        close = [("A", Decimal("1.00")), ("B", Decimal("1.10")), ("C", Decimal("1.30"))]
+        self.assertNotIn("price_outlier", ids(checks.evaluate(facts(prices=close), DEFAULTS)))
+        self.assertNotIn("price_outlier", ids(checks.evaluate(facts(prices=prices[:2]), DEFAULTS)), "two quotes make no median")
