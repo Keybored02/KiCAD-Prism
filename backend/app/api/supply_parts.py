@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.core.roles import SUPPLY_APPROVE_ROLES
 from app.core.security import AuthenticatedUser, require_supply_reader, require_supply_writer
-from app.services.supply import parts, parts_view, refresh, review, watches
+from app.services.supply import catalog_read, cross_reference, parts, parts_view, refresh, review, watches
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -110,6 +110,22 @@ async def get_part(part_id: str, user: AuthenticatedUser = Depends(require_suppl
     def read() -> dict[str, Any]:
         with _store().connection() as conn:
             return parts_view.part_detail(conn, part_id, role=user.role)
+
+    return await _run(read)
+
+
+@router.get("/parts/{part_id}/cross-reference")
+async def cross_reference_of(part_id: str, _user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """Alternatives to the part, graded by how close they are, and the catalog component that has this part (to propose one to)."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            part = parts.get_part(conn, part_id)
+            result = cross_reference.candidates(conn, part_id)
+            from app.services.supply.identity import alias_key, match_key
+
+            result["component_id"] = catalog_read.component_ids_by_part().get((alias_key(part.manufacturer_name), match_key(part.mpn)))
+            return result
 
     return await _run(read)
 

@@ -7,6 +7,7 @@ import type { UserRole } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
 import { AlertRulesSection } from "./alert-rules-section";
 import { CoverageSummary } from "./coverage-note";
+import { CrossReferenceSection } from "./cross-reference-section";
 import { AssessmentSection } from "./assessment-section";
 import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
@@ -95,6 +96,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
       </section>
 
       {detail.watch ? <AlertRulesSection partId={detail.part.id} canEdit={canEdit} /> : null}
+
+      <CrossReferenceSection partId={detail.part.id} canEdit={canEdit} />
 
       {detail.alternate_for && detail.alternate_for.length > 0 ? (
         <section aria-label="Approved alternate for" className="space-y-1">

@@ -16,6 +16,7 @@ import type {
   SupplyAlert,
   SupplyAssessment,
   ComponentCoverage,
+  CrossReference,
   TradeReport,
   ProjectSupply,
   SupplyBomLookup,
@@ -402,6 +403,10 @@ export function denyDatasheetHost(host: string, reason = ""): Promise<void> {
 
 export function allowDatasheetHost(host: string): Promise<void> {
   return send(`${BASE}/datasheet-hosts/${encodeURIComponent(host)}`, "DELETE", undefined, "Could not allow the host");
+}
+
+export function getCrossReference(partId: string, signal?: AbortSignal): Promise<CrossReference> {
+  return fetchJson(`${BASE}/parts/${encodeURIComponent(partId)}/cross-reference`, { signal }, "Could not look for alternatives");
 }
 
 export function addComponentSource(componentId: string, manufacturer: string, mpn: string): Promise<{ id: string; approval: string }> {

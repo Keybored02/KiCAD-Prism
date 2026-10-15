@@ -1112,3 +1112,19 @@ export interface TradeReport {
   }>;
   summary: { parts: number; controlled: number; unknown: number; disputed: number; with_gaps: number; note: string };
 }
+
+/** Alternatives to a part, graded by how close they are, from what Prism holds. */
+export interface CrossReference {
+  candidates: Array<{
+    part_id: string; manufacturer: string; mpn: string;
+    grade: "direct" | "form_fit_function" | "functional"; grade_label: string;
+    same: string[]; differs: string[];
+    stock: number | null; status: SupplyStatus; lifecycle: SupplyLifecycle;
+  }>;
+  /** Replacements distributors name for the part, as written. */
+  suggested_by_distributors: string[];
+  /** The parameters the comparison rested on. */
+  judged_on: string[];
+  /** The catalog component that has this part; an alternate is proposed to it. */
+  component_id: string | null;
+}
