@@ -12,6 +12,7 @@ import {
 import { CSV_PROVIDER, type SupplyCapacity, type SupplyConnector } from "@/types/supply";
 import { CallBudget, CapacityNote, OffersFile } from "./connector-card-parts";
 import { ConnectorSignin } from "./connector-signin";
+import { TermsIcon } from "./supply-icons";
 import { vendorColor } from "./vendor-colors";
 import { connectorState, errorCodeLabel, formatWhen, lastCallFailed } from "./connector-status";
 
@@ -72,13 +73,9 @@ export function ConnectorCard({ connector, capacity, isAdmin, onAction }: Connec
             ))}
           </div>
         ) : null}
-        <div className="flex gap-1.5">
-          <dt className="text-muted-foreground">Terms</dt>
-          <dd>
-            {connector.terms_reviewed_at
-              ? `Reviewed by ${connector.terms_reviewed_by} on ${formatWhen(connector.terms_reviewed_at)}`
-              : "Not reviewed"}
-          </dd>
+        <div className="flex items-center gap-1.5">
+          <dt className="sr-only">Terms</dt>
+          <dd><TermsIcon reviewedBy={connector.terms_reviewed_by ?? ""} reviewedAt={connector.terms_reviewed_at ? formatWhen(connector.terms_reviewed_at) : ""} /></dd>
         </div>
         <div className="flex gap-1.5">
           <dt className="text-muted-foreground">Last call</dt>

@@ -163,7 +163,7 @@ describe("the rollup in words", () => {
   it("leaves health out when nothing has data, and calls a weak one bad", () => {
     expect(text(rollupSentences({ ...rollup, health: null }, 10, lines))).not.toContain("Health");
     const weak = rollupSentences({ ...rollup, health: 3.2, health_status: "error" }, 10, lines).find((sentence) => sentence.text.startsWith("Health"));
-    expect(weak).toEqual({ text: "Health 3.2 of 10", tone: "bad" });
+    expect(weak).toMatchObject({ text: "Health 3.2 of 10", tone: "bad" });
   });
 
   it("says when there is nothing to go on", () => {

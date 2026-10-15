@@ -147,7 +147,8 @@ describe("supply columns on the BOM", () => {
       return found;
     });
     // Four supply columns, and the table's own "Mixed" for the differing part numbers.
-    expect(within(row).getAllByText("Mixed")).toHaveLength(5);
+    expect(within(row).getAllByRole("img", { name: /^Mixed/ })).toHaveLength(4);
+    expect(within(row).getAllByText("Mixed")).toHaveLength(1);
   });
 
   it("explains a line with no figures", async () => {

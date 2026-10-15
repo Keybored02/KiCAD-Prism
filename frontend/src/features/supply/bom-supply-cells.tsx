@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 
 import type { SupplyBomLineResult } from "@/types/supply";
 import { untrackedLabel, type RowSupply } from "./bom-supply";
+import { MixedIcon } from "./supply-icons";
 import { StatusDot } from "./status-dot";
 import { formatPrice, formatStock, STATUS_LABEL } from "./supply-format";
 
@@ -74,7 +75,7 @@ function LineCell({ column, result }: { column: string; result: SupplyBomLineRes
 export function SupplyCell({ column, supply, onDetails }: { column: string; supply: RowSupply; onDetails?: () => void }) {
   if (supply.kind === "none") return MUTED;
   if (supply.kind === "mixed") {
-    if (column !== "Supply") return <span className="text-muted-foreground">Mixed</span>;
+    if (column !== "Supply") return <MixedIcon />;
     return (
       <span className="flex items-center gap-1.5" title="This row holds several different parts">
         {supply.worst ? <StatusDot status={supply.worst} /> : null}

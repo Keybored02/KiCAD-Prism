@@ -63,7 +63,7 @@ describe("connectors list", () => {
     expect(within(card).getByText("api_key")).toBeTruthy();
     expect(within(card).getByText("secret")).toBeTruthy();
     expect(within(card).getByRole("progressbar").getAttribute("aria-valuenow")).toBe("12");
-    expect(within(card).getByText("Not reviewed")).toBeTruthy();
+    expect(within(card).getByRole("img", { name: "Terms not reviewed" })).toBeTruthy();
   });
 
   it("lets readers look but not change", async () => {
@@ -214,7 +214,7 @@ describe("changing a connector", () => {
     await openMenu("Demo EU");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Mark terms as reviewed" }));
     await waitFor(() => expect(mocked.confirmSupplyTermsReview).toHaveBeenCalledWith("c1"));
-    expect(await screen.findByText(/Reviewed by ana@example.com/)).toBeTruthy();
+    expect(await screen.findByRole("img", { name: /Terms reviewed by ana@example.com/ })).toBeTruthy();
   });
 });
 

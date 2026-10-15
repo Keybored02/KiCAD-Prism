@@ -1,8 +1,8 @@
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import { BomPlanButton } from "./bom-plan-button";
 import { CheckOnceButton } from "./check-once-button";
 import { rollupSentences } from "./bom-rollup-text";
+import { RollupChip } from "./supply-icons";
 import { TrackProjectButton } from "./track-project-dialog";
 import type { BomSupply } from "./use-bom-supply";
 
@@ -61,11 +61,7 @@ export function BomSupplyBar({ supply }: { supply: BomSupply }) {
           <button type="button" className="underline" onClick={supply.retry}>Retry</button>
         </span>
       ) : null}
-      {sentences.map((sentence) => (
-        <span key={sentence.text} className={cn(sentence.tone === "bad" && "text-destructive", sentence.tone === "warn" && "text-warning")}>
-          {sentence.text}
-        </span>
-      ))}
+      {sentences.map((sentence) => <RollupChip key={sentence.kind} sentence={sentence} />)}
       {supply.truncated ? <span className="text-warning">Only the first 2,000 distinct parts are looked up.</span> : null}
       <span className="ml-auto flex items-center gap-1.5">
         {supply.canWatch && lookup && lookup.rollup.tracked > 0 ? <BomPlanButton supply={supply} /> : null}

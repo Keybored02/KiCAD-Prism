@@ -1,9 +1,8 @@
-import { Eye } from "lucide-react";
-
 import { cn } from "@/lib/utils";
 import type { SupplyPartRow } from "@/types/supply";
 import { StatusDot } from "./status-dot";
-import { formatAgo, formatPrice, formatStock, LIFECYCLE_LABEL, PROBLEM_LABEL } from "./supply-format";
+import { formatPrice, formatStock, PROBLEM_LABEL } from "./supply-format";
+import { DataAgeIcon, LifecycleIcon, TrackedIcon } from "./supply-icons";
 
 interface PartsTableProps {
   items: SupplyPartRow[];
@@ -21,9 +20,9 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
             <th className="px-3 py-2">Part</th>
             <th className="px-3 py-2 text-right">In stock</th>
             <th className="px-3 py-2 text-right">Price</th>
-            <th className="px-3 py-2">Lifecycle</th>
-            <th className="px-3 py-2">Read</th>
-            <th className="w-8 px-3 py-2"><span className="sr-only">Watched</span></th>
+            <th className="w-8 px-3 py-2"><span className="sr-only">Lifecycle</span></th>
+            <th className="w-8 px-3 py-2"><span className="sr-only">Read</span></th>
+            <th className="w-8 px-3 py-2"><span className="sr-only">Tracked</span></th>
           </tr>
         </thead>
         <tbody>
@@ -55,10 +54,10 @@ export function PartsTable({ items, selectedId, onOpen }: PartsTableProps) {
                 {formatPrice(part.unit_price, part.currency)}
                 {part.unit_price ? <div className="text-xs text-muted-foreground">at {part.price_quantity.toLocaleString()}</div> : null}
               </td>
-              <td className="px-3 py-2">{part.lifecycle === "unknown" ? "" : LIFECYCLE_LABEL[part.lifecycle]}</td>
-              <td className="px-3 py-2 text-xs text-muted-foreground">{formatAgo(part.fetched_at)}</td>
+              <td className="px-3 py-2"><LifecycleIcon lifecycle={part.lifecycle} /></td>
+              <td className="px-3 py-2"><DataAgeIcon fetchedAt={part.fetched_at} /></td>
               <td className="px-3 py-2">
-                {part.watch ? <Eye aria-label={part.watch.pinned ? "Watched, pinned" : "Watched"} className="h-4 w-4 text-muted-foreground" /> : null}
+                {part.watch ? <TrackedIcon /> : null}
               </td>
             </tr>
           ))}
