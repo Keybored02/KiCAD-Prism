@@ -154,8 +154,7 @@ A catalog component can be watched as a whole (Approved parts > Watch component)
 - **RoHS exemptions.** A person names the exemptions a part relies on (such as 7(a)); they go into the draft declaration.
 - **Parameters** now cover the common ones of voltage regulators, connectors and microcontrollers as well as passives.
 - **MCP.** `POST /api/supply/mcp` is a read-only Model Context Protocol endpoint (parts at risk in a project, part status, best
-  alternate). It answers as the caller's role. **Community export** (`GET /api/supply/community-export`, administrators) shows the
-  facts with a public source Prism could share: confirmed manufacturer spellings and lifecycles with their page. It sends nothing.
+  alternate). It answers as the caller's role.
 
 Not built: IPC-1752A import (needs a real supplier file to read), datasheet table extraction, a lifecycle survival model (needs more
 observed transitions), TME and Farnell attributes (need a recorded answer), a footprint and pin check of alternatives.

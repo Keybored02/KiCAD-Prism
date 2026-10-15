@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from app.api import supply_connectors
 from app.core.security import AuthenticatedUser, require_admin
-from app.services.supply import community_export, health, worker_seen
+from app.services.supply import health, worker_seen
 
 router = APIRouter(prefix="/api/supply", tags=["supply"])
 
@@ -22,13 +22,3 @@ async def supply_health(_admin: AuthenticatedUser = Depends(require_admin)) -> d
 
     return await asyncio.to_thread(read)
 
-
-@router.get("/community-export")
-async def community_export(_admin: AuthenticatedUser = Depends(require_admin)) -> dict[str, Any]:
-    """The facts with a public source this workspace could share: confirmed manufacturer spellings and lifecycles with their page. Sends nothing."""
-
-    def read() -> dict[str, Any]:
-        with supply_connectors.service.store.connection() as conn:
-            return community_export.build(conn)
-
-    return await asyncio.to_thread(read)

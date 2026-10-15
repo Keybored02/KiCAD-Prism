@@ -43,7 +43,6 @@ root first.
 | `cross_reference.py` | Alternatives graded direct, form-fit-function or functional from canonical parameters and the distributor category; `grade` is pure. No footprint or pin comparison. |
 | `notice_parse.py` | Reads a kept notice PDF (child process, as datasheets) for dates, kind and named known parts; stored apart in `pcns.parsed` until `apply` confirms it. |
 | `trade.py` | ECCN and tariff codes distributors state for a project's parts, disputes and gaps, and its CSV. |
-| `community_export.py` | The facts with a public source (confirmed aliases, lifecycles with their page) and nothing of the workspace's own. Sends nothing. |
 | `accounts.py` | Connectors on the same credentials are one account (keyed hash): one ledger, one pacer, one job. |
 | `pacing.py` | Jittered gaps between calls (0.75 to 1.5 times about half the published rate), shared per account, doubled for a day after a rate limit. |
 | `schedule_settings.py` | The workspace's working week and which spare work is on. Spare budget (`quota.spare_allowance`) opens outside working hours and in the last hours of a provider's day. |
