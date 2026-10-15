@@ -709,6 +709,99 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m035_tracking(conn) -> None:
+    """Tracking tiers, the call budget's accounting and packaging picks (see ``tracking.py``, ``budget.py``).
+
+    A watch is a person's choice of tier 1 (daily) or tier 2 (weekly or monthly); ``origin`` says where it came from.
+    ``part_tiers`` is derived from every source and says why. ``admissions`` says where a part is read or waits for room.
+    ``call_counts`` is the ledger's breakdown by kind and purpose. A connector's ``account_key`` is a keyed hash of its
+    credentials, so connectors on one key share a budget; the reset time is the provider's own day. The committed share is what ``interactive_reserve_pct`` leaves.
+    """
+
+    conn.execute(
+        """
+        ALTER TABLE watches ADD COLUMN IF NOT EXISTS tier SMALLINT NOT NULL DEFAULT 2 CHECK (tier IN (1, 2));
+        ALTER TABLE watches ADD COLUMN IF NOT EXISTS rate TEXT NOT NULL DEFAULT 'weekly' CHECK (rate IN ('daily', 'weekly', 'monthly'));
+        ALTER TABLE watches ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'legacy' CHECK (origin IN ('person', 'component', 'legacy'));
+        ALTER TABLE watches ALTER COLUMN origin SET DEFAULT 'person';
+        ALTER TABLE component_watches ADD COLUMN IF NOT EXISTS tier SMALLINT NOT NULL DEFAULT 2 CHECK (tier IN (1, 2));
+        ALTER TABLE component_watches ADD COLUMN IF NOT EXISTS rate TEXT NOT NULL DEFAULT 'weekly' CHECK (rate IN ('daily', 'weekly', 'monthly'));
+
+        CREATE TABLE IF NOT EXISTS tracked_projects (
+            project_id TEXT PRIMARY KEY,
+            variants TEXT[] NOT NULL DEFAULT '{""}',
+            connector_ids TEXT[],
+            tracked_by TEXT NOT NULL,
+            tracked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS part_tiers (
+            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+            tier SMALLINT NOT NULL CHECK (tier IN (1, 2)),
+            rate TEXT NOT NULL CHECK (rate IN ('daily', 'weekly', 'monthly')),
+            reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_part_tiers_tier ON part_tiers (tier, part_id);
+
+        CREATE TABLE IF NOT EXISTS admissions (
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            state TEXT NOT NULL CHECK (state IN ('admitted', 'waiting')),
+            since TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (part_id, connector_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_admissions_connector ON admissions (connector_id, state, since);
+
+        CREATE TABLE IF NOT EXISTS packaging_picks (
+            part_id TEXT NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+            picked_by TEXT NOT NULL,
+            picked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (part_id, connector_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS call_counts (
+            connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            day DATE NOT NULL,
+            hour SMALLINT NOT NULL CHECK (hour BETWEEN 0 AND 23),
+            kind TEXT NOT NULL,
+            purpose TEXT NOT NULL,
+            calls INTEGER NOT NULL DEFAULT 0 CHECK (calls >= 0),
+            PRIMARY KEY (connector_id, day, hour, kind, purpose)
+        );
+
+        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS account_key TEXT NOT NULL DEFAULT '';
+        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS reset_time TEXT NOT NULL DEFAULT '00:00';
+        ALTER TABLE connectors ADD COLUMN IF NOT EXISTS reset_tz TEXT NOT NULL DEFAULT 'UTC';
+        CREATE INDEX IF NOT EXISTS idx_connectors_account ON connectors (account_key) WHERE account_key <> '';
+        """,
+        prepare=False,
+    )
+    # Every part watched before tiers is tier 2, weekly; its reason says so.
+    conn.execute(
+        """
+        INSERT INTO part_tiers (part_id, tier, rate, reasons)
+        SELECT part_id, tier, rate, jsonb_build_array(jsonb_build_object('kind', origin, 'ref', id)) FROM watches
+        ON CONFLICT (part_id) DO NOTHING
+        """,
+        prepare=False,
+    )
+    # A watch's packaging policy becomes a pick where a listing of that packaging exists (the first by SKU).
+    conn.execute(
+        """
+        INSERT INTO packaging_picks (part_id, connector_id, listing_id, picked_by)
+        SELECT DISTINCT ON (l.part_id, l.connector_id) l.part_id, l.connector_id, l.id, 'migration'
+        FROM watches w JOIN listings l ON l.part_id = w.part_id
+        WHERE w.packaging <> 'any' AND l.packaging = w.packaging AND l.match_state IN ('exact', 'manual')
+        ORDER BY l.part_id, l.connector_id, l.sku
+        ON CONFLICT (part_id, connector_id) DO NOTHING
+        """,
+        prepare=False,
+    )
+
+
 def _m034_variant_usage_keys(conn) -> None:
     """The match keys of variant lines, so a part only a design variant fits is found as in use like any other."""
 
@@ -955,6 +1048,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (32, "bom_usage_variants", _m032_bom_usage_variants),
     (33, "connector_keep_days", _m033_connector_keep_days),
     (34, "variant_usage_keys", _m034_variant_usage_keys),
+    (35, "tracking", _m035_tracking),
 ]
 
 

@@ -22,8 +22,8 @@ MAX_REFERENCES_TEXT = 500
 
 # Every stored line of every design, the base design (variant '') and the named variants, as one table.
 ALL_USES = (
-    "(SELECT project_id, match_key, alias_key, quantity, refs, '' AS variant FROM bom_usage "
-    "UNION ALL SELECT project_id, match_key, alias_key, quantity, refs, variant FROM bom_usage_variants)"
+    "(SELECT project_id, manufacturer, mpn, match_key, alias_key, quantity, refs, '' AS variant FROM bom_usage "
+    "UNION ALL SELECT project_id, manufacturer, mpn, match_key, alias_key, quantity, refs, variant FROM bom_usage_variants)"
 )
 
 # A usage row `u` is a use of the part `p` (manufacturer `m`) when the numbers match and the

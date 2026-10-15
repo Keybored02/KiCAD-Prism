@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
-from app.services.supply import datasheets, details, fx, ledger, market, notice_files, quota, retention, worker_seen
+from app.services.supply import datasheets, details, fx, ledger, market, notice_files, quota, retention, tracking, worker_seen
 from app.services.supply.connectors import ConnectorService
 from app.services.supply.discoverer import DUE_SEARCH, REDO_AFTER, REDO_FOUND_AFTER, Discoverer
 from app.services.supply.poller import Poller
@@ -209,6 +209,16 @@ def _sync_component_watches(conn, force: bool = False) -> None:
         logging.getLogger(__name__).info("Component watches not synced", exc_info=True)
 
 
+def _sync_tracking(conn) -> None:
+    """Add the parts a tracked project's newest BOM brought, and keep the tiers in line. Best effort."""
+
+    try:
+        with conn.transaction():
+            tracking.sync_projects(conn)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).info("Tracking not synced", exc_info=True)
+
+
 def run_supply_poll_job(context: Any) -> Any:
     """Job handler: search for new listings, then ask about the ones that are due."""
 
@@ -224,6 +234,7 @@ def run_supply_poll_job(context: Any) -> Any:
         _refresh_rates(conn)
         _snapshot_market(conn)
         _sync_component_watches(conn)
+        _sync_tracking(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
         retention.drop_expired(conn, datetime.now(timezone.utc))
     # Outside the connection above: fetching a file can take a while.
