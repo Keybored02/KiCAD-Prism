@@ -6,6 +6,7 @@ no marketplace stock, pooling per provider). A part with a watch is "watched".
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -155,42 +156,98 @@ def offers_by_part(conn, part_ids: list[str]) -> dict[str, list[dict]]:
     return offers
 
 
-def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[dict[str, Any]]:
-    """The list-row summary of each part row: status, stock, price, lifecycle, tier."""
+def _offer_summary(offers_here: list[dict], policy: str, problem: str | None) -> dict[str, Any]:
+    """What a part's counted offers add up to. This is what ``part_summaries`` keeps."""
+
+    combined = stock.aggregate(offers_here, policy) if offers_here else None
+    lifecycle = worst_lifecycle(Lifecycle(o["lifecycle"]) for o in offers_here)
+    price, currency, price_quantity = _cheapest([o for o in offers_here if not o["marketplace"]])
+    tiers = [o["tier"] for o in offers_here if o["tier"]]
+    return {
+        "problem": problem if combined is None else None,
+        "stock": combined.total if combined else None,
+        "listings": combined.listings if combined else 0,
+        "lifecycle": lifecycle.value,
+        # Every distributor that lists it has stopped selling it.
+        "dropped": bool(offers_here) and all(o["discontinued"] for o in offers_here),
+        "unit_price": price,
+        "price_quantity": price_quantity,
+        "currency": currency,
+        "fetched_at": combined.newest_fetched_at.isoformat() if combined and combined.newest_fetched_at else None,
+        "tier": min(tiers, key=_TIER_ORDER.index) if tiers else None,
+    }
+
+
+def _computed(conn, rows, offers: dict[str, list[dict]]) -> dict[str, dict[str, Any]]:
+    problems = _problems(conn, [r["id"] for r in rows])
+    return {
+        row["id"]: _offer_summary(
+            [o for o in offers.get(row["id"], []) if stock.counts(o["packaging"], row["watch_packaging"] or "any")],
+            row["watch_packaging"] or "any", problems.get(row["id"]),
+        )
+        for row in rows
+    }
+
+
+def _cached(conn, rows) -> dict[str, dict[str, Any]]:
+    """The offer summaries of these parts: kept ones as they are, stale or missing ones worked out and kept."""
 
     ids = [r["id"] for r in rows]
-    offers_by_part_id = offers if offers is not None else offers_by_part(conn, ids)
-    problems = _problems(conn, ids)
+    # A kept summary is current while no change of its part came from a transaction still running when it was worked out.
+    fresh = {
+        r["part_id"]: r["data"] for r in conn.execute(
+            """
+            SELECT s.part_id, s.data FROM part_summaries s
+            WHERE s.part_id = ANY(%s) AND s.snap > 0
+              AND NOT EXISTS (SELECT 1 FROM summary_dirty d WHERE d.part_id = s.part_id AND d.xid >= s.snap)
+            """,
+            (ids,),
+        ).fetchall()
+    }
+    todo = [r for r in rows if r["id"] not in fresh]
+    if todo:
+        snap = conn.execute("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint AS n").fetchone()["n"]
+        found = _computed(conn, todo, offers_by_part(conn, [r["id"] for r in todo]))
+        for row in todo:
+            # Keeping it is a favour to the next reader: never wait for a row another transaction holds.
+            mine = conn.execute("SELECT part_id FROM part_summaries WHERE part_id = %s FOR UPDATE SKIP LOCKED", (row["id"],)).fetchone()
+            data = json.dumps(found[row["id"]])
+            if mine:
+                conn.execute(
+                    "UPDATE part_summaries SET data = %s::jsonb, snap = %s, computed_at = NOW() WHERE part_id = %s",
+                    (data, max(snap, 1), row["id"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO part_summaries (part_id, data, snap, computed_at) VALUES (%s, %s::jsonb, %s, NOW()) ON CONFLICT DO NOTHING",
+                    (row["id"], data, max(snap, 1)),
+                )
+        fresh.update(found)
+    return fresh
+
+
+def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[dict[str, Any]]:
+    """The list-row summary of each part row: status, stock, price, lifecycle, tier.
+
+    With ``offers`` given they are used as they are. Without, the offer summaries are read from ``part_summaries``.
+    """
+
+    ids = [r["id"] for r in rows]
+    sums = _computed(conn, rows, offers) if offers is not None else _cached(conn, rows)
     needed, needed_by = demand.open_totals(conn, ids), demand.next_needs(conn, ids)
 
     items = []
     for row in rows:
-        policy = row["watch_packaging"] or "any"
-        # Only the packaging the watch counts: stock, lifecycle and price all follow it.
-        offers_here = [o for o in offers_by_part_id.get(row["id"], []) if stock.counts(o["packaging"], policy)]
-        combined = stock.aggregate(offers_here, policy) if offers_here else None
-        lifecycle = worst_lifecycle(Lifecycle(o["lifecycle"]) for o in offers_here)
-        price, currency, price_quantity = _cheapest([o for o in offers_here if not o["marketplace"]])
-        tiers = [o["tier"] for o in offers_here if o["tier"]]
-        problem = problems.get(row["id"]) if combined is None else None
+        mine = sums[row["id"]]
+        lifecycle = Lifecycle(mine["lifecycle"])
         items.append({
             "id": row["id"],
             "mpn": row["mpn"],
             "manufacturer": row["manufacturer"],
             "watch": _watch_dto(row),
             "tracking": _tracking_dto(row),
-            "status": part_status(combined.total if combined else None, row["threshold"], lifecycle, problem).value,
-            "problem": problem,
-            "stock": combined.total if combined else None,
-            "listings": combined.listings if combined else 0,
-            "lifecycle": lifecycle.value,
-            # Every distributor that lists it has stopped selling it.
-            "dropped": bool(offers_here) and all(o["discontinued"] for o in offers_here),
-            "unit_price": price,
-            "price_quantity": price_quantity,
-            "currency": currency,
-            "fetched_at": combined.newest_fetched_at.isoformat() if combined and combined.newest_fetched_at else None,
-            "tier": min(tiers, key=_TIER_ORDER.index) if tiers else None,
+            "status": part_status(mine["stock"], row["threshold"], lifecycle, mine["problem"]).value,
+            **mine,
             "used_in": int(row["used_in"]),
             # What open demand asks of the part, and the soonest date it is wanted by.
             "needed": max(0, needed.get(row["id"], 0)),
@@ -200,9 +257,12 @@ def _summaries(conn, rows, offers: dict[str, list[dict]] | None = None) -> list[
 
 
 def summaries_for(conn, part_ids: list[str]) -> list[dict[str, Any]]:
-    """Summaries of the given parts, in no particular order."""
+    """Summaries of the given parts, in no particular order. Reads the kept offer summaries; no offers are loaded."""
 
-    return summaries_with_offers(conn, part_ids)[0]
+    if not part_ids:
+        return []
+    rows = conn.execute(_ROW_SELECT + "WHERE p.id = ANY(%s)", [*usage.role_params(None), list(part_ids)]).fetchall()
+    return _summaries(conn, rows)
 
 
 def summaries_with_offers(conn, part_ids: list[str], role: str | None = None) -> tuple[list[dict[str, Any]], dict[str, list[dict]]]:

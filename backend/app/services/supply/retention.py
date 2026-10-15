@@ -86,3 +86,14 @@ def _compact(conn, now: datetime, days: int) -> int:
     )
     removed = conn.execute(f"DELETE FROM samples WHERE sampled_at < %s AND {mine}", (_midnight(stop), RAW_DAYS, days)).rowcount
     return int(removed or 0)
+
+
+def trim_summaries(conn) -> int:
+    """Forget kept summaries nobody has read for a week, and the change log nothing kept can still depend on."""
+
+    conn.execute("DELETE FROM part_summaries WHERE computed_at < NOW() - INTERVAL '7 days'")
+    removed = conn.execute(
+        "DELETE FROM summary_dirty WHERE xid < COALESCE((SELECT MIN(snap) FROM part_summaries), "
+        "pg_snapshot_xmin(pg_current_snapshot())::text::bigint)"
+    ).rowcount
+    return int(removed or 0)

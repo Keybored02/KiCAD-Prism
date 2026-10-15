@@ -709,6 +709,100 @@ def _m020_part_params(conn) -> None:
     )
 
 
+def _m039_summary_dirty_log(conn) -> None:
+    """Mark a summary stale by adding a row to a log, not by updating the summary's own row.
+
+    Updating the summary row made every writer of one part wait for the others, even a poll and a person's click. The log
+    only appends, so nothing waits. A kept summary is current while no log row for its part comes from a transaction that
+    had not finished when the summary was worked out (``snap`` is that moment's oldest running transaction).
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS summary_dirty (
+            id BIGSERIAL PRIMARY KEY,
+            part_id TEXT NOT NULL,
+            xid BIGINT NOT NULL DEFAULT (pg_current_xact_id()::text::bigint)
+        );
+        CREATE INDEX IF NOT EXISTS idx_summary_dirty_part ON summary_dirty (part_id, xid);
+        ALTER TABLE part_summaries DROP COLUMN IF EXISTS stale;
+        ALTER TABLE part_summaries DROP COLUMN IF EXISTS version;
+        ALTER TABLE part_summaries ADD COLUMN IF NOT EXISTS snap BIGINT NOT NULL DEFAULT 0;
+        DELETE FROM part_summaries;
+
+        CREATE OR REPLACE FUNCTION supply_summary_stale(pid TEXT) RETURNS VOID AS $$
+        BEGIN
+            IF pid IS NOT NULL THEN INSERT INTO summary_dirty (part_id) VALUES (pid); END IF;
+        END;
+        $$ LANGUAGE plpgsql;
+        """,
+        prepare=False,
+    )
+
+
+def _m038_part_summaries(conn) -> None:
+    """What a part's offers add up to (stock, price, lifecycle, problem), kept per part so a list does not add them up again.
+
+    A row is marked stale by a trigger on anything it is made from: offers, listings, polling, the watch's packaging,
+    packaging picks and searches. A read recomputes only the stale or missing rows (see ``parts_view.py``).
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS part_summaries (
+            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+            data JSONB NOT NULL DEFAULT '{}'::jsonb,
+            stale BOOLEAN NOT NULL DEFAULT TRUE,
+            version BIGINT NOT NULL DEFAULT 0,
+            computed_at TIMESTAMPTZ
+        );
+
+        CREATE OR REPLACE FUNCTION supply_summary_stale(pid TEXT) RETURNS VOID AS $$
+        BEGIN
+            IF pid IS NULL THEN RETURN; END IF;
+            INSERT INTO part_summaries (part_id) SELECT p.id FROM parts p WHERE p.id = pid
+            ON CONFLICT (part_id) DO UPDATE SET stale = TRUE, version = part_summaries.version + 1;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE FUNCTION supply_summary_by_part() RETURNS trigger AS $$
+        BEGIN
+            IF TG_OP <> 'INSERT' THEN PERFORM supply_summary_stale(OLD.part_id); END IF;
+            IF TG_OP <> 'DELETE' THEN PERFORM supply_summary_stale(NEW.part_id); END IF;
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE FUNCTION supply_summary_by_listing() RETURNS trigger AS $$
+        BEGIN
+            PERFORM supply_summary_stale((SELECT part_id FROM listings WHERE id = COALESCE(NEW.listing_id, OLD.listing_id)));
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        DROP TRIGGER IF EXISTS trg_summary_listings ON listings;
+        CREATE TRIGGER trg_summary_listings AFTER INSERT OR UPDATE OR DELETE ON listings
+            FOR EACH ROW EXECUTE FUNCTION supply_summary_by_part();
+        DROP TRIGGER IF EXISTS trg_summary_watches ON watches;
+        CREATE TRIGGER trg_summary_watches AFTER INSERT OR UPDATE OR DELETE ON watches
+            FOR EACH ROW EXECUTE FUNCTION supply_summary_by_part();
+        DROP TRIGGER IF EXISTS trg_summary_picks ON packaging_picks;
+        CREATE TRIGGER trg_summary_picks AFTER INSERT OR UPDATE OR DELETE ON packaging_picks
+            FOR EACH ROW EXECUTE FUNCTION supply_summary_by_part();
+        DROP TRIGGER IF EXISTS trg_summary_discovery ON discovery_runs;
+        CREATE TRIGGER trg_summary_discovery AFTER INSERT OR UPDATE OR DELETE ON discovery_runs
+            FOR EACH ROW EXECUTE FUNCTION supply_summary_by_part();
+        DROP TRIGGER IF EXISTS trg_summary_offers ON offers;
+        CREATE TRIGGER trg_summary_offers AFTER INSERT OR UPDATE OR DELETE ON offers
+            FOR EACH ROW EXECUTE FUNCTION supply_summary_by_listing();
+        DROP TRIGGER IF EXISTS trg_summary_poll_state ON poll_state;
+        CREATE TRIGGER trg_summary_poll_state AFTER INSERT OR UPDATE OF tier OR DELETE ON poll_state
+            FOR EACH ROW EXECUTE FUNCTION supply_summary_by_listing();
+        """,
+        prepare=False,
+    )
+
+
 def _m037_release_snapshot_jobs(conn) -> None:
     """Whether a release's supply snapshot was taken, and why not. Snapshots are append-only, so a failure lives apart.
 
@@ -1086,6 +1180,8 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (35, "tracking", _m035_tracking),
     (36, "poll_schedules", _m036_poll_schedules),
     (37, "release_snapshot_jobs", _m037_release_snapshot_jobs),
+    (38, "part_summaries", _m038_part_summaries),
+    (39, "summary_dirty_log", _m039_summary_dirty_log),
 ]
 
 

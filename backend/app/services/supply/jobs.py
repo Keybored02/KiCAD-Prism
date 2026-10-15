@@ -314,6 +314,7 @@ def run_supply_poll_job(context: Any) -> Any:
         _sync_tracking(conn)
         compacted = retention.compact_samples(conn, datetime.now(timezone.utc))
         retention.drop_expired(conn, datetime.now(timezone.utc))
+        retention.trim_summaries(conn)
     # Outside the connection above: fetching a file can take a while.
     _check_datasheets(connectors.store)
     _keep_notice_files(connectors.store)
