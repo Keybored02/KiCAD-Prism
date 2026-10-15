@@ -1,5 +1,7 @@
 import { fetchJson } from "@/lib/api";
-import type { AlertRules, BudgetConnector, CheckProgress, PartTracking, ProjectTrackingState, ScheduleSettings, TrackingPreview } from "@/types/supply";
+import type {
+  AlertRules, BudgetConnector, CheckProgress, PartTracking, ProjectTrackingState, ScheduleSettings, TrackingPreview, TrackingRoom,
+} from "@/types/supply";
 
 const BASE = "/api/supply/tracking";
 const json = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
@@ -50,6 +52,10 @@ export async function stopTrackingPart(partId: string): Promise<void> {
 
 export function getBudget(signal?: AbortSignal): Promise<BudgetConnector[]> {
   return fetchJson("/api/supply/budget", { signal }, "Could not load the call budget");
+}
+
+export function getTrackingRoom(signal?: AbortSignal): Promise<TrackingRoom> {
+  return fetchJson("/api/supply/room", { signal }, "Could not work out the room for tracking");
 }
 
 export function startCheck(

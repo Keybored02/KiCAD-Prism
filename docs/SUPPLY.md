@@ -78,6 +78,11 @@ tracked project, someone's choice, a watched component or its approved alternate
 - **Check once:** on a BOM, **Check once (N)** reads the lines nobody reads, at every distributor, without tracking them. The
   calls come from the pool, and from spare budget when the pool is empty, so a large BOM can take an evening; the bar shows
   how many parts are read. The release check offers the same for the parts on a release BOM.
+- **Room to track:** the Parts page (Tracked) says how many more parts fit, daily and weekly, and which distributor fills
+  first; the Connectors page lists it per distributor. It is counted in parts like the ones already searched: how often each
+  distributor carries them and how many listings they have there, so a distributor that carries few of your parts is not the
+  limit for the rest. Once tracking has spent for a week, the estimate is corrected by what it really spent. A distributor with
+  fewer than 10 parts searched shows no figure, and one with parts already waiting shows none left.
 - **Parts list:** the scopes are Tracked, Tier 1, Tier 2, Waiting for room, Pick a packaging, In use and All known.
 - **Settings:** Supply settings has the working week and which spare work is on (administrators). Each connector's Edit dialog
   has its daily budget, the share held for people and one-off checks, and the hour and time zone its day begins.

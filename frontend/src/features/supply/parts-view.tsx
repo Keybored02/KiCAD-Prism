@@ -18,6 +18,7 @@ import { refreshSupplyUsage } from "./supply-api";
 import { useSupplyPartsList } from "./use-supply-parts";
 import { ReadProjectBomsButton } from "./read-project-boms-button";
 import { SeedFromCatalogButton } from "./seed-from-catalog-button";
+import { TrackingRoomLine } from "./tracking-room";
 import { WatchPartDialog } from "./watch-part-dialog";
 
 const FILTER_LABEL: Record<Exclude<PartsFilter, "">, string> = {
@@ -115,6 +116,7 @@ export function PartsView({ user }: { user: User | null }) {
             </Button>
           ) : null}
         </div>
+        {scope === "watched" ? <TrackingRoomLine /> : null}
 
         {status === "loading" ? <Skeleton className="h-48 w-full" aria-label="Loading parts" /> : null}
         {status === "error" ? (

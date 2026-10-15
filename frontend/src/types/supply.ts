@@ -1149,3 +1149,25 @@ export interface CrossReference {
   /** The catalog component that has this part; an alternate is proposed to it. */
   component_id: string | null;
 }
+
+/** One account's room for more tracked parts, counted in parts like the ones already searched. Null where too few were searched. */
+export interface TrackingRoomAccount {
+  connector_ids: string[];
+  name: string;
+  assembly_only: boolean;
+  capacity: number;
+  free: number;
+  waiting: number;
+  searched: number;
+  carried_percent: number;
+  estimated_per_day: number;
+  measured_per_day: number | null;
+  factor: number;
+  room: { daily: number | null; weekly: number | null };
+}
+
+export interface TrackingRoom {
+  /** The distributor that fills first, among those every part is read at. */
+  headline: { daily: { room: number; limited_by: string } | null; weekly: { room: number; limited_by: string } | null };
+  accounts: TrackingRoomAccount[];
+}

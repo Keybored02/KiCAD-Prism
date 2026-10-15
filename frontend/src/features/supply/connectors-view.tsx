@@ -9,6 +9,7 @@ import { PermissionHint } from "@/components/ui/permission-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@/types/auth";
 import { BudgetView } from "./budget-view";
+import { TrackingRoomSection } from "./tracking-room";
 import { ConnectorCard, type ConnectorAction } from "./connector-card";
 import { ConnectorCredentialsDialog } from "./connector-credentials-dialog";
 import { CreateConnectorDialog } from "./create-connector-dialog";
@@ -103,6 +104,7 @@ export function SupplyConnectorsView({ user }: { user: User | null }) {
         </div>
 
         {isAdmin ? <WorkerStatus /> : null}
+        <TrackingRoomSection />
         <BudgetView />
         {status === "loading" ? <ConnectorsSkeleton /> : null}
         {status === "error" ? (

@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api import supply_connectors
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_admin, require_supply_reader, require_supply_tracker
-from app.services.supply import admission, budget_view, parts, schedule_settings, tracking, usage, watches
+from app.services.supply import admission, budget_view, parts, room, schedule_settings, tracking, usage, watches
 
 router = APIRouter(prefix="/api/supply/tracking", tags=["supply"])
 budget_router = APIRouter(prefix="/api/supply", tags=["supply"])
@@ -199,6 +199,17 @@ async def budget(_user: AuthenticatedUser = Depends(require_supply_reader)) -> l
     def read() -> list[dict[str, Any]]:
         with _store().connection() as conn:
             return budget_view.view(conn, datetime.now(timezone.utc))
+
+    return await _run(read)
+
+
+@budget_router.get("/room")
+async def tracking_room(_user: AuthenticatedUser = Depends(require_supply_reader)) -> dict[str, Any]:
+    """How many more typical parts tracking has room for, per distributor and overall (``room.py``)."""
+
+    def read() -> dict[str, Any]:
+        with _store().connection() as conn:
+            return room.view(conn, datetime.now(timezone.utc))
 
     return await _run(read)
 
