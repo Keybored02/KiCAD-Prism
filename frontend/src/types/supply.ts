@@ -671,7 +671,7 @@ export interface SupplyInsight {
   inputs: { points: number; span_days: number; points_in_run: number; current: number | null };
 }
 
-export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "datasheet_changed" | "pcn";
+export type SupplyAlertKind = "out_of_stock" | "below_threshold" | "lifecycle" | "part_lost" | "rupture_soon" | "price_up" | "datasheet_changed" | "pcn" | "target_price_missed" | "assessment_worse";
 export type SupplyAlertState = "open" | "acknowledged" | "snoozed" | "resolved";
 
 export interface SupplyAlert {
@@ -688,6 +688,7 @@ export interface SupplyAlert {
     days_to_zero?: number; decrease_per_day?: number; confidence?: string;
     change_percent?: number; was?: string; now?: string; currency?: string; days?: number;
     version?: number; change_summary?: string;
+    price?: string; target?: string; was_status?: string; to?: string;
     title?: string; kind?: string; kind_label?: string; last_time_buy?: string | null; last_time_ship?: string | null; soon?: boolean;
     description?: string; new?: number;
   };
@@ -1013,6 +1014,14 @@ export interface ScheduleSettings {
   start: string;
   end: string;
   spare: { waiting: boolean; tier2_early: boolean; notices: boolean };
+}
+
+/** What a person wants to hear about a part. */
+export interface AlertRules {
+  muted: string[];
+  price_rise_percent: number | null;
+  target_price: string | null;
+  target_currency: string;
 }
 
 /** One part of a project's stored BOM, as the project's Supply tab lists it. */

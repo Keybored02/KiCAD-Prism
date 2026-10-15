@@ -1,5 +1,5 @@
 import { fetchJson } from "@/lib/api";
-import type { BudgetConnector, CheckProgress, PartTracking, ProjectTrackingState, ScheduleSettings, TrackingPreview } from "@/types/supply";
+import type { AlertRules, BudgetConnector, CheckProgress, PartTracking, ProjectTrackingState, ScheduleSettings, TrackingPreview } from "@/types/supply";
 
 const BASE = "/api/supply/tracking";
 const json = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
@@ -68,4 +68,13 @@ export function getSchedule(signal?: AbortSignal): Promise<ScheduleSettings> {
 
 export function saveSchedule(settings: ScheduleSettings): Promise<ScheduleSettings> {
   return fetchJson("/api/supply/schedule", put(settings), "Could not save the schedule");
+}
+
+export function getAlertRules(partId: string, signal?: AbortSignal): Promise<AlertRules & { mutable: string[] }> {
+  return fetchJson(`/api/supply/parts/${encodeURIComponent(partId)}/alert-rules`, { signal }, "Could not load the alert rules");
+}
+
+export function saveAlertRules(partId: string, rules: AlertRules): Promise<AlertRules> {
+  const { muted, price_rise_percent, target_price, target_currency } = rules;
+  return fetchJson(`/api/supply/parts/${encodeURIComponent(partId)}/alert-rules`, put({ muted, price_rise_percent, target_price, target_currency }), "Could not save the alert rules");
 }

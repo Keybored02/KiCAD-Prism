@@ -16,9 +16,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any, Iterable, Mapping
 
-from app.services.supply import insights, parts_view, pcn, prices
+from app.services.supply import alert_rules, insights, parts_view, pcn, prices
 from app.services.supply.audit import actor_text, write_audit
 from app.services.supply.vocabulary import Lifecycle, Status
 
@@ -34,7 +35,15 @@ RUPTURE_SOON = "rupture_soon"
 PRICE_UP = "price_up"
 DATASHEET_CHANGED = "datasheet_changed"
 PCN = "pcn"
-KINDS = (OUT_OF_STOCK, BELOW_THRESHOLD, LIFECYCLE, PART_LOST, RUPTURE_SOON, PRICE_UP, DATASHEET_CHANGED, PCN)
+TARGET_PRICE_MISSED = "target_price_missed"
+ASSESSMENT_WORSE = "assessment_worse"
+KINDS = (
+    OUT_OF_STOCK, BELOW_THRESHOLD, LIFECYCLE, PART_LOST, RUPTURE_SOON, PRICE_UP, DATASHEET_CHANGED, PCN,
+    TARGET_PRICE_MISSED, ASSESSMENT_WORSE,
+)
+
+# Assessment statuses from best to worst; "unknown" is not a state to compare.
+_STATUS_ORDER = ("ok", "warning", "error", "fatal")
 
 # A new datasheet version is worth a look for this long.
 DATASHEET_ALERT_DAYS = 14
@@ -69,6 +78,9 @@ def conditions_for(
     price: Mapping[str, Any] | None = None,
     datasheet: Mapping[str, Any] | None = None,
     notice: Mapping[str, Any] | None = None,
+    rules: alert_rules.Rules = alert_rules.NONE,
+    assessed: str | None = None,
+    mark: str | None = None,
 ) -> dict[str, Condition]:
     """The lines a tracked part has crossed, from its summary row and, when there are any, its insight and price trend."""
 
@@ -90,7 +102,7 @@ def conditions_for(
             found[RUPTURE_SOON] = Condition(Status.WARNING.value, {
                 "days_to_zero": days, "decrease_per_day": insight["decrease_per_day"], "confidence": insight["confidence"],
             })
-    if price is not None and price["change_percent"] >= PRICE_RISE_PERCENT:
+    if price is not None and price["change_percent"] >= (rules.price_rise_percent or PRICE_RISE_PERCENT):
         found[PRICE_UP] = Condition(Status.WARNING.value, dict(price))
     if notice is not None:
         found[PCN] = Condition(Status.ERROR.value if notice["soon"] else Status.WARNING.value, dict(notice))
@@ -103,7 +115,25 @@ def conditions_for(
         found[LIFECYCLE] = Condition(Status.WARNING.value, {"lifecycle": lifecycle})
     elif item.get("dropped"):
         found[LIFECYCLE] = Condition(Status.WARNING.value, {"lifecycle": lifecycle, "dropped": True})
-    return found
+    target = rules.target_price
+    if target is not None and item.get("unit_price") and item.get("currency") == rules.target_currency:
+        if Decimal(item["unit_price"]) > target:
+            found[TARGET_PRICE_MISSED] = Condition(Status.WARNING.value, {
+                "price": item["unit_price"], "target": format(target.normalize(), "f"), "currency": rules.target_currency,
+                "quantity": item.get("price_quantity"),
+            })
+    if assessed in _STATUS_ORDER and mark in _STATUS_ORDER and _STATUS_ORDER.index(assessed) > _STATUS_ORDER.index(mark):
+        found[ASSESSMENT_WORSE] = Condition(
+            Status.ERROR.value if assessed in ("error", "fatal") else Status.WARNING.value,
+            {"was": mark, "now": assessed, "to": assessed},
+        )
+    # A worse assessment says something new only when no alert already says as much.
+    worse = found.get(ASSESSMENT_WORSE)
+    if worse is not None and any(
+        _SEVERITY_RANK[other.severity] <= _SEVERITY_RANK[worse.severity] for kind, other in found.items() if kind != ASSESSMENT_WORSE
+    ):
+        del found[ASSESSMENT_WORSE]
+    return {kind: condition for kind, condition in found.items() if kind not in rules.muted}
 
 
 def _recent_datasheet_change(conn, part_id: str, now: datetime) -> dict[str, Any] | None:
@@ -124,6 +154,8 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
     if not ids:
         return
     current = {}
+    rules = alert_rules.for_parts(conn, ids)
+    assessed, marks = _assessment_states(conn, ids, now)
     for item in parts_view.summaries_for(conn, ids):
         tracked = item["tracking"] is not None
         # A projection needs history, which costs queries: only for tracked parts with stock to lose.
@@ -135,7 +167,9 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
         price = prices.trend(prices.daily_cheapest(conn, item["id"], now), now.date()) if tracked else None
         sheet = _recent_datasheet_change(conn, item["id"], now) if tracked else None
         notice = pcn.alert_detail(pcn.for_part(conn, item["id"]), now.date()) if tracked else None
-        current[item["id"]] = conditions_for(item, insight, price, sheet, notice)
+        current[item["id"]] = conditions_for(
+            item, insight, price, sheet, notice, rules.get(item["id"], alert_rules.NONE), assessed.get(item["id"]), marks.get(item["id"]),
+        )
     existing: dict[tuple[str, str], Mapping[str, Any]] = {}
     for row in conn.execute(
         "SELECT * FROM alerts WHERE part_id = ANY(%s) AND state <> 'resolved' FOR UPDATE", (ids,)
@@ -154,6 +188,33 @@ def evaluate_parts(conn, part_ids: Iterable[str], now: datetime) -> None:
                 _begin(conn, part_id, kind, condition, now)
             else:
                 _update(conn, row, kind, condition, now)
+
+
+def _assessment_states(conn, ids: list[str], now: datetime) -> tuple[dict[str, str], dict[str, str]]:
+    """How each tracked part's assessment stands, and the status it is judged against. A part is marked the first time it is
+    assessed, and the mark follows it down when it improves; a worsening is an alert until someone acknowledges it."""
+
+    from app.services.supply.assessment import service as assessment
+
+    tracked = [row["part_id"] for row in conn.execute("SELECT part_id FROM part_tiers WHERE part_id = ANY(%s)", (ids,)).fetchall()]
+    if not tracked:
+        return {}, {}
+    result = assessment.assess_parts(conn, tracked, now=now)
+    states = {part_id: entry["status"] for part_id, entry in result.items() if entry["status"] in _STATUS_ORDER}
+    marks = {
+        row["part_id"]: row["status"]
+        for row in conn.execute("SELECT part_id, status FROM assessment_marks WHERE part_id = ANY(%s)", (tracked,)).fetchall()
+    }
+    for part_id, status in states.items():
+        mark = marks.get(part_id)
+        if mark is None or _STATUS_ORDER.index(status) < _STATUS_ORDER.index(mark):
+            conn.execute(
+                "INSERT INTO assessment_marks (part_id, status) VALUES (%s, %s) "
+                "ON CONFLICT (part_id) DO UPDATE SET status = EXCLUDED.status, marked_at = NOW()",
+                (part_id, status),
+            )
+            marks[part_id] = status
+    return states, marks
 
 
 def _begin(conn, part_id: str, kind: str, condition: Condition, now: datetime) -> None:
@@ -319,6 +380,9 @@ def acknowledge(conn, alert_id: int, actor: str, now: datetime) -> None:
         "UPDATE alerts SET state = 'acknowledged', acknowledged_by = %s, acknowledged_at = %s WHERE id = %s",
         (actor, now, alert_id),
     )
+    if row["kind"] == ASSESSMENT_WORSE and (row["detail"] or {}).get("to") in _STATUS_ORDER:
+        # Seen and accepted: the part is now judged against where it stands.
+        conn.execute("UPDATE assessment_marks SET status = %s, marked_at = %s WHERE part_id = %s", (row["detail"]["to"], now, row["part_id"]))
     write_audit(conn, actor, "alert.acknowledge", str(alert_id), {"kind": row["kind"]}, subject_kind="alert")
 
 

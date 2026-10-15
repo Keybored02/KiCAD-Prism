@@ -312,6 +312,65 @@ class SupplyAlertsTests(unittest.TestCase):
         self.evaluate(watch["part_id"], after=timedelta(hours=1))
         return self.listed()[0]
 
+    def priced(self, listing_id: str, price: str) -> None:
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET currency = 'EUR', price_breaks = %s::jsonb WHERE listing_id = %s", (f'[[1, "{price}"]]', listing_id))
+
+    def open_after_two_looks(self, part_id: str) -> list[dict]:
+        self.evaluate(part_id)
+        self.evaluate(part_id, after=timedelta(hours=1))
+        return self.listed()
+
+    def test_a_muted_alert_is_never_raised_and_a_bigger_price_rise_is_asked_for(self) -> None:
+        watch = self.watch(threshold=100)
+        self.listing(watch["part_id"], "A", stock=40)
+        path = f"/api/supply/parts/{watch['part_id']}/alert-rules"
+        saved = self.call("PUT", path, body={"muted": ["below_threshold"]})
+        self.assertEqual((saved.status, saved.json["muted"]), (200, ["below_threshold"]), saved.text)
+        self.assertEqual(self.open_after_two_looks(watch["part_id"]), [])
+        self.assertEqual(self.call("GET", path).json["muted"], ["below_threshold"])
+        self.assertEqual(self.call("PUT", path, body={"muted": ["part_lost"]}).status, 400, "a lost part is a fact, not an opinion")
+        self.assertEqual(self.call("PUT", path, body={"muted": [], "price_rise_percent": 0}).status, 400)
+        self.assertEqual(self.call("PUT", path, body={"muted": [], "target_price": "1.5"}).status, 400, "a price needs its currency")
+        self.assertEqual(self.call("PUT", path, body={}, role="qa").status, 403)
+
+    def test_a_price_over_the_target_is_an_alert_until_it_comes_down(self) -> None:
+        watch = self.watch()
+        listing = self.listing(watch["part_id"], "A", stock=500)
+        self.priced(listing, "0.80")
+        self.call("PUT", f"/api/supply/parts/{watch['part_id']}/alert-rules", body={"target_price": "0.50", "target_currency": "eur"})
+        with self.store.connection() as conn:
+            conn.execute("DELETE FROM alerts")  # saving the rules looked once, at the real time; the test keeps its own clock
+        (alert,) = self.open_after_two_looks(watch["part_id"])
+        self.assertEqual((alert["kind"], alert["detail"]["target"], alert["detail"]["price"]), ("target_price_missed", "0.5", "0.8"))
+        self.priced(listing, "0.45")
+        self.evaluate(watch["part_id"], after=timedelta(hours=3))
+        self.assertEqual(self.listed(), [])
+
+    def test_a_part_whose_assessment_gets_worse_raises_an_alert_that_accepting_it_quiets(self) -> None:
+        watch = self.watch()
+        listing = self.listing(watch["part_id"], "A", stock=500)
+        self.assertEqual(self.open_after_two_looks(watch["part_id"]), [], "the first assessment is only noted")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE offers SET fetched_at = %s WHERE listing_id = %s", (START - timedelta(days=5), listing))
+        self.evaluate(watch["part_id"], after=timedelta(hours=2))
+        self.evaluate(watch["part_id"], after=timedelta(hours=3))
+        worse = [item for item in self.listed() if item["kind"] == "assessment_worse"]
+        self.assertEqual(len(worse), 1)
+        self.assertEqual((worse[0]["detail"]["was"], worse[0]["detail"]["now"]), ("ok", "warning"))
+        self.assertEqual(self.call("POST", f"/api/supply/alerts/{worse[0]['id']}/acknowledge").status, 204)
+        self.evaluate(watch["part_id"], after=timedelta(hours=4))
+        self.assertEqual([item["state"] for item in self.listed() if item["kind"] == "assessment_worse"], [], "accepted: judged from here on, so it clears")
+
+    def test_a_worse_assessment_is_not_raised_when_an_alert_already_says_as_much(self) -> None:
+        watch = self.watch()
+        listing = self.listing(watch["part_id"], "A", stock=500)
+        self.open_after_two_looks(watch["part_id"])
+        self.set_offer(listing, lifecycle="obsolete")
+        self.evaluate(watch["part_id"], after=timedelta(hours=2))
+        self.evaluate(watch["part_id"], after=timedelta(hours=3))
+        self.assertEqual(sorted(item["kind"] for item in self.listed()), ["lifecycle"])
+
     def test_snoozing_hides_quietly_and_wakes_when_the_time_is_up(self) -> None:
         alert = self.open_alert()
         self.assertEqual(self.call("POST", f"/api/supply/alerts/{alert['id']}/snooze", body={"hours": 4}).status, 204)

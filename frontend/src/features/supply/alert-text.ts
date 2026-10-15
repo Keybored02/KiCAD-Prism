@@ -26,6 +26,10 @@ export function alertTitle(alert: SupplyAlert): string {
       return `${detail.kind_label ?? "Notice"}: ${detail.title ?? ""}${detail.last_time_buy ? `, last time buy ${detail.last_time_buy}` : ""}`;
     case "datasheet_changed":
       return `New datasheet (version ${detail.version ?? "?"}). ${detail.change_summary ?? ""}`.trim();
+    case "target_price_missed":
+      return `Price ${detail.price ?? "?"} ${detail.currency ?? ""} is over your target of ${detail.target ?? "?"}`.trim();
+    case "assessment_worse":
+      return `Assessment went from ${detail.was ?? "?"} to ${detail.now ?? "?"}`;
     case "price_up":
       return `Cheapest price up ${detail.change_percent ?? 0}% in ${detail.days ?? 0} days, from ${detail.was ?? "?"} to ${detail.now ?? "?"} ${detail.currency ?? ""}`.trim();
   }

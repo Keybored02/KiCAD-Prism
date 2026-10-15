@@ -1214,6 +1214,30 @@ def _m043_bom_cost_history(conn) -> None:
     )
 
 
+def _m044_alert_rules(conn) -> None:
+    """Per-part alert rules (muted kinds, price rise limit, target price), and the status each part's assessment is judged against."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS alert_rules (
+            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+            muted TEXT[] NOT NULL DEFAULT '{}',
+            price_rise_percent INTEGER,
+            target_price NUMERIC(14, 6),
+            target_currency TEXT NOT NULL DEFAULT '',
+            updated_by TEXT NOT NULL DEFAULT '',
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS assessment_marks (
+            part_id TEXT PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+            status TEXT NOT NULL,
+            marked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """,
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (1, "connectors_quota_audit", _m001_connectors_quota_audit),
     (2, "csv_offers", _m002_csv_offers),
@@ -1258,6 +1282,7 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (41, "catch_up", _m041_catch_up),
     (42, "sample_order_terms", _m042_sample_order_terms),
     (43, "bom_cost_history", _m043_bom_cost_history),
+    (44, "alert_rules", _m044_alert_rules),
 ]
 
 

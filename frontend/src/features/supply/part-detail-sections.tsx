@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import type { UserRole } from "@/types/auth";
 import type { SupplyPartDetail } from "@/types/supply";
+import { AlertRulesSection } from "./alert-rules-section";
 import { AssessmentSection } from "./assessment-section";
 import { ReadNowButton } from "./read-now-button";
 import { InsightPanel } from "./insight-panel";
@@ -91,6 +92,8 @@ export function PartDetailSections({ detail, canEdit, role, onChanged }: PartDet
         <TrackingControl partId={detail.part.id} canEdit onChanged={onChanged} needsPick={detail.packaging?.needs_pick} />
         <WatchSettings part={detail.part} watch={detail.watch} canEdit={canEdit} onChanged={onChanged} />
       </section>
+
+      {detail.watch ? <AlertRulesSection partId={detail.part.id} canEdit={canEdit} /> : null}
 
       {detail.used_in.length > 0 ? (
         <section aria-label="Used in" className="space-y-2">
